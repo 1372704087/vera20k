@@ -110,7 +110,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.owner().is_object_alive()
     }
     fn marked(&self) -> bool {
-        self.owner().lifecycle.cell_marked
+        self.owner().lifecycle.cell_marked()
     }
     fn replace_marked_byte(&mut self, marked: bool) -> bool {
         self.sim.replace_foot_marked_byte(self.stable_id, marked)
@@ -147,7 +147,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         crate::sim::movement::air_movement::current_fly_height(self.owner(), self.terrain())
     }
     fn on_bridge(&self) -> bool {
-        self.owner().on_bridge
+        self.owner().on_bridge()
     }
     fn grounded_reset(&mut self) {
         let location = self.location();
@@ -165,7 +165,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .entities
             .get_mut(self.stable_id)
             .unwrap()
-            .on_bridge = false;
+            .set_on_bridge(false);
     }
     fn floor_height(&self, xy: [i32; 2]) -> i32 {
         ground_surface_z_at(xy, false, self.terrain(), None).unwrap_or(0)
@@ -221,7 +221,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         })
     }
     fn balloon_hover(&self) -> bool {
-        self.owner().locomotor.as_ref().unwrap().balloon_hover
+        self.owner().locomotor.as_ref().unwrap().balloon_hover()
     }
     fn has_target(&self) -> bool {
         self.owner().attack_target.target().is_some()
@@ -600,13 +600,13 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .entities
             .get_mut(self.stable_id)
             .unwrap()
-            .on_bridge = true;
+            .set_on_bridge(true);
     }
 }
 
 fn jumpjet_locomotor(entity: &crate::sim::game_entity::GameEntity) -> bool {
     entity.locomotor.as_ref().is_some_and(|locomotor| {
-        locomotor.kind == LocomotorKind::Jumpjet && locomotor.jumpjet_runtime().is_some()
+        locomotor.active_kind() == LocomotorKind::Jumpjet && locomotor.jumpjet_runtime().is_some()
     })
 }
 
@@ -649,7 +649,7 @@ impl Simulation {
             return;
         };
         let archive = owner.archive_target();
-        let nav_com = owner.navigation.nav_com.map(TargetKind::from);
+        let nav_com = owner.navigation.nav_com().map(TargetKind::from);
         if let Some(archive) = archive.filter(|archive| Some(*archive) != nav_com) {
             // An archived object that is gone gives no coordinate.
             if let TargetKind::Entity(target) = archive
@@ -857,7 +857,7 @@ mod tests {
             .get_mut(1)
             .expect("jumpjet")
             .navigation
-            .nav_com = Some(crate::sim::components::NavTargetRef::cell(16, 10));
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(16, 10)));
         sim.jumpjet_move_to(1, request, None)
             .expect("Move_To on the fixture map");
     }
@@ -868,7 +868,7 @@ mod tests {
         {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
-            locomotor.balloon_hover = balloon_hover;
+            locomotor.set_balloon_hover_for_test(balloon_hover);
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
             *runtime = runtime
                 .clone()
@@ -901,7 +901,7 @@ mod tests {
         let mut sim = hovering_jumpjet(0x40);
         {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
-            entity.foot_occupation_enabled = true;
+            entity.set_foot_occupation_enabled(true);
             entity.position.exact_z_leptons = Some(0);
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
@@ -1146,7 +1146,7 @@ mod tests {
             "the order's Move_To placed the owner at the ordered cell's floor"
         );
         let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
-        assert!(entity.navigation.nav_com.is_some());
+        assert!(entity.navigation.nav_com().is_some());
         let here = (entity.position.rx, entity.position.ry);
         assert!(here.0 < 16, "still on its way");
         sim.assign_null_destination(1, None, None, crate::sim::world::FrameEffects::default());
@@ -1169,7 +1169,7 @@ mod tests {
             }
         );
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
-        assert!(entity.navigation.nav_com.is_none());
+        assert!(entity.navigation.nav_com().is_none());
 
         for frame in 0..400 {
             sim.session.binary_frame = 1022 + frame;
@@ -1472,7 +1472,7 @@ mod tests {
             let sim = &scenario.runtime.simulation;
             let entity = sim.substrate.entities.get(kirov).expect("Kirov lives");
             if frame == 1 {
-                assert_eq!(entity.navigation.nav_com, Some(goal_cell));
+                assert_eq!(entity.navigation.nav_com(), Some(goal_cell));
             }
             let at = center(sim, kirov);
             let off = ((at.x - goal.x) as f64).hypot((at.y - goal.y) as f64) as i32;
@@ -1562,7 +1562,7 @@ mod tests {
                 (goal.x / 256) as u16,
                 (goal.y / 256) as u16,
             );
-            if entity.navigation.nav_com == Some(goal_cell) {
+            if entity.navigation.nav_com() == Some(goal_cell) {
                 approached.entry(target).or_insert(i32::MAX);
             }
             if let Some(closest) = approached.get_mut(&target) {

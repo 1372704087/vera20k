@@ -55,7 +55,7 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
     mover.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     mover.lifecycle.set_object_alive_for_test(true);
     mover.lifecycle.set_in_limbo_for_test(false);
-    mover.lifecycle.cell_marked = true;
+    mover.lifecycle.set_cell_marked(true);
     assert!(
         mover
             .locomotor
@@ -73,11 +73,7 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
                     })
             ))
     );
-    mover.navigation.path_replay = FootPathQueue {
-        directions: vec![2, 3],
-        cursor: 0,
-        reference_cell: Some((10, 10)),
-    };
+    mover.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
     // Stand at the actual raw3 chain sample, keeping unrelated crossing effects
     // outside these chain-dispatch fixtures.
     let point = super::super::drive_track::raw_track_points(3)[37];
@@ -109,11 +105,13 @@ fn add_blocker(sim: &mut Simulation, moving: bool) {
     blocker.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     blocker.lifecycle.set_object_alive_for_test(true);
     blocker.lifecycle.set_in_limbo_for_test(false);
-    blocker.lifecycle.cell_marked = true;
+    blocker.lifecycle.set_cell_marked(true);
     if moving {
         // Unit Can_Enter_Cell's code2 body arm (0x73F86B) sees a NavCom and
         // retains Foot+6B6 while moving.
-        blocker.navigation.nav_com = Some(NavTargetRef::cell(20, 9));
+        blocker
+            .navigation
+            .set_nav_com(Some(NavTargetRef::cell(20, 9)));
         assert!(
             blocker
                 .locomotor
@@ -124,7 +122,7 @@ fn add_blocker(sim: &mut Simulation, moving: bool) {
                         .with_destination_for_test(Some(DriveCoord::cell(20, 9, 0)))
                 ))
         );
-        blocker.foot_occupation_enabled = true;
+        blocker.set_foot_occupation_enabled(true);
     }
     sim.substrate.entities.insert(blocker);
     sim.interner = test_interner();
@@ -147,7 +145,7 @@ fn assert_old_chain_continues(sim: &Simulation) {
     );
     assert_eq!(drive.track().residual, 1);
     assert_eq!(drive.head_to(), Some(DriveCoord::cell(10, 9, 0)));
-    assert_eq!(mover.navigation.path_replay.cursor, 0);
+    assert_eq!(mover.navigation.path_replay.cursor(), 0);
 }
 
 #[test]
@@ -164,7 +162,7 @@ fn production_chain_code3_opens_gate_without_consuming_the_queue() {
     gate.building_gate = Some(BuildingGateRuntime::default());
     gate.lifecycle.set_object_alive_for_test(true);
     gate.lifecycle.set_in_limbo_for_test(false);
-    gate.lifecycle.cell_marked = true;
+    gate.lifecycle.set_cell_marked(true);
     sim.substrate.entities.insert(gate);
     sim.interner = test_interner();
     sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -194,7 +192,7 @@ fn production_chain_code6_scatters_once_without_adopting_the_candidate() {
     sim.run_track_points(invocation, 8, Some(&rules), None);
     let blocker = sim.substrate.entities.get(2).unwrap();
     assert!(
-        blocker.navigation.nav_com.is_some(),
+        blocker.navigation.nav_com().is_some(),
         "the Unit receiver sets a destination"
     );
     assert_eq!(
@@ -273,7 +271,7 @@ fn production_chain_clear_and_code2_share_admission_and_never_scatter_or_repath(
                     drive.head_to(),
                     Some(DriveCoord::cell(CANDIDATE.0, CANDIDATE.1, 0))
                 );
-                assert_eq!(mover.navigation.path_replay.cursor, 1);
+                assert_eq!(mover.navigation.path_replay.cursor(), 1);
                 assert_eq!(per_cell, 1);
             } else {
                 assert_old_chain_continues(&sim);
@@ -322,12 +320,12 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
             EntityCategory::Infantry,
         );
         victim.set_is_voxel_for_test(false);
-        victim.sub_cell = Some(0);
+        victim.set_sub_cell(Some(0));
         victim.position = position;
         victim.crushable_facts.set_crushable_for_test(true);
         victim.lifecycle.set_object_alive_for_test(true);
         victim.lifecycle.set_in_limbo_for_test(false);
-        victim.lifecycle.cell_marked = true;
+        victim.lifecycle.set_cell_marked(true);
         sim.substrate.entities.insert(victim);
     }
     sim.interner = test_interner();
@@ -353,7 +351,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
                     .get(id)
                     .expect("UnInit retains identity until drain");
                 assert!(!victim.lifecycle.object_alive());
-                assert!(!victim.lifecycle.cell_marked);
+                assert!(!victim.lifecycle.cell_marked());
                 assert!(victim.lifecycle.in_limbo());
                 assert!(
                     !sim.substrate

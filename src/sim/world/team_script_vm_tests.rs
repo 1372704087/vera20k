@@ -472,7 +472,7 @@ fn a_computer_team_gathers_outside_the_enemy_base() {
             if let Some(nav) = sim
                 .entities()
                 .get(member)
-                .and_then(|entity| entity.navigation.nav_com)
+                .and_then(|entity| entity.navigation.nav_com())
                 && !destinations.contains(&nav)
             {
                 destinations.push(nav);
@@ -530,7 +530,7 @@ fn a_computer_aircraft_team_flies_to_its_gathering_cell() {
                 continue;
             };
             sent |= matches!(
-                entity.navigation.nav_com,
+                entity.navigation.nav_com(),
                 Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) if near_seed(rx, ry)
             );
             arrived[n] |= near_seed(entity.position.rx, entity.position.ry);

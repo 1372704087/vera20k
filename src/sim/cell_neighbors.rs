@@ -266,7 +266,9 @@ mod tests {
             entity.set_type_ref_for_test(sim.intern("ORCA"));
             entity.set_owner_for_test(sim.intern("Americans"));
             entity.lifecycle.set_in_limbo_for_test(false);
-            entity.lifecycle.cell_marked = input["marked"].as_bool().unwrap_or(true);
+            entity
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap_or(true));
             entity.position.exact_z_leptons = Some(input["z"].as_i64().unwrap_or(0) as i32);
             entity.navigation.neighbor_state.cell = (
                 input["old"][0].as_i64().unwrap() as i16,

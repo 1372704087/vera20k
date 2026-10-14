@@ -1357,13 +1357,13 @@ mod tests {
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.set_in_limbo_for_test(false);
-            air.lifecycle.cell_marked = true;
+            air.lifecycle.set_cell_marked(true);
             air.position.exact_z_leptons = Some(altitude);
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object(type_id).unwrap(),
                 0,
             );
-            locomotor.layer = MovementLayer::Air;
+            locomotor.set_layer(MovementLayer::Air);
             air.locomotor = Some(locomotor);
             air = air
                 .with_air_spatial_membership_for_test(Some(5 + 5 * 20), stable_id)
@@ -1659,7 +1659,7 @@ mod tests {
             vulnerable.position.sub_x = CELL_CENTER_LEPTON;
             vulnerable.position.sub_y = CELL_CENTER_LEPTON;
             vulnerable.lifecycle.set_in_limbo_for_test(false);
-            vulnerable.lifecycle.cell_marked = true;
+            vulnerable.lifecycle.set_cell_marked(true);
             entities.insert(vulnerable);
 
             let mut protected = GameEntity::test_default(2, "TARGET", "Victim", 5, 5);
@@ -1672,7 +1672,7 @@ mod tests {
             );
             protected.position.sub_y = CELL_CENTER_LEPTON;
             protected.lifecycle.set_in_limbo_for_test(false);
-            protected.lifecycle.cell_marked = true;
+            protected.lifecycle.set_cell_marked(true);
             protected.invulnerability = Some(InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(0, 100),
                 kind,
@@ -1835,7 +1835,7 @@ mod tests {
                         rules.object("AIRBOMB").unwrap(),
                         0,
                     );
-                air_locomotor.layer = MovementLayer::Air;
+                air_locomotor.set_layer(MovementLayer::Air);
                 air.locomotor = Some(air_locomotor);
                 air.position.exact_z_leptons = Some(1);
                 air = air
@@ -3332,15 +3332,19 @@ mod tests {
                 .unwrap();
             victim.animation = fixture.animation.map(crate::sim::animation::Animation::new);
             victim.health.set_for_test(health);
-            victim.sub_cell = Some(2);
-            victim.on_bridge = fixture
-                .entry_case
-                .as_ref()
-                .and_then(|case| case["on_bridge"].as_bool())
-                .unwrap_or(false);
+            victim.set_sub_cell(Some(2));
+            victim.set_on_bridge(
+                fixture
+                    .entry_case
+                    .as_ref()
+                    .and_then(|case| case["on_bridge"].as_bool())
+                    .unwrap_or(false),
+            );
             victim.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
             if nav {
-                victim.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(8, 8));
+                victim
+                    .navigation
+                    .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(8, 8)));
             }
             victim.locomotor = Some(
                 crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -3374,20 +3378,18 @@ mod tests {
                     .as_mut()
                     .unwrap()
                     .set_cell_entry_blocked_for_test(true);
-                victim.navigation.nav_com_aux =
-                    Some(crate::sim::components::NavTargetRef::cell(1, 1));
-                victim.navigation.path_replay = FootPathQueue {
-                    directions: vec![2, 3, 4, 5],
-                    cursor: 0,
-                    reference_cell: Some((9, 8)),
-                };
+                victim
+                    .navigation
+                    .set_nav_com_aux(Some(crate::sim::components::NavTargetRef::cell(1, 1)));
+                victim.navigation.path_replay =
+                    FootPathQueue::for_test(vec![2, 3, 4, 5], 0, Some((9, 8)));
                 let path = &mut victim.navigation.path_runtime;
-                path.movement_timer = CdTimer::started(50, 5);
-                path.blocked_timer = CdTimer::started(40, 6);
-                path.path_blocked = true;
-                path.retries_left = 7;
+                path.set_movement_timer_for_test(CdTimer::started(50, 5));
+                path.set_blocked_timer_for_test(CdTimer::started(40, 6));
+                path.set_path_blocked(true);
+                path.set_retries_left(7);
                 let loco = victim.locomotor.as_mut().unwrap();
-                loco.powered = case["power_off"] != true;
+                loco.set_powered_for_test(case["power_off"] != true);
                 if let Some(head) = case["head"].as_array() {
                     loco.set_step_head(Some(DriveCoord {
                         x: head[0].as_i64().unwrap() as i32 - 1280,
@@ -3585,24 +3587,24 @@ mod tests {
                     let coord = |value: Option<crate::sim::components::DriveCoord>| {
                         value.map_or([0, 0, 0], |v| [v.x + 1280, v.y + 1280, v.z])
                     };
-                    let nav = victim.navigation.nav_com.and_then(|target| match target {
+                    let nav = victim.navigation.nav_com().and_then(|target| match target {
                         crate::sim::components::NavTargetRef::Cell { rx, ry } => {
                             Some([rx + 5, ry + 5])
                         }
                         _ => None,
                     });
                     serde_json::json!({
-                        "nav": nav, "aux": if victim.navigation.nav_com_aux.is_none() { 0 } else { 123 },
+                        "nav": nav, "aux": if victim.navigation.nav_com_aux().is_none() { 0 } else { 123 },
                         "destination": coord(loco.walk_destination()), "head": coord(loco.step_head()),
-                        "queue": victim.navigation.path_replay.directions.iter().map(|&v| if v == 255 { -1 } else { i32::from(v) }).collect::<Vec<_>>(),
-                        "reference": victim.navigation.path_replay.reference_cell,
+                        "queue": victim.navigation.path_replay.directions().iter().map(|&v| if v == 255 { -1 } else { i32::from(v) }).collect::<Vec<_>>(),
+                        "reference": victim.navigation.path_replay.reference_cell(),
                         "queued_mission": victim.mission.queued().raw(),
                         "facing": u32::from(victim.body_facing.destination()) * 65537,
-                        "moving": u8::from(loco.walk_is_moving().unwrap()), "powered": u8::from(loco.powered),
-                        "blocked": u8::from(path.path_blocked),
-                        "movement_timer": [path.movement_timer.start_frame(), path.movement_timer.duration()],
-                        "blocked_timer": [path.blocked_timer.start_frame(), path.blocked_timer.duration()],
-                        "retries": path.retries_left,
+                        "moving": u8::from(loco.walk_is_moving().unwrap()), "powered": u8::from(loco.is_powered()),
+                        "blocked": u8::from(path.path_blocked()),
+                        "movement_timer": [path.movement_timer().start_frame(), path.movement_timer().duration()],
+                        "blocked_timer": [path.blocked_timer().start_frame(), path.blocked_timer().duration()],
+                        "retries": path.retries_left(),
                         "entry_blocked": u8::from(victim.infantry.as_ref().unwrap().cell_entry_blocked()),
                     })
                 },
@@ -3827,7 +3829,7 @@ mod tests {
 
         let ground = GameEntity::test_default(1, "MTNK", "Soviet", 5, 5);
         let mut bridge = GameEntity::test_default(2, "MTNK", "Soviet", 5, 5);
-        bridge.on_bridge = true;
+        bridge.set_on_bridge(true);
         bridge.position.z = 4;
 
         let mut entities = EntityStore::new();
@@ -3926,7 +3928,7 @@ mod tests {
             rules.object("AIR").expect("air type"),
             0,
         );
-        air_locomotor.layer = MovementLayer::Air;
+        air_locomotor.set_layer(MovementLayer::Air);
         air.locomotor = Some(air_locomotor);
         air.position.exact_z_leptons = Some(1);
         air = air

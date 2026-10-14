@@ -64,7 +64,7 @@ pub(crate) fn resolve_debug_speed_type(state: &AppState) -> SpeedType {
                 .values()
                 .find(|e| e.selection.is_selected())
                 .and_then(|e| e.locomotor.as_ref())
-                .map(|l| l.speed_type)
+                .map(|l| l.speed_type())
         })
         .unwrap_or(SpeedType::Track)
 }

@@ -169,7 +169,7 @@ pub struct GameEntity {
     /// AircraftType `+0xDFC` (`Carryall=`, read at `0x0041CCA2`). Retail sets
     /// that key only on `[HIND]`, a VehicleType, so the copy is dormant and not
     /// ported.
-    pub body_facing: crate::sim::movement::FacingClass,
+    pub(crate) body_facing: crate::sim::movement::FacingClass,
     /// The barrel elevation, `TechnoClass+0x370`, the first of the three
     /// FacingClasses (the body is `+0x388`, the turret `+0x3A0`,
     /// [`Self::barrel_facing`]). The TechnoClass constructor builds it at 0
@@ -290,7 +290,7 @@ pub struct GameEntity {
     /// Techno exactly after a LocalSize writer. Consumers must read this stored
     /// fact; a fresh bounds query would erase the native movement hysteresis.
     #[serde(default)]
-    pub in_playfield: bool,
+    in_playfield: bool,
     /// Retained Techno+3D4 (VERA name; historical native name unconfirmed).
     /// Constructor6F2F55 clears it; special Aircraft Unlimbo4143EB and
     /// reinforcement65E6BE promote it. Never infer it from current type,
@@ -318,16 +318,16 @@ pub struct GameEntity {
     // --- Optional subsystem components ---
     /// Locomotor state — present on moving types and on zero-speed Foot
     /// Drive/Ship types whose native class-local payload still exists.
-    pub locomotor: Option<LocomotorState>,
+    pub(crate) locomotor: Option<LocomotorState>,
     /// FootClass-style owner navigation destination state.
     ///
     /// Native `NavCom` is distinct from the active execution path, so this can
     /// remain visible after a DriveTrack segment has cleared.
     #[serde(default)]
-    pub navigation: NavigationState,
+    pub(crate) navigation: NavigationState,
     /// Live Foot-owned applied speed; survives active locomotor replacement.
     #[serde(default)]
-    pub foot_speed: crate::sim::components::FootSpeedState,
+    pub(crate) foot_speed: crate::sim::components::FootSpeedState,
     /// Techno+2E8, ctor6F2E00 zero, saved70C354. Fly approach writes it;
     /// landing and Aircraft unload consume it. Independent of body rocking
     /// and of the active/suspended locomotor. Deterministic fixed radians.
@@ -335,7 +335,7 @@ pub struct GameEntity {
     pub(crate) flight_attitude: crate::sim::movement::fly_height::FlightAttitude,
     /// Foot+6B6 raw occupation enable; shared by Drive/Ship and world Mark.
     /// Foot ctor4D344A initializes1; Unit7353CE invokes that base ctor.
-    pub(crate) foot_occupation_enabled: bool,
+    foot_occupation_enabled: bool,
     /// The Magnetron lift's latches and links (Foot `+0x6AD`/`+0x6AE`,
     /// Techno `+0x2AC`/`+0x2B0`), a [`LocomotorLift`] that `locomotor_lift`
     /// owns.
@@ -521,7 +521,7 @@ pub struct GameEntity {
     /// Mirrors original engine's FootClass+0x8C. Survives repath operations that reset
     /// locomotor.layer. Set during spawn, updated at cell-crossing bridge transitions.
     #[serde(default)]
-    pub on_bridge: bool,
+    on_bridge: bool,
     /// Runtime-only Foot bridge mismatch latch (`FootClass+0x68b` in YR).
     #[serde(default)]
     pub(crate) runtime_bridge_transition:
@@ -627,7 +627,7 @@ pub struct GameEntity {
     /// Aircraft, including signed negative native Ammo counts.
     pub(crate) aircraft_ammo: Option<AircraftAmmo>,
     /// Infantry sub-cell position (0–4). Only meaningful for infantry.
-    pub sub_cell: Option<u8>,
+    sub_cell: Option<u8>,
     /// `Crushable=` and `DeployedCrushable=`, a [`CrushableFacts`] that
     /// construction stamps.
     ///
@@ -980,6 +980,46 @@ impl GameEntity {
     /// remain intact.
     pub(crate) fn clear_live_path_head(&mut self) {
         self.navigation.path_replay.clear_live_head();
+    }
+
+    /// The stored in-playfield fact; see the field.
+    pub(crate) fn in_playfield(&self) -> bool {
+        self.in_playfield
+    }
+
+    /// Store the in-playfield fact.
+    pub(crate) fn set_in_playfield(&mut self, in_playfield: bool) {
+        self.in_playfield = in_playfield;
+    }
+
+    /// `FootClass+0x8C`, the bridge layer flag; see the field.
+    pub(crate) fn on_bridge(&self) -> bool {
+        self.on_bridge
+    }
+
+    /// Store the bridge layer flag.
+    pub(crate) fn set_on_bridge(&mut self, on_bridge: bool) {
+        self.on_bridge = on_bridge;
+    }
+
+    /// The infantry sub-cell (0–4).
+    pub(crate) fn sub_cell(&self) -> Option<u8> {
+        self.sub_cell
+    }
+
+    /// Store the infantry sub-cell.
+    pub(crate) fn set_sub_cell(&mut self, sub_cell: Option<u8>) {
+        self.sub_cell = sub_cell;
+    }
+
+    /// `Foot+0x6B6`, the raw occupation enable; see the field.
+    pub(crate) fn foot_occupation_enabled(&self) -> bool {
+        self.foot_occupation_enabled
+    }
+
+    /// Store the occupation enable.
+    pub(crate) fn set_foot_occupation_enabled(&mut self, enabled: bool) {
+        self.foot_occupation_enabled = enabled;
     }
 
     /// `TechnoClass::ArchiveTarget` (`Techno+0x218`): the base-defence
@@ -1670,7 +1710,7 @@ impl GameEntity {
     pub fn movement_layer_or_ground(&self) -> crate::sim::movement::locomotor::MovementLayer {
         self.locomotor.as_ref().map_or(
             crate::sim::movement::locomotor::MovementLayer::Ground,
-            |l| l.layer,
+            |l| l.layer(),
         )
     }
 
@@ -2014,7 +2054,7 @@ mod lifecycle_tests {
         for bits in 0u8..64 {
             e.lifecycle.set_object_alive_for_test(bits & 0b00_0001 != 0);
             e.lifecycle.set_in_limbo_for_test(bits & 0b00_0010 != 0);
-            e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
+            e.lifecycle.set_cell_marked(bits & 0b00_0100 != 0);
             e.in_logic_vector.set_for_test(bits & 0b00_1000 != 0);
             e.death.set_dying_for_test(bits & 0b01_0000 != 0);
             e.health
@@ -2022,7 +2062,7 @@ mod lifecycle_tests {
 
             assert_eq!(e.is_object_alive(), bits & 0b00_0001 != 0);
             assert_eq!(e.lifecycle.in_limbo(), bits & 0b00_0010 != 0);
-            assert_eq!(e.lifecycle.cell_marked, bits & 0b00_0100 != 0);
+            assert_eq!(e.lifecycle.cell_marked(), bits & 0b00_0100 != 0);
             assert_eq!(e.in_logic_vector.is_member(), bits & 0b00_1000 != 0);
             assert_eq!(e.death.is_dying(), bits & 0b01_0000 != 0);
             assert_eq!(e.is_alive(), bits & 0b10_0000 != 0);

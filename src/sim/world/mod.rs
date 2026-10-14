@@ -3942,7 +3942,7 @@ impl Simulation {
                     Some(bounds),
                     self.resolved_terrain.as_ref(),
                 );
-                let reveal = !entity.in_playfield
+                let reveal = !entity.in_playfield()
                     && member
                     && entity.lifecycle.object_alive()
                     && !entity.lifecycle.in_limbo()
@@ -3958,7 +3958,7 @@ impl Simulation {
             .collect::<Vec<_>>();
         for &(stable_id, member, _) in &membership_updates {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.in_playfield = member;
+                entity.set_in_playfield(member);
             }
         }
         // FUN_006E21E0's false->true callback is the Techno reveal/update
@@ -4032,7 +4032,7 @@ impl Simulation {
             return;
         };
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.in_playfield = member;
+            entity.set_in_playfield(member);
         }
     }
 
@@ -4061,7 +4061,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_none_or(|entity| entity.in_playfield)
+            .is_none_or(|entity| entity.in_playfield())
         {
             return;
         }
@@ -4069,7 +4069,7 @@ impl Simulation {
             == Some(true)
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
-            entity.in_playfield = true;
+            entity.set_in_playfield(true);
         }
     }
 
@@ -4381,7 +4381,7 @@ impl Simulation {
                     entity.stable_id()
                 );
                 debug_assert!(
-                    !entity.lifecycle.cell_marked,
+                    !entity.lifecycle.cell_marked(),
                     "dead entity {} must be unmarked before alive clear",
                     entity.stable_id()
                 );
@@ -4403,7 +4403,7 @@ impl Simulation {
                     entity.stable_id()
                 );
             }
-            if !entity.lifecycle.cell_marked || entity.passenger_role.is_inside_transport() {
+            if !entity.lifecycle.cell_marked() || entity.passenger_role.is_inside_transport() {
                 continue;
             }
             // A marked Foot sits where its Mark put it: the Mark owner's own
@@ -4871,8 +4871,8 @@ impl Simulation {
                 && entity.type_facts.build_const_eligible()
                 && entity.lifecycle.object_alive()
                 && !entity.lifecycle.in_limbo()
-                && entity.lifecycle.cell_marked)
-                .then_some(entity.owner())
+                && entity.lifecycle.cell_marked())
+            .then_some(entity.owner())
         }) else {
             return;
         };
@@ -5949,7 +5949,7 @@ impl Simulation {
             // Fortress do it. `Crushable=` overlays (sandbags, fences) are
             // unaffected: they fall to any crusher through the first clause.
             let crusher_all = e.locomotor.as_ref().is_some_and(|l| {
-                l.movement_zone == crate::rules::locomotor_type::MovementZone::CrusherAll
+                l.movement_zone() == crate::rules::locomotor_type::MovementZone::CrusherAll
             });
             if !(flags.crushable || (flags.wall && crusher_all)) {
                 continue;
@@ -6011,7 +6011,7 @@ impl Simulation {
                     continue;
                 };
                 let coarse_candidate = !entity.lifecycle.in_limbo()
-                    && entity.lifecycle.cell_marked
+                    && entity.lifecycle.cell_marked()
                     && entity.mission.current() != selling
                     && entity.mission.queued() != selling
                     && self

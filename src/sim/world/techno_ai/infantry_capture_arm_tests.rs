@@ -134,7 +134,7 @@ fn assign(sim: &mut Simulation, id: u64, mission: MissionType) {
 }
 
 fn heading(sim: &Simulation, id: u64) -> Option<NavTargetRef> {
-    sim.substrate.entities.get(id)?.navigation.nav_com
+    sim.substrate.entities.get(id)?.navigation.nav_com()
 }
 
 /// The setter heads an `Infiltrate=` infantryman with no NavCom for a

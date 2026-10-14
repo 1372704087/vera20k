@@ -142,7 +142,7 @@ fn target(sim: &Simulation, id: u64) -> Option<TargetKind> {
 }
 
 fn heading(sim: &Simulation, id: u64) -> Option<u64> {
-    match sim.substrate.entities.get(id)?.navigation.nav_com {
+    match sim.substrate.entities.get(id)?.navigation.nav_com() {
         Some(
             NavTargetRef::Entity { id }
             | NavTargetRef::Object { id }

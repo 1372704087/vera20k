@@ -174,7 +174,7 @@ fn entity_height_leptons(
     let rocket = entity
         .locomotor
         .as_ref()
-        .is_some_and(|loco| loco.kind == LocomotorKind::Rocket);
+        .is_some_and(|loco| loco.active_kind() == LocomotorKind::Rocket);
     if (rocket || entity.is_falling_down())
         && let Some(z) = entity.position.exact_z_leptons
     {
@@ -182,7 +182,7 @@ fn entity_height_leptons(
     }
     let level: i32 = i32::from(entity.position.z) * LEPTONS_PER_HEIGHT_LEVEL;
     let above_ground: i32 = match entity.locomotor.as_ref() {
-        Some(loco) if loco.layer == MovementLayer::Air && !rocket => {
+        Some(loco) if loco.layer() == MovementLayer::Air && !rocket => {
             crate::sim::movement::air_movement::current_fly_height(entity, terrain)
         }
         _ => 0,
@@ -1728,7 +1728,7 @@ pub fn recompute_owner_visibility_in_place(
         .filter(|entity| {
             !entity.death.is_dying()
                 && !entity.lifecycle.in_limbo()
-                && (!config.require_playfield_membership || entity.in_playfield)
+                && (!config.require_playfield_membership || entity.in_playfield())
                 && !entity.passenger_role.is_inside_transport()
         })
         .collect();

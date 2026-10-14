@@ -349,7 +349,7 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
             }
             LocomotorKind::Walk => {
                 let LocomotorRuntimePayload::Walk(state) =
-                    &mut entity.locomotor.as_mut().unwrap().runtime_payload
+                    entity.locomotor.as_mut().unwrap().runtime_payload_mut()
                 else {
                     unreachable!()
                 };
@@ -372,8 +372,9 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
             } else {
                 Default::default()
             };
-            entity.navigation.nav_com =
-                has_order.then(|| crate::sim::components::NavTargetRef::cell(6, 5));
+            entity
+                .navigation
+                .set_nav_com(has_order.then(|| crate::sim::components::NavTargetRef::cell(6, 5)));
             if kind == LocomotorKind::Walk {
                 assert_eq!(
                     is_moving_now(&entity, None, 100),
@@ -392,8 +393,9 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
 
 fn hover_runtime(entity: &mut GameEntity, runtime: super::super::hover::HoverRuntime) {
     if let Some(locomotor) = entity.locomotor.as_mut() {
-        locomotor.runtime_payload =
-            super::super::locomotion::piggyback::LocomotorRuntimePayload::Hover(runtime);
+        locomotor.set_runtime_payload_for_test(
+            super::super::locomotion::piggyback::LocomotorRuntimePayload::Hover(runtime),
+        );
     }
 }
 

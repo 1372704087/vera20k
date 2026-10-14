@@ -237,12 +237,12 @@ fn with_world<R>(
         .substrate
         .entities
         .values()
-        .filter(|entity| !entity.lifecycle.in_limbo() && !entity.lifecycle.cell_marked)
+        .filter(|entity| !entity.lifecycle.in_limbo() && !entity.lifecycle.cell_marked())
         .map(|entity| entity.stable_id())
         .collect();
     for &id in &unmarked {
         if let Some(entity) = world.substrate.entities.get_mut(id) {
-            entity.lifecycle.cell_marked = true;
+            entity.lifecycle.set_cell_marked(true);
         }
     }
     world.substrate.occupancy = std::mem::take(occupancy);
@@ -318,7 +318,7 @@ fn with_world<R>(
     }
     for id in unmarked {
         if let Some(entity) = world.substrate.entities.get_mut(id) {
-            entity.lifecycle.cell_marked = false;
+            entity.lifecycle.set_cell_marked(false);
         }
     }
     *entities = world.substrate.entities;

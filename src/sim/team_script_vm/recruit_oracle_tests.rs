@@ -184,7 +184,7 @@ fn center_member(id: u64, row: &Value) -> GameEntity {
         .set_object_alive_for_test(flag(&row["active"]));
     entity.health.set_for_test(int(&row["health"]));
     entity.lifecycle.set_in_limbo_for_test(flag(&row["limbo"]));
-    entity.in_playfield = flag(&row["in_playfield"]);
+    entity.set_in_playfield(flag(&row["in_playfield"]));
     entity.set_category_for_test(if flag(&row["aircraft"]) {
         EntityCategory::Aircraft
     } else {

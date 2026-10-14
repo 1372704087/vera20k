@@ -87,29 +87,34 @@ impl NavTargetRef {
 pub struct NavigationState {
     /// Foot+55C is retained lifecycle history, not current occupancy.
     #[serde(default)]
-    pub neighbor_state: crate::sim::cell_neighbors::FootNeighborState,
+    pub(crate) neighbor_state: crate::sim::cell_neighbors::FootNeighborState,
     /// Foot timers, retry count and blockage latch survive path retirement.
     #[serde(default)]
-    pub path_runtime: FootPathRuntime,
+    pub(crate) path_runtime: FootPathRuntime,
     /// Foot-owned direction replay and reference cell (+5E0/+558), shared by
     /// every locomotor instance. Retirement must not discard the owner queue.
     /// Native chain tails reload the owner at Drive4B1DF7 / Ship6A143A.
     #[serde(default)]
-    pub path_replay: FootPathQueue,
+    pub(crate) path_replay: FootPathQueue,
+    /// NavCom's auxiliary slot, cleared whenever NavCom is published or
+    /// stopped.
     #[serde(default)]
-    pub nav_com_aux: Option<NavTargetRef>,
+    nav_com_aux: Option<NavTargetRef>,
+    /// `Foot+0x5A4`, NavCom.
     #[serde(default)]
-    pub nav_com: Option<NavTargetRef>,
+    nav_com: Option<NavTargetRef>,
+    /// `Foot+0x5A8`, SuspendedNavCom.
     #[serde(default)]
-    pub suspended_nav_com: Option<NavTargetRef>,
+    suspended_nav_com: Option<NavTargetRef>,
+    /// `Foot+0x598`, the NavQueue, oldest first.
     #[serde(default)]
-    pub nav_queue: Vec<NavTargetRef>,
+    nav_queue: Vec<NavTargetRef>,
     /// A class-setter call (vt+0x480) that Rust deferred and still owes: a
     /// mission restore's `Assign_Destination(saved, 1)` (`0x004D8F99`) made
     /// where only NavCom could be written. `Simulation::complete_pending_order`
     /// makes it at the object's next Process entry.
     #[serde(default)]
-    pub pending_destination_setter: bool,
+    pending_destination_setter: bool,
     /// FootClass+530, constructor positive-zero. FootUnlimbo4D72EA..4D72F4
     /// copies TechnoType+2F0 only after successful Techno placement, neighbor
     /// publication and the optional AirTracker tail. It outlives routes and
@@ -142,6 +147,78 @@ impl NavigationState {
             pending_destination_setter: false,
             threat_avoidance_coefficient: default_threat_avoidance_coefficient(),
         }
+    }
+
+    /// `Foot+0x5A4`, NavCom.
+    pub(crate) fn nav_com(&self) -> Option<NavTargetRef> {
+        self.nav_com
+    }
+
+    /// Store NavCom.
+    pub(crate) fn set_nav_com(&mut self, nav_com: Option<NavTargetRef>) {
+        self.nav_com = nav_com;
+    }
+
+    /// NavCom's auxiliary slot.
+    pub(crate) fn nav_com_aux(&self) -> Option<NavTargetRef> {
+        self.nav_com_aux
+    }
+
+    /// Store NavCom's auxiliary slot.
+    pub(crate) fn set_nav_com_aux(&mut self, nav_com_aux: Option<NavTargetRef>) {
+        self.nav_com_aux = nav_com_aux;
+    }
+
+    /// `Foot+0x5A8`, SuspendedNavCom.
+    pub(crate) fn suspended_nav_com(&self) -> Option<NavTargetRef> {
+        self.suspended_nav_com
+    }
+
+    /// Store SuspendedNavCom.
+    pub(crate) fn set_suspended_nav_com(&mut self, suspended_nav_com: Option<NavTargetRef>) {
+        self.suspended_nav_com = suspended_nav_com;
+    }
+
+    /// `Foot+0x598`, the NavQueue, oldest first.
+    pub(crate) fn nav_queue(&self) -> &[NavTargetRef] {
+        &self.nav_queue
+    }
+
+    /// A fixture's NavQueue.
+    #[cfg(test)]
+    pub(crate) fn set_nav_queue_for_test(&mut self, nav_queue: Vec<NavTargetRef>) {
+        self.nav_queue = nav_queue;
+    }
+
+    /// Empty the NavQueue.
+    pub(crate) fn clear_nav_queue(&mut self) {
+        self.nav_queue.clear();
+    }
+
+    /// Take the NavQueue's oldest entry.
+    pub(crate) fn pop_nav_queue_front(&mut self) -> Option<NavTargetRef> {
+        (!self.nav_queue.is_empty()).then(|| self.nav_queue.remove(0))
+    }
+
+    /// Append to a fixture's NavQueue.
+    #[cfg(test)]
+    pub(crate) fn push_nav_queue_for_test(&mut self, target: NavTargetRef) {
+        self.nav_queue.push(target);
+    }
+
+    /// Keep only the NavQueue entries `keep` accepts.
+    pub(crate) fn retain_nav_queue(&mut self, keep: impl FnMut(&NavTargetRef) -> bool) {
+        self.nav_queue.retain(keep);
+    }
+
+    /// A deferred class-setter call is owed; see the field.
+    pub(crate) fn pending_destination_setter(&self) -> bool {
+        self.pending_destination_setter
+    }
+
+    /// Store whether a deferred class-setter call is owed.
+    pub(crate) fn set_pending_destination_setter(&mut self, pending: bool) {
+        self.pending_destination_setter = pending;
     }
 
     /// Retained Foot+530 input to4DC760. Team AvoidThreats overrides this
@@ -181,13 +258,13 @@ impl NavigationState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct FootPathRuntime {
     /// Foot+640/+648, including the native frame anchor.
-    pub movement_timer: crate::sim::timer::CdTimer,
+    movement_timer: crate::sim::timer::CdTimer,
     /// Foot+668/+670.
-    pub blocked_timer: crate::sim::timer::CdTimer,
+    blocked_timer: crate::sim::timer::CdTimer,
     /// Foot+6B7.
-    pub path_blocked: bool,
+    path_blocked: bool,
     /// Foot+64C, a dword decremented only while nonzero.
-    pub retries_left: u32,
+    retries_left: u32,
     /// Foot+68A: the pending path-failure sound byte. Ordinary construction
     /// clears it (0x004D33B4); raw Load (0x004103CD) and the no-init Foot
     /// constructor (0x004D3540) preserve the exact byte, including 255.
@@ -223,6 +300,53 @@ impl FootPathRuntime {
         } else {
             1
         }
+    }
+
+    /// `Foot+0x640`/`+0x648`, the movement timer.
+    pub(crate) const fn movement_timer(&self) -> crate::sim::timer::CdTimer {
+        self.movement_timer
+    }
+
+    /// `Foot+0x668`/`+0x670`, the blockage timer.
+    pub(crate) const fn blocked_timer(&self) -> crate::sim::timer::CdTimer {
+        self.blocked_timer
+    }
+
+    /// `Foot+0x6B7`, the blockage latch.
+    pub(crate) const fn path_blocked(&self) -> bool {
+        self.path_blocked
+    }
+
+    /// Store the blockage latch.
+    pub(crate) fn set_path_blocked(&mut self, blocked: bool) {
+        self.path_blocked = blocked;
+    }
+
+    /// `Foot+0x64C`, the path retries left.
+    pub(crate) const fn retries_left(&self) -> u32 {
+        self.retries_left
+    }
+
+    /// Store the path retries left.
+    pub(crate) fn set_retries_left(&mut self, retries: u32) {
+        self.retries_left = retries;
+    }
+
+    /// Spend one path retry.
+    pub(crate) fn decrement_retries_left(&mut self) {
+        self.retries_left -= 1;
+    }
+
+    /// A fixture's movement timer.
+    #[cfg(test)]
+    pub(crate) fn set_movement_timer_for_test(&mut self, timer: crate::sim::timer::CdTimer) {
+        self.movement_timer = timer;
+    }
+
+    /// A fixture's blockage timer.
+    #[cfg(test)]
+    pub(crate) fn set_blocked_timer_for_test(&mut self, timer: crate::sim::timer::CdTimer) {
+        self.blocked_timer = timer;
     }
 
     /// Native Foot checksum 0x004DBCFE reads the byte without normalizing it.
@@ -283,16 +407,78 @@ pub struct FootPathQueue {
     /// Find_Path4D3E98 writes it; Drive/Ship movement consumes the same owner
     /// memory, independently of which locomotor is currently installed.
     #[serde(default)]
-    pub directions: Vec<u8>,
+    directions: Vec<u8>,
     #[serde(default)]
-    pub cursor: u16,
+    cursor: u16,
     /// Foot+558. Fresh acceptance writes this reference (4B4618/6A3C47);
     /// chain consumption preserves it (4B1DF7/6A143A).
     #[serde(default)]
-    pub reference_cell: Option<(i16, i16)>,
+    reference_cell: Option<(i16, i16)>,
 }
 
 impl FootPathQueue {
+    /// `Foot+0x5E0`, every direction word, consumed prefix included.
+    pub(crate) fn directions(&self) -> &[u8] {
+        &self.directions
+    }
+
+    /// The index of the first unconsumed word.
+    pub(crate) fn cursor(&self) -> u16 {
+        self.cursor
+    }
+
+    /// `Foot+0x558`, the reference cell.
+    pub(crate) fn reference_cell(&self) -> Option<(i16, i16)> {
+        self.reference_cell
+    }
+
+    /// Drop every direction word.
+    pub(crate) fn clear_directions(&mut self) {
+        self.directions.clear();
+    }
+
+    /// Append a direction word.
+    pub(crate) fn push_direction(&mut self, direction: u8) {
+        self.directions.push(direction);
+    }
+
+    /// Overwrite the word at `slot`, when there is one.
+    pub(crate) fn set_direction(&mut self, slot: usize, direction: u8) {
+        if let Some(word) = self.directions.get_mut(slot) {
+            *word = direction;
+        }
+    }
+
+    /// Store the cursor.
+    pub(crate) fn set_cursor(&mut self, cursor: u16) {
+        self.cursor = cursor;
+    }
+
+    /// Store the reference cell.
+    pub(crate) fn set_reference_cell(&mut self, reference_cell: Option<(i16, i16)>) {
+        self.reference_cell = reference_cell;
+    }
+
+    /// A fixture's direction words.
+    #[cfg(test)]
+    pub(crate) fn set_directions_for_test(&mut self, directions: Vec<u8>) {
+        self.directions = directions;
+    }
+
+    /// A fixture's queue.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        directions: Vec<u8>,
+        cursor: u16,
+        reference_cell: Option<(i16, i16)>,
+    ) -> Self {
+        Self {
+            directions,
+            cursor,
+            reference_cell,
+        }
+    }
+
     /// `start` followed by the cells `words` step through from it. A tube
     /// word (8) names no adjacent cell and ends the walk.
     fn walk_words(start: (i16, i16), words: &[u8]) -> Vec<(i16, i16)> {

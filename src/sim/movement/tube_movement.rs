@@ -517,7 +517,7 @@ fn finalize_tube_object(
             if let Some(locomotor) = entity.locomotor.as_mut() {
                 locomotor.stop_movement_animation();
             }
-            entity.sub_cell = Some(sub_cell);
+            entity.set_sub_cell(Some(sub_cell));
             if floor_supported {
                 entity.position.z = terrain
                     .cell(reached_cell.0, reached_cell.1)
@@ -568,7 +568,7 @@ fn put_after_tube(
         entity_id,
         MovementLayer::Ground,
         (entity.category() == EntityCategory::Infantry)
-            .then_some(entity.sub_cell)
+            .then_some(entity.sub_cell())
             .flatten(),
         CellListInsertion::from_category(entity.category()),
     );
@@ -576,7 +576,7 @@ fn put_after_tube(
         EntityCategory::Unit => {
             raw_cell_occupation.mark_ground(rx, ry, VEHICLE_OCCUPATION_BIT);
             cell_occupation.mark_vehicle_on_layer(rx, ry, entity_id, MovementLayer::Ground);
-            entity.foot_occupation_enabled = true;
+            entity.set_foot_occupation_enabled(true);
         }
         EntityCategory::Infantry => {
             let mask = infantry_raw_occupation_mask(entity.position.sub_x, entity.position.sub_y);
@@ -586,7 +586,7 @@ fn put_after_tube(
         }
         _ => {}
     }
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
 }
 
 /// `UnitClass::TubeMovement`'s blocked exit (`0x00735F55`): `Scatter(null,
@@ -816,7 +816,7 @@ mod tests {
             true,
         );
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = true;
+        entity.lifecycle.set_cell_marked(true);
         entity.locomotor = Some(LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Drive,
         ));
@@ -836,9 +836,10 @@ mod tests {
             vec![flat_cell(0, 0, Some(TubeId(0)))],
             vec![TubeFact::auto_low_bridge((0, 0), 2)],
         );
-        let queue = crate::sim::components::FootPathQueue {
-            directions: vec![crate::util::direction::TUBE_STEP_DIRECTION],
-            ..Default::default()
+        let queue = {
+            let mut value = crate::sim::components::FootPathQueue::default();
+            value.set_directions_for_test(vec![crate::util::direction::TUBE_STEP_DIRECTION]);
+            value
         };
         let entity = unit(1);
         assert_eq!(
@@ -868,7 +869,7 @@ mod tests {
             let mut entity = unit(1);
             entity.set_category_for_test(category);
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
-            entity.lifecycle.cell_marked = false;
+            entity.lifecycle.set_cell_marked(false);
             entity.position.rx = 2;
             entity.foot_speed.set_speed_fraction(SimFixed::lit("0.625"));
             let state = LowBridgeTubeMovementState {
@@ -934,7 +935,7 @@ mod tests {
             );
             assert_eq!(owner.low_bridge_tube_state.is_some(), blocked);
             if !blocked {
-                assert!(owner.lifecycle.cell_marked);
+                assert!(owner.lifecycle.cell_marked());
                 assert_eq!(occupancy.count_on_layer(2, 0, MovementLayer::Ground), 1);
             }
         }
@@ -944,9 +945,10 @@ mod tests {
     fn gsi_04_15_tube_admission_requires_ground_object_list_layer() {
         let terrain = explicit_terrain(vec![2, 2]);
         let entity = unit(1);
-        let mut queue = crate::sim::components::FootPathQueue {
-            directions: vec![crate::util::direction::TUBE_STEP_DIRECTION],
-            ..Default::default()
+        let mut queue = {
+            let mut value = crate::sim::components::FootPathQueue::default();
+            value.set_directions_for_test(vec![crate::util::direction::TUBE_STEP_DIRECTION]);
+            value
         };
 
         assert_eq!(
@@ -968,7 +970,7 @@ mod tests {
             Some(TubeId(0))
         );
         // Walk75B302 enters only on a direction-8 head word.
-        queue.directions = vec![2];
+        queue.set_directions_for_test(vec![2]);
         assert_eq!(
             pending_path_tube_id(
                 &queue,
@@ -1006,11 +1008,8 @@ mod tests {
             }),
         );
         loco.store_track_progress(TrackFamily::Drive, retained);
-        entity.navigation.path_replay = crate::sim::components::FootPathQueue {
-            directions: vec![8, 2],
-            cursor: 0,
-            reference_cell: Some((-3, 7)),
-        };
+        entity.navigation.path_replay =
+            crate::sim::components::FootPathQueue::for_test(vec![8, 2], 0, Some((-3, 7)));
         let mut occupancy = OccupancyGrid::new();
         occupancy.add(
             0,
@@ -1026,6 +1025,7 @@ mod tests {
         raw.mark_ground(0, 0, VEHICLE_OCCUPATION_BIT);
 
         let (stable_id, category) = (entity.stable_id(), entity.category());
+        let mut cell_marked = entity.lifecycle.cell_marked();
         begin_path_tube_step(
             &mut true,
             &mut entity.navigation.path_replay,
@@ -1034,7 +1034,7 @@ mod tests {
             &mut entity.position,
             &mut entity.locomotor,
             &mut entity.low_bridge_tube_state,
-            &mut entity.lifecycle.cell_marked,
+            &mut cell_marked,
             TubeId(0),
             &terrain,
             &mut occupancy,
@@ -1042,8 +1042,9 @@ mod tests {
             &mut raw,
         )
         .unwrap();
+        entity.lifecycle.set_cell_marked(cell_marked);
 
-        assert!(!entity.lifecycle.cell_marked);
+        assert!(!entity.lifecycle.cell_marked());
         assert_eq!(occupancy.count_on_layer(0, 0, MovementLayer::Ground), 0);
         assert_eq!(raw.ground_bits(0, 0), 0);
         assert_eq!(cell_occupation.vehicle_bits(0, 0, MovementLayer::Ground), 0);
@@ -1065,8 +1066,11 @@ mod tests {
         );
         assert!(drive.track_valid());
         assert_eq!(drive.track(), retained);
-        assert_eq!(entity.navigation.path_replay.cursor, 1);
-        assert_eq!(entity.navigation.path_replay.reference_cell, Some((-3, 7)));
+        assert_eq!(entity.navigation.path_replay.cursor(), 1);
+        assert_eq!(
+            entity.navigation.path_replay.reference_cell(),
+            Some((-3, 7))
+        );
     }
 
     #[test]
@@ -1131,7 +1135,7 @@ mod tests {
         terrain.cell_mut(2, 0).unwrap().slope_type = 1;
         let mut entity = unit(1);
         entity.set_category_for_test(EntityCategory::Infantry);
-        entity.lifecycle.cell_marked = false;
+        entity.lifecycle.set_cell_marked(false);
         entity.position.rx = 2;
         entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(64);
         entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(192);
@@ -1179,7 +1183,7 @@ mod tests {
             owner.locomotor.as_ref().unwrap().walk_animation_moving(),
             Some(false)
         );
-        assert_eq!(owner.sub_cell, Some(3));
+        assert_eq!(owner.sub_cell(), Some(3));
         assert_eq!(
             ground_pose::position_world_coord(&owner.position),
             DriveCoord {

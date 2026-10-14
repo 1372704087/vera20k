@@ -278,7 +278,7 @@ impl crate::sim::world::Simulation {
             self.resolved_terrain.as_ref(),
         )
         .wrapping_add(rate);
-        let marked = entity.lifecycle.cell_marked;
+        let marked = entity.lifecycle.cell_marked();
         let context = crate::sim::world::UninitContext::new(rules, registry).with_effects(effects);
         if marked {
             self.unmark_entity_remove(stable_id, context);
@@ -327,7 +327,7 @@ mod tests {
 
     fn make_walk_loco() -> LocomotorState {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
-        loco.speed_type = SpeedType::Foot;
+        loco.set_speed_type_for_test(SpeedType::Foot);
         loco
     }
 
@@ -367,9 +367,9 @@ mod tests {
             !loco.is_overridden(),
             "ordinary paradropped infantry keep their base locomotor"
         );
-        assert_eq!(loco.kind, LocomotorKind::Walk);
+        assert_eq!(loco.active_kind(), LocomotorKind::Walk);
         assert_eq!(
-            loco.layer,
+            loco.layer(),
             MovementLayer::Ground,
             "object-level falling state must not rewrite locomotor layer"
         );
@@ -685,7 +685,7 @@ mod tests {
             "object-level falling must not leave a locomotor override"
         );
         assert_eq!(
-            loco.kind,
+            loco.active_kind(),
             LocomotorKind::Walk,
             "must preserve base Walk locomotor"
         );

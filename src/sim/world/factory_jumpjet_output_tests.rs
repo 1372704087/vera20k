@@ -195,7 +195,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
                     "{context}: Archive consumed or absent"
                 );
                 assert_eq!(
-                    entity.navigation.nav_com,
+                    entity.navigation.nav_com(),
                     rally.map(|(rx, ry)| NavTargetRef::cell(rx, ry)),
                     "{context}"
                 );
@@ -240,7 +240,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
                 // owner (51D172); the locomotor keeps its destination.
                 assert!(entity.archive_target().is_none(), "{context}");
                 assert!(
-                    entity.navigation.nav_com.is_none(),
+                    entity.navigation.nav_com().is_none(),
                     "{context}: NavCom cleared"
                 );
                 assert!(runtime.moving(), "{context}: still flying to his cell");

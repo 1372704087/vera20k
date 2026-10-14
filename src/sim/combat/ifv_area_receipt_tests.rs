@@ -321,7 +321,9 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
             entity
                 .lifecycle
                 .set_object_alive_for_test(input["alive"].as_bool().unwrap());
-            entity.lifecycle.cell_marked = input["marked"].as_bool().unwrap();
+            entity
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap());
             entity
                 .lifecycle
                 .set_in_limbo_for_test(input["limbo"].as_bool().unwrap());

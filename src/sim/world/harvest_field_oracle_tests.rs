@@ -283,7 +283,7 @@ pub(super) fn compare_state(s: &Scene, row: &Value, context: &str) {
         "{context}: Scenario RNG cursors"
     );
     let entity = s.sim.substrate.entities.get(s.miner).unwrap();
-    let nav = match entity.navigation.nav_com {
+    let nav = match entity.navigation.nav_com() {
         Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
         None => Value::Null,
         Some(other) => panic!("{context}: NavCom {other:?}"),

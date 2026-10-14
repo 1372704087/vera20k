@@ -545,7 +545,7 @@ fn mission_factory_unload(
                     .get(product)
                     .and_then(|unit| unit.locomotor.as_ref())
                     .is_some_and(|loco| {
-                        loco.kind == crate::rules::locomotor_type::LocomotorKind::Drive
+                        loco.active_kind() == crate::rules::locomotor_type::LocomotorKind::Drive
                     });
                 if drive {
                     sim.force_track(

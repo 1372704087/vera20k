@@ -95,14 +95,13 @@ pub(super) fn center_sample(
     naval_transport: bool,
     placement_scope_active: bool,
 ) -> Option<CenterSample> {
-    (member_is_live_joined(entity, initiated, placement_scope_active) && entity.in_playfield).then(
-        || CenterSample {
+    (member_is_live_joined(entity, initiated, placement_scope_active) && entity.in_playfield())
+        .then(|| CenterSample {
             id: entity.stable_id(),
             xy: crate::sim::movement::ground_pose::position_world_xy(&entity.position),
             doubled,
             naval_transport,
-        },
-    )
+        })
 }
 
 /// `Calc_Center`'s arithmetic (`0x006EB225..0x006EB31B`): the mean XY of
@@ -511,7 +510,7 @@ impl Simulation {
             let area_guarding_target =
                 mission == Some(MissionType::AreaGuard) && entity.attack_target.target().is_some();
             if self.team_member_distance(entity, zone) > stray && !area_guarding_target {
-                if entity.navigation.nav_com.is_some() {
+                if entity.navigation.nav_com().is_some() {
                     continue;
                 }
                 self.team_member_queue_mission(member.id, MissionType::Move, rules);
@@ -662,7 +661,7 @@ impl Simulation {
             self.team_set_member_initiated(team_id, member);
             return false;
         }
-        if entity.navigation.nav_com.is_none() {
+        if entity.navigation.nav_com().is_none() {
             self.team_member_queue_mission(member, MissionType::Move, rules);
             self.team_member_clear_target(member, rules);
             self.team_member_set_destination(member, zone, rules, registry, frame_effects);

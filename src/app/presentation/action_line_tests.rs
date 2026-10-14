@@ -100,23 +100,24 @@ fn fixture(row: &Value) -> (Simulation, TargetLineState, TacticalViewport) {
         actor
             .selection
             .set_selected_for_test(actor_input["selected"].as_bool().unwrap_or(true));
-        actor.on_bridge = actor_input["on_bridge"].as_bool().unwrap_or(false);
+        actor.set_on_bridge(actor_input["on_bridge"].as_bool().unwrap_or(false));
         let [x, y, z] = point(&actor_input["source"]);
         crate::sim::movement::ground_pose::put_location(
             &mut actor.position,
             DriveCoord { x, y, z },
         );
         let [tx, ty] = point(&actor_input["target_cell"]);
-        actor.navigation.nav_com = (!actor_input["nav_null"].as_bool().unwrap_or(false))
-            .then_some(NavTargetRef::cell(tx as u16, ty as u16));
+        actor.navigation.set_nav_com(
+            (!actor_input["nav_null"].as_bool().unwrap_or(false))
+                .then_some(NavTargetRef::cell(tx as u16, ty as u16)),
+        );
         let mut target_cells = vec![[tx, ty]];
         if let Some(queue) = actor_input["queue_cells"].as_array() {
             for target in queue {
                 let [x, y] = point(target);
                 actor
                     .navigation
-                    .nav_queue
-                    .push(NavTargetRef::cell(x as u16, y as u16));
+                    .push_nav_queue_for_test(NavTargetRef::cell(x as u16, y as u16));
                 target_cells.push([x, y]);
             }
         }
@@ -786,8 +787,11 @@ fn original_action_timer_wrap_sentinel_and_positive_remainder() {
 #[test]
 fn move_line_query_leaves_the_simulation_dummy_unchanged() {
     let (mut sim, state, view) = fixture(baseline_rows().next().unwrap());
-    sim.entities_mut().get_mut(1).unwrap().navigation.nav_com =
-        Some(NavTargetRef::cell(u16::MAX, u16::MAX));
+    sim.entities_mut()
+        .get_mut(1)
+        .unwrap()
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(u16::MAX, u16::MAX)));
     let terrain = sim.resolved_terrain.as_ref().unwrap();
     let query = NativeCellQuery::canonical(terrain);
     let before = query.dummy().snapshot().coord;

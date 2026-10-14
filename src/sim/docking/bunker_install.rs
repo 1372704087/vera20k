@@ -819,7 +819,7 @@ mod tests {
         let installed = sim.substrate.entities.get(1).unwrap();
         assert!(installed.lifecycle.object_alive());
         assert!(!installed.lifecycle.in_limbo());
-        assert!(installed.lifecycle.cell_marked);
+        assert!(installed.lifecycle.cell_marked());
         assert_eq!(
             sim.bunker_wall_events.iter().filter(|e| e.up).count(),
             1,
@@ -950,7 +950,7 @@ mod tests {
                 .get(3)
                 .unwrap()
                 .navigation
-                .nav_com
+                .nav_com()
                 .is_some(),
             "the footprint blocker was scattered"
         );

@@ -215,7 +215,7 @@ pub(crate) fn facing_update(
             // No NavCom (`+0x5A4`, `0x00736A38`) and the locomotor's Is_Moving
             // (ILocomotion+0x10, `0x00736A5F`) false. A pending order is
             // neither; a locomotor the query does not answer reads as still.
-            && entity.navigation.nav_com.is_none()
+            && entity.navigation.nav_com().is_none()
             && super::motion_query::is_moving(entity) != Some(true)
             && entity.body_facing_current(binary_frame) == tgt
         {
@@ -277,7 +277,7 @@ const NATIVE_IDLE_TURRET_DWELL_BIAS: i64 = 5;
 /// read at `0x00736BA3`) through `DirectionToTarget @ 0x005F3DB0`
 /// (`0x00736BC3`), the helper arm A aims with.
 fn nav_destination_facing(entity: &GameEntity, entities: &EntityStore) -> Option<u16> {
-    let nav_com = entity.navigation.nav_com?;
+    let nav_com = entity.navigation.nav_com()?;
     facing_toward_target(entity, &nav_com.into(), entities)
 }
 

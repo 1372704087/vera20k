@@ -335,7 +335,7 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
         .entities
         .get(provider_id)
         .expect("spawned provider retained");
-    assert!(provider.lifecycle.cell_marked);
+    assert!(provider.lifecycle.cell_marked());
     assert!(provider.in_logic_vector.is_member());
     assert_eq!(provider.type_facts.foundation(), "4x4");
 
@@ -378,7 +378,7 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
     assert_eq!(completed.entity_id, Some(held_id));
     assert_eq!(ready_buildings_for_owner(&sim, &rules, OWNER).len(), 1);
     let held = sim.substrate.entities.get(held_id).unwrap();
-    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked);
+    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked());
 
     let blocked_cells = rect_cells(fixture.blocked, 2, 2);
     let overlay_before: BTreeMap<(u16, u16), (Option<u8>, u8)> = blocked_cells
@@ -505,7 +505,7 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
     assert_eq!(placed.type_facts.foundation(), "2x2");
     assert_eq!(placed.health.current(), 750);
     assert_eq!(rules.object("GAPOWR").unwrap().strength, 750);
-    assert!(placed.lifecycle.cell_marked);
+    assert!(placed.lifecycle.cell_marked());
     assert!(placed.in_logic_vector.is_member());
     assert!(placed.building_up());
     let placed_id = placed.stable_id();

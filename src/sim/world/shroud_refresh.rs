@@ -652,7 +652,7 @@ impl Simulation {
     /// 0x0070B1D0` share for an alternate house: the stored playfield byte
     /// `+0x3D5`, and an owner that is not `MultiplayPassive=`.
     fn passes_alternate_reveal_gates(&self, entity: &crate::sim::game_entity::GameEntity) -> bool {
-        entity.in_playfield
+        entity.in_playfield()
             && !self
                 .houses
                 .get(&entity.owner())
@@ -911,7 +911,7 @@ impl Simulation {
         for &viewer in &due {
             // The two reveal leaves may reject membership/zero-radius. The
             // due FootAI branch nevertheless reloads15 after its calls.
-            if entity.in_playfield && !entity.passenger_role.is_inside_transport() {
+            if entity.in_playfield() && !entity.passenger_role.is_inside_transport() {
                 vision::refresh_entity_vision_for_viewer(
                     &mut self.fog,
                     entity,

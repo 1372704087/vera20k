@@ -33,7 +33,7 @@ pub(crate) fn issue_order(
     // EMP504 has no active state producer in this engine yet.
     if let Some(terrain) = sim.resolved_terrain.as_ref() {
         let actor = sim.substrate.entities.get(id).expect("admitted Unit");
-        if !actor.on_bridge {
+        if !actor.on_bridge() {
             let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
             let [x, y] = crate::sim::movement::ground_pose::position_world_xy(&actor.position);
             if cells.ground_fields(cells.lookup_world(x, y)).1 == 0

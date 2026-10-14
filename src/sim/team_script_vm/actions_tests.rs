@@ -155,7 +155,7 @@ fn patrol_dispatch_moves_to_its_waypoint_without_finishing_immediately() {
             .get(member)
             .unwrap()
             .navigation
-            .nav_com
+            .nav_com()
             .is_some()
     }));
 }
@@ -204,7 +204,7 @@ fn patrol_clears_a_lost_target_then_returns_to_the_waypoint_on_the_next_visit() 
     );
     assert!(members.iter().all(|&member| {
         let entity = sim.substrate.entities.get(member).unwrap();
-        entity.attack_target.target().is_none() && entity.navigation.nav_com.is_none()
+        entity.attack_target.target().is_none() && entity.navigation.nav_com().is_none()
     }));
     sim.session.binary_frame += 1;
     sim.team_step_script(team, &rules, None, FrameEffects::default());
@@ -744,7 +744,7 @@ fn scatter_sends_every_member_to_a_neighbouring_cell() {
             .get(*member)
             .unwrap()
             .navigation
-            .nav_com
+            .nav_com()
         {
             Some(NavTargetRef::Cell { rx, ry }) => assert!(
                 rx.abs_diff(start.0) <= 1 && ry.abs_diff(start.1) <= 1 && (rx, ry) != start,
@@ -874,7 +874,7 @@ fn the_team_moves_to_the_building_its_first_member_finds() {
                 .get(member)
                 .unwrap()
                 .navigation
-                .nav_com
+                .nav_com()
                 .is_some()),
             "the members move"
         );
@@ -1252,7 +1252,7 @@ fn script_action_9_clears_the_site_before_the_mcv_deploys() {
     assert!(team.sim.substrate.occupancy.contains_entity(20, 22, mcv));
     let e1_entity = team.sim.substrate.entities.get(e1).unwrap();
     assert!(
-        e1_entity.navigation.nav_com.is_some()
+        e1_entity.navigation.nav_com().is_some()
             || crate::sim::movement::motion_query::is_moving(&e1_entity) == Some(true),
         "the E1 was scattered"
     );
@@ -1309,7 +1309,7 @@ fn deploy_refused_for_a_computer_owner_clears_the_site() {
         for _ in 0..300 {
             team.tick();
             told_to_leave |= team.sim.substrate.entities.get(e1).is_some_and(|entity| {
-                entity.navigation.nav_com.is_some()
+                entity.navigation.nav_com().is_some()
                     || crate::sim::movement::motion_query::is_moving(&entity) == Some(true)
             });
             if !team.yards().is_empty() {

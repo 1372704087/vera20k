@@ -483,7 +483,7 @@ pub(super) mod retail_tests {
                 )
                 .then(|| crate::sim::aircraft::handler_state(entity));
                 let mission = (current, state);
-                let visit = (mission, entity.navigation.nav_com);
+                let visit = (mission, entity.navigation.nav_com());
                 if moves.last().is_none_or(|&(_, last)| last != visit) {
                     moves.push((frame, visit));
                 }

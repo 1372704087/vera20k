@@ -143,11 +143,11 @@ fn native_on_bridge_controls_the_cliff_gate_and_shp_surface() {
     let mut runtime = runtime();
     let mut tank = entity(&mut runtime, "TANK", EntityCategory::Unit);
     set_live_level(&mut runtime, (3, 3), 4);
-    tank.on_bridge = false;
+    tank.set_on_bridge(false);
     assert_eq!(unit_z_adjust_in_runtime(Some(&runtime), &tank, true), 19);
     assert_eq!(shp_z_adjust_in_runtime(Some(&runtime), &tank), 17.0);
 
-    tank.on_bridge = true;
+    tank.set_on_bridge(true);
     assert_eq!(unit_z_adjust_in_runtime(Some(&runtime), &tank, true), -1);
     // Exactly on the native bridge surface: GetHeight()==0 still reaches Foot,
     // even when the derived occupancy marker is absent.
@@ -179,8 +179,8 @@ fn shp_uses_exact_height_and_category_while_raw_unit_depth_keeps_foot() {
 
     let mut locomotor =
         LocomotorState::from_object_type(runtime.resources.rules.object("TANK").unwrap(), 0);
-    locomotor.kind = LocomotorKind::Jumpjet;
-    locomotor.layer = MovementLayer::Air;
+    locomotor.set_kind_for_test(LocomotorKind::Jumpjet);
+    locomotor.set_layer(MovementLayer::Air);
     tank.locomotor = Some(locomotor);
     tank.position.exact_z_leptons = None;
     assert_eq!(
@@ -341,9 +341,9 @@ fn composite_split_uses_live_raw_bridge_terms_and_native_on_bridge() {
         evaluate(&runtime, &tank),
         "zero ZFudgeBridge must not disable the split"
     );
-    tank.on_bridge = true;
+    tank.set_on_bridge(true);
     assert!(!evaluate(&runtime, &tank));
-    tank.on_bridge = false;
+    tank.set_on_bridge(false);
     for cells in [&[(2, 3)][..], &[(3, 3)][..], &[(2, 3), (3, 3)][..]] {
         for &(x, y) in cells {
             // Synthetic grid base is -1: 5 - (-1) + 1 = native column tile 7.
@@ -459,7 +459,8 @@ fn composite_factory_split_requires_navcom_and_slot_zero_weapons_factory() {
         |rt: &SimRuntime, e: &GameEntity| unit_bridge_split_in_runtime(Some(rt), e, true);
     tank.radio_contacts.insert(17);
     assert!(!evaluate(&runtime, &tank));
-    tank.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(3, 3));
+    tank.navigation
+        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(3, 3)));
     assert!(
         !super::shp_unit_bridge_fudge_in_runtime(Some(&runtime), &tank),
         "direct SHP has no weapons-factory alternative"
@@ -468,7 +469,7 @@ fn composite_factory_split_requires_navcom_and_slot_zero_weapons_factory() {
         evaluate(&runtime, &tank),
         "native only tests NavCom presence, not target identity"
     );
-    tank.on_bridge = true;
+    tank.set_on_bridge(true);
     assert!(
         evaluate(&runtime, &tank),
         "factory arm is independent of bridge proximity"

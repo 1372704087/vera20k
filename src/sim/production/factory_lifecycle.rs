@@ -968,7 +968,7 @@ pub(crate) fn validate_restored_factory_state(
         // inferring health or death flags. Terminal-state admission separately
         // validates the object's lifecycle handoff.
         if !entity.lifecycle.in_limbo()
-            || entity.lifecycle.cell_marked
+            || entity.lifecycle.cell_marked()
             || entity.in_logic_vector.is_member()
         {
             return Err(fail(

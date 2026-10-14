@@ -508,7 +508,11 @@ fn a_tank_on_a_bridge_deck_cannot_shoot_the_tank_below() {
         FireError::Ok,
         "both below"
     );
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     assert_eq!(
         bridge_code(&sim, &rules, "TANK"),
         FireError::Illegal,
@@ -524,7 +528,11 @@ fn a_spawner_under_a_bridge_cannot_launch() {
     let rules = rules();
     let mut sim = bridge_scene("CARR");
     assert_eq!(bridge_code(&sim, &rules, "CARR"), FireError::Cant);
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     assert_eq!(bridge_code(&sim, &rules, "CARR"), FireError::Rearm);
 }
 
@@ -559,7 +567,7 @@ fn a_natural_scanner_passes_over_an_unnatural_candidate() {
                 .get_mut(id)
                 .unwrap()
                 .lifecycle
-                .cell_marked = true;
+                .set_cell_marked(true);
         }
         sim.interner = test_interner();
         sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -599,7 +607,7 @@ fn a_tank_gun_cannot_shoot_an_aircraft_landing() {
             crate::rules::locomotor_type::LocomotorKind::Fly,
         ),
     );
-    target.lifecycle.cell_marked = true;
+    target.lifecycle.set_cell_marked(true);
     target.position.exact_z_leptons = Some(100);
     assert_eq!(
         bridge_code(&sim, &rules, "TANK"),

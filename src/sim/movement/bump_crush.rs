@@ -166,7 +166,7 @@ pub(crate) fn blocker_plane_source(
     }
     // Dying corpses are off the occupancy grid: don't let them inflate the
     // A* dynamic-blocker neighbor costs.
-    if entity.death.is_dying() || !entity.lifecycle.cell_marked {
+    if entity.death.is_dying() || !entity.lifecycle.cell_marked() {
         return None;
     }
     if entity.passenger_role.is_inside_transport()
@@ -861,7 +861,7 @@ mod tests {
         e.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
         );
-        e.sub_cell = Some(sub);
+        e.set_sub_cell(Some(sub));
         e.crushable_facts.set_crushable_for_test(true);
         e
     }
@@ -890,9 +890,9 @@ mod tests {
     fn blocker_neighbor_counts_include_bridge_layer_occupants_globally() {
         let mut entities = EntityStore::new();
         let mut blocker = vehicle(1, 2, 2);
-        blocker.on_bridge = true;
+        blocker.set_on_bridge(true);
         blocker.lifecycle.set_in_limbo_for_test(false);
-        blocker.lifecycle.cell_marked = true;
+        blocker.lifecycle.set_cell_marked(true);
         entities.insert(blocker);
         let interner = crate::sim::intern::StringInterner::new();
 
@@ -962,7 +962,7 @@ mod tests {
         let mut entities = EntityStore::new();
         let mut building = structure(1, 2, 2);
         building.lifecycle.set_in_limbo_for_test(false);
-        building.lifecycle.cell_marked = true;
+        building.lifecycle.set_cell_marked(true);
         entities.insert(building);
         let interner = crate::sim::intern::StringInterner::new();
 
@@ -1098,7 +1098,7 @@ mod tests {
         let mut entities = EntityStore::new();
         let mut mover = GameEntity::test_default(7, "MTNK", "Americans", 2, 2);
         mover.lifecycle.set_in_limbo_for_test(false);
-        mover.lifecycle.cell_marked = false;
+        mover.lifecycle.set_cell_marked(false);
         entities.insert(mover);
         let interner = crate::sim::intern::test_interner();
 

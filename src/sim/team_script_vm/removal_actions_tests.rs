@@ -117,7 +117,7 @@ fn script37_caches_native_next_and_uses_ordered_limbo_uninit_before_drain() {
                 200,
                 "Script37 is not a damage/RecordKill caller"
             );
-            assert!(!entity.lifecycle.cell_marked);
+            assert!(!entity.lifecycle.cell_marked());
             assert!(!sim.team_script_vm.member_team.contains_key(&member));
             assert_eq!(sim.sound_events.iter().filter(|event|
                 matches!(event, SimSoundEvent::ObjectSoundDetached { owner } if *owner == member)

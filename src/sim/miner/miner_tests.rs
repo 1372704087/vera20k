@@ -29,7 +29,7 @@ fn has_bunker_release_track(entity: &GameEntity) -> bool {
     entity
         .locomotor
         .as_ref()
-        .is_some_and(|state| state.kind == LocomotorKind::Drive)
+        .is_some_and(|state| state.active_kind() == LocomotorKind::Drive)
         && entity
             .locomotor
             .as_ref()
@@ -223,7 +223,7 @@ fn spawn_refinery(sim: &mut Simulation, sid: u64, rx: u16, ry: u16) {
     );
     // Placed in its cells' lists: on the map, out of limbo and marked.
     ge.lifecycle.set_in_limbo_for_test(false);
-    ge.lifecycle.cell_marked = true;
+    ge.lifecycle.set_cell_marked(true);
     // Construction stamps the type's `Foundation=4x3`.
     ge.type_facts.set_foundation_for_test("4x3".to_string());
     sim.substrate.entities.insert(ge);
@@ -494,7 +494,13 @@ impl std::ops::DerefMut for MinerView {
 /// Read the Miner component + FSM cursor from an entity by stable_id.
 /// The miner's NavCom cell, the destination Mission_Harvest's scan gave it.
 fn nav_cell(sim: &Simulation, entity_id: u64) -> Option<(u16, u16)> {
-    match sim.substrate.entities.get(entity_id)?.navigation.nav_com? {
+    match sim
+        .substrate
+        .entities
+        .get(entity_id)?
+        .navigation
+        .nav_com()?
+    {
         crate::sim::components::NavTargetRef::Cell { rx, ry } => Some((rx, ry)),
         _ => None,
     }
@@ -1930,7 +1936,7 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
             "no HELLO beyond the too-far distance"
         );
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(14, 11)),
             "F+20 state-2 dispatch stages the far return at NW + QueueingCell"
         );
@@ -2899,7 +2905,7 @@ fn refinery_selection_wide_pass_when_free_refinery_is_beyond_too_far() {
     );
     assert_eq!(entity.miner_state(), Some(MinerState::ReturnToRefinery));
     assert_eq!(
-        entity.navigation.nav_com,
+        entity.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(12, 11)),
         "staged at the nearest refinery's NW + QueueingCell (4, 1)",
     );
@@ -3915,7 +3921,7 @@ fn captured_harvesting_miner_requeues_harvest_for_the_new_owner() {
         "the idle-mode harvester arm re-queues Harvest on ore"
     );
     assert!(miner.attack_target.target().is_none());
-    assert!(miner.navigation.nav_com.is_none());
+    assert!(miner.navigation.nav_com().is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&miner) != Some(true));
 }
 

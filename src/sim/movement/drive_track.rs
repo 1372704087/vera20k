@@ -3442,7 +3442,9 @@ pub(crate) fn occupant_slot_a4_answers_true(
     occupant: &crate::sim::game_entity::GameEntity,
 ) -> bool {
     let track = occupant.locomotor.as_ref().and_then(|loco| {
-        loco.track_progress(super::track_process::TrackFamily::from_kind(loco.kind)?)
+        loco.track_progress(super::track_process::TrackFamily::from_kind(
+            loco.active_kind(),
+        )?)
     });
     let Some(track) = track else {
         return false;

@@ -91,7 +91,7 @@ pub(crate) fn search_for_tiberium_and_move(
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
-    if entity.navigation.nav_com.is_some() {
+    if entity.navigation.nav_com().is_some() {
         return false;
     }
     let own = (entity.position.rx, entity.position.ry);
@@ -252,7 +252,7 @@ pub(crate) fn harvest_reach(sim: &Simulation, rules: &RuleSet, id: u64) -> Optio
         &cells,
         if in_tube { current } else { navigation },
         current,
-        entity.on_bridge,
+        entity.on_bridge(),
         in_tube,
     )
     .ok()?;

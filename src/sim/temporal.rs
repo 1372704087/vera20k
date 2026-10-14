@@ -1230,7 +1230,7 @@ impl Simulation {
                 crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
             }
             clears_destination =
-                category != EntityCategory::Structure && entity.navigation.nav_com.is_some();
+                category != EntityCategory::Structure && entity.navigation.nav_com().is_some();
         }
         if clears_destination {
             self.assign_null_destination(id, Some(rules), registry, ctx.effects);

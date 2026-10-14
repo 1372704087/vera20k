@@ -60,7 +60,7 @@ impl Simulation {
                 .get(id)
                 .unwrap()
                 .navigation
-                .nav_com
+                .nav_com()
                 .is_some()
             {
                 3
@@ -139,7 +139,7 @@ impl Simulation {
             return 4;
         }
         let entity = self.substrate.entities.get(id).unwrap();
-        let Some(nav) = entity.navigation.nav_com else {
+        let Some(nav) = entity.navigation.nav_com() else {
             return 1;
         };
         let distance = crate::sim::combat::object_distance_to(

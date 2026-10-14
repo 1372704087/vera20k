@@ -259,7 +259,7 @@ fn passenger_can_enter(
     let speed_type = passenger
         .locomotor
         .as_ref()
-        .map(|loco| loco.speed_type)
+        .map(|loco| loco.speed_type())
         .or_else(|| obj.map(|o| o.speed_type))
         .unwrap_or(SpeedType::Foot);
     let movement_zone = obj.map_or(MovementZone::Normal, |o| o.movement_zone);
@@ -521,12 +521,12 @@ fn eject_head_passenger(
             let dest = strict_beyond.unwrap_or(place_cell);
 
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
-                passenger.sub_cell = sub_cell;
+                passenger.set_sub_cell(sub_cell);
                 // `TechnoClass::Unlimbo` snaps the body to the drop direction
                 // (`+0x388` Set_Current, `0x006F6DAA`).
                 passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(loco) = passenger.locomotor.as_mut() {
-                    loco.layer = MovementLayer::Ground;
+                    loco.set_layer(MovementLayer::Ground);
                 }
             }
             let z = cell_level_or(sim, place_cell, transport_z);
@@ -644,7 +644,7 @@ pub(crate) fn building_mission_unload_absorber(
                     crate::sim::movement::ground_pose::query_object_cell_height(
                         &cells,
                         crate::sim::movement::ground_pose::position_world_coord(&building.position),
-                        building.on_bridge,
+                        building.on_bridge(),
                     )
                 })
                 .unwrap_or(0);
@@ -772,10 +772,10 @@ pub(crate) fn building_mission_unload_absorber(
             };
             let destination = strict_beyond.unwrap_or(adjacent);
             if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
-                passenger.sub_cell = Some(sub_cell);
+                passenger.set_sub_cell(Some(sub_cell));
                 passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(locomotor) = passenger.locomotor.as_mut() {
-                    locomotor.layer = MovementLayer::Ground;
+                    locomotor.set_layer(MovementLayer::Ground);
                 }
             }
             let fallback_z = sim
@@ -876,7 +876,7 @@ pub(crate) fn unit_mission_unload(
                 .as_ref()
                 .and_then(|terrain| terrain.cell(entity.position.rx, entity.position.ry))
                 .is_some_and(|cell| cell.yr_cell_land_type == LandType::Water.as_index());
-            if entity.navigation.nav_com.is_none() && on_water {
+            if entity.navigation.nav_com().is_none() && on_water {
                 // `PUSH 0x2` at `0x0073D790`: the search runs for speed-type
                 // index 2 — Wheel in the native `SpeedType` order (Foot 0,
                 // Track 1, Wheel 2, Hover 3, ...), a land-only type — not for
@@ -1233,11 +1233,11 @@ fn eject_from_aircraft(
             };
             let now = sim.session.binary_frame;
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
-                passenger.sub_cell = sub_cell;
+                passenger.set_sub_cell(sub_cell);
                 // `Unlimbo`'s body snap (`0x006F6DAA`).
                 passenger.body_facing.snap(facing, now);
                 if let Some(loco) = passenger.locomotor.as_mut() {
-                    loco.layer = MovementLayer::Ground;
+                    loco.set_layer(MovementLayer::Ground);
                 }
             }
             reveal_unloaded_passenger(

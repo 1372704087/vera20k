@@ -92,7 +92,7 @@ fn native_fixture(input: &Value, before: &Value) -> (Simulation, RuleSet, u64) {
     entity.position.exact_z_leptons = Some(height);
     let locomotor = entity.locomotor.as_mut().expect("production Jumpjet");
     if height > 0 {
-        locomotor.layer = crate::sim::movement::locomotor::MovementLayer::Air;
+        locomotor.set_layer(crate::sim::movement::locomotor::MovementLayer::Air);
     }
     if input.get("start").is_some() || input.get("count").is_some() {
         // The signed/overflow corpus supplies raw native AnimType fields, some
@@ -208,8 +208,11 @@ fn updater_reads_the_height_on_any_layer() {
         airborne += 1;
         let (mut sim, rules, id) = native_fixture(&row["input"], &row["before"]);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.locomotor.as_mut().unwrap().layer =
-            crate::sim::movement::locomotor::MovementLayer::Ground;
+        entity
+            .locomotor
+            .as_mut()
+            .unwrap()
+            .set_layer(crate::sim::movement::locomotor::MovementLayer::Ground);
         let deploying = row["input"]["entry"].as_u64().unwrap_or(0x739ac0) != 0x739cd0;
         sim.update_unit_simple_deploy(
             id,

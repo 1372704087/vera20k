@@ -132,8 +132,8 @@ impl Simulation {
         if category == EntityCategory::Infantry {
             match origin {
                 ComponentOrigin::Authored { sub_cell, .. } => {
-                    ge.sub_cell = Some(sub_cell);
-                    let (lx, ly) = crate::util::lepton::subcell_lepton_offset(ge.sub_cell);
+                    ge.set_sub_cell(Some(sub_cell));
+                    let (lx, ly) = crate::util::lepton::subcell_lepton_offset(ge.sub_cell());
                     ge.position.sub_x = lx;
                     ge.position.sub_y = ly;
                 }
@@ -142,7 +142,7 @@ impl Simulation {
                     // the caller's actual XY/Z and live occupation bytes.
                     // Constructor-held objects reserve no spot and retain
                     // their requested XY until the shared placement boundary.
-                    ge.sub_cell = None;
+                    ge.set_sub_cell(None);
                 }
             }
         }
@@ -201,7 +201,7 @@ impl Simulation {
             ));
             if matches!(origin, ComponentOrigin::Runtime)
                 && ge.locomotor.as_ref().is_some_and(|locomotor| {
-                    locomotor.kind == crate::rules::locomotor_type::LocomotorKind::Ship
+                    locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Ship
                 })
             {
                 ge.locomotor
@@ -295,9 +295,9 @@ fn install_authored_bridge(ge: &mut GameEntity, origin: ComponentOrigin) {
     } = origin
     {
         if let Some(loco) = &mut ge.locomotor {
-            loco.layer = MovementLayer::Bridge;
+            loco.set_layer(MovementLayer::Bridge);
         }
-        ge.on_bridge = true;
+        ge.set_on_bridge(true);
     }
 }
 

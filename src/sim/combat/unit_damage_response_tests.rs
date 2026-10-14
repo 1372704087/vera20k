@@ -154,7 +154,7 @@ fn queued(sim: &Simulation, id: u64) -> MissionId {
 }
 
 fn nav_com(sim: &Simulation, id: u64) -> Option<NavTargetRef> {
-    sim.substrate.entities.get(id).unwrap().navigation.nav_com
+    sim.substrate.entities.get(id).unwrap().navigation.nav_com()
 }
 
 const MOVE: MissionId = MissionId::from_known(MissionType::Move);

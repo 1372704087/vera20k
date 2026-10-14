@@ -206,8 +206,8 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 dispatch_timer: MissionDispatchTimer::from_raw(0, 0),
             });
             gate.lifecycle.set_in_limbo_for_test(false);
-            gate.lifecycle.cell_marked = true;
-            gate.in_playfield = true;
+            gate.lifecycle.set_cell_marked(true);
+            gate.set_in_playfield(true);
             sim.substrate.entities.insert(gate);
             sim.substrate.occupancy.add(
                 cx,
@@ -920,7 +920,7 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
         let id = sim
             .spawn_object_at_height("E1", "Americans", 6, 5, 0, 0, &rules)
             .unwrap();
-        assert!(sim.substrate.entities.get(id).unwrap().in_playfield);
+        assert!(sim.substrate.entities.get(id).unwrap().in_playfield());
         assert!(
             sim.substrate
                 .entities
@@ -963,7 +963,7 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
         assert_eq!(result.is_some(), placement != PlacementEvidence::MarkFailed);
         let entity = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            entity.in_playfield,
+            entity.in_playfield(),
             placement == PlacementEvidence::MarkFailed
         );
         assert!(!entity.discovery.owned_by_current_house());
@@ -1466,11 +1466,11 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
     );
     let authored = sim.substrate.entities.get(1).unwrap();
     assert_eq!((authored.position.rx, authored.position.ry), ore_authored);
-    assert!(!authored.on_bridge);
+    assert!(!authored.on_bridge());
     let bridge = sim.substrate.entities.get(2).unwrap();
     assert_eq!((bridge.position.rx, bridge.position.ry), bridge_cell);
     assert_eq!(bridge.position.z, 7);
-    assert!(bridge.on_bridge);
+    assert!(bridge.on_bridge());
     assert_ne!(
         sim.substrate
             .raw_cell_occupation
@@ -1569,7 +1569,7 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
         (0, 0, 0)
     );
     assert_eq!(rejected.body_facing.destination(), 9 << 8);
-    assert!(rejected.lifecycle.in_limbo() && !rejected.lifecycle.cell_marked);
+    assert!(rejected.lifecycle.in_limbo() && !rejected.lifecycle.cell_marked());
     assert!(
         child_ids
             .iter()
@@ -1661,13 +1661,17 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                             && entity.mover_facts.immune_to_radiation()
                     );
                     if route == 2 {
-                        assert_eq!(entity.sub_cell, None, "a held constructor reserves no spot");
+                        assert_eq!(
+                            entity.sub_cell(),
+                            None,
+                            "a held constructor reserves no spot"
+                        );
                         let coord = crate::sim::movement::ground_pose::position_world_coord(
                             &entity.position,
                         );
                         assert_eq!((coord.x, coord.y, coord.z), (0, 0, 0));
                     } else {
-                        let sub_cell = entity.sub_cell.unwrap();
+                        let sub_cell = entity.sub_cell().unwrap();
                         if route == 0 {
                             assert_eq!(sub_cell, 3);
                         } else {
@@ -1681,7 +1685,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                                 .values()
                                 .find(|resident| resident.stable_id() != id)
                                 .unwrap();
-                            assert_ne!(Some(sub_cell), resident.sub_cell);
+                            assert_ne!(Some(sub_cell), resident.sub_cell());
                         }
                         let (x, y) = crate::util::lepton::subcell_lepton_offset(Some(sub_cell));
                         assert_eq!((entity.position.sub_x, entity.position.sub_y), (x, y));
@@ -1690,7 +1694,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                 "SHIP" => {
                     assert!(entity.barrel_facing.is_some());
                     assert_eq!(
-                        entity.locomotor.as_ref().unwrap().kind,
+                        entity.locomotor.as_ref().unwrap().active_kind(),
                         crate::rules::locomotor_type::LocomotorKind::Ship
                     );
                     assert_eq!(
@@ -1896,7 +1900,7 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
         let child = sim.substrate.entities.get(child_id).expect("spawn child");
         assert_eq!(child.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(child.spawn_owner_id.owner(), Some(parent_id));
-        assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked);
+        assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked());
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 
@@ -1954,7 +1958,7 @@ fn techno_constructor_slave_manager_pool_draws_parent_then_children_and_cancels_
         let slave = sim.substrate.entities.get(slave_id).expect("slave child");
         assert_eq!(slave.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(slave.slave.owner(), Some(parent_id));
-        assert!(slave.lifecycle.in_limbo() && !slave.lifecycle.cell_marked);
+        assert!(slave.lifecycle.in_limbo() && !slave.lifecycle.cell_marked());
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 
@@ -2122,7 +2126,7 @@ fn techno_constructor_unit_can_enter_rejection_discards_eager_pool_without_refun
     assert_eq!(sim.substrate.next_stable_object_id, 6);
     assert_eq!(sim.substrate.entities.len(), 1);
     let blocker = sim.substrate.entities.get(blocker_id).unwrap();
-    assert!(blocker.lifecycle.cell_marked && !blocker.lifecycle.in_limbo());
+    assert!(blocker.lifecycle.cell_marked() && !blocker.lifecycle.in_limbo());
     assert!(
         sim.substrate.entities.values().all(|entity| {
             !matches!(sim.interner.resolve(entity.type_ref()), "CARRIER" | "HORN")
@@ -2167,9 +2171,9 @@ fn techno_constructor_fixed_map_uses_native_category_order_after_prior_mark_draw
     assert_eq!(actual_words, expected_words);
     let outside = sim.substrate.entities.get(5).unwrap();
     assert_eq!((outside.position.rx, outside.position.ry), (1, 1));
-    assert!(!outside.in_playfield);
+    assert!(!outside.in_playfield());
     assert!(outside.lifecycle.object_alive());
-    assert!(outside.lifecycle.cell_marked && !outside.lifecycle.in_limbo());
+    assert!(outside.lifecycle.cell_marked() && !outside.lifecycle.in_limbo());
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 }
 
@@ -2357,7 +2361,7 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
         parent.native_unique_id(),
         native_before.wrapping_add(1) as i32
     );
-    assert!(parent.lifecycle.cell_marked);
+    assert!(parent.lifecycle.cell_marked());
     for (stable_id, slot) in [(2, 0), (3, 1)] {
         let upgrade = sim.substrate.entities.get(stable_id).unwrap();
         assert_eq!(upgrade.techno_ctor_random_word(), words[slot + 1]);
@@ -2372,7 +2376,7 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
             ))
         );
         assert!(!upgrade.lifecycle.in_limbo());
-        assert!(!upgrade.lifecycle.cell_marked);
+        assert!(!upgrade.lifecycle.cell_marked());
         assert!(upgrade.in_logic_vector.is_member());
         assert_eq!((upgrade.position.rx, upgrade.position.ry), (10, 12));
     }

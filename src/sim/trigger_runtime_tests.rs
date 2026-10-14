@@ -567,7 +567,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
         .expect("CreateBuilding must publish the building, not silently reject an empty type");
     assert_eq!(sim.resolve(building.type_ref()), "GTGCAN");
     assert_eq!((building.position.rx, building.position.ry), (10, 10));
-    assert!(building.lifecycle.object_alive() && building.lifecycle.cell_marked);
+    assert!(building.lifecycle.object_alive() && building.lifecycle.cell_marked());
     assert!(!building.lifecycle.in_limbo());
     assert!(
         sim.houses[&owner]
@@ -1290,8 +1290,8 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
     sim.resolved_terrain = Some(flat_trigger_playfield_terrain(100, 100));
 
     assert!(sim.change_visible_map_area([2, 2, 76, 48], Some(&rules)));
-    assert!(sim.substrate.entities.get(1).unwrap().in_playfield);
-    assert!(sim.substrate.entities.get(2).unwrap().in_playfield);
+    assert!(sim.substrate.entities.get(1).unwrap().in_playfield());
+    assert!(sim.substrate.entities.get(2).unwrap().in_playfield());
     assert!(
         sim.fog
             .is_cell_revealed(owner, mobile_cell.0, mobile_cell.1)
@@ -1308,11 +1308,11 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
     );
 
     assert!(sim.change_visible_map_area([30, 20, 8, 6], Some(&rules)));
-    assert!(!sim.substrate.entities.get(1).unwrap().in_playfield);
-    assert!(!sim.substrate.entities.get(2).unwrap().in_playfield);
+    assert!(!sim.substrate.entities.get(1).unwrap().in_playfield());
+    assert!(!sim.substrate.entities.get(2).unwrap().in_playfield());
     assert!(sim.change_visible_map_area([2, 2, 76, 48], Some(&rules)));
-    assert!(sim.substrate.entities.get(1).unwrap().in_playfield);
-    assert!(sim.substrate.entities.get(2).unwrap().in_playfield);
+    assert!(sim.substrate.entities.get(1).unwrap().in_playfield());
+    assert!(sim.substrate.entities.get(2).unwrap().in_playfield());
 }
 
 #[test]

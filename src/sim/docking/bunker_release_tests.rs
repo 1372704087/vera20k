@@ -225,7 +225,7 @@ fn normal_release_clears_unit_first_and_assigns_destination_without_teleport() {
     assert_eq!(trace[5].building_link, Some(1));
     let unit = sim.substrate.entities.get(1).unwrap();
     assert_eq!(position_world_coord(&unit.position), pose);
-    assert_eq!(unit.navigation.nav_com, Some(NavTargetRef::cell(9, 11)));
+    assert_eq!(unit.navigation.nav_com(), Some(NavTargetRef::cell(9, 11)));
     assert_eq!(
         unit.mission.queued(),
         MissionId::from_known(MissionType::Move)

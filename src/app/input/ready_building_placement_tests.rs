@@ -679,7 +679,7 @@ fn mixed_infantry_delivery_clears_old_cameo_before_same_factory_promotion() {
         .get(product)
         .expect("successful delivery retains the E1");
     assert!(!delivered.lifecycle.in_limbo());
-    assert!(delivered.lifecycle.cell_marked);
+    assert!(delivered.lifecycle.cell_marked());
     assert_old_infantry_cameo_released(&mut fixture, order);
 }
 

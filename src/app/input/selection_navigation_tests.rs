@@ -1812,7 +1812,7 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
         );
         entity.lifecycle.set_object_alive_for_test(actor.alive);
         entity.lifecycle.set_in_limbo_for_test(actor.limbo);
-        entity.in_playfield = actor.in_playfield;
+        entity.set_in_playfield(actor.in_playfield);
         entity
             .discovery
             .set_discovered_by_current_house_for_test(actor.discovered);

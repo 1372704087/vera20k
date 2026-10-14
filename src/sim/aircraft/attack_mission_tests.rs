@@ -527,7 +527,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
         // In flight, on the map: a grounded plane takes Enter_Idle_Mode's
         // landed arm, and an unmarked one is not in the air (vt+0x54).
         plane.position.exact_z_leptons = Some(1500);
-        plane.lifecycle.cell_marked = true;
+        plane.lifecycle.set_cell_marked(true);
         sim.substrate.entities.insert(plane);
         sim.set_logic_order_for_test(vec![1]);
         let mut expected_rng = sim.scenario_rng.clone();
@@ -553,7 +553,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
         "a human house lets go"
     );
     assert_eq!(
-        plane.navigation.nav_com,
+        plane.navigation.nav_com(),
         Some(NavTargetRef::cell(edge.0, edge.1))
     );
     assert_eq!(
@@ -579,7 +579,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
     assert_eq!(plane.mission.current().known(), Some(MissionType::Enter));
     assert!(plane.radio_contacts.contains(2), "HELLO linked the dock");
     assert_eq!(
-        plane.navigation.nav_com,
+        plane.navigation.nav_com(),
         Some(NavTargetRef::Building { id: 2 }),
         "home to the dock, not to the edge {edge:?}"
     );

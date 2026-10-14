@@ -1348,7 +1348,7 @@ pub(crate) fn mission_repair(
             .and_then(|e| e.locomotor.as_ref())
             .is_some_and(|l| {
                 matches!(
-                    l.kind,
+                    l.active_kind(),
                     crate::rules::locomotor_type::LocomotorKind::Hover
                         | crate::rules::locomotor_type::LocomotorKind::Teleport
                 )
@@ -1398,7 +1398,7 @@ pub(crate) fn mission_repair(
                 return Some(1);
             }
             if let Some(contact) = sim.substrate.entities.get_mut(unit)
-                && contact.navigation.nav_com.is_some()
+                && contact.navigation.nav_com().is_some()
             {
                 crate::sim::movement::foot_stop_moving(contact);
             }
@@ -1852,7 +1852,7 @@ mod tests {
         );
 
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.navigation.nav_com, Some(NavTargetRef::cell(9, 11)));
+        assert_eq!(unit.navigation.nav_com(), Some(NavTargetRef::cell(9, 11)));
         assert!(unit.pending_entry().is_none());
         assert!(!unit.has_live_contact_with(DEPOT));
         assert!(
@@ -1987,7 +1987,7 @@ mod tests {
 
         let released = sim.substrate.entities.get(aircraft).unwrap();
         assert_eq!(
-            released.navigation.nav_com,
+            released.navigation.nav_com(),
             Some(NavTargetRef::cell(exit.0, exit.1))
         );
         assert!(!released.has_live_contact_with(depot));
@@ -2290,7 +2290,7 @@ mod tests {
         assert_eq!(unit.mission.current().known(), Some(MissionType::Enter));
         assert_eq!(unit.mission.queued(), MissionId::NONE);
         assert_eq!(
-            unit.navigation.nav_com,
+            unit.navigation.nav_com(),
             Some(NavTargetRef::Building { id: DEPOT })
         );
         assert_eq!(unit.pending_entry(), None);
@@ -2519,7 +2519,7 @@ mod tests {
                     && building.mission.handler_state() == 2
             })
             && sim.substrate.entities.get(tank).is_some_and(|unit| {
-                unit.navigation.nav_com.is_none()
+                unit.navigation.nav_com().is_none()
                     && unit
                         .locomotor
                         .as_ref()
@@ -2553,14 +2553,14 @@ mod tests {
         assert!(linked(&sim, 1));
         assert_eq!(sim.substrate.entities.get(1).unwrap().pending_entry(), None);
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
             Some(NavTargetRef::Building { id: DEPOT })
         );
         for tank in 2..=3 {
             let e = sim.substrate.entities.get(tank).unwrap();
             assert!(!linked(&sim, tank));
             assert_eq!(e.pending_entry(), Some(DEPOT));
-            assert_eq!(e.navigation.nav_com, None);
+            assert_eq!(e.navigation.nav_com(), None);
             assert_eq!(e.archive_target(), None);
         }
         let depot = sim.substrate.entities.get(DEPOT).unwrap();
@@ -2733,7 +2733,7 @@ mod tests {
         for _ in 0..100 {
             tick_units(&mut sim, &rules);
             let unit = sim.substrate.entities.get(1).unwrap();
-            assert_eq!(unit.navigation.nav_com, None);
+            assert_eq!(unit.navigation.nav_com(), None);
             assert_eq!(sim.substrate.entities.get(1).unwrap().pending_entry(), None);
         }
     }
@@ -2769,7 +2769,7 @@ mod tests {
                         .locomotor
                         .as_ref()
                         .unwrap()
-                        .powered
+                        .is_powered()
                 );
             }
             if reached_pad && !linked(&sim, 1) {
@@ -2782,7 +2782,7 @@ mod tests {
         assert_eq!(e.health.current(), 300);
         assert!(!linked(&sim, 1));
         assert!(
-            e.locomotor.as_ref().unwrap().powered,
+            e.locomotor.as_ref().unwrap().is_powered(),
             "release restores power before the departure order"
         );
         assert_eq!(e.mission.queued().known(), Some(MissionType::Move));
@@ -2790,7 +2790,7 @@ mod tests {
         // route is the next Process's Find_Path.
         let exit = (DEPOT_RX, DEPOT_RY + 3);
         assert_eq!(
-            e.navigation.nav_com,
+            e.navigation.nav_com(),
             Some(NavTargetRef::cell(exit.0, exit.1))
         );
         for _ in 0..200 {
@@ -2820,7 +2820,7 @@ mod tests {
         assert!(order_repair(&mut sim, &rules, 1));
         tick(&mut sim, &rules);
         assert!(linked(&sim, 1));
-        let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com;
+        let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com();
         assert!(nav.is_some());
         sim.substrate.entities.get_mut(DEPOT).unwrap().temporal =
             crate::sim::temporal::TemporalState::warped_by_for_test(999);
@@ -2853,7 +2853,7 @@ mod tests {
             Some(MissionType::Move)
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
             nav
         );
     }
@@ -2869,7 +2869,7 @@ mod tests {
         }
         tick(&mut sim, &rules);
         assert!(linked(&sim, 1));
-        let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com;
+        let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com();
         assert!(nav.is_some());
         sim.substrate
             .entities
@@ -2906,7 +2906,7 @@ mod tests {
             Some(MissionType::Move)
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
             nav
         );
         // The slot is free for the next waiter's probe.

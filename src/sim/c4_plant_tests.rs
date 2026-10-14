@@ -171,7 +171,9 @@ fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
     sim.mission_assign_exact(id, SABOTAGE, now).unwrap();
     let planter = sim.substrate.entities.get_mut(id).unwrap();
     (planter.position.rx, planter.position.ry) = anchor;
-    planter.navigation.nav_com = Some(NavTargetRef::building(building));
+    planter
+        .navigation
+        .set_nav_com(Some(NavTargetRef::building(building)));
     planter
         .locomotor
         .as_mut()
@@ -223,7 +225,7 @@ fn mission_attacks_c4_arm_sends_a_demolition_man_to_sabotage() {
         let case = format!("{owner} {kind} on {building}");
         if takes {
             assert_eq!(
-                entity.navigation.nav_com,
+                entity.navigation.nav_com(),
                 Some(NavTargetRef::object(target)),
                 "{case}"
             );
@@ -259,11 +261,11 @@ fn a_hunting_demolition_man_whose_scan_finds_a_building_sabotages_it() {
     );
     assert!(
         matches!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(NavTargetRef::Entity { id } | NavTargetRef::Object { id }) if id == target
         ),
         "{:?}",
-        entity.navigation.nav_com
+        entity.navigation.nav_com()
     );
     assert!(
         entity.mission.current() == SABOTAGE || entity.mission.queued() == SABOTAGE,
@@ -328,7 +330,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     let planter = sim.substrate.entities.get(tanya).unwrap();
     assert_eq!(planter.rearm_timer.start_frame(), planted as i32);
     assert!((3..=5).contains(&planter.rearm_timer.duration()));
-    assert_eq!(planter.navigation.nav_com, None, "the planter stopped");
+    assert_eq!(planter.navigation.nav_com(), None, "the planter stopped");
     assert!(
         (16..18).contains(&planter.position.rx) && (10..12).contains(&planter.position.ry),
         "the planter did not scatter at the plant"
@@ -347,7 +349,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
         overridden |= planter.mission.current() == attack && on_building;
         sent_back |= overridden
             && planter.mission.current() == SABOTAGE
-            && planter.navigation.nav_com == Some(NavTargetRef::object(building));
+            && planter.navigation.nav_com() == Some(NavTargetRef::object(building));
         let gone = sim
             .substrate
             .entities
@@ -413,7 +415,7 @@ fn a_walking_planter_plants_and_draws_for_its_rearm_alone() {
     assert_eq!(target.flashing.frames(), 13);
     let planter = sim.substrate.entities.get(tanya).unwrap();
     assert_eq!(planter.rearm_timer.duration(), rof);
-    assert_eq!(planter.navigation.nav_com, None);
+    assert_eq!(planter.navigation.nav_com(), None);
     assert_eq!(
         planter
             .locomotor
@@ -474,7 +476,7 @@ fn a_second_planter_leaves_the_first_charge_alone() {
         (sim.session.binary_frame as i32, rof)
     );
     assert_ne!(
-        planter.navigation.nav_com,
+        planter.navigation.nav_com(),
         Some(NavTargetRef::building(building))
     );
     assert_eq!(sim.scenario_rng.logical_state(), after);
@@ -547,7 +549,7 @@ fn the_arm_plants_only_from_a_sabotage_c4_arrival_at_its_navcom() {
                     .get_mut(actor)
                     .unwrap()
                     .navigation
-                    .nav_com = Some(NavTargetRef::building(other));
+                    .set_nav_com(Some(NavTargetRef::building(other)));
             }
             _ => {}
         }

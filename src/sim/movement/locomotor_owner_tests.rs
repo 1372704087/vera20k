@@ -53,11 +53,7 @@ fn fixture() -> (Simulation, RuleSet) {
 }
 
 fn replay_fixture() -> crate::sim::components::FootPathQueue {
-    crate::sim::components::FootPathQueue {
-        directions: vec![2, 8, 7],
-        cursor: 1,
-        reference_cell: Some((-17, 301)),
-    }
+    crate::sim::components::FootPathQueue::for_test(vec![2, 8, 7], 1, Some((-17, 301)))
 }
 
 fn supply_drive_state(entity: &mut GameEntity) {
@@ -100,7 +96,7 @@ fn owned_state(entity: &GameEntity) -> serde_json::Value {
 fn assert_retired(entity: &GameEntity) {
     let locomotor = entity.locomotor.as_ref().expect("restored locomotor");
     assert_eq!(locomotor.active_kind(), LocomotorKind::Teleport);
-    assert!(locomotor.piggyback.is_none());
+    assert!(locomotor.piggyback().is_none());
     assert!(!locomotor.has_track_state(TrackFamily::Drive));
 }
 
@@ -196,7 +192,7 @@ fn refused_restore_keeps_live_head_and_forced_segment() {
         let entity = sim.substrate.entities.get(1).unwrap();
         let locomotor = entity.locomotor.as_ref().unwrap();
         assert_eq!(locomotor.active_kind(), LocomotorKind::Drive);
-        assert!(locomotor.piggyback.is_some());
+        assert!(locomotor.piggyback().is_some());
         let loco = entity.locomotor.as_ref().unwrap();
         assert_eq!(
             loco.track_head(TrackFamily::Drive),
@@ -208,7 +204,7 @@ fn refused_restore_keeps_live_head_and_forced_segment() {
             "Stop_Moving, no Move_To"
         );
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(12, 8))
         );
         assert!(entity.setter_force_reassign.is_raised());
@@ -280,7 +276,7 @@ fn chain(entity: &GameEntity) -> Vec<LocomotorKind> {
     let mut at = entity.locomotor.as_ref();
     while let Some(locomotor) = at {
         kinds.push(locomotor.active_kind());
-        at = locomotor.piggyback.as_deref();
+        at = locomotor.piggyback().as_deref();
     }
     kinds
 }
@@ -312,10 +308,10 @@ fn teleporter_drive_ends_what_may_end_and_begins_over_the_rest() {
         let locomotor = entity.locomotor.as_ref().unwrap();
         if mid_warp {
             assert_eq!(chain(entity), [Drive, Teleport, Drive, Teleport]);
-            assert_eq!(locomotor.piggyback.as_deref(), warp_teleport.as_ref());
+            assert_eq!(locomotor.piggyback().as_deref(), warp_teleport.as_ref());
         } else {
             assert_eq!(chain(entity), [Drive, Drive, Teleport]);
-            assert_eq!(locomotor.piggyback.as_deref(), driving.as_ref());
+            assert_eq!(locomotor.piggyback().as_deref(), driving.as_ref());
         }
     }
 }
@@ -405,10 +401,11 @@ fn refused_miner_order_leaves_teleport_payload_untouched() {
         }
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         let mut path_runtime = crate::sim::components::FootPathRuntime::at_frame(0);
-        path_runtime.movement_timer = crate::sim::timer::CdTimer::from_raw(-1, -7);
-        path_runtime.blocked_timer = crate::sim::timer::CdTimer::from_raw(i32::MAX - 2, 31);
-        path_runtime.path_blocked = true;
-        path_runtime.retries_left = u32::MAX;
+        path_runtime.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(-1, -7));
+        path_runtime
+            .set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(i32::MAX - 2, 31));
+        path_runtime.set_path_blocked(true);
+        path_runtime.set_retries_left(u32::MAX);
         entity.navigation.path_runtime = path_runtime;
         entity.death.set_dying_for_test(true);
         let before = owned_state(entity);
@@ -430,7 +427,7 @@ fn refused_miner_order_leaves_teleport_payload_untouched() {
         assert_eq!(owned_state(entity), before);
         assert_eq!(entity.navigation.path_runtime, path_runtime);
         assert!(matches!(
-            entity.locomotor.as_ref().unwrap().runtime_payload,
+            entity.locomotor.as_ref().unwrap().runtime_payload(),
             LocomotorRuntimePayload::Teleport(_)
         ));
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
@@ -600,7 +597,9 @@ fn foot_stop_preserves_queue() {
     let (mut sim, _) = fixture();
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     activate_drive(entity);
-    entity.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(12, 8));
+    entity
+        .navigation
+        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(12, 8)));
     super::super::navcom::foot_stop_moving(entity);
     assert_eq!(entity.navigation.path_replay, replay_fixture());
 }
@@ -645,9 +644,9 @@ fn foot_queue_without_class_payload_roundtrips_and_hashes_each_field() {
             .path_replay;
         *queue = replay_fixture();
         match field {
-            0 => queue.directions[1] = 6,
-            1 => queue.cursor = 2,
-            _ => queue.reference_cell = Some((-18, 301)),
+            0 => queue.set_direction(1, 6),
+            1 => queue.set_cursor(2),
+            _ => queue.set_reference_cell(Some((-18, 301))),
         }
         assert_ne!(
             loaded.state_hash(),
@@ -674,11 +673,11 @@ fn foot_queue_operations_match_original_memory_witnesses() {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         activate_drive(entity);
         // Native shifts the queue; Rust can retain an already-consumed prefix.
-        entity.navigation.path_replay = crate::sim::components::FootPathQueue {
-            directions: [vec![6], directions].concat(),
-            cursor: 1,
-            reference_cell: Some(reference),
-        };
+        entity.navigation.path_replay = crate::sim::components::FootPathQueue::for_test(
+            [vec![6], directions].concat(),
+            1,
+            Some(reference),
+        );
         if operation.contains("fresh") {
             super::super::path_markers::accept_path_replay(
                 &mut entity.navigation.path_replay,
@@ -703,7 +702,7 @@ fn foot_queue_operations_match_original_memory_witnesses() {
             "{operation}"
         );
         assert_eq!(
-            entity.navigation.path_replay.reference_cell,
+            entity.navigation.path_replay.reference_cell(),
             Some(expected_reference),
             "{operation}"
         );

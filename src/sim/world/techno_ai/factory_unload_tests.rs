@@ -412,12 +412,12 @@ fn actor_input(actor: &mut GameEntity, native: &Value) {
         .lifecycle
         .set_object_alive_for_test(native["alive"] == 1);
     actor.lifecycle.set_in_limbo_for_test(native["limbo"] == 1);
-    actor.lifecycle.cell_marked = native["marked"] == 1;
+    actor.lifecycle.set_cell_marked(native["marked"] == 1);
     actor
         .in_logic_vector
         .set_for_test(native["logic_registered"] == 1);
-    actor.in_playfield = native["in_playfield"] == 1;
-    actor.on_bridge = native["on_bridge"] == 1;
+    actor.set_in_playfield(native["in_playfield"] == 1);
+    actor.set_on_bridge(native["on_bridge"] == 1);
     actor.health.set_for_test(int(&native["health"]));
     actor.body_facing.snap(
         native["primary_facing"][0].as_u64().unwrap() as u16,
@@ -497,7 +497,7 @@ fn fixture_input(fixture: &mut Fixture, rules: &RuleSet, native: &Value) {
     );
     unit.foot_speed
         .set_speed_fraction_native_bits(bits(&drive["applied_fraction_bits"]));
-    unit.navigation.nav_com = native_nav(native);
+    unit.navigation.set_nav_com(native_nav(native));
     assert_eq!(native["producer_archive"], "0x0");
     sim.substrate.occupancy =
         crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -568,10 +568,10 @@ fn assert_actor(actor: &GameEntity, native: &Value, name: &str) {
     for (key, actual) in [
         ("alive", actor.lifecycle.object_alive()),
         ("limbo", actor.lifecycle.in_limbo()),
-        ("marked", actor.lifecycle.cell_marked),
+        ("marked", actor.lifecycle.cell_marked()),
         ("logic_registered", actor.in_logic_vector.is_member()),
-        ("in_playfield", actor.in_playfield),
-        ("on_bridge", actor.on_bridge),
+        ("in_playfield", actor.in_playfield()),
+        ("on_bridge", actor.on_bridge()),
     ] {
         assert_eq!(json!(u8::from(actual)), native[key], "{name}: {key}");
     }
@@ -649,7 +649,7 @@ fn assert_snapshot(fixture: &Fixture, native: &Value, name: &str) {
         );
     }
     assert_eq!(
-        product.navigation.nav_com,
+        product.navigation.nav_com(),
         native_nav(native),
         "{name}: Unit NavCom"
     );
@@ -907,7 +907,7 @@ fn unit_move_deployment_guard_preserves_door_navigation_and_rng() {
             .unwrap();
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             entity.set_unit_simple_deploy_for_test(flags.0, flags.1, flags.2);
-            entity.navigation.nav_com = navigation;
+            entity.navigation.set_nav_com(navigation);
             entity.open_door(40, 190);
             let door_before = (entity.door_phase(), entity.door_timer_fields());
             let rng_before = sim.rng_state();
@@ -920,7 +920,7 @@ fn unit_move_deployment_guard_preserves_door_navigation_and_rng() {
                 door_before,
                 "{flags:?} {navigation:?}: deployment guard skips Door"
             );
-            assert_eq!(entity.navigation.nav_com, navigation);
+            assert_eq!(entity.navigation.nav_com(), navigation);
             assert_eq!(
                 entity.mission.current().known(),
                 Some(crate::sim::mission::MissionType::Move)
@@ -985,7 +985,7 @@ fn original_unit_move_deployment_guards_match_mission_dispatch() {
         });
         let flags = &row["input"]["flags"];
         entity.set_unit_simple_deploy_for_test(flags[0] != 0, flags[1] != 0, flags[2] != 0);
-        entity.navigation.nav_com = nav(&before["navcell"]);
+        entity.navigation.set_nav_com(nav(&before["navcell"]));
         let door = bytes(before["door"].as_str().unwrap());
         // The original reader/4A51F0 setup supplies these inputs. This pins
         // the dispatch decision; the separate19 controls compare Door math.
@@ -1032,7 +1032,11 @@ fn original_unit_move_deployment_guards_match_mission_dispatch() {
             int(&row["handler_return_eax"]),
             "{name}: original handler return"
         );
-        assert_eq!(entity.navigation.nav_com, nav(&after["navcell"]), "{name}");
+        assert_eq!(
+            entity.navigation.nav_com(),
+            nav(&after["navcell"]),
+            "{name}"
+        );
         let leaf = entity.mission_leaf.as_unit().unwrap();
         for (key, value) in [
             ("0x6e0", leaf.deployed()),
@@ -1099,7 +1103,7 @@ fn a_busy_factory_exit_pushes_its_neighbours_away_from_the_head() {
             &rules,
             ObjectAiCtx::default(),
         ));
-        let cell = |id: u64| match sim.substrate.entities.get(id).unwrap().navigation.nav_com {
+        let cell = |id: u64| match sim.substrate.entities.get(id).unwrap().navigation.nav_com() {
             Some(NavTargetRef::Cell { rx, ry }) => (rx, ry),
             other => panic!("seed {seed}: tank {id} took no cell: {other:?}"),
         };

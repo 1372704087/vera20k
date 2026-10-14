@@ -766,7 +766,7 @@ fn fire_source_for_target(
         x = cell_x;
         y = cell_y;
         z = cell_z
-            + if attacker.on_bridge {
+            + if attacker.on_bridge() {
                 i64::from(BRIDGE_DECK_HEIGHT_LEPTONS)
             } else {
                 0
@@ -789,7 +789,7 @@ fn fire_source_for_target(
 /// ([`crate::map::bridge_facts::near_bridge`], shared with the render depth
 /// fudge). A missing cell (off the map) answers nothing.
 pub(crate) fn is_on_bridge_for_firing(entity: &GameEntity, terrain: &ResolvedTerrainGrid) -> bool {
-    if entity.on_bridge {
+    if entity.on_bridge() {
         return false;
     }
     let (rx, ry) = (entity.position.rx, entity.position.ry);
@@ -1012,7 +1012,7 @@ mod tests {
         let mut e = GameEntity::test_default(1, "MTNK", "Test", 10, 10);
         e.position.z = level;
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e
     }
 
@@ -1020,11 +1020,11 @@ mod tests {
     fn aircraft_at_altitude(altitude_lep: i64) -> GameEntity {
         let mut e = GameEntity::test_default(2, "ORCA", "Test", 10, 10);
         e.set_category_for_test(EntityCategory::Aircraft);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e.position.exact_z_leptons = Some(altitude_lep as i32);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        loco.speed_type = SpeedType::Winged;
-        loco.movement_zone = MovementZone::Fly;
+        loco.set_speed_type_for_test(SpeedType::Winged);
+        loco.set_movement_zone_for_test(MovementZone::Fly);
         e.locomotor = Some(loco);
         e
     }
@@ -1065,7 +1065,7 @@ mod tests {
             crate::sim::movement::ground_pose::object_world_z_leptons(&entity, Some(&terrain)),
             0
         );
-        entity.on_bridge = true;
+        entity.set_on_bridge(true);
         assert_eq!(
             crate::sim::movement::ground_pose::object_world_z_leptons(&entity, Some(&terrain)),
             crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS
@@ -1079,7 +1079,7 @@ mod tests {
         entity.position.ry = 600;
         entity.position.z = 9;
         entity.position.exact_z_leptons = Some(-137);
-        entity.on_bridge = true;
+        entity.set_on_bridge(true);
 
         let terrain = flat_terrain(1, 1);
         assert_eq!(
@@ -1127,7 +1127,7 @@ mod tests {
             1500,
         ] {
             let mut entity = aircraft_at_altitude(altitude);
-            entity.lifecycle.cell_marked = false;
+            entity.lifecycle.set_cell_marked(false);
             assert!(!is_low_flying(&entity, None, None));
             assert!(!is_high_flying(&entity, None, None));
         }
@@ -1312,8 +1312,10 @@ mod tests {
             actor.position.sub_x = SimFixed::from_num(x % 256);
             actor.position.sub_y = SimFixed::from_num(y % 256);
             actor.position.exact_z_leptons = Some(z);
-            actor.lifecycle.cell_marked = input["marked"].as_bool().unwrap_or(false);
-            actor.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
+            actor
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap_or(false));
+            actor.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
             if !row["source_geometry"].is_null() {
                 let geometry = object_get_coords(&actor, Some(&terrain));
                 assert_eq!(
@@ -1370,7 +1372,9 @@ mod tests {
                 target.position.sub_x = SimFixed::from_num(at(0) % 256);
                 target.position.sub_y = SimFixed::from_num(at(1) % 256);
                 target.position.exact_z_leptons = Some(at(2));
-                target.lifecycle.cell_marked = object["marked"].as_bool().unwrap_or(true);
+                target
+                    .lifecycle
+                    .set_cell_marked(object["marked"].as_bool().unwrap_or(true));
                 let mut objects = EntityStore::new();
                 objects.insert(target);
                 let target = TargetKind::Entity(2);
@@ -1537,7 +1541,7 @@ mod tests {
         let mut e = GameEntity::test_default(100, type_ref, "Attackers", rx, ry);
         e.position.z = level;
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e
     }
 
@@ -1545,7 +1549,7 @@ mod tests {
         let mut e = GameEntity::test_default(200, type_ref, "Defenders", rx, ry);
         e.position.z = level;
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e
     }
 
@@ -1553,7 +1557,7 @@ mod tests {
         let mut e = GameEntity::test_default(300, type_ref, "Defenders", rx, ry);
         e.position.z = 0;
         e.set_category_for_test(EntityCategory::Structure);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e
     }
 
@@ -2261,7 +2265,7 @@ mod tests {
             "standing under the deck keeps ground Z"
         );
 
-        ground.on_bridge = true;
+        ground.set_on_bridge(true);
         assert_eq!(
             fire_source_coords(
                 &ground,
@@ -2626,7 +2630,7 @@ mod tests {
         // Diagonals are not asked.
         assert!(!is_on_bridge_for_firing(&unit, &with(&[((11, 11), span)])));
         let mut on_deck = unit.clone();
-        on_deck.on_bridge = true;
+        on_deck.set_on_bridge(true);
         assert!(!is_on_bridge_for_firing(
             &on_deck,
             &with(&[((10, 10), BRIDGE_FLAG_STRUCTURAL)])
@@ -2802,7 +2806,7 @@ mod tests {
         let attacker = ground_attacker(5, 5, 0, "ATKR");
         let mut entities = EntityStore::new();
         let mut target = ground_target(6, 5, 0, "TGT");
-        target.on_bridge = true;
+        target.set_on_bridge(true);
         target.position.exact_z_leptons = Some(BRIDGE_DECK_HEIGHT_LEPTONS);
         entities.insert(target);
         // Marked Object+50 snaps to the live target-cell surface. Both source

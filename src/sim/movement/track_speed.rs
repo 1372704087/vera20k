@@ -30,7 +30,7 @@ pub(super) fn publish_fresh_track_target(
     let Some(loco) = entity.locomotor.as_ref() else {
         return;
     };
-    let speed_type = loco.speed_type;
+    let speed_type = loco.speed_type();
     let below_yellow = crate::sim::pathfinding::terrain_speed::is_at_or_below_condition_yellow(
         entity.health.current(),
         strength,
@@ -64,7 +64,7 @@ fn publish_target_fraction(entity: &mut GameEntity, requested: SimFixed) {
     let Some(loco) = entity.locomotor.as_mut() else {
         return;
     };
-    let Some(family) = TrackFamily::from_kind(loco.kind) else {
+    let Some(family) = TrackFamily::from_kind(loco.active_kind()) else {
         return;
     };
     loco.ensure_installed_track_state();
@@ -140,7 +140,7 @@ pub(super) fn advance(
     let Some(loco) = entity.locomotor.as_ref() else {
         return 0;
     };
-    let kind = loco.kind;
+    let kind = loco.active_kind();
     if !matches!(kind, LocomotorKind::Drive | LocomotorKind::Ship) {
         return 0;
     }
@@ -212,7 +212,7 @@ mod tests {
 
     fn retained(entity: &GameEntity) -> SimFixed {
         let loco = entity.locomotor.as_ref().unwrap();
-        loco.track_target_fraction(TrackFamily::from_kind(loco.kind).unwrap())
+        loco.track_target_fraction(TrackFamily::from_kind(loco.active_kind()).unwrap())
             .unwrap()
     }
 

@@ -239,7 +239,7 @@ fn building_crew_keeps_distinct_native_caller_placement_and_rng() {
         row["rng_after"].as_str().unwrap()
     );
     assert!(!sim.object_placement_scope_active());
-    assert_eq!(entity.sub_cell, Some(4));
+    assert_eq!(entity.sub_cell(), Some(4));
 }
 
 fn type_name(sim: &Simulation, id: u64) -> String {
@@ -415,7 +415,7 @@ fn phase_b_interleaves_each_cells_roll_with_its_mark() {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 assert_eq!(sim.interner.resolve(entity.owner()), "Americans");
                 assert_eq!(queued(&sim, id), MissionId::from_known(MissionType::Hunt));
-                assert!(entity.sub_cell.is_some() && !entity.lifecycle.in_limbo());
+                assert!(entity.sub_cell().is_some() && !entity.lifecycle.in_limbo());
                 (
                     type_name(&sim, id),
                     (entity.position.rx, entity.position.ry),
@@ -794,7 +794,7 @@ fn a_crewman_leaving_a_bridge_deck_keeps_the_vehicle_coordinate() {
         let mcv = spawn(&mut sim, &rules, "AMCV", "Americans", 10, 10);
         {
             let unit = sim.substrate.entities.get_mut(mcv).unwrap();
-            unit.on_bridge = true;
+            unit.set_on_bridge(true);
             unit.position.sub_x = sub_x;
             unit.position.sub_y = sub_y;
         }
@@ -825,13 +825,13 @@ fn a_crewman_leaving_a_bridge_deck_keeps_the_vehicle_coordinate() {
         let crew = new_ids(&sim, &before);
         if escapes {
             let crewman = sim.substrate.entities.get(crew[0]).unwrap();
-            assert!(crewman.on_bridge);
+            assert!(crewman.on_bridge());
             assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
             assert_eq!(
                 (crewman.position.sub_x, crewman.position.sub_y),
                 (sub_x, sub_y)
             );
-            assert_eq!(crewman.sub_cell, Some(3), "the SW spot of its coordinate");
+            assert_eq!(crewman.sub_cell(), Some(3), "the SW spot of its coordinate");
             escaped += 1;
         } else {
             assert!(crew.is_empty());
@@ -1504,7 +1504,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
             .map(|id| {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let spawn = (entity.position.rx, entity.position.ry);
-                (id, spawn != mcv_cell, spawn, entity.navigation.nav_com)
+                (id, spawn != mcv_cell, spawn, entity.navigation.nav_com())
             })
             .collect();
         for _ in 0..45 {
@@ -1682,7 +1682,8 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
                 *cell,
                 "{kind}: out on its cell"
             );
-            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) = gi.navigation.nav_com
+            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) =
+                gi.navigation.nav_com()
             else {
                 panic!("{kind}: GI {id} has no Scatter destination");
             };

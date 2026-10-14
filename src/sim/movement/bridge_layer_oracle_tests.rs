@@ -62,7 +62,7 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
     entity.position.sub_x = SimFixed::from_num(current.x - i32::from(entity.position.rx) * 256);
     entity.position.sub_y = SimFixed::from_num(current.y - i32::from(entity.position.ry) * 256);
     entity.position.exact_z_leptons = Some(current.z);
-    entity.on_bridge = input["on_bridge"].as_bool().unwrap();
+    entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
     if input["locomotor_present"].as_bool().unwrap() {
         entity.locomotor = Some(LocomotorState::for_test_kind(kind));
         let track = crate::sim::components::TrackProgress {
@@ -115,10 +115,10 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
     }
     if input["nav_com_coord"].is_array() {
         let nav = coord(&input["nav_com_coord"]);
-        entity.navigation.nav_com = Some(NavTargetRef::Cell {
+        entity.navigation.set_nav_com(Some(NavTargetRef::Cell {
             rx: (nav.x / 256) as u16,
             ry: (nav.y / 256) as u16,
-        });
+        }));
     }
     entity
 }

@@ -93,10 +93,16 @@ fn fixture(input: &Value, shape: u8) -> Simulation {
     actor.set_archive_target(target("old", shape).map(TargetKind::from));
     // These Foot-only fields catch the removed represented-NavCom fallback.
     // The native Building body never touches them, regardless of admission.
-    actor.navigation.nav_com = Some(NavTargetRef::cell(70, 71));
-    actor.navigation.nav_com_aux = Some(NavTargetRef::cell(72, 73));
-    actor.navigation.nav_queue = vec![NavTargetRef::cell(74, 75)];
-    actor.navigation.pending_destination_setter = true;
+    actor
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(70, 71)));
+    actor
+        .navigation
+        .set_nav_com_aux(Some(NavTargetRef::cell(72, 73)));
+    actor
+        .navigation
+        .set_nav_queue_for_test(vec![NavTargetRef::cell(74, 75)]);
+    actor.navigation.set_pending_destination_setter(true);
     actor.navigation.path_runtime.start_movement(40, 30);
     sim.substrate.entities.insert(actor);
     sim.mission_assign_exact(

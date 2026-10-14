@@ -208,7 +208,7 @@ fn nested_death_bridge_continuation_finishes_before_parent_area_returns() {
                     },
                 );
                 actor.position.z = 6;
-                actor.on_bridge = true;
+                actor.set_on_bridge(true);
             }
             sim.reveal_entity_with_rules(id, &rules);
             assert!(
@@ -217,7 +217,7 @@ fn nested_death_bridge_continuation_finishes_before_parent_area_returns() {
                     .get(id)
                     .unwrap()
                     .lifecycle
-                    .cell_marked
+                    .cell_marked()
             );
             units.push(id);
         }

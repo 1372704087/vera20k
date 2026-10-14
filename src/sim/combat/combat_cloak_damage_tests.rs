@@ -51,7 +51,7 @@ fn dolphin_rules() -> RuleSet {
 
 fn live(mut entity: GameEntity) -> GameEntity {
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.in_playfield = true;
+    entity.set_in_playfield(true);
     entity
 }
 

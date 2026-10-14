@@ -205,7 +205,7 @@ impl<'a> FireSubject<'a> {
             warped_out: firer.is_warped_out(),
             warping_in: firer.is_warping_in(),
             robot_offline: firer.deactivated.is_offline(),
-            on_bridge: firer.on_bridge,
+            on_bridge: firer.on_bridge(),
             z: self.terrain().map_or(0, |terrain| {
                 crate::sim::movement::ground_pose::object_world_z_leptons(firer, Some(terrain))
             }),
@@ -273,7 +273,7 @@ impl<'a> FireSubject<'a> {
                     facing.current(frame)
                 }),
             magnetron_lifted: firer.lift.swap_active(),
-            navcom: firer.navigation.nav_com.is_some(),
+            navcom: firer.navigation.nav_com().is_some(),
             moving_faster_than_tenth: firer.foot_speed.above_tenth(),
             deploying: firer.unit_deploying(),
             tethered: firer.tether.partner().is_some(),
@@ -342,7 +342,7 @@ impl<'a> FireSubject<'a> {
                         bomb: entity.bomb.is_some(),
                         in_limbo: entity.lifecycle.in_limbo(),
                         sinking: entity.sinking.is_active(),
-                        on_bridge: entity.on_bridge,
+                        on_bridge: entity.on_bridge(),
                         z: self.terrain().map_or(0, |terrain| {
                             crate::sim::movement::ground_pose::object_world_z_leptons(
                                 entity,
@@ -764,7 +764,7 @@ impl FireQuery for WorldQuery<'_, '_> {
             .locomotor
             .as_ref()
             .is_some_and(|locomotor| {
-                locomotor.kind == crate::rules::locomotor_type::LocomotorKind::Jumpjet
+                locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Jumpjet
             })
     }
 

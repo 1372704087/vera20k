@@ -370,11 +370,13 @@ fn diagnose_rejected_order(
 
         let sim = scenario.sim();
         let entity = sim.entities().get(entity_id).expect("tank present");
-        let speed_type = entity.locomotor.as_ref().map(|loco| loco.speed_type);
-        let movement_zone = entity.locomotor.as_ref().map(|loco| loco.movement_zone);
+        let speed_type = entity.locomotor.as_ref().map(|loco| loco.speed_type());
+        let movement_zone = entity.locomotor.as_ref().map(|loco| loco.movement_zone());
         println!(
             "in_playfield={} speed_type={:?} movement_zone={:?}",
-            entity.in_playfield, speed_type, movement_zone
+            entity.in_playfield(),
+            speed_type,
+            movement_zone
         );
         println!(
             "zone_grid: {}, resolved_terrain: {}, playfield_bounds: {:?}",
@@ -419,7 +421,7 @@ fn diagnose_rejected_order(
     println!(
         "NavCom and route length after direct apply: {:?}",
         simulation.entities().get(entity_id).map(|entity| (
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             entity.navigation.path_replay.route_cells().len()
         ))
     );
@@ -433,12 +435,12 @@ fn route_reinstalled(
     previous: &crate::sim::components::FootPathQueue,
     current: &crate::sim::components::FootPathQueue,
 ) -> bool {
-    if current.directions == previous.directions {
-        return current.cursor < previous.cursor;
+    if current.directions() == previous.directions() {
+        return current.cursor() < previous.cursor();
     }
     let mut cleared = previous.clone();
     cleared.clear_live_head();
-    current.directions != cleared.directions || current.cursor < previous.cursor
+    current.directions() != cleared.directions() || current.cursor() < previous.cursor()
 }
 
 /// The accepted order's Foot+5E0 route still ahead: the reference cell plus
@@ -449,7 +451,7 @@ fn accepted_route(
     entity_id: u64,
 ) -> Option<Vec<(u16, u16)>> {
     let entity = scenario.sim().entities().get(entity_id)?;
-    entity.navigation.nav_com?;
+    entity.navigation.nav_com()?;
     Some(entity.navigation.path_replay.route_cells())
 }
 
@@ -625,7 +627,8 @@ fn drive_across_high_bridge_with_order(
             .expect("spawned tank present");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={}",
-            entity.position.z, entity.on_bridge
+            entity.position.z,
+            entity.on_bridge()
         );
     }
 
@@ -704,7 +707,7 @@ fn drive_across_high_bridge_with_order(
             tick: sim.session.tick,
             cell,
             z: entity.position.z,
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
             bridge_walkable: facts.bridge_walkable,
@@ -1339,11 +1342,12 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
         let zone = entity
             .locomotor
             .as_ref()
-            .map(|loco| loco.movement_zone)
+            .map(|loco| loco.movement_zone())
             .expect("spawned mover has a locomotor");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={} zone={zone:?}",
-            entity.position.z, entity.on_bridge
+            entity.position.z,
+            entity.on_bridge()
         );
         zone
     };
@@ -1425,7 +1429,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
             tick: sim.session.tick,
             cell,
             z: entity.position.z,
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
             bridge_walkable: facts.bridge_walkable,
@@ -2075,7 +2079,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
             tick: sim.session.tick,
             cell,
             z: entity.position.z,
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
             bridge_walkable: facts.bridge_walkable,
@@ -2100,7 +2104,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
             blocker_parked = Some((
                 sim.session.tick,
                 parked.position.z,
-                parked.on_bridge,
+                parked.on_bridge(),
                 deck.bridge_structural,
                 deck.ground_level,
                 cell,
@@ -3196,7 +3200,7 @@ fn record_until(
         let loco_layer = entity.movement_layer_or_ground();
         if entity.category() == crate::map::entities::EntityCategory::Infantry
             && facts.bridge_structural
-            && !entity.on_bridge
+            && !entity.on_bridge()
         {
             use crate::sim::movement::locomotor::MovementLayer;
             let occupation = sim
@@ -3233,7 +3237,7 @@ fn record_until(
             tick: sim.session.tick,
             cell,
             z: entity.position.z,
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
             bridge_walkable: facts.bridge_walkable,
@@ -3349,7 +3353,8 @@ fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun
             .expect("spawned mover present");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={}",
-            entity.position.z, entity.on_bridge
+            entity.position.z,
+            entity.on_bridge()
         );
     }
 
@@ -3778,7 +3783,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
             .entities()
             .get(under_id)
             .expect("under mover present");
-        (entity.position.z, entity.on_bridge)
+        (entity.position.z, entity.on_bridge())
     };
     println!("under mover placed on {shared:?}: z={under_z} on_bridge={under_on_bridge}");
 
@@ -3794,7 +3799,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         "placing a mover under the deck displaced the mover on it"
     );
     assert!(
-        deck_still.on_bridge,
+        deck_still.on_bridge(),
         "placing a mover under the deck cleared the deck mover's on_bridge flag"
     );
     assert_eq!(
@@ -3845,7 +3850,10 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         .expect("deck mover survived the under mover's drive");
     println!(
         "deck mover after the under drive: cell ({},{}) z={} on_bridge={}",
-        deck_end.position.rx, deck_end.position.ry, deck_end.position.z, deck_end.on_bridge
+        deck_end.position.rx,
+        deck_end.position.ry,
+        deck_end.position.z,
+        deck_end.on_bridge()
     );
     assert_eq!(
         (deck_end.position.rx, deck_end.position.ry),
@@ -3853,7 +3861,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         "the deck mover moved while a unit drove out from underneath it"
     );
     assert!(
-        deck_end.on_bridge,
+        deck_end.on_bridge(),
         "the deck mover lost on_bridge while a unit drove out from underneath it"
     );
 }

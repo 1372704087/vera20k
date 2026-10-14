@@ -543,7 +543,7 @@ pub(super) fn spawn_structure(
         false,
     );
     ge.lifecycle.set_in_limbo_for_test(false);
-    ge.in_playfield = true;
+    ge.set_in_playfield(true);
     ge.finish_building_construction_for_test();
     ge.building_art.set_actually_placed_for_test(true);
     ge.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(
@@ -971,7 +971,7 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
         })
         .expect("GAYARD delivered DEST through naval FNPC/Unlimbo");
     assert_eq!((destroyer.position.rx, destroyer.position.ry), (22, 22));
-    assert!(destroyer.lifecycle.cell_marked && !destroyer.lifecycle.in_limbo());
+    assert!(destroyer.lifecycle.cell_marked() && !destroyer.lifecycle.in_limbo());
     assert_eq!(
         sim.production
             .primary_factory(americans, ProductionCategory::Ship)
@@ -1193,7 +1193,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(factory.progress, 0);
     assert!(factory.queue.is_empty());
     let object = sim.substrate.entities.get(successor).unwrap();
-    assert!(object.lifecycle.in_limbo() && !object.lifecycle.cell_marked);
+    assert!(object.lifecycle.in_limbo() && !object.lifecycle.cell_marked());
     super::lifecycle_tests::assert_constructor_words(&sim, successor, &mut expected);
     assert_eq!(sim.substrate.entities.len(), entity_count);
     assert_eq!(sim.owned_object_counts(americans).1, owned_units);
@@ -1233,7 +1233,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
         &mut sim, &rules, None
     ));
     let delivered = sim.substrate.entities.get(successor).unwrap();
-    assert!(delivered.lifecycle.cell_marked && !delivered.lifecycle.in_limbo());
+    assert!(delivered.lifecycle.cell_marked() && !delivered.lifecycle.in_limbo());
     assert_eq!(
         sim.houses[&americans].stats.built(),
         1,
@@ -1313,7 +1313,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         "rally fast path walks east out of the 4x4 producer and bypasses FNPC"
     );
     assert_eq!(
-        produced.navigation.nav_com,
+        produced.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(20, 10)),
         "the producer rally remains the represented owner destination"
     );
@@ -1412,7 +1412,7 @@ fn naval_rally_destination_and_move_survive_without_path_grid() {
         })
         .expect("rally fast path delivers without a PathGrid");
     assert_eq!(
-        produced.navigation.nav_com,
+        produced.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(20, 10)),
         "Assign_Destination commits independently of immediate path authority"
     );
@@ -1493,7 +1493,7 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
         .expect("naval Unit delivers toward a rally beyond the path grid");
     assert_eq!((produced.position.rx, produced.position.ry), (14, 14));
     assert_eq!(
-        produced.navigation.nav_com,
+        produced.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(39, 39)),
         "the producer-owned destination is published unchanged"
     );

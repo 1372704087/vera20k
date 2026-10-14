@@ -220,7 +220,9 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
             ));
         }
     }
-    entity.navigation.nav_com = nav.map(|(x, y)| NavTargetRef::cell(x, y));
+    entity
+        .navigation
+        .set_nav_com(nav.map(|(x, y)| NavTargetRef::cell(x, y)));
     entity
         .setter_force_reassign
         .set_for_test(input["force_reassign"] == true);
@@ -272,7 +274,7 @@ fn kind_name(kind: LocomotorKind) -> &'static str {
 /// The CMIN state every row compares (`state` is the oracle's final state).
 fn compare_cmin(s: &Scene, state: &Value, context: &str, mission_body_executed: bool) {
     let entity = s.sim.substrate.entities.get(s.miner).unwrap();
-    let nav = match entity.navigation.nav_com {
+    let nav = match entity.navigation.nav_com() {
         Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
         None => Value::Null,
         other => panic!("{context}: non-cell NavCom {other:?}"),
@@ -292,9 +294,9 @@ fn compare_cmin(s: &Scene, state: &Value, context: &str, mission_body_executed: 
     );
     assert_eq!(
         locomotor
-            .piggyback
+            .piggyback()
             .as_ref()
-            .map_or(Value::Null, |stash| kind_name(stash.kind).into()),
+            .map_or(Value::Null, |stash| kind_name(stash.active_kind()).into()),
         expected["stash"].clone(),
         "{context}: stash"
     );
@@ -734,13 +736,15 @@ fn mission_enter_teleporter_arms_match_the_original_dispatch() {
         let mut s = cmin_scene(input);
         if let Some(queue) = input["nav_queue"].as_array() {
             let entity = s.sim.substrate.entities.get_mut(s.miner).unwrap();
-            entity.navigation.nav_queue = queue
-                .iter()
-                .map(|c| {
-                    let (x, y) = cell(c);
-                    NavTargetRef::cell(x, y)
-                })
-                .collect();
+            entity.navigation.set_nav_queue_for_test(
+                queue
+                    .iter()
+                    .map(|c| {
+                        let (x, y) = cell(c);
+                        NavTargetRef::cell(x, y)
+                    })
+                    .collect(),
+            );
         }
         radio::take_transmit_log();
         let before = active(&s);
@@ -759,7 +763,7 @@ fn mission_enter_teleporter_arms_match_the_original_dispatch() {
         if let Some(queue) = input["nav_queue"].as_array() {
             let entity = s.sim.substrate.entities.get(s.miner).unwrap();
             assert_eq!(
-                entity.navigation.nav_queue.len(),
+                entity.navigation.nav_queue().len(),
                 queue.len() - 1,
                 "{context}: NavQueue[0] taken"
             );

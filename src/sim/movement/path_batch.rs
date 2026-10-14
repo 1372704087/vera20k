@@ -228,7 +228,7 @@ struct FootSearchKey {
 /// zero without one, or Drive/Ship's track destination.
 pub(super) fn code2_ladder_destination(actor: &GameEntity) -> Option<DriveCoord> {
     let loco = actor.locomotor.as_ref()?;
-    match loco.kind {
+    match loco.active_kind() {
         LocomotorKind::Walk => {
             Some(
                 loco.walk_destination()
@@ -452,7 +452,7 @@ impl Simulation {
     /// Drive/Ship's toward its track destination, at urgency 0.
     fn no_queue_request(&self, id: u64) -> Option<FootPathRequest> {
         let actor = self.substrate.entities.get(id)?;
-        let destination = match actor.locomotor.as_ref()?.kind {
+        let destination = match actor.locomotor.as_ref()?.active_kind() {
             LocomotorKind::Walk => actor.locomotor.as_ref()?.walk_destination()?,
             LocomotorKind::Drive | LocomotorKind::Ship => {
                 super::track_path::track_destination(actor)?
@@ -497,7 +497,7 @@ impl Simulation {
         Some(FootSearchKey {
             location: (location.x, location.y, location.z),
             start: (actor.position.rx, actor.position.ry),
-            on_bridge: actor.on_bridge,
+            on_bridge: actor.on_bridge(),
             facing: actor.body_facing.current(self.session.binary_frame),
             goal: (goal.x, goal.y, goal.z),
             urgency: request.urgency,
@@ -507,14 +507,14 @@ impl Simulation {
             movement_zone: snap.movement_zone,
             crushers: (snap.regular_crusher, snap.omni_crusher),
             snapshot_on_bridge: snap.on_bridge,
-            locomotor: snap.locomotor.as_ref().map(|loco| loco.kind),
+            locomotor: snap.locomotor.as_ref().map(|loco| loco.active_kind()),
             allow_zone_hierarchy: snap.allow_zone_hierarchy,
             threat_coefficient: self.foot_path_threat_coefficient(request.entity_id).bits(),
             owner: actor.owner(),
             veterancy: actor.veterancy.rank(),
-            in_playfield: actor.in_playfield,
+            in_playfield: actor.in_playfield(),
             mission: actor.mission.current(),
-            nav_com: actor.navigation.nav_com,
+            nav_com: actor.navigation.nav_com(),
             attack_target: actor.attack_target.target(),
             radio_contacts: actor.radio_contacts.clone(),
         })

@@ -1758,7 +1758,7 @@ fn a_released_mover_does_not_resume_its_order() {
         step(&mut sim);
     }
     assert_eq!(
-        entity(&sim, tank).navigation.nav_com,
+        entity(&sim, tank).navigation.nav_com(),
         None,
         "the order ends"
     );
@@ -1799,8 +1799,9 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
     );
     {
         let tank = sim.substrate.entities.get_mut(tank).unwrap();
-        assert!(tank.navigation.nav_com.is_none());
-        tank.navigation.nav_queue.push(NavTargetRef::cell(9, 16));
+        assert!(tank.navigation.nav_com().is_none());
+        tank.navigation
+            .push_nav_queue_for_test(NavTargetRef::cell(9, 16));
         tank.setter_force_reassign.set_for_test(true);
     }
     assert!(
@@ -1814,7 +1815,7 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
     );
     let tank = entity(&sim, tank);
     assert!(tank.setter_force_reassign.is_raised(), "no setter call");
-    assert_eq!(tank.navigation.nav_queue, vec![NavTargetRef::cell(9, 16)]);
+    assert_eq!(tank.navigation.nav_queue(), vec![NavTargetRef::cell(9, 16)]);
 }
 
 /// The Infantry setter's null arm has no NavCom early return, so only the
@@ -1838,7 +1839,7 @@ fn a_warped_infantryman_without_a_navcom_keeps_his_walk_destination() {
     let destination = DriveCoord::cell(14, 10, 0);
     {
         let gi = sim.substrate.entities.get_mut(gi).unwrap();
-        assert!(gi.navigation.nav_com.is_none());
+        assert!(gi.navigation.nav_com().is_none());
         gi.locomotor
             .as_mut()
             .unwrap()
@@ -1902,7 +1903,7 @@ fn a_warped_building_cannot_be_captured() {
         )
         .unwrap();
         assert_eq!(
-            entity(sim, engineer).navigation.nav_com,
+            entity(sim, engineer).navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::building(plant)),
         );
         // The constructor and any Stop_Driver action must leave a Doing
@@ -1961,7 +1962,7 @@ fn a_warped_building_cannot_be_captured() {
     assert!(!erased(&sim, engineer), "refusal keeps the Engineer alive");
     assert!(
         matches!(
-            entity(&sim, engineer).navigation.nav_com,
+            entity(&sim, engineer).navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::Cell { .. })
         ),
         "refusal clears the building destination and scatters away"

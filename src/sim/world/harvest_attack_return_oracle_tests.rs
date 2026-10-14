@@ -237,7 +237,7 @@ impl Replay {
             assert_eq!(e.weapon_burst.index(), int(index), "{context}: burst index");
         }
         assert_eq!(
-            e.navigation.nav_queue.len(),
+            e.navigation.nav_queue().len(),
             int(&native["nav_queue_count"]) as usize,
             "{context}: waypoint queue"
         );

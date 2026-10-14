@@ -493,15 +493,15 @@ impl LocomotorState {
             TrackFamily::Drive => LocomotorKind::Drive,
             TrackFamily::Ship => LocomotorKind::Ship,
         };
-        if self.kind == kind {
-            match (family, &self.runtime_payload) {
+        if self.active_kind() == kind {
+            match (family, &self.runtime_payload()) {
                 (TrackFamily::Drive, LocomotorRuntimePayload::Drive(_))
                 | (TrackFamily::Ship, LocomotorRuntimePayload::Ship(_)) => {
                     TrackStorageSelection::Installed
                 }
                 _ => TrackStorageSelection::Absent,
             }
-        } else if self.piggyback.is_some() {
+        } else if self.piggyback().is_some() {
             TrackStorageSelection::Stashed
         } else {
             TrackStorageSelection::Absent
@@ -510,13 +510,13 @@ impl LocomotorState {
 
     fn selected_track_runtime(&self, family: TrackFamily) -> Option<TrackRuntimeRef<'_>> {
         match self.track_storage_selection(family) {
-            TrackStorageSelection::Installed => match &self.runtime_payload {
+            TrackStorageSelection::Installed => match &self.runtime_payload() {
                 LocomotorRuntimePayload::Drive(state) => Some(TrackRuntimeRef::Drive(state)),
                 LocomotorRuntimePayload::Ship(state) => Some(TrackRuntimeRef::Ship(state)),
                 _ => None,
             },
             TrackStorageSelection::Stashed => {
-                self.piggyback.as_ref()?.selected_track_runtime(family)
+                self.piggyback().as_ref()?.selected_track_runtime(family)
             }
             TrackStorageSelection::Absent => None,
         }
@@ -530,7 +530,7 @@ impl LocomotorState {
     }
 
     fn installed_track_retained_mut(&mut self) -> Option<TrackRetainedMut<'_>> {
-        match (self.kind, &mut self.runtime_payload) {
+        match (self.active_kind(), self.runtime_payload_mut()) {
             (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
                 state.retained.as_mut().map(TrackRetainedMut::Drive)
             }
@@ -560,7 +560,7 @@ impl LocomotorState {
     /// Only existing lazy allocation sites may call this. Stashes are never
     /// selected, reset or materialized by an installed-instance initializer.
     pub(crate) fn ensure_installed_track_state(&mut self) -> bool {
-        match (self.kind, &mut self.runtime_payload) {
+        match (self.active_kind(), self.runtime_payload_mut()) {
             (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
                 state.retained.get_or_insert_with(Default::default);
                 true
@@ -603,7 +603,7 @@ impl LocomotorState {
 
     /// Constructor permission for an absent installed Drive remains true.
     pub(crate) fn drive_end_permitted(&self) -> bool {
-        match (self.kind, &self.runtime_payload) {
+        match (self.active_kind(), &self.runtime_payload()) {
             (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => state
                 .retained
                 .as_ref()
@@ -626,8 +626,7 @@ impl LocomotorState {
                 true
             }
             TrackStorageSelection::Stashed => self
-                .piggyback
-                .as_mut()
+                .piggyback_mut()
                 .unwrap()
                 .apply_track_state_mutation(family, mutation),
             TrackStorageSelection::Absent => false,
@@ -669,7 +668,7 @@ impl LocomotorState {
     }
 
     pub(crate) fn store_drive_end_permission(&mut self, value: bool) -> bool {
-        match (self.kind, &mut self.runtime_payload) {
+        match (self.active_kind(), self.runtime_payload_mut()) {
             (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
                 let Some(state) = state.retained.as_mut() else {
                     return false;
@@ -699,9 +698,7 @@ impl LocomotorState {
             TrackStorageSelection::Installed => self
                 .installed_track_retained_mut()
                 .map(TrackRetainedMut::take_occupation),
-            TrackStorageSelection::Stashed => {
-                self.piggyback.as_mut()?.take_track_occupation(family)
-            }
+            TrackStorageSelection::Stashed => self.piggyback_mut()?.take_track_occupation(family),
             TrackStorageSelection::Absent => None,
         }
     }
@@ -710,7 +707,7 @@ impl LocomotorState {
         if let Some(state) = self.installed_track_retained_mut() {
             state.forget_occupation(mark);
         }
-        if let Some(stashed) = self.piggyback.as_mut() {
+        if let Some(stashed) = self.piggyback_mut() {
             stashed.forget_track_occupation(mark);
         }
     }
@@ -719,7 +716,7 @@ impl LocomotorState {
         if let Some(state) = self.installed_track_retained_mut() {
             state.take_occupation();
         }
-        if let Some(stashed) = self.piggyback.as_mut() {
+        if let Some(stashed) = self.piggyback_mut() {
             stashed.clear_track_occupation_projections();
         }
     }
@@ -733,7 +730,7 @@ impl LocomotorState {
             self.track_storage_selection(family),
             TrackStorageSelection::Installed
         ) {
-            let state = match &self.runtime_payload {
+            let state = match &self.runtime_payload() {
                 LocomotorRuntimePayload::Drive(state) => {
                     state.retained.as_ref().map(TrackRetainedRef::Drive)
                 }
@@ -751,7 +748,7 @@ impl LocomotorState {
                 }
             }
         }
-        if let Some(stashed) = self.piggyback.as_ref() {
+        if let Some(stashed) = self.piggyback().as_ref() {
             stashed.visit_family_occupation(family, visitor);
         }
     }
@@ -769,7 +766,7 @@ impl LocomotorState {
         retained: Option<DriveLocomotionRuntime>,
     ) -> bool {
         match self.track_storage_selection(TrackFamily::Drive) {
-            TrackStorageSelection::Installed => match &mut self.runtime_payload {
+            TrackStorageSelection::Installed => match self.runtime_payload_mut() {
                 LocomotorRuntimePayload::Drive(state) => {
                     state.retained = retained;
                     true
@@ -777,8 +774,7 @@ impl LocomotorState {
                 _ => false,
             },
             TrackStorageSelection::Stashed => self
-                .piggyback
-                .as_mut()
+                .piggyback_mut()
                 .unwrap()
                 .install_drive_state_for_test(retained),
             TrackStorageSelection::Absent => false,
@@ -791,7 +787,7 @@ impl LocomotorState {
         retained: Option<ShipLocomotionRuntime>,
     ) -> bool {
         match self.track_storage_selection(TrackFamily::Ship) {
-            TrackStorageSelection::Installed => match &mut self.runtime_payload {
+            TrackStorageSelection::Installed => match self.runtime_payload_mut() {
                 LocomotorRuntimePayload::Ship(state) => {
                     state.retained = retained;
                     true
@@ -799,8 +795,7 @@ impl LocomotorState {
                 _ => false,
             },
             TrackStorageSelection::Stashed => self
-                .piggyback
-                .as_mut()
+                .piggyback_mut()
                 .unwrap()
                 .install_ship_state_for_test(retained),
             TrackStorageSelection::Absent => false,
@@ -986,7 +981,7 @@ mod tests {
             let mut loaded: LocomotorState = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(loaded, state);
             let released = piggyback::end(&mut loaded).unwrap();
-            assert_eq!(released.kind, LocomotorKind::Teleport);
+            assert_eq!(released.active_kind(), LocomotorKind::Teleport);
             assert_eq!(loaded, before);
             assert_eq!(
                 loaded.take_track_occupation(family),

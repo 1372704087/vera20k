@@ -259,7 +259,7 @@ fn probe_healthy_hut(
             .get(engineer)
             .unwrap()
             .navigation
-            .nav_com
+            .nav_com()
             .is_none()
     );
 }

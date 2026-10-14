@@ -576,7 +576,7 @@ impl Simulation {
                 return;
             };
             let owner = building.owner();
-            let on_bridge = building.on_bridge;
+            let on_bridge = building.on_bridge();
             // `0x00442F3C..0x00442F63`: the building's `+0x388` Current() as a
             // rounded DirType is the Unlimbo direction.
             let frame = sim.session.binary_frame;
@@ -595,8 +595,8 @@ impl Simulation {
             // passenger's transporter link; the cargo list still held it.
             if let Some(entity) = sim.substrate.entities.get_mut(passenger) {
                 entity.passenger_role.clear_carrier_relation();
-                entity.on_bridge = on_bridge;
-                entity.sub_cell = sub_cell;
+                entity.set_on_bridge(on_bridge);
+                entity.set_sub_cell(sub_cell);
             }
             let revealed = !no_survivor
                 && positioned.is_some_and(|position| {
@@ -668,7 +668,7 @@ impl Simulation {
         }
         let owner = entity.owner();
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
-        let on_bridge = entity.on_bridge;
+        let on_bridge = entity.on_bridge();
         let position = entity.position;
         let Some(side) = self.houses.get(&owner).map(|house| house.side_index) else {
             return;
@@ -822,7 +822,7 @@ impl Simulation {
         };
         let frame = self.session.binary_frame;
         let unit_owner = unit.owner();
-        let on_bridge = unit.on_bridge;
+        let on_bridge = unit.on_bridge();
         let dropped_as_bomb = unit.was_dropped_as_bomb();
         let (rx, ry, unit_z) = (unit.position.rx, unit.position.ry, unit.position.z);
         let (sub_x, sub_y) = (unit.position.sub_x, unit.position.sub_y);
@@ -859,7 +859,7 @@ impl Simulation {
         };
         // `0x0073803B`: the unit's OnBridge.
         if let Some(entity) = self.substrate.entities.get_mut(passenger) {
-            entity.on_bridge = on_bridge;
+            entity.set_on_bridge(on_bridge);
         }
         // `0x007380A3..0x007380BF`: bomb passengers never escape, even
         // when another hit kills the falling transport without IgnoreDefenses.
@@ -911,7 +911,7 @@ impl Simulation {
                 .get_mut(passenger)
                 .and_then(|entity| entity.locomotor.as_mut())
             {
-                locomotor.layer = MovementLayer::Ground;
+                locomotor.set_layer(MovementLayer::Ground);
             }
             // `0x007380EC..0x007380F4`: a refused Unlimbo kills.
             if !sim.unlimbo_crew(rules, passenger, unlimbo, Some(facing), registry, effects) {
@@ -1079,8 +1079,8 @@ impl Simulation {
             ),
         };
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.sub_cell = sub_cell;
-            entity.on_bridge = on_bridge;
+            entity.set_sub_cell(sub_cell);
+            entity.set_on_bridge(on_bridge);
         }
         let facing = facing.or_else(|| {
             self.substrate

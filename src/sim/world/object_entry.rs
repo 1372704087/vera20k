@@ -130,7 +130,7 @@ fn raw(live: &EntryReadContext<'_>, cell: Cell, layer: MovementLayer) -> (u8, Op
 // Unit73F5EF/73F628/73F823 compare actual object pointers, never a Cell
 // sharing the blocker's coordinates. Infantry has a distinct Cell shortcut.
 fn object_target_is(mover: &GameEntity, blocker: &GameEntity) -> bool {
-    matches!(mover.navigation.nav_com, Some(NavTargetRef::Entity{id}|NavTargetRef::Object{id}|NavTargetRef::Building{id}) if id==blocker.stable_id())
+    matches!(mover.navigation.nav_com(), Some(NavTargetRef::Entity{id}|NavTargetRef::Object{id}|NavTargetRef::Building{id}) if id==blocker.stable_id())
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InfantryTargetAdmission {
@@ -170,7 +170,7 @@ fn infantry_target_admission(
         .terrain()
         .native_cell_identity(((current.x / 256) as i16, (current.y / 256) as i16));
     let cell_target_is = |cell| {
-        if let Some(NavTargetRef::Cell { rx, ry }) = mover.navigation.nav_com {
+        if let Some(NavTargetRef::Cell { rx, ry }) = mover.navigation.nav_com() {
             live.terrain()
                 .native_fixed_cell_index(rx as i16, ry as i16)
                 .map(Cell::Real)
@@ -749,14 +749,14 @@ fn classify_foot_entry<'a>(
     //Unit still performs the read/+320 when3D5 is false; Infantry skips it.
     //578540 consumes the pointer directly, without578460's extra lookup.
     let boundary_refused = !live.sim.object_placement_scope_active()
-        && (!infantry || e.in_playfield)
+        && (!infantry || e.in_playfield())
         && !crate::sim::cell_rect::retained_cell_is_in_playfield(
             cell,
             live.sim.playfield_bounds,
             live.terrain(),
         )
         && !live.sim.foot_allows_outside_playfield(id)?;
-    if boundary_refused && e.in_playfield {
+    if boundary_refused && e.in_playfield() {
         return Ok(7);
     }
     let p = live.coord(cell);
@@ -1072,14 +1072,14 @@ fn classify_foot_entry<'a>(
             }
         } else if !infantry {
             //73F865..8C0: Foot NavCom, body turn, then active IsMoving.
-            if b.navigation.nav_com.is_some()
+            if b.navigation.nav_com().is_some()
                 || b.body_facing.is_rotating(live.sim.session.binary_frame)
                 || is_moving(b) == Some(true)
             {
                 if head_on(e, b, live.sim.session.binary_frame) {
                     return Ok(7);
                 }
-                if (b.foot_occupation_enabled && b.category() != EntityCategory::Infantry)
+                if (b.foot_occupation_enabled() && b.category() != EntityCategory::Infantry)
                     || crate::sim::movement::drive_track::occupant_slot_a4_answers_true(b)
                 {
                     entry_result = entry_result.max(2);
@@ -1091,9 +1091,9 @@ fn classify_foot_entry<'a>(
             match b.category() {
                 EntityCategory::Aircraft | EntityCategory::Structure => return Ok(7),
                 EntityCategory::Unit => {
-                    if is_moving(b) != Some(true) && b.navigation.nav_com.is_none() {
+                    if is_moving(b) != Some(true) && b.navigation.nav_com().is_none() {
                         entry_result = entry_result.max(6);
-                    } else if b.foot_occupation_enabled
+                    } else if b.foot_occupation_enabled()
                         || crate::sim::movement::drive_track::occupant_slot_a4_answers_true(b)
                     {
                         entry_result = entry_result.max(2);
@@ -1352,7 +1352,7 @@ fn aircraft_entry(
 ) -> Result<u8, String> {
     if entity.locomotor.as_ref().is_none_or(|l| {
         !matches!(
-            l.kind,
+            l.active_kind(),
             LocomotorKind::Fly
                 | LocomotorKind::Jumpjet
                 | LocomotorKind::Rocket
@@ -1417,7 +1417,7 @@ fn building_impassable(
     obj: &ObjectType,
     cell: Cell,
 ) -> Result<bool, String> {
-    let admitted = if obj.undeploys_into.is_some() && e.lifecycle.cell_marked {
+    let admitted = if obj.undeploys_into.is_some() && e.lifecycle.cell_marked() {
         crate::sim::build_site::is_clear_to_build(
             live.sim,
             live.rules,
@@ -1625,7 +1625,7 @@ mod tests {
         mover.set_owner_for_test(sim.intern("Americans"));
         mover.set_type_ref_for_test(sim.intern("ENGINEER"));
         mover.set_category_for_test(EntityCategory::Infantry);
-        mover.in_playfield = true;
+        mover.set_in_playfield(true);
         sim.substrate.entities.insert(mover);
         sim.playfield_bounds = Some(
             crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
@@ -1657,7 +1657,7 @@ mod tests {
         mover.set_owner_for_test(sim.intern("Americans"));
         mover.set_type_ref_for_test(sim.intern("ENGINEER"));
         mover.set_category_for_test(EntityCategory::Infantry);
-        mover.in_playfield = true;
+        mover.set_in_playfield(true);
         sim.substrate.entities.insert(mover);
         sim.playfield_bounds = Some(
             crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
@@ -1719,7 +1719,7 @@ mod tests {
             .get_mut(90)
             .unwrap()
             .navigation
-            .nav_com = nav;
+            .set_nav_com(nav);
         impassable(
             &EntryReadContext {
                 sim,
@@ -1953,7 +1953,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::Building { id: 71 });
+            .set_nav_com(Some(NavTargetRef::Building { id: 71 }));
         assert!(
             !probe(&mut sim),
             "first-Building target skips the earlier enemy blocker"
@@ -1994,7 +1994,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::Cell { rx: 17, ry: 16 });
+            .set_nav_com(Some(NavTargetRef::Cell { rx: 17, ry: 16 }));
         assert_eq!(
             probe(&mut sim, 72),
             InfantryTargetAdmission::SkipCurrent,
@@ -2010,7 +2010,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .nav_com = None;
+            .set_nav_com(None);
         sim.substrate
             .entities
             .get_mut(70)
@@ -2091,7 +2091,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::Building { id: hut });
+            .set_nav_com(Some(NavTargetRef::Building { id: hut }));
         assert!(probe(&mut sim));
         assert_eq!(
             sim.resolved_terrain
@@ -2106,7 +2106,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::Cell { rx: 61, ry: 61 });
+            .set_nav_com(Some(NavTargetRef::Cell { rx: 61, ry: 61 }));
         assert!(
             probe(&mut sim),
             "two absent coordinates denote the same retained native Dummy Cell"
@@ -2123,7 +2123,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .nav_com = None;
+            .set_nav_com(None);
         sim.substrate
             .entities
             .get_mut(infantry)

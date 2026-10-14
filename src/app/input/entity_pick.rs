@@ -782,7 +782,7 @@ fn type_select_candidates(
             }
             let dynamic = selection_dynamic_prefix(entity, entities, rules, interner)
                 && type_is_selectable(type_id, rules)
-                && (!require_playfield_membership || entity.in_playfield);
+                && (!require_playfield_membership || entity.in_playfield());
             let undeploying_building_fallback = entity.category() == EntityCategory::Structure
                 && rules
                     .and_then(|r| r.object(type_id))
@@ -1135,7 +1135,7 @@ pub(crate) fn is_local_player_selectable_object(
 ) -> bool {
     entity.health.current() > 0
         && !entity.lifecycle.in_limbo()
-        && entity.in_playfield
+        && entity.in_playfield()
         && entity.category() != EntityCategory::Structure
         && entity.discovery.discovered_by_current_house()
         && type_is_selectable(sim.interner.resolve(entity.type_ref()), rules)
@@ -1316,7 +1316,7 @@ fn static_selection_gate(
         // This helper is not the complete virtual+64; see its owner above.
         // The app supplies the live MapClass authority gate;
         // headless selection fixtures leave it disabled.
-        && (!require_playfield_membership || entity.in_playfield)
+        && (!require_playfield_membership || entity.in_playfield())
         && type_is_selectable(entity_type, rules)
 }
 
@@ -1992,7 +1992,7 @@ mod tests {
             entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
             entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
             entity.position.exact_z_leptons = Some(xyz[2]);
-            entity.in_playfield = true;
+            entity.set_in_playfield(true);
             sim.entities_mut().insert(entity);
         };
         at(
@@ -2476,11 +2476,11 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
         entity.lifecycle.set_object_alive_for_test(true);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.in_playfield = false;
+        entity.set_in_playfield(false);
         assert!(!static_selection_gate(&entity, "MTNK", None, true));
-        entity.in_playfield = true;
+        entity.set_in_playfield(true);
         assert!(static_selection_gate(&entity, "MTNK", None, true));
-        entity.in_playfield = false;
+        entity.set_in_playfield(false);
         assert!(
             static_selection_gate(&entity, "MTNK", None, false),
             "headless fixtures without MapClass authority preserve prior admission"
@@ -2495,7 +2495,7 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "ORCA", "Americans", 5, 5);
         entity.lifecycle.set_object_alive_for_test(true);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.in_playfield = true;
+        entity.set_in_playfield(true);
         assert!(static_selection_gate(&entity, "ORCA", None, true));
         entity.health.set_for_test(0);
         entity.crash.set_crashing_for_test(true);

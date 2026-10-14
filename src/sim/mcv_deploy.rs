@@ -228,7 +228,7 @@ pub(crate) fn try_to_deploy(
         sim.substrate
             .entities
             .get(id)
-            .is_some_and(|e| e.navigation.nav_com.is_some())
+            .is_some_and(|e| e.navigation.nav_com().is_some())
     };
     let origin_of = |cell: (i16, i16)| (cell.0.wrapping_sub(1), cell.1.wrapping_sub(1));
     sim.foot_mark_remove(id, Some(rules), registry, effects);
@@ -354,12 +354,13 @@ pub(crate) fn mission_unload(
             effects,
         );
         if let Some(e) = sim.substrate.entities.get_mut(id) {
-            e.navigation.path_replay.cursor = e
-                .navigation
-                .path_replay
-                .directions
-                .len()
-                .min(u16::MAX as usize) as u16;
+            e.navigation.path_replay.set_cursor(
+                e.navigation
+                    .path_replay
+                    .directions()
+                    .len()
+                    .min(u16::MAX as usize) as u16,
+            );
             e.mission.set_handler_state(1);
         }
         // Native state 0 falls through to state 1 in this same invocation.
@@ -449,7 +450,7 @@ pub(crate) fn finish_initial_attempt(sim: &mut Simulation, id: u64) {
 pub(crate) fn finish_retry(sim: &mut Simulation, id: u64, accepted: bool) {
     if !accepted
         && let Some(e) = sim.substrate.entities.get_mut(id)
-        && e.navigation.nav_com.is_some()
+        && e.navigation.nav_com().is_some()
     {
         e.mcv_deploy_pending.clear();
     }

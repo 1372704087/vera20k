@@ -788,7 +788,7 @@ impl Fixture {
             "{boundary}: limbo"
         );
         assert_eq!(
-            entity.lifecycle.cell_marked,
+            entity.lifecycle.cell_marked(),
             native["marked"] == 1,
             "{boundary}: cell mark"
         );

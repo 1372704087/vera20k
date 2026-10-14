@@ -408,7 +408,11 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
         crate::sim::world::FrameEffects::default(),
     );
     let entity = fx.sim.substrate.entities.get_mut(passenger).unwrap();
-    entity.navigation.nav_com = Some(crate::sim::components::NavTargetRef::object(transport));
+    entity
+        .navigation
+        .set_nav_com(Some(crate::sim::components::NavTargetRef::object(
+            transport,
+        )));
     entity
         .mission
         .set_current_for_test(MissionId::from_known(MissionType::Enter), 0);
@@ -705,7 +709,7 @@ fn hover_transport_on_water_moves_to_shore_before_unloading() {
     }
     let moving = fx.sim.substrate.entities.get(lcrf).is_some_and(|e| {
         crate::sim::movement::motion_query::is_moving(&e) == Some(true)
-            || e.navigation.nav_com.is_some()
+            || e.navigation.nav_com().is_some()
     });
     assert!(moving, "the landing craft is driven toward land first");
     assert_eq!(
@@ -753,7 +757,7 @@ fn hover_transport_on_water_is_sent_to_a_raised_bank() {
             .get(lcrf)
             .unwrap()
             .navigation
-            .nav_com;
+            .nav_com();
         if sent.is_some() {
             break;
         }
@@ -882,7 +886,7 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
             if fx.revealed(id) && !out.iter().any(|(seen, ..)| *seen == id) {
                 let e = fx.sim.substrate.entities.get(id).expect("passenger");
                 let dest =
-                    crate::sim::movement::movement_goal_cell(e).or(match e.navigation.nav_com {
+                    crate::sim::movement::movement_goal_cell(e).or(match e.navigation.nav_com() {
                         Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) => {
                             Some((rx, ry))
                         }
@@ -1050,7 +1054,7 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     assert!(elevation.timer_start_frame() > spawn_elevation);
     assert_eq!(elevation.destination(), 0x3800);
     let e = fx.sim.substrate.entities.get(bggy).expect("passenger");
-    let dest = crate::sim::movement::movement_goal_cell(e).or(match e.navigation.nav_com {
+    let dest = crate::sim::movement::movement_goal_cell(e).or(match e.navigation.nav_com() {
         Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) => Some((rx, ry)),
         _ => None,
     });
@@ -1335,7 +1339,7 @@ fn unload_order_stops_a_driving_transport_where_it_is() {
     assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
     let transport = fx.sim.substrate.entities.get(bfrt).expect("transport");
     assert!(
-        transport.navigation.nav_com.is_none(),
+        transport.navigation.nav_com().is_none(),
         "the order nulls the NavCom"
     );
     assert_eq!(fx.run_until_revealed(&pax, 400).len(), 2);
@@ -1406,7 +1410,14 @@ fn nighthawk_failed_ejection_keeps_cargo_and_leaves_for_guard() {
     let blockers: Vec<u64> = (0..3).map(|_| fx.spawn("E1", 20, 20, 0)).collect();
     let spots: Vec<Option<u8>> = blockers
         .iter()
-        .map(|&id| fx.sim.substrate.entities.get(id).expect("blocker").sub_cell)
+        .map(|&id| {
+            fx.sim
+                .substrate
+                .entities
+                .get(id)
+                .expect("blocker")
+                .sub_cell()
+        })
         .collect();
     assert_eq!(
         spots.iter().flatten().count(),
@@ -1487,7 +1498,7 @@ fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
                     .get_mut(passenger)
                     .unwrap()
                     .lifecycle
-                    .cell_marked = true;
+                    .set_cell_marked(true);
             }
             fx.sim
                 .substrate
@@ -1551,9 +1562,12 @@ fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
             let pax = fx.sim.substrate.entities.get(passenger).unwrap();
             assert_eq!(pax.passenger_role.inside_transport_id(), Some(transport));
             assert!(pax.lifecycle.in_limbo());
-            assert_eq!(pax.lifecycle.cell_marked, !already_revealed);
+            assert_eq!(pax.lifecycle.cell_marked(), !already_revealed);
             assert!(!pax.in_logic_vector.is_member());
-            assert_eq!(pax.locomotor.as_ref().unwrap().layer, MovementLayer::Ground);
+            assert_eq!(
+                pax.locomotor.as_ref().unwrap().layer(),
+                MovementLayer::Ground
+            );
             assert_eq!(
                 fx.sim
                     .substrate

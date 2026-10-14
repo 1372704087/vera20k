@@ -147,7 +147,7 @@ fn lift(rules: &RuleSet) -> (Simulation, PathGrid, u64, u64) {
     assert_eq!(held.health.current(), health, "the beam deals no damage");
     let locomotor = held.locomotor.as_ref().unwrap();
     assert_eq!(locomotor.active_kind(), LocomotorKind::Jumpjet);
-    assert!(locomotor.piggyback.is_some(), "the Drive is suspended");
+    assert!(locomotor.piggyback().is_some(), "the Drive is suspended");
     (sim, grid, magnetron, tank)
 }
 
@@ -291,7 +291,7 @@ fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
         assert_eq!(landed.drop_credit.warped_by_house(), None);
         let locomotor = landed.locomotor.as_ref().unwrap();
         assert_eq!(locomotor.active_kind(), LocomotorKind::Drive);
-        assert!(locomotor.piggyback.is_none());
+        assert!(locomotor.piggyback().is_none());
         let location = crate::sim::movement::ground_pose::position_world_coord(&landed.position);
         assert_eq!(
             (location.x & 0xFF, location.y & 0xFF),

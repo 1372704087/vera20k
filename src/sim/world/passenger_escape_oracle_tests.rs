@@ -216,7 +216,7 @@ fn scene(input: &Value) -> Scene {
             },
         );
         unit.position.z = if on_bridge { 4 } else { 0 };
-        unit.on_bridge = on_bridge;
+        unit.set_on_bridge(on_bridge);
         // The Unit's FacingClass (`+0x388`), settled on the row's facing.
         let mut body = crate::sim::movement::FacingClass::new(facing, 0);
         body.snap(facing, frame);
@@ -301,7 +301,11 @@ fn scene(input: &Value) -> Scene {
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("occupant");
-        sim.substrate.entities.get_mut(id).unwrap().sub_cell = Some(spot);
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_sub_cell(Some(spot));
         let (dx, dy) = SPOT_OFFSETS[usize::from(spot)];
         let outcome = sim.try_reveal_entity_with_context(
             id,
@@ -496,7 +500,7 @@ fn compare(row: &Value) {
             "{context}: coordinate"
         );
         assert_eq!(
-            u64::from(entity.on_bridge),
+            u64::from(entity.on_bridge()),
             expected["on_bridge"].as_u64().unwrap(),
             "{context}: OnBridge"
         );
@@ -513,7 +517,7 @@ fn compare(row: &Value) {
             expected["queued"].as_i64().unwrap(),
             "{context}: queued mission"
         );
-        let nav = match entity.navigation.nav_com {
+        let nav = match entity.navigation.nav_com() {
             Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
             None => Value::Null,
             Some(other) => panic!("{context}: NavCom {other:?}"),

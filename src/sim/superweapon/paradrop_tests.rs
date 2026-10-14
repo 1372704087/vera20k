@@ -223,7 +223,7 @@ fn fill_spots(sim: &mut Simulation, cell: (u16, u16)) {
         blocker.set_type_ref_for_test(sim.interner.intern("E1"));
         blocker.set_category_for_test(EntityCategory::Infantry);
         blocker.set_is_voxel_for_test(false);
-        blocker.sub_cell = Some(spot);
+        blocker.set_sub_cell(Some(spot));
         (blocker.position.sub_x, blocker.position.sub_y) =
             lepton::subcell_lepton_offset(Some(spot));
         sim.substrate.entities.insert(blocker);
@@ -609,7 +609,7 @@ fn send_paradrop_planes_matches_native() {
             entity.attack_target.target(),
             Some(TargetKind::Cell(TARGET.0, TARGET.1))
         );
-        assert_eq!(entity.navigation.nav_com, None);
+        assert_eq!(entity.navigation.nav_com(), None);
         assert_eq!((entity.position.rx, entity.position.ry), expected, "{row}");
         assert_eq!(
             (entity.position.sub_x, entity.position.sub_y),
@@ -692,7 +692,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value, target: (u1
         .attack_target
         .set_for_test(flag(row, "target").then(|| TargetKind::Cell(target.0, target.1)));
     if !flag(row, "nav_com") {
-        plane.navigation.nav_com = None;
+        plane.navigation.set_nav_com(None);
     }
     let passes = i8::try_from(int(&row["passes"])).unwrap();
     plane.mission_leaf.set_paradrop_passes_for_test(passes);
@@ -765,7 +765,7 @@ fn paradrop_missions_match_native() {
             Some(call) if call[1] == "null" => None,
             Some(_) => Some(NavTargetRef::cell(target.0, target.1)),
         };
-        assert_eq!(plane.navigation.nav_com, nav, "{row}");
+        assert_eq!(plane.navigation.nav_com(), nav, "{row}");
         let targeted = flag(row, "target") && events(row, "target").all(|call| call[1] != "null");
         assert_eq!(
             plane.attack_target.target(),

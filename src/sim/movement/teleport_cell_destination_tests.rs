@@ -164,9 +164,9 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         LocomotorKind::Teleport
     );
     actor.lifecycle.set_in_limbo_for_test(false);
-    actor.lifecycle.cell_marked = true;
+    actor.lifecycle.set_cell_marked(true);
     super::super::ground_pose::put_location(&mut actor.position, coord(&before["actor"]["coords"]));
-    actor.on_bridge = signed(&before["actor"]["on_bridge"]) != 0;
+    actor.set_on_bridge(signed(&before["actor"]["on_bridge"]) != 0);
     actor.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_raw(signed(&before["actor"]["mission"])),
         suspended: MissionId::NONE,
@@ -198,26 +198,40 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     //123 is the corpus's opaque retained pointer token, never dereferenced by
     //the selected caller. Preserve identity through early-return controls.
     let aux = before["actor"]["aux"].as_u64().unwrap();
-    actor.navigation.nav_com_aux = (aux != 0).then_some(NavTargetRef::Object { id: aux });
-    actor.navigation.nav_com = (!before["actor"]["navcell"].is_null()).then(|| {
-        let (rx, ry) = pair(&before["actor"]["navcell"]);
-        NavTargetRef::cell(rx, ry)
-    });
-    actor.navigation.path_replay.directions = before["actor"]["path"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|word| signed(word) as u8)
-        .collect();
-    actor.navigation.path_replay.cursor = 0;
-    actor.navigation.path_replay.reference_cell = Some((
+    actor
+        .navigation
+        .set_nav_com_aux((aux != 0).then_some(NavTargetRef::Object { id: aux }));
+    actor
+        .navigation
+        .set_nav_com((!before["actor"]["navcell"].is_null()).then(|| {
+            let (rx, ry) = pair(&before["actor"]["navcell"]);
+            NavTargetRef::cell(rx, ry)
+        }));
+    actor.navigation.path_replay.set_directions_for_test(
+        before["actor"]["path"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|word| signed(word) as u8)
+            .collect(),
+    );
+    actor.navigation.path_replay.set_cursor(0);
+    actor.navigation.path_replay.set_reference_cell(Some((
         signed(&before["actor"]["reference"][0]) as i16,
         signed(&before["actor"]["reference"][1]) as i16,
-    ));
-    actor.navigation.path_runtime.movement_timer = timer(&before["actor"]["movement_timer"]);
-    actor.navigation.path_runtime.blocked_timer = timer(&before["actor"]["blocked_timer"]);
-    actor.navigation.path_runtime.retries_left =
-        before["actor"]["retries"].as_u64().unwrap() as u32;
+    )));
+    actor
+        .navigation
+        .path_runtime
+        .set_movement_timer_for_test(timer(&before["actor"]["movement_timer"]));
+    actor
+        .navigation
+        .path_runtime
+        .set_blocked_timer_for_test(timer(&before["actor"]["blocked_timer"]));
+    actor
+        .navigation
+        .path_runtime
+        .set_retries_left(before["actor"]["retries"].as_u64().unwrap() as u32);
     //Raw prestate follows the actual original5217C0 initial mark. Native Cell
     //object lists are deliberately empty, independently of these raw bytes.
     for native in before["cells"].as_array().unwrap() {
@@ -252,14 +266,16 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         let supplied = coord(&transport["coords"]);
         let vehicle = sim.substrate.entities.get_mut(target).unwrap();
         vehicle.lifecycle.set_in_limbo_for_test(false);
-        vehicle.lifecycle.cell_marked = true;
+        vehicle.lifecycle.set_cell_marked(true);
         super::super::ground_pose::put_location(&mut vehicle.position, supplied);
         vehicle.health.set_for_test(signed(&transport["health"]));
-        vehicle.on_bridge = transport
-            .get("on_bridge")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let layer = if vehicle.on_bridge {
+        vehicle.set_on_bridge(
+            transport
+                .get("on_bridge")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        );
+        let layer = if vehicle.on_bridge() {
             MovementLayer::Bridge
         } else {
             MovementLayer::Ground
@@ -280,7 +296,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             .get_mut(id)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::object(target));
+            .set_nav_com(Some(NavTargetRef::object(target)));
         if input.get("chrono_timer").and_then(Value::as_bool) == Some(true) {
             // The native TimerCheck fixture supplies a nonnull TarCom+2B4,
             // deliberately excluding passive-acquisition/idle callbacks.
@@ -371,7 +387,7 @@ fn assert_state(sim: &Simulation, id: u64, owner: InternedId, native: &Value, co
         "{context}: physical Location"
     );
     assert_eq!(
-        actor.on_bridge,
+        actor.on_bridge(),
         signed(&expected["on_bridge"]) != 0,
         "{context}: OnBridge"
     );
@@ -430,23 +446,25 @@ fn assert_state(sim: &Simulation, id: u64, owner: InternedId, native: &Value, co
         NavTargetRef::cell(rx, ry)
     });
     assert_eq!(
-        actor.navigation.nav_com, expected_nav,
+        actor.navigation.nav_com(),
+        expected_nav,
         "{context}: NavCom receiver identity"
     );
     let aux = expected["aux"].as_u64().unwrap();
     assert_eq!(
-        actor.navigation.nav_com_aux,
+        actor.navigation.nav_com_aux(),
         (aux != 0).then_some(NavTargetRef::Object { id: aux }),
         "{context}: retained auxiliary identity"
     );
     assert_eq!(
-        actor.navigation.path_replay.cursor, 0,
+        actor.navigation.path_replay.cursor(),
+        0,
         "{context}: no Process consumes this queue"
     );
     let path: Vec<_> = actor
         .navigation
         .path_replay
-        .directions
+        .directions()
         .iter()
         .map(|&word| if word == u8::MAX { -1 } else { i32::from(word) })
         .collect();
@@ -455,7 +473,7 @@ fn assert_state(sim: &Simulation, id: u64, owner: InternedId, native: &Value, co
         expected["path"],
         "{context}: retained path head/suffix"
     );
-    let reference = actor.navigation.path_replay.reference_cell.unwrap();
+    let reference = actor.navigation.path_replay.reference_cell().unwrap();
     assert_eq!(
         json!([reference.0, reference.1]),
         expected["reference"],
@@ -464,22 +482,22 @@ fn assert_state(sim: &Simulation, id: u64, owner: InternedId, native: &Value, co
     let path = actor.navigation.path_runtime;
     assert_eq!(
         json!([
-            path.movement_timer.start_frame(),
-            path.movement_timer.duration()
+            path.movement_timer().start_frame(),
+            path.movement_timer().duration()
         ]),
         expected["movement_timer"],
         "{context}: movement timer"
     );
     assert_eq!(
         json!([
-            path.blocked_timer.start_frame(),
-            path.blocked_timer.duration()
+            path.blocked_timer().start_frame(),
+            path.blocked_timer().duration()
         ]),
         expected["blocked_timer"],
         "{context}: blocked timer"
     );
     assert_eq!(
-        u64::from(path.retries_left),
+        u64::from(path.retries_left()),
         expected["retries"].as_u64().unwrap(),
         "{context}: retained retries"
     );
@@ -631,7 +649,7 @@ fn full_transport_arrival_replays_original_warp_in_refusal_tail() {
     for row in rows {
         let name = row["input"]["name"].as_str().unwrap();
         let (mut sim, id, _) = fixture(row, &rules);
-        let transport = match sim.substrate.entities.get(id).unwrap().navigation.nav_com {
+        let transport = match sim.substrate.entities.get(id).unwrap().navigation.nav_com() {
             Some(NavTargetRef::Object { id }) => id,
             other => panic!("{name}: missing transport {other:?}"),
         };
@@ -1108,8 +1126,8 @@ fn a_deferred_restore_keeps_a_cleg_object_navcom() {
         .expect("E1 spawns");
     let target = NavTargetRef::object(object);
     let cleg = sim.substrate.entities.get_mut(id).unwrap();
-    cleg.navigation.nav_com = Some(target);
-    cleg.navigation.pending_destination_setter = true;
+    cleg.navigation.set_nav_com(Some(target));
+    cleg.navigation.set_pending_destination_setter(true);
     sim.complete_pending_order(
         id,
         Some(&rules),
@@ -1117,8 +1135,8 @@ fn a_deferred_restore_keeps_a_cleg_object_navcom() {
         crate::sim::world::FrameEffects::default(),
     );
     let cleg = sim.substrate.entities.get(id).unwrap();
-    assert_eq!(cleg.navigation.nav_com, Some(target));
-    assert!(!cleg.navigation.pending_destination_setter);
+    assert_eq!(cleg.navigation.nav_com(), Some(target));
+    assert!(!cleg.navigation.pending_destination_setter());
     assert!(
         cleg.locomotor
             .as_ref()
@@ -1222,18 +1240,18 @@ fn teleport_admission_input_error_restores_physical_occupation() {
         .unwrap();
     assert_eq!(runtime.resolved_destination(), None);
     assert_eq!(super::super::motion_query::is_moving(actor), Some(false));
-    assert_eq!(actor.navigation.nav_com, None);
+    assert_eq!(actor.navigation.nav_com(), None);
     assert_eq!(
         bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
         raw
     );
     let after = &row["boundaries"][0]["after"]["actor"];
     assert_eq!(
-        actor.navigation.path_runtime.movement_timer,
+        actor.navigation.path_runtime.movement_timer(),
         timer(&after["movement_timer"])
     );
     assert_eq!(
-        actor.navigation.path_runtime.blocked_timer,
+        actor.navigation.path_runtime.blocked_timer(),
         timer(&after["blocked_timer"])
     );
     assert_rng(

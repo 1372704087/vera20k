@@ -1666,7 +1666,7 @@ fn disguise_inputs(
 fn retask_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
     json!({
         "suspended_target": entity.suspended_attack_target.target(),
-        "suspended_nav": entity.navigation.suspended_nav_com,
+        "suspended_nav": entity.navigation.suspended_nav_com(),
     })
 }
 
@@ -3154,7 +3154,7 @@ impl TacticalCaptureSession {
                     "stable_id": id, "owner": owner,
                     "type_id": type_name, "category": entity.category(),
                     "cell": [entity.position.rx, entity.position.ry],
-                    "physical_leptons": [coord.x, coord.y, coord.z], "on_bridge": entity.on_bridge,
+                    "physical_leptons": [coord.x, coord.y, coord.z], "on_bridge": entity.on_bridge(),
                     "health": entity.health.current(), "active": entity.is_active(),
                     "veterancy_raw_bits": entity.veterancy.raw().bits(),
                     "veterancy_rank_cache": entity.veterancy.rank_cache(),
@@ -3164,7 +3164,7 @@ impl TacticalCaptureSession {
                     // Techno +0x1C8, the offline latch (`sim::powered_unit`).
                     "deactivated": entity.deactivated,
                     // Mark and Logic membership are independent retained facts.
-                    "cell_marked": entity.lifecycle.cell_marked,
+                    "cell_marked": entity.lifecycle.cell_marked(),
                     "in_logic_vector": entity.in_logic_vector.is_member(),
                     "mission": {"current": entity.mission.current().raw(),
                         "queued": entity.mission.queued().raw(), "suspended": entity.mission.suspended().raw(),
@@ -3172,7 +3172,7 @@ impl TacticalCaptureSession {
                         "start_frame": entity.mission.mission_start_frame(), "ai_counter": entity.mission.ai_counter(),
                         "dispatch_timer": {"start_frame": timer.start_frame(), "delay": timer.delay()}},
                     "target": entity.attack_target.target(),
-                    "archive": entity.archive_target(), "nav": entity.navigation.nav_com, "foot": foot,
+                    "archive": entity.archive_target(), "nav": entity.navigation.nav_com(), "foot": foot,
                     "retask": retask_observation(entity),
                     "jumpjet": jumpjet,
                     "cloak": cloak,
@@ -4991,7 +4991,9 @@ mod tests {
         entity
             .suspended_attack_target
             .set_for_test(Some(TargetKind::Cell(7, 8)));
-        entity.navigation.suspended_nav_com = Some(NavTargetRef::object(42));
+        entity
+            .navigation
+            .set_suspended_nav_com(Some(NavTargetRef::object(42)));
         assert_eq!(
             retask_observation(&entity),
             json!({
@@ -5001,7 +5003,9 @@ mod tests {
         entity
             .suspended_attack_target
             .set_for_test(Some(TargetKind::Entity(43)));
-        entity.navigation.suspended_nav_com = Some(NavTargetRef::cell(9, 10));
+        entity
+            .navigation
+            .set_suspended_nav_com(Some(NavTargetRef::cell(9, 10)));
         assert_eq!(
             retask_observation(&entity),
             json!({
@@ -5009,7 +5013,7 @@ mod tests {
             })
         );
         entity.suspended_attack_target.set_for_test(None);
-        entity.navigation.suspended_nav_com = None;
+        entity.navigation.set_suspended_nav_com(None);
         assert_eq!(
             retask_observation(&entity),
             json!({"suspended_target":null,"suspended_nav":null})

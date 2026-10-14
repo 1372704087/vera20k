@@ -554,7 +554,7 @@ impl Simulation {
                     return;
                 };
                 let cell = (entity.position.rx, entity.position.ry);
-                let driving = entity.navigation.nav_com.is_some();
+                let driving = entity.navigation.nav_com().is_some();
                 // 0x006AF7F8: Tiberium land under the slave (0x00487DF0).
                 if crate::sim::miner::ore_scan::cell_is_tiberium_land(self, registry, cell) {
                     self.slave_start_harvest(slave);
@@ -642,7 +642,7 @@ impl Simulation {
             return;
         };
         let cell = (entity.position.rx, entity.position.ry);
-        let nav_com = entity.navigation.nav_com;
+        let nav_com = entity.navigation.nav_com();
         // 0x006AFA94..0x006AFB1B: a NavCom whose cell lies more than
         // ApproachTargetResetMultiplier cells from the drop cell is re-issued.
         let drifted = nav_com.is_some_and(|target| {
@@ -687,7 +687,7 @@ impl Simulation {
         };
         let building = owner.category() == EntityCategory::Structure;
         let unit = owner.category() == EntityCategory::Unit;
-        let driving = owner.navigation.nav_com.is_some();
+        let driving = owner.navigation.nav_com().is_some();
         let deploy_pending = owner.mcv_deploy_pending.is_pending();
         let guarding = owner.mission.current().known() == Some(MissionType::Guard);
         let constructing_or_selling = owner.constructing_or_selling();
@@ -1060,7 +1060,7 @@ impl Simulation {
             return;
         };
         let field = (owner.category() == EntityCategory::Unit)
-            .then_some(owner.navigation.nav_com)
+            .then_some(owner.navigation.nav_com())
             .flatten()
             .and_then(|target| {
                 crate::sim::movement::nav_target_coordinate(
@@ -1387,11 +1387,11 @@ impl Simulation {
             return false;
         };
         if let Some(entity) = self.substrate.entities.get_mut(slave) {
-            entity.sub_cell = Some(bump_crush::priority_sub_cell(
+            entity.set_sub_cell(Some(bump_crush::priority_sub_cell(
                 position.sub_x,
                 position.sub_y,
-            ));
-            entity.on_bridge = false;
+            )));
+            entity.set_on_bridge(false);
         }
         let outcome = self.try_reveal_entity_with_context(
             slave,
@@ -1872,7 +1872,7 @@ mod tests {
         )));
         let entity = sim.substrate.entities.get(slave).unwrap();
         assert!(!entity.lifecycle.in_limbo());
-        assert_eq!(entity.sub_cell, Some(0));
+        assert_eq!(entity.sub_cell(), Some(0));
         assert_eq!(
             (entity.position.sub_x, entity.position.sub_y),
             (centre, centre)

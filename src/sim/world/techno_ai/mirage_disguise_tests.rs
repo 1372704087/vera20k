@@ -257,8 +257,8 @@ fn whole_unit_fixture(
         entity
             .lifecycle
             .set_object_alive_for_test(before["alive"] != 0);
-        entity.lifecycle.cell_marked = before["limbo"] == 0;
-        entity.in_playfield = before["limbo"] == 0;
+        entity.lifecycle.set_cell_marked(before["limbo"] == 0);
+        entity.set_in_playfield(before["limbo"] == 0);
         entity.locomotor = Some(LocomotorState::from_object_type(object, frame));
         entity.set_body_facing_rot(object.turret_rot);
         if role == "mirage" {
@@ -283,7 +283,7 @@ fn whole_unit_fixture(
                     signed(&foot["targeting_timer"][0]) as u32,
                     signed(&foot["targeting_timer"][2]) as u32,
                 ));
-            entity.on_bridge = foot["on_bridge"] != 0;
+            entity.set_on_bridge(foot["on_bridge"] != 0);
             entity.body_facing.snap(
                 signed(&foot["body_facing_words"][0]) as u16,
                 signed(&foot["body_facing_words"][2]) as u32,

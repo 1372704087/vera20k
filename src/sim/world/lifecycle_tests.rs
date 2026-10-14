@@ -591,7 +591,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
             .entities
             .get(building_id)
             .unwrap()
-            .in_playfield
+            .in_playfield()
     );
 
     let warhead = sim.interner.intern("KILLWH");
@@ -629,7 +629,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     // @ 0x006F6CC0..0x006F6CFE writes mode-one global MapClass membership,
     // including during the ejection helper's temporary editor-mode bracket.
     assert!(
-        passenger.in_playfield,
+        passenger.in_playfield(),
         "survivor must use actual level-four map membership"
     );
 }
@@ -639,7 +639,11 @@ fn uninit_clears_aircraft_bridge_occupation() {
     let mut sim = Simulation::new();
     install_common_raw_terrain(&mut sim, 8, 8, 1, Some((3, 4)));
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(0));
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     assert!(matches!(
         sim.try_reveal_entity(1, common_raw_request(3, 4, 5, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -828,7 +832,7 @@ fn grounded_ramp_reveal_commits_native_height_before_occupation() {
             insert_entity(&mut sim, 1, category);
             let entity = sim.substrate.entities.get_mut(1).unwrap();
             entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-            entity.on_bridge = on_bridge;
+            entity.set_on_bridge(on_bridge);
             let before_rng = sim.scenario_rng.logical_state();
             assert!(matches!(
                 sim.try_reveal_entity(1, common_raw_request(2, 2, requested_level, 128, 128)),
@@ -874,7 +878,11 @@ fn a_revealed_building_takes_the_floor_at_its_location_as_its_z() {
             .unwrap()
             .slope_type = 1;
         insert_entity(&mut sim, 1, EntityCategory::Structure);
-        sim.substrate.entities.get_mut(1).unwrap().on_bridge = on_bridge;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_on_bridge(on_bridge);
         assert!(matches!(
             sim.try_reveal_entity(1, common_raw_request(2, 2, requested_level, 128, 128)),
             RevealOutcome::Revealed { .. }
@@ -1274,7 +1282,7 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
         .expect("mode-one outside cell");
 
     insert_entity(&mut sim, 1, EntityCategory::Unit);
-    assert!(!sim.substrate.entities.get(1).unwrap().in_playfield);
+    assert!(!sim.substrate.entities.get(1).unwrap().in_playfield());
     let mut refused = common_raw_request(inside.0, inside.1, 0, 128, 128);
     refused.placement = PlacementEvidence::MarkFailed;
     assert_eq!(
@@ -1282,7 +1290,7 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
         RevealOutcome::Failed(RevealFailure::MarkFailed)
     );
     assert!(
-        !sim.substrate.entities.get(1).unwrap().in_playfield,
+        !sim.substrate.entities.get(1).unwrap().in_playfield(),
         "Techno6F6CB8 returns before the +3D5 writer when Object Mark fails"
     );
     assert!(matches!(
@@ -1290,18 +1298,22 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
         RevealOutcome::Revealed { .. }
     ));
     assert!(
-        sim.substrate.entities.get(1).unwrap().in_playfield,
+        sim.substrate.entities.get(1).unwrap().in_playfield(),
         "TechnoClass::Unlimbo @ 0x006F6CFE establishes exact mode-one membership"
     );
 
-    sim.substrate.entities.get_mut(1).unwrap().in_playfield = false;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_in_playfield(false);
     sim.promote_entity_playfield_membership_after_move(1);
-    assert!(sim.substrate.entities.get(1).unwrap().in_playfield);
+    assert!(sim.substrate.entities.get(1).unwrap().in_playfield());
     sim.substrate.entities.get_mut(1).unwrap().position.rx = outside.0;
     sim.substrate.entities.get_mut(1).unwrap().position.ry = outside.1;
     sim.promote_entity_playfield_membership_after_move(1);
     assert!(
-        sim.substrate.entities.get(1).unwrap().in_playfield,
+        sim.substrate.entities.get(1).unwrap().in_playfield(),
         "ordinary Foot movement @ 0x006F511A promotes but never demotes"
     );
 }
@@ -1451,7 +1463,7 @@ fn gsi_04_12_common_raw_occupation_signed_ground_pins_mark_and_height_clear() {
     {
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
-        unit.on_bridge = true;
+        unit.set_on_bridge(true);
     }
 
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 2, 128, 128));
@@ -1616,7 +1628,7 @@ fn hover_limbo_releases_actual_head_claim_and_repeated_limbo_preserves_a_new_res
         let current = DriveCoord::cell(2, 3, 0);
         sim.object_raw_receiver_at(1, current, false);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.foot_occupation_enabled = false;
+        entity.set_foot_occupation_enabled(false);
         entity
             .locomotor
             .as_mut()
@@ -1750,7 +1762,7 @@ fn gsi_04_12_common_raw_occupation_building_foundation_is_ground_only() {
         building
             .type_facts
             .set_foundation_for_test("2x2".to_string());
-        building.on_bridge = true;
+        building.set_on_bridge(true);
     }
 
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 9, 128, 128));
@@ -1836,7 +1848,7 @@ fn gsi_04_12_common_raw_occupation_follows_the_layer_query_not_the_path_layer() 
     let mut sim = Simulation::new();
     insert_entity(&mut sim, 2, EntityCategory::Unit);
     let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Drive);
-    locomotor.layer = MovementLayer::Air;
+    locomotor.set_layer(MovementLayer::Air);
     sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(locomotor);
     let _ = sim.try_reveal_entity(2, common_raw_request(5, 6, 0, 128, 128));
     assert!(sim.substrate.occupancy.contains_entity(5, 6, 2));
@@ -1917,7 +1929,11 @@ fn gsi_04_12_object_raw_occupation_deck_clear_rechecks_live_structural_state() {
     // Level 1 makes z=5 exactly one deck above ground.
     install_common_raw_terrain(&mut sim, 8, 8, 1, Some((3, 4)));
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(0));
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
 
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 5, 128, 128));
     assert_eq!(
@@ -1933,7 +1949,11 @@ fn gsi_04_12_object_raw_occupation_deck_clear_rechecks_live_structural_state() {
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0);
 
     install_fly_aircraft(&mut sim, 2, SimFixed::from_num(0));
-    sim.substrate.entities.get_mut(2).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .set_on_bridge(true);
     let _ = sim.try_reveal_entity(2, common_raw_request(3, 4, 5, 128, 128));
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0x40);
 
@@ -1992,7 +2012,7 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         ) > 0
     );
     assert!(
-        aircraft.lifecycle.cell_marked,
+        aircraft.lifecycle.cell_marked(),
         "the post-process Mark transaction completed"
     );
     assert!(!sim.substrate.occupancy.contains_entity(3, 4, 1));
@@ -2032,7 +2052,7 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         ),
         0
     );
-    assert!(aircraft.lifecycle.cell_marked);
+    assert!(aircraft.lifecycle.cell_marked());
     assert_eq!(
         sim.substrate
             .occupancy
@@ -2086,7 +2106,11 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
     let mut sim = Simulation::new();
     install_common_raw_terrain(&mut sim, 8, 8, 0, Some((3, 4)));
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(1));
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 0, 128, 128));
     // SetHeight's Mark pair re-lists it one lepton above the deck, in the air.
     sim.set_object_height(1, 1, None, None, crate::sim::world::FrameEffects::default());
@@ -2142,7 +2166,11 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
         .unwrap()
         .slope_type = 1;
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(0));
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 0, 64, 192));
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0x40);
     sim.remove_entity_occupancy(1);
@@ -2179,7 +2207,11 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
 fn gsi_05_05_mapless_fly_uses_dummy_ground_then_bridge_height() {
     let mut sim = Simulation::new();
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(100));
-    sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .set_on_bridge(true);
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 2, 128, 128));
     // A mapless reveal keeps no exact Z; SetHeight writes one over the Dummy
     // cell's ground zero and the OnBridge deck.
@@ -2330,7 +2362,7 @@ fn unlimbo_adds_a_high_flying_considered_aircraft_to_the_air_tracker() {
         );
 
         let jumpjet = sim.substrate.entities.get(30).unwrap();
-        assert!(jumpjet.lifecycle.cell_marked);
+        assert!(jumpjet.lifecycle.cell_marked());
         assert_eq!(jumpjet.air_spatial_bucket().is_some(), tracked);
         assert!(!sim.substrate.occupancy.contains_entity(3, 4, 30));
     }
@@ -2390,7 +2422,7 @@ fn lifecycle_authority_reveal_commits_coords_then_marks_then_registers() {
     assert_eq!(entity.position.sub_x, SimFixed::from_num(128));
     assert_eq!(entity.position.sub_y, SimFixed::from_num(64));
     assert!(!entity.lifecycle.in_limbo());
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert!(entity.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
     assert_eq!(sim.live_object_order_snapshot(), vec![1]);
@@ -2428,7 +2460,7 @@ fn reveal_stops_after_mark_when_object_is_not_alive() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.in_limbo());
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
     assert!(sim.lifecycle_outputs.is_empty());
 }
@@ -2449,7 +2481,7 @@ fn lifecycle_authority_reveal_mark_failure_keeps_adjusted_coords_alive_limbo() {
     );
     assert!(entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
     assert_eq!(
         sim.lifecycle_test_events,
@@ -2490,7 +2522,7 @@ fn lifecycle_authority_reveal_rejects_an_already_marked_limbo_object() {
         .get_mut(1)
         .unwrap()
         .lifecycle
-        .cell_marked = true;
+        .set_cell_marked(true);
 
     assert_eq!(
         sim.try_reveal_entity(1, request(10, 20, PlacementEvidence::MarkSucceeded)),
@@ -2502,7 +2534,7 @@ fn lifecycle_authority_reveal_rejects_an_already_marked_limbo_object() {
         (before.rx, before.ry)
     );
     assert!(entity.lifecycle.in_limbo());
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert!(sim.lifecycle_test_events.is_empty());
 }
 
@@ -2520,7 +2552,7 @@ fn lifecycle_authority_reveal_logic_failure_keeps_successful_mark() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.in_limbo());
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
 }
@@ -2690,7 +2722,7 @@ fn open_topped_direct_registration_keeps_hidden_passenger_live() {
     let passenger = sim.substrate.entities.get(1).unwrap();
     assert!(passenger.lifecycle.object_alive());
     assert!(passenger.lifecycle.in_limbo());
-    assert!(!passenger.lifecycle.cell_marked);
+    assert!(!passenger.lifecycle.cell_marked());
     assert!(passenger.in_logic_vector.is_member());
     assert_eq!(sim.live_object_order_snapshot(), vec![2, 1]);
 
@@ -2788,7 +2820,7 @@ fn lifecycle_authority_conceal_dirty_eligibility_emits_dirty_before_drawn_clear(
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
 }
 
@@ -2834,7 +2866,7 @@ fn lifecycle_authority_conceal_deselects_unmarks_unregisters_then_sets_limbo() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.selection.is_selected());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
     assert!(entity.lifecycle.in_limbo());
 }
@@ -2886,7 +2918,14 @@ fn gsi_04_05_conceal_removes_only_selected_object_list_layer() {
         1,
         "conceal must not cross-scan the bridge object list"
     );
-    assert!(!sim.substrate.entities.get(1).unwrap().lifecycle.cell_marked);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .lifecycle
+            .cell_marked()
+    );
 }
 
 #[test]
@@ -3092,7 +3131,7 @@ fn lifecycle_authority_uninit_limbos_while_alive_then_clears_alive_then_queues()
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(entity.death.is_dying());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
     let limbo = sim
@@ -3262,7 +3301,7 @@ fn gsi_05_03_dead_nonlimbo_stored_object_still_runs_conceal() {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.lifecycle.set_object_alive_for_test(false);
         assert!(!entity.lifecycle.in_limbo());
-        assert!(entity.lifecycle.cell_marked);
+        assert!(entity.lifecycle.cell_marked());
     }
     sim.lifecycle_test_events.clear();
 
@@ -3295,7 +3334,7 @@ fn gsi_05_03_dead_nonlimbo_stored_object_still_runs_conceal() {
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
 }
 
@@ -3313,7 +3352,7 @@ fn lifecycle_authority_uninit_dead_limbo_remains_resolvable_until_drain() {
         .expect("dead object remains stored until the ordinary drain");
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert!(!entity.in_logic_vector.is_member());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
 
@@ -3633,24 +3672,30 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
     listener
         .suspended_attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    listener.navigation.suspended_nav_com = Some(NavTargetRef::Entity { id: 2 });
-    listener.navigation.nav_com_aux = Some(NavTargetRef::Object { id: 2 });
-    listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
-    listener.navigation.nav_queue = vec![
+    listener
+        .navigation
+        .set_suspended_nav_com(Some(NavTargetRef::Entity { id: 2 }));
+    listener
+        .navigation
+        .set_nav_com_aux(Some(NavTargetRef::Object { id: 2 }));
+    listener
+        .navigation
+        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+    listener.navigation.set_nav_queue_for_test(vec![
         NavTargetRef::Entity { id: 2 },
         NavTargetRef::Cell { rx: 7, ry: 8 },
         NavTargetRef::Object { id: 2 },
-    ];
+    ]);
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
     assert!(listener.attack_target.target().is_none());
     assert!(listener.suspended_attack_target.target().is_none());
-    assert!(listener.navigation.suspended_nav_com.is_none());
-    assert!(listener.navigation.nav_com_aux.is_none());
-    assert!(listener.navigation.nav_com.is_none());
+    assert!(listener.navigation.suspended_nav_com().is_none());
+    assert!(listener.navigation.nav_com_aux().is_none());
+    assert!(listener.navigation.nav_com().is_none());
     assert_eq!(
-        listener.navigation.nav_queue,
+        listener.navigation.nav_queue(),
         vec![NavTargetRef::Cell { rx: 7, ry: 8 }]
     );
 }
@@ -3670,24 +3715,32 @@ fn occupier_capture_retains_live_non_selling_nav_target() {
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
     listener.removal_facts.set_occupier_for_test(true);
-    listener.navigation.suspended_nav_com = Some(NavTargetRef::Building { id: 2 });
-    listener.navigation.nav_com_aux = Some(NavTargetRef::Building { id: 2 });
-    listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
-    listener.navigation.nav_queue = vec![NavTargetRef::Building { id: 2 }];
+    listener
+        .navigation
+        .set_suspended_nav_com(Some(NavTargetRef::Building { id: 2 }));
+    listener
+        .navigation
+        .set_nav_com_aux(Some(NavTargetRef::Building { id: 2 }));
+    listener
+        .navigation
+        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+    listener
+        .navigation
+        .set_nav_queue_for_test(vec![NavTargetRef::Building { id: 2 }]);
 
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
-    assert!(listener.navigation.suspended_nav_com.is_none());
+    assert!(listener.navigation.suspended_nav_com().is_none());
     assert_eq!(
-        listener.navigation.nav_com_aux,
+        listener.navigation.nav_com_aux(),
         Some(NavTargetRef::Building { id: 2 })
     );
     assert_eq!(
-        listener.navigation.nav_com,
+        listener.navigation.nav_com(),
         Some(NavTargetRef::Building { id: 2 })
     );
-    assert!(listener.navigation.nav_queue.is_empty());
+    assert!(listener.navigation.nav_queue().is_empty());
 }
 
 #[test]
@@ -3711,14 +3764,18 @@ fn selling_target_disables_occupier_capture_nav_retention() {
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
     listener.removal_facts.set_occupier_for_test(true);
-    listener.navigation.nav_com_aux = Some(NavTargetRef::Building { id: 2 });
-    listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
+    listener
+        .navigation
+        .set_nav_com_aux(Some(NavTargetRef::Building { id: 2 }));
+    listener
+        .navigation
+        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
 
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
-    assert!(listener.navigation.nav_com_aux.is_none());
-    assert!(listener.navigation.nav_com.is_none());
+    assert!(listener.navigation.nav_com_aux().is_none());
+    assert!(listener.navigation.nav_com().is_none());
 }
 
 #[test]
@@ -3737,7 +3794,9 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     listener
         .suspended_attack_target
         .set_for_test(Some(TargetKind::Entity(3)));
-    listener.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
+    listener
+        .navigation
+        .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
     listener.passive_scan.timer_mut_for_test().arm(100, 20);
     listener.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Attack),
@@ -3764,7 +3823,7 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     assert_eq!(listener.mission.suspended(), MissionId::NONE);
     assert_eq!(listener.attack_target.target(), Some(TargetKind::Entity(3)));
     assert_eq!(
-        listener.navigation.nav_com,
+        listener.navigation.nav_com(),
         Some(NavTargetRef::Cell { rx: 7, ry: 8 })
     );
     assert_eq!(
@@ -4873,7 +4932,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     assert!(!entity.kill_record.is_recorded());
     assert!(entity.lifecycle.object_alive());
     assert!(!entity.lifecycle.in_limbo());
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert!(entity.in_logic_vector.is_member());
 
     sim.uninit(1);
@@ -8202,8 +8261,10 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
         entity
             .suspended_attack_target
             .set_for_test(Some(TargetKind::Entity(4)));
-        entity.navigation.nav_com = None;
-        entity.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
+        entity.navigation.set_nav_com(None);
+        entity
+            .navigation
+            .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
         entity.mission.apply_test_fixture(attack_fixture(
             MissionType::Attack,
             MissionId::from_known(MissionType::Move),
@@ -8232,7 +8293,7 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
             "attacker {attacker} kept the target the Restore installed"
         );
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(NavTargetRef::Cell { rx: 7, ry: 8 }),
             "attacker {attacker} got its destination back"
         );
@@ -8346,7 +8407,9 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
     attacker
         .suspended_attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    attacker.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
+    attacker
+        .navigation
+        .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
     attacker.mission.apply_test_fixture(attack_fixture(
         MissionType::Attack,
         MissionId::from_known(MissionType::Move),
@@ -8361,7 +8424,7 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
     let attacker = sim.substrate.entities.get(1).unwrap();
     assert_eq!(attacker.attack_target.target(), Some(TargetKind::Entity(2)));
     assert_eq!(
-        attacker.navigation.nav_com,
+        attacker.navigation.nav_com(),
         Some(NavTargetRef::Cell { rx: 7, ry: 8 })
     );
     assert_eq!(
@@ -8620,7 +8683,7 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
     e.position.sub_y = SimFixed::from_num(192);
     e.position.z = 99;
     e.position.exact_z_leptons = Some(731);
-    e.on_bridge = true;
+    e.set_on_bridge(true);
     let xy = crate::sim::movement::ground_pose::position_world_xy(&e.position);
     let ground = crate::util::lepton::ground_height_leptons(3, 1, xy[0], xy[1]).unwrap();
     // Keep the physical height steady despite the stale controller cache.
@@ -8656,7 +8719,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         let e = sim.substrate.entities.get_mut(1).unwrap();
         e.position.exact_z_leptons = Some(-37);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
-        loco.balloon_hover = true;
+        loco.set_balloon_hover_for_test(true);
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         *runtime = runtime
             .clone()

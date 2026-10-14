@@ -118,8 +118,8 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
             true,
         );
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = true;
-        entity.in_playfield = true;
+        entity.lifecycle.set_cell_marked(true);
+        entity.set_in_playfield(true);
         entity.locomotor = Some(LocomotorState::from_object_type(obj, 0));
         entity
             .passive_scan
@@ -148,7 +148,7 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
         let cell = crate::map::cell_index::NativeCellIdentity::Real(20 * 25 + x);
         terrain.write_native_cell_flags(cell, flags);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.on_bridge = deck;
+        entity.set_on_bridge(deck);
         entity.position.rx = x as u16;
         entity.position.ry = 20;
         entity.position.sub_x = SimFixed::from_num(128);
@@ -445,7 +445,8 @@ fn move_retail_fv(
             && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
         {
             assert_eq!(
-                entity.on_bridge, deck,
+                entity.on_bridge(),
+                deck,
                 "ordinary Move selected wrong layer at {stop_at:?}"
             );
             assert_eq!(
@@ -494,7 +495,7 @@ fn assert_retail_target_state_restored(live: &Simulation, restored: &Simulation,
         assert_eq!(before.is_some(), after.is_some(), "restored actor {id}");
         if let (Some(before), Some(after)) = (before, after) {
             assert_eq!(json!(before.position), json!(after.position));
-            assert_eq!(before.on_bridge, after.on_bridge);
+            assert_eq!(before.on_bridge(), after.on_bridge());
             assert_eq!(before.passive_scan.timer(), after.passive_scan.timer());
             assert_eq!(before.rearm_timer.timer(), after.rearm_timer.timer());
             assert_eq!(json!(before.attack_target), json!(after.attack_target));
@@ -652,7 +653,7 @@ pub(super) fn retail_hills_collapsed_scene(
     for sim in [&first, &second] {
         for (id, deck, xy) in [(source, true, (64, 69)), (target, false, (66, 69))] {
             let e = sim.substrate.entities.get(id).unwrap();
-            assert_eq!(e.on_bridge, deck);
+            assert_eq!(e.on_bridge(), deck);
             assert_eq!(
                 e.position.exact_z_leptons,
                 Some(if deck { 1040 } else { 624 })

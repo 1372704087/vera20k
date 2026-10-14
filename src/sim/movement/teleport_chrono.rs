@@ -162,9 +162,9 @@ impl Simulation {
                 self.foot_mark_remove(id, Some(rules), registry, ctx.effects);
                 self.teleport_warp_sound(id, WarpSound::Out, rules);
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    entity.on_bridge = false;
+                    entity.set_on_bridge(false);
                     if let Some(locomotor) = entity.locomotor.as_mut() {
-                        locomotor.layer = MovementLayer::Ground;
+                        locomotor.set_layer(MovementLayer::Ground);
                     }
                 }
                 if let Some(warp) = self.chrono_warp_mut(id) {
@@ -312,7 +312,7 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
         ) && let Some(entity) = self.substrate.entities.get_mut(id)
         {
-            entity.in_playfield = false;
+            entity.set_in_playfield(false);
         }
     }
 
@@ -379,8 +379,8 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get_mut(id) else {
                 return false;
             };
-            let on_bridge = bridge && !entity.on_bridge;
-            entity.on_bridge = on_bridge;
+            let on_bridge = bridge && !entity.on_bridge();
+            entity.set_on_bridge(on_bridge);
             let z = if on_bridge {
                 ground.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS)
             } else {
@@ -392,11 +392,11 @@ impl Simulation {
                 z,
             };
             if let Some(locomotor) = entity.locomotor.as_mut() {
-                locomotor.layer = if on_bridge {
+                locomotor.set_layer(if on_bridge {
                     MovementLayer::Bridge
                 } else {
                     MovementLayer::Ground
-                };
+                });
                 if let Some(runtime) = locomotor.teleport_runtime_mut() {
                     runtime.set_resolved_destination(marked);
                 }

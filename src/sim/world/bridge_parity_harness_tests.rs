@@ -734,9 +734,9 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         // plus one Foot+5E0 word per later cell.
         if order_accepted_path.is_none()
             && crate::sim::movement::motion_query::is_moving(&entity) == Some(true)
-            && !entity.navigation.path_replay.directions.is_empty()
+            && !entity.navigation.path_replay.directions().is_empty()
         {
-            order_accepted_path = Some(entity.navigation.path_replay.directions.len() + 1);
+            order_accepted_path = Some(entity.navigation.path_replay.directions().len() + 1);
         }
         let cell = (entity.position.rx, entity.position.ry);
         let facts = grid
@@ -747,7 +747,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
             tick,
             cell,
             z: entity.position.z,
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             terrain_level: facts.signed_level(),
             structural: facts.has_structural_bridge(),
         });
@@ -861,7 +861,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
 
     let arrived = rec.substrate.entities.get(TANK_ID).unwrap();
     assert!(
-        arrived.navigation.nav_com.is_none(),
+        arrived.navigation.nav_com().is_none(),
         "arrival must clear NavCom"
     );
     assert!(

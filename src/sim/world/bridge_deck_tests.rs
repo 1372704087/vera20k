@@ -43,7 +43,7 @@ fn structural_fallout_retires_effect_only_ground_victim() {
         &[(4, 3), (4, 4), (4, 5)],
         0xD4,
     );
-    assert!(!sim.substrate.entities.get(victim).unwrap().on_bridge);
+    assert!(!sim.substrate.entities.get(victim).unwrap().on_bridge());
     sim.substrate
         .entities
         .get_mut(victim)
@@ -148,7 +148,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             // The unmarked twin retains the supplied legacy level as well as
             // exact Location; it deliberately never enters Unlimbo below.
             actor.position.z = 4;
-            actor.on_bridge = true;
+            actor.set_on_bridge(true);
         }
         if marked {
             sim.reveal(id);
@@ -165,7 +165,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             .get(building)
             .unwrap()
             .lifecycle
-            .cell_marked
+            .cell_marked()
     );
     assert_eq!(
         sim.substrate
@@ -234,7 +234,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
         .entities
         .get_mut(newer)
         .unwrap()
-        .foot_occupation_enabled = false;
+        .set_foot_occupation_enabled(false);
     sim.substrate.cell_occupation.reconcile_entity(
         sim.substrate.entities.get(newer).unwrap(),
         &sim.substrate.occupancy,
@@ -268,7 +268,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
     }
     for id in [newer, older, building] {
         let object = sim.substrate.entities.get(id).unwrap();
-        assert!(!object.on_bridge && object.lifecycle.cell_marked);
+        assert!(!object.on_bridge() && object.lifecycle.cell_marked());
         assert_eq!(
             object.position.z, 4,
             "DropAsBomb retains the stored Location level"
@@ -281,7 +281,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
     }
     assert_eq!(sim.substrate.next_air_tracker_order.current(), next_order);
     let twin = sim.substrate.entities.get(unmarked).unwrap();
-    assert!(twin.on_bridge && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked);
+    assert!(twin.on_bridge() && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked());
     assert_eq!(twin.position.z, 4);
     assert_ne!(
         sim.substrate.raw_cell_occupation, raw_before,
@@ -327,7 +327,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             .entities
             .get(newer)
             .unwrap()
-            .foot_occupation_enabled
+            .foot_occupation_enabled()
     );
     assert_eq!(
         sim.substrate
@@ -365,7 +365,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             .entities
             .get(newer)
             .unwrap()
-            .foot_occupation_enabled
+            .foot_occupation_enabled()
     );
     assert_eq!(
         restored.substrate.cell_occupation.vehicle_bits_ignoring(

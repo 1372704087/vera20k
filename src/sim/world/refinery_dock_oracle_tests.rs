@@ -517,7 +517,7 @@ fn compare_state(s: &Scene, row: &Value, context: &str) {
             "{context}: queued mission"
         );
     }
-    let nav = match miner.navigation.nav_com {
+    let nav = match miner.navigation.nav_com() {
         Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
         None => Value::Null,
         other => panic!("{context}: non-cell NavCom {other:?}"),
@@ -764,13 +764,15 @@ fn mission_enter_matches_the_original_dispatch() {
         let mut s = scene(input);
         if let Some(queue) = input["nav_queue"].as_array() {
             let entity = s.sim.substrate.entities.get_mut(s.miner).unwrap();
-            entity.navigation.nav_queue = queue
-                .iter()
-                .map(|c| {
-                    let (x, y) = cell(c);
-                    NavTargetRef::cell(x, y)
-                })
-                .collect();
+            entity.navigation.set_nav_queue_for_test(
+                queue
+                    .iter()
+                    .map(|c| {
+                        let (x, y) = cell(c);
+                        NavTargetRef::cell(x, y)
+                    })
+                    .collect(),
+            );
         }
         radio::take_transmit_log();
         let mut stream = s.sim.scenario_rng.clone();

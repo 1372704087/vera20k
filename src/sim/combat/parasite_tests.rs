@@ -957,7 +957,7 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
     for id in [dog, gi] {
         arena.sim.remove_entity_occupancy(id);
         let entity = arena.sim.substrate.entities.get_mut(id).unwrap();
-        entity.on_bridge = true;
+        entity.set_on_bridge(true);
         entity.position.z = 4;
         entity.position.exact_z_leptons = Some(deck);
         arena.sim.add_entity_occupancy(id);
@@ -976,7 +976,7 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
             .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     let released = arena.sim.substrate.entities.get(dog).unwrap();
-    assert!(released.on_bridge);
+    assert!(released.on_bridge());
     assert_eq!(
         crate::sim::movement::ground_pose::position_world_coord(&released.position).z,
         deck

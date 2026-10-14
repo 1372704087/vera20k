@@ -124,7 +124,7 @@ pub(super) fn unit_scatter_admitted(
     locomotor.active_kind() != LocomotorKind::Teleport
         && (flags.forced || mission_permits_scatter(unit, rules))
         && !unit.body_facing.is_rotating(binary_frame)
-        && (flags.no_kidding || unit.navigation.nav_com.is_none())
+        && (flags.no_kidding || unit.navigation.nav_com().is_none())
         && !unit.is_deployed()
         && locomotor.is_powered()
 }
@@ -295,7 +295,7 @@ fn receive_damage_scatter_admitted(
     {
         return Ok(false);
     }
-    if entity.attack_target.target().is_some() || entity.navigation.nav_com.is_some() {
+    if entity.attack_target.target().is_some() || entity.navigation.nav_com().is_some() {
         return Ok(false);
     }
     if refused {
@@ -489,7 +489,7 @@ impl Simulation {
                 .miner
                 .as_ref()
                 .is_some_and(|miner| miner.unload_active())
-            || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch.is_set())
+            || (unit.navigation.nav_com().is_some() && unit.turret_rotation_latch.is_set())
         {
             return Ok(());
         }
@@ -534,7 +534,7 @@ impl Simulation {
     pub(super) fn scatter_nearby_cell(&self, id: u64, rules: &RuleSet) -> Option<(u16, u16)> {
         let entity = self.substrate.entities.get(id)?;
         let object = self.object_type(entity.type_ref(), rules)?;
-        let on_bridge = entity.on_bridge;
+        let on_bridge = entity.on_bridge();
         let seed = self.foot_navigation_coordinate(id).ok()?;
         let seed = (
             i32::from((seed.x / 256) as i16),

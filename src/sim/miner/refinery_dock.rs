@@ -370,7 +370,7 @@ fn unload_building(sim: &Simulation, id: u64) -> Option<u64> {
 fn new_order_pending(sim: &Simulation, id: u64) -> bool {
     sim.substrate.entities.get(id).is_some_and(|entity| {
         let queued = entity.mission.queued();
-        entity.navigation.nav_com.is_some()
+        entity.navigation.nav_com().is_some()
             && queued != MissionId::NONE
             && queued != MissionId::from_known(MissionType::Harvest)
     })

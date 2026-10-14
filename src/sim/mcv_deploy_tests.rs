@@ -390,8 +390,10 @@ fn continuation_result_and_rotation_edge_match_original_blocks() {
             .set_dying_for_test(row["alive"].as_u64().unwrap() == 0);
         e.mcv_deploy_pending
             .set_for_test(row["flag"].as_u64().unwrap() != 0);
-        e.navigation.nav_com = (row["nav"].as_u64().unwrap() != 0)
-            .then_some(crate::sim::components::NavTargetRef::cell(30, 30));
+        e.navigation.set_nav_com(
+            (row["nav"].as_u64().unwrap() != 0)
+                .then_some(crate::sim::components::NavTargetRef::cell(30, 30)),
+        );
         e.mission
             .set_handler_state(if kind == "initial" { 1 } else { 2 });
         if kind == "initial" {
@@ -523,7 +525,8 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
         crate::sim::movement::track_process::TrackFamily::Drive,
         false
     ));
-    e.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(20, 22));
+    e.navigation
+        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(20, 22)));
     sim.process_ground_locomotor_for_test(id, Some(&rules), None, None)
         .unwrap();
     assert!(
@@ -540,7 +543,7 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
     );
     assert_eq!(yards(&sim), 0);
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.navigation.nav_com = None;
+    e.navigation.set_nav_com(None);
     // A retained selector alone cannot override the cleared +63 authority.
     assert_eq!(
         e.locomotor
@@ -748,7 +751,7 @@ fn try_to_deploy_admits_a_clear_spot_where_the_unit_stands() {
         crate::sim::world::FrameEffects::default()
     ));
     let mcv = sim.substrate.entities.get(id).unwrap();
-    assert!(mcv.navigation.nav_com.is_none());
+    assert!(mcv.navigation.nav_com().is_none());
     assert!(sim.substrate.occupancy.contains_entity(20, 22, id));
 }
 
@@ -769,7 +772,7 @@ fn try_to_deploy_drives_to_the_first_clear_site_in_table_order() {
     ));
     let mcv = sim.substrate.entities.get(id).unwrap();
     assert_eq!(
-        mcv.navigation.nav_com,
+        mcv.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(20, 19))
     );
     assert!(sim.substrate.occupancy.contains_entity(20, 22, id));
@@ -789,7 +792,7 @@ fn with_no_site_a_computer_mcv_scatters_and_a_human_one_waits() {
         ));
         let mcv = sim.substrate.entities.get(id).unwrap();
         let scattered = crate::sim::movement::motion_query::is_moving(&mcv) == Some(true)
-            || mcv.navigation.nav_com.is_some();
+            || mcv.navigation.nav_com().is_some();
         assert_eq!(scattered, !human, "human={human}");
         // The Unit receiver's null arm draws nothing (0x00743A50).
         assert!(sim.scenario_rng.logical_state() == rng, "human={human}");

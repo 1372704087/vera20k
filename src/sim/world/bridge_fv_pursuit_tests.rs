@@ -134,8 +134,8 @@ fn paid_snapshot(
         .unwrap_or(&constructor_drive);
     let path = &actor.navigation.path_runtime;
     let track_state = json!({
-        "movement_timer":[path.movement_timer.start_frame(), path.movement_timer.duration()],
-        "blocked_timer":[path.blocked_timer.start_frame(), path.blocked_timer.duration()],
+        "movement_timer":[path.movement_timer().start_frame(), path.movement_timer().duration()],
+        "blocked_timer":[path.blocked_timer().start_frame(), path.blocked_timer().duration()],
         "residual":drive.track().residual,
         "target_speed_fixed_bits":drive.target_speed_fraction().to_bits(),
     });
@@ -180,7 +180,7 @@ fn paid_snapshot(
             "queued":actor.mission.queued().raw(),
             "dispatch":[dispatch.start_frame(),dispatch.delay()],
             "rearm":[actor.rearm_timer.start_frame(),actor.rearm_timer.duration()]},
-        "nav_cell":nav(actor.navigation.nav_com),
+        "nav_cell":nav(actor.navigation.nav_com()),
         "drive_destination":coordinate(actor.locomotor.as_ref().and_then(|l| l.selected_drive_runtime()).and_then(|r| r.retained()).and_then(|d| d.destination())),
         "drive_head":coordinate(actor.locomotor.as_ref().and_then(|l| l.selected_drive_runtime()).and_then(|r| r.retained()).and_then(|d| d.head_to())),
         "track_state":track_state,
@@ -507,7 +507,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
             actor
                 .attack_target
                 .set_for_test(Some(TargetKind::Cell(87, 54)));
-            actor.in_playfield = row["input"].get("in_playfield").is_none_or(|v| v == 1);
+            actor.set_in_playfield(row["input"].get("in_playfield").is_none_or(|v| v == 1));
             actor.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_raw(row["before"]["mission"].as_i64().unwrap() as i32),
                 suspended: MissionId::NONE,
@@ -534,15 +534,17 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
                     .get_mut(id)
                     .unwrap()
                     .navigation
-                    .nav_queue = values
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|value| {
-                        let (x, y) = cell(value);
-                        NavTargetRef::cell(x, y)
-                    })
-                    .collect();
+                    .set_nav_queue_for_test(
+                        values
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|value| {
+                                let (x, y) = cell(value);
+                                NavTargetRef::cell(x, y)
+                            })
+                            .collect(),
+                    );
             }
             // Declared raw occupation inputs match the native controls; these
             // rows test the reader and search, not the mask producer.
@@ -605,7 +607,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
                 "{name} target identity"
             );
             assert_eq!(
-                nav(actor.navigation.nav_com),
+                nav(actor.navigation.nav_com()),
                 row["nav_cell"],
                 "{group}/{name} destination"
             );
@@ -636,16 +638,16 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
             let timing = actor.navigation.path_runtime;
             assert_eq!(
                 json!([
-                    timing.movement_timer.start_frame(),
-                    timing.movement_timer.duration()
+                    timing.movement_timer().start_frame(),
+                    timing.movement_timer().duration()
                 ]),
                 row["movement_timer"],
                 "{name} movement timer"
             );
             assert_eq!(
                 json!([
-                    timing.blocked_timer.start_frame(),
-                    timing.blocked_timer.duration()
+                    timing.blocked_timer().start_frame(),
+                    timing.blocked_timer().duration()
                 ]),
                 row["blockage_timer"],
                 "{name} blockage timer"
@@ -664,7 +666,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
             if let Some(expected) = row.get("nav_queue_cells") {
                 let actual: Vec<_> = actor
                     .navigation
-                    .nav_queue
+                    .nav_queue()
                     .iter()
                     .map(|target| nav(Some(*target)))
                     .collect();
@@ -754,7 +756,7 @@ fn retail_fv_approaches_a_firing_cell_before_its_first_paid_step() {
         .unwrap();
     let actor = runtime.simulation.substrate.entities.get(id).unwrap();
     assert_eq!(
-        actor.navigation.nav_com,
+        actor.navigation.nav_com(),
         Some(NavTargetRef::cell(destination[0], destination[1])),
         "native MissionAttack chooses a firing cell before the same object's Drive Process"
     );

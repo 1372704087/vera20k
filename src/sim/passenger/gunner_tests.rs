@@ -194,7 +194,7 @@ fn retail_infantry_enter_keeps_the_transport_destination_reference() {
     ));
     let passenger = entity(&sim, passenger);
     assert_eq!(
-        passenger.navigation.nav_com,
+        passenger.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::object(ifv)),
         "the native Enter destination is the clicked object, retaining its identity"
     );
@@ -266,7 +266,7 @@ fn retail_chrono_remote_transport_enter_keeps_object_and_boards() {
         Some(rules)
     ));
     assert_eq!(
-        entity(&sim, passenger).navigation.nav_com,
+        entity(&sim, passenger).navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::object(ifv)),
         "a Chrono Enter must retain the transport object through the destination setter"
     );
@@ -302,7 +302,7 @@ fn retail_chrono_remote_transport_enter_keeps_object_and_boards() {
                 Some(rules)
             ));
             assert_eq!(
-                entity(&sim, passenger).navigation.nav_com,
+                entity(&sim, passenger).navigation.nav_com(),
                 Some(crate::sim::components::NavTargetRef::cell(12, 16)),
                 "after unloading, the Legionnaire accepts a new teleport destination"
             );
@@ -336,7 +336,7 @@ fn retail_vehicle_enter_keeps_live_transport_target() {
             Some(rules),
         ));
         assert_eq!(
-            entity(&sim, passenger).navigation.nav_com,
+            entity(&sim, passenger).navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::object(transport)),
             "{passenger_type}: Unit boarding must retain its live transport"
         );

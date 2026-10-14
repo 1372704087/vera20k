@@ -82,7 +82,7 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
     actor
         .lifecycle
         .set_object_alive_for_test(input["alive"].as_u64().unwrap_or(1) != 0);
-    actor.lifecycle.cell_marked = false;
+    actor.lifecycle.set_cell_marked(false);
     actor.locomotor = Some(LocomotorState::from_object_type(
         rules.object("SQD").unwrap(),
         0,
@@ -442,7 +442,7 @@ fn assert_retail_idle_timeline(retail_dir: &std::path::Path, row: &Value) {
     let sim = &mut runtime.simulation;
     let actor = sim.substrate.entities.get(id).unwrap();
     assert_eq!(actor_state(sim, id), expected_state(&steps[0]["before"]));
-    assert!(actor.navigation.nav_com.is_none());
+    assert!(actor.navigation.nav_com().is_none());
     let position = actor.position;
     // The oracle starts from an already-live actor after setup. Align only
     // its declared frame/Main boundary; leave production movement and frame
@@ -494,6 +494,6 @@ fn assert_retail_idle_timeline(retail_dir: &std::path::Path, row: &Value) {
         assert_eq!(actor.position.ry, position.ry);
         assert_eq!(actor.position.sub_x, position.sub_x);
         assert_eq!(actor.position.sub_y, position.sub_y);
-        assert!(actor.navigation.nav_com.is_none());
+        assert!(actor.navigation.nav_com().is_none());
     }
 }

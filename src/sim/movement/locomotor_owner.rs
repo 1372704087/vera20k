@@ -65,7 +65,7 @@ pub(crate) fn piggyback_end_admitted(entity: &GameEntity) -> bool {
 /// `+0x6AE`, `0x0054DB24..0x0054DB36`).
 fn jumpjet_end_admitted(entity: &GameEntity) -> bool {
     entity.locomotor.as_ref().is_some_and(|locomotor| {
-        locomotor.piggyback.is_some()
+        locomotor.piggyback().is_some()
             && locomotor
                 .jumpjet_runtime()
                 .is_some_and(|runtime| !runtime.moving())
@@ -79,7 +79,7 @@ fn jumpjet_end_admitted(entity: &GameEntity) -> bool {
 /// state and goes at state 7, so its absence is both tests.
 fn teleport_end_admitted(entity: &GameEntity) -> bool {
     entity.locomotor.as_ref().is_some_and(|locomotor| {
-        locomotor.piggyback.is_some()
+        locomotor.piggyback().is_some()
             && locomotor
                 .teleport_runtime()
                 .is_some_and(|runtime| !runtime.is_moving() && runtime.chrono().is_none())
@@ -98,7 +98,7 @@ fn teleport_end_admitted(entity: &GameEntity) -> bool {
 fn drive_end_admitted(entity: &GameEntity) -> bool {
     entity.locomotor.as_ref().is_some_and(|locomotor| {
         locomotor.active_kind() == LocomotorKind::Drive
-            && locomotor.piggyback.is_some()
+            && locomotor.piggyback().is_some()
             && locomotor.drive_end_permitted()
     }) && super::motion_query::is_moving(entity) != Some(true)
         && !entity.lift.swap_active()

@@ -361,9 +361,9 @@ fn paradrop(
     if flags & BRIDGE_FLAG_STRUCTURAL != 0
         && let Some(rider) = sim.substrate.entities.get_mut(passenger)
     {
-        rider.on_bridge = true;
+        rider.set_on_bridge(true);
         if let Some(locomotor) = rider.locomotor.as_mut() {
-            locomotor.layer = MovementLayer::Bridge;
+            locomotor.set_layer(MovementLayer::Bridge);
         }
     }
     if flags & BRIDGE_FLAG_STRUCTURAL != 0 && flags & BRIDGE_FLAG_TRANSITION == 0 {
@@ -381,13 +381,13 @@ fn paradrop(
             rider
                 .locomotor
                 .as_ref()
-                .map(|locomotor| locomotor.speed_type)
+                .map(|locomotor| locomotor.speed_type())
                 .or_else(|| object_type.map(|object_type| object_type.speed_type))
                 .unwrap_or(crate::rules::locomotor_type::SpeedType::Foot),
             rider
                 .locomotor
                 .as_ref()
-                .map(|locomotor| locomotor.movement_zone)
+                .map(|locomotor| locomotor.movement_zone())
                 .or_else(|| object_type.map(|object_type| object_type.movement_zone))
                 .unwrap_or(crate::rules::locomotor_type::MovementZone::Normal),
         )
@@ -441,9 +441,9 @@ fn paradrop(
         .entities
         .get_mut(passenger)
         .is_some_and(|rider| {
-            rider.sub_cell = (rider.category() == EntityCategory::Infantry).then_some(spot);
+            rider.set_sub_cell((rider.category() == EntityCategory::Infantry).then_some(spot));
             rider.passenger_role.clear_carrier_relation();
-            rider.on_bridge
+            rider.on_bridge()
         });
     if !begin_parachute_descent(&mut sim.substrate.entities, passenger, landing.z) {
         return Err(DepartureFailure::ParachuteAttach);
@@ -599,7 +599,7 @@ mod tests {
             false,
         );
         passenger.set_is_voxel_for_test(false);
-        passenger.sub_cell = Some(2);
+        passenger.set_sub_cell(Some(2));
         passenger.passenger_role = PassengerRole::inside_for_test(aircraft_id, false);
         sim.substrate.entities.insert(passenger);
     }
@@ -655,7 +655,7 @@ mod tests {
             blocker.set_type_ref_for_test(sim.interner.intern("E1"));
             blocker.set_category_for_test(EntityCategory::Infantry);
             blocker.set_is_voxel_for_test(false);
-            blocker.sub_cell = Some(subcell);
+            blocker.set_sub_cell(Some(subcell));
             (blocker.position.sub_x, blocker.position.sub_y) =
                 lepton::subcell_lepton_offset(Some(subcell));
             sim.substrate.entities.insert(blocker);
@@ -1072,7 +1072,7 @@ mod tests {
             let passenger = sim.substrate.entities.get(2).unwrap();
             (
                 passenger.passenger_role.is_inside_transport(),
-                passenger.on_bridge,
+                passenger.on_bridge(),
             )
         };
 
@@ -1124,7 +1124,7 @@ mod tests {
         drop_payload(&mut sim, plane, &rules, None, effects);
         let rider = sim.substrate.entities.get(passenger).unwrap();
         assert!(rider.passenger_role.is_inside_transport());
-        assert!(rider.on_bridge, "the refusal keeps OnBridge");
+        assert!(rider.on_bridge(), "the refusal keeps OnBridge");
 
         // The plane flies on; its next drop is over plain ground at (51, 24).
         let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
@@ -1135,7 +1135,7 @@ mod tests {
         drop_payload(&mut sim, plane, &rules, None, effects);
         let rider = sim.substrate.entities.get(passenger).unwrap();
         assert_eq!((rider.position.rx, rider.position.ry), (51, 24));
-        assert!(rider.on_bridge);
+        assert!(rider.on_bridge());
 
         let max_fall_rate = rules.general.parachute_max_fall_rate;
         let mut frames = 0;
@@ -1144,7 +1144,7 @@ mod tests {
             assert!(frames < 10_000, "the fall ends");
         }
         let rider = sim.substrate.entities.get(passenger).unwrap();
-        assert!(rider.on_bridge);
+        assert!(rider.on_bridge());
         assert_eq!(
             ground_pose::object_world_z_leptons(rider, sim.resolved_terrain.as_ref()),
             lepton::BRIDGE_DECK_HEIGHT_LEPTONS,
@@ -1194,11 +1194,11 @@ mod tests {
         let passenger = sim.substrate.entities.get(passenger_id).unwrap();
         assert!(passenger.lifecycle.object_alive());
         assert!(!passenger.lifecycle.in_limbo());
-        assert!(passenger.lifecycle.cell_marked);
+        assert!(passenger.lifecycle.cell_marked());
         assert!(passenger.in_logic_vector.is_member());
         assert_eq!((passenger.position.rx, passenger.position.ry), (51, 20));
         let sub_cell = passenger
-            .sub_cell
+            .sub_cell()
             .expect("placed infantry should have a subcell");
         assert!(crate::sim::movement::bump_crush::FUNCTIONAL_SUB_CELLS.contains(&sub_cell));
         assert_eq!(
@@ -1281,7 +1281,7 @@ mod tests {
             );
             assert!(!passenger.is_falling_down());
             assert!(passenger.lifecycle.object_alive() && passenger.lifecycle.in_limbo());
-            assert!(!passenger.lifecycle.cell_marked && !passenger.in_logic_vector.is_member());
+            assert!(!passenger.lifecycle.cell_marked() && !passenger.in_logic_vector.is_member());
             assert_eq!(passenger.discovery.discovered_by_current_house(), human);
             assert!(
                 !sim.substrate
@@ -1345,12 +1345,12 @@ mod tests {
             let rules = drop_test_rules();
             insert_loaded_paradrop_pair(&mut sim, 1, 2);
             let mut loco = LocomotorState::from_object_type(rules.object("E1").unwrap(), 0);
-            loco.layer = MovementLayer::Bridge;
+            loco.set_layer(MovementLayer::Bridge);
             {
                 let passenger = sim.substrate.entities.get_mut(2).unwrap();
                 passenger.locomotor = Some(loco);
                 passenger.lifecycle.set_object_alive_for_test(post_attach);
-                passenger.lifecycle.cell_marked = post_attach;
+                passenger.lifecycle.set_cell_marked(post_attach);
             }
             let mut peer = GameEntity::test_default(9, "E1", "Americans", 30, 30);
             peer.mark_live_contact_with(2);
@@ -1393,11 +1393,11 @@ mod tests {
             let passenger = sim.substrate.entities.get(2).unwrap();
             assert_eq!(passenger.passenger_role.inside_transport_id(), Some(1));
             assert!(passenger.lifecycle.in_limbo());
-            assert_eq!(passenger.lifecycle.cell_marked, post_attach);
+            assert_eq!(passenger.lifecycle.cell_marked(), post_attach);
             assert!(!passenger.in_logic_vector.is_member());
             assert!(!passenger.is_falling_down());
             assert_eq!(
-                passenger.locomotor.as_ref().unwrap().layer,
+                passenger.locomotor.as_ref().unwrap().layer(),
                 MovementLayer::Bridge
             );
             assert_eq!(
@@ -1432,7 +1432,7 @@ mod tests {
                     .get_mut(2)
                     .unwrap()
                     .lifecycle
-                    .cell_marked = false;
+                    .set_cell_marked(false);
                 drop_payload(
                     &mut sim,
                     1,
@@ -1453,7 +1453,7 @@ mod tests {
                 assert_eq!(cargo.total_size(), 3);
                 let passenger = sim.substrate.entities.get(2).unwrap();
                 assert!(passenger.is_falling_down());
-                assert!(passenger.lifecycle.cell_marked && passenger.in_logic_vector.is_member());
+                assert!(passenger.lifecycle.cell_marked() && passenger.in_logic_vector.is_member());
                 assert!(!passenger.passenger_role.is_inside_transport());
                 assert_eq!(chute_sounds(&sim).len(), 1);
             }

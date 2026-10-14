@@ -2031,7 +2031,7 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(target) = entity.navigation.suspended_nav_com.as_ref() {
+        if let Some(target) = entity.navigation.suspended_nav_com().as_ref() {
             validate_nav_reference(
                 target,
                 identities,
@@ -2040,7 +2040,7 @@ fn restore_object_references(
                 "navigation.suspended_nav_com",
             )?;
         }
-        if let Some(target) = entity.navigation.nav_com_aux.as_ref() {
+        if let Some(target) = entity.navigation.nav_com_aux().as_ref() {
             validate_nav_reference(
                 target,
                 identities,
@@ -2049,7 +2049,7 @@ fn restore_object_references(
                 "navigation.nav_com_aux",
             )?;
         }
-        if let Some(target) = entity.navigation.nav_com.as_ref() {
+        if let Some(target) = entity.navigation.nav_com().as_ref() {
             validate_nav_reference(
                 target,
                 identities,
@@ -2058,7 +2058,7 @@ fn restore_object_references(
                 "navigation.nav_com",
             )?;
         }
-        for target in &entity.navigation.nav_queue {
+        for target in entity.navigation.nav_queue() {
             validate_nav_reference(
                 target,
                 identities,
@@ -3005,7 +3005,7 @@ mod tests {
             );
             entity.lifecycle.set_in_limbo_for_test(false);
             entity.in_logic_vector.set_for_test(true);
-            entity.on_bridge = on_bridge;
+            entity.set_on_bridge(on_bridge);
             sim.substrate.entities.insert(entity);
             sim.add_entity_occupancy(stable_id);
             sim.substrate
@@ -4702,8 +4702,8 @@ mod tests {
             .locomotor
             .as_ref()
             .unwrap();
-        let active_before = before.runtime_payload.clone();
-        let stashed_before = before.piggyback.clone();
+        let active_before = before.runtime_payload().clone();
+        let stashed_before = before.piggyback().clone();
 
         let bytes = GameSnapshot::save(&sim, 1, 2, "Drive Ship slope", 3);
         let mut restored = GameSnapshot::load(&bytes)
@@ -4717,8 +4717,8 @@ mod tests {
             .locomotor
             .as_ref()
             .unwrap();
-        assert_eq!(loaded.runtime_payload, active_before);
-        assert_eq!(loaded.piggyback, stashed_before);
+        assert_eq!(*loaded.runtime_payload(), active_before);
+        assert_eq!(*loaded.piggyback(), stashed_before);
         assert_eq!(restored.session.binary_frame, 51);
         assert_eq!(restored.state_hash(), before_hash);
         assert_eq!(restored.scenario_rng.logical_state(), before_rng);
@@ -4728,7 +4728,7 @@ mod tests {
             "the saved active timer starts two committed frames before session frame 51"
         );
         assert!(matches!(
-            loaded.piggyback.as_deref().map(|stashed| &stashed.runtime_payload),
+            loaded.piggyback().as_deref().map(|stashed| stashed.runtime_payload()),
             Some(LocomotorRuntimePayload::Drive(state))
                 if state.slope().hash_fields() == (2, 7, 49, 3)
         ));
@@ -6226,7 +6226,7 @@ mod tests {
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "Americans", 5, 7);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = false;
+        entity.lifecycle.set_cell_marked(false);
         entity.in_logic_vector.set_for_test(true);
         entity.position.z = 3;
         entity.position.exact_z_leptons = Some(-37);
@@ -6280,7 +6280,7 @@ mod tests {
                 }
             ))
         );
-        assert!(!restored_entity.lifecycle.cell_marked);
+        assert!(!restored_entity.lifecycle.cell_marked());
         assert!(
             !restored
                 .substrate
@@ -7254,7 +7254,7 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .foot_occupation_enabled = false;
+            .set_foot_occupation_enabled(false);
         sim.substrate.cell_occupation =
             CellOccupationGrid::rebuild(&sim.substrate.entities, &sim.substrate.occupancy);
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
@@ -7297,7 +7297,7 @@ mod tests {
                     .entities
                     .get(entity_id)
                     .unwrap()
-                    .foot_occupation_enabled
+                    .foot_occupation_enabled()
             );
             assert_eq!(restored.state_hash(), expected_hash);
             assert_eq!(
@@ -8564,7 +8564,7 @@ mod tests {
         let mut entity = GameEntity::test_default(7, "MTNK", "Americans", 5, 5);
         entity.lifecycle.set_object_alive_for_test(false);
         entity.lifecycle.set_in_limbo_for_test(true);
-        entity.lifecycle.cell_marked = false;
+        entity.lifecycle.set_cell_marked(false);
         entity.in_logic_vector.set_for_test(false);
         entity.death.set_dying_for_test(true);
         entity.removal_facts.set_dirty_rect_eligible_for_test(true);
@@ -8584,7 +8584,7 @@ mod tests {
 
         assert!(!restored_entity.lifecycle.object_alive());
         assert!(restored_entity.lifecycle.in_limbo());
-        assert!(!restored_entity.lifecycle.cell_marked);
+        assert!(!restored_entity.lifecycle.cell_marked());
         assert!(!restored_entity.in_logic_vector.is_member());
         assert!(restored_entity.death.is_dying());
         assert!(restored_entity.removal_facts.dirty_rect_eligible());
@@ -8603,7 +8603,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut off_cell_member = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
         off_cell_member.lifecycle.set_in_limbo_for_test(false);
-        off_cell_member.lifecycle.cell_marked = false;
+        off_cell_member.lifecycle.set_cell_marked(false);
         sim.substrate.entities.insert(off_cell_member);
         sim.substrate
             .logic
@@ -8612,7 +8612,7 @@ mod tests {
 
         let mut marked_non_member = GameEntity::test_default(2, "MTNK", "Americans", 6, 6);
         marked_non_member.lifecycle.set_in_limbo_for_test(false);
-        marked_non_member.lifecycle.cell_marked = true;
+        marked_non_member.lifecycle.set_cell_marked(true);
         sim.substrate.entities.insert(marked_non_member);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
@@ -8622,7 +8622,7 @@ mod tests {
         let member = restored.substrate.entities.get(1).expect("member restored");
         assert!(member.in_logic_vector.is_member());
         assert!(!member.lifecycle.in_limbo());
-        assert!(!member.lifecycle.cell_marked);
+        assert!(!member.lifecycle.cell_marked());
 
         let non_member = restored
             .substrate
@@ -8631,7 +8631,7 @@ mod tests {
             .expect("non-member restored");
         assert!(!non_member.in_logic_vector.is_member());
         assert!(!non_member.lifecycle.in_limbo());
-        assert!(non_member.lifecycle.cell_marked);
+        assert!(non_member.lifecycle.cell_marked());
     }
 
     #[test]
@@ -8671,7 +8671,11 @@ mod tests {
             .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let default_hash = sim.state_hash();
-        sim.substrate.entities.get_mut(1).unwrap().in_playfield = true;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_in_playfield(true);
         let member_hash = sim.state_hash();
         assert_ne!(default_hash, member_hash);
 
@@ -8679,7 +8683,7 @@ mod tests {
         let restored = GameSnapshot::load(&bytes)
             .expect("v87 membership loads")
             .sim;
-        assert!(restored.substrate.entities.get(1).unwrap().in_playfield);
+        assert!(restored.substrate.entities.get(1).unwrap().in_playfield());
         assert_eq!(restored.state_hash(), member_hash);
     }
 
@@ -9025,7 +9029,7 @@ mod tests {
             entity.set_owner_for_test(owner);
             entity.set_category_for_test(category);
             if category == EntityCategory::Infantry {
-                entity.sub_cell = Some(2);
+                entity.set_sub_cell(Some(2));
             }
             sim.substrate.entities.insert(entity);
             sim.add_entity_occupancy(stable_id);
@@ -9118,7 +9122,7 @@ mod tests {
         let e = sim.substrate.entities.get(id).expect("entity in store");
         assert!(e.in_logic_vector.is_member(), "must be in the active order");
         assert!(!e.lifecycle.in_limbo());
-        assert!(e.lifecycle.cell_marked);
+        assert!(e.lifecycle.cell_marked());
         assert_eq!(sim.live_object_order_snapshot(), vec![id]);
         assert!(
             sim.substrate.occupancy.contains_entity(5, 5, id),
@@ -9146,7 +9150,7 @@ mod tests {
             "limbo object is not an active member"
         );
         assert!(e.lifecycle.in_limbo());
-        assert!(!e.lifecycle.cell_marked);
+        assert!(!e.lifecycle.cell_marked());
         assert!(sim.live_object_order_snapshot().is_empty());
         assert!(
             !sim.substrate.occupancy.contains_entity(6, 6, id),

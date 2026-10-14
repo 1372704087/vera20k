@@ -311,7 +311,7 @@ impl crate::sim::world::Simulation {
                     //52018E..1BA: only a human owner tests these separate
                     // inputs. A movement order is not IsMoving+10.
                     let under_way = human
-                        && (actor.navigation.nav_com.is_some()
+                        && (actor.navigation.nav_com().is_some()
                             || crate::sim::movement::motion_query::is_moving(actor)
                                 .ok_or("Infantry fear requires active IsMoving state")?);
                     if !under_way && !fraidycat {
@@ -348,7 +348,7 @@ impl crate::sim::world::Simulation {
         //520236 queries motion before52023D reads NavCom.
         if crate::sim::movement::motion_query::is_moving(actor)
             .ok_or("Infantry panic requires active IsMoving state")?
-            || actor.navigation.nav_com.is_some()
+            || actor.navigation.nav_com().is_some()
         {
             return Ok(false);
         }
@@ -914,7 +914,7 @@ mod tests {
         }
         actor.locomotor = Some(loco);
         if input["nav"].as_bool().unwrap_or(false) {
-            actor.navigation.nav_com = Some(NavTargetRef::cell(4, 4));
+            actor.navigation.set_nav_com(Some(NavTargetRef::cell(4, 4)));
         }
         actor.install_native_stage_fixture(StageClass::from_native_fixture(
             before["stage"].as_i64().unwrap() as i32,
@@ -1275,7 +1275,7 @@ mod tests {
             actor.position.sub_x = SimFixed::from_num(signed(&before["position"][0]) % 256);
             actor.position.sub_y = SimFixed::from_num(signed(&before["position"][1]) % 256);
             actor.position.exact_z_leptons = Some(signed(&before["position"][2]));
-            actor.on_bridge = before["on_bridge"] != 0;
+            actor.set_on_bridge(before["on_bridge"] != 0);
             let object = rules.object("E1").unwrap();
             let mut loco = LocomotorState::from_object_type(object, 1);
             if before["walk_moving"]["value"].as_u64().unwrap() != 0 {
@@ -1320,10 +1320,12 @@ mod tests {
                     .set_for_test(Some(TargetKind::Entity(2)));
             }
             if before["nav"] != "0x0" {
-                actor.navigation.nav_com = Some(NavTargetRef::cell(12, 10));
+                actor
+                    .navigation
+                    .set_nav_com(Some(NavTargetRef::cell(12, 10)));
             }
             let target_before = actor.attack_target.target();
-            let nav_before = actor.navigation.nav_com;
+            let nav_before = actor.navigation.nav_com();
             sim.substrate.entities.insert(actor);
             let (admitted, draws) = trace_draws(|| {
                 sim.infantry_idle_action(1, &rules, crate::sim::world::FrameEffects::default())
@@ -1375,7 +1377,8 @@ mod tests {
                 "{name} target untouched"
             );
             assert_eq!(
-                actor.navigation.nav_com, nav_before,
+                actor.navigation.nav_com(),
+                nav_before,
                 "{name} NavCom untouched"
             );
             let native_words: Vec<_> = row["events"]

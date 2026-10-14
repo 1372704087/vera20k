@@ -200,7 +200,7 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
     assert_eq!(actor.mission_leaf.as_infantry().unwrap().water_state(), 2);
     // Synthetic rows supply +74=false; physical rows retain the constructor
     // in limbo. Neither premise claims wet/deck Unlimbo or occupation.
-    actor.lifecycle.cell_marked = false;
+    actor.lifecycle.set_cell_marked(false);
     // These action controls supply Location after construction. Constructor
     // arguments do not place the fresh Object at this native cell/pose.
     ground_pose::put_location(
@@ -211,7 +211,7 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
             z: xyz[2],
         },
     );
-    actor.on_bridge = input["bridge"].as_bool().unwrap_or(false);
+    actor.set_on_bridge(input["bridge"].as_bool().unwrap_or(false));
     actor.health.set_for_test(
         row["before"]["health"]
         .as_i64()

@@ -116,7 +116,7 @@ pub(super) fn supports_layered_bridge_pathing(
         return false;
     }
     matches!(
-        loco.kind,
+        loco.active_kind(),
         LocomotorKind::Drive | LocomotorKind::Walk | LocomotorKind::Hover
     ) || on_bridge
 }

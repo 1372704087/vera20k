@@ -487,8 +487,8 @@ impl Simulation {
         Ok(ClickMover {
             current: self.foot_current_coordinate(id)?,
             coordinate: self.foot_navigation_coordinate(id)?,
-            marked: entity.lifecycle.cell_marked,
-            on_bridge: entity.on_bridge,
+            marked: entity.lifecycle.cell_marked(),
+            on_bridge: entity.on_bridge(),
             in_tube: entity.low_bridge_tube_state.is_some(),
             special_type: object.movement_zone == MovementZone::Subterranean
                 || entity.category() == EntityCategory::Aircraft

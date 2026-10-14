@@ -2150,7 +2150,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 PassengerRole::inside_for_test(house, false);
             let occupant = sim.entities().get(gi).unwrap();
             assert!(occupant.lifecycle.in_limbo());
-            assert!(!occupant.lifecycle.cell_marked);
+            assert!(!occupant.lifecycle.cell_marked());
             assert!(!occupant.in_logic_vector.is_member());
             assert!(!sim.live_object_order_snapshot().contains(&gi));
             assert_eq!(
@@ -2252,7 +2252,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             .set_bunker_link_for_test(BunkerLink::Installed(99));
         for id in [actor, target] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
-            entity.lifecycle.cell_marked = true;
+            entity.lifecycle.set_cell_marked(true);
             entity.position.exact_z_leptons = Some(900);
         }
         let mut retained = crate::map::resolved_terrain::test_flat_cell(0, 0);
@@ -2309,7 +2309,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         for id in [actor_id, target_id] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
             entity.position.exact_z_leptons = Some(900);
-            entity.lifecycle.cell_marked = true;
+            entity.lifecycle.set_cell_marked(true);
         }
         let mut retained_cell = crate::map::resolved_terrain::test_flat_cell(0, 0);
         // A bridge anchor retaining Dummy makes its requested coordinate a

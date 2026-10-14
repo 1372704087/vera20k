@@ -510,7 +510,7 @@ impl crate::sim::world::Simulation {
                 .get_mut(id)
                 .unwrap()
                 .navigation
-                .nav_com = None;
+                .set_nav_com(None);
             return Ok(false);
         }
         let infantry = actor.category() == EntityCategory::Infantry;
@@ -559,7 +559,7 @@ impl crate::sim::world::Simulation {
         if infantry
             && !self.infantry_destination_inputs_available(
                 id,
-                actor.navigation.nav_com.unwrap_or_else(|| {
+                actor.navigation.nav_com().unwrap_or_else(|| {
                     crate::sim::components::NavTargetRef::cell(target.0, target.1)
                 }),
                 rules,
@@ -630,7 +630,7 @@ impl crate::sim::world::Simulation {
                     ) {
                         return false;
                     }
-                    let Some(reference) = actor.navigation.nav_com else {
+                    let Some(reference) = actor.navigation.nav_com() else {
                         return false;
                     };
                     let target_id = match reference {
@@ -1051,28 +1051,23 @@ impl crate::sim::world::Simulation {
                         (destination.x / 256) as i16,
                         (destination.y / 256) as i16,
                     ));
-                    entity.on_bridge = terrain.native_cell_flags(cell) & 0x100 != 0;
+                    entity.set_on_bridge(terrain.native_cell_flags(cell) & 0x100 != 0);
                     entity.position.z = super::movement_bridge::stored_level(
                         terrain.native_cell_ground_fields(cell).0,
-                        entity.on_bridge,
+                        entity.on_bridge(),
                     );
                 }
-                super::ground_pose::set_height(
-                    &mut entity.position,
-                    entity.on_bridge,
-                    0,
-                    terrain,
-                    None,
-                );
+                let on_bridge = entity.on_bridge();
+                super::ground_pose::set_height(&mut entity.position, on_bridge, 0, terrain, None);
                 // The path layer follows the destination's OnBridge. The cell
                 // lists move through the caller's Mark pair around this
                 // relocation (`0x007195D4` UP, `0x007196B8` DOWN).
                 if let Some(locomotor) = entity.locomotor.as_mut() {
-                    locomotor.layer = if entity.on_bridge {
+                    locomotor.set_layer(if on_bridge {
                         crate::sim::movement::locomotor::MovementLayer::Bridge
                     } else {
                         crate::sim::movement::locomotor::MovementLayer::Ground
-                    };
+                    });
                 }
                 // Harvester instant-warp: when chrono delay is 0, finish in one
                 // frame (cleanup runs at end of this frame) — no post-warp lock.

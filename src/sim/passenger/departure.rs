@@ -206,7 +206,7 @@ pub(crate) fn reveal_unloaded_passenger(
         .substrate
         .entities
         .get(passenger_id)
-        .and_then(|passenger| passenger.sub_cell);
+        .and_then(|passenger| passenger.sub_cell());
     let (sub_x, sub_y) = lepton::subcell_lepton_offset(sub_cell);
     if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
         debug_assert_eq!(

@@ -92,7 +92,7 @@ fn head_for(sim: &mut Simulation, rules: &RuleSet, id: u64, building: u64) {
 }
 
 fn heading(sim: &Simulation, id: u64) -> Option<u64> {
-    match sim.substrate.entities.get(id)?.navigation.nav_com {
+    match sim.substrate.entities.get(id)?.navigation.nav_com() {
         Some(
             NavTargetRef::Entity { id }
             | NavTargetRef::Object { id }
@@ -321,7 +321,7 @@ fn a_capturer_left_on_a_building_scatters_off_it() {
     let _ = capture(&mut sim, &rules, on);
     let _ = capture(&mut sim, &rules, off);
 
-    let nav_com = |id| sim.substrate.entities.get(id).unwrap().navigation.nav_com;
+    let nav_com = |id| sim.substrate.entities.get(id).unwrap().navigation.nav_com();
     assert!(matches!(nav_com(on), Some(NavTargetRef::Cell { .. })));
     assert_eq!(nav_com(off), None);
     assert_eq!(mission(&sim, off), (CAPTURE, GUARD));

@@ -98,7 +98,7 @@ fn relocating_owner(category: EntityCategory, type_name: &str, target: (u16, u16
     if category == EntityCategory::Infantry {
         entity.position.sub_x = crate::util::lepton::CELL_CENTER_LEPTON;
         entity.position.sub_y = crate::util::lepton::CELL_CENTER_LEPTON;
-        entity.sub_cell = Some(0);
+        entity.set_sub_cell(Some(0));
     }
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
     entity.install_teleport_state_for_test(Some(TeleportState::for_test(
@@ -405,14 +405,14 @@ fn a_restored_destination_warps_at_the_teleport_process_entry() {
     let mover = sim.substrate.entities.get_mut(1).unwrap();
     mover.install_teleport_state_for_test(None);
     represented_assign_destination(mover, Some(NavTargetRef::cell(8, 9)));
-    mover.navigation.pending_destination_setter = true;
+    mover.navigation.set_pending_destination_setter(true);
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
 
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!((mover.position.rx, mover.position.ry), (8, 9));
-    assert!(!mover.navigation.pending_destination_setter);
+    assert!(!mover.navigation.pending_destination_setter());
     assert!(crate::sim::movement::motion_query::is_moving(&mover) != Some(true));
 }
 
@@ -453,8 +453,8 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    mover.navigation.nav_com = Some(NavTargetRef::cell(8, 9));
-    mover.navigation.suspended_nav_com = Some(destination);
+    mover.navigation.set_nav_com(Some(NavTargetRef::cell(8, 9)));
+    mover.navigation.set_suspended_nav_com(Some(destination));
     // In OverlayGrid, which owns a real cell's overlay.
     let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
     overlays.place_overlay(12, 7, overlay, 0);
@@ -497,7 +497,7 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!(mover.mission.current().known(), Some(MissionType::Move));
     assert_eq!(mover.mission.suspended(), MissionId::NONE);
-    assert_eq!(mover.navigation.nav_com, Some(destination));
+    assert_eq!(mover.navigation.nav_com(), Some(destination));
     assert_eq!(
         crate::sim::movement::motion_query::is_moving(mover),
         Some(true)

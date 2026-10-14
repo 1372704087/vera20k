@@ -186,7 +186,7 @@ pub(crate) fn place(
         },
     );
     entity.position.z = level + deck;
-    entity.on_bridge = bridge;
+    entity.set_on_bridge(bridge);
     if latch {
         entity
             .drop_credit
@@ -277,7 +277,10 @@ fn locomotors(sim: &Simulation, id: u64) -> (LocomotorKind, Option<LocomotorKind
         .expect("a locomotor");
     (
         locomotor.active_kind(),
-        locomotor.piggyback.as_ref().map(|stash| stash.kind),
+        locomotor
+            .piggyback()
+            .as_ref()
+            .map(|stash| stash.active_kind()),
     )
 }
 
@@ -423,7 +426,7 @@ fn retail_chrono_warp_moves_the_source_block() {
     assert!(landed && ended);
     let entity = sim.substrate.entities.get(tank).unwrap();
     assert!(!entity.is_warping_in() && !entity.is_warped_out());
-    assert!(entity.navigation.nav_com.is_none());
+    assert!(entity.navigation.nav_com().is_none());
     assert!(!dead(&sim, tank) && !dead(&sim, legionnaire));
 }
 
@@ -437,7 +440,7 @@ fn chain(sim: &Simulation, id: u64) -> Vec<LocomotorKind> {
         .and_then(|entity| entity.locomotor.as_ref());
     while let Some(locomotor) = at {
         kinds.push(locomotor.active_kind());
-        at = locomotor.piggyback.as_deref();
+        at = locomotor.piggyback().as_deref();
     }
     kinds
 }
@@ -507,7 +510,7 @@ fn retail_chrono_warp_carries_a_driving_chrono_miner() {
         ]
     );
     let entity = sim.substrate.entities.get(miner).unwrap();
-    assert!(!warping(&sim) && entity.navigation.nav_com.is_none());
+    assert!(!warping(&sim) && entity.navigation.nav_com().is_none());
 
     let next = (landing.0 + 4, landing.1);
     order(&mut sim, next);
@@ -634,7 +637,7 @@ fn retail_chrono_warp_runs_an_idle_chrono_miner_on_a_tanks_frames() {
         let tank_state = state(&sim, tank);
         assert_eq!(state(&sim, miner), tank_state, "frame {frame}");
         let entity = sim.substrate.entities.get(miner).unwrap();
-        assert!(entity.navigation.nav_com.is_none(), "frame {frame}");
+        assert!(entity.navigation.nav_com().is_none(), "frame {frame}");
         let expected = if tank_state.is_some() {
             vec![Teleport, Teleport]
         } else {
@@ -685,7 +688,7 @@ fn retail_destination_while_warping_in_is_refused_by_the_drive() {
     assert_eq!(chain(&sim, miner), [Drive, Teleport, Teleport]);
     assert!(warping_in(&sim));
     let entity = sim.substrate.entities.get(miner).unwrap();
-    assert_eq!(entity.navigation.nav_com, Some(next));
+    assert_eq!(entity.navigation.nav_com(), Some(next));
     assert_eq!(
         crate::sim::movement::motion_query::is_moving(entity),
         Some(false)
@@ -711,7 +714,7 @@ fn retail_destination_while_warping_in_is_refused_by_the_drive() {
     let entity = sim.substrate.entities.get(miner).unwrap();
     assert!(entity.chrono_warp().is_none() && !entity.is_warping_in());
     assert!(
-        entity.navigation.nav_com.is_none()
+        entity.navigation.nav_com().is_none()
             && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
     );
 }
@@ -982,7 +985,7 @@ fn retail_chrono_update_position_matches_native_rows() {
         click(&mut sim, &rules, americans, "ChronoWarpSpecial", TARGET);
         let target = coord(&row["coord"]);
         let entity = sim.substrate.entities.get_mut(owner).unwrap();
-        entity.on_bridge = row["on_bridge"].as_bool().unwrap();
+        entity.set_on_bridge(row["on_bridge"].as_bool().unwrap());
         let runtime = entity
             .locomotor
             .as_mut()
@@ -1037,7 +1040,7 @@ fn retail_chrono_update_position_matches_native_rows() {
             "Marked of {row}"
         );
         assert_eq!(
-            u8::from(entity.on_bridge),
+            u8::from(entity.on_bridge()),
             int(&row["on_bridge_after"]) as u8,
             "OnBridge of {row}"
         );

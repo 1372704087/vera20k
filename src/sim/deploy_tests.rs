@@ -1281,7 +1281,7 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     // Supplied raw prior bytes are independent: a retained destination need
     // not have moving34 set, and motion36 can survive a paid-head release.
     // MoveTo would invent a transition instead of transporting the fixture.
-    loco.runtime_payload =
+    loco.set_runtime_payload_for_test(
         crate::sim::movement::locomotion::piggyback::LocomotorRuntimePayload::Walk(
             crate::sim::movement::locomotion::piggyback::WalkRuntime {
                 head: native_coord(&before["head"]),
@@ -1289,10 +1289,13 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
                 moving: before["moving"] != 0,
                 animation_moving: before["motion"] != 0,
             },
-        );
+        ),
+    );
     actor.locomotor = Some(loco);
     if before["nav"].as_i64().unwrap_or(0) != 0 {
-        actor.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(11, 10));
+        actor
+            .navigation
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(11, 10)));
     }
     if before["target"].as_i64().unwrap_or(0) != 0 {
         actor
@@ -1445,7 +1448,7 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
             "{name}: assignment frame"
         );
         assert_eq!(
-            actor.navigation.nav_com.is_some(),
+            actor.navigation.nav_com().is_some(),
             expected["nav"] != 0,
             "{name}: NavCom"
         );
@@ -1691,7 +1694,7 @@ fn synchronized_deploy_queues_unload_before_handler_action_and_sound() {
         serde_json::to_value(actor.native_stage()).unwrap(),
         before_stage
     );
-    assert!(actor.navigation.nav_com.is_none());
+    assert!(actor.navigation.nav_com().is_none());
     let locomotor = actor.locomotor.as_ref().unwrap();
     assert!(locomotor.walk_destination().is_none());
     assert_eq!(locomotor.walk_is_moving(), Some(false));

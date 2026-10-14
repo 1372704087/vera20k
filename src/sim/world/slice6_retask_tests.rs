@@ -505,9 +505,10 @@ fn replay_hash_stable_through_slice6() {
             // into the Foot body): a cell within M60 range of the tank, not
             // the tank's own cell.
             let gi = sim.substrate.entities.get(3).unwrap();
-            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) = gi.navigation.nav_com
+            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) =
+                gi.navigation.nav_com()
             else {
-                panic!("the GI approaches a cell: {:?}", gi.navigation.nav_com);
+                panic!("the GI approaches a cell: {:?}", gi.navigation.nav_com());
             };
             let aim = crate::sim::movement::ground_pose::position_world_coord(
                 &sim.substrate.entities.get(2).unwrap().position,
@@ -549,7 +550,7 @@ fn replay_hash_stable_through_slice6() {
                 );
             }
             assert!(
-                tank.navigation.nav_com.is_none(),
+                tank.navigation.nav_com().is_none(),
                 "Stop clears owner NavCom"
             );
             assert!(

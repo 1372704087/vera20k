@@ -510,7 +510,7 @@ fn a_crash_fall_lists_the_wreck_in_its_impact_cell() {
         assert_eq!(stats.impact, n + 1 == frames.len(), "frame {n}");
     }
     let wreck = sim.substrate.entities.get(1).unwrap();
-    assert!(wreck.lifecycle.cell_marked);
+    assert!(wreck.lifecycle.cell_marked());
     assert_eq!((wreck.position.rx, wreck.position.ry), cell);
     assert!(sim.substrate.occupancy.contains_entity(cell.0, cell.1, 1));
     assert_eq!(sim.next_cell_object(Entity(1)), Some(Entity(bystander)));

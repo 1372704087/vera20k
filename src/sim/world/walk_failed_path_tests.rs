@@ -80,7 +80,7 @@ fn far_failure_stops_walk_clears_target_and_queues_guard_for_a_human_house() {
         .unwrap()
         .navigation
         .path_runtime
-        .retries_left;
+        .retries_left();
     order_walk(&mut sim, &rules, id, (15, 15));
     let guard = MissionId::from_known(MissionType::Guard);
     let mut frames = 0;
@@ -107,16 +107,16 @@ fn far_failure_stops_walk_clears_target_and_queues_guard_for_a_human_house() {
     // Process cancellation: destination and NavCom are gone.
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
     assert_eq!(e.locomotor.as_ref().unwrap().walk_is_moving(), Some(false));
-    assert!(e.navigation.nav_com.is_none());
+    assert!(e.navigation.nav_com().is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
     // 0x4D4149 Assign_Target(NULL).
     assert!(e.attack_target.target().is_none());
     // A Clear current cell answers 0 at 0x51DBAC.
     assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked());
     // The failure tail never touches +64C; the oracle far row keeps 10.
-    assert_eq!(e.navigation.path_runtime.retries_left, retries_before);
+    assert_eq!(e.navigation.path_runtime.retries_left(), retries_before);
     // The NULL setter's Set_Destination_Internal tail rewrote +640 to duration 0.
-    assert_eq!(e.navigation.path_runtime.movement_timer.duration(), 0);
+    assert_eq!(e.navigation.path_runtime.movement_timer().duration(), 0);
     assert_eq!(e.position.rx, 10);
     assert_eq!(e.position.ry, 10);
 }
@@ -191,7 +191,7 @@ fn obstructed_target_beyond_close_enough_redirects_only_when_the_nearby_cell_is_
     let destination = e.locomotor.as_ref().unwrap().walk_destination().unwrap();
     assert_eq!((destination.x / 256, destination.y / 256), (12, 10));
     assert_eq!(
-        e.navigation.nav_com,
+        e.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::Cell { rx: 12, ry: 10 })
     );
     // Within CloseEnough the obstructed target is searched unchanged.
@@ -240,7 +240,7 @@ fn near_failure_returns_before_the_null_setter_and_guard_queue() {
     // The receiver's Stop already cleared the Walk destination; NavCom is
     // retained until the outer Process (oracle near row: nav kept, dest 0).
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
-    assert!(e.navigation.nav_com.is_some());
+    assert!(e.navigation.nav_com().is_some());
     assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked());
 }
 
@@ -263,7 +263,7 @@ fn own_cell_destination_fails_and_clears_the_order() {
     let e = sim.substrate.entities.get(id).unwrap();
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
     assert_eq!(e.locomotor.as_ref().unwrap().walk_is_moving(), Some(false));
-    assert!(e.navigation.nav_com.is_none());
+    assert!(e.navigation.nav_com().is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
     assert_eq!(e.mission.queued(), MissionId::NONE);
     assert_eq!(
@@ -273,7 +273,7 @@ fn own_cell_destination_fails_and_clears_the_order() {
     assert_eq!((e.position.rx, e.position.ry), (10, 10));
     // The NULL setter's Set_Destination_Internal tail rewrote +640 to
     // duration 0.
-    assert_eq!(e.navigation.path_runtime.movement_timer.duration(), 0);
+    assert_eq!(e.navigation.path_runtime.movement_timer().duration(), 0);
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn jumpjet_infantry_damage_scatter_takes_the_infantry_setter() {
     let e = sim.substrate.entities.get(victim).unwrap();
     assert!(e.health.current() < 125);
     assert!(
-        matches!(e.navigation.nav_com, Some(NavTargetRef::Cell { .. })),
+        matches!(e.navigation.nav_com(), Some(NavTargetRef::Cell { .. })),
         "Scatter published the cell NavCom"
     );
     let state = e.locomotor.as_ref().unwrap().jumpjet_runtime().unwrap();
@@ -453,7 +453,7 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
         before,
         "no immediate Process for source Scatter"
     );
-    let Some(NavTargetRef::Cell { rx, ry }) = e.navigation.nav_com else {
+    let Some(NavTargetRef::Cell { rx, ry }) = e.navigation.nav_com() else {
         panic!("scatter cell");
     };
     assert_eq!(
@@ -496,7 +496,7 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
     }
     let e = sim.substrate.entities.get(victim).unwrap();
     assert_eq!((e.position.rx, e.position.ry), (rx, ry));
-    assert!(e.navigation.nav_com.is_none());
+    assert!(e.navigation.nav_com().is_none());
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
 }
 

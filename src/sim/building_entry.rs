@@ -361,7 +361,7 @@ impl Simulation {
         let Some(best) = best else {
             return false;
         };
-        if !garrison_seek_reissues(best, foot.navigation.nav_com, foot.mission.current()) {
+        if !garrison_seek_reissues(best, foot.navigation.nav_com(), foot.mission.current()) {
             return true;
         }
         let _ = self.assign_destination_represented(
@@ -423,7 +423,7 @@ impl Simulation {
         let Some(best) = best else {
             return false;
         };
-        if !garrison_seek_reissues(best, foot.navigation.nav_com, foot.mission.current()) {
+        if !garrison_seek_reissues(best, foot.navigation.nav_com(), foot.mission.current()) {
             return true;
         }
         let _ = self.assign_destination_represented(

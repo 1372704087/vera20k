@@ -106,7 +106,7 @@ fn native_track_fixture(kind: LocomotorKind, budget: i32) -> (Simulation, TrackI
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
     let head = DriveCoord::cell(10, 9, 0);
     let track = TrackProgress {
         turn_index: 0,
@@ -294,7 +294,7 @@ fn gsi_04_05_paid_track_point_clears_current_before_same_cell_coordinate_commit(
                     .vehicle_bits(10, 9, MovementLayer::Ground),
                 0x20
             );
-            assert!(!entity.foot_occupation_enabled);
+            assert!(!entity.foot_occupation_enabled());
         }
     });
     assert!(paid_commits >= 1, "observe the actual coordinate receiver");

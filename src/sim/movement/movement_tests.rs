@@ -85,9 +85,12 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
     let accepted = sim.substrate.entities.get(1).unwrap();
     // Find_Path installed (0,0)->(1,0)->tube->(5,0); the fresh head
     // acceptance popped the east word and re-referenced at the head cell.
-    assert_eq!(accepted.navigation.path_replay.directions, [2, 8]);
+    assert_eq!(accepted.navigation.path_replay.directions(), [2, 8]);
     assert_eq!(accepted.navigation.path_replay.remaining_directions(), [8]);
-    assert_eq!(accepted.navigation.path_replay.reference_cell, Some((1, 0)));
+    assert_eq!(
+        accepted.navigation.path_replay.reference_cell(),
+        Some((1, 0))
+    );
     assert_eq!(movement_goal_cell(accepted), Some((5, 0)));
     assert!(committed_track_head(accepted).is_some());
     assert!(
@@ -129,8 +132,8 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
             );
             assert_eq!((entity.position.rx, entity.position.ry), (1, 0));
             assert_eq!(tube.cursor(), 0);
-            assert_eq!(entity.navigation.path_replay.cursor, 2);
-            assert_eq!(entity.navigation.path_replay.reference_cell, Some((1, 0)));
+            assert_eq!(entity.navigation.path_replay.cursor(), 2);
+            assert_eq!(entity.navigation.path_replay.reference_cell(), Some((1, 0)));
             assert_eq!(
                 entity
                     .locomotor
@@ -161,7 +164,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
                     .remaining_directions()
                     .is_empty()
             );
-            assert!(!entity.lifecycle.cell_marked);
+            assert!(!entity.lifecycle.cell_marked());
             assert!(!sim.substrate.occupancy.contains_entity(1, 0, 1));
             return;
         }
@@ -255,7 +258,7 @@ fn test_drive_arrival_clears_navcom_same_tick() {
         crate::sim::movement::owner_current_speed(&e, None, 1.0, &Default::default()),
         1
     );
-    e.navigation.nav_com = Some(NavTargetRef::cell(0, 0));
+    e.navigation.set_nav_com(Some(NavTargetRef::cell(0, 0)));
     assert!(
         e.locomotor
             .as_mut()
@@ -285,8 +288,8 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     tick_movement(&mut entities, &mut test_interner(), &mut lifecycle_requests);
     let entity = entities.get(1).expect("entity exists");
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
-    assert_eq!(entity.navigation.nav_com, None);
-    assert!(!entity.navigation.pending_destination_setter);
+    assert_eq!(entity.navigation.nav_com(), None);
+    assert!(!entity.navigation.pending_destination_setter());
     let drive = entity
         .locomotor
         .as_ref()
@@ -364,10 +367,10 @@ fn walk_path_timer_waits_without_double_aging_or_losing_owner_state() {
         ));
         order(&mut sim, (20, 10), DestinationTiming::new(100, 60));
         let mut retained = FootPathRuntime::at_frame(0);
-        retained.movement_timer = timer;
-        retained.blocked_timer = CdTimer::started(100, 60);
-        retained.path_blocked = true;
-        retained.retries_left = u32::MAX;
+        retained.set_movement_timer_for_test(timer);
+        retained.set_blocked_timer_for_test(CdTimer::started(100, 60));
+        retained.set_path_blocked(true);
+        retained.set_retries_left(u32::MAX);
         let actor = sim.substrate.entities.get_mut(1).unwrap();
         actor.navigation.path_runtime = retained;
         let position = actor.position;
@@ -404,26 +407,26 @@ fn walk_path_timer_waits_without_double_aging_or_losing_owner_state() {
         ));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            actor.navigation.path_runtime.movement_timer,
+            actor.navigation.path_runtime.movement_timer(),
             CdTimer::started(200, 0)
         );
         assert_eq!(
-            actor.navigation.path_runtime.blocked_timer,
+            actor.navigation.path_runtime.blocked_timer(),
             CdTimer::started(200, 60)
         );
-        assert!(!actor.navigation.path_runtime.path_blocked);
-        assert_eq!(actor.navigation.path_runtime.retries_left, u32::MAX);
+        assert!(!actor.navigation.path_runtime.path_blocked());
+        assert_eq!(actor.navigation.path_runtime.retries_left(), u32::MAX);
         order(&mut sim, (21, 10), DestinationTiming::new(201, 22));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            actor.navigation.path_runtime.movement_timer,
+            actor.navigation.path_runtime.movement_timer(),
             CdTimer::started(201, 0)
         );
         assert_eq!(
-            actor.navigation.path_runtime.blocked_timer,
+            actor.navigation.path_runtime.blocked_timer(),
             CdTimer::started(201, 22)
         );
-        assert_eq!(actor.navigation.path_runtime.retries_left, u32::MAX);
+        assert_eq!(actor.navigation.path_runtime.retries_left(), u32::MAX);
         assert_eq!(
             actor.locomotor.as_ref().unwrap().walk_destination_cell(),
             Some((21, 10))
@@ -745,7 +748,7 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
             .locomotor
             .as_ref()
             .unwrap()
-            .kind,
+            .active_kind(),
         LocomotorKind::Walk,
     );
     assert_eq!(
@@ -808,7 +811,7 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
                 .iter_layer(MovementLayer::Ground)
                 .find(|entry| entry.entity_id == walker)
                 .unwrap();
-            assert_eq!(own_entry.sub_cell, entity.sub_cell);
+            assert_eq!(own_entry.sub_cell, entity.sub_cell());
             assert_eq!(
                 occupants.first_on_layer(MovementLayer::Ground),
                 Some(walker)
@@ -875,14 +878,14 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
             // 75BD89 consumes the completed head's Foot+5E0 word, if any.
             assert!(
                 before_route.remaining_directions().is_empty()
-                    || entity.navigation.path_replay.cursor > before_route.cursor
+                    || entity.navigation.path_replay.cursor() > before_route.cursor()
             );
         }
         trace.push((
             frame,
             cell,
             crate::sim::movement::ground_pose::position_world_xy(&entity.position),
-            entity.sub_cell,
+            entity.sub_cell(),
             sim.scenario_rng.state(),
             entity.locomotor.as_ref().and_then(|l| l.step_head()),
             entity.navigation.path_replay.clone(),
@@ -1284,7 +1287,7 @@ fn walk_infantry_corridor(
         if visited.last() != Some(&cell) {
             visited.push(cell);
         }
-        if e.navigation.nav_com.is_none()
+        if e.navigation.nav_com().is_none()
             && crate::sim::movement::motion_query::is_moving(&e) != Some(true)
         {
             break;
@@ -1347,9 +1350,9 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
         let mut tank = GameEntity::test_default(1, "HTNK", "Americans", 0, 0);
         tank.set_category_for_test(EntityCategory::Unit);
         tank.lifecycle.set_in_limbo_for_test(false);
-        tank.lifecycle.cell_marked = true;
+        tank.lifecycle.set_cell_marked(true);
         let mut locomotor = make_drive_loco_for_test();
-        locomotor.movement_zone = movement_zone;
+        locomotor.set_movement_zone_for_test(movement_zone);
         tank.locomotor = Some(locomotor);
         assert!(
             tank.locomotor
@@ -1451,7 +1454,8 @@ fn sharp_turn_preserves_path_node_count() {
         "the null-curve substitute should have started a straight drive track"
     );
     assert_eq!(
-        entity.navigation.path_replay.cursor, 1,
+        entity.navigation.path_replay.cursor(),
+        1,
         "the substitute must consume exactly one path node, not two"
     );
     let drive = drive_locomotion.as_ref().expect("substitute curve");
@@ -1491,7 +1495,7 @@ fn off_octant_hull_turns_before_any_curve_is_selected() {
         .and_then(|l| l.selected_drive_runtime())
         .and_then(|r| r.retained())
         .cloned();
-    assert_eq!(entity.navigation.path_replay.cursor, 0);
+    assert_eq!(entity.navigation.path_replay.cursor(), 0);
 
     assert!(
         drive_locomotion.as_ref().unwrap().head_to().is_none(),
@@ -1521,13 +1525,13 @@ fn gsi_06_13_fixture_mover(
     e.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     e.body_facing.snap(u16::from(facing) << 8, 0);
     e.lifecycle.set_in_limbo_for_test(false);
-    e.lifecycle.cell_marked = true;
+    e.lifecycle.set_cell_marked(true);
     let goal = *path.last().expect("non-empty path");
-    e.navigation.path_replay = crate::sim::components::FootPathQueue {
+    e.navigation.path_replay = crate::sim::components::FootPathQueue::for_test(
         directions,
-        cursor: 0,
-        reference_cell: Some((start.0 as i16, start.1 as i16)),
-    };
+        0,
+        Some((start.0 as i16, start.1 as i16)),
+    );
     e.foot_speed.set_speed_fraction(SIM_ONE);
     assert!(
         e.locomotor
@@ -1597,7 +1601,7 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
             if ids.iter().all(|&id| {
                 let e = sim.substrate.entities.get(id).unwrap();
                 crate::sim::movement::motion_query::is_moving(&e) != Some(true)
-                    && e.navigation.nav_com.is_none()
+                    && e.navigation.nav_com().is_none()
             }) {
                 break;
             }

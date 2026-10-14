@@ -799,7 +799,7 @@ mod tests {
         );
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
-        assert!(unit.lifecycle.cell_marked);
+        assert!(unit.lifecycle.cell_marked());
         assert!(!unit.selection.is_selected());
         assert_eq!(
             unit.mission.current(),
@@ -867,11 +867,11 @@ mod tests {
         assert!(unit.in_logic_vector.is_member(), "unit revealed");
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
-        assert!(unit.lifecycle.cell_marked);
+        assert!(unit.lifecycle.cell_marked());
         assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
         // The existing exit-search adapter supplies NavCom; Force moves later.
         assert_eq!(
-            unit.navigation.nav_com,
+            unit.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(9, 11))
         );
         assert_eq!(
@@ -905,7 +905,7 @@ mod tests {
         assert!(unit.in_logic_vector.is_member(), "unit remains active");
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
-        assert!(unit.lifecycle.cell_marked);
+        assert!(unit.lifecycle.cell_marked());
         assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
         assert_eq!(unit.body_facing.destination(), 0);
         assert_eq!(
@@ -943,7 +943,7 @@ mod tests {
         );
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
-        assert!(unit.lifecycle.cell_marked);
+        assert!(unit.lifecycle.cell_marked());
         assert_eq!(
             (unit.position.rx, unit.position.ry),
             (12, 12),

@@ -240,7 +240,9 @@ fn production_drive_reaim_reads_retained_target_head() {
         DriveCoord::cell(3, 4, 0),
         NULL_COORD,
     );
-    mover.navigation.nav_com = Some(NavTargetRef::Entity { id: 2 });
+    mover
+        .navigation
+        .set_nav_com(Some(NavTargetRef::Entity { id: 2 }));
     assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
         crate::sim::movement::track_process::TrackFamily::Drive,
         Some(DriveCoord::cell(7, 4, 0))

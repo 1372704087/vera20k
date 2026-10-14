@@ -150,7 +150,7 @@ pub(super) fn print_replay_summary(name: &str, sim: &Simulation) {
             let e = sim.substrate.entities.get(id).unwrap();
             serde_json::json!({"id":id,"type":sim.resolve(e.type_ref()),
             "health":e.health.current(),"position":e.position,"mission":e.mission,
-            "target":e.attack_target,"nav":e.navigation.nav_com,
+            "target":e.attack_target,"nav":e.navigation.nav_com(),
             "passive_timer":e.passive_scan.timer(),"last_scan":e.passive_scan.last_scan_frame(),
             "rearm":e.rearm_timer.timer()})
         })
@@ -1027,7 +1027,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
                 "Stop retains the active dispatch timer"
             );
             assert!(tank.attack_target.target().is_none());
-            assert!(tank.navigation.nav_com.is_none());
+            assert!(tank.navigation.nav_com().is_none());
             assert!(tank.mega_mission.is_attack_move());
             assert_eq!(tank.passive_scan.last_scan_frame(), 297);
         }
@@ -1073,7 +1073,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
 
         if let Some(harvester) = rec.substrate.entities.get(3) {
             if let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) =
-                harvester.navigation.nav_com
+                harvester.navigation.nav_com()
             {
                 miner_acquired_field |= (12 + HARNESS_COORD_SHIFT..=13 + HARNESS_COORD_SHIFT)
                     .contains(&rx)

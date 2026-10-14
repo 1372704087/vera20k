@@ -266,7 +266,7 @@ fn the_passengers_are_sent_aboard_one_per_update_and_leave_the_team() {
     assert_eq!(f.boarding(second), None, "one member is ordered per update");
     let entity = f.entity(first);
     assert_eq!(ordered(entity), Some(MissionType::Enter));
-    assert_eq!(entity.navigation.nav_com, Some(NavTargetRef::object(apc)));
+    assert_eq!(entity.navigation.nav_com(), Some(NavTargetRef::object(apc)));
 
     f.run_past(team, 1, 900);
     assert_eq!(f.cursor(team), 2, "actions 14 and 43 are finished");
@@ -382,7 +382,7 @@ fn unload_orders_each_loaded_transport_off_buildings() {
     assert!(!f.finished(team));
     let entity = f.entity(apc);
     assert_eq!(ordered(entity), Some(MissionType::Unload));
-    assert_eq!(entity.navigation.nav_com, None);
+    assert_eq!(entity.navigation.nav_com(), None);
     assert!(entity.attack_target.target().is_none());
 
     let parked = f.spawn("APC", 24, 24);
@@ -457,7 +457,7 @@ fn unload_argument_decides_who_leaves_the_team() {
         let transport = f.entity(apc);
         if returns {
             assert_eq!(
-                transport.navigation.nav_com,
+                transport.navigation.nav_com(),
                 Some(NavTargetRef::cell(5, 6)),
                 "{case:?}"
             );
@@ -844,7 +844,9 @@ impl OracleTeam {
                 cargo.set_passenger_sizes_for_test(vec![1; count]);
                 entity.passenger_role = PassengerRole::transport(cargo);
             }
-            entity.navigation.nav_com = flag(&member["nav"]).then(|| NavTargetRef::cell(1, 1));
+            entity
+                .navigation
+                .set_nav_com(flag(&member["nav"]).then(|| NavTargetRef::cell(1, 1)));
             entity
                 .mission
                 .set_current_for_test(MissionId::from_raw(int(&member["mission"])), 0);
@@ -958,7 +960,7 @@ impl OracleTeam {
                     }
                     Some(target) => Some(NavTargetRef::object(self.members[slot(target)])),
                 };
-                assert_eq!(entity.navigation.nav_com, nav, "{at}: NavCom");
+                assert_eq!(entity.navigation.nav_com(), nav, "{at}: NavCom");
                 assert_eq!(
                     entity.attack_target.target(),
                     (!untargeted[index]).then_some(crate::sim::combat::TargetKind::Cell(2, 2)),
@@ -1085,7 +1087,7 @@ fn deploy_matches_the_original() {
             let cell = [i64::from(entity.position.rx), i64::from(entity.position.ry)];
             match kind {
                 "mark" => assert!(
-                    entity.lifecycle.cell_marked
+                    entity.lifecycle.cell_marked()
                         && team.sim.substrate.occupancy.contains_entity(
                             entity.position.rx,
                             entity.position.ry,

@@ -213,8 +213,8 @@ impl Scene {
             "spent": house.economy.spent_credits(),
             "unit_mission": unit.mission.current().raw(),
             "unit_queued": unit.mission.queued().raw(),
-            "unit_nav": self.nav(unit.navigation.nav_com),
-            "unit_nav_aux": self.nav(unit.navigation.nav_com_aux),
+            "unit_nav": self.nav(unit.navigation.nav_com()),
+            "unit_nav_aux": self.nav(unit.navigation.nav_com_aux()),
             "unit_archive": self.nav(archive),
             "pending_entry": self.name(unit.pending_entry()),
             "unit_contacts": (0..unit.radio_contacts.capacity()).map(|n| self.name(unit.radio_contacts.slot(n))).collect::<Vec<_>>(),
@@ -474,30 +474,31 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         let unit = sim.substrate.entities.get_mut(tank).unwrap();
         if let Some(in_playfield) = case["unit_in_playfield"].as_bool() {
             assert_eq!(
-                unit.in_playfield, in_playfield,
+                unit.in_playfield(),
+                in_playfield,
                 "admitted native membership"
             );
         }
         if row["foot_before"].is_object() {
             let foot = &row["foot_before"];
             let path = &mut unit.navigation.path_runtime;
-            path.movement_timer = CdTimer::from_raw(
+            path.set_movement_timer_for_test(CdTimer::from_raw(
                 int(&foot["movement_timer"][0]),
                 int(&foot["movement_timer"][1]),
-            );
-            path.blocked_timer = CdTimer::from_raw(
+            ));
+            path.set_blocked_timer_for_test(CdTimer::from_raw(
                 int(&foot["blocked_timer"][0]),
                 int(&foot["blocked_timer"][1]),
-            );
-            path.retries_left = foot["retries_left"].as_u64().unwrap() as u32;
-            path.path_blocked = foot["path_blocked"].as_bool().unwrap();
-            assert_eq!(unit.in_playfield, foot["in_playfield"].as_bool().unwrap());
+            ));
+            path.set_retries_left(foot["retries_left"].as_u64().unwrap() as u32);
+            path.set_path_blocked(foot["path_blocked"].as_bool().unwrap());
+            assert_eq!(unit.in_playfield(), foot["in_playfield"].as_bool().unwrap());
             assert_eq!(
                 unit.is_mission_only(),
                 foot["mission_only"].as_bool().unwrap()
             );
             assert_eq!(
-                unit.navigation.nav_queue.len(),
+                unit.navigation.nav_queue().len(),
                 int(&foot["nav_queue_count"]) as usize
             );
         }
@@ -509,18 +510,21 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         unit.position.sub_x = SimFixed::from_num(int(&at[0]) % 256);
         unit.position.sub_y = SimFixed::from_num(int(&at[1]) % 256);
         unit.position.exact_z_leptons = Some(int(&at[2]));
-        unit.navigation.nav_com = if let Some(cell) = before["unit_nav"].as_array() {
-            Some(NavTargetRef::cell(
-                int(&cell[0]) as u16,
-                int(&cell[1]) as u16,
-            ))
-        } else {
-            before["unit_nav"]
-                .is_string()
-                .then_some(NavTargetRef::Building { id: depot })
-        };
-        unit.navigation.nav_com_aux = (before["unit_nav_aux"] == "other")
-            .then(|| NavTargetRef::Building { id: other.unwrap() });
+        unit.navigation
+            .set_nav_com(if let Some(cell) = before["unit_nav"].as_array() {
+                Some(NavTargetRef::cell(
+                    int(&cell[0]) as u16,
+                    int(&cell[1]) as u16,
+                ))
+            } else {
+                before["unit_nav"]
+                    .is_string()
+                    .then_some(NavTargetRef::Building { id: depot })
+            });
+        unit.navigation.set_nav_com_aux(
+            (before["unit_nav_aux"] == "other")
+                .then(|| NavTargetRef::Building { id: other.unwrap() }),
+        );
         unit.set_pending_entry(match before["pending_entry"].as_str() {
             Some("other") => other,
             Some("refinery") => Some(depot),

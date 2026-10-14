@@ -94,7 +94,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     }
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.exact_z_leptons = Some(integer("z", 0));
-    entity.on_bridge = flag("on_bridge");
+    entity.set_on_bridge(flag("on_bridge"));
     entity.health.set_for_test(integer("health", 100));
     let loco = entity.locomotor.as_mut().unwrap();
     if flag("landing") {
@@ -140,7 +140,7 @@ fn healthy_native_height_vectors_reach_production_coordinates() {
             row["input"]
         );
         assert_eq!(
-            entity.on_bridge,
+            entity.on_bridge(),
             row["on_bridge"].as_bool().unwrap(),
             "{}",
             row["input"]
@@ -538,7 +538,7 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         .mission_leaf
         .set_aircraft_action_latch(input["ready"].as_bool().unwrap_or(false));
     let loco = entity.locomotor.as_mut().unwrap();
-    loco.powered = input["powered"].as_bool().unwrap_or(true);
+    loco.set_powered_for_test(input["powered"].as_bool().unwrap_or(true));
     *loco.fly_runtime_mut().unwrap() = serde_json::from_value(serde_json::json!({
         "target_height": 37,
         "taking_off": input["taking_off"].as_bool().unwrap_or(false),
@@ -803,7 +803,7 @@ fn assert_native_takeoff_result(sim: &Simulation, row: &serde_json::Value) {
         "{row}"
     );
     assert_eq!(
-        entity.on_bridge,
+        entity.on_bridge(),
         row["on_bridge"].as_bool().unwrap(),
         "{row}"
     );
@@ -862,10 +862,10 @@ fn fly_takeoff_phase_matches_native_display_reordering_and_gates() {
         insert_entity(&mut sim, peer, EntityCategory::Aircraft);
         let owner = sim.substrate.entities.get(1).unwrap();
         let (position, on_bridge, loco) =
-            (owner.position, owner.on_bridge, owner.locomotor.clone());
+            (owner.position, owner.on_bridge(), owner.locomotor.clone());
         let other = sim.substrate.entities.get_mut(peer).unwrap();
         other.position = position;
-        other.on_bridge = on_bridge;
+        other.set_on_bridge(on_bridge);
         other.locomotor = loco;
         sim.submit_entity_display(1, Some(&rules), None);
         sim.submit_entity_display(peer, Some(&rules), None);
@@ -883,7 +883,12 @@ fn fly_takeoff_phase_matches_native_display_reordering_and_gates() {
         );
         assert_native_takeoff_result(&sim, &row);
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().lifecycle.cell_marked,
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .lifecycle
+                .cell_marked(),
             row["marked"].as_bool().unwrap(),
             "{row}"
         );
@@ -927,10 +932,10 @@ fn fly_nonlandable_phase_matches_native_without_display_resubmission() {
         insert_entity(&mut sim, peer, EntityCategory::Aircraft);
         let owner = sim.substrate.entities.get(1).unwrap();
         let (position, on_bridge, loco) =
-            (owner.position, owner.on_bridge, owner.locomotor.clone());
+            (owner.position, owner.on_bridge(), owner.locomotor.clone());
         let other = sim.substrate.entities.get_mut(peer).unwrap();
         other.position = position;
-        other.on_bridge = on_bridge;
+        other.set_on_bridge(on_bridge);
         other.locomotor = loco;
         sim.submit_entity_display(1, Some(&rules), None);
         sim.submit_entity_display(peer, Some(&rules), None);
@@ -951,7 +956,7 @@ fn fly_nonlandable_phase_matches_native_without_display_resubmission() {
             "{row}"
         );
         assert_eq!(
-            entity.lifecycle.cell_marked,
+            entity.lifecycle.cell_marked(),
             row["marked"].as_bool().unwrap(),
             "{row}"
         );
@@ -1046,7 +1051,11 @@ fn fly_phase_outer_health_power_and_life_gates_precede_nonlandable_override() {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         match gate {
             "health" => entity.health.set_for_test(0),
-            "power" => entity.locomotor.as_mut().unwrap().powered = false,
+            "power" => entity
+                .locomotor
+                .as_mut()
+                .unwrap()
+                .set_powered_for_test(false),
             "life" => entity.lifecycle.set_object_alive_for_test(false),
             _ => unreachable!(),
         }

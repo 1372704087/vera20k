@@ -236,7 +236,7 @@ fn cross_repaired_road(scene: &mut HeadlessScenario) {
             .unwrap();
         let actor = runtime.simulation.entities().get(fv).unwrap();
         assert!(
-            !actor.on_bridge,
+            !actor.on_bridge(),
             "low road must not create raised-deck occupation"
         );
         assert!(actor.low_bridge_tube_state.is_none());
@@ -422,7 +422,7 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
                 u64::from(actor.body_facing_current(visit_frame)),
                 head_input["facing_raw"]
             );
-            assert_eq!(actor.lifecycle.cell_marked, head_input["initial_marked"]);
+            assert_eq!(actor.lifecycle.cell_marked(), head_input["initial_marked"]);
             assert!(
                 actor
                     .locomotor
@@ -530,7 +530,7 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
                     loco.target_speed_fraction().to_num::<f64>(),
                     head_process["fraction"].as_f64().unwrap()
                 );
-                let timer = actor.navigation.path_runtime.movement_timer;
+                let timer = actor.navigation.path_runtime.movement_timer();
                 assert_eq!(
                     i64::from(timer.start_frame()),
                     head_process["movement_timer"][0]
@@ -540,11 +540,11 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
                     head_process["movement_timer"][2]
                 );
                 assert_eq!(
-                    u64::from(actor.navigation.path_runtime.retries_left),
+                    u64::from(actor.navigation.path_runtime.retries_left()),
                     head_process["retries"]
                 );
                 assert_eq!(
-                    u64::from(actor.lifecycle.cell_marked),
+                    u64::from(actor.lifecycle.cell_marked()),
                     head_process["marked"]
                 );
                 assert_eq!(
@@ -748,7 +748,7 @@ fn assert_retained_naval_ship(
     );
     assert_eq!(actor.lifecycle.object_alive(), native["alive"] == 1);
     assert_eq!(actor.lifecycle.in_limbo(), native["limbo"] == 1);
-    assert_eq!(actor.lifecycle.cell_marked, native["marked"] == 1);
+    assert_eq!(actor.lifecycle.cell_marked(), native["marked"] == 1);
     assert_eq!(actor.sinking.is_active(), native["sinking"] == 1);
     assert_eq!(
         actor.in_logic_vector.is_member(),

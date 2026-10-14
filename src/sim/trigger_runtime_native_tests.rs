@@ -308,8 +308,11 @@ fn per_cell_arrival_uses_native_bridge_admission_and_keeps_the_cached_tag() {
     {
         let (mut sim, rules, overlays, houses) = event_ingress_fixture();
         let actor = spawn_event_ingress_unit(&mut sim, &rules, houses[0], (15, 15));
-        sim.substrate.entities.get_mut(actor).unwrap().on_bridge =
-            case["inputs"]["on_bridge"].as_bool().unwrap();
+        sim.substrate
+            .entities
+            .get_mut(actor)
+            .unwrap()
+            .set_on_bridge(case["inputs"]["on_bridge"].as_bool().unwrap());
         let cached = case["name"] == "cached_after_detach";
         install_event_ingress_map(
             &mut sim,

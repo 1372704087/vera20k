@@ -212,7 +212,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(entity_id)
-                .map(|entity| (entity_id, entity.on_bridge)),
+                .map(|entity| (entity_id, entity.on_bridge())),
             _ => None,
         };
         let cmd_owner_str = self.interner.resolve(cmd.owner).to_string();
@@ -235,7 +235,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.on_bridge != before)
+                    .is_some_and(|entity| entity.on_bridge() != before)
             });
         (applied, spawned_entity)
     }

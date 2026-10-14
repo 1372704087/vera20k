@@ -337,8 +337,8 @@ mod tests {
         // The native fixture supplies an already admitted cell-list object;
         // class construction/reveal is outside this comparison boundary.
         gate.lifecycle.set_in_limbo_for_test(false);
-        gate.lifecycle.cell_marked = true;
-        gate.in_playfield = true;
+        gate.lifecycle.set_cell_marked(true);
+        gate.set_in_playfield(true);
         sim.substrate.entities.insert(gate);
         let mover_type = sim.interner.intern("MTNK");
         sim.substrate

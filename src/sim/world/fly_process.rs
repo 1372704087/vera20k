@@ -202,7 +202,7 @@ impl Simulation {
         let Some(state) = entity
             .locomotor
             .as_ref()
-            .filter(|locomotor| locomotor.powered)
+            .filter(|locomotor| locomotor.is_powered())
             .and_then(|locomotor| locomotor.fly_runtime())
         else {
             return stats;
@@ -299,7 +299,7 @@ impl Simulation {
             .and_then(|locomotor| locomotor.fly_runtime())
             .is_none_or(|state| state.airport_bound());
         if entity.health.current() <= 0
-            || entity.navigation.nav_com.is_none()
+            || entity.navigation.nav_com().is_none()
             || entity.mission.effective() != MissionId::from_known(MissionType::Guard)
             || entity.mission.queued() != MissionId::NONE
             || airport_bound
@@ -496,7 +496,7 @@ impl Simulation {
             == MissionId::from_known(MissionType::Enter)
             && entity
                 .navigation
-                .nav_com
+                .nav_com()
                 .and_then(|nav_com| match nav_com {
                     NavTargetRef::Cell { .. } => None,
                     NavTargetRef::Entity { id }
@@ -835,7 +835,11 @@ impl Simulation {
             Some(bounds),
             self.resolved_terrain.as_ref(),
         ) {
-            self.substrate.entities.get_mut(id).unwrap().in_playfield = true;
+            self.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_in_playfield(true);
             return;
         }
         if !retreat {

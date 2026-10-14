@@ -417,7 +417,7 @@ fn fire_coordinate_base<'r>(
         .entities
         .get(snap.stable_id)
         .and_then(|e| e.locomotor.as_ref())
-        .is_some_and(|l| l.kind == crate::rules::locomotor_type::LocomotorKind::Fly)
+        .is_some_and(|l| l.active_kind() == crate::rules::locomotor_type::LocomotorKind::Fly)
     {
         // Fly DrawMatrix4CF651 reads SecondaryFacing even when GetFLH's
         // separate relative-aim rotation still subtracts PrimaryFacing.

@@ -1296,7 +1296,7 @@ mod retail_construction_tests {
                                     Some(_) => "in another team",
                                     None => "out",
                                 },
-                                entity.navigation.nav_com,
+                                entity.navigation.nav_com(),
                                 if entity.passenger_role.is_inside_transport() {
                                     " aboard"
                                 } else if entity.passenger_role.boarding_transport_id().is_some() {
@@ -1325,7 +1325,7 @@ mod retail_construction_tests {
                             frame,
                             sim.entities()
                                 .get(transport)
-                                .and_then(|entity| entity.navigation.nav_com),
+                                .and_then(|entity| entity.navigation.nav_com()),
                         ));
                     }
                     if frame >= done + 60 {
@@ -1758,7 +1758,7 @@ mod retail_construction_tests {
             sim.entities().get(id).is_some_and(|entity| {
                 let at = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
                 entity.mission.current().known() == Some(MissionType::Move)
-                    && entity.navigation.nav_com.is_some()
+                    && entity.navigation.nav_com().is_some()
                     && entity
                         .locomotor
                         .as_ref()
@@ -1800,7 +1800,7 @@ mod retail_construction_tests {
             .map(|entity| {
                 (
                     (entity.position.rx, entity.position.ry),
-                    entity.navigation.nav_com,
+                    entity.navigation.nav_com(),
                 )
             })
             .collect();
@@ -2198,7 +2198,7 @@ mod retail_construction_tests {
                 hit = Some(frame);
             }
             if charged.is_none()
-                && entity.navigation.nav_com == Some(NavTargetRef::Entity { id: gi })
+                && entity.navigation.nav_com() == Some(NavTargetRef::Entity { id: gi })
                 && (entity.mission.queued() == move_mission
                     || entity.mission.current() == move_mission)
             {
@@ -2293,7 +2293,7 @@ mod retail_construction_tests {
             let output = tick_with_due_commands(&mut scenario);
             let sim = scenario.sim();
             let entity = sim.entities().get(rhino).expect("the Rhino lives");
-            if charged.is_none() && entity.navigation.nav_com == Some(NavTargetRef::object(gi)) {
+            if charged.is_none() && entity.navigation.nav_com() == Some(NavTargetRef::object(gi)) {
                 charged = Some(frame);
             }
             match sim

@@ -377,7 +377,7 @@ fn send_spy_planes_matches_native() {
             plane.attack_target.target(),
             Some(TargetKind::Cell(TARGET.0, TARGET.1))
         );
-        assert_eq!(plane.navigation.nav_com, None);
+        assert_eq!(plane.navigation.nav_com(), None);
         assert_eq!((plane.position.rx, plane.position.ry), expected, "{row}");
         assert_eq!(
             (plane.position.sub_x, plane.position.sub_y),
@@ -443,7 +443,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
             .get_mut(id)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::cell(NAV_CELL.0, NAV_CELL.1));
+            .set_nav_com(Some(NavTargetRef::cell(NAV_CELL.0, NAV_CELL.1)));
     }
     let mission = if row["mission"] == "approach" {
         MissionType::SpyplaneApproach
@@ -476,9 +476,9 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
         flag(row, "target").then(|| TargetKind::Cell(PLANE_TARGET.0, PLANE_TARGET.1)),
     );
     if !flag(row, "nav_com") {
-        plane.navigation.nav_com = None;
+        plane.navigation.set_nav_com(None);
     }
-    plane.in_playfield = flag(row, "in_playfield");
+    plane.set_in_playfield(flag(row, "in_playfield"));
     plane.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(mission),
         suspended: MissionId::NONE,
@@ -579,7 +579,7 @@ fn spyplane_missions_match_native() {
             }
             Some(_) => opposite.map(|(rx, ry)| NavTargetRef::cell(rx, ry)),
         };
-        assert_eq!(plane.navigation.nav_com, nav, "{row}");
+        assert_eq!(plane.navigation.nav_com(), nav, "{row}");
         let radius = sim
             .fog
             .sight_admissions

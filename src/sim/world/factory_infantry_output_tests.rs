@@ -304,7 +304,7 @@ fn ground_command_fixture(
         );
         assert_eq!(target_actor.is_object_alive(), prior["alive"] != 0);
         assert_eq!(target_actor.lifecycle.in_limbo(), prior["limbo"] != 0);
-        assert_eq!(target_actor.lifecycle.cell_marked, prior["marked"] != 0);
+        assert_eq!(target_actor.lifecycle.cell_marked(), prior["marked"] != 0);
         assert_eq!(
             ground_pose::position_world_coord(&target_actor.position),
             target_location
@@ -427,24 +427,43 @@ fn ground_command_fixture(
         // initialized GI and these input histories contain no increment write.
         1,
     ));
-    actor.navigation.nav_com = ground_command_nav_target(state);
+    actor
+        .navigation
+        .set_nav_com(ground_command_nav_target(state));
     actor.set_archive_target(ground_command_archive_target(state));
-    actor.navigation.path_replay.directions = state["path"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|word| {
-            let word = word.as_i64().unwrap();
-            assert!((-1..=8).contains(&word));
-            word as u8
-        })
-        .collect();
+    actor.navigation.path_replay.set_directions_for_test(
+        state["path"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|word| {
+                let word = word.as_i64().unwrap();
+                assert!((-1..=8).contains(&word));
+                word as u8
+            })
+            .collect(),
+    );
     let reference = fixture_cell(&state["reference_cell"]);
-    actor.navigation.path_replay.reference_cell = Some((reference.0 as i16, reference.1 as i16));
-    actor.navigation.path_runtime.movement_timer = timer(&state["movement_timer"]);
-    actor.navigation.path_runtime.blocked_timer = timer(&state["blocked_timer"]);
-    actor.navigation.path_runtime.path_blocked = state["raw_6b7"] != 0;
-    actor.navigation.path_runtime.retries_left = state["retry"].as_u64().unwrap() as u32;
+    actor
+        .navigation
+        .path_replay
+        .set_reference_cell(Some((reference.0 as i16, reference.1 as i16)));
+    actor
+        .navigation
+        .path_runtime
+        .set_movement_timer_for_test(timer(&state["movement_timer"]));
+    actor
+        .navigation
+        .path_runtime
+        .set_blocked_timer_for_test(timer(&state["blocked_timer"]));
+    actor
+        .navigation
+        .path_runtime
+        .set_path_blocked(state["raw_6b7"] != 0);
+    actor
+        .navigation
+        .path_runtime
+        .set_retries_left(state["retry"].as_u64().unwrap() as u32);
     assert_eq!(state["nav_queue"]["count"], 0);
     assert_eq!(state["destination_history"]["count"], 0);
     let loco = actor.locomotor.as_mut().unwrap();
@@ -452,7 +471,7 @@ fn ground_command_fixture(
         use crate::sim::components::TrackProgress;
         use crate::sim::movement::DriveLocomotionRuntime;
         let drive = &state["drive"];
-        loco.powered = drive["power"] != 0;
+        loco.set_powered_for_test(drive["power"] != 0);
         assert!(
             loco.install_drive_state_for_test(Some(
                 DriveLocomotionRuntime::default()
@@ -535,8 +554,8 @@ fn ground_command_fixture(
         );
         assert_eq!(target_actor.is_object_alive(), ambient["alive"] != 0);
         assert_eq!(target_actor.lifecycle.in_limbo(), ambient["limbo"] != 0);
-        assert_eq!(target_actor.lifecycle.cell_marked, ambient["marked"] != 0);
-        assert_eq!(target_actor.on_bridge, ambient["on_bridge"] != 0);
+        assert_eq!(target_actor.lifecycle.cell_marked(), ambient["marked"] != 0);
+        assert_eq!(target_actor.on_bridge(), ambient["on_bridge"] != 0);
         assert_eq!(
             target_actor.in_logic_vector.is_member(),
             ambient["logic_registered"] != 0
@@ -566,7 +585,7 @@ fn ground_command_fixture(
                 LocomotorKind::Drive
             );
             assert_eq!(ambient["foot"]["nav"], 0);
-            assert!(target_actor.navigation.nav_com.is_none());
+            assert!(target_actor.navigation.nav_com().is_none());
             assert_eq!(
                 crate::sim::movement::motion_query::is_moving(target_actor),
                 Some(false)
@@ -700,7 +719,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: suspended mission"
         );
         assert_eq!(
-            actor.navigation.nav_com_aux,
+            actor.navigation.nav_com_aux(),
             ground_command_cell_reference(state, state["aux_nav"].as_u64().unwrap()),
             "{context}: auxiliary NavCom"
         );
@@ -764,7 +783,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: END permission"
         );
         assert_eq!(
-            walk.powered,
+            walk.is_powered(),
             drive["power"] != 0,
             "{context}: locomotor power"
         );
@@ -802,7 +821,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
         );
     }
     assert_eq!(
-        actor.navigation.nav_com,
+        actor.navigation.nav_com(),
         ground_command_nav_target(state),
         "{context}: NavCom"
     );
@@ -811,7 +830,10 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
         ground_command_archive_target(state),
         "{context}: ArchiveTarget"
     );
-    assert!(actor.navigation.nav_queue.is_empty(), "{context}: NavQueue");
+    assert!(
+        actor.navigation.nav_queue().is_empty(),
+        "{context}: NavQueue"
+    );
     if state.get("drive").is_none() {
         assert_eq!(
             walk.walk_destination(),
@@ -841,24 +863,24 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
         .map(|word| word.as_i64().unwrap() as u8)
         .collect();
     assert_eq!(
-        &actor.navigation.path_replay.directions
-            [usize::from(actor.navigation.path_replay.cursor)..],
+        &actor.navigation.path_replay.directions()
+            [usize::from(actor.navigation.path_replay.cursor())..],
         native_path,
         "{context}: full path backing suffix"
     );
     let reference = fixture_cell(&state["reference_cell"]);
     assert_eq!(
-        actor.navigation.path_replay.reference_cell,
+        actor.navigation.path_replay.reference_cell(),
         Some((reference.0 as i16, reference.1 as i16)),
         "{context}: path reference"
     );
     for (actual, expected) in [
         (
-            actor.navigation.path_runtime.movement_timer,
+            actor.navigation.path_runtime.movement_timer(),
             &state["movement_timer"],
         ),
         (
-            actor.navigation.path_runtime.blocked_timer,
+            actor.navigation.path_runtime.blocked_timer(),
             &state["blocked_timer"],
         ),
     ] {
@@ -869,11 +891,11 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
         );
     }
     assert_eq!(
-        actor.navigation.path_runtime.path_blocked,
+        actor.navigation.path_runtime.path_blocked(),
         state["raw_6b7"] != 0
     );
     assert_eq!(
-        actor.navigation.path_runtime.retries_left,
+        actor.navigation.path_runtime.retries_left(),
         state["retry"].as_u64().unwrap() as u32
     );
     assert_eq!(
@@ -1781,7 +1803,7 @@ fn local_state(sim: &Simulation, id: u64) -> Value {
         "health": entity.health.current(),
         "mission": entity.mission.current().raw(),
         "queued": entity.mission.queued().raw(),
-        "nav_is_set": entity.navigation.nav_com.is_some(),
+        "nav_is_set": entity.navigation.nav_com().is_some(),
         "archive_is_set": entity.archive_target().is_some(),
         "tether": entity.tether.partner().is_some(),
         "contact_count": entity.radio_contacts.len(),
@@ -1792,7 +1814,7 @@ fn local_state(sim: &Simulation, id: u64) -> Value {
         "walk_destination_is_set": walk.walk_destination().is_some(),
         "paid_head": walk.step_head().map(|c| [c.x, c.y, c.z]),
         "walk_destination": walk.walk_destination().map(|c| [c.x, c.y, c.z]),
-        "nav_target": entity.navigation.nav_com,
+        "nav_target": entity.navigation.nav_com(),
         "archive_target": entity.archive_target(),
         "stage": entity.native_stage().value(),
         "stage_rate": entity.native_stage().rate(),
@@ -2099,13 +2121,13 @@ fn joined_two_paid_gi(route: OutputRoute) {
         for (index, progress) in products.iter_mut().enumerate() {
             let entity = sim.substrate.entities.get(progress.id).unwrap();
             if entity.lifecycle.in_limbo() {
-                assert!(!entity.in_logic_vector.is_member() && !entity.lifecycle.cell_marked);
+                assert!(!entity.in_logic_vector.is_member() && !entity.lifecycle.cell_marked());
                 continue;
             }
             let golden = &native_products[index];
             let state = local_state(&sim, progress.id);
             let context = format!("{route:?} GI[{index}]={} frame={frame}", progress.id);
-            assert!(entity.lifecycle.cell_marked && entity.in_logic_vector.is_member());
+            assert!(entity.lifecycle.cell_marked() && entity.in_logic_vector.is_member());
             assert!(sim.substrate.occupancy.contains_entity(
                 entity.position.rx,
                 entity.position.ry,
@@ -2136,7 +2158,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     // Archive at444CE7 before sending the GI to its exit.
                     assert_eq!(entity.archive_target(), Some(TargetKind::Cell(rx, ry)));
                     assert_eq!(
-                        entity.navigation.nav_com,
+                        entity.navigation.nav_com(),
                         Some(NavTargetRef::cell(exit_cell.0, exit_cell.1))
                     );
                 }
@@ -2178,7 +2200,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     "{context}: rally Archive must survive until actual radio8; state={state}"
                 );
                 assert_eq!(
-                    entity.navigation.nav_com,
+                    entity.navigation.nav_com(),
                     Some(NavTargetRef::cell(exit_cell.0, exit_cell.1)),
                     "{context}: exit Nav must survive until actual radio8; state={state}"
                 );
@@ -2215,10 +2237,13 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     // consumes Archive. The historical height0 fixture
                     // skipped that comparison and delayed it a frame.
                     assert!(entity.archive_target().is_none());
-                    assert_eq!(entity.navigation.nav_com, Some(NavTargetRef::cell(rx, ry)));
+                    assert_eq!(
+                        entity.navigation.nav_com(),
+                        Some(NavTargetRef::cell(rx, ry))
+                    );
                 } else {
                     assert!(
-                        entity.archive_target().is_none() && entity.navigation.nav_com.is_none()
+                        entity.archive_target().is_none() && entity.navigation.nav_com().is_none()
                     );
                 }
             }
@@ -2234,7 +2259,10 @@ fn joined_two_paid_gi(route: OutputRoute) {
                         &golden["archive_handoff"],
                         &format!("{context} Archive handoff"),
                     );
-                    assert_eq!(entity.navigation.nav_com, Some(NavTargetRef::cell(rx, ry)));
+                    assert_eq!(
+                        entity.navigation.nav_com(),
+                        Some(NavTargetRef::cell(rx, ry))
+                    );
                     let destination = walk.walk_destination().unwrap();
                     assert_eq!(
                         json!([destination.x, destination.y, destination.z]),
@@ -2247,7 +2275,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
                 if progress
                     .archive_handoff_frame
                     .is_some_and(|handoff| frame > handoff)
-                    && entity.navigation.nav_com == Some(NavTargetRef::cell(rx, ry))
+                    && entity.navigation.nav_com() == Some(NavTargetRef::cell(rx, ry))
                     && walk.step_head().is_some()
                     && state["location"] != golden["archive_handoff"]["location"]
                 {
@@ -2257,7 +2285,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
             if progress.settled_frame.is_none()
                 && progress.release_frame.is_some()
                 && rally_cell.is_none_or(|cell| (entity.position.rx, entity.position.ry) == cell)
-                && entity.navigation.nav_com.is_none()
+                && entity.navigation.nav_com().is_none()
                 && entity.archive_target().is_none()
                 && entity.locomotor.as_ref().unwrap().walk_is_moving() == Some(false)
                 && json!(entity.mission.current().raw()) == golden["terminal"]["mission"]

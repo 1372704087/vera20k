@@ -294,7 +294,7 @@ fn admit_attacker_fire<'r>(
                         .entities
                         .get(snap.stable_id)
                         .is_some_and(|firer| {
-                            firer.navigation.nav_com.is_none()
+                            firer.navigation.nav_com().is_none()
                                 && crate::sim::movement::motion_query::is_moving(firer)
                                     != Some(true)
                         })
@@ -416,7 +416,7 @@ fn admit_attacker_fire<'r>(
         actor.mission_leaf.set_foot_firing_sequence(1);
         actor.body_facing.snap(direction, binary_frame);
         let target_is_navcom = crate::sim::movement::nav_targets_same_receiver(
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             match snap.target {
                 TargetKind::Entity(id) => crate::sim::components::NavTargetRef::object(id),
                 TargetKind::Cell(rx, ry) => crate::sim::components::NavTargetRef::cell(rx, ry),

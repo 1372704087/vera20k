@@ -1987,7 +1987,7 @@ impl Simulation {
             return;
         };
         let mut identity = NativeCellQuery::canonical(terrain).lookup(cell);
-        let direct_tag = (terrain.native_cell_flags(identity) & 0x500 == 0 || entity.on_bridge)
+        let direct_tag = (terrain.native_cell_flags(identity) & 0x500 == 0 || entity.on_bridge())
             .then(|| self.trigger_runtime.cell_tags.get(&identity).copied())
             .flatten();
         let mut effects = Vec::new();
@@ -2643,7 +2643,7 @@ impl Simulation {
                     let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                         entity.category() == crate::map::entities::EntityCategory::Structure
                             && entity.lifecycle.object_alive()
-                            && entity.lifecycle.cell_marked
+                            && entity.lifecycle.cell_marked()
                             && !entity.lifecycle.in_limbo()
                     });
                     if eligible && self.tag_contains_live_trigger(TagAttachment::Object(id), live) {
@@ -2684,7 +2684,7 @@ impl Simulation {
                         let health = self.substrate.entities.get(id).and_then(|entity| {
                             (entity.health.current() > 0
                                 && entity.lifecycle.object_alive()
-                                && entity.lifecycle.cell_marked
+                                && entity.lifecycle.cell_marked()
                                 && !entity.lifecycle.in_limbo())
                             .then_some(entity.health.current())
                         });
@@ -2790,7 +2790,7 @@ impl Simulation {
                     let eligible = self.substrate.entities.get(id).is_some_and(|e| {
                         e.category() == crate::map::entities::EntityCategory::Structure
                             && e.lifecycle.object_alive()
-                            && e.lifecycle.cell_marked
+                            && e.lifecycle.cell_marked()
                             && !e.lifecycle.in_limbo()
                     });
                     if eligible && self.tag_contains_live_trigger(TagAttachment::Object(id), live) {
@@ -2860,7 +2860,7 @@ impl Simulation {
                     let id = self.substrate.entities.techno_registry_at(ordinal).unwrap();
                     let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                         entity.lifecycle.object_alive()
-                            && entity.lifecycle.cell_marked
+                            && entity.lifecycle.cell_marked()
                             && !entity.lifecycle.in_limbo()
                     });
                     let attached =

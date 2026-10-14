@@ -246,7 +246,7 @@ pub(crate) fn ensure_fly_secondary_facing(entity: &mut crate::sim::game_entity::
 /// ([`FootParasite::is_paralyzed`](crate::sim::combat::parasite::FootParasite::is_paralyzed))
 /// is not read here yet; do not substitute deploy state.
 pub(crate) fn fly_coordinate_admitted(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    !entity.locomotor.as_ref().is_some_and(|l| !l.powered)
+    !entity.locomotor.as_ref().is_some_and(|l| !l.is_powered())
         && !super::locomotor_owner::owner_is_warping(entity)
 }
 
@@ -313,7 +313,7 @@ fn queried_flight_height(
             .ok()
         })
         .unwrap_or(0);
-    super::ground_pose::height_at_z(z, ground, entity.on_bridge)
+    super::ground_pose::height_at_z(z, ground, entity.on_bridge())
 }
 
 /// Object virtual+50 /5F6B60. A marked grounded object is low; an unmarked
@@ -381,7 +381,7 @@ fn query_flight_predicate(
         // Aircraft41B920 returns moving; Aircraft41B980 returns !moving.
         return moving == high;
     }
-    entity.lifecycle.cell_marked
+    entity.lifecycle.cell_marked()
         && (queried_flight_height(entity, cells)
             >= crate::util::lepton::HIGH_FLIGHT_THRESHOLD_LEPTONS as i32)
             == high
@@ -461,6 +461,7 @@ pub(crate) fn update_fly_height(
             .cargo()
             .is_some_and(|cargo| cargo.count() != 0);
     let world_z = super::ground_pose::object_world_z_leptons(entity, terrain);
+    let on_bridge = entity.on_bridge();
     let loco = entity
         .locomotor
         .as_mut()
@@ -471,7 +472,7 @@ pub(crate) fn update_fly_height(
         .step_height(super::fly_height::HeightInput {
             world_z,
             ground_z,
-            on_bridge: entity.on_bridge,
+            on_bridge,
             structural_bridge,
             health: entity.health.current(),
             has_passenger,
@@ -479,7 +480,7 @@ pub(crate) fn update_fly_height(
             flight_level,
         });
     entity.position.exact_z_leptons = Some(output.world_z);
-    entity.on_bridge = output.on_bridge;
+    entity.set_on_bridge(output.on_bridge);
     output
 }
 
@@ -574,7 +575,7 @@ pub(crate) mod tests {
             "the order itself is accepted"
         );
         assert_eq!(
-            e.navigation.nav_com,
+            e.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(20, 15))
         );
         let runtime = e

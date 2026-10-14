@@ -2609,20 +2609,22 @@ mod tests {
         sim.session.binary_frame = 100;
         spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.navigation.nav_queue = vec![crate::sim::components::NavTargetRef::cell(25, 20)];
+        entity
+            .navigation
+            .set_nav_queue_for_test(vec![crate::sim::components::NavTargetRef::cell(25, 20)]);
         entity.navigation.path_runtime.start_movement(40, 30);
         entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
             crate::sim::combat::TargetKind::Cell(12, 12),
         ));
-        assert!(entity.navigation.nav_com.is_none());
+        assert!(entity.navigation.nav_com().is_none());
         assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, Some(&rules)));
         let entity = sim.substrate.entities.get(1).unwrap();
         assert!(
             entity.mega_mission.is_attack_move(),
             "the IDLE arm calls no MegaMission body"
         );
-        assert_eq!(entity.navigation.nav_queue.len(), 1);
-        let timer = entity.navigation.path_runtime.movement_timer;
+        assert_eq!(entity.navigation.nav_queue().len(), 1);
+        let timer = entity.navigation.path_runtime.movement_timer();
         assert_eq!((timer.start_frame(), timer.duration()), (40, 30));
     }
 
@@ -2989,7 +2991,9 @@ mod tests {
             actor
                 .suspended_attack_target
                 .set_for_test(Some(combat::TargetKind::Entity(2)));
-            actor.navigation.suspended_nav_com = Some(NavTargetRef::cell(12, 12));
+            actor
+                .navigation
+                .set_suspended_nav_com(Some(NavTargetRef::cell(12, 12)));
             actor.set_archive_target(Some(combat::TargetKind::Cell(5, 5)));
             actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
                 crate::sim::combat::TargetKind::Cell(12, 12),
@@ -3019,14 +3023,14 @@ mod tests {
             );
             assert_eq!(actor.mission.dispatch_timer(), before_timer);
             assert!(actor.suspended_attack_target.target().is_none());
-            assert!(actor.navigation.suspended_nav_com.is_none());
+            assert!(actor.navigation.suspended_nav_com().is_none());
             assert!(actor.attack_target.target().is_none());
             assert!(
                 !actor.mega_mission.is_attack_move(),
                 "Assign_Target_Command answers Area Guard with Clear_All_TarCom"
             );
             assert_eq!(actor.archive_target(), post);
-            assert_eq!(actor.navigation.nav_com, post.map(Into::into));
+            assert_eq!(actor.navigation.nav_com(), post.map(Into::into));
         }
     }
 
@@ -3130,7 +3134,7 @@ mod tests {
         assert!(move_onto(&mut sim, 2));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::Entity { id: 2 })
         );
         assert_eq!(
@@ -3139,7 +3143,7 @@ mod tests {
         );
         sim.detach_all_pointer_expired(2, &rules, None, crate::sim::world::FrameEffects::default());
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
             None
         );
 
@@ -3152,14 +3156,14 @@ mod tests {
             .set_for_test(0);
         assert!(!move_onto(&mut sim, 2));
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::Entity { id: 2 }),
             "the refused event leaves the previous destination"
         );
 
         assert!(move_onto(&mut sim, 99));
         let actor = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(actor.navigation.nav_com, None);
+        assert_eq!(actor.navigation.nav_com(), None);
         assert_eq!(
             actor.mission.queued(),
             MissionId::from_known(MissionType::Move)
@@ -3857,7 +3861,7 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!((unit.position.rx, unit.position.ry), (14, 14));
         assert_eq!(
-            unit.navigation.nav_com,
+            unit.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(9, 11))
         );
         assert_eq!(
@@ -4092,7 +4096,7 @@ mod tests {
             1,
             "one walls-down event on eject"
         );
-        let exit = match unit.navigation.nav_com {
+        let exit = match unit.navigation.nav_com() {
             Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) => (rx, ry),
             other => panic!("normal bunker release must issue its exit cell: {other:?}"),
         };

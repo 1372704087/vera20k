@@ -638,9 +638,9 @@ pub(crate) fn represented_assign_destination(
     entity: &mut crate::sim::game_entity::GameEntity,
     requested: Option<NavTargetRef>,
 ) {
-    entity.navigation.nav_com_aux = None;
-    entity.navigation.nav_com = requested;
-    entity.navigation.pending_destination_setter = false;
+    entity.navigation.set_nav_com_aux(None);
+    entity.navigation.set_nav_com(requested);
+    entity.navigation.set_pending_destination_setter(false);
 }
 
 #[cfg(test)]
@@ -755,7 +755,7 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
             mission_current: entity.mission.current(),
             suspended_mission: entity.mission.suspended(),
             archived_target: entity.suspended_attack_target.target(),
-            archived_destination: entity.navigation.suspended_nav_com,
+            archived_destination: entity.navigation.suspended_nav_com(),
         });
         if entity.attack_target.target() != requested {
             entity.attack_target.set_for_test(requested);
@@ -789,9 +789,9 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
             mission_current: entity.mission.current(),
             installed_target: entity.attack_target.target(),
         });
-        entity.navigation.nav_com_aux = None;
-        entity.navigation.nav_com = requested;
-        entity.navigation.pending_destination_setter = false;
+        entity.navigation.set_nav_com_aux(None);
+        entity.navigation.set_nav_com(requested);
+        entity.navigation.set_pending_destination_setter(false);
         false
     }
 }
@@ -829,7 +829,7 @@ mod tests {
                 .get_mut(id)
                 .unwrap()
                 .navigation
-                .nav_queue = queued.clone();
+                .set_nav_queue_for_test(queued.clone());
             let requested = Some(NavTargetRef::cell(12, 10));
             let effects = FrameEffects::default();
             let assigned = if keep_queue {
@@ -839,9 +839,9 @@ mod tests {
             };
             assigned.expect("the Unit setter takes the cell");
             let unit = sim.substrate.entities.get(id).unwrap();
-            assert_eq!(unit.navigation.nav_com, requested);
+            assert_eq!(unit.navigation.nav_com(), requested);
             let kept = if keep_queue { queued } else { Vec::new() };
-            assert_eq!(unit.navigation.nav_queue, kept, "keep_queue {keep_queue}");
+            assert_eq!(unit.navigation.nav_queue(), kept, "keep_queue {keep_queue}");
         }
     }
 
@@ -866,7 +866,7 @@ mod tests {
         let infantry = sim.substrate.entities.get_mut(id).unwrap();
         infantry.mark_live_contact_with(building);
         infantry.tether.set_for_test(Some(building));
-        infantry.navigation.nav_queue = queued.to_vec();
+        infantry.navigation.set_nav_queue_for_test(queued.to_vec());
         sim.substrate
             .entities
             .get_mut(building)
@@ -888,8 +888,8 @@ mod tests {
         );
 
         let infantry = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(infantry.navigation.nav_com, Some(queued[0]));
-        assert_eq!(infantry.navigation.nav_queue, [queued[1]]);
+        assert_eq!(infantry.navigation.nav_com(), Some(queued[0]));
+        assert_eq!(infantry.navigation.nav_queue(), [queued[1]]);
     }
 
     /// A Restore the AoE pointer expiry deferred (`pending_destination_setter`)
@@ -908,14 +908,14 @@ mod tests {
             .expect("retail ORCA");
         let saved = NavTargetRef::cell(20, 10);
         let aircraft = sim.substrate.entities.get_mut(id).unwrap();
-        aircraft.navigation.nav_com = Some(saved);
-        aircraft.navigation.pending_destination_setter = true;
+        aircraft.navigation.set_nav_com(Some(saved));
+        aircraft.navigation.set_pending_destination_setter(true);
 
         sim.complete_pending_order(id, Some(&rules), None, FrameEffects::default());
 
         let aircraft = sim.substrate.entities.get(id).unwrap();
-        assert!(!aircraft.navigation.pending_destination_setter);
-        assert_eq!(aircraft.navigation.nav_com, Some(saved));
+        assert!(!aircraft.navigation.pending_destination_setter());
+        assert_eq!(aircraft.navigation.nav_com(), Some(saved));
         let fly = aircraft
             .locomotor
             .as_ref()
@@ -955,7 +955,7 @@ mod tests {
         let aircraft = sim.substrate.entities.get(id).unwrap();
         assert_eq!(aircraft.pending_entry(), None);
         assert_eq!(
-            aircraft.navigation.nav_com,
+            aircraft.navigation.nav_com(),
             Some(NavTargetRef::Building { id: depot })
         );
     }

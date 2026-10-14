@@ -504,7 +504,7 @@ impl<'a> EntryMover<'a> {
         let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), 0)
             .and_then(|(name, _)| live.rules.weapon(name));
         let crusher = obj.crusher
-            || has_weapon_ability(rank_from_u16(e.veterancy.rank()), obj, Ability::Crusher);
+            || has_weapon_ability(e.veterancy.rank_kind(), obj, Ability::Crusher);
         Self {
             id,
             e,

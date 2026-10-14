@@ -284,7 +284,7 @@ impl Simulation {
         CrushCharge {
             crusher: object.crusher
                 || has_weapon_ability(
-                    rank_from_u16(unit.veterancy.rank()),
+                    unit.veterancy.rank_kind(),
                     object,
                     Ability::Crusher,
                 ),

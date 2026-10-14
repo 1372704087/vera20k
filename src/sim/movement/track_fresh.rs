@@ -1241,7 +1241,7 @@ impl Simulation {
         //Type+D28, or HasWeaponAbility(0x11) by rank (0x70D0D0).
         let crusher = object.crusher
             || has_weapon_ability(
-                rank_from_u16(actor.veterancy.rank()),
+                actor.veterancy.rank_kind(),
                 object,
                 Ability::Crusher,
             );

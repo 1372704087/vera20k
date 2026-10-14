@@ -330,7 +330,7 @@ impl Simulation {
         // `Explosion=` entry; the pick has been drawn already.
         let explodes = object.explodes
             || super::veterancy::has_weapon_ability(
-                super::veterancy::rank_of(entity.veterancy.raw()),
+                entity.veterancy.rank_kind(),
                 object,
                 Ability::Explodes,
             );

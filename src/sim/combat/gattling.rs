@@ -298,7 +298,7 @@ pub(crate) fn unit_turret_anim_advances(
 
 /// `TechnoClass::IsElite @ 0x00750010`, which picks the elite thresholds.
 pub(crate) fn is_elite(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    crate::sim::combat::veterancy::rank_from_u16(entity.veterancy.rank())
+    entity.veterancy.rank_kind()
         == crate::sim::combat::veterancy::VeterancyRank::Elite
 }
 

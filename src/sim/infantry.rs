@@ -52,7 +52,7 @@ const PRONE_THRESHOLD: u16 = 50;
 pub fn is_fear_application_blocked(obj: &ObjectType, entity: &GameEntity) -> bool {
     obj.fearless
         || has_weapon_ability(
-            rank_from_u16(entity.veterancy.rank()),
+            entity.veterancy.rank_kind(),
             obj,
             Ability::Fearless,
         )

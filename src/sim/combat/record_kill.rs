@@ -168,7 +168,7 @@ fn record_the_kill(
     });
     let points = super::veterancy::kill_award_points(
         victim_cost,
-        super::veterancy::rank_of(victim.veterancy.raw()),
+        victim.veterancy.rank_kind(),
         allied,
     );
     if let Some(killer_id) = killer_id {

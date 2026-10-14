@@ -151,7 +151,7 @@ impl ScatterTechno {
                 .and_then(|rules| rules.object(interner.resolve(entity.type_ref())))
                 .is_some_and(|object| {
                     has_weapon_ability(
-                        rank_from_u16(entity.veterancy.rank()),
+                        entity.veterancy.rank_kind(),
                         object,
                         crate::rules::object_type::Ability::Scatter,
                     )
@@ -313,7 +313,7 @@ fn receive_damage_scatter_admitted(
         .object(interner.resolve(entity.type_ref()))
         .ok_or("damage Scatter requires a Techno type")?;
     Ok(crate::sim::combat::veterancy::has_weapon_ability(
-        crate::sim::combat::veterancy::rank_from_u16(entity.veterancy.rank()),
+        entity.veterancy.rank_kind(),
         object,
         crate::rules::object_type::Ability::Scatter,
     ))

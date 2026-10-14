@@ -569,7 +569,7 @@ fn factory_infiltration_makes_later_objects_veteran() {
     let americans = sim.interner.get("Americans").unwrap();
     let rank = |sim: &mut Simulation, kind: &str, rx: u16| {
         let id = spawn(sim, &rules, kind, "Americans", rx, 20);
-        rank_of(sim.entities().get(id).unwrap().veterancy.raw())
+        sim.entities().get(id).unwrap().veterancy.rank_kind()
     };
     assert_eq!(rank(&mut sim, "GI", 2), VeterancyRank::Rookie);
     assert_eq!(rank(&mut sim, "TANK", 4), VeterancyRank::Rookie);

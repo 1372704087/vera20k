@@ -121,7 +121,7 @@ impl Simulation {
         let object = self.object_type(actor.type_ref(), rules)?;
         let crusher = object.crusher
             || has_weapon_ability(
-                rank_from_u16(actor.veterancy.rank()),
+                actor.veterancy.rank_kind(),
                 object,
                 Ability::Crusher,
             );

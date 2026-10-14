@@ -109,7 +109,7 @@ fn retail_atlas_refresh_costs() {
     let owner = sim
         .entities()
         .values()
-        .find(|entity| entity.is_voxel)
+        .find(|entity| entity.is_voxel())
         .map(|entity| sim.interner.resolve(entity.owner()).to_string())
         .expect("the player starts with a vehicle");
     let owner_color = house_colors[&owner];

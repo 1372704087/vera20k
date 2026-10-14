@@ -102,7 +102,7 @@ fn native_null_record_kill_books_each_live_callback_immediately() {
         victim
             .health
             .set_for_test(i32::try_from(row["before"]["health"].as_i64().unwrap()).unwrap());
-        victim.dont_score = dont_score;
+        victim.tracking_facts.set_dont_score_for_test(dont_score);
         sim.substrate.entities.insert(victim);
         let before_rng = sim.rng_state();
         assert_eq!(

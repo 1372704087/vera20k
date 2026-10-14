@@ -1529,7 +1529,7 @@ fn an_aircrafts_altitude_moves_its_revealed_disc() {
     let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 30, 30);
     entity.set_category_for_test(EntityCategory::Aircraft);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.vision_range = 1;
+    entity.sight.set_vision_range_for_test(1);
     entity.position.exact_z_leptons = Some(1500);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
     loco.layer = MovementLayer::Air;
@@ -1574,7 +1574,7 @@ fn a_jumpjet_below_its_floor_sees_from_its_location_z() {
     let mut store = EntityStore::new();
     let mut entity = GameEntity::test_default(1, "JUMPJET", "Americans", 30, 30);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.vision_range = 1;
+    entity.sight.set_vision_range_for_test(1);
     entity.position.z = 4;
     entity.position.exact_z_leptons = Some(208);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);

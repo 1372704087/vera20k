@@ -59,8 +59,8 @@ pub(super) fn snapshot_mover(
             .as_ref()
             .map(|l| l.movement_zone)
             .unwrap_or(MovementZone::Normal),
-        omni_crusher: e.omni_crusher,
-        regular_crusher: e.regular_crusher,
+        omni_crusher: e.mover_facts.omni_crusher(),
+        regular_crusher: e.mover_facts.regular_crusher(),
         on_bridge: e.on_bridge,
         locomotor: e.locomotor.clone(),
         allow_zone_hierarchy: playfield_bounds.is_none() || e.in_playfield,

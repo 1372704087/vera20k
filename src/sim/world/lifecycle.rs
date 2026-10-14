@@ -1210,7 +1210,7 @@ impl Simulation {
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && entity.category() == EntityCategory::Infantry
-            && entity.sight_is_zero
+            && entity.sight.is_zero()
         {
             entity.discovery.discovered_by_current_house = false;
         }
@@ -3211,7 +3211,7 @@ impl Simulation {
                     entity.health.current() == 0
                         || entity.killed_by.is_some()
                         || entity.crash.is_crashing(),
-                    entity.dont_score,
+                    entity.tracking_facts.dont_score(),
                 )
             })
         else {

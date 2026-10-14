@@ -598,7 +598,7 @@ mod tests {
             0,
             false,
         );
-        passenger.is_voxel = false;
+        passenger.set_is_voxel_for_test(false);
         passenger.sub_cell = Some(2);
         passenger.passenger_role = PassengerRole::inside_for_test(aircraft_id, false);
         sim.substrate.entities.insert(passenger);
@@ -654,7 +654,7 @@ mod tests {
             blocker.set_owner_for_test(sim.interner.intern("Americans"));
             blocker.set_type_ref_for_test(sim.interner.intern("E1"));
             blocker.set_category_for_test(EntityCategory::Infantry);
-            blocker.is_voxel = false;
+            blocker.set_is_voxel_for_test(false);
             blocker.sub_cell = Some(subcell);
             (blocker.position.sub_x, blocker.position.sub_y) =
                 lepton::subcell_lepton_offset(Some(subcell));

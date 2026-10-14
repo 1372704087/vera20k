@@ -16,12 +16,6 @@ impl HasEngineer {
     pub(crate) const fn is_set(self) -> bool {
         self.set
     }
-
-    /// Install a fixture's byte.
-    #[cfg(test)]
-    pub(crate) fn set_for_test(&mut self, set: bool) {
-        self.set = set;
-    }
 }
 
 impl Simulation {

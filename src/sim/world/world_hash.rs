@@ -1739,12 +1739,12 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     b"base-defense-response-v1".hash(hasher);
     entity.base_defense_response.hash(hasher);
-    entity.regular_crusher.hash(hasher);
-    entity.drive_accelerates.hash(hasher);
+    entity.mover_facts.regular_crusher().hash(hasher);
+    entity.mover_facts.drive_accelerates().hash(hasher);
     entity.damage_fires.is_active().hash(hasher);
     entity.damage_fires.anim_ids().hash(hasher);
-    entity.vision_range.hash(hasher);
-    entity.sight_is_zero.hash(hasher);
+    entity.sight.range().hash(hasher);
+    entity.sight.is_zero().hash(hasher);
     entity.sight_refresh_timers.hash(hasher);
     if entity.gap_generator != crate::sim::vision::GapGeneratorRuntime::default() {
         b"gap-operational-v144".hash(hasher);
@@ -3093,7 +3093,7 @@ mod state_hash_field_tests {
         let mut sim_b = Simulation::new();
         let entity_a = GameEntity::test_default(1, "GTNK", "Americans", 10, 10);
         let mut entity_b = entity_a.clone();
-        entity_b.drive_accelerates = false;
+        entity_b.mover_facts.set_drive_accelerates_for_test(false);
         sim_a.substrate.entities.insert(entity_a);
         sim_b.substrate.entities.insert(entity_b);
 

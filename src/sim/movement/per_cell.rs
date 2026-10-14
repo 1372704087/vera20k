@@ -242,8 +242,8 @@ impl Simulation {
             };
             let coord = position_world_coord(&crusher.position);
             let capability = super::bump_crush::CrushCapability::new(
-                crusher.regular_crusher,
-                crusher.omni_crusher,
+                crusher.mover_facts.regular_crusher(),
+                crusher.mover_facts.omni_crusher(),
             );
             let kills = super::bump_crush::select_crush_victims(
                 &[victim],

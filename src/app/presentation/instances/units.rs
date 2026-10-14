@@ -295,7 +295,7 @@ pub(crate) fn build_unit_instances(
         let Some(entity) = sim.entities().get(stable_id) else {
             continue;
         };
-        if entity.category() != EntityCategory::Unit && !entity.is_voxel {
+        if entity.category() != EntityCategory::Unit && !entity.is_voxel() {
             continue;
         }
         let Some(band) = entity_draw_band(sim.display_layers(), stable_id) else {

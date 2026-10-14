@@ -4726,7 +4726,7 @@ fn dont_score_victims_book_no_kill_no_loss_and_no_points() {
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
     victim.health.set_for_test(0);
-    victim.dont_score = true;
+    victim.tracking_facts.set_dont_score_for_test(true);
     // Retained attribution does not bypass the victim's DontScore gate.
     victim.killed_by = Some(killer_owner);
 

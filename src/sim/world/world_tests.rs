@@ -1064,7 +1064,7 @@ fn gsi_13_10_art_model_rules() -> RuleSet {
 fn assert_gsi_13_10_shp_unit(entity: &GameEntity) {
     assert_eq!(entity.category(), EntityCategory::Unit);
     assert!(
-        !entity.is_voxel,
+        !entity.is_voxel(),
         "SHP Unit must retain its SHP drawing representation"
     );
     assert!(entity.animation.is_some());
@@ -1073,7 +1073,7 @@ fn assert_gsi_13_10_shp_unit(entity: &GameEntity) {
 
 fn assert_gsi_13_10_vxl_unit(entity: &GameEntity) {
     assert_eq!(entity.category(), EntityCategory::Unit);
-    assert!(entity.is_voxel);
+    assert!(entity.is_voxel());
     assert!(entity.animation.is_none());
     assert!(
         entity.voxel_animation.is_none(),
@@ -1999,7 +1999,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         passenger.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
         );
-        passenger.is_voxel = false;
+        passenger.set_is_voxel_for_test(false);
         passenger.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(10, false);
         sim.substrate.entities.insert(passenger);
 
@@ -2013,7 +2013,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         );
         listener.set_owner_for_test(owner);
         listener.set_type_ref_for_test(sim.interner.intern("LISTENER"));
-        listener.is_voxel = false;
+        listener.set_is_voxel_for_test(false);
         listener.health.set_for_test(300);
         sim.substrate.entities.insert(listener);
         let _ = sim.reveal(30);
@@ -2028,7 +2028,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         );
         nested_fatal.set_owner_for_test(owner);
         nested_fatal.set_type_ref_for_test(sim.interner.intern("LISTENER"));
-        nested_fatal.is_voxel = false;
+        nested_fatal.set_is_voxel_for_test(false);
         nested_fatal.health.set_for_test(107);
         sim.substrate.entities.insert(nested_fatal);
         let _ = sim.reveal(31);
@@ -4474,7 +4474,7 @@ fn test_spawn_vehicle_has_voxel_marker() {
         .substrate
         .entities
         .values()
-        .filter(|e| e.is_voxel)
+        .filter(|e| e.is_voxel())
         .count();
     assert_eq!(voxel_count, 1, "Vehicle should have VoxelModel marker");
 }
@@ -4489,7 +4489,7 @@ fn test_spawn_infantry_has_sprite_marker() {
         .substrate
         .entities
         .values()
-        .filter(|e| !e.is_voxel)
+        .filter(|e| !e.is_voxel())
         .count();
     assert_eq!(sprite_count, 1, "Infantry should have SpriteModel marker");
 }
@@ -4553,7 +4553,7 @@ fn gsi_13_10_effective_art_metadata_precedes_complete_category_fallback() {
                 .entities
                 .get(id)
                 .expect("fallback entity")
-                .is_voxel,
+                .is_voxel(),
             expected_voxel,
             "category fallback for {type_id}"
         );

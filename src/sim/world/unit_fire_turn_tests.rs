@@ -81,7 +81,7 @@ fn fixture_with_first(first_type: &str) -> (Simulation, RuleSet, u64, u64) {
 fn install_paid_track(sim: &mut Simulation, id: u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     let (x, y) = (entity.position.rx, entity.position.ry);
-    entity.drive_accelerates = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     assert!(
         entity
             .locomotor

@@ -103,10 +103,10 @@ pub(crate) fn drawn_type_uses_voxel(
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> bool {
     if type_id == interner.resolve(entity.type_ref()) {
-        return entity.is_voxel;
+        return entity.is_voxel();
     }
     let Some(rules) = rules else {
-        return entity.is_voxel;
+        return entity.is_voxel();
     };
     if rules
         .terrain_object_type_case_insensitive(type_id)
@@ -117,7 +117,7 @@ pub(crate) fn drawn_type_uses_voxel(
     rules
         .object(type_id)
         .and_then(|object| rules.art().resolve_metadata_entry(type_id, &object.image))
-        .map_or(entity.is_voxel, |art| art.voxel)
+        .map_or(entity.is_voxel(), |art| art.voxel)
 }
 
 /// Native Building6D9920 ->43CEA0 ->43D290 submits ordinary building bodies

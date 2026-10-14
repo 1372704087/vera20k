@@ -225,7 +225,7 @@ fn test_shp_vehicle_non_eight_facings_draws_slot_zero() {
 
 fn gsi_13_06_active_shp_unit(type_name: &str, kind: LocomotorKind) -> GameEntity {
     let mut entity = GameEntity::test_default(13_006, type_name, "Soviet", 5, 5);
-    entity.is_voxel = false;
+    entity.set_is_voxel_for_test(false);
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
     let head = DriveCoord::cell(6, 5, 0);
@@ -1503,7 +1503,7 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
     // Is_Moving itself.
     for sequence in [SequenceKind::Stand, SequenceKind::Walk] {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
-        assert!(actor.is_voxel);
+        assert!(actor.is_voxel());
         actor.body_frame_counter = 17;
         actor.animation = Some(Animation {
             sequence,
@@ -1690,7 +1690,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
             [MovementLayer::Air, MovementLayer::Ground].map(|layer| (voxel, layer))
         }) {
             let mut entity = gsi_13_06_active_shp_unit("DRON", LocomotorKind::Drive);
-            entity.is_voxel = voxel;
+            entity.set_is_voxel_for_test(voxel);
             entity.body_frame_counter = input["counter"].as_u64().unwrap_or(0) as u32;
             entity
                 .foot_speed

@@ -312,7 +312,8 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
         .entities
         .get_mut(MOVER)
         .unwrap()
-        .regular_crusher = true;
+        .mover_facts
+        .set_regular_crusher_for_test(true);
     // Two victims prove the saved list successor survives removal of the first.
     for id in [20, 10] {
         let mut victim = GameEntity::test_default(id, "E1", "Soviets", position.rx, position.ry);
@@ -320,10 +321,10 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
         victim.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
         );
-        victim.is_voxel = false;
+        victim.set_is_voxel_for_test(false);
         victim.sub_cell = Some(0);
         victim.position = position;
-        victim.crushable = true;
+        victim.crushable_facts.set_crushable_for_test(true);
         victim.lifecycle.set_object_alive_for_test(true);
         victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;

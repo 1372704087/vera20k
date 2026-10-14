@@ -1098,10 +1098,11 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .unwrap()
             .unwrap();
         assert_eq!(
-            entity.vision_range, 0,
+            entity.sight.range(),
+            0,
             "all three inputs lose information in fog range"
         );
-        assert_eq!(entity.sight_is_zero, sight == 0);
+        assert_eq!(entity.sight.is_zero(), sight == 0);
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
             entity,
             Some(&rules),
@@ -1114,7 +1115,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
         let mut restored = GameSnapshot::load(&saved).unwrap().sim;
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(
-            restored.substrate.entities.get(id).unwrap().sight_is_zero,
+            restored.substrate.entities.get(id).unwrap().sight.is_zero(),
             sight == 0
         );
         let hash = restored.state_hash();
@@ -1127,7 +1128,8 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .entities
             .get_mut(id)
             .unwrap()
-            .sight_is_zero = sight != 0;
+            .sight
+            .set_sight_is_zero_for_test(sight != 0);
         assert_ne!(
             changed_type_predicate.state_hash(),
             hash,
@@ -1638,7 +1640,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
             };
             let entity = sim.substrate.entities.get(id).unwrap();
             assert!(entity.debug_log.is_some(), "{type_id} route {route}");
-            assert!(entity.dont_score);
+            assert!(entity.tracking_facts.dont_score());
             assert_eq!(entity.health.current(), if route == 0 { 100 } else { 200 });
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
             assert_eq!(entity.lifecycle.in_limbo(), route == 2);
@@ -1651,7 +1653,11 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                     assert!(entity.animation.is_none());
                     assert!(entity.infantry.is_some());
                     assert!(entity.infantry_sprite_pose().is_some());
-                    assert!(entity.crushable && entity.occupier && entity.immune_to_radiation);
+                    assert!(
+                        entity.crushable_facts.crushable()
+                            && entity.occupier
+                            && entity.mover_facts.immune_to_radiation()
+                    );
                     if route == 2 {
                         assert_eq!(entity.sub_cell, None, "a held constructor reserves no spot");
                         let coord = crate::sim::movement::ground_pose::position_world_coord(

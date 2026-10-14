@@ -1639,7 +1639,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                         entity
                             .aircraft_ammo
                             .as_ref()
-                            .map(|ammo| (ammo.current, ammo.max)),
+                            .map(|ammo| (ammo.current(), ammo.max())),
                         Some((5, 5))
                     );
                 }
@@ -2489,8 +2489,12 @@ fn aircraft_ammo_initialization_matches_native_for_authored_and_runtime_objects(
         let authored = sim.substrate.entities.values().next().unwrap();
         for entity in [&runtime, authored] {
             let ammo = entity.aircraft_ammo.as_ref().unwrap();
-            assert_eq!(ammo.current, row["ammo"].as_i64().unwrap() as i32, "{row}");
-            assert_eq!(ammo.max, maximum);
+            assert_eq!(
+                ammo.current(),
+                row["ammo"].as_i64().unwrap() as i32,
+                "{row}"
+            );
+            assert_eq!(ammo.max(), maximum);
             assert!(!ammo.release_pending());
         }
     }

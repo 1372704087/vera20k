@@ -368,7 +368,9 @@ fn damage_gates_match_original_execution() {
             .unwrap();
         // Presentation cannot admit or refuse simulation work.
         victim.animation = Some(Animation::new(SequenceKind::Die1));
-        victim.set_veterancy_rank(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
+        victim
+            .veterancy
+            .set_rank_for_test(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
         loco.set_walk_destination(flag("moving", false).then(|| DriveCoord::cell(6, 5, 0)));
         victim.locomotor = Some(loco);

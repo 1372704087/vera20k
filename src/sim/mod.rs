@@ -48,6 +48,7 @@ pub(crate) mod crew_survival; // building SpawnSurvivors and vehicle crew escape
 pub mod economy; // per-house wallet/storage/statistics value-type (production+economy substrate)
 pub mod entity_store;
 pub(crate) mod estimated_health;
+pub(crate) mod flashing;
 pub mod game_entity;
 pub(crate) mod house_threat;
 pub mod intern;

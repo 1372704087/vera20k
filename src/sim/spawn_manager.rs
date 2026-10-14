@@ -1020,9 +1020,12 @@ impl SpawnHost for WorldSpawn<'_, '_> {
     fn owner_weapon_burst(&self) -> Option<i32> {
         let rules = self.context.rules()?;
         let owner = self.sim.substrate.entities.get(self.owner_id)?;
-        crate::sim::combat::combat_weapon::primary_for_tier(self.owner_type()?, owner.veterancy())
-            .and_then(|id| rules.weapon(id))
-            .map(|weapon| weapon.burst)
+        crate::sim::combat::combat_weapon::primary_for_tier(
+            self.owner_type()?,
+            owner.veterancy.rank(),
+        )
+        .and_then(|id| rules.weapon(id))
+        .map(|weapon| weapon.burst)
     }
 
     fn owner_health(&self) -> i32 {
@@ -1357,7 +1360,7 @@ fn launch_coordinate(
         .spawn_type;
     let owner = sim.substrate.entities.get(owner_id)?;
     let obj = sim.object_type(owner.type_ref(), rules)?;
-    let weapon = crate::sim::combat::combat_weapon::primary_for_tier(obj, owner.veterancy())
+    let weapon = crate::sim::combat::combat_weapon::primary_for_tier(obj, owner.veterancy.rank())
         .and_then(|id| rules.weapon(id));
     let burst = burst_parity.unwrap_or_else(|| owner.weapon_burst.index());
     let base = if burst == 0 {

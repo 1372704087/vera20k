@@ -131,14 +131,14 @@ pub(super) fn apply_veteran_crate(
         let entity = sim.substrate.entities.get_mut(id).expect("checked above");
         let mut level = 0_i32;
         loop {
-            if veterancy::raw_is_veteran(entity.veterancy_raw) {
-                veterancy::set_elite(entity);
+            if veterancy::raw_is_veteran(entity.veterancy.raw()) {
+                entity.veterancy.set_elite();
             }
-            if veterancy::raw_is_rookie(entity.veterancy_raw) {
-                veterancy::set_veteran(entity);
+            if veterancy::raw_is_rookie(entity.veterancy.raw()) {
+                entity.veterancy.set_veteran();
             }
-            if veterancy::raw_is_negative(entity.veterancy_raw) {
-                veterancy::set_rookie(entity);
+            if veterancy::raw_is_negative(entity.veterancy.raw()) {
+                entity.veterancy.set_rookie();
             }
             level += 1;
             if !ordered_less(f64::from(level), magnitude) {

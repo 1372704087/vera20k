@@ -693,7 +693,7 @@ impl Simulation {
         let index = crate::sim::combat::combat_weapon::what_weapon_should_i_use(
             rules, object, &facts, None,
         );
-        crate::sim::combat::combat_weapon::weapon_for_index(object, entity.veterancy(), index)
+        crate::sim::combat::combat_weapon::weapon_for_index(object, entity.veterancy.rank(), index)
             .and_then(|(weapon, _)| rules.weapon(weapon))
             .map_or(0, |weapon| weapon.damage)
     }
@@ -825,8 +825,7 @@ impl Simulation {
             self.cost_of(target_entity.owner(), target_type, rules),
         );
         if let Some(attacker_entity) = self.substrate.entities.get_mut(attacker) {
-            crate::sim::combat::veterancy::award_kill(
-                attacker_entity,
+            attacker_entity.veterancy.award_kill(
                 owner_cost,
                 target_cost,
                 true,

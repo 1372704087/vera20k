@@ -1329,7 +1329,7 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
         entity.position.sub_x = SimFixed::from_num(current[0] % 256);
         entity.position.sub_y = SimFixed::from_num(current[1] % 256);
         entity.body_facing = primary;
-        entity.set_veterancy_rank(2); // Fly's getter bypasses Foot's FASTER path
+        entity.veterancy.set_rank_for_test(2); // Fly's getter bypasses Foot's FASTER path
         sim.add_entity_occupancy(1);
         assert!(issue_coordinate(
             &mut sim,

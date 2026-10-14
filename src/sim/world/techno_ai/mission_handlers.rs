@@ -1352,7 +1352,7 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
     };
     let c4 = object.c4
         || crate::sim::combat::veterancy::has_weapon_ability(
-            crate::sim::combat::veterancy::rank_from_u16(entity.veterancy()),
+            entity.veterancy.rank_kind(),
             object,
             crate::rules::object_type::Ability::C4,
         );
@@ -1434,7 +1434,7 @@ fn c4_sabotage_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Option<u6
     let object = sim.object_type(entity.type_ref(), rules)?;
     if !(object.c4
         || crate::sim::combat::veterancy::has_weapon_ability(
-            crate::sim::combat::veterancy::rank_from_u16(entity.veterancy()),
+            entity.veterancy.rank_kind(),
             object,
             crate::rules::object_type::Ability::C4,
         ))

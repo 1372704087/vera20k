@@ -3,7 +3,7 @@
 use super::*;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::combat::veterancy::{self, LEVEL_ELITE, LEVEL_ROOKIE, LEVEL_UNSAMPLED};
+use crate::sim::combat::veterancy::{LEVEL_ELITE, LEVEL_ROOKIE, LEVEL_UNSAMPLED};
 use crate::sim::world::SimSoundEvent;
 
 /// `[MTNK]` carries the stock Grizzly's own lines verbatim (`rulesmd.ini`:
@@ -55,7 +55,12 @@ fn spawned_vehicle(type_id: &str) -> (Simulation, RuleSet, u64) {
 fn gsi_08_12_promotion_step_announces_each_crossing_once() {
     let (mut sim, rules, id) = spawned_grizzly();
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().veterancy_rank_cache,
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .veterancy
+            .rank_cache(),
         LEVEL_UNSAMPLED
     );
     veterancy_promotion_step(&mut sim, id, &rules);
@@ -64,11 +69,21 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         "the first sample caches silently"
     );
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().veterancy_rank_cache,
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .veterancy
+            .rank_cache(),
         LEVEL_ROOKIE
     );
 
-    veterancy::set_veteran(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_veteran();
     veterancy_promotion_step(&mut sim, id, &rules);
     let owner = sim.substrate.entities.get(id).unwrap().owner;
     assert!(matches!(
@@ -80,14 +95,16 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
             ..
         }] if *o == owner && sim.interner.resolve(*sound) == "UpgradeVeteran"
     ));
-    assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
-        0
-    );
+    assert_eq!(sim.substrate.entities.get(id).unwrap().flashing.frames(), 0);
     veterancy_promotion_step(&mut sim, id, &rules);
     assert_eq!(sim.sound_events.len(), 1, "no repeat while the rank holds");
 
-    veterancy::set_elite(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_elite();
     veterancy_promotion_step(&mut sim, id, &rules);
     assert!(matches!(
         sim.sound_events.last(),
@@ -98,17 +115,17 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         }) if sim.interner.resolve(*sound) == "UpgradeElite"
     ));
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert_eq!(entity.veterancy_rank_cache, LEVEL_ELITE);
-    assert_eq!(entity.elite_flash_frames, 150);
+    assert_eq!(entity.veterancy.rank_cache(), LEVEL_ELITE);
+    assert_eq!(entity.flashing.frames(), 150);
     veterancy_promotion_step(&mut sim, id, &rules);
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
+        sim.substrate.entities.get(id).unwrap().flashing.frames(),
         150
     );
     //Techno6FAC4D runs the countdown in the later shared AI slot.
-    elite_flash_step(&mut sim, id);
+    flash_step(&mut sim, id);
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
+        sim.substrate.entities.get(id).unwrap().flashing.frames(),
         149
     );
 }
@@ -162,7 +179,12 @@ fn gsi_08_12_faster_reaches_the_movers_speed() {
     );
 
     let (mut sim, rules, id) = spawned_grizzly();
-    veterancy::set_veteran(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_veteran();
     assert_eq!(
         full_speed(&mut sim, &rules, id),
         20,
@@ -170,7 +192,12 @@ fn gsi_08_12_faster_reaches_the_movers_speed() {
     );
 
     let (mut sim, rules, id) = spawned_grizzly();
-    veterancy::set_elite(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_elite();
     assert_eq!(
         full_speed(&mut sim, &rules, id),
         20,
@@ -179,7 +206,12 @@ fn gsi_08_12_faster_reaches_the_movers_speed() {
 
     // Negative control: same rank, no FASTER in either list.
     let (mut sim, rules, control_id) = spawned_vehicle("HTNK");
-    veterancy::set_elite(sim.substrate.entities.get_mut(control_id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(control_id)
+        .unwrap()
+        .veterancy
+        .set_elite();
     assert_eq!(
         full_speed(&mut sim, &rules, control_id),
         15,
@@ -198,7 +230,12 @@ fn gsi_08_12_promotion_mid_move_reaches_the_live_speed() {
 
     // Silent first sample, then the veteran crossing while the path is live.
     veterancy_promotion_step(&mut sim, id, &rules);
-    veterancy::set_veteran(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_veteran();
     veterancy_promotion_step(&mut sim, id, &rules);
 
     assert_eq!(
@@ -228,7 +265,12 @@ fn gsi_08_12_self_heal_pulses_one_point_on_the_repair_rate_cadence() {
         "a rookie without SelfHealing= never pulses"
     );
 
-    veterancy::set_elite(sim.substrate.entities.get_mut(id).unwrap());
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .veterancy
+        .set_elite();
     self_heal_step(&mut sim, id, &rules);
     assert_eq!(sim.substrate.entities.get(id).unwrap().health.current, 101);
     sim.session.binary_frame = 15;

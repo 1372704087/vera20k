@@ -2311,7 +2311,7 @@ impl Simulation {
                 };
                 let Some(weapon_name) = crate::sim::combat::combat_weapon::primary_for_tier(
                     object_type,
-                    firer.veterancy(),
+                    firer.veterancy.rank(),
                 ) else {
                     break;
                 };

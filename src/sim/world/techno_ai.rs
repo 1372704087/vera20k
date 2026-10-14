@@ -804,7 +804,7 @@ fn techno_ai_shell(
             slave_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             spawn_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             // The Gattling block after the Techno AI (`0x0043FE5B..0x0043FF8B`).
-            elite_flash_step(sim, id);
+            flash_step(sim, id);
             if let Some(rules) = rules {
                 building_missions::gattling_idle(sim, id, rules);
             }
@@ -945,14 +945,15 @@ fn techno_ai_shell(
 /// veteran plays `UpgradeVeteranSound` plus the EVA. The local-player gate is
 /// the app layer's (`HouseClass::IsHumanPlayer @ 0x0050B6F0` is
 /// `owner == g_PlayerPtr` in a skirmish). The flash's existing signed dword
-/// counter is stepped later by4CC770 at6FAC4D, through elite_flash_step; a
+/// counter is stepped later by4CC770 at6FAC4D, through flash_step; a
 /// newly promoted object's timer therefore loses one on this same visit.
 fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    let Some(promotion) =
-        crate::sim::combat::veterancy::sample_promotion(entity, rules.general.elite_flash_timer)
+    let Some(promotion) = entity
+        .veterancy
+        .sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer)
     else {
         return;
     };
@@ -1788,7 +1789,7 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.tick_native_stage(sim.session.binary_frame as i32);
     }
-    elite_flash_step(sim, id);
+    flash_step(sim, id);
     let Some(rules) = rules else {
         return;
     };
@@ -1888,11 +1889,11 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
 /// Shared late Techno6FAC31..6FAC79 slot for every represented category.
 /// The countdown owns no RNG or CdTimer. Native redraw virtual+124 is a
 /// presentation dependency; the existing +F0 supplies its phase bits.
-fn elite_flash_step(sim: &mut Simulation, id: u64) {
+fn flash_step(sim: &mut Simulation, id: u64) {
     if ai_alive(sim, id)
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
-        entity.tick_elite_flash();
+        entity.flashing.tick();
     }
 }
 

@@ -250,7 +250,7 @@ fn script50_uses_the_existing_signed_flash_owner_and_original_countdown() {
             .map(|(index, count)| {
                 let id = index as u64 + 1;
                 let mut entity = GameEntity::test_default(id, "MTNK", "OWNER", 64, 64);
-                entity.elite_flash_frames = int(count);
+                entity.flashing.start(int(count));
                 sim.substrate.entities.insert(entity);
                 id
             })
@@ -267,7 +267,7 @@ fn script50_uses_the_existing_signed_flash_owner_and_original_countdown() {
         let counters = |sim: &Simulation| {
             members
                 .iter()
-                .map(|&id| sim.substrate.entities.get(id).unwrap().elite_flash_frames)
+                .map(|&id| sim.substrate.entities.get(id).unwrap().flashing.frames())
                 .collect::<Vec<_>>()
         };
         assert_eq!(
@@ -288,13 +288,7 @@ fn script50_uses_the_existing_signed_flash_owner_and_original_countdown() {
         for step in row["steps"].as_array().unwrap() {
             let active: Vec<_> = members
                 .iter()
-                .map(|&id| {
-                    sim.substrate
-                        .entities
-                        .get_mut(id)
-                        .unwrap()
-                        .tick_elite_flash()
-                })
+                .map(|&id| sim.substrate.entities.get_mut(id).unwrap().flashing.tick())
                 .collect();
             assert_eq!(
                 active,
@@ -484,7 +478,8 @@ fn action7_real_members_match_original_identity_rng_placement_and_cleanup() {
             );
             assert_eq!(
                 entity
-                    .veterancy_raw
+                    .veterancy
+                    .raw()
                     .bits()
                     .to_le_bytes()
                     .iter()
@@ -849,7 +844,7 @@ fn action4_recruits_real_released_members_then_script50_and_cleanup_share_owners
     );
     for &id in &original_members {
         assert_eq!(
-            sim.entities().get(id).unwrap().elite_flash_frames,
+            sim.entities().get(id).unwrap().flashing.frames(),
             int(&native_flash["stored"][0])
         );
     }

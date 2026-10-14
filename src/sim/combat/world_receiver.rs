@@ -1404,7 +1404,7 @@ pub(crate) fn handle_death(
                 world_z_leptons,
                 e.owner(),
                 e.category,
-                e.veterancy(),
+                e.veterancy.rank(),
             )
         });
 

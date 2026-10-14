@@ -1571,14 +1571,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // The rank is sampled from the raw accumulator; its fold keeps its
     // place in the stream. The accumulator itself is folded too, so
     // two objects one kill apart inside the same rank are distinct.
-    entity.veterancy().hash(hasher);
-    entity.veterancy_raw.bits().hash(hasher);
-    entity.veterancy_rank_cache.hash(hasher);
+    entity.veterancy.rank().hash(hasher);
+    entity.veterancy.raw().bits().hash(hasher);
+    entity.veterancy.rank_cache().hash(hasher);
     // Folded only while armed so the legacy default-zero hash stream
     // is preserved (the `no_damage` pattern).
-    if entity.elite_flash_frames != 0 {
+    if entity.flashing.frames() != 0 {
         b"elite-flash-v1".hash(hasher);
-        entity.elite_flash_frames.hash(hasher);
+        entity.flashing.frames().hash(hasher);
     }
     entity.armor_multiplier.bits().hash(hasher);
     // Folded only once a Firepower crate changed it, so the legacy

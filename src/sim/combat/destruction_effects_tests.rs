@@ -330,9 +330,12 @@ fn an_exploding_vehicle_with_ammo_dies_with_its_last_explosion() {
             let mut sim = sim(seed);
             let unit = spawn(&mut sim, &rules, kind, 12, 12);
             if veteran {
-                crate::sim::combat::veterancy::set_veteran(
-                    sim.substrate.entities.get_mut(unit).unwrap(),
-                );
+                sim.substrate
+                    .entities
+                    .get_mut(unit)
+                    .unwrap()
+                    .veterancy
+                    .set_veteran();
             }
             let mut replay = sim.scenario_rng.clone();
             let mut recorded = Vec::new();

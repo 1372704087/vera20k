@@ -1645,7 +1645,7 @@ pub(crate) fn entity_has_sight_ability(
         .and_then(|rules| rules.object(interner.resolve(entity.type_ref())))
         .is_some_and(|object| {
             crate::sim::combat::veterancy::has_weapon_ability(
-                crate::sim::combat::veterancy::rank_of(entity.veterancy_raw),
+                entity.veterancy.rank_kind(),
                 object,
                 crate::rules::object_type::Ability::Sight,
             )

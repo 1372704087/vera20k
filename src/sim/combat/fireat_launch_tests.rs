@@ -172,7 +172,13 @@ fn original_aim_query_reads_live_motion_rank_and_facing_without_mutation() {
             .snap(facing, duel.sim.session.binary_frame);
         assert_read_only_native_aim(&duel, source, attack_aim_row(&corpus, "aim_cases", name));
     }
-    super::veterancy::set_veteran(duel.sim.substrate.entities.get_mut(target).unwrap());
+    duel.sim
+        .substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .veterancy
+        .set_veteran();
     assert_read_only_native_aim(
         &duel,
         source,
@@ -208,7 +214,7 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
     actor
         .body_facing
         .snap(0xc000, duel.sim.session.binary_frame);
-    super::veterancy::set_veteran(actor);
+    actor.veterancy.set_veteran();
     let row = attack_aim_row(
         &corpus,
         "fireat_cases",

@@ -816,15 +816,14 @@ fn ivan_attack_feedback(
     ivan_bomb_action(target, target_obj)
 }
 
-/// The Crazy Ivan's arm itself (`0x0051EB24`): IvanBomb on a `Bombable=`
-/// target without a bomb (`+0x38`), NoIvanBomb (NoMove's row) otherwise.
+/// The Crazy Ivan's arm itself (`0x0051EB24`,
+/// [`super::context_order::ivan_bomb_refused`]): IvanBomb, or NoIvanBomb
+/// (NoMove's row).
 fn ivan_bomb_action(
     target: Option<&crate::sim::game_entity::GameEntity>,
     target_obj: Option<&crate::rules::object_type::ObjectType>,
 ) -> CursorFeedbackKind {
-    if target.is_some_and(|target| target.bomb.is_some()) {
-        CursorFeedbackKind::Invalid
-    } else if target_obj.is_some_and(|obj| obj.bombable) {
+    if target.is_some_and(|target| !super::context_order::ivan_bomb_refused(target, target_obj)) {
         CursorFeedbackKind::IvanBomb
     } else {
         CursorFeedbackKind::Invalid

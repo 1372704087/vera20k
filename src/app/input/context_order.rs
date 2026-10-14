@@ -125,6 +125,26 @@ pub(crate) enum AttackAction {
 /// This asks no ROF or reload. The class post-processing follows below. See
 /// the original DetermineAction/Unit/Foot/Techno and Display action corpus
 /// in tools/spatial_oracle/bunker_attack_action.json.
+///
+/// RESIDUAL (#605): the rung's admission (`0x00700255..0x0070043E`) is not
+/// ported as one gate. Unforced, native also leaves the rung for:
+/// - an allied object (`Is_Ally_ByObject @ 0x004F9A90`), unless the actor
+///   holds a friendly-fire grant: `AttackFriendlies=` (`+0x6C0`),
+///   `AttackCursorOnFriendlies=` (`+0x6C1`) unless an `IvanBomb=` weapon
+///   meets a `Passengers=` type, or a `Sonic=` weapon over an infected Foot
+///   (`+0x694`);
+/// - an object disguised to the actor's house (vt+0xC8), unless that grant
+///   holds, `[Rules+0xD6C]` is set, its type is `PermaDisguise=` (`+0xD30`),
+///   its `+0x1EC`/`+0x1F4` timer runs, or it wears no house (vt+0xD0) and the
+///   weapon may fire at terrain (vt+0x398, `0x0070EF00`, `TerrainFire=`);
+/// - a type that is not `LegalTarget=` (`+0x231`), unless that terrain test
+///   passes.
+///
+/// VERA's callers ask the rung only over another house's object, or over a
+/// friend for `AttackCursorOnFriendlies=` ([`friendly_bomb_ivans`] keeps its
+/// own Passengers test). Trigger: a disguised Spy or Mirage Tank under the
+/// cursor, or a Sonic weapon over an infected friend. Effect: VERA's rung
+/// answers where native's tail does, or the reverse. Occasional.
 pub(crate) fn attack_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -1019,21 +1039,20 @@ fn object_attack_click_command(
         ))
     };
     if modifier != OrderModifier::ForceFire {
-        // The Ctrl+Alt chord holds the force-fire key too.
+        // Unforced, as the cursor asks it. Native answers the Ctrl+Alt chord
+        // before the rung: Guard over an allied object, else Move
+        // (`0x00700191..0x00700217`). The legacy classifier (#605) asks the
+        // rung instead and orders its Guard payload for an Attack.
         match attack_action(
             sim,
             rules,
             attacker_id,
             &TargetKind::Entity(target_id),
-            modifier == OrderModifier::GuardArea,
+            false,
             Some(overlay_registry),
         ) {
-            // NoIvanBomb is an Attack action's; native answers the Ctrl+Alt
-            // chord's Guard before the rung (`0x007001BC..0x007001DD`).
-            AttackAction::Attack
-                if modifier != OrderModifier::GuardArea
-                    && ivan_cannot_bomb(sim, rules, attacker_id, target_id) =>
-            {
+            // NoIvanBomb (`0x0051EB24`) orders nothing.
+            AttackAction::Attack if ivan_cannot_bomb(sim, rules, attacker_id, target_id) => {
                 return None;
             }
             AttackAction::Attack => {}
@@ -1910,6 +1929,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     &selected_units,
                     current_objects.len(),
                     target.stable_id,
+                    Some(&resources.overlay_registry),
                 );
                 if cursor_owner(sim, &resources.rules, &selected_ids, target.stable_id)
                     .is_some_and(|best| ivans.contains(&best))
@@ -2427,24 +2447,25 @@ fn object_click_release(
 /// The selected Crazy Ivans whose click on the own or allied `target` plants a
 /// bomb. AttackCursorOnFriendlies (stock: IVAN and CIVAN only) grants Attack
 /// on a friend without passengers (`TechnoClass::What_Action_OnObject`,
-/// 0x00700314..0x007003D6), the Ivan makes it IvanBomb on a Bombable target
-/// without a bomb (0x0051EB24), and `FootClass::ClickedAction_Object`
-/// (0x004D74E0) sends that as Attack. A bombed friend stays a selection click.
-/// A lone selected Ivan over himself has the self action (4) instead; in a
-/// larger selection nothing stops him bombing himself, as natively. The count
-/// is the whole selection's (`[0xA8ECC8]`), berserk objects included.
+/// 0x00700314..0x007003D6), the rung must answer Attack, its ILLEGAL test
+/// included ([`attack_action`], which the cursor asks too), the Ivan makes it
+/// IvanBomb ([`ivan_bomb_refused`], 0x0051EB24), and
+/// `FootClass::ClickedAction_Object` (0x004D74E0) sends that as Attack. A
+/// bombed friend stays a selection click. A lone selected Ivan over himself
+/// has the self action (4) instead; in a larger selection nothing stops him
+/// bombing himself, as natively. The count is the whole selection's
+/// (`[0xA8ECC8]`), berserk objects included.
 fn friendly_bomb_ivans(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     selected: &[u64],
     selection_count: usize,
     target: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Vec<u64> {
     let bombable = sim.entities().get(target).is_some_and(|entity| {
-        entity.bomb.is_none()
-            && rules
-                .object(sim.interner.resolve(entity.type_ref()))
-                .is_some_and(|o| o.bombable && o.passengers == 0)
+        let obj = rules.object(sim.interner.resolve(entity.type_ref()));
+        !ivan_bomb_refused(entity, obj) && obj.is_some_and(|o| o.passengers == 0)
     });
     if !bombable {
         return Vec::new();
@@ -2459,6 +2480,14 @@ fn friendly_bomb_ivans(
                         .object(sim.interner.resolve(e.type_ref()))
                         .is_some_and(|o| o.ivan && o.attack_cursor_on_friendlies)
                 })
+                && attack_action(
+                    sim,
+                    rules,
+                    id,
+                    &TargetKind::Entity(target),
+                    false,
+                    overlay_registry,
+                ) == AttackAction::Attack
         })
         .collect()
 }
@@ -2480,9 +2509,19 @@ fn object_attack_order(attacker_id: u64, target_id: u64, friendly: bool) -> Comm
     }
 }
 
-/// A Crazy Ivan's Attack over a target it cannot bomb becomes NoIvanBomb
-/// (`InfantryClass::What_Action_OnObject`, `0x0051EB24`: the target carries
-/// a bomb (`+0x38`) or is `Bombable=no`), which
+/// `InfantryClass::What_Action_OnObject`'s Ivan arm
+/// (`0x0051EB24..0x0051EB7E`): a player's Crazy Ivan (`Ivan=`, `+0xEAE`)
+/// whose action is Attack answers NoIvanBomb over an object that carries a
+/// bomb (`+0x38`) or is not `Bombable=` (`+0x22E`), else IvanBomb.
+pub(crate) fn ivan_bomb_refused(
+    target: &crate::sim::game_entity::GameEntity,
+    target_obj: Option<&crate::rules::object_type::ObjectType>,
+) -> bool {
+    target.bomb.is_some() || !target_obj.is_some_and(|o| o.bombable)
+}
+
+/// Whether `actor_id` is a Crazy Ivan whose Attack over `target_id` is
+/// NoIvanBomb ([`ivan_bomb_refused`]), which
 /// `FootClass::ClickedAction_Object` (0x004D74E0) ignores. An unforced click
 /// on a bombed target never gets that far: its GetFireError is ILLEGAL
 /// (`0x006FCBAD`, [`shot_is_illegal`]), so the Ivan's What_Action answers 0
@@ -2500,10 +2539,10 @@ fn ivan_cannot_bomb(
         .is_some_and(|o| o.ivan);
     is_ivan
         && sim.entities().get(target_id).is_some_and(|target| {
-            target.bomb.is_some()
-                || !rules
-                    .object(sim.interner.resolve(target.type_ref()))
-                    .is_some_and(|o| o.bombable)
+            ivan_bomb_refused(
+                target,
+                rules.object(sim.interner.resolve(target.type_ref())),
+            )
         })
 }
 
@@ -2648,15 +2687,26 @@ mod tests {
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
                 "[InfantryTypes]\n0=IVAN\n[IVAN]\nStrength=100\nIvan=yes\n\
-                 AttackCursorOnFriendlies=yes\nBombable=yes\n",
+                 AttackCursorOnFriendlies=yes\nBombable=yes\nPrimary=IvanBomber\n\
+                 [IvanBomber]\nRange=1.5\nProjectile=Invisible\nWarhead=IvanBomb\n\
+                 [Invisible]\nInviso=yes\n[IvanBomb]\nIvanBomb=yes\n",
             ))
             .unwrap();
         let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        let americans = sim.interner.intern("Americans");
+        sim.session.house_order.push(americans);
+        // The rung is a human player's (`0x007003ED`).
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(americans);
         let ivan = sim
             .spawn_object("IVAN", "Americans", 3, 5, 0, &rules)
             .unwrap();
-        assert!(friendly_bomb_ivans(&sim, &rules, &[ivan], 1, ivan).is_empty());
-        assert_eq!(friendly_bomb_ivans(&sim, &rules, &[ivan], 2, ivan), [ivan]);
+        assert!(friendly_bomb_ivans(&sim, &rules, &[ivan], 1, ivan, None).is_empty());
+        assert_eq!(
+            friendly_bomb_ivans(&sim, &rules, &[ivan], 2, ivan, None),
+            [ivan]
+        );
     }
 
     /// A spy's click on a building its flags admit is Capture: it takes the
@@ -2820,7 +2870,9 @@ mod tests {
     /// (`0x007004A0..0x00700531`): an `Agent=` infantryman over a `Spyable=`
     /// building, another over a `Capturable=` one, and a `C4=` one over a
     /// building that is `CanC4=` (a building's default). Any other building
-    /// takes the tail.
+    /// takes the tail. Each type names `Infiltrate=`: native also sets it for
+    /// `C4=`, `Engineer=` and `Agent=` types, which VERA's reader does not
+    /// (#1588).
     #[test]
     fn the_infiltrate_arm_keeps_an_illegal_shot_on_the_rung() {
         let rules =
@@ -3919,16 +3971,23 @@ mod tests {
 
     /// The click side of the bomb actions: an Engineer's DisarmBomb and a
     /// Crazy Ivan's IvanBomb on a friend are Attack orders (ForceAttack past
-    /// VERA's alliance gate), and an Ivan never attacks a bombed target.
+    /// VERA's alliance gate). An Ivan never attacks a bombed target, nor a
+    /// friend his shot cannot hit (the rung's ILLEGAL test), where the cursor
+    /// shows Select too.
     #[test]
     fn bomb_click_orders() {
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-                "[InfantryTypes]\n0=IVAN\n1=ENGINEER\n[VehicleTypes]\n0=HTNK\n\
+                "[InfantryTypes]\n0=IVAN\n1=ENGINEER\n[VehicleTypes]\n0=HTNK\n1=HVY\n\
                  [CombatDamage]\nIvanTimedDelay=450\n\
                  [IVAN]\nStrength=125\nIvan=yes\nAttackCursorOnFriendlies=yes\n\
+                 Primary=IvanBomber\n\
                  [ENGINEER]\nStrength=75\nEngineer=yes\nBombSight=4\n\
-                 [HTNK]\nStrength=900\n",
+                 [HTNK]\nStrength=900\n[HVY]\nStrength=900\nArmor=heavy\n\
+                 [IvanBomber]\nRange=1.5\nProjectile=Invisible\nWarhead=IvanBomb\n\
+                 [Invisible]\nInviso=yes\n\
+                 [IvanBomb]\nIvanBomb=yes\n\
+                 Verses=100%,100%,100%,100%,100%,0%,100%,100%,100%,100%,100%\n",
             ))
             .unwrap();
         let mut sim = Simulation::new();
@@ -3938,6 +3997,9 @@ mod tests {
             sim.session.house_order.push(id);
         }
         let americans = sim.interner.get("Americans").unwrap();
+        // The rung is a human player's (`0x007003ED`).
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(americans);
         let mut spawn = |kind: &str, owner: &str, rx: u16| {
             sim.spawn_object(kind, owner, rx, 5, 0, &rules).unwrap()
         };
@@ -3945,14 +4007,43 @@ mod tests {
         let engineer = spawn("ENGINEER", "Americans", 7);
         let own_tank = spawn("HTNK", "Americans", 9);
         let spare_tank = spawn("HTNK", "Americans", 11);
+        let armoured = spawn("HVY", "Americans", 13);
         let enemy_ivan = spawn("IVAN", "Soviets", 20);
         let far_tank = spawn("HTNK", "Soviets", 22);
         let selected = [ivan, engineer];
 
         assert_eq!(
-            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), own_tank),
+            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), own_tank, None),
             vec![ivan]
         );
+        // 0% Verses: ILLEGAL to the Ivan, so the friend stays a selection
+        // click, as the cursor shows it.
+        assert!(
+            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), armoured, None).is_empty()
+        );
+        {
+            let cursor = |target| {
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    &sim,
+                    &[ivan],
+                    Some(ivan),
+                    &HoverTargetKindWithId {
+                        kind: HoverTargetKind::FriendlyUnit,
+                        stable_id: target,
+                    },
+                    Some(&rules),
+                    None,
+                )
+            };
+            assert_eq!(
+                cursor(armoured),
+                crate::app::types::CursorFeedbackKind::FriendlyUnit
+            );
+            assert_eq!(
+                cursor(spare_tank),
+                crate::app::types::CursorFeedbackKind::IvanBomb
+            );
+        }
         assert!(disarm_bomb_engineers(&sim, &rules, &selected, own_tank, americans).is_empty());
         assert!(!ivan_cannot_bomb(&sim, &rules, ivan, own_tank));
 
@@ -3970,11 +4061,11 @@ mod tests {
             "an unseen bomb"
         );
         assert!(
-            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), own_tank).is_empty(),
+            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), own_tank, None).is_empty(),
             "a bombed friend stays a selection click"
         );
         assert_eq!(
-            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), spare_tank),
+            friendly_bomb_ivans(&sim, &rules, &selected, selected.len(), spare_tank, None),
             vec![ivan]
         );
         assert!(ivan_cannot_bomb(&sim, &rules, ivan, own_tank));

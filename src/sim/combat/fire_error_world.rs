@@ -209,7 +209,7 @@ impl<'a> FireSubject<'a> {
             z: self.terrain().map_or(0, |terrain| {
                 crate::sim::movement::ground_pose::object_world_z_leptons(firer, Some(terrain))
             }),
-            berserk: firer.berserk.active,
+            berserk: firer.berserk.is_active(),
             falling: firer.is_falling_down(),
             sinking: firer.sinking.is_active(),
             in_open_transport: firer.passenger_role.in_open_transport(),
@@ -242,7 +242,7 @@ impl<'a> FireSubject<'a> {
                 .aircraft_ammo
                 .as_ref()
                 .map_or(-1, |ammo| ammo.current()),
-            cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state),
+            cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state()),
             current_weapon: combat_weapon::attacker_facts(firer, obj).current_weapon_number,
             draining_me: firer.drain.draining_me().is_some(),
             drain_target: link(firer.drain.target()),

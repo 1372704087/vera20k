@@ -231,7 +231,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
         e.lifecycle.cell_marked = true;
         e.on_bridge = input["obstacle_deck"] == true;
         let mut cloak = CloakRuntime::new(0);
-        cloak.state = input["cloak"].as_i64().unwrap_or(0) as i32;
+        cloak.set_state_for_test(input["cloak"].as_i64().unwrap_or(0) as i32);
         e.cloak = Some(cloak);
         sim.substrate.occupancy.add(
             10,
@@ -342,12 +342,12 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
     let cloak = other.map(|other| sim.substrate.entities.get(other).unwrap().cloak.unwrap());
     let logical = cloak.map_or([0; 6], |c| {
         [
-            c.state,
-            c.depth as i32,
-            c.step_timer.timer.start_frame(),
-            c.step_timer.timer.duration(),
-            c.step_timer.speed,
-            c.step_delta,
+            c.state(),
+            c.depth() as i32,
+            c.step_timer().timer().start_frame(),
+            c.step_timer().timer().duration(),
+            c.step_timer().speed(),
+            c.step_delta(),
         ]
     });
     let expected_cloak: Vec<i32> = [0, 1, 3, 5, 6, 7]

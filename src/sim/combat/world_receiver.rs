@@ -667,7 +667,7 @@ pub(crate) fn commit_entities(
                 .substrate
                 .entities
                 .get(target_id)
-                .is_some_and(|target| !target.berserk.active);
+                .is_some_and(|target| !target.berserk.is_active());
         if starts_berserk {
             world.leave_team(target_id, false, Some(rules), run.effects());
         }

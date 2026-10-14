@@ -1147,7 +1147,7 @@ pub(crate) fn greatest_threat(
         cells: occupancy,
         healer,
         engineer: attacker.category == EntityCategory::Infantry && attacker_obj.engineer,
-        berserk: scanner.berserk.active,
+        berserk: scanner.berserk.is_active(),
         controller_house,
         fire_world,
     };

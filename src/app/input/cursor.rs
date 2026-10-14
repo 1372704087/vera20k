@@ -985,7 +985,7 @@ pub(crate) fn select_best_for_action(
             continue;
         };
         let obj = rules.and_then(|r| r.object(sim.interner.resolve(entity.type_ref())));
-        let priority = if entity.berserk.active {
+        let priority = if entity.berserk.is_active() {
             0
         } else if !obj.is_some_and(|obj| is_armed(entity, obj)) {
             2
@@ -2512,7 +2512,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             )
         };
         assert_eq!(best(&sim), Some(tank));
-        sim.entities_mut().get_mut(tank).unwrap().berserk.active = true;
+        sim.entities_mut()
+            .get_mut(tank)
+            .unwrap()
+            .berserk
+            .set_active_for_test(true);
         assert_eq!(best(&sim), Some(truck));
     }
 

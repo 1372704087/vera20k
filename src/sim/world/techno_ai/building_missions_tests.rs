@@ -342,7 +342,7 @@ fn mission_attack_matches_the_original() {
         let entity = sim.substrate.entities.get_mut(building).unwrap();
         entity.body_facing.snap(away, FRAME);
         let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(FRAME as i32);
-        cloak.state = 2;
+        cloak.set_state_for_test(2);
         entity.cloak = Some(cloak);
 
         let (returns, fire_calls) = with_building_fire_stub(None, || {
@@ -388,7 +388,7 @@ fn mission_attack_matches_the_original() {
             "{name} Set_Desired"
         );
         assert_eq!(
-            entity.cloak.as_ref().unwrap().state,
+            entity.cloak.as_ref().unwrap().state(),
             if called(row, "uncloak") { 3 } else { 2 },
             "{name} StartUncloaking"
         );

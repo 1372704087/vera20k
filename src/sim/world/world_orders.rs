@@ -93,7 +93,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.berserk.active)
+                    .is_some_and(|entity| entity.berserk.is_active())
             })
             .collect()
     }
@@ -1050,7 +1050,11 @@ mod click_order_receiver_tests {
             spawn("MTNK", 6),
         );
         for id in [gassed_man, gassed_tank] {
-            sim.entities_mut().get_mut(id).unwrap().berserk.active = true;
+            sim.entities_mut()
+                .get_mut(id)
+                .unwrap()
+                .berserk
+                .set_active_for_test(true);
         }
         assert_eq!(
             sim.click_order_receivers(&[gassed_tank, tank, gassed_man, first]),

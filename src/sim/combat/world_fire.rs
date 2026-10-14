@@ -1534,7 +1534,7 @@ pub(super) fn emit_admitted_fire(
         let rearm = if weapon.disk_laser {
             rof
         } else {
-            fireat_rearm_frames(rof, entity.berserk.active)
+            fireat_rearm_frames(rof, entity.berserk.is_active())
         };
         entity.rearm_after_fire(binary_frame as i32, rearm);
         entity.weapon_burst.complete_shot(weapon.burst.max(1));

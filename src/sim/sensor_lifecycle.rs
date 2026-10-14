@@ -767,7 +767,7 @@ mod tests {
                 .cloak
                 .as_mut()
                 .unwrap();
-            cloak.state = 0;
+            cloak.set_state_for_test(0);
         }
 
         let added = sim.apply_sensor_add(detector, (40, 30), 1, Some(&rules));
@@ -784,7 +784,7 @@ mod tests {
                 .cloak
                 .as_ref()
                 .unwrap()
-                .state,
+                .state(),
             0,
             "no CloakGenerator field means the vt+0x420 cloak arm never fires"
         );
@@ -802,7 +802,7 @@ mod tests {
                 .cloak
                 .as_mut()
                 .unwrap();
-            cloak.state = 0;
+            cloak.set_state_for_test(0);
         }
         let removed = sim.apply_unit_sensor_remove(detector, (40, 30), 1, Some(&rules));
         assert_eq!(removed, vec![newer, older]);
@@ -888,7 +888,7 @@ mod tests {
                 .cloak
                 .as_ref()
                 .unwrap()
-                .state,
+                .state(),
             0
         );
         // ReadScenario/FullInit keep A8E7AC nonzero through authored
@@ -912,7 +912,7 @@ mod tests {
                 .cloak
                 .as_ref()
                 .unwrap()
-                .state,
+                .state(),
             0
         );
         assert!(

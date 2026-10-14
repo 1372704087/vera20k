@@ -1888,15 +1888,16 @@ impl Simulation {
         if !object.cloakable && !rank_cloak {
             return;
         }
-        let mut cloak =
-            crate::sim::cloak_disguise::CloakRuntime::new(self.session.binary_frame as i32);
+        let frame = self.session.binary_frame as i32;
         // Only UnitClass owns the direct Unlimbo state write, and it tests the
         // copied runtime Cloakable byte rather than rank-granted CLOAK.
-        if category == EntityCategory::Unit && object.cloakable && !in_playfield {
-            cloak.establish_unlimbo_fully_cloaked();
-        }
+        let fully_cloaked = category == EntityCategory::Unit && object.cloakable && !in_playfield;
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.cloak = Some(cloak);
+            crate::sim::cloak_disguise::CloakRuntime::install(
+                &mut entity.cloak,
+                frame,
+                fully_cloaked,
+            );
         }
     }
 

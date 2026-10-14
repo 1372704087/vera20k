@@ -91,7 +91,7 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         0,
         "inside-playfield Unlimbo leaves the sensor-callback fixture uncloaked"
     );
@@ -156,7 +156,7 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         0,
         "a sensor deposit never starts a cloak in stock YR"
     );
@@ -190,7 +190,7 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         2,
         "+0x420 @ 0x006F4EB0 is sensor/redraw reevaluation, not forced uncloaking"
     );

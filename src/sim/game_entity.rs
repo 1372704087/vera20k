@@ -169,45 +169,6 @@ impl BunkerLink {
 
 pub(crate) use crate::sim::gate_runtime::BuildingGateRuntime;
 
-/// Accepted Psychedelic-warhead state owned by TechnoClass.
-///
-/// `active` mirrors the byte at native `Techno+0x298`; `timer` mirrors the
-/// signed dword at `+0x29C`. The latter is the exact distance-zero damage
-/// kernel result, so it deliberately remains signed rather than becoming a
-/// Rust duration type.
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub struct BerserkState {
-    pub active: bool,
-    pub timer: i32,
-}
-
-impl BerserkState {
-    /// The Psychedelic arm's writes (`0x00701D6B..0x00701D7D`): the time,
-    /// then the flag. Answers whether this hit turned the object berserk; a
-    /// berserk object only has its time refreshed.
-    pub fn start(&mut self, time: i32) -> bool {
-        self.timer = time;
-        !std::mem::replace(&mut self.active, true)
-    }
-
-    /// `TechnoClass::AI_Update`'s countdown (`0x006F9F0D..0x006F9F31`): a
-    /// berserk object's time drops by one each frame. At zero or below the
-    /// flag and the time clear, and the answer is true.
-    pub fn count_down(&mut self) -> bool {
-        if !self.active {
-            return false;
-        }
-        self.timer = self.timer.wrapping_sub(1);
-        if self.timer > 0 {
-            return false;
-        }
-        *self = Self::default();
-        true
-    }
-}
-
 /// A building's delayed fire (`BuildingClass+0x704` mode, `+0x714`
 /// countdown, `+0x708..+0x710` payload), armed by Mission_Attack and served by
 /// ProcessDelayedFire (`0x004503F0`) when the countdown ends.
@@ -735,9 +696,11 @@ pub struct GameEntity {
     /// owned by `sim::mission::mega_mission`.
     #[serde(default)]
     pub(crate) mega_mission: crate::sim::mission::mega_mission::MegaMission,
-    /// Evidence-bounded native cloak transition state and visual producer values.
+    /// The cloak state, progress and timers, a [`CloakRuntime`] that
+    /// `sim::cloak_disguise` owns; the cloak AI installs it for a cloakable
+    /// object.
     #[serde(default)]
-    pub cloak: Option<CloakRuntime>,
+    pub(crate) cloak: Option<CloakRuntime>,
     /// Last sensor coverage actually deposited into CellClass counters.
     /// Removal must use these cached owner/location/radius values after the
     /// entity's current facts have changed.
@@ -775,11 +738,12 @@ pub struct GameEntity {
     /// The IronCurtain or ForceShield state: the curtain's timer and its tint
     /// stage. `None` until the first curtain; `Some` after it, nullifying all
     /// damage (except healing) while the timer runs ([`is_invulnerable`]).
-    /// Applied by superweapon launch handlers.
+    /// Applied by superweapon launch handlers; `superweapon::invulnerability`
+    /// owns it.
     ///
     /// [`is_invulnerable`]: crate::sim::superweapon::invulnerability::is_invulnerable
     #[serde(default)]
-    pub invulnerability: Option<InvulnerabilityState>,
+    pub(crate) invulnerability: Option<InvulnerabilityState>,
     /// The victim side of mind control (`TechnoClass+0x2C0` MindControlledBy,
     /// `+0x2C8` the ring anim), written only by `capture_manager`.
     #[serde(default)]
@@ -792,9 +756,12 @@ pub struct GameEntity {
     /// `BombClass`), written only by `bomb`.
     #[serde(default)]
     pub(crate) bomb: Option<crate::sim::bomb::Bomb>,
-    /// Psychedelic/chaos runtime, separate from reversible mind control.
+    /// Psychedelic/chaos runtime, separate from reversible mind control: a
+    /// [`BerserkState`] that `combat::receiver_health` owns.
+    ///
+    /// [`BerserkState`]: crate::sim::combat::BerserkState
     #[serde(default)]
-    pub berserk: BerserkState,
+    pub(crate) berserk: crate::sim::combat::BerserkState,
     /// Native Foot/Unit+500 entry target, independent of Radio contacts.
     /// Unit741D9F installs it; Foot70D84F/70D889 and expiry clear it.
     pending_entry: Option<u64>,
@@ -1022,7 +989,7 @@ impl GameEntity {
         let (state, progress) = self
             .cloak
             .as_ref()
-            .map_or((0, 0), |c| (c.state, c.depth as i32));
+            .map_or((0, 0), |c| (c.state(), c.depth() as i32));
         crate::sim::cloak_disguise::visual_character(
             state,
             progress,
@@ -1598,7 +1565,7 @@ impl GameEntity {
             mind_control: Default::default(),
             temporal: Default::default(),
             bomb: None,
-            berserk: BerserkState::default(),
+            berserk: Default::default(),
             pending_entry: None,
             building_entry: Default::default(),
             aircraft_ammo: None,
@@ -2031,8 +1998,8 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 20);
         for row in rows {
             let mut cloak = CloakRuntime::new(0);
-            cloak.state = row["state"].as_i64().unwrap() as i32;
-            cloak.depth = row["depth"].as_i64().unwrap() as u32;
+            cloak.set_state_for_test(row["state"].as_i64().unwrap() as i32);
+            cloak.set_depth_for_test(row["depth"].as_i64().unwrap() as u32);
             entity.cloak = Some(cloak);
             entity
                 .discovery

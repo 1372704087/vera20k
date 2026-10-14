@@ -1857,14 +1857,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.low_bridge_tube_state.hash(hasher);
     if let Some(cloak) = entity.cloak.as_ref() {
         1u8.hash(hasher);
-        cloak.state.hash(hasher);
-        cloak.depth.hash(hasher);
-        cloak.step_delta.hash(hasher);
-        cloak.step_timer.timer.start_frame().hash(hasher);
-        cloak.step_timer.speed.hash(hasher);
-        cloak.step_timer.timer.duration().hash(hasher);
-        cloak.recloak_delay.start_frame().hash(hasher);
-        cloak.recloak_delay.duration().hash(hasher);
+        cloak.state().hash(hasher);
+        cloak.depth().hash(hasher);
+        cloak.step_delta().hash(hasher);
+        cloak.step_timer().timer().start_frame().hash(hasher);
+        cloak.step_timer().speed().hash(hasher);
+        cloak.step_timer().timer().duration().hash(hasher);
+        cloak.recloak_delay().start_frame().hash(hasher);
+        cloak.recloak_delay().duration().hash(hasher);
     } else {
         0u8.hash(hasher);
     }

@@ -111,9 +111,9 @@ fn curtain(sim: &Simulation, id: u64) -> Option<(i32, i32, InvulnKind)> {
         .and_then(|entity| entity.invulnerability.as_ref())
         .map(|state| {
             (
-                state.timer.start_frame(),
-                state.timer.duration(),
-                state.kind,
+                state.timer().start_frame(),
+                state.timer().duration(),
+                state.kind(),
             )
         })
 }

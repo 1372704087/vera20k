@@ -148,7 +148,7 @@ fn hit_records(
 
     let victim = entities.get(2).expect("victim survives the fixture");
     Landed {
-        cloak_state: victim.cloak.as_ref().map_or(-1, |cloak| cloak.state),
+        cloak_state: victim.cloak.as_ref().map_or(-1, |cloak| cloak.state()),
         sounds: collected,
         victim_hp: victim.health.current(),
     }

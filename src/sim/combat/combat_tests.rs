@@ -1160,7 +1160,7 @@ fn retail_gassed_infantry_scatters_and_fears() {
             },
         );
         let victim = sim.substrate.entities.get(ids[0]).unwrap();
-        assert!(victim.berserk.active, "{type_id} goes berserk");
+        assert!(victim.berserk.is_active(), "{type_id} goes berserk");
         assert_eq!(
             victim.health.current(),
             rules.object(type_id).unwrap().strength,
@@ -1221,7 +1221,7 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
         },
     );
     let man = sim.substrate.entities.get(ids[0]).unwrap();
-    assert!(man.berserk.active);
+    assert!(man.berserk.is_active());
     assert!(man.attack_target.target().is_none());
     assert_eq!(man.mission_leaf.foot_firing_sequence_latch(), 0);
     assert!(man.navigation.path_replay.remaining_directions().is_empty());
@@ -1244,7 +1244,7 @@ fn retail_berserk_gi_calms_down_in_the_frame_its_time_ends() {
     let gi = sim
         .spawn_object("E1", "Russians", 10, 10, 0, &rules)
         .unwrap();
-    let berserk = |active, timer| crate::sim::game_entity::BerserkState { active, timer };
+    let berserk = |active, timer| crate::sim::combat::BerserkState::for_test(active, timer);
     sim.substrate.entities.get_mut(gi).unwrap().berserk = berserk(true, 2);
     let frame = |sim: &mut Simulation| {
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
@@ -1300,7 +1300,12 @@ fn retail_berserk_gi_targets_its_own_house() {
     for mask in masks {
         assert_eq!(scan(&mut sim, mask), None, "calm, {mask:?}");
     }
-    sim.substrate.entities.get_mut(gi).unwrap().berserk.active = true;
+    sim.substrate
+        .entities
+        .get_mut(gi)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
     for mask in masks {
         assert_eq!(scan(&mut sim, mask), Some(ally), "berserk, {mask:?}");
     }
@@ -11607,7 +11612,7 @@ fn gsi_08_05_a_berserk_firer_rearms_at_half_its_rof() {
         let rules = test_rules();
         let mut store = EntityStore::new();
         let mut tank = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
-        tank.berserk.active = berserk;
+        tank.berserk.set_active_for_test(berserk);
         store.insert(tank);
         store.insert(make_entity_owned(2, "MTNK", 7, 5, 300, "Americans"));
         let mut interner = test_interner();

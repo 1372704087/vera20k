@@ -406,7 +406,7 @@ fn ground_command_fixture(
         actor.infantry.as_mut().unwrap().cell_entry_blocked = state["entry_blocked"] != 0;
     }
     if let Some(context) = context {
-        actor.berserk.active = context["berserk"] != 0;
+        actor.berserk.set_active_for_test(context["berserk"] != 0);
     }
     actor.install_native_stage_fixture(StageClass::from_native_fixture(
         state["stage_words"][0].as_i64().unwrap() as i32,

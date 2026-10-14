@@ -255,7 +255,7 @@ fn retail_force_shield_shields_allied_buildings_and_fades() {
                 .entities
                 .get(id)
                 .and_then(|entity| entity.invulnerability.as_ref())
-                .map(|state| (state.kind, state.timer.duration()))
+                .map(|state| (state.kind(), state.timer().duration()))
         };
         let shielded = Some((InvulnKind::ForceShield, 500));
         assert_eq!(shield(&sim, west), shielded);
@@ -317,7 +317,7 @@ fn a_bridge_cell_walks_from_the_ground_centre() {
             .entities
             .get(plant)
             .and_then(|entity| entity.invulnerability.as_ref())
-            .map(|state| state.kind),
+            .map(|state| state.kind()),
         Some(InvulnKind::ForceShield)
     );
     assert_eq!(

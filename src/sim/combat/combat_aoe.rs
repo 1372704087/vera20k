@@ -3006,8 +3006,8 @@ mod tests {
 
         let target = entities.get(2).unwrap();
         assert_eq!(target.health.current(), 1000, "Psychedelic skips Object HP");
-        assert!(target.berserk.active);
-        assert_eq!(target.berserk.timer, 300, "600 x heavy Verses 50%");
+        assert!(target.berserk.is_active());
+        assert_eq!(target.berserk.timer(), 300, "600 x heavy Verses 50%");
         assert!(target.attack_target.target().is_none());
         assert_eq!(target.mission.current(), MissionId::NONE);
         assert_eq!(
@@ -3030,7 +3030,7 @@ mod tests {
             target
                 .attack_target
                 .set_for_test(Some(TargetKind::Entity(1)));
-            target.berserk.timer = 17;
+            target.berserk.set_timer_for_test(17);
             target.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_known(MissionType::Guard),
                 suspended: MissionId::NONE,
@@ -3065,7 +3065,7 @@ mod tests {
         assert!(refresh_death.despawned_ids.is_empty());
         assert!(refresh_pings.is_empty());
         assert_eq!(target.health.current(), 1000);
-        assert_eq!(target.berserk.timer, 300);
+        assert_eq!(target.berserk.timer(), 300);
         assert_eq!(target.attack_target.target(), Some(TargetKind::Entity(1)));
         assert_eq!(target.mission.queued(), MissionId::NONE);
     }

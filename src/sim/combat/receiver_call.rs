@@ -371,7 +371,7 @@ pub(super) fn resolve_receive_damage(
     let invulnerability_impact = outcome.invulnerability_impact_damage.map(|damage| {
         let flags = match active_invulnerability
             .expect("receiver gate retained active state")
-            .kind
+            .kind()
         {
             crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain => 1,
             crate::sim::superweapon::invulnerability::InvulnKind::ForceShield => 6,
@@ -497,7 +497,8 @@ fn event_arms_ic_isolation(
         && entities.get(event.target_id).is_some_and(|target| {
             has_active_area_invulnerability(target, current_tick)
                 && target.invulnerability.as_ref().is_some_and(|state| {
-                    state.kind == crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain
+                    state.kind()
+                        == crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain
                 })
         })
 }

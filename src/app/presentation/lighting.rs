@@ -289,7 +289,7 @@ pub(crate) fn building_colour_word(
     shrouded: impl FnOnce() -> bool,
 ) -> u16 {
     let shielded = building.invulnerability.as_ref().is_some_and(|curtain| {
-        curtain.kind == crate::sim::superweapon::invulnerability::InvulnKind::ForceShield
+        curtain.kind() == crate::sim::superweapon::invulnerability::InvulnKind::ForceShield
             && crate::sim::superweapon::invulnerability::is_invulnerable(
                 Some(curtain),
                 sim.session.binary_frame,

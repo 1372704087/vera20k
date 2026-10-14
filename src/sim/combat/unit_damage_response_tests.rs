@@ -288,7 +288,7 @@ fn gassed_computer_fortress_charges_the_chaos_drone() {
         false,
     );
     let unit = sim.substrate.entities.get(fortress).unwrap();
-    assert!(unit.berserk.active);
+    assert!(unit.berserk.is_active());
     assert_eq!(
         unit.health.current(),
         rules.object("BFRT").unwrap().strength

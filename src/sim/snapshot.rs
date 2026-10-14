@@ -6347,8 +6347,8 @@ mod tests {
         aircraft.crate_multipliers.set_armor_multiplier_for_test(
             crate::util::native_x87::NativeF64Bits::from_bits(1.5_f64.to_bits()),
         );
-        aircraft.berserk.active = true;
-        aircraft.berserk.timer = -17;
+        aircraft.berserk.set_active_for_test(true);
+        aircraft.berserk.set_timer_for_test(-17);
         aircraft
             .ai_sell_repair
             .set_was_attacked_by_enemy_for_test(true);
@@ -6454,12 +6454,12 @@ mod tests {
             .get_mut(entity_id)
             .unwrap()
             .berserk
-            .timer = -18;
+            .set_timer_for_test(-18);
         assert_ne!(sim.state_hash(), expected_hash, "berserk timer is hashed");
         {
             let entity = sim.substrate.entities.get_mut(entity_id).unwrap();
-            entity.berserk.timer = -17;
-            entity.berserk.active = false;
+            entity.berserk.set_timer_for_test(-17);
+            entity.berserk.set_active_for_test(false);
         }
         assert_ne!(
             sim.state_hash(),
@@ -6471,7 +6471,7 @@ mod tests {
             .get_mut(entity_id)
             .unwrap()
             .berserk
-            .active = true;
+            .set_active_for_test(true);
         sim.substrate
             .entities
             .get_mut(entity_id)
@@ -6557,8 +6557,8 @@ mod tests {
         assert_eq!(entity.air_spatial_bucket(), Some(143));
         assert_eq!(entity.air_spatial_enter_order(), 91);
         assert_eq!(entity.crate_multipliers.armor().bits(), 1.5_f64.to_bits());
-        assert!(entity.berserk.active);
-        assert_eq!(entity.berserk.timer, -17);
+        assert!(entity.berserk.is_active());
+        assert_eq!(entity.berserk.timer(), -17);
         assert!(entity.ai_sell_repair.was_attacked_by_enemy());
         assert_eq!(entity.damage_smoke_system_id.system(), Some(2));
         assert_eq!(

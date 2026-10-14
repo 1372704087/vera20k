@@ -271,7 +271,10 @@ impl DrawState {
             DrawStateInput {
                 cloak: Some(CloakDrawInput {
                     character,
-                    progress: entity.cloak.as_ref().map_or(0, |cloak| cloak.depth as i32),
+                    progress: entity
+                        .cloak
+                        .as_ref()
+                        .map_or(0, |cloak| cloak.depth() as i32),
                     native_offset_words: if character == 4 && voxel {
                         entity.native_cloak_offset_words()
                     } else {

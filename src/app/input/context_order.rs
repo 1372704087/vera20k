@@ -2638,7 +2638,11 @@ mod tests {
             let id = sim
                 .spawn_object(kind, "Americans", rx, 5, 0, &rules)
                 .unwrap();
-            sim.entities_mut().get_mut(id).unwrap().berserk.active = berserk;
+            sim.entities_mut()
+                .get_mut(id)
+                .unwrap()
+                .berserk
+                .set_active_for_test(berserk);
             id
         };
         let gi = spawn("GI", 3, true);

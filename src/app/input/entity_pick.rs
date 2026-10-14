@@ -1464,7 +1464,7 @@ mod tests {
         let enemy = sim.interner.intern("Russians");
         let sub = sim.interner.intern("SUB");
         let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
-        cloak.state = 2;
+        cloak.set_state_for_test(2);
         for (id, owner, rx) in [(1, enemy, 10), (2, player, 20)] {
             let mut entity = item83_entity(id, rx, 10, owner, sub, EntityCategory::Unit, false);
             entity.cloak = Some(cloak);

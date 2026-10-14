@@ -3140,8 +3140,8 @@ impl TacticalCaptureSession {
                         .object(type_name)
                         .context("cloak observation type absent")?;
                     Some(json!({
-                        "state_i32": cloak.state,
-                        "progress_i32": cloak.depth as i32,
+                        "state_i32": cloak.state(),
+                        "progress_i32": cloak.depth() as i32,
                         "cloaking_stages_i32": rules.general.cloaking_stages,
                         "voxel": entity.is_voxel(),
                         "no_shadow": object.no_shadow,

@@ -349,7 +349,7 @@ pub(super) fn build_radar_object_update(
         object.is_some_and(|object| object.invisible || object.invisible_in_game);
     let fresh_in_playfield =
         radar_fresh_mode_one_membership(entity, playfield_bounds, resolved_terrain);
-    let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state);
+    let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state());
     let veteran_radar_invisible = object.is_some_and(|object| {
         has_weapon_ability(
             entity.veterancy.rank_kind(),

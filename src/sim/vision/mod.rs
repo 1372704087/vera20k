@@ -302,19 +302,35 @@ impl OwnerVisibility {
         }
     }
 
-    /// Return the raw cells slice for deterministic hashing.
+    /// The raw cell flags in row-major order.
     pub fn cells_raw(&self) -> &[u8] {
         &self.cells
     }
 
-    /// The ground bits in the same row-major order as `cells`, for
-    /// deterministic hashing.
+    /// The ground bits in the same row-major order as `cells`.
+    #[cfg(test)]
     pub fn ground_flags_raw(&self) -> &[u8] {
         &self.ground_flags
     }
 
+    #[cfg(test)]
     pub(crate) fn shroud_knowledge_raw(&self) -> &[ShroudKnowledge] {
         &self.shroud_knowledge
+    }
+
+    /// Fold every per-cell grid and the Dummy's state into `hasher`, for the
+    /// simulation state hash.
+    pub(crate) fn hash_cells(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.cells.hash(hasher);
+        crate::sim::state_hasher::hash_records(
+            &self.shroud_knowledge,
+            hasher,
+            ShroudKnowledge::hash_record,
+        );
+        // The CellClass ground bits the aircraft queries read.
+        self.ground_flags.hash(hasher);
+        self.hash_map_cell_edge_cache(hasher);
     }
 
     #[cfg(test)]

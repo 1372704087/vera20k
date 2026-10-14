@@ -338,7 +338,14 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // Snapshot332 drops the C4 walk-up intent, whose empty value every entity's
 // fold hashed. This fixture orders no C4; route, per-frame replay and all
 // three RNG gates remain unchanged.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x38EB_6DC4_C87D_4E43;
+// 2026-10-14: hash composition and coverage only. state_hash folds
+// through the pinned StateHasher instead of std's DefaultHasher (a
+// temporary control folding the finished replay through DefaultHasher
+// still gave the previous 0x38EB_6DC4_C87D_4E43), fog grids and entities fold
+// as per-House and per-entity digests, cell grids and footprint lists
+// fold as packed byte records, and the edge cache also covers
+// uninitialized cells: code that writes no simulation state.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x5D16_9C8A_E6B9_8915;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so

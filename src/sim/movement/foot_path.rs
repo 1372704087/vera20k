@@ -398,9 +398,9 @@ impl Simulation {
     ) -> Result<FootPathOutcome, String> {
         // A batched request waits for the next frame's batch as if the +640
         // timer still ran (`path_batch`, a proposed deviation): 75AF4B..75AF66
-        // calls the owner's vt+0x548 and returns. The admission retry's
-        // recursion waits as well once the Foot's answer for this frame is
-        // claimed, though the retry just expired its +640.
+        // calls the owner's vt+0x548 and returns. So does the admission
+        // retry's recursion, whose +640 the retry just expired, unless it is
+        // the Foot's first request in a frame the batch answered.
         if self.defer_path_search(
             request.entity_id,
             super::path_batch::WaitingRequest::NoQueue,

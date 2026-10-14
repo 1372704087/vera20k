@@ -285,9 +285,10 @@ impl Simulation {
         }
         let destination = track_destination(actor).ok_or("no-queue arm without destination")?;
         // A batched request waits for the next frame's batch as if the timer
-        // still ran (`path_batch`, a proposed deviation). A retry recursion
-        // (0x4B397F, 0x4B4480, 0x4B4552) waits as well once the Foot's answer
-        // for this frame is claimed, though the retry just expired its timer.
+        // still ran (`path_batch`, a proposed deviation). So does a
+        // recursion's (the retries at 0x4B397F, 0x4B4480 and the 0x4B4541
+        // tail, the second stage's re-entries at 0x4B41B3 and 0x4B420B),
+        // unless it is the Foot's first request in a frame the batch answered.
         if self.defer_path_search(id, super::path_batch::WaitingRequest::NoQueue) {
             return Ok(false);
         }

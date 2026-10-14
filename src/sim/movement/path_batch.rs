@@ -26,14 +26,16 @@
 //! ends with no path left loses that frame's movement where native's timer
 //! had run out. Through these requests a Foot searches at most once a
 //! frame, and only when the pass answered it: its first request that frame
-//! takes the answer, or searches for itself when none fits, and any later one
-//! waits again. That includes the admission retries' recursions (Walk's
-//! Process(0), Drive/Ship's Process_Movement(0, 0)), whose timer the retry
-//! just expired, and a code-2 re-path right after a found route, whose timer
-//! Find_Path left run out: a Foot whose new route is refused or blocked at its
-//! first step re-paths a frame later, and a Walk Foot whose retry waits drops
-//! its walking Doing for that frame. Hover's own timer-gated Find_Path is not
-//! batched. The batch draws no random numbers; later draws follow the changed
+//! takes the answer, or searches for itself when none fits, and any other
+//! waits. That includes the requests of a refused cell's recursion (Walk's
+//! admission retries, which expire the timer; Drive/Ship's Process_Movement
+//! re-entries, of which the 0x4B4541 tail expires it) and a code-2 re-path
+//! right after a found route, whose timer Find_Path left run out. So a Foot
+//! whose next cell refuses it stands that frame with its head cleared and
+//! re-paths the next, where native re-paths and usually steps at once, and a
+//! Foot whose new route is blocked at its first step by a moving friendly
+//! re-paths a frame later. Hover's own timer-gated Find_Path is not batched.
+//! The batch draws no random numbers; later draws follow the changed
 //! movement. Each search reads only that frame-start world, so no result
 //! depends on the thread count. Simulations start without batching; real
 //! matches and sim-bench turn it on ([`Simulation::batch_path_searches`]).
@@ -255,13 +257,17 @@ impl Simulation {
         batch.ready.clear();
         #[cfg(test)]
         batch.answered.clear();
-        let mut pending = std::mem::take(&mut batch.pending);
+        let pending = std::mem::take(&mut batch.pending);
         if pending.is_empty() {
             return;
         }
-        // A Foot's first registration this frame stands.
-        pending.sort_by_key(|&(id, _)| id);
-        pending.dedup_by_key(|&mut (id, _)| id);
+        // A Foot's latest registration this frame stands: its latest state
+        // makes the request it repeats.
+        let pending: Vec<(u64, WaitingRequest)> = pending
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
+            .into_iter()
+            .collect();
         let answers = match (rules, self.path_grid_snapshot()) {
             (Some(rules), Some(grid))
                 if self.overlay_grid.is_some() && self.resolved_terrain.is_some() =>

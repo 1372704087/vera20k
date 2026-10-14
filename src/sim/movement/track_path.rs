@@ -867,12 +867,15 @@ impl Simulation {
         })
     }
 
-    /// Unit 0x741970(target, clear_queue) from a class caller: the radio MOVE_HERE (Foot
-    /// 0x004D91EB), Mission_Harvest's staging destination (0x0073EDB5),
-    /// Mission_Enter's Teleporter re-assign (0x004D941D), the Scatter
-    /// receiver's null arm (0x00744070) and the ReceiveDamage crush charge
-    /// (0x00738593).
-    /// These callers pass true; Foot Approach's NavQueue arm passes false.
+    /// Unit 0x741970(target, clear_queue). Calls whose receiver may be of any
+    /// class reach it through the class-setter dispatcher
+    /// ([`Self::assign_destination_represented`], mode 1, and
+    /// [`Self::assign_destination_keeping_queue`], mode 0: the NavQueue arms
+    /// of Enter_Idle_Mode 0x004D8395, Foot Approach 0x004D5A6A and
+    /// Mission_Enter 0x004D939A). Unit code calls it directly: Mission_Harvest's
+    /// staging destination (0x0073EDB5), the Scatter receiver's null arm
+    /// (0x00744070) and the ReceiveDamage crush charge (0x00738593), all with
+    /// true.
     /// - 0x741A80..0x741A9C: an unchanged NavCom returns before any write
     ///   unless the Techno+0x1F8 override is up; the call then clears it. So
     ///   the refinery's repeated MOVE_HERE leaves a running drive alone

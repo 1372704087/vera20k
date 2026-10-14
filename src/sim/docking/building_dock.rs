@@ -1935,6 +1935,58 @@ mod tests {
     const DEPOT_RX: u16 = 10;
     const DEPOT_RY: u16 = 10;
 
+    /// MissionRepairAndProduce releases its contact through the contact's own
+    /// class setter (vt+0x480 at `0x0044C496`). The UnitRepair CAN_LOAD takes
+    /// aircraft as well as Units, and a released aircraft gets the Aircraft
+    /// setter (`0x0041AA80`) toward the exit cell.
+    #[test]
+    fn a_released_aircraft_takes_its_own_class_setter() {
+        let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
+        else {
+            return;
+        };
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
+            .expect("retail rules parse");
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let depot = sim
+            .spawn_object("GADEPT", "Americans", 10, 10, 0, &rules)
+            .expect("retail GADEPT");
+        let aircraft = sim
+            .spawn_object("ORCA", "Americans", 16, 16, 0, &rules)
+            .expect("retail ORCA");
+        sim.substrate
+            .entities
+            .get_mut(depot)
+            .unwrap()
+            .mark_live_contact_with(aircraft);
+        sim.substrate
+            .entities
+            .get_mut(aircraft)
+            .unwrap()
+            .mark_live_contact_with(depot);
+        let exit = building_dock_cell(&sim, depot, aircraft, (0, 0), &rules, None)
+            .expect("an exit cell for the aircraft");
+
+        release_contact(
+            &mut sim,
+            &rules,
+            depot,
+            aircraft,
+            false,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+
+        let released = sim.substrate.entities.get(aircraft).unwrap();
+        assert_eq!(
+            released.navigation.nav_com,
+            Some(NavTargetRef::cell(exit.0, exit.1))
+        );
+        assert!(!released.has_live_contact_with(depot));
+    }
+
     fn depot_rules() -> RuleSet {
         depot_rules_with_strength(300)
     }

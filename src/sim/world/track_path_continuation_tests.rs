@@ -1666,7 +1666,7 @@ fn owed_restore_setter_moves_walk_and_hover_objects_to_the_saved_order() {
             .spawn_object(kind, "Americans", 10, 10, 0, &rules)
             .unwrap();
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        crate::sim::mission::concrete_effects::represented_assign_destination_mode_one(
+        crate::sim::mission::concrete_effects::represented_assign_destination(
             e,
             Some(NavTargetRef::cell(14, 12)),
         );

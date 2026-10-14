@@ -30,7 +30,7 @@ use crate::sim::world::Simulation;
 use super::concrete_effects::UnavailableConcreteMissionEffects;
 use super::concrete_effects::{
     AuthorityUnavailable, ConcreteMissionEffects, ConcreteSetterRequest,
-    RepresentedConcreteMissionEffects, represented_assign_destination_mode_one,
+    RepresentedConcreteMissionEffects, represented_assign_destination,
     represented_assign_target_admitted,
 };
 use super::readiness::{
@@ -69,7 +69,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     debug_assert!(restored);
     represented_assign_target_admitted(entity, saved_target, saved_target_commits);
     if category != EntityCategory::Structure {
-        represented_assign_destination_mode_one(entity, saved_destination);
+        represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
             entity.navigation.pending_arrival_clear = true;
         }
@@ -718,9 +718,9 @@ impl Simulation {
     }
 
     /// [`Self::assign_destination_represented`] with vt+0x480's mode 0, which
-    /// keeps NavQueue: Enter_Idle_Mode (`0x004D838E`), Foot Approach
-    /// (`0x004D5A64`) and Mission_Enter (`0x004D92ED..0x004D93E3`) pass it
-    /// when they take NavQueue[0].
+    /// keeps NavQueue: Enter_Idle_Mode (`0x004D8395`), Foot Approach
+    /// (`0x004D5A6A`) and Mission_Enter (`0x004D939A`) pass it when they take
+    /// NavQueue[0].
     pub(crate) fn assign_destination_keeping_queue(
         &mut self,
         receiver: u64,

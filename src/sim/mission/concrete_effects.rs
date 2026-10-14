@@ -205,8 +205,11 @@ impl<'r> RepresentedConcreteMissionEffects<'r> {
         {
             return false;
         }
-        if actor.category == crate::map::entities::EntityCategory::Unit
+        // The Aircraft setter reads the same +4C (`0x0041AA80` ends in Foot
+        // `0x004D94B0`), and its port expects the coordinate.
+        if (actor.category == crate::map::entities::EntityCategory::Unit
             && sim.unit_setter_receiver(receiver, Some(rules))
+            || actor.category == crate::map::entities::EntityCategory::Aircraft)
             && !matches!(destination, NavTargetRef::Cell { .. })
             && crate::sim::movement::nav_target_coordinate(
                 destination,
@@ -456,7 +459,7 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
         // Effect: the order skips the setter's admission, timers and Move_To.
         // Frequency: none in retail play observed. Risk: such an object keeps
         // a NavCom no locomotor drives toward.
-        represented_assign_destination_mode_one(entity, Some(requested));
+        represented_assign_destination(entity, Some(requested));
         false
     }
 }
@@ -630,8 +633,9 @@ pub(crate) fn represented_assign_target_admitted(
     });
 }
 
-/// The represented mode-one `Assign_Destination` write set, entity-local.
-pub(crate) fn represented_assign_destination_mode_one(
+/// The represented `Assign_Destination` write set, entity-local, for either
+/// mode: it never touches NavQueue.
+pub(crate) fn represented_assign_destination(
     entity: &mut crate::sim::game_entity::GameEntity,
     requested: Option<NavTargetRef>,
 ) {
@@ -843,6 +847,53 @@ mod tests {
             let kept = if keep_queue { queued } else { Vec::new() };
             assert_eq!(unit.navigation.nav_queue, kept, "keep_queue {keep_queue}");
         }
+    }
+
+    /// FootClass::Mission_Enter (`0x004D9290`) is the Infantry's too
+    /// (vt+0x240), and no class test precedes its arms: a tethered
+    /// infantryman with no NavCom takes NavQueue[0] through his class setter
+    /// with mode 0 (`0x004D939A`), and the queue shifts.
+    #[test]
+    fn a_tethered_infantryman_on_enter_takes_his_first_waypoint() {
+        let Some(rules) = retail_rules() else {
+            return;
+        };
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let building = sim
+            .spawn_object("GAPOWR", "Americans", 20, 20, 0, &rules)
+            .expect("retail GAPOWR");
+        let id = sim
+            .spawn_object("E1", "Americans", 10, 10, 0, &rules)
+            .expect("retail E1");
+        let queued = [NavTargetRef::cell(14, 10), NavTargetRef::cell(16, 10)];
+        let infantry = sim.substrate.entities.get_mut(id).unwrap();
+        infantry.mark_live_contact_with(building);
+        infantry.dock_entered_with = Some(building);
+        infantry.navigation.nav_queue = queued.to_vec();
+        sim.substrate
+            .entities
+            .get_mut(building)
+            .unwrap()
+            .mark_live_contact_with(id);
+        sim.mission_assign_exact(
+            id,
+            crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter),
+            0,
+        )
+        .expect("retail E1 exists");
+
+        crate::sim::mission::enter::mission_enter(
+            &mut sim,
+            &rules,
+            None,
+            id,
+            FrameEffects::default(),
+        );
+
+        let infantry = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(infantry.navigation.nav_com, Some(queued[0]));
+        assert_eq!(infantry.navigation.nav_queue, [queued[1]]);
     }
 
     /// A Restore the AoE pointer expiry deferred (`pending_arrival_clear`)

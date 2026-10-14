@@ -23,59 +23,60 @@ fn ordinary_foot_input_matches_native_admission_rows() {
     for (index, row) in rows.as_array().unwrap().iter().enumerate() {
         let input = &row["input"];
         let (terrain, zones, raw) = native_fixture(input);
-        let cells = NativeCellQuery::isolated(&terrain);
+        let map = ClickMap {
+            cells: NativeCellQuery::isolated(&terrain),
+            zones: &zones,
+            raw: &raw,
+            bounds: bounds(),
+            size: (8, 8),
+            frame: input["frame"].as_u64().unwrap_or(100) as u32,
+        };
+        let cells = &map.cells;
         let current = coord(input.get("xyz").unwrap_or(&json!([1344, 1344, 0])));
         let head = coord(input.get("head").unwrap_or(&json!([0, 0, 0])));
         let clicked = pair(input.get("clicked").unwrap_or(&json!([11, 5])));
         let click = FootCellClick {
             clicked: (clicked.0 as i16, clicked.1 as i16),
             action: input["action"].as_u64().unwrap_or(1) as u32,
-            current,
-            coordinate: if head == (DriveCoord { x: 0, y: 0, z: 0 }) {
-                current
-            } else {
-                head
-            },
-            marked: input["marked"].as_bool().unwrap_or(true),
-            on_bridge: input["on_bridge"].as_bool().unwrap_or(false),
-            in_tube: false,
             move_to_shroud: input["move_to_shroud"].as_bool().unwrap_or(true),
             teleporter: false,
-            special_type: false,
-            movement_zone: match input["movement_zone"].as_u64().unwrap_or(4) {
-                0 => MovementZone::Normal,
-                1 => MovementZone::Crusher,
-                3 => MovementZone::AmphibiousDestroyer,
-                4 => MovementZone::AmphibiousCrusher,
-                10 => MovementZone::Water,
-                other => panic!("unmapped movement zone {other}"),
-            },
-            speed_type: match input["receiver"].as_str() {
-                Some("unit") => SpeedType::Track,
-                Some("ship") => SpeedType::Float,
-                _ => SpeedType::Foot,
+            mover: ClickMover {
+                current,
+                coordinate: if head == (DriveCoord { x: 0, y: 0, z: 0 }) {
+                    current
+                } else {
+                    head
+                },
+                marked: input["marked"].as_bool().unwrap_or(true),
+                on_bridge: input["on_bridge"].as_bool().unwrap_or(false),
+                in_tube: false,
+                special_type: false,
+                movement_zone: match input["movement_zone"].as_u64().unwrap_or(4) {
+                    0 => MovementZone::Normal,
+                    1 => MovementZone::Crusher,
+                    3 => MovementZone::AmphibiousDestroyer,
+                    4 => MovementZone::AmphibiousCrusher,
+                    10 => MovementZone::Water,
+                    other => panic!("unmapped movement zone {other}"),
+                },
+                speed_type: match input["receiver"].as_str() {
+                    Some("unit") => SpeedType::Track,
+                    Some("ship") => SpeedType::Float,
+                    _ => SpeedType::Foot,
+                },
             },
         };
-        let result = resolve_foot_cell_click(
-            &cells,
-            &zones,
-            &raw,
-            bounds(),
-            (8, 8),
-            input["frame"].as_u64().unwrap_or(100) as u32,
-            &click,
-            |id| {
-                Ok(match id {
-                    NativeCellIdentity::Real(_) => {
-                        !input["shrouded"].as_array().into_iter().flatten().any(|p| {
-                            let c = cells.coord(id);
-                            pair(p) == (c.0 as u16, c.1 as u16)
-                        })
-                    }
-                    NativeCellIdentity::Dummy => false,
-                })
-            },
-        )
+        let result = resolve_foot_cell_click(&map, &click, |id| {
+            Ok(match id {
+                NativeCellIdentity::Real(_) => {
+                    !input["shrouded"].as_array().into_iter().flatten().any(|p| {
+                        let c = cells.coord(id);
+                        pair(p) == (c.0 as u16, c.1 as u16)
+                    })
+                }
+                NativeCellIdentity::Dummy => false,
+            })
+        })
         .unwrap();
         let expected = pair(&row["cell"]);
         assert_eq!(
@@ -220,9 +221,9 @@ fn only_the_click_asks_can_enter_cell() {
         sim.cell_move_action(owner, tank, (9, 5), query(mouse_over, shift), &rules, None)
             .unwrap()
     };
-    assert_eq!(ask(true, false), CellMoveAction::Move);
-    assert_eq!(ask(false, false), CellMoveAction::NoMove);
-    assert_eq!(ask(false, true), CellMoveAction::Move);
+    assert_eq!(ask(true, false), MoveAction::Move);
+    assert_eq!(ask(false, false), MoveAction::NoMove);
+    assert_eq!(ask(false, true), MoveAction::Move);
     let goal = sim
         .cell_click_destination(owner, tank, (9, 5), false, &rules, None)
         .unwrap()
@@ -298,8 +299,8 @@ fn shroud_bars_a_type_without_move_to_shroud() {
             sim.cell_move_action(owner, id, shrouded, query(mouse_over, false), &rules, None)
                 .unwrap()
         };
-        assert_eq!(ask(legionnaire), CellMoveAction::NoMove);
-        assert_eq!(ask(tank), CellMoveAction::Move);
+        assert_eq!(ask(legionnaire), MoveAction::NoMove);
+        assert_eq!(ask(tank), MoveAction::Move);
     }
     assert_eq!(
         sim.cell_click_destination(owner, legionnaire, shrouded, false, &rules, None),
@@ -310,6 +311,228 @@ fn shroud_bars_a_type_without_move_to_shroud() {
             .unwrap()
             .is_some()
     );
+}
+
+/// Foot `0x004D74E0`'s Move arm over an object the retail GI's zone reaches
+/// (a retail Grizzly beside it): Move keeps the object; NoMove, and an
+/// Infantry under the force-move key (`0x004D7B0F..0x004D7B1D`), search near
+/// the object's Cell in the mover's own zone. FNPC skips the Grizzly's own
+/// Cell, which its occupation bits bar (`0x004834A0`), and answers (5,4). A
+/// Unit under the key keeps the object, and a Unit's NoMove over itself
+/// orders nothing (`0x007388D5`).
+#[test]
+fn an_object_click_keeps_an_object_its_zone_reaches() {
+    let Some((sim, rules, owner, gi, tank)) = retail_scene("MTNK") else {
+        return;
+    };
+    let click = |id, target, action, force_move_key| {
+        sim.object_move_click(owner, id, target, action, force_move_key, &rules)
+            .unwrap()
+    };
+    let onto_tank = Some(TargetKind::Entity(tank));
+    let near_tank = Some(TargetKind::Cell(5, 4));
+    assert_eq!(click(gi, tank, MoveAction::Move, false), onto_tank);
+    assert_eq!(click(gi, tank, MoveAction::NoMove, false), near_tank);
+    assert_eq!(click(gi, tank, MoveAction::Move, true), near_tank);
+    assert_eq!(
+        click(tank, gi, MoveAction::Move, true),
+        Some(TargetKind::Entity(gi))
+    );
+    assert_eq!(click(tank, tank, MoveAction::NoMove, false), None);
+    assert_eq!(click(gi, tank, MoveAction::None, false), None);
+}
+
+/// An object across the river: the retail GI's zone cannot reach its Cell,
+/// so FNPC sends the GI to its own bank (`0x004D7B5E..0x004D7BF3`). An
+/// Aircraft is special and keeps the object (`0x004D7AFB`), but its wrapper
+/// refuses NoMove (`0x00417C12`).
+#[test]
+fn an_object_across_the_river_sends_the_mover_to_its_own_bank() {
+    let Some((mut sim, rules, owner, gi, harrier)) = retail_scene("ORCA") else {
+        return;
+    };
+    let far = sim.spawn_object("MTNK", "Local", 11, 5, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    let click = |id, action| {
+        sim.object_move_click(owner, id, far, action, false, &rules)
+            .unwrap()
+    };
+    let Some(TargetKind::Cell(x, _)) = click(gi, MoveAction::Move) else {
+        panic!("the GI's click must search its own zone");
+    };
+    assert!(x < 8, "{x}");
+    assert_eq!(
+        click(harrier, MoveAction::Move),
+        Some(TargetKind::Entity(far))
+    );
+    assert_eq!(click(harrier, MoveAction::NoMove), None);
+}
+
+/// NoMove's own shroud test (`0x004D77BD..0x004D77EA`): over an object whose
+/// coordinate is shrouded, a retail CLEG (MoveToShroud=no) orders nothing,
+/// while a retail Grizzly goes on to the Move arm, where the shrouded Cell
+/// sends it to FNPC (`0x004D7B01`).
+#[test]
+fn no_move_over_a_shrouded_object_needs_move_to_shroud() {
+    let Some((mut sim, rules, owner, _, legionnaire)) = retail_scene("CLEG") else {
+        return;
+    };
+    let tank = sim.spawn_object("MTNK", "Local", 6, 6, 0, &rules).unwrap();
+    let hidden = sim.spawn_object("MTNK", "Local", 12, 5, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    sim.fog = crate::sim::vision::FogState::new(16, 16);
+    sim.fog.reveal_cells_for_owner(
+        owner,
+        (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|&cell| cell != (12, 5)),
+    );
+    let click = |id| {
+        sim.object_move_click(owner, id, hidden, MoveAction::NoMove, false, &rules)
+            .unwrap()
+    };
+    assert_eq!(click(legionnaire), None);
+    assert!(
+        matches!(click(tank), Some(TargetKind::Cell(..))),
+        "{:?}",
+        click(tank)
+    );
+}
+
+/// A JumpJet infantryman (Type+D94) is special on the ground: Move keeps an
+/// object across the river (`0x004D7AFB`), and NoMove searches near it with
+/// zone -1 (`0x004D7A9B`), where the retail GI's NoMove keeps to its own bank.
+#[test]
+fn a_jumpjet_infantry_no_move_searches_near_the_object_in_any_zone() {
+    let Some((mut sim, rules, owner, gi, rocketeer)) = retail_scene("JUMPJET") else {
+        return;
+    };
+    assert!(rules.object("JUMPJET").unwrap().jumpjet);
+    let far = sim.spawn_object("MTNK", "Local", 11, 5, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    let click = |id, action| {
+        sim.object_move_click(owner, id, far, action, false, &rules)
+            .unwrap()
+    };
+    assert_eq!(
+        click(rocketeer, MoveAction::Move),
+        Some(TargetKind::Entity(far))
+    );
+    let Some(TargetKind::Cell(x, _)) = click(rocketeer, MoveAction::NoMove) else {
+        panic!("a special NoMove searches near the object");
+    };
+    assert!(x > 8, "{x}");
+    let Some(TargetKind::Cell(x, _)) = click(gi, MoveAction::NoMove) else {
+        panic!("the GI's NoMove searches its own zone");
+    };
+    assert!(x < 8, "{x}");
+}
+
+/// An Aircraft orders nothing over an object whose coordinate, raised to its
+/// ground, is shrouded (`0x004D7809..0x004D7896`); the retail GI's Move over
+/// it goes to FNPC on its own bank, as the shrouded Cell asks (`0x004D7B01`).
+#[test]
+fn an_aircraft_orders_nothing_over_a_shrouded_object() {
+    let Some((mut sim, rules, owner, gi, harrier)) = retail_scene("ORCA") else {
+        return;
+    };
+    let hidden = sim.spawn_object("MTNK", "Local", 12, 5, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    sim.fog = crate::sim::vision::FogState::new(16, 16);
+    sim.fog.reveal_cells_for_owner(
+        owner,
+        (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|&cell| cell != (12, 5)),
+    );
+    let click = |id| {
+        sim.object_move_click(owner, id, hidden, MoveAction::Move, false, &rules)
+            .unwrap()
+    };
+    assert_eq!(click(harrier), None);
+    let Some(TargetKind::Cell(x, _)) = click(gi) else {
+        panic!("the GI's click searches its own zone");
+    };
+    assert!(x < 8, "{x}");
+}
+
+/// Outside the playfield (`0x00578460(cell, 1)`) every mover, special or
+/// not, searches its own zone near the object's Cell (`0x004D7AF5..0x004D7AF7`
+/// to `0x004D7B5E`), so a Harrier that keeps an object inside it gets a Cell
+/// here.
+#[test]
+fn an_object_outside_the_playfield_sends_every_mover_to_a_cell() {
+    let Some((mut sim, rules, owner, gi, harrier)) = retail_scene("ORCA") else {
+        return;
+    };
+    let outside = sim.spawn_object("MTNK", "Local", 3, 3, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    assert!(!cell_is_in_playfield_height_aware_in_query(
+        (3, 3),
+        sim.playfield_bounds,
+        sim.resolved_terrain.as_ref(),
+        None,
+    ));
+    for id in [gi, harrier] {
+        let Some(TargetKind::Cell(x, y)) = sim
+            .object_move_click(owner, id, outside, MoveAction::Move, false, &rules)
+            .unwrap()
+        else {
+            panic!("{id} must search near the object");
+        };
+        assert!(
+            cell_is_in_playfield_height_aware_in_query(
+                (i32::from(x), i32::from(y)),
+                sim.playfield_bounds,
+                sim.resolved_terrain.as_ref(),
+                None,
+            ),
+            "{id}: ({x}, {y})"
+        );
+    }
+}
+
+/// A Move onto an object runs through the frame host as a Move mission toward
+/// the object. The retail GI cannot enter the tank's Cell, so Find_Path's
+/// code-6 arm (`0x004D3A92..0x004D3E0A`) retargets it to a Cell FNPC finds
+/// beside the tank, and the GI walks there.
+#[test]
+fn a_move_onto_a_tank_walks_the_gi_beside_it() {
+    let Some((mut sim, rules, owner, gi, _)) = retail_scene("MTNK") else {
+        return;
+    };
+    let target = sim.spawn_object("MTNK", "Local", 2, 9, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    let distance = |sim: &Simulation| {
+        let a = sim.entities().get(gi).unwrap().position;
+        let b = sim.entities().get(target).unwrap().position;
+        (i32::from(a.rx) - i32::from(b.rx)).abs() + (i32::from(a.ry) - i32::from(b.ry)).abs()
+    };
+    let start = distance(&sim);
+    sim.queue_command(crate::sim::command::CommandEnvelope::new(
+        owner,
+        sim.session.tick,
+        crate::sim::command::Command::MoveToObject {
+            entity_id: gi,
+            target_id: target,
+        },
+    ));
+    for _ in 0..60 {
+        let due = sim.take_due_commands();
+        let grid = sim.path_grid_snapshot();
+        let result = sim.advance_tick(&due, Some(&rules), grid.as_deref(), None, 67);
+        assert!(result.frame_committed, "{result:?}");
+    }
+    let tank = sim.entities().get(target).unwrap().position;
+    let Some(NavTargetRef::Cell { rx, ry }) = sim.entities().get(gi).unwrap().navigation.nav_com
+    else {
+        panic!("Find_Path retargets the GI to a Cell");
+    };
+    assert!(
+        rx.abs_diff(tank.rx) <= 1 && ry.abs_diff(tank.ry) <= 1 && (rx, ry) != (tank.rx, tank.ry),
+        "({rx}, {ry})"
+    );
+    assert!(distance(&sim) < start, "{} -> {}", start, distance(&sim));
 }
 
 impl Simulation {

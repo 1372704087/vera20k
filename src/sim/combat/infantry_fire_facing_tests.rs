@@ -530,7 +530,6 @@ fn production_attack_during_paid_walk_step_case(boosted: bool) {
             entity_id: firer,
             target_rx: 5,
             target_ry: 10,
-            queue: false,
         },
     );
     for _ in 0..50 {

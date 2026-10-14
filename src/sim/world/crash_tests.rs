@@ -1820,7 +1820,6 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                     entity_id,
                     target_rx: destination.0,
                     target_ry: destination.1,
-                    queue: false,
                 },
             )
         })

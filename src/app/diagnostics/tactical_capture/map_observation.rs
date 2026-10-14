@@ -5330,6 +5330,43 @@ mod tests {
         assert!(serde_json::from_value::<MapCaptureProfile>(value).is_err());
     }
 
+    /// Every profile kept under `tools/` loads through the production reader,
+    /// so a change to a command's wire shape has to migrate them. Each one
+    /// names its schema in its first key.
+    #[test]
+    fn stored_profiles_load() {
+        fn walk(dir: &Path, profiles: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, profiles);
+                } else if path
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+                {
+                    let mut head = [0; 128];
+                    let read =
+                        std::io::Read::read(&mut std::fs::File::open(&path).unwrap(), &mut head)
+                            .unwrap();
+                    let tag = b"\"schema_version\": \"vera20k.map-observation-profile.";
+                    if head[..read].windows(tag.len()).any(|window| window == tag) {
+                        profiles.push(path);
+                    }
+                }
+            }
+        }
+        let mut profiles = Vec::new();
+        // The reader refuses linked ancestors; a checkout may sit behind one.
+        let tools = std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools"));
+        walk(&tools.unwrap(), &mut profiles);
+        assert!(!profiles.is_empty());
+        for path in profiles {
+            if let Err(error) = MapCaptureProfile::load(&path) {
+                panic!("{}: {error:#}", path.display());
+            }
+        }
+    }
+
     #[test]
     fn jumpjet_discovery_profile_preserves_verified_production_prefix_without_guessed_actor() {
         let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(

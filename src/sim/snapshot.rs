@@ -999,7 +999,10 @@ use crate::sim::world::Simulation;
 // the existing Rules registry retains WindDirection across passes. The
 // superseded animation counter is removed; native cadence uses UID/EC.
 // Old records cannot resume these scalar authorities.
-const SNAPSHOT_VERSION: u32 = 345;
+// 345 -> 346: pending Move and AttackMove commands drop the unread queue flag,
+// and a Move onto an object is a new Command variant; both change the bincode
+// schema.
+const SNAPSHOT_VERSION: u32 = 346;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4382,7 +4385,8 @@ mod tests {
         // 342 -> 343: the complete Object fall state.
         // 343 -> 344: retained deploy-voice suppression and bound voice slots.
         // 344 -> 345: Smoke scalars and individual Particle AIR identities.
-        assert_eq!(super::SNAPSHOT_VERSION, 345);
+        // 345 -> 346: Move commands without the queue flag, and MoveToObject.
+        assert_eq!(super::SNAPSHOT_VERSION, 346);
     }
 
     #[test]

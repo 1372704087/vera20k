@@ -333,7 +333,6 @@ fn a_rhino_stops_short_of_its_approach_cell_when_its_target_closes_in() {
             entity_id: tank,
             target_rx: 4,
             target_ry: 13,
-            queue: false,
         },
     );
     let frames = chase(&mut sim, &rules, rhino, tank);
@@ -598,7 +597,6 @@ fn a_hunting_conscript_drops_his_walk_to_approach_his_quarry() {
             entity_id: conscript,
             target_rx: 4,
             target_ry: 20,
-            queue: false,
         },
     );
     let walk = Some(NavTargetRef::cell(4, 20));

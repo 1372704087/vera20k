@@ -5797,7 +5797,6 @@ fn test_real_ship_locomotor_move_command_crosses_water_cells() {
             entity_id: ship_id,
             target_rx: 3,
             target_ry: 1,
-            queue: false,
         },
     );
 
@@ -5864,7 +5863,6 @@ fn test_real_ship_locomotor_crosses_water_surface_cells_with_non_water_land_type
             entity_id: ship_id,
             target_rx: 3,
             target_ry: 1,
-            queue: false,
         },
     );
 
@@ -5940,7 +5938,6 @@ fn test_real_ship_move_command_can_path_under_bridge_when_too_big() {
             entity_id: ship_id,
             target_rx: 4,
             target_ry: 1,
-            queue: false,
         },
     );
 
@@ -6041,7 +6038,6 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
             entity_id: ship_id,
             target_rx: 7,
             target_ry: 3,
-            queue: false,
         },
     );
     // The order dispatches at this frame's EventClass tail; the Ship accepts
@@ -6504,7 +6500,6 @@ fn phase14_drive_move_command_preserves_fractions_until_scheduled_visit() {
                 entity_id,
                 target_rx: 17,
                 target_ry: 13,
-                queue: false,
             },
             Some(&rules),
         ));
@@ -6593,8 +6588,6 @@ fn test_execute_tick_delay_blocks_early_execution() {
             entity_id: 1,
             target_rx: 8,
             target_ry: 2,
-
-            queue: false,
         },
     );
 
@@ -7109,8 +7102,6 @@ fn test_move_command_rejects_non_owned_entity() {
             entity_id: 1,
             target_rx: 8,
             target_ry: 2,
-
-            queue: false,
         },
     );
 
@@ -7139,7 +7130,6 @@ fn test_move_command_chrono_miner_uses_ground_path() {
             entity_id: entity,
             target_rx: 8,
             target_ry: 2,
-            queue: false,
         },
     );
 
@@ -7181,7 +7171,6 @@ fn test_move_command_non_harvester_teleporter_drives() {
             entity_id: entity,
             target_rx: 8,
             target_ry: 2,
-            queue: false,
         },
     );
 
@@ -7237,7 +7226,6 @@ fn a_paralyzed_or_warping_in_teleport_infantryman_refuses_a_move_order() {
         entity_id: id,
         target_rx: rx,
         target_ry: 2,
-        queue: false,
     };
     let spawn = |sim: &mut Simulation| {
         // Infantry718B70/51BF90 require allocated cells, a passable Foot row
@@ -7334,7 +7322,6 @@ fn test_attack_move_command_chrono_miner_uses_ground_path() {
             entity_id: entity,
             target_rx: 8,
             target_ry: 2,
-            queue: false,
         },
     );
 
@@ -7503,7 +7490,6 @@ fn test_attack_move_auto_acquires_enemy() {
             entity_id: 1,
             target_rx: 30,
             target_ry: 20,
-            queue: false,
         },
     );
 
@@ -7618,7 +7604,6 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
             entity_id: 1,
             target_rx: 30,
             target_ry: 20,
-            queue: false,
         },
     );
 
@@ -7731,7 +7716,6 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
             entity_id: 1,
             target_rx: 30,
             target_ry: 20,
-            queue: false,
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
@@ -8739,7 +8723,6 @@ fn crusher_does_not_freeze_in_front_of_infantry() {
                 entity_id: tank,
                 target_rx: 16,
                 target_ry: 10,
-                queue: false,
             },
         );
         let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
@@ -8862,7 +8845,6 @@ fn turning_mover_with_an_occupied_endpoint_still_makes_progress() {
             entity_id: mover,
             target_rx: 10,
             target_ry: 4,
-            queue: false,
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
@@ -8986,7 +8968,6 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
             entity_id: mover,
             target_rx: DESTINATION.0,
             target_ry: DESTINATION.1,
-            queue: false,
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
@@ -9556,7 +9537,6 @@ fn repro_second_vehicle_ordered_onto_an_occupied_cell() {
             entity_id: mover,
             target_rx: 12,
             target_ry: 8,
-            queue: false,
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
@@ -9721,7 +9701,6 @@ fn repro_group_move_of_eight_vehicles_to_one_cell() {
                     entity_id: id,
                     target_rx: target.0,
                     target_ry: target.1,
-                    queue: false,
                 },
             )
         })
@@ -9894,7 +9873,6 @@ fn repro_group_move_short_range_traces_every_tick() {
                     entity_id: id,
                     target_rx: target.0,
                     target_ry: target.1,
-                    queue: false,
                 },
             )
         })
@@ -10034,7 +10012,6 @@ fn repro_two_moving_vehicles_pass_through_each_other() {
                 entity_id: west,
                 target_rx: 16,
                 target_ry: 10,
-                queue: false,
             },
         ),
         cmd_envelope(
@@ -10045,7 +10022,6 @@ fn repro_two_moving_vehicles_pass_through_each_other() {
                 entity_id: east,
                 target_rx: 4,
                 target_ry: 10,
-                queue: false,
             },
         ),
     ];
@@ -10290,7 +10266,6 @@ fn repro_two_moving_vehicles_reservation_trace() {
                 entity_id: west,
                 target_rx: 16,
                 target_ry: 10,
-                queue: false,
             },
         ),
         cmd_envelope(
@@ -10301,7 +10276,6 @@ fn repro_two_moving_vehicles_reservation_trace() {
                 entity_id: east,
                 target_rx: 4,
                 target_ry: 10,
-                queue: false,
             },
         ),
     ];
@@ -10430,7 +10404,6 @@ fn head_on_pair_resolves_without_deadlock() {
                 entity_id: west,
                 target_rx: 16,
                 target_ry: 10,
-                queue: false,
             },
         ),
         cmd_envelope(
@@ -10441,7 +10414,6 @@ fn head_on_pair_resolves_without_deadlock() {
                 entity_id: east,
                 target_rx: 4,
                 target_ry: 10,
-                queue: false,
             },
         ),
     ];
@@ -10518,7 +10490,6 @@ fn column_of_vehicles_all_arrive_without_stacking() {
                     entity_id: id,
                     target_rx: gx,
                     target_ry: gy,
-                    queue: false,
                 },
             )
         })
@@ -10593,7 +10564,6 @@ fn diag_column_reservation_trace() {
                     entity_id: id,
                     target_rx: gx,
                     target_ry: gy,
-                    queue: false,
                 },
             )
         })
@@ -10674,7 +10644,6 @@ fn group_move_never_draws_two_hulls_on_one_spot() {
                     entity_id: id,
                     target_rx: 16,
                     target_ry: 16,
-                    queue: false,
                 },
             )
         })
@@ -10766,7 +10735,6 @@ fn diag_short_range_group_reservation_trace() {
                     entity_id: id,
                     target_rx: 16,
                     target_ry: 16,
-                    queue: false,
                 },
             )
         })
@@ -11302,7 +11270,6 @@ fn group_spread(sim: &Simulation, rules: &RuleSet, ids: &[u64]) -> Vec<(u16, u16
                     entity_id: id,
                     target_rx: 20,
                     target_ry: 20,
-                    queue: false,
                 },
             )
         })

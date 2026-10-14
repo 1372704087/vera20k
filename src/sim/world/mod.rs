@@ -62,7 +62,7 @@ mod lifecycle;
 mod load_object_lifecycle;
 mod logic_vector;
 mod move_cell_input;
-pub(crate) use move_cell_input::{CellActionQuery, CellMoveAction};
+pub(crate) use move_cell_input::{CellActionQuery, MoveAction};
 mod move_sound;
 mod object_sound;
 mod turret_rotate_sound;

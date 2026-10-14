@@ -260,6 +260,7 @@ impl Simulation {
         matches!(
             command,
             Command::Move { .. }
+                | Command::MoveToObject { .. }
                 | Command::Attack { .. }
                 | Command::ForceAttack { .. }
                 | Command::AttackMove { .. }
@@ -278,6 +279,10 @@ impl Simulation {
         )
     }
 
+    /// The run key of `0x0064CDA0`'s caller: action, target and destination
+    /// tokens (`0x0064CB0A..0x0064CB60`). `0x0064CDA0` returns at once unless
+    /// the destination token is a Cell (`0x0064CDCA..0x0064CDDC`), so a Move
+    /// onto an object has no key: it ends a run and is never spread.
     fn formation_key(command: &Command) -> Option<(u8, u16, u16)> {
         match command {
             Command::Move {

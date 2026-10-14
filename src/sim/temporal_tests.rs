@@ -1385,7 +1385,6 @@ fn moving_releases_the_target() {
             entity_id: cleg,
             target_rx: 4,
             target_ry: 10,
-            queue: false,
         },
     ));
     for _ in 0..120 {
@@ -1702,7 +1701,6 @@ fn a_released_mover_does_not_resume_its_order() {
             entity_id: tank,
             target_rx: 28,
             target_ry: 16,
-            queue: false,
         },
     ));
     for _ in 0..40 {

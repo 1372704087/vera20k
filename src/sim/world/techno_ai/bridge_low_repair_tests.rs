@@ -220,7 +220,6 @@ fn cross_repaired_road(scene: &mut HeadlessScenario) {
             entity_id: fv,
             target_rx: 115,
             target_ry: 63,
-            queue: false,
         },
     );
     let mut crossed_gap = false;
@@ -446,7 +445,6 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
                     .unwrap(),
                 target_ry: u16::try_from(head_input["destination_cell"][1].as_u64().unwrap())
                     .unwrap(),
-                queue: false,
             })
         } else {
             None

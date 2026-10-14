@@ -1022,7 +1022,6 @@ fn two_ordinary_cleg_moves_publish_class_destinations_before_process() {
                 entity_id: id,
                 target_rx,
                 target_ry: 10,
-                queue: false
             },
             Some(&rules),
             None,
@@ -1302,7 +1301,6 @@ fn cleg_overlay_cell_requests_match_every_original_command_boundary() {
                                 entity_id: id,
                                 target_rx: rx,
                                 target_ry: ry,
-                                queue: false
                             },
                             Some(&rules),
                             Some(&registry),

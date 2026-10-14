@@ -426,7 +426,6 @@ fn retail_chrono_warp_carries_a_driving_chrono_miner() {
             entity_id: miner,
             target_rx: rx,
             target_ry: ry,
-            queue: false,
         };
         assert!(sim.apply_command_with_overlays(
             "Americans",
@@ -508,7 +507,6 @@ fn retail_chrono_warp_forces_a_sailing_ships_track_to_its_landing() {
         entity_id: ship,
         target_rx: 30,
         target_ry: 20,
-        queue: false,
     };
     assert!(sim.apply_command_with_overlays(
         "Americans",

@@ -2875,7 +2875,6 @@ mod tests {
                 entity_id: 1,
                 target_rx: 30,
                 target_ry: 20,
-                queue: false,
             },
         );
         for tick in 60..260u64 {
@@ -3287,7 +3286,6 @@ mod tests {
                 entity_id: 1,
                 target_rx: 19,
                 target_ry: 20,
-                queue: false,
             },
         );
         for tick in 0..220u64 {
@@ -4010,7 +4008,6 @@ mod tests {
                 entity_id: 1,
                 target_rx: 28,
                 target_ry: 20,
-                queue: false,
             },
         );
         for tick in 60..300u64 {

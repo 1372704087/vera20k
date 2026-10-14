@@ -967,7 +967,6 @@ fn simulation_ground_command(
             entity_id: id,
             target_rx: cell.0,
             target_ry: cell.1,
-            queue: false,
         },
     )
 }
@@ -1078,13 +1077,11 @@ pub(crate) fn check_initialized_ground_reissues(names: &[&str], produce: GroundC
                 entity_id,
                 target_rx,
                 target_ry,
-                queue,
             } = decoded.payload
             else {
                 panic!("{name}: original input emits an ordinary Move");
             };
             assert_eq!(entity_id, id);
-            assert!(!queue, "{name}: native Shift still emits ordinary Move");
             let expected = ground_command_nav_target(&dispatch["after"]).unwrap();
             assert_eq!(NavTargetRef::cell(target_rx, target_ry), expected);
             assert!(sim.apply_command_with_overlays(
@@ -1147,10 +1144,7 @@ pub(crate) fn check_initialized_unit_paid_reissues(produce: GroundCommandProduce
             fixture_cell(&input["clicked"]),
             false,
         );
-        assert!(matches!(
-            decoded.payload,
-            Command::Move { queue: false, .. }
-        ));
+        assert!(matches!(decoded.payload, Command::Move { .. }));
         assert!(sim.apply_command_with_overlays(
             "Americans",
             &decoded.payload,
@@ -1204,7 +1198,6 @@ fn initialized_unit_delayed_move_reaches_original_class_refusal() {
                 entity_id: id,
                 target_rx: rx,
                 target_ry: ry,
-                queue: false
             },
             Some(&rules),
             Some(&registry),
@@ -1258,7 +1251,6 @@ fn initialized_gi_move_clears_original_archive_before_destination() {
             entity_id: id,
             target_rx: resolved.0,
             target_ry: resolved.1,
-            queue: false
         },
         Some(&rules),
         Some(&registry),
@@ -1338,7 +1330,6 @@ fn initialized_gi_retained_priors_and_stop_reissues_match_original_returns() {
                 entity_id: id,
                 target_rx: resolved.0,
                 target_ry: resolved.1,
-                queue: false
             },
             Some(&rules),
             Some(&registry),
@@ -1633,7 +1624,6 @@ fn initialized_gi_non_deployer_input_reaches_original_class_refusal() {
             entity_id: id,
             target_rx: resolved.0,
             target_ry: resolved.1,
-            queue: false,
         },
         Some(&rules),
         Some(&registry),

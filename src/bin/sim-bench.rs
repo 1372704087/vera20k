@@ -6,9 +6,9 @@
 //! every object to attack-move to the opposite house's home. It then times
 //! each `SimRuntime` frame and prints the distribution.
 //!
-//! `--queue-at T` also gives every object a queued attack-move back home from
-//! tick T, spread like the first orders, so movers already under way take a
-//! new destination at scale.
+//! `--return-at T` also gives every object a second attack-move, back home,
+//! from tick T, spread like the first orders, so movers already under way
+//! take a new destination at scale.
 //!
 //! The run is deterministic for a given map, seed and arguments: the final
 //! `Simulation::state_hash` (and the optional periodic hashes, taken outside
@@ -39,7 +39,7 @@ struct Args {
     ticks: u64,
     types: Vec<String>,
     order_spread: u64,
-    queue_at: Option<u64>,
+    return_at: Option<u64>,
     hash_every: u64,
     csv: Option<PathBuf>,
 }
@@ -56,7 +56,7 @@ fn parse_args() -> Result<Args, String> {
         ticks: 300,
         types: ["E1", "E2", "MTNK", "HTNK"].map(String::from).to_vec(),
         order_spread: 30,
-        queue_at: None,
+        return_at: None,
         hash_every: 0,
         csv: None,
     };
@@ -80,7 +80,7 @@ fn parse_args() -> Result<Args, String> {
             "--ticks" => args.ticks = number(value()?)?,
             "--types" => args.types = value()?.split(',').map(str::to_string).collect(),
             "--order-spread" => args.order_spread = number(value()?)?.max(1),
-            "--queue-at" => args.queue_at = Some(number(value()?)?),
+            "--return-at" => args.return_at = Some(number(value()?)?),
             "--hash-every" => args.hash_every = number(value()?)?,
             "--csv" => args.csv = Some(PathBuf::from(value()?)),
             other => return Err(format!("unrecognised argument {other}")),
@@ -209,7 +209,7 @@ fn main() -> Result<(), String> {
             eprintln!(
                 "usage: sim-bench [--ra2-dir <retail path>] [--map Death.mmx] [--seed S] \
                  [--units 20000] [--houses 8] [--ticks 300] [--types E1,E2,MTNK,HTNK] \
-                 [--order-spread 30] [--queue-at T] [--hash-every N] [--csv <path>]"
+                 [--order-spread 30] [--return-at T] [--hash-every N] [--csv <path>]"
             );
             std::process::exit(2);
         }
@@ -251,14 +251,14 @@ fn main() -> Result<(), String> {
     );
 
     // Each army marches in formation to the opposite house's home, and with
-    // --queue-at later queues a march back to its own.
+    // --return-at later marches back to its own.
     let first_tick = runtime.simulation.session.tick + 1;
     let mut orders: Vec<Vec<CommandEnvelope>> = Vec::new();
     let clamp = |base: u16, delta: i32| (i32::from(base) + delta).clamp(0, 511) as u16;
-    let waves = [(0, false, args.houses / 2)]
+    let waves = [(0, args.houses / 2)]
         .into_iter()
-        .chain(args.queue_at.map(|at| (at, true, 0)));
-    for (start, queue, house_shift) in waves {
+        .chain(args.return_at.map(|at| (at, 0)));
+    for (start, house_shift) in waves {
         for (index, unit) in spawned.iter().enumerate() {
             let target_home = homes[(unit.house + house_shift) % args.houses];
             let slot = start + index as u64 % args.order_spread;
@@ -272,7 +272,6 @@ fn main() -> Result<(), String> {
                     entity_id: unit.id,
                     target_rx: clamp(target_home.0, unit.offset.0),
                     target_ry: clamp(target_home.1, unit.offset.1),
-                    queue,
                 },
             ));
         }

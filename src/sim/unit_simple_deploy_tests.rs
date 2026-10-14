@@ -448,7 +448,6 @@ fn begin_landing_cycle() -> (Simulation, RuleSet, u64) {
             entity_id: id,
             target_rx: 12,
             target_ry: 12,
-            queue: false,
         },
         Some(&rules)
     ));

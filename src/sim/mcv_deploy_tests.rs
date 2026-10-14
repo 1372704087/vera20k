@@ -293,7 +293,6 @@ fn moving_mcv_finishes_committed_segment_then_deploys_once() {
             entity_id: id,
             target_rx: 30,
             target_ry: 22,
-            queue: false,
         }),
     );
     for _ in 0..8 {
@@ -363,7 +362,6 @@ fn move_order_during_turn_prevents_conversion_at_the_old_site() {
             entity_id: id,
             target_rx: 40,
             target_ry: 22,
-            queue: false,
         }),
     );
     for _ in 0..10 {

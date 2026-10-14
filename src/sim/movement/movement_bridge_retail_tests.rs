@@ -447,7 +447,6 @@ fn diagnose_rejected_order(
             entity_id,
             target_rx: span.approach_b.0,
             target_ry: span.approach_b.1,
-            queue: false,
         },
         Some(&resources.rules),
     );
@@ -517,7 +516,6 @@ fn issue_ordinary_move(
             entity_id,
             target_rx: target.0,
             target_ry: target.1,
-            queue: false,
         },
         Some(&resources.rules),
     )
@@ -552,13 +550,11 @@ impl OrderSource {
                 entity_id,
                 target_rx: target.0,
                 target_ry: target.1,
-                queue: false,
             },
             OrderSource::AttackMove => Command::AttackMove {
                 entity_id,
                 target_rx: target.0,
                 target_ry: target.1,
-                queue: false,
             },
         }
     }
@@ -1414,7 +1410,6 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
             entity_id,
             target_rx: span.approach_b.0,
             target_ry: span.approach_b.1,
-            queue: false,
         },
     );
     scenario
@@ -2564,7 +2559,6 @@ fn tank_ordered_across_the_deadman_collapse_gap_never_drives_into_it() {
                     entity_id,
                     target_rx: gap.far_stub.0,
                     target_ry: gap.far_stub.1,
-                    queue: false,
                 },
             )],
             SIM_TICK_MS,
@@ -2775,7 +2769,6 @@ fn tank_cannot_cross_a_destroyed_shrapnel_low_bridge() {
                     entity_id,
                     target_rx: span.approach_b.0,
                     target_ry: span.approach_b.1,
-                    queue: false,
                 },
             )],
             SIM_TICK_MS,
@@ -3541,7 +3534,6 @@ fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun
                     entity_id,
                     target_rx: under_b.0,
                     target_ry: under_b.1,
-                    queue: false,
                 },
             )],
             SIM_TICK_MS,
@@ -4225,7 +4217,6 @@ fn scale_benchmark_many_movers_on_hills() {
                     entity_id: id,
                     target_rx: rx.wrapping_add(30),
                     target_ry: ry,
-                    queue: false,
                 },
             )
         })

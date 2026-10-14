@@ -119,7 +119,7 @@ fn row_nonzero(live: &EntryReadContext<'_>, cell: Cell, speed: SpeedType) -> Res
         .speed_costs
         .cost_for_speed_type(speed)
         .map(|speed| speed != 0)
-        .ok_or("repair admission has no resolved speed row".into())
+        .ok_or_else(|| "repair admission has no resolved speed row".into())
 }
 fn raw(live: &EntryReadContext<'_>, cell: Cell, layer: MovementLayer) -> (u8, Option<InternedId>) {
     let key = crate::sim::occupancy::RawCellKey::from_native(live.terrain(), cell);
@@ -470,9 +470,36 @@ struct EntryMover<'a> {
     crusher: bool,
     /// Answers of `allied(mover owner, house)` already asked, and blocker
     /// types already resolved by name; the alliance graph and rules are fixed
-    /// for the receiver's lifetime.
-    allies: std::cell::RefCell<Vec<(InternedId, bool)>>,
-    types: std::cell::RefCell<Vec<(InternedId, &'a ObjectType)>>,
+    /// for the receiver's lifetime. A search asks these for every blocker it
+    /// meets.
+    allies: InternedCache<bool>,
+    types: InternedCache<&'a ObjectType>,
+}
+
+/// Facts already looked up, direct-mapped by interned index. A slot two
+/// names share keeps the last one, so the other is only looked up again.
+/// Slots hold their name's index plus one: a new cache is all zeros, cheap
+/// to build for a receiver that answers one query.
+struct InternedCache<T>([std::cell::Cell<(u32, Option<T>)>; 64]);
+
+impl<T: Copy> InternedCache<T> {
+    fn new() -> Self {
+        Self(std::array::from_fn(|_| std::cell::Cell::new((0, None))))
+    }
+
+    /// `id`'s kept fact, else `look_up`'s, kept when there is one.
+    fn get_or(&self, id: InternedId, look_up: impl FnOnce() -> Option<T>) -> Option<T> {
+        let tag = id.index().wrapping_add(1);
+        let slot = &self.0[id.index() as usize % self.0.len()];
+        if let (kept, Some(fact)) = slot.get()
+            && kept == tag
+        {
+            return Some(fact);
+        }
+        let fact = look_up()?;
+        slot.set((tag, Some(fact)));
+        Some(fact)
+    }
 }
 
 impl<'a> EntryMover<'a> {
@@ -487,27 +514,20 @@ impl<'a> EntryMover<'a> {
             obj,
             weapon0,
             crusher,
-            allies: std::cell::RefCell::default(),
-            types: std::cell::RefCell::default(),
+            allies: InternedCache::new(),
+            types: InternedCache::new(),
         }
     }
 
     fn object_type(&self, live: &EntryReadContext<'a>, id: InternedId) -> Option<&'a ObjectType> {
-        if let Some(&(_, kind)) = self.types.borrow().iter().find(|(t, _)| *t == id) {
-            return Some(kind);
-        }
-        let kind = live.rules.object(live.sim.interner.resolve(id))?;
-        self.types.borrow_mut().push((id, kind));
-        Some(kind)
+        self.types
+            .get_or(id, || live.rules.object(live.sim.interner.resolve(id)))
     }
 
     fn allied_with(&self, live: &EntryReadContext<'_>, house: InternedId) -> bool {
-        if let Some(&(_, answer)) = self.allies.borrow().iter().find(|(h, _)| *h == house) {
-            return answer;
-        }
-        let answer = allied(live, self.e.owner(), house);
-        self.allies.borrow_mut().push((house, answer));
-        answer
+        self.allies
+            .get_or(house, || Some(allied(live, self.e.owner(), house)))
+            == Some(true)
     }
 
     /// `house`'s own mask asked about the mover, as a closed gate's House
@@ -740,13 +760,9 @@ fn classify_foot_entry<'a>(
         if flags.wall {
             //4F9A10 asks the mover's House: its own index, or its Allies bit
             //for Cell+0x50 (-1 is no ally). A one-way ally of the mover is not.
-            let allied = live_overlay.wall_owner.is_some_and(|o| {
-                crate::map::houses::is_allied_with(
-                    &live.sim.house_alliances,
-                    live.sim.interner.resolve(e.owner()),
-                    live.sim.interner.resolve(o),
-                )
-            });
+            let allied = live_overlay
+                .wall_owner
+                .is_some_and(|o| mover.allied_with(live, o));
             let warhead = weapon0
                 .and_then(|w| w.warhead.as_deref())
                 .and_then(|name| live.rules.warhead(name));
@@ -1267,6 +1283,29 @@ fn building_impassable(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two names 64 indexes apart share a slot: each is looked up again
+    /// after the other took the slot, and a missing fact keeps nothing.
+    #[test]
+    fn interned_cache_keeps_the_last_name_per_slot() {
+        let cache = InternedCache::<u32>::new();
+        let (a, b) = (InternedId::from_index(1), InternedId::from_index(65));
+        let look_ups = std::cell::Cell::new(0);
+        let get = |id, fact| {
+            cache.get_or(id, || {
+                look_ups.set(look_ups.get() + 1);
+                Some(fact)
+            })
+        };
+        assert_eq!(get(a, 10), Some(10));
+        assert_eq!(get(a, 99), Some(10));
+        assert_eq!(get(b, 20), Some(20));
+        assert_eq!(get(a, 30), Some(30));
+        assert_eq!(look_ups.get(), 3);
+        let c = InternedId::from_index(2);
+        assert_eq!(cache.get_or(c, || None), None);
+        assert_eq!(get(c, 40), Some(40));
+    }
 
     fn impassable(
         live: &EntryReadContext<'_>,

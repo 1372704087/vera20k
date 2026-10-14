@@ -447,13 +447,19 @@ fn advance_ordinary_mover(
     {
         let entity = entities.get(entity_id).expect("same mover request");
         //Walk75AF3C..55 observes a frame-anchored exact-zero remainder. No
-        //search, debt, occupancy preparation or second mover visit on this wait.
+        //search, debt, occupancy preparation or second mover visit on this
+        //wait: 75AF57..75AF66 calls the owner's vt+0x548 and returns.
         if !entity
             .navigation
             .path_runtime
             .movement_timer
             .expired(native_frame as i32)
         {
+            if let Some(entity) =
+                entities.get_mut_if(entity_id, super::walk_admission::walk_doing_to_clear)
+            {
+                super::walk_admission::clear_walk_doing(entity);
+            }
             return;
         }
         debug_assert!(

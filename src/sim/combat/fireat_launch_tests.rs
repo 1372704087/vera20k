@@ -347,7 +347,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
             .entities
             .get(source)
             .unwrap()
-            .passive_scan_timer;
+            .passive_scan
+            .timer();
         // MissionTimer owns the native +180 start/+188 duration. The
         // intervening +184 DWORD is not a represented cadence input.
         assert_eq!(u64::from(timer.start_frame), native[0].as_u64().unwrap());
@@ -360,7 +361,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
         .entities
         .get_mut(source)
         .unwrap()
-        .passive_scan_timer
+        .passive_scan
+        .timer_mut_for_test()
         .arm(
             before_timer[0].as_u64().unwrap() as u32,
             before_timer[2].as_u64().unwrap() as u32,

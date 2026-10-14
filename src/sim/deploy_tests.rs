@@ -1259,10 +1259,12 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
         before["stage"][2].as_i64().unwrap() as i32,
         before["stage"][3].as_i64().unwrap() as i32,
     ));
-    actor.passive_scan_timer = crate::sim::mission::MissionTimer::armed(
-        before["reload"][0].as_i64().unwrap() as u32,
-        before["reload"][1].as_i64().unwrap() as u32,
-    );
+    actor
+        .passive_scan
+        .set_passive_scan_timer_for_test(crate::sim::mission::MissionTimer::armed(
+            before["reload"][0].as_i64().unwrap() as u32,
+            before["reload"][1].as_i64().unwrap() as u32,
+        ));
     let mut loco = crate::sim::movement::locomotor::LocomotorState::from_object_type(
         rules
             .object(input["type_id"].as_str().unwrap_or("E1"))
@@ -1365,8 +1367,8 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
     );
     assert_eq!(
         serde_json::json!([
-            actor.passive_scan_timer.start_frame as i32,
-            actor.passive_scan_timer.duration as i32
+            actor.passive_scan.timer().start_frame as i32,
+            actor.passive_scan.timer().duration as i32
         ]),
         expected["reload"],
         "{name}: passive targeting timer180/188",

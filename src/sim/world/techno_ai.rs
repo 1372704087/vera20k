@@ -27,6 +27,7 @@ pub(crate) use mission_handlers::foot_enter_idle_mode_selection;
 pub(crate) use mission_handlers::techno_unlimbo_idle_mode;
 #[cfg(test)]
 use mission_handlers::*;
+pub(crate) use target_scan::PassiveScan;
 pub(crate) use target_scan::direct_greatest_threat;
 pub(crate) use target_scan::passive_target_acquire;
 pub(crate) use target_scan::scan as retaliate_and_scan;
@@ -1993,7 +1994,7 @@ const PASSIVE_TARGET_CLEAR_MISSIONS: [MissionType; 12] = [
 fn clear_passive_target_off_mission(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     let drop = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.attack_target.target().is_some()
-            && entity.passively_acquired_target
+            && entity.passive_scan.acquired()
             && PASSIVE_TARGET_CLEAR_MISSIONS.contains(&entity.passive_acquire_mission())
     });
     if !drop {
@@ -2001,7 +2002,7 @@ fn clear_passive_target_off_mission(sim: &mut Simulation, id: u64, rules: Option
     }
     let _ = sim.assign_target_represented(id, None, rules, None, FrameEffects::default());
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.passively_acquired_target = false;
+        entity.passive_scan.clear_acquired();
     }
 }
 
@@ -2661,7 +2662,7 @@ mod tests {
                 timer,
                 "no Guard handler ran, so its epilogue never wrote the timer"
             );
-            acquired |= wreck.attack_target.target().is_some() && wreck.passively_acquired_target;
+            acquired |= wreck.attack_target.target().is_some() && wreck.passive_scan.acquired();
             if sim.substrate.entities.get(2).unwrap().health.current() < 3000 {
                 break;
             }
@@ -2742,7 +2743,7 @@ mod tests {
             "an idle Guard-mission unit must passively acquire a hostile in range"
         );
         assert!(
-            allied.passively_acquired_target,
+            allied.passive_scan.acquired(),
             "the target must be flagged as scanner-acquired (it gates the drop/clear blocks)"
         );
     }
@@ -2830,7 +2831,7 @@ mod tests {
         }
         let soviet = sim.substrate.entities.get(2).expect("soviet tank present");
         assert!(
-            soviet.attack_target.target().is_some() && soviet.passively_acquired_target,
+            soviet.attack_target.target().is_some() && soviet.passive_scan.acquired(),
             "precondition: the idle tank must have picked the scout up on its own"
         );
 
@@ -2889,8 +2890,8 @@ mod tests {
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(9)));
-            e.passively_acquired_target = true;
-            e.passive_scan_timer.clear(); // cadence expired again
+            e.passive_scan.set_passively_acquired_target_for_test(true);
+            e.passive_scan.timer_mut_for_test().clear(); // cadence expired again
         }
         assert_eq!(
             sim.substrate
@@ -2914,7 +2915,8 @@ mod tests {
                 .entities
                 .get(1)
                 .unwrap()
-                .passive_scan_timer
+                .passive_scan
+                .timer()
                 .is_armed(),
             "the cadence timer is re-armed by the rescan, not left expired"
         );
@@ -2942,8 +2944,8 @@ mod tests {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
             e.rearm_timer.set_for_test(rearm);
-            e.passively_acquired_target = true;
-            e.passive_scan_timer.clear();
+            e.passive_scan.set_passively_acquired_target_for_test(true);
+            e.passive_scan.timer_mut_for_test().clear();
         }
         passive_acquire_step(&mut sim, 1, Some(&rules), ObjectAiCtx::default());
         let e = sim.substrate.entities.get(1).unwrap();
@@ -2978,8 +2980,8 @@ mod tests {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
             e.rearm_timer.set_for_test(rearm);
-            e.passively_acquired_target = true;
-            e.passive_scan_timer.clear();
+            e.passive_scan.set_passively_acquired_target_for_test(true);
+            e.passive_scan.timer_mut_for_test().clear();
         }
         let before = sim.scenario_rng.state();
         passive_acquire_step(&mut sim, 1, Some(&rules), ObjectAiCtx::default());
@@ -2990,7 +2992,7 @@ mod tests {
             Some(TargetKind::Entity(2)),
             "the victim in range is kept"
         );
-        assert!(e.passively_acquired_target);
+        assert!(e.passive_scan.acquired());
         assert_eq!(e.rearm_timer.timer(), rearm);
     }
 
@@ -3040,7 +3042,7 @@ mod tests {
             let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
             let tank = sim.substrate.entities.get(1).expect("tank present");
             assert!(
-                tank.attack_target.target().is_none() || tank.passively_acquired_target,
+                tank.attack_target.target().is_none() || tank.passive_scan.acquired(),
                 "tick {tick}: the tank was never ordered to attack anything, so a target it \
                  holds must always be scanner-owned — a live target with the flag false takes \
                  it out of the passive block, and it never releases"
@@ -3055,7 +3057,7 @@ mod tests {
         );
         let tank = sim.substrate.entities.get(1).expect("tank present");
         assert!(
-            tank.attack_target.target().is_some() && tank.passively_acquired_target,
+            tank.attack_target.target().is_some() && tank.passive_scan.acquired(),
             "precondition: the second candidate is still in range and was taken up"
         );
     }
@@ -3284,7 +3286,7 @@ mod tests {
             "a finished order must not leave the unit stuck outside the gate"
         );
         assert!(
-            tank.attack_target.target().is_some() && tank.passively_acquired_target,
+            tank.attack_target.target().is_some() && tank.passive_scan.acquired(),
             "an ordered-then-idle unit must acquire like any other idle unit"
         );
         let enemy = sim.substrate.entities.get(2).expect("enemy present");
@@ -3323,11 +3325,11 @@ mod tests {
         )
         .unwrap();
         let before = sim.scenario_rng.logical_state();
-        let timer = sim.substrate.entities.get(1).unwrap().passive_scan_timer;
+        let timer = sim.substrate.entities.get(1).unwrap().passive_scan.timer();
         passive_acquire_step(&mut sim, 1, Some(&rules), ObjectAiCtx::default());
         assert_eq!(sim.scenario_rng.logical_state(), before);
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().passive_scan_timer,
+            sim.substrate.entities.get(1).unwrap().passive_scan.timer(),
             timer
         );
 
@@ -3340,7 +3342,8 @@ mod tests {
                 .entities
                 .get(1)
                 .unwrap()
-                .last_target_scan_frame,
+                .passive_scan
+                .last_scan_frame(),
             46
         );
     }
@@ -3419,7 +3422,7 @@ mod tests {
         }
         let rifleman = sim.substrate.entities.get(2).expect("infantry present");
         assert!(
-            rifleman.attack_target.target().is_some() && rifleman.passively_acquired_target,
+            rifleman.attack_target.target().is_some() && rifleman.passive_scan.acquired(),
             "idle infantry must passively acquire a hostile in range"
         );
     }
@@ -3499,7 +3502,7 @@ mod tests {
             soviet.attack_target.target().is_none(),
             "CanPassiveAquire=no must keep the type out of the scanner entirely"
         );
-        assert!(!soviet.passively_acquired_target);
+        assert!(!soviet.passive_scan.acquired());
     }
 
     /// Insert one object of `type_id` owned by `owner` with the passive-scan
@@ -3530,7 +3533,7 @@ mod tests {
         e.set_category_for_test(category);
         e.mission
             .apply_test_fixture(fixture_with_current(&e.mission, MissionType::Guard));
-        e.passive_scan_timer.clear(); // due now
+        e.passive_scan.timer_mut_for_test().clear(); // due now
         sim.substrate.entities.insert(e);
     }
 
@@ -3548,7 +3551,7 @@ mod tests {
 
         passive_acquire_step(&mut sim, 1, Some(&rules), ObjectAiCtx::default());
 
-        let timer = sim.substrate.entities.get(1).unwrap().passive_scan_timer;
+        let timer = sim.substrate.entities.get(1).unwrap().passive_scan.timer();
         assert_eq!(timer.start_frame, sim.session.binary_frame);
         assert_eq!(
             timer.duration,
@@ -3560,7 +3563,8 @@ mod tests {
                 .entities
                 .get(1)
                 .unwrap()
-                .last_target_scan_frame,
+                .passive_scan
+                .last_scan_frame(),
             sim.session.binary_frame
         );
     }
@@ -3666,7 +3670,8 @@ mod tests {
             .entities
             .get_mut(5)
             .unwrap()
-            .passive_scan_timer
+            .passive_scan
+            .timer_mut_for_test()
             .clear();
         assert!(scans(&mut sim, 5));
         // The same arm is closed to a human house.
@@ -4023,7 +4028,7 @@ mod tests {
             "and go back to Guard"
         );
         assert!(
-            defence.passive_scan_timer.is_armed(),
+            defence.passive_scan.timer().is_armed(),
             "and it must still be scanning on cadence, ready for the next contact"
         );
     }
@@ -4042,7 +4047,7 @@ mod tests {
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(9)));
-            e.passively_acquired_target = true;
+            e.passive_scan.set_passively_acquired_target_for_test(true);
         }
         clear_passive_target_off_mission(&mut sim, 1, None);
         let e = sim.substrate.entities.get(1).unwrap();
@@ -4050,13 +4055,13 @@ mod tests {
             e.attack_target.target().is_none(),
             "a scanner target is dropped"
         );
-        assert!(!e.passively_acquired_target);
+        assert!(!e.passive_scan.acquired());
 
         // An ordered target on the same mission is left alone.
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(9)));
-            e.passively_acquired_target = false;
+            e.passive_scan.set_passively_acquired_target_for_test(false);
         }
         clear_passive_target_off_mission(&mut sim, 1, None);
         assert!(
@@ -5100,7 +5105,7 @@ mod tests {
             if hunter.attack_target.target().is_some() {
                 acquired = Some((
                     28u16.saturating_sub(hunter.position.rx),
-                    hunter.passively_acquired_target,
+                    hunter.passive_scan.acquired(),
                 ));
                 break;
             }
@@ -5448,7 +5453,8 @@ mod tests {
         let rules = move_cadence_rules();
         let mut unit = entity_of(1, EntityCategory::Unit);
         unit.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        unit.passively_acquired_target = true;
+        unit.passive_scan
+            .set_passively_acquired_target_for_test(true);
         unit.weapon_burst.complete_shot(2);
         update_mission_test_fixture(&mut unit.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::Move);
@@ -5468,7 +5474,7 @@ mod tests {
             entity.attack_target.target().is_none(),
             "Assign_Target(NULL) on arrival"
         );
-        assert!(!entity.passively_acquired_target);
+        assert!(!entity.passive_scan.acquired());
         assert_eq!(entity.weapon_burst.index(), 0);
         assert_eq!(
             entity.mission.dispatch_timer(),

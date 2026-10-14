@@ -362,7 +362,9 @@ fn the_warp_restores_its_attackers_suspended_missions() {
     attacker
         .attack_target
         .set_for_test(Some(crate::sim::combat::TargetKind::Entity(1)));
-    attacker.passively_acquired_target = true;
+    attacker
+        .passive_scan
+        .set_passively_acquired_target_for_test(true);
     attacker.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Attack),
         suspended: MissionId::from_known(MissionType::Guard),
@@ -380,7 +382,7 @@ fn the_warp_restores_its_attackers_suspended_missions() {
 
     let attacker = sim.substrate.entities.get(2).unwrap();
     assert!(attacker.attack_target.target().is_none());
-    assert!(!attacker.passively_acquired_target);
+    assert!(!attacker.passive_scan.acquired());
     assert_eq!(
         attacker.mission.current(),
         MissionId::from_known(MissionType::Guard)

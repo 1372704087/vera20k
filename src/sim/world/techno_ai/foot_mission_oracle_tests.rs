@@ -750,10 +750,12 @@ impl SuppliedFootFixture {
                         );
                     }
                 }
-                entity.passive_scan_timer = MissionTimer::armed(
-                    signed(&before["targeting_timer"][0]) as u32,
-                    signed(&before["targeting_timer"][2]) as u32,
-                );
+                entity
+                    .passive_scan
+                    .set_passive_scan_timer_for_test(MissionTimer::armed(
+                        signed(&before["targeting_timer"][0]) as u32,
+                        signed(&before["targeting_timer"][2]) as u32,
+                    ));
                 if before["scan"] != 0 {
                     entity.mark_stopped_cannot_fire();
                 }
@@ -811,10 +813,12 @@ impl SuppliedFootFixture {
                     signed(&before["dispatch"][1]),
                 ),
             });
-            archive.passive_scan_timer = MissionTimer::armed(
-                signed(&before["targeting_timer"][0]) as u32,
-                signed(&before["targeting_timer"][2]) as u32,
-            );
+            archive
+                .passive_scan
+                .set_passive_scan_timer_for_test(MissionTimer::armed(
+                    signed(&before["targeting_timer"][0]) as u32,
+                    signed(&before["targeting_timer"][2]) as u32,
+                ));
             archive.on_bridge = before["on_bridge"] != 0;
             assert_eq!(before["nav"], "0x0");
             assert_eq!(before["target"], "0x0");
@@ -1090,8 +1094,8 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
         }
         assert_eq!(
             [
-                actor.passive_scan_timer.start_frame as i32,
-                actor.passive_scan_timer.duration as i32
+                actor.passive_scan.timer().start_frame as i32,
+                actor.passive_scan.timer().duration as i32
             ],
             [
                 signed(&row["after"]["targeting_timer"][0]),
@@ -1440,8 +1444,8 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
     );
     assert_eq!(
         [
-            actor.passive_scan_timer.start_frame as i32,
-            actor.passive_scan_timer.duration as i32
+            actor.passive_scan.timer().start_frame as i32,
+            actor.passive_scan.timer().duration as i32
         ],
         [
             signed(&expected["targeting_timer"][0]),

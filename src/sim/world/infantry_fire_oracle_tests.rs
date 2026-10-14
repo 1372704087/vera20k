@@ -282,8 +282,8 @@ fn assert_source(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
     );
     assert_eq!(
         (
-            actor.passive_scan_timer.start_frame as i32,
-            actor.passive_scan_timer.duration as i32
+            actor.passive_scan.timer().start_frame as i32,
+            actor.passive_scan.timer().duration as i32
         ),
         (
             signed(&expected["targeting_timer_words"][0]),

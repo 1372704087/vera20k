@@ -2323,7 +2323,9 @@ mod tests {
         cleared
             .attack_target
             .set_for_test(Some(TargetKind::Cell(8, 8)));
-        cleared.passively_acquired_target = true;
+        cleared
+            .passive_scan
+            .set_passively_acquired_target_for_test(true);
         entities.insert(cleared);
 
         let mut chain_only = GameEntity::test_default(40, "MTNK", "Americans", 4, 2);
@@ -2387,7 +2389,7 @@ mod tests {
             "cleanup expiry precedes the direct callback; each roster walk is forward and clears before Restore"
         );
         assert!(entities.get(30).unwrap().attack_target.target().is_none());
-        assert!(!entities.get(30).unwrap().passively_acquired_target);
+        assert!(!entities.get(30).unwrap().passive_scan.acquired());
         assert!(matches!(
             entities.get(20).unwrap().attack_target.target(),
             Some(TargetKind::Cell(8, 8))

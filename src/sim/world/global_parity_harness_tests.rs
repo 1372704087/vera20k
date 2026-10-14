@@ -151,7 +151,7 @@ pub(super) fn print_replay_summary(name: &str, sim: &Simulation) {
             serde_json::json!({"id":id,"type":sim.resolve(e.type_ref()),
             "health":e.health.current(),"position":e.position,"mission":e.mission,
             "target":e.attack_target,"nav":e.navigation.nav_com,
-            "passive_timer":e.passive_scan_timer,"last_scan":e.last_target_scan_frame,
+            "passive_timer":e.passive_scan.timer(),"last_scan":e.passive_scan.last_scan_frame(),
             "rearm":e.rearm_timer.timer()})
         })
         .collect();
@@ -982,7 +982,10 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         let due = due_commands(&rec, &script, tick);
         let before_scan = {
             let tank = rec.substrate.entities.get(6).expect("surviving tank");
-            (tank.last_target_scan_frame, tank.passive_scan_timer)
+            (
+                tank.passive_scan.last_scan_frame(),
+                tank.passive_scan.timer(),
+            )
         };
         let mut advance = || {
             rec.advance_tick(
@@ -1026,7 +1029,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
             assert!(tank.attack_target.target().is_none());
             assert!(tank.navigation.nav_com.is_none());
             assert!(tank.mega_mission.is_attack_move());
-            assert_eq!(tank.last_target_scan_frame, 297);
+            assert_eq!(tank.passive_scan.last_scan_frame(), 297);
         }
         // The fatal Bullet detaches TarCom after the Unit's own visit. The
         // literal committed Attack gate cannot scan before a due Attack
@@ -1036,7 +1039,10 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         if rec.substrate.entities.get(4).is_none() {
             let tank = rec.substrate.entities.get(6).expect("surviving tank");
             assert!(tank.attack_target.target().is_none());
-            let scan = (tank.last_target_scan_frame, tank.passive_scan_timer);
+            let scan = (
+                tank.passive_scan.last_scan_frame(),
+                tank.passive_scan.timer(),
+            );
             if target_expired.is_none() {
                 target_expired = Some(tick);
                 assert_eq!(scan, before_scan, "expiry itself cannot run a scanner");
@@ -1049,7 +1055,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
                 Some(MissionType::Guard) => {
                     if let Some(guard_frame) = guard_commenced {
                         if tick == guard_frame + 1 {
-                            assert_eq!(tank.last_target_scan_frame, tick as u32);
+                            assert_eq!(tank.passive_scan.last_scan_frame(), tick as u32);
                             post_guard_scan = Some(tick);
                         }
                     } else {

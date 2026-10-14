@@ -1391,7 +1391,7 @@ fn a_jumpjet_wreck_scans_only_on_its_committed_guard() {
                 MissionId::from_known(mission),
                 "no handler changes a wreck's mission"
             );
-            acquired |= wreck.attack_target.target().is_some() && wreck.passively_acquired_target;
+            acquired |= wreck.attack_target.target().is_some() && wreck.passive_scan.acquired();
         }
         assert_eq!(acquired, scans, "{mission:?}");
     }

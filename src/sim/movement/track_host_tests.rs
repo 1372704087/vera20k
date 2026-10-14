@@ -1646,13 +1646,15 @@ fn idle_receiver_cancels_burst_through_the_shared_target_setter() {
             entity
                 .attack_target
                 .set_for_test(Some(TargetKind::Cell(12, 10)));
-            entity.passively_acquired_target = true;
+            entity
+                .passive_scan
+                .set_passively_acquired_target_for_test(true);
             entity.weapon_burst.complete_shot(2);
             entity.navigation.nav_com = has_destination.then(|| NavTargetRef::cell(12, 10));
             sim.unit_enter_idle_mode(1, None, false, crate::sim::world::FrameEffects::default());
             let entity = sim.substrate.entities.get(1).unwrap();
             assert_eq!(entity.weapon_burst.index(), i32::from(has_destination));
-            assert_eq!(entity.passively_acquired_target, has_destination);
+            assert_eq!(entity.passive_scan.acquired(), has_destination);
             assert_eq!(
                 entity.attack_target.target(),
                 has_destination.then_some(TargetKind::Cell(12, 10)),

@@ -592,7 +592,7 @@ pub(crate) fn represented_assign_target_admitted(
     // target assigned by an order or retaliation cannot inherit the provenance
     // of one the scanner picked. The scanner
     // re-sets the flag itself after calling this.
-    entity.passively_acquired_target = false;
+    entity.passive_scan.clear_acquired();
     // The same-target early-out (`0x006FCDCC`, Infantry `0x0051B201`) compares
     // the requested pointer, before the liveness refusal.
     if entity.attack_target.target() == requested {

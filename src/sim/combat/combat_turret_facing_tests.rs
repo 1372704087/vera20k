@@ -1109,7 +1109,9 @@ fn fire_turn_hull(setup: impl FnOnce(&mut GameEntity)) -> Option<u16> {
     attacker
         .attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    attacker.passively_acquired_target = true;
+    attacker
+        .passive_scan
+        .set_passively_acquired_target_for_test(true);
     setup(attacker);
     run_combat_direct(&mut sim, &rules)
         .unit_facing

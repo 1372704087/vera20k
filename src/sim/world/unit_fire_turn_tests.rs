@@ -212,7 +212,7 @@ fn attack_move_acquires_before_its_foot_fire_slot() {
                 ai_counter: 0,
                 dispatch_timer: MissionDispatchTimer::from_raw(10, 1000),
             });
-        actor.passive_scan_timer.reset(10);
+        actor.passive_scan.timer_mut_for_test().reset(10);
         actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
             crate::sim::combat::TargetKind::Cell(24, 16),
         ));

@@ -77,9 +77,9 @@ fn mission_state(actor: &crate::sim::game_entity::GameEntity) -> Value {
 }
 
 fn passive_scan_state(actor: &crate::sim::game_entity::GameEntity) -> Value {
-    json!({"timer":[actor.passive_scan_timer.start_frame,actor.passive_scan_timer.duration],
-        "last_frame":actor.last_target_scan_frame,
-        "acquired":actor.passively_acquired_target})
+    json!({"timer":[actor.passive_scan.timer().start_frame,actor.passive_scan.timer().duration],
+        "last_frame":actor.passive_scan.last_scan_frame(),
+        "acquired":actor.passive_scan.acquired()})
 }
 
 fn paid_diagnostic(

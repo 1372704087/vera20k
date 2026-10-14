@@ -184,7 +184,7 @@ fn a_guarding_aircraft_scans_passively_unless_its_type_may_not_and_takes_nothing
                 entity.attack_target.target().is_none(),
                 "the scan takes nothing"
             );
-            scans.insert(entity.last_target_scan_frame);
+            scans.insert(entity.passive_scan.last_scan_frame());
         }
         // Each scan re-arms the timer for the Guard delay plus RandomRanged(0, 2).
         assert_eq!(

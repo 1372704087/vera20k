@@ -441,7 +441,9 @@ fn sensor_callback_reassigns_admitted_targeters_in_forward_techno_registration_o
         entity
             .attack_target
             .set_for_test(Some(TargetKind::Entity(cloaker)));
-        entity.passively_acquired_target = true;
+        entity
+            .passive_scan
+            .set_passively_acquired_target_for_test(true);
     }
     let american_owner = sim.substrate.entities.get(sensor_admitted).unwrap().owner();
     sim.fog.increment_sensor_at(american_owner, cell.0, cell.1);
@@ -468,14 +470,16 @@ fn sensor_callback_reassigns_admitted_targeters_in_forward_techno_registration_o
             .entities
             .get(sensor_admitted)
             .unwrap()
-            .passively_acquired_target
+            .passive_scan
+            .acquired()
     );
     assert!(
         !sim.substrate
             .entities
             .get(same_owner)
             .unwrap()
-            .passively_acquired_target,
+            .passive_scan
+            .acquired(),
         "same owner admits without targeter sensor coverage"
     );
     assert!(
@@ -483,14 +487,16 @@ fn sensor_callback_reassigns_admitted_targeters_in_forward_techno_registration_o
             .entities
             .get(later_sensor_admitted)
             .unwrap()
-            .passively_acquired_target
+            .passive_scan
+            .acquired()
     );
     assert!(
         sim.substrate
             .entities
             .get(excluded)
             .unwrap()
-            .passively_acquired_target,
+            .passive_scan
+            .acquired(),
         "an unrelated owner without sensor coverage is not collected"
     );
     assert!(matches!(
@@ -540,7 +546,9 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
             fire: DelayedFire::Weapon(WeaponSlot::Secondary),
         });
         entity.attack_target.set_for_test(Some(attack));
-        entity.passively_acquired_target = true;
+        entity
+            .passive_scan
+            .set_passively_acquired_target_for_test(true);
     }
     // Arm even the dormant cloak-field bit, to prove the refusal comes from
     // CanAutoCloak and not from the outer CloakedByHouses gate.
@@ -566,7 +574,7 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
     );
     let entity = sim.substrate.entities.get(targeter).unwrap();
     assert!(
-        entity.passively_acquired_target,
+        entity.passive_scan.acquired(),
         "the transaction never runs, so provenance is untouched"
     );
     let attack = entity.attack_target.target().unwrap();
@@ -601,7 +609,8 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
             .entities
             .get(targeter)
             .unwrap()
-            .passively_acquired_target
+            .passive_scan
+            .acquired()
     );
 }
 
@@ -797,7 +806,7 @@ fn start_cloaking_drops_every_targeter_whose_house_cannot_sense_the_cell() {
     sim.fog.increment_sensor_at(american, cell.0, cell.1);
 
     let timers_before: Vec<_> = [sensing, blind, same_owner]
-        .map(|id| sim.substrate.entities.get(id).unwrap().passive_scan_timer)
+        .map(|id| sim.substrate.entities.get(id).unwrap().passive_scan.timer())
         .to_vec();
     let mut expected_rng = sim.scenario_rng.clone();
     let rng_before = sim.scenario_rng.logical_state();
@@ -869,7 +878,7 @@ fn start_cloaking_drops_every_targeter_whose_house_cannot_sense_the_cell() {
         "only the receiver that loses its target spends the RandomRanged(4, 8) draw"
     );
     let timers_after: Vec<_> = [sensing, blind, same_owner]
-        .map(|id| sim.substrate.entities.get(id).unwrap().passive_scan_timer)
+        .map(|id| sim.substrate.entities.get(id).unwrap().passive_scan.timer())
         .to_vec();
     assert_eq!(
         timers_after[0], timers_before[0],

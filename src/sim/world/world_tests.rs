@@ -2687,7 +2687,9 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             entity
                 .attack_target
                 .set_for_test(Some(TargetKind::Cell(0, 0)));
-            entity.passively_acquired_target = true;
+            entity
+                .passive_scan
+                .set_passively_acquired_target_for_test(true);
         }
         entity.locomotor = Some(LocomotorState::for_test_kind(match category {
             EntityCategory::Unit => LocomotorKind::Drive,
@@ -2785,7 +2787,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             );
             if category == EntityCategory::Unit {
                 assert!(entity.attack_target.target().is_none());
-                assert!(!entity.passively_acquired_target);
+                assert!(!entity.passive_scan.acquired());
                 assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
                 assert_eq!(
                     entity.mega_mission.destination(),
@@ -2793,7 +2795,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                 );
                 assert!(entity.mega_mission.is_attack_move());
             } else {
-                assert!(entity.passively_acquired_target);
+                assert!(entity.passive_scan.acquired());
                 assert!(matches!(
                     entity.attack_target.target(),
                     Some(crate::sim::combat::TargetKind::Cell(0, 0))
@@ -3676,7 +3678,7 @@ fn sonic_fire_registers_immediately_but_later_techno_fires_before_wave_tail_ai()
     for id in [sonic_endpoint_id, wave_receiver_id, later_target_id] {
         let target = sim.substrate.entities.get_mut(id).unwrap();
         target.mission.write_dispatch_epilogue(0, 1000);
-        target.passive_scan_timer.arm(0, 1000);
+        target.passive_scan.timer_mut_for_test().arm(0, 1000);
     }
     assert!(crate::sim::combat::install_entity_attack_target_for_test(
         &mut sim.substrate.entities,
@@ -7579,7 +7581,7 @@ fn test_attack_move_auto_acquires_enemy() {
         if attacker.attack_target.target().is_some() {
             break;
         }
-        let scan_due = attacker.passive_scan_timer.due(sim.session.binary_frame);
+        let scan_due = attacker.passive_scan.timer().due(sim.session.binary_frame);
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
         let attacker = sim.substrate.entities.get(1).unwrap();
         assert!(

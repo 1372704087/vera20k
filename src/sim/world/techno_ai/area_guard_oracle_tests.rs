@@ -180,10 +180,12 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         path.retries_left = signed(&before["navigation"]["retry"]) as u32;
         assert_eq!(before["loco_head"], json!([0, 0, 0]));
         assert_eq!(before["navigation"]["destination"], json!([0, 0, 0]));
-        actor.passive_scan_timer = MissionTimer::armed(
-            signed(&before["targeting_timer"][0]) as u32,
-            signed(&before["targeting_timer"][2]) as u32,
-        );
+        actor
+            .passive_scan
+            .set_passive_scan_timer_for_test(MissionTimer::armed(
+                signed(&before["targeting_timer"][0]) as u32,
+                signed(&before["targeting_timer"][2]) as u32,
+            ));
         assert_eq!(before["scan"], 0);
         actor.on_bridge = before["on_bridge"] != 0;
         actor

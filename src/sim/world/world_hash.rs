@@ -2174,13 +2174,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     hash_mission_com(&entity.mission, hasher);
     hash_mission_leaf(&entity.mission_leaf, hasher);
     entity.occupier.hash(hasher);
-    entity.passive_scan_timer.hash(hasher);
+    entity.passive_scan.timer().hash(hasher);
     // Passive-acquire bookkeeping. `passively_acquired_target` gates
     // the stale-target drop and the off-mission clear, so a
     // divergence here changes future targets; the scan-frame stamp
     // rides along in the same block.
-    entity.last_target_scan_frame.hash(hasher);
-    entity.passively_acquired_target.hash(hasher);
+    entity.passive_scan.last_scan_frame().hash(hasher);
+    entity.passive_scan.acquired().hash(hasher);
     // Foot688 changes the next scan's topology/radius. Constructor
     // false preserves earlier streams; the retained true state is an
     // independent schema255 contribution, never inferred from TarCom.
@@ -2585,7 +2585,7 @@ mod lifecycle_hash_tests {
             entity.in_playfield = !entity.in_playfield;
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.passive_scan_timer.arm(7, 12);
+            entity.passive_scan.timer_mut_for_test().arm(7, 12);
         });
     }
 

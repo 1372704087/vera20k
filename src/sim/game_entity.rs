@@ -50,13 +50,6 @@ struct ObjectFallState {
     dropped_as_bomb: bool,
 }
 
-/// Frames the passive target-scan timer is armed for at object construction.
-/// The original's Techno constructor anchors the timer at the current frame and
-/// writes 45 as its duration, so a freshly built object waits that long before
-/// its first passive scan; the scanner then re-arms it from the `[General]`
-/// targeting delays.
-pub const PASSIVE_SCAN_CONSTRUCTION_DELAY_FRAMES: u32 = 45;
-
 /// Infantry-only runtime fear/prone state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InfantryRuntime {
@@ -976,25 +969,13 @@ pub struct GameEntity {
     /// pass through a named legacy compatibility adapter or the dormant
     /// exact-authority surface.
     pub(crate) mission: MissionCom,
-    /// Techno passive-acquisition cadence timer. Expiry opens the passive
-    /// target-scan gate; the scanner re-arms it to the `[General]` targeting
-    /// delay plus a 0..=2 jitter. Also re-armed short when a live target's
-    /// pointer expires. Armed at construction for
-    /// [`PASSIVE_SCAN_CONSTRUCTION_DELAY_FRAMES`].
+    /// The passive target scan's timer, last frame and acquisition mark
+    /// (`TechnoClass+0x180`/`+0x188`, `+0x4FC`, `+0x50C`), a [`PassiveScan`]
+    /// that `techno_ai::target_scan` owns.
+    ///
+    /// [`PassiveScan`]: crate::sim::world::PassiveScan
     #[serde(default)]
-    pub passive_scan_timer: MissionTimer,
-    /// Frame of this object's last passive target scan. Stamped on entry to the
-    /// scanner. No consumer yet — it is the scanner's own bookkeeping write,
-    /// modelled so the object's hashed state matches what the scan performed.
-    #[serde(default)]
-    pub last_target_scan_frame: u32,
-    /// `TechnoClass+0x50C`: the passive block's scan changed the target
-    /// (`0x006FA6EE`; the teleport clone `0x007094C8` is unported). Every
-    /// Assign_Target clears it first (`0x006FCDC4`). Read by the scan's drop
-    /// step (`0x007098C3`), the off-mission clear (`0x006FA5F0`) and the Unit
-    /// approach's OmniCrusher arm (`0x0074162D`).
-    #[serde(default)]
-    pub passively_acquired_target: bool,
+    pub(crate) passive_scan: crate::sim::world::PassiveScan,
     /// Foot+688, initialized false at4D33A8. A stopped object unable to fire
     /// narrows its next scans through Foot::Greatest_Threat4D9920. This is
     /// independent of Techno's passive-target byte+50C.
@@ -1714,13 +1695,7 @@ impl GameEntity {
             },
             rocking: None,
             mission: MissionCom::at_frame(construction_frame),
-            passive_scan_timer: MissionTimer::armed(
-                construction_frame,
-                PASSIVE_SCAN_CONSTRUCTION_DELAY_FRAMES,
-            ),
-            // `TechnoClass::Constructor 0x006F3106`: `+0x4FC = Frame`.
-            last_target_scan_frame: construction_frame,
-            passively_acquired_target: false,
+            passive_scan: crate::sim::world::PassiveScan::new(construction_frame),
             foot_retarget_after_stop: false,
             mission_leaf: MissionLeafState::constructed(category, construction_frame as i32),
             suspended_attack_target: None,

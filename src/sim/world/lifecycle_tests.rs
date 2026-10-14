@@ -3688,7 +3688,7 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
         .set_for_test(Some(TargetKind::Entity(2)));
     listener.suspended_attack_target = Some(TargetKind::Entity(3));
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
-    listener.passive_scan_timer.arm(100, 20);
+    listener.passive_scan.timer_mut_for_test().arm(100, 20);
     listener.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Attack),
         suspended: MissionId::from_known(MissionType::Guard),
@@ -3705,8 +3705,8 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(listener.passive_scan_timer.start_frame, 105);
-    assert_eq!(listener.passive_scan_timer.duration, delay);
+    assert_eq!(listener.passive_scan.timer().start_frame, 105);
+    assert_eq!(listener.passive_scan.timer().duration, delay);
     assert_eq!(
         listener.mission.current(),
         MissionId::from_known(MissionType::Guard)
@@ -3766,7 +3766,7 @@ fn infantry_target_expiry_clears_firing_action_before_target() {
             crate::sim::mission::MissionLeafState::infantry_raw_for_test(1, doing);
         // Isolate the class action: the separate PointerExpired timer gate
         // (7079D1) draws RandomRanged(4,8) only above ten remaining frames.
-        listener.passive_scan_timer.arm(0, 0);
+        listener.passive_scan.timer_mut_for_test().arm(0, 0);
         let before = sim.scenario_rng.logical_state();
         sim.uninit_with_rules(2, &rules);
         let listener = sim.substrate.entities.get(1).unwrap();
@@ -8161,7 +8161,9 @@ fn detach_sweep_clears_target_when_no_mission_was_suspended() {
     attacker
         .attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    attacker.passively_acquired_target = true;
+    attacker
+        .passive_scan
+        .set_passively_acquired_target_for_test(true);
     attacker
         .mission
         .apply_test_fixture(attack_fixture(MissionType::Attack, MissionId::NONE));
@@ -8171,7 +8173,7 @@ fn detach_sweep_clears_target_when_no_mission_was_suspended() {
 
     let attacker = sim.substrate.entities.get(1).unwrap();
     assert!(attacker.attack_target.target().is_none());
-    assert!(!attacker.passively_acquired_target);
+    assert!(!attacker.passive_scan.acquired());
     assert_eq!(
         attacker.mission.current(),
         MissionId::from_known(MissionType::Attack),

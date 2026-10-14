@@ -457,7 +457,7 @@ fn retail_dustbowl_battle_fortress_orders_reach_its_riders() {
     let passive = |fortress: &Fortress| {
         gis.iter().all(|&id| {
             let gi = fortress.scenario.sim().substrate.entities.get(id).unwrap();
-            gi.passively_acquired_target
+            gi.passive_scan.acquired()
                 && gi.attack_target.target() == Some(TargetKind::Entity(apocalypse))
         })
     };

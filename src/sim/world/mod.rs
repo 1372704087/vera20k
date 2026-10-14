@@ -6062,9 +6062,8 @@ impl Simulation {
     }
 
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: Option<&RuleSet>) {
-        // Recompute visibility in-place: clears FLAG_VISIBLE on existing grids
-        // (preserving FLAG_REVEALED) then re-reveals from entity positions.
-        // No allocation or merge_revealed_from pass needed.
+        // Recompute visibility in place: end last frame's sight (preserving
+        // FLAG_REVEALED) and reconcile each source's sight with its position.
         let path_grid = self.path_grid.as_deref();
         let height_grid = self.sight_height_grid(config);
 

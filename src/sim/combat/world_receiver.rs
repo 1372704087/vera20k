@@ -2555,6 +2555,15 @@ pub(super) fn sound_enabled(_world: &Simulation) -> bool {
 }
 
 #[inline]
+pub(super) fn fog_enabled(_world: &Simulation) -> bool {
+    #[cfg(test)]
+    if let Some(fixture) = _world.receiver_fixture.as_ref() {
+        return fixture.fog_enabled;
+    }
+    true
+}
+
+#[inline]
 pub(super) fn radiation_enabled(_world: &Simulation) -> bool {
     #[cfg(test)]
     if let Some(fixture) = _world.receiver_fixture.as_ref() {

@@ -4,7 +4,7 @@
 
 use super::world_receiver::{
     ReceiverRun, callbacks_enabled, commit_area, commit_projectile_detonations_inline,
-    commit_smudges, radiation_enabled, sound_enabled,
+    commit_smudges, fog_enabled, radiation_enabled, sound_enabled,
 };
 use super::*;
 use crate::sim::world::techno_ai_cloak::emit_configured_cloak_sound;
@@ -1922,13 +1922,7 @@ pub(crate) fn visit_fire(
     let mut unit_tail = None;
     let mut infantry_tail = None;
     let facing_start = emit.unit_facing.len();
-    #[cfg(not(test))]
-    let fog_enabled = true;
-    #[cfg(test)]
-    let fog_enabled = world
-        .receiver_fixture
-        .as_ref()
-        .is_none_or(|f| f.fog_enabled);
+    let fog_enabled = fog_enabled(world);
     match visit {
         FireVisit::Building { id, shot } => {
             let snapshot = world.substrate.entities.get(id).map(|actor| {
@@ -2137,15 +2131,10 @@ pub(crate) fn tick_combat(
     let sound_enabled = sound_enabled(world);
 
     let binary_frame = world.session.binary_frame;
-    let fog_snapshot = world.fog.clone();
-    let fog = Some(&fog_snapshot);
-    #[cfg(test)]
-    let fog = fog.filter(|_| {
-        world
-            .receiver_fixture
-            .as_ref()
-            .is_none_or(|fixture| fixture.fog_enabled)
-    });
+    // Only the aircraft release visit reads this frame-start copy of the fog.
+    let fog_snapshot = (!fire_requests.aircraft.is_empty()).then(|| world.fog.clone());
+    let fog_enabled = fog_enabled(world);
+    let fog = fog_snapshot.as_ref().filter(|_| fog_enabled);
     let active_wave_owners: BTreeSet<_> = world.active_wave_links.keys().copied().collect();
 
     if tick_ms == 0 {
@@ -2329,7 +2318,7 @@ pub(crate) fn tick_combat(
                 rules,
                 overlay_registry,
                 &live_snap,
-                fog.is_some(),
+                fog_enabled,
                 binary_frame,
                 active_wave_owners.contains(&live_snap.stable_id),
                 &mut emit,

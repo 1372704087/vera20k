@@ -3204,7 +3204,7 @@ mod tests {
         );
         assert!(cargo.board(3, rules.object("E1").unwrap().size));
         sim.substrate.entities.get_mut(1).unwrap().passenger_role =
-            crate::sim::passenger::PassengerRole::Transport { cargo };
+            crate::sim::passenger::PassengerRole::transport(cargo);
         let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
         sim.install_fixture_path_grid(Some(&grid));
         let rider_target = |sim: &Simulation| {

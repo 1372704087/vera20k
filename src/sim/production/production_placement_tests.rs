@@ -3822,17 +3822,12 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     let amer_id = sim.interner.intern("Americans");
     let e1_id = sim.interner.intern("E1");
     if let Some(t) = sim.substrate.entities.get_mut(30) {
-        t.passenger_role = PassengerRole::Transport {
-            cargo: PassengerCargo::new(5, 1),
-        };
+        t.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 1));
     }
     let mut pax = crate::sim::game_entity::GameEntity::test_default(31, "E1", "Americans", 39, 40);
     pax.set_owner_for_test(amer_id);
     pax.set_type_ref_for_test(e1_id);
-    pax.passenger_role = PassengerRole::Inside {
-        transport_id: 30,
-        open_topped: false,
-    };
+    pax.passenger_role = PassengerRole::inside_for_test(30, false);
     sim.substrate.entities.insert(pax);
     if let Some(t) = sim.substrate.entities.get_mut(30)
         && let Some(c) = t.passenger_role.cargo_mut()
@@ -3854,10 +3849,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     let pax = sim.substrate.entities.get(31).expect("occupant exists");
     assert!(!pax.dying, "occupant should not be dying");
     assert!(pax.health.current() > 0, "occupant should be alive");
-    assert!(
-        matches!(pax.passenger_role, PassengerRole::None),
-        "occupant role should be None"
-    );
+    assert!(pax.passenger_role.is_none(), "occupant role should be None");
 }
 
 #[test]

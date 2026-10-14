@@ -413,7 +413,7 @@ fn crossing_mark_state_and_open_topped_cargo_are_visible_before_paid_continuatio
     sim.interner = crate::sim::intern::test_interner();
     let mut cargo = PassengerCargo::new(2, 1);
     assert!(cargo.board(2, 1));
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::Transport { cargo };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     let passenger = GameEntity::test_default(2, "E1", "Americans", 4, 4);
     sim.substrate.entities.insert(passenger);
     // Force a cell crossing on the first raw point; this test observes the

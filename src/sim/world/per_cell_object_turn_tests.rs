@@ -291,7 +291,10 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
         .unwrap();
     assert_eq!(runtime.phase(), STATE_GROUND);
     assert!(!runtime.moving());
-    assert!(entity.attack_target.is_none(), "no conditional range stop");
+    assert!(
+        entity.attack_target.target().is_none(),
+        "no conditional range stop"
+    );
     assert_eq!(entity.navigation.nav_com, None);
     assert_eq!(entity.navigation.nav_com_aux, None);
     assert!(entity.navigation.nav_queue.is_empty());

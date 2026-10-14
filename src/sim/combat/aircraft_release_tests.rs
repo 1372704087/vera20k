@@ -63,7 +63,9 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         .set_rank_for_test((input["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
     entity.body_facing = FacingClass::new(0, 5);
     entity.barrel_facing = Some(FacingClass::new(0, 5));
-    entity.attack_target = Some(AttackTarget::for_cell(10, 9));
+    entity
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(10, 9)));
     entity.locomotor = Some(LocomotorState::from_object_type(
         rules.object("ORCA").unwrap(),
         0,
@@ -374,7 +376,12 @@ fn a_strafer_drops_five_bombs_on_one_pass() {
 #[test]
 fn a_fighter_out_of_range_cycles_back_to_its_search() {
     let (mut sim, rules) = fixture(&serde_json::json!({"burst": 1, "fighter": true}));
-    sim.substrate.entities.get_mut(1).unwrap().attack_target = Some(AttackTarget::for_cell(10, 60));
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(10, 60)));
     assert!(
         dispatch(&mut sim, &rules)
             .consequences

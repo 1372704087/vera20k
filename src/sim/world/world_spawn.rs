@@ -1747,7 +1747,7 @@ impl Simulation {
                 (
                     entity.selected,
                     entity.veterancy.clone(),
-                    entity.attack_target.as_ref().map(|t| t.target),
+                    entity.attack_target.target(),
                 ),
                 // Native rounds FacingClass::Current, including wrap at 0xff80.
                 entity.body_facing_dir(self.session.binary_frame),
@@ -1982,8 +1982,8 @@ impl Simulation {
                     && entity.lifecycle.object_alive()
                     && entity
                         .attack_target
-                        .as_ref()
-                        .is_some_and(|target| target.target == TargetKind::Entity(stable_id))
+                        .target()
+                        .is_some_and(|target| target == TargetKind::Entity(stable_id))
             })
             .map(|(id, entity)| {
                 let drops = hijacker_drops
@@ -2231,8 +2231,8 @@ impl Simulation {
                     && entity.lifecycle.object_alive()
                     && entity
                         .attack_target
-                        .as_ref()
-                        .is_some_and(|target| target.target == TargetKind::Entity(sid))
+                        .target()
+                        .is_some_and(|target| target == TargetKind::Entity(sid))
             })
             .map(|(id, _)| id)
             .collect();

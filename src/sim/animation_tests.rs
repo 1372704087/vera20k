@@ -8,7 +8,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::animation::*;
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::TargetKind;
 use crate::sim::components::DriveCoord;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::game_options::GameOptions;
@@ -1048,7 +1048,9 @@ fn presentation_preserves_infantry_fire_action_latch_and_signed_stage() {
         .unwrap()
     );
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.attack_target = Some(AttackTarget::new(999));
+    actor
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(999)));
     actor.mission_leaf.set_foot_firing_sequence(1);
     actor.set_native_stage_value(65_538);
     let facing = actor.body_facing;
@@ -1064,7 +1066,7 @@ fn presentation_preserves_infantry_fire_action_latch_and_signed_stage() {
     let actor = sim.substrate.entities.get(id).unwrap();
     assert_eq!(actor.mission_leaf.foot_firing_sequence_latch(), 1);
     assert_eq!(
-        actor.attack_target.as_ref().unwrap().target,
+        actor.attack_target.target().unwrap(),
         crate::sim::combat::TargetKind::Entity(999)
     );
     assert_eq!(actor.body_facing, facing);
@@ -1694,7 +1696,9 @@ fn unit_body_counter_matches_original_foot_cadence() {
                 );
             }
             if flag("target") {
-                entity.attack_target = Some(AttackTarget::new(42));
+                entity
+                    .attack_target
+                    .set_for_test(Some(TargetKind::Entity(42)));
             }
             entity.foot_locomotor_swap_active = flag("locomotor_swap");
             // BeingWarpedOut (`+0x270`) through a Temporal chain's head,

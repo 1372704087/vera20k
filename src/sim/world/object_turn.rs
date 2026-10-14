@@ -401,12 +401,19 @@ impl Simulation {
         });
         let teleport_relocating = teleport_armed && !teleport_reached;
         if teleport_relocating {
-            // 0x007193C7: the Techno detach sweep drops the locks aimed at
-            // the owner; 0x00719442: the departure WarpOut at its Location.
-            teleport_movement::release_incoming_target_locks(
-                &mut sim.substrate.entities,
-                stable_id,
-            );
+            // `0x007193C7`: the detach sweep (`0x0070D4A0`) with the owner,
+            // so every Techno aiming at it restores its mission and takes the
+            // class NULL target setter.
+            //
+            // RESIDUAL: the bullet sweep after it (`0x007193CC..0x007193F4`)
+            // retargets every live bullet aimed at the owner (+0x10C) to the
+            // cell the owner leaves (`0x00468430`; NULL for an airborne
+            // owner). VERA's projectiles keep homing on the owner. Trigger: a
+            // shot in flight at a Chrono Miner, Legionnaire, Commando or Ivan
+            // the frame it warps. Effect: the shot follows it to the
+            // destination instead of landing on the old cell.
+            sim.stop_all_targeting_on_detach(stable_id, rules, overlay_registry, ctx.effects);
+            // `0x00719442`: the departure WarpOut at its Location.
             if let Some(rules) = rules {
                 sim.teleport_warp_out(stable_id, rules);
             }

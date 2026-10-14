@@ -138,7 +138,7 @@ fn kill(sim: &mut Simulation, rules: &RuleSet, id: u64) {
 
 fn target(sim: &Simulation, id: u64) -> Option<TargetKind> {
     let entity = sim.substrate.entities.get(id)?;
-    entity.attack_target.as_ref().map(|attack| attack.target)
+    entity.attack_target.target()
 }
 
 fn heading(sim: &Simulation, id: u64) -> Option<u64> {

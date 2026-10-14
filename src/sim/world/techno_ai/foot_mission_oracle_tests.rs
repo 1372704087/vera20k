@@ -22,13 +22,12 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::Health;
 use crate::sim::combat::combat_targeting::greatest_threat_for_entity;
 use crate::sim::combat::greatest_threat::{
     HOUSE_SELECTS_OWN_COEFFICIENTS, ThreatCoefficients, ThreatReference, calculate_threat_score,
 };
 use crate::sim::combat::threat_range::ScanMission;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::{GameEntity, InfantryRuntime};
 use crate::sim::house_state::HouseState;
@@ -695,8 +694,7 @@ impl SuppliedFootFixture {
                 });
                 let target = |pointer: &Value| supplied_target(&pointers, &cells, pointer);
                 entity.set_archive_target(target(&before["archive"]));
-                entity.attack_target =
-                    target(&before["target"]).map(|target| AttackTarget { target });
+                entity.attack_target.set_for_test(target(&before["target"]));
                 // The oracle writes raw NavCom without Move_To. A supplied
                 // nonnull NavCom therefore does not arm Walk's moving byte.
                 entity.navigation.nav_com = target(&before["nav"]).map(NavTargetRef::from);
@@ -1053,7 +1051,7 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
             "{name}: archive"
         );
         assert_eq!(
-            actor.attack_target.as_ref().map(|target| target.target),
+            actor.attack_target.target(),
             fixture.id(&row["after"]["target"]).map(TargetKind::Entity),
             "{name}: TarCom is not assigned by Greatest_Threat"
         );
@@ -1415,7 +1413,7 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
         "{name}: archive"
     );
     assert_eq!(
-        actor.attack_target.as_ref().map(|target| target.target),
+        actor.attack_target.target(),
         fixture.target(&expected["target"]),
         "{name}: TarCom"
     );

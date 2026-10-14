@@ -333,8 +333,8 @@ pub(crate) fn calculate_threat_score(
         let mut term = ScoreX87::mul(coeff_b, verses);
         if candidate
             .attack_target
-            .as_ref()
-            .is_some_and(|target| target.target == super::TargetKind::Entity(scorer.stable_id()))
+            .target()
+            .is_some_and(|target| target == super::TargetKind::Entity(scorer.stable_id()))
         {
             term = ScoreX87::neg(term);
         }

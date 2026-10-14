@@ -150,7 +150,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
             ),
         });
         actor.set_archive_target(archive);
-        actor.attack_target = target.map(|target| AttackTarget { target });
+        actor.attack_target.set_for_test(target);
         actor.suspended_attack_target = suspended_target;
         actor.navigation.suspended_nav_com = suspended_nav;
         actor.navigation.nav_com = nav;

@@ -877,7 +877,7 @@ mod tests {
             "the order queues Attack"
         );
         assert_eq!(
-            disc.attack_target.as_ref().map(|target| target.target),
+            disc.attack_target.target(),
             Some(TargetKind::Entity(refinery)),
             "the order installs the Target"
         );
@@ -902,7 +902,7 @@ mod tests {
             "Attack is committed on the linking tick (tick {linked_at})"
         );
         assert!(
-            disc.attack_target.is_none(),
+            disc.attack_target.target().is_none(),
             "Assign_Target(NULL) at 0x006FDF97 leaves no Target on the same tick (tick {linked_at})"
         );
         assert!(!disc.passively_acquired_target);

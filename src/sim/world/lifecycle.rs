@@ -3611,7 +3611,7 @@ impl Simulation {
             target.is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id))
         };
         listener_id == expired_id
-            || names(listener.attack_target.as_ref().map(|attack| attack.target))
+            || names(listener.attack_target.target())
             || names(listener.suspended_attack_target)
             || names(listener.archive_target())
             || listener.has_live_contact_with(expired_id)
@@ -3753,9 +3753,9 @@ impl Simulation {
     ///    the null-out then does not run.
     ///
     /// The native sweep has callers in area damage, building sale, owner change,
-    /// building placement and teleportation. The represented owner-change and
-    /// bridge-damage callers share this owner; the other caller chains remain
-    /// separate migration work.
+    /// building placement and teleportation. The represented owner-change,
+    /// bridge-damage and teleport (`0x007193C7`) callers share this owner; the
+    /// other caller chains remain separate migration work.
     ///
     /// RESIDUALS, recorded rather than guessed:
     /// - The native suppression clause (`0x0070D4DB..0x0070D4FB`) skips the
@@ -3840,13 +3840,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(listener_id)
-            .is_some_and(|listener| {
-                listener
-                    .attack_target
-                    .as_ref()
-                    .map(|current| current.target)
-                    == Some(target)
-            })
+            .is_some_and(|listener| listener.attack_target.target() == Some(target))
     }
 
     /// Infantry PerCell repair519D17..519D36 calls each registered Infantry
@@ -3958,9 +3952,10 @@ impl Simulation {
         let Some(listener) = self.substrate.entities.get(listener_id) else {
             return;
         };
-        let current_target_matches = listener.attack_target.as_ref().is_some_and(
-            |target| matches!(target.target, TargetKind::Entity(id) if id == expired_id),
-        );
+        let current_target_matches = listener
+            .attack_target
+            .target()
+            .is_some_and(|target| matches!(target, TargetKind::Entity(id) if id == expired_id));
         let listener_owner = listener.owner();
         let mission_is_suspended =
             listener.mission.suspended() != crate::sim::mission::MissionId::NONE;

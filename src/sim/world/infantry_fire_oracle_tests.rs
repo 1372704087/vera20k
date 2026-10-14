@@ -245,7 +245,7 @@ fn assert_source(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: dispatch clock"
     );
     assert_eq!(
-        actor.attack_target.as_ref().map(|target| target.target),
+        actor.attack_target.target(),
         fixture.target(&expected["target"]),
         "{name}: target"
     );
@@ -611,7 +611,7 @@ fn assert_target(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: MTNK queue"
     );
     assert_eq!(
-        target.attack_target.as_ref().map(|target| target.target),
+        target.attack_target.target(),
         fixture.target(&expected["target"]),
         "{name}: synchronous MTNK retaliation target"
     );

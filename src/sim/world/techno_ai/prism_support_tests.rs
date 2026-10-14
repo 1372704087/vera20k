@@ -28,7 +28,7 @@ use crate::map::resolved_terrain::test_flat_ground_grid;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::PrismSupportRules;
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::TargetKind;
 use crate::sim::combat::receiver_fixture::with_building_fire_stub;
 use crate::sim::mission::MissionDispatchTimer;
 use crate::sim::mission::state::MissionTestFixture;
@@ -286,7 +286,9 @@ impl Fixture {
             });
         }
         if let Some(aimed) = state["target"].as_bool() {
-            entity.attack_target = aimed.then(|| AttackTarget::new(target));
+            entity
+                .attack_target
+                .set_for_test(aimed.then(|| TargetKind::Entity(target)));
         }
         if let Some(rearm) = state["rearm"].as_array() {
             let start = rearm[0]
@@ -389,7 +391,7 @@ impl Fixture {
             );
         }
         assert_eq!(
-            entity.attack_target.as_ref().map(|attack| attack.target),
+            entity.attack_target.target(),
             native["target"]
                 .as_str()
                 .map(|_| TargetKind::Entity(self.target)),
@@ -702,8 +704,7 @@ fn prism_support_bonus_matches_the_original() {
                         .substrate
                         .entities
                         .get(master)
-                        .and_then(|entity| entity.attack_target.as_ref())
-                        .map(|attack| attack.target),
+                        .and_then(|entity| entity.attack_target.target()),
                     "{name} target"
                 );
                 assert_eq!(
@@ -816,7 +817,9 @@ fn apply_event(fixture: &mut Fixture, action: &str, building: u64) {
         // TarCom written as the passive scan or a detach writes it.
         "acquire" | "lose" => {
             let entity = fixture.sim.substrate.entities.get_mut(building).unwrap();
-            entity.attack_target = (action == "acquire").then(|| AttackTarget::new(target));
+            entity
+                .attack_target
+                .set_for_test((action == "acquire").then(|| TargetKind::Entity(target)));
         }
         // The IDLE event's BuildingClass::SetTarget(0).
         "stop" => {

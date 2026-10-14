@@ -12,14 +12,14 @@
 //!
 //! ## Dependency rules
 //! - Part of sim/ — depends on map/ (EntityCategory), sim/components, sim/locomotor,
-//!   sim/combat (AttackTarget), sim/animation, sim/miner, and special movement modules.
+//!   sim/combat (TarCom), sim/animation, sim/miner, and special movement modules.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use crate::map::entities::EntityCategory;
 use crate::sim::animation::Animation;
 use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
 use crate::sim::combat::combat_weapon::WeaponSlot;
-use crate::sim::combat::{AttackTarget, Health, TargetKind};
+use crate::sim::combat::{Health, TarCom, TargetKind};
 use crate::sim::components::{
     HarvestOverlay, NavigationState, PendingC4Detonation, Position, RockingState, VoxelAnimation,
 };
@@ -649,8 +649,9 @@ pub struct GameEntity {
     /// reinforcement (`0x0065F212`, `ChronoReinfDelay=`), is not ported.
     #[serde(default)]
     chrono_warp_delay: i32,
-    /// Active attack target — present when entity is firing at something.
-    pub attack_target: Option<AttackTarget>,
+    /// The object's target (`TechnoClass+0x2B4`), a [`TarCom`] that the class
+    /// target setter (`mission::concrete_effects`) writes.
+    pub(crate) attack_target: TarCom,
     /// A building's delayed fire: a delayed shot, or a Prism support beam.
     #[serde(default)]
     pub pending_building_fire: Option<PendingBuildingFire>,
@@ -1741,7 +1742,7 @@ impl GameEntity {
             warped_by_house: None,
             setter_force_reassign: false,
             chrono_warp_delay: 0,
-            attack_target: None,
+            attack_target: TarCom::default(),
             pending_building_fire: None,
             prism_support_count: 0,
             current_weapon_number: 0,
@@ -2291,7 +2292,7 @@ mod tests {
         assert!(!e.selected);
         assert!(!e.repairing);
         assert!(e.locomotor.is_none());
-        assert!(e.attack_target.is_none());
+        assert!(e.attack_target.target().is_none());
         assert!(e.radio_contacts.is_empty());
         assert_eq!(e.rally_cell(), None);
         assert!(!e.was_attacked_by_enemy);

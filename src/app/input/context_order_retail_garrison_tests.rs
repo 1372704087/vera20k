@@ -159,7 +159,7 @@ fn retail_gi_group_boards_a_4x4_garrison_from_its_far_side() {
         for &gi in &gis {
             let e = sim.entities().get(gi).unwrap();
             assert!(
-                e.attack_target.is_none(),
+                e.attack_target.target().is_none(),
                 "frame {frame}: GI {gi} must not target the castle while entering"
             );
         }

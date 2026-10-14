@@ -606,6 +606,65 @@ fn internal_ejection_preserves_passenger_archive() {
     }
 }
 
+/// The ejectors keep the passenger's target: Unit Mission_Unload clears it
+/// only when the passenger leaves another house's OpenTopped transport,
+/// through the class NULL setter (`0x0073DB9D..0x0073DBC3`), and KickOutUnit
+/// has no target write (`0x00415BF9..0x00415C21`). The passenger's own AI
+/// may drop the target later; this checks what the ejector leaves.
+#[test]
+fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_transport() {
+    use crate::sim::combat::TargetKind;
+
+    for (transport_type, other_house, keeps) in [
+        ("BFRT", false, true),
+        ("BFRT", true, false),
+        ("LCRF", true, true),
+        ("SHAD", false, true),
+    ] {
+        let mut fx = Fixture::new(|_, _| false);
+        let transport = fx.spawn(transport_type, 20, 20, 0);
+        let passenger = fx.board(transport, 1)[0];
+        let target = Some(TargetKind::Cell(9, 9));
+        let other = fx.sim.intern("Russians");
+        let pax = fx.sim.substrate.entities.get_mut(passenger).unwrap();
+        pax.attack_target.set_for_test(target);
+        pax.passively_acquired_target = true;
+        pax.weapon_burst.complete_shot(3);
+        if other_house {
+            pax.set_owner_for_test(other);
+        }
+        let effects = crate::sim::world::FrameEffects::default();
+        if transport_type == "SHAD" {
+            assert!(super::eject_from_aircraft(
+                &mut fx.sim,
+                &fx.rules,
+                None,
+                transport,
+                effects
+            ));
+        } else {
+            assert!(matches!(
+                super::eject_head_passenger(&mut fx.sim, &fx.rules, transport, None, effects),
+                super::EjectOutcome::Placed
+            ));
+        }
+        assert!(fx.revealed(passenger), "{transport_type}: passenger leaves");
+        let pax = fx.sim.substrate.entities.get(passenger).unwrap();
+        let case = format!("{transport_type}, other house {other_house}");
+        if keeps {
+            assert_eq!(pax.attack_target.target(), target, "{case}");
+            assert!(pax.passively_acquired_target, "{case}");
+            assert_eq!(pax.weapon_burst.index(), 1, "{case}");
+        } else {
+            // Through the class setter: its NULL arm resets the burst
+            // (`0x006FCF5B`), which a raw store would not.
+            assert_eq!(pax.attack_target.target(), None, "{case}");
+            assert!(!pax.passively_acquired_target, "{case}");
+            assert_eq!(pax.weapon_burst.index(), 0, "{case}");
+        }
+    }
+}
+
 /// `TurretCount > 0`: `+0x6E4 = (cargo == 1 ? 0 : 1)` — the IFV keeps its
 /// last passenger (the first boarded, at the cargo tail).
 #[test]

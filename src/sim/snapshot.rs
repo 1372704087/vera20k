@@ -2002,9 +2002,7 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(TargetKind::Entity(target_id)) =
-            entity.attack_target.as_ref().map(|target| target.target)
-        {
+        if let Some(TargetKind::Entity(target_id)) = entity.attack_target.target() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
@@ -8379,16 +8377,18 @@ mod tests {
         assert_eq!(loaded.sim.state_hash(), expected_hash);
     }
 
-    /// `AttackTarget::for_cell` survives serialize → deserialize as the same
+    /// A cell TarCom survives serialize → deserialize as the same
     /// `TargetKind::Cell` variant (regression for SNAPSHOT_VERSION 4 → 5).
     #[test]
     fn cell_attack_target_round_trips_through_snapshot() {
-        use crate::sim::combat::{AttackTarget, TargetKind};
+        use crate::sim::combat::TargetKind;
         use crate::sim::game_entity::GameEntity;
 
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        entity.attack_target = Some(AttackTarget::for_cell(50, 50));
+        entity
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(50, 50)));
         sim.substrate.entities.insert(entity);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
@@ -8400,9 +8400,9 @@ mod tests {
             .get(1)
             .expect("entity should be restored")
             .attack_target
-            .as_ref()
+            .target()
             .expect("attack_target should be restored");
-        assert!(matches!(restored.target, TargetKind::Cell(50, 50)));
+        assert!(matches!(restored, TargetKind::Cell(50, 50)));
     }
 
     /// Reveal registers at the tail; a stored-but-unrevealed (limbo) object is

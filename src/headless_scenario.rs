@@ -826,7 +826,7 @@ mod retail_construction_tests {
         sim: &Simulation,
         entity: &crate::sim::game_entity::GameEntity,
     ) -> bool {
-        match entity.attack_target.as_ref().map(|attack| attack.target) {
+        match entity.attack_target.target() {
             Some(crate::sim::combat::TargetKind::Entity(id)) => sim
                 .entities()
                 .get(id)
@@ -1056,7 +1056,7 @@ mod retail_construction_tests {
             };
             aims_at_another_house(sim, entity)
                 && matches!(
-                    entity.attack_target.as_ref().map(|attack| attack.target),
+                    entity.attack_target.target(),
                     Some(crate::sim::combat::TargetKind::Entity(target))
                         if sim.entities().get(target).is_some_and(|target| {
                             target.category() == EntityCategory::Structure

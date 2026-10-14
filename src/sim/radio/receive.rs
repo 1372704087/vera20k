@@ -955,7 +955,7 @@ fn aircraft_receive(
             .cargo()
             .map_or(0, |cargo| cargo.count() as i32),
     };
-    let target = entity.attack_target.is_some();
+    let target = entity.attack_target.target().is_some();
     match msg {
         // 0x00419109: half its type's Ammo or more and a Target, it does not
         // need the round; otherwise Techno takes it (`0x006F4C9C`).

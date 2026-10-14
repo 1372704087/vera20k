@@ -240,7 +240,7 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
             ));
             assert!(gi.lifecycle.in_limbo());
             assert_eq!(gi.mission.current().known(), Some(MissionType::Guard));
-            assert!(gi.attack_target.is_none());
+            assert!(gi.attack_target.target().is_none());
             // Native51A441..51A46E preserves the arrival subcell; a later
             // carrier SetLocation copies its coordinate through4DB88A/7104F0.
             assert_eq!(
@@ -387,12 +387,7 @@ fn retail_dustbowl_battle_fortress_orders_reach_its_riders() {
         gis.iter()
             .map(|&id| {
                 let entities = &fortress.scenario.sim().substrate.entities;
-                entities
-                    .get(id)
-                    .unwrap()
-                    .attack_target
-                    .as_ref()
-                    .map(|attack| attack.target)
+                entities.get(id).unwrap().attack_target.target()
             })
             .collect()
     };
@@ -466,8 +461,7 @@ fn retail_dustbowl_battle_fortress_orders_reach_its_riders() {
         gis.iter().all(|&id| {
             let gi = fortress.scenario.sim().substrate.entities.get(id).unwrap();
             gi.passively_acquired_target
-                && gi.attack_target.as_ref().map(|attack| attack.target)
-                    == Some(TargetKind::Entity(apocalypse))
+                && gi.attack_target.target() == Some(TargetKind::Entity(apocalypse))
         })
     };
     for _ in 0..120 {
@@ -488,7 +482,7 @@ fn retail_dustbowl_battle_fortress_orders_reach_its_riders() {
         .entities
         .get(bfrt)
         .unwrap();
-    assert!(transport.attack_target.is_none());
+    assert!(transport.attack_target.target().is_none());
 }
 
 /// A loaded Battle Fortress force-fired at the ground: the order hands the
@@ -508,12 +502,7 @@ fn retail_dustbowl_battle_fortress_riders_force_fire_at_the_ground() {
         gis.iter()
             .map(|&id| {
                 let entities = &fortress.scenario.sim().substrate.entities;
-                entities
-                    .get(id)
-                    .unwrap()
-                    .attack_target
-                    .as_ref()
-                    .map(|attack| attack.target)
+                entities.get(id).unwrap().attack_target.target()
             })
             .collect()
     };
@@ -939,9 +928,9 @@ fn retail_battle_fortress_chrono_rider_freezes_releases_and_erases() {
                     ));
                     stop_issued = true;
                 }
-                if stop_issued && actor.attack_target.is_none() && !stop_observed {
+                if stop_issued && actor.attack_target.target().is_none() && !stop_observed {
                     assert_eq!(
-                        actor.attack_target.is_none(),
+                        actor.attack_target.target().is_none(),
                         native_stop["target_is_null"].as_bool().unwrap()
                     );
                     assert_eq!(

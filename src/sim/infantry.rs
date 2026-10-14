@@ -1101,7 +1101,7 @@ mod tests {
     /// Native stack auxiliary words and unobserved FC/increment are excluded.
     #[test]
     fn native_e1_idle_receiver_matches_timer_action_facing_and_full_rng() {
-        use crate::sim::combat::AttackTarget;
+        use crate::sim::combat::TargetKind;
         use crate::sim::components::{DriveCoord, NavTargetRef};
         use crate::sim::mission::MissionTimer;
         use crate::sim::movement::locomotor::LocomotorState;
@@ -1207,12 +1207,14 @@ mod tests {
                 .body_facing
                 .snap(signed(&before["primary_facing_words"][0]) as u16, 1);
             if before["target"] != "0x0" {
-                actor.attack_target = Some(AttackTarget::new(2));
+                actor
+                    .attack_target
+                    .set_for_test(Some(TargetKind::Entity(2)));
             }
             if before["nav"] != "0x0" {
                 actor.navigation.nav_com = Some(NavTargetRef::cell(12, 10));
             }
-            let target_before = actor.attack_target.as_ref().map(|target| target.target);
+            let target_before = actor.attack_target.target();
             let nav_before = actor.navigation.nav_com;
             sim.substrate.entities.insert(actor);
             let (admitted, draws) = trace_draws(|| {
@@ -1260,7 +1262,7 @@ mod tests {
                 "{name} facing"
             );
             assert_eq!(
-                actor.attack_target.as_ref().map(|target| target.target),
+                actor.attack_target.target(),
                 target_before,
                 "{name} target untouched"
             );

@@ -21,7 +21,7 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::retail_ini_fixture::retail_battle_rules_for_map;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::TerrainRules;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::TargetKind;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
@@ -597,8 +597,8 @@ fn assert_world_boundary(
         .get(actor)
         .unwrap()
         .attack_target
-        .as_ref()
-        .map_or(Value::Null, |target| match target.target {
+        .target()
+        .map_or(Value::Null, |target| match target {
             TargetKind::Entity(id) => json!(owner_name(id, actor, foreign)),
             unknown => panic!("{label}: unexpected target {unknown:?}"),
         });
@@ -742,13 +742,13 @@ fn execute_step(
                 let at = cell(&inputs["nav_cell"]);
                 NavTargetRef::cell(at.0, at.1)
             });
-            entity.attack_target = match inputs["tarcom_owner"].as_str() {
-                None => None,
-                Some("foreign") => Some(AttackTarget {
-                    target: TargetKind::Entity(foreign.unwrap()),
-                }),
-                unknown => panic!("undeclared target input {unknown:?}"),
-            };
+            entity
+                .attack_target
+                .set_for_test(match inputs["tarcom_owner"].as_str() {
+                    None => None,
+                    Some("foreign") => Some(TargetKind::Entity(foreign.unwrap())),
+                    unknown => panic!("undeclared target input {unknown:?}"),
+                });
             let runtime = entity
                 .locomotor
                 .as_mut()

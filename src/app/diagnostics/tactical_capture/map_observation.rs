@@ -3170,7 +3170,7 @@ impl TacticalCaptureSession {
                         "effective": entity.mission.effective().raw(), "handler_state": entity.mission.handler_state(),
                         "start_frame": entity.mission.mission_start_frame(), "ai_counter": entity.mission.ai_counter(),
                         "dispatch_timer": {"start_frame": timer.start_frame(), "delay": timer.delay()}},
-                    "target": entity.attack_target.as_ref().map(|target| target.target),
+                    "target": entity.attack_target.target(),
                     "archive": entity.archive_target(), "nav": entity.navigation.nav_com, "foot": foot,
                     "retask": retask_observation(entity),
                     "jumpjet": jumpjet,

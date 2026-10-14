@@ -1386,6 +1386,7 @@ fn an_attack_order_captures_without_damage() {
             .get(mind)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
     assert_eq!(victims(&sim, mind), [gi]);
@@ -1762,6 +1763,7 @@ fn an_iron_curtained_target_refuses_the_capture_at_fire_time() {
             .get(yuri)
             .unwrap()
             .attack_target
+            .target()
             .is_some();
         attacked |= targeting;
         if attacked && !targeting {

@@ -3905,7 +3905,7 @@ fn captured_harvesting_miner_requeues_harvest_for_the_new_owner() {
         MissionId::from_known(MissionType::Harvest),
         "the idle-mode harvester arm re-queues Harvest on ore"
     );
-    assert!(miner.attack_target.is_none());
+    assert!(miner.attack_target.target().is_none());
     assert!(miner.navigation.nav_com.is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&miner) != Some(true));
 }

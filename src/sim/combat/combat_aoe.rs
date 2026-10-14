@@ -738,7 +738,7 @@ pub(crate) fn expire_cell_target_references(
             continue;
         };
         if !matches!(
-            entity.attack_target.as_ref().map(|target| target.target),
+            entity.attack_target.target(),
             Some(super::TargetKind::Cell(tx, ty)) if (tx, ty) == (rx, ry)
         ) {
             continue;
@@ -1079,7 +1079,7 @@ mod tests {
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::entity_store::EntityStore;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::{HouseDifficulty, HouseState};
@@ -1130,7 +1130,9 @@ mod tests {
     fn gsi_04_07_damage_signed_zero_returns_before_wall_rng_objects_and_detach() {
         let mut entities = EntityStore::new();
         let mut listener = GameEntity::test_default(20, "MTNK", "Americans", 8, 8);
-        listener.attack_target = Some(AttackTarget::for_cell(8, 8));
+        listener
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 8)));
         entities.insert(listener);
         let mut interner = test_interner();
         let warhead_ref = interner.intern("BlastWH");
@@ -1165,12 +1167,7 @@ mod tests {
         assert!(result.wall_mutations.is_empty());
         assert!(result.cell_target_detaches.is_empty());
         assert!(matches!(
-            entities
-                .get(20)
-                .unwrap()
-                .attack_target
-                .as_ref()
-                .map(|target| target.target),
+            entities.get(20).unwrap().attack_target.target(),
             Some(TargetKind::Cell(8, 8))
         ));
 
@@ -1209,7 +1206,9 @@ mod tests {
     fn gsi_04_10_scenario_no_damage_returns_before_wall_rng_objects_and_detach() {
         let mut entities = EntityStore::new();
         let mut listener = GameEntity::test_default(20, "MTNK", "Americans", 8, 8);
-        listener.attack_target = Some(AttackTarget::for_cell(8, 8));
+        listener
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 8)));
         entities.insert(listener);
         let mut interner = test_interner();
         let warhead_ref = interner.intern("BlastWH");
@@ -1252,12 +1251,7 @@ mod tests {
         assert!(result.wall_mutations.is_empty());
         assert!(result.cell_target_detaches.is_empty());
         assert!(matches!(
-            entities
-                .get(20)
-                .unwrap()
-                .attack_target
-                .as_ref()
-                .map(|target| target.target),
+            entities.get(20).unwrap().attack_target.target(),
             Some(TargetKind::Cell(8, 8))
         ));
     }
@@ -2309,7 +2303,9 @@ mod tests {
             wall_aoe_fixture("0", "WallAbsoluteDestroyer=yes\nWall=yes");
         let mut entities = EntityStore::new();
         let mut restored = GameEntity::test_default(20, "MTNK", "Americans", 2, 2);
-        restored.attack_target = Some(AttackTarget::for_cell(8, 8));
+        restored
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 8)));
         restored.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Attack),
             suspended: MissionId::from_known(MissionType::Guard),
@@ -2324,12 +2320,16 @@ mod tests {
         entities.insert(restored);
 
         let mut cleared = GameEntity::test_default(30, "MTNK", "Americans", 3, 2);
-        cleared.attack_target = Some(AttackTarget::for_cell(8, 8));
+        cleared
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 8)));
         cleared.passively_acquired_target = true;
         entities.insert(cleared);
 
         let mut chain_only = GameEntity::test_default(40, "MTNK", "Americans", 4, 2);
-        chain_only.attack_target = Some(AttackTarget::for_cell(8, 7));
+        chain_only
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 7)));
         entities.insert(chain_only);
 
         let mut interner = test_interner();
@@ -2386,18 +2386,13 @@ mod tests {
             ],
             "cleanup expiry precedes the direct callback; each roster walk is forward and clears before Restore"
         );
-        assert!(entities.get(30).unwrap().attack_target.is_none());
+        assert!(entities.get(30).unwrap().attack_target.target().is_none());
         assert!(!entities.get(30).unwrap().passively_acquired_target);
         assert!(matches!(
-            entities
-                .get(20)
-                .unwrap()
-                .attack_target
-                .as_ref()
-                .map(|target| target.target),
+            entities.get(20).unwrap().attack_target.target(),
             Some(TargetKind::Cell(8, 8))
         ));
-        assert!(entities.get(40).unwrap().attack_target.is_none());
+        assert!(entities.get(40).unwrap().attack_target.target().is_none());
     }
 
     #[test]
@@ -2895,21 +2890,27 @@ mod tests {
         target.set_owner_for_test(soviet);
         target.set_type_ref_for_test(target_type);
         target.health.set_for_test(1000);
-        target.attack_target = Some(AttackTarget::new(1));
+        target
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(1)));
         entities.insert(target);
 
         let mut allied = GameEntity::test_default(3, "TARGET", "YuriHouse", 5, 5);
         allied.set_owner_for_test(yuri);
         allied.set_type_ref_for_test(target_type);
         allied.health.set_for_test(1000);
-        allied.attack_target = Some(AttackTarget::new(1));
+        allied
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(1)));
         entities.insert(allied);
 
         let mut immune = GameEntity::test_default(4, "IMMUNE", "SovietHouse", 5, 5);
         immune.set_owner_for_test(soviet);
         immune.set_type_ref_for_test(immune_type);
         immune.health.set_for_test(1000);
-        immune.attack_target = Some(AttackTarget::new(1));
+        immune
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(1)));
         entities.insert(immune);
 
         let mut building = GameEntity::test_default_of_category(
@@ -2923,7 +2924,9 @@ mod tests {
         building.set_owner_for_test(soviet);
         building.set_type_ref_for_test(building_type);
         building.health.set_for_test(1000);
-        building.attack_target = Some(AttackTarget::new(1));
+        building
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(1)));
         entities.insert(building);
 
         let mut occupancy = OccupancyGrid::new();
@@ -3003,7 +3006,7 @@ mod tests {
         assert_eq!(target.health.current(), 1000, "Psychedelic skips Object HP");
         assert!(target.berserk.active);
         assert_eq!(target.berserk.timer, 300, "600 x heavy Verses 50%");
-        assert!(target.attack_target.is_none());
+        assert!(target.attack_target.target().is_none());
         assert_eq!(target.mission.current(), MissionId::NONE);
         assert_eq!(
             target.mission.queued(),
@@ -3014,10 +3017,7 @@ mod tests {
             let control = entities.get(stable_id).unwrap();
             assert_eq!(control.health.current(), 1000);
             assert_eq!(control.berserk, Default::default());
-            assert_eq!(
-                control.attack_target.as_ref().map(|target| target.target),
-                Some(TargetKind::Entity(1))
-            );
+            assert_eq!(control.attack_target.target(), Some(TargetKind::Entity(1)));
             assert_eq!(control.mission.queued(), MissionId::NONE);
         }
 
@@ -3025,7 +3025,9 @@ mod tests {
         // clearing or mission queue callbacks while +0x298 remains active.
         {
             let target = entities.get_mut(2).unwrap();
-            target.attack_target = Some(AttackTarget::new(1));
+            target
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(1)));
             target.berserk.timer = 17;
             target.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_known(MissionType::Guard),
@@ -3062,10 +3064,7 @@ mod tests {
         assert!(refresh_pings.is_empty());
         assert_eq!(target.health.current(), 1000);
         assert_eq!(target.berserk.timer, 300);
-        assert_eq!(
-            target.attack_target.as_ref().map(|target| target.target),
-            Some(TargetKind::Entity(1))
-        );
+        assert_eq!(target.attack_target.target(), Some(TargetKind::Entity(1)));
         assert_eq!(target.mission.queued(), MissionId::NONE);
     }
 
@@ -4155,6 +4154,7 @@ mod tests {
                 .get(victim_id)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_none(),
             "nested and parent null-source events do not fabricate an attacker"
         );

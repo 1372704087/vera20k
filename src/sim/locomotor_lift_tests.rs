@@ -178,7 +178,7 @@ fn retail_magnetron_pulls_a_tank_beside_itself_and_lets_go() {
     let holder = entity(&sim, magnetron);
     assert_eq!(holder.locomotor_target, None);
     assert!(
-        holder.attack_target.is_none(),
+        holder.attack_target.target().is_none(),
         "the release clears its target"
     );
     let offset = (

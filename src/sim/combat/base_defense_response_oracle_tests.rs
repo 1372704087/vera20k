@@ -216,7 +216,7 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
                 "{name}:{label}"
             );
             assert_eq!(
-                actor.attack_target.as_ref().map(|target| target.target),
+                actor.attack_target.target(),
                 target(&state["target"]),
                 "{name}:{label}"
             );

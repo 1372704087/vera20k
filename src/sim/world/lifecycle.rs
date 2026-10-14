@@ -1039,7 +1039,7 @@ impl Simulation {
             return RevealOutcome::Failed(RevealFailure::RejectedEarly);
         }
         if request.placement == PlacementEvidence::AttachedUpgrade
-            && entity.structure_upgrade_link.is_none()
+            && entity.structure_upgrade_link().is_none()
         {
             return RevealOutcome::Failed(RevealFailure::RejectedEarly);
         }
@@ -5425,7 +5425,7 @@ mod base_plan_lifecycle_tests {
     use crate::rules::object_type::ObjectCategory as RulesObjectCategory;
     use crate::rules::ruleset::RuleSet;
     use crate::sim::base_plan::{BasePlanNode, pack_base_plan_cell};
-    use crate::sim::game_entity::{GameEntity, StructureUpgradeLink};
+    use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::HouseState;
     use crate::sim::scenario_bootstrap::initialize_map_roster_houses;
     use crate::sim::world::{PlacementEvidence, RevealPosition, RevealRequest, Simulation};
@@ -5559,10 +5559,7 @@ mod base_plan_lifecycle_tests {
             false,
         );
         upgrade.type_facts.set_base_plan_type_index_for_test(0);
-        upgrade.structure_upgrade_link = Some(StructureUpgradeLink {
-            parent_stable_id: 99,
-            slot: 0,
-        });
+        upgrade.link_structure_upgrade(99, 0);
         sim.substrate.entities.insert(upgrade);
 
         let outcome = sim.try_reveal_entity(

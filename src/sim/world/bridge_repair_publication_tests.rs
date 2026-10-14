@@ -1566,11 +1566,11 @@ fn hut_queries_pending_uninit_and_active_tube_exit_before_other_gates() {
         vec![TubeFact::explicit((15, 15), (u16::MAX, 2), 0, vec![0])],
     ));
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-        tube_id: TubeId(0),
-        cursor: 0,
-        target: DriveCoord::cell(7, 8, 999),
-    });
+    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+        TubeId(0),
+        0,
+        DriveCoord::cell(7, 8, 999),
+    ));
     e.locomotor = None;
     let coord = sim.foot_navigation_coordinate(id).unwrap();
     assert_eq!(

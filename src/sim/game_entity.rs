@@ -20,9 +20,7 @@ use crate::sim::animation::Animation;
 use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
 use crate::sim::combat::base_defense_response::BaseDefenseResponseState;
 use crate::sim::combat::{Health, TarCom};
-use crate::sim::components::{
-    HarvestOverlay, NavigationState, Position, RockingState, VoxelAnimation,
-};
+use crate::sim::components::{NavigationState, Position};
 use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::intern::InternedId;
@@ -89,8 +87,29 @@ pub(crate) enum TechnoConstructorInit {
 /// upgrade does not own a competing building footprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct StructureUpgradeLink {
-    pub parent_stable_id: u64,
-    pub slot: u8,
+    parent_stable_id: u64,
+    slot: u8,
+}
+
+impl StructureUpgradeLink {
+    /// The host building.
+    pub fn parent_stable_id(&self) -> u64 {
+        self.parent_stable_id
+    }
+
+    /// The host's upgrade slot.
+    pub fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    /// A fixture's link.
+    #[cfg(test)]
+    pub(crate) fn for_test(parent_stable_id: u64, slot: u8) -> Self {
+        Self {
+            parent_stable_id,
+            slot,
+        }
+    }
 }
 
 /// Every game object (unit, infantry, building, aircraft) is one `GameEntity`.
@@ -130,8 +149,10 @@ pub struct GameEntity {
     ///
     /// [`TechnoDiscoveryHistory`]: crate::sim::world::TechnoDiscoveryHistory
     pub(crate) discovery: crate::sim::world::TechnoDiscoveryHistory,
-    /// Authored structure-upgrade identity. `None` for ordinary Technos.
-    pub structure_upgrade_link: Option<StructureUpgradeLink>,
+    /// Authored structure-upgrade identity. `None` for ordinary Technos; the
+    /// authored upgrade's construction links it
+    /// ([`Self::link_structure_upgrade`]).
+    structure_upgrade_link: Option<StructureUpgradeLink>,
     /// World position in isometric cell coordinates + cached screen position.
     pub position: Position,
     /// The body heading, `TechnoClass+0x388` (PrimaryFacing), and its only
@@ -506,11 +527,11 @@ pub struct GameEntity {
     pub(crate) runtime_bridge_transition:
         crate::sim::movement::movement_bridge::RuntimeBridgeTransitionState,
     /// Infantry sprite animation state (sequence + frame + timing).
-    pub animation: Option<Animation>,
+    pub(crate) animation: Option<Animation>,
     /// Voxel HVA animation state (frame cycling for multi-frame models).
-    pub voxel_animation: Option<VoxelAnimation>,
+    pub(crate) voxel_animation: Option<crate::sim::animation::VoxelAnimation>,
     /// Harvest overlay animation (oregath.shp ore-gathering visual).
-    pub harvest_overlay: Option<HarvestOverlay>,
+    pub(crate) harvest_overlay: Option<crate::sim::animation::HarvestOverlay>,
     /// The harvester's hold, unload and harvest latches, a [`Miner`] that
     /// `sim::miner` owns; construction installs it for a harvester type.
     pub(crate) miner: Option<Miner>,
@@ -534,8 +555,9 @@ pub struct GameEntity {
     /// Last sensor coverage actually deposited into CellClass counters.
     /// Removal must use these cached owner/location/radius values after the
     /// entity's current facts have changed.
+    /// `sensor_lifecycle` owns it.
     #[serde(default)]
-    pub sensor_deposit: Option<crate::sim::sensor_lifecycle::SensorDeposit>,
+    pub(crate) sensor_deposit: Option<crate::sim::sensor_lifecycle::SensorDeposit>,
     /// Core disguise identity, timestamp, and reveal tuple, owned by
     /// `cloak_disguise`.
     #[serde(default)]
@@ -543,8 +565,9 @@ pub struct GameEntity {
     /// Active low-bridge TubeClass movement. Active YR behaviour — not to be
     /// confused with the subterranean tunnel locomotor, which is Tiberian Sun
     /// legacy and was removed as unreachable in stock YR.
+    /// `movement::tube_movement` owns it.
     #[serde(default)]
-    pub low_bridge_tube_state: Option<LowBridgeTubeMovementState>,
+    pub(crate) low_bridge_tube_state: Option<LowBridgeTubeMovementState>,
     /// Controller-owned reversible mind-control manager (`TechnoClass+0x2BC`),
     /// owned by `capture_manager`. Capacity and ordered victim links are
     /// authoritative runtime state; they cannot be reconstructed from the
@@ -555,7 +578,7 @@ pub struct GameEntity {
     /// Dreadnought, Boomer, Aircraft Carrier, Destroyer). Mirrors the native
     /// `TechnoClass+0x2D0` manager pointer: present iff `Spawns=` resolved.
     #[serde(default)]
-    pub spawn_manager: Option<crate::sim::spawn_manager::SpawnManagerState>,
+    pub(crate) spawn_manager: Option<crate::sim::spawn_manager::SpawnManagerState>,
     /// A spawned child's SpawnOwner (`TechnoClass+0x2D4`), a [`SpawnOwner`]
     /// that `spawn_manager` owns.
     ///
@@ -711,7 +734,7 @@ pub struct GameEntity {
     /// to their typed locomotor payloads. This defaults to `None` and becomes
     /// present only when an explicit body-rocking producer activates it.
     #[serde(default)]
-    pub rocking: Option<RockingState>,
+    pub(crate) rocking: Option<crate::sim::rocking::RockingState>,
     /// Exact native-width Mission state, owned by `sim::mission`: all writes
     /// pass through a named legacy compatibility adapter or the dormant
     /// exact-authority surface.
@@ -937,6 +960,19 @@ impl GameEntity {
     #[cfg(test)]
     pub(crate) fn install_native_stage_fixture(&mut self, stage: crate::sim::stage::StageClass) {
         self.stage = stage;
+    }
+
+    /// The authored upgrade's host and slot.
+    pub(crate) fn structure_upgrade_link(&self) -> Option<StructureUpgradeLink> {
+        self.structure_upgrade_link
+    }
+
+    /// An authored upgrade's construction links it to its host's slot.
+    pub(crate) fn link_structure_upgrade(&mut self, parent_stable_id: u64, slot: u8) {
+        self.structure_upgrade_link = Some(StructureUpgradeLink {
+            parent_stable_id,
+            slot,
+        });
     }
 
     /// Invalidate the one live Foot path head. Native callers write

@@ -1547,10 +1547,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // survivor roll and skips the engineer roll at death.
         0x6e3_u32.hash(hasher);
     }
-    if entity.techno_ctor_random_word() != 0 || entity.structure_upgrade_link.is_some() {
+    if entity.techno_ctor_random_word() != 0 || entity.structure_upgrade_link().is_some() {
         b"techno-constructor-v1".hash(hasher);
         entity.techno_ctor_random_word().hash(hasher);
-        entity.structure_upgrade_link.hash(hasher);
+        entity.structure_upgrade_link().hash(hasher);
     }
     // One retained native+F8/+FC/+100/+108/+10C/+110 clock, shared
     // by Infantry, harvest/unload and Building animation receivers.
@@ -1683,10 +1683,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         && let Some(animation) = entity.animation.as_ref()
     {
         b"entity-animation-v1".hash(hasher);
-        animation.sequence.hash(hasher);
-        animation.frame_index.hash(hasher);
-        animation.elapsed_frames.hash(hasher);
-        animation.finished.hash(hasher);
+        animation.sequence().hash(hasher);
+        animation.frame_index().hash(hasher);
+        animation.elapsed_frames().hash(hasher);
+        animation.finished().hash(hasher);
     }
     entity.owner().hash(hasher);
     entity.health.current().hash(hasher);
@@ -1852,7 +1852,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.on_bridge.hash(hasher);
     entity
         .runtime_bridge_transition
-        .pending_mismatch
+        .pending_mismatch()
         .hash(hasher);
     entity.building_light.spotlight_capable().hash(hasher);
     entity.building_light.light().hash(hasher);
@@ -1872,15 +1872,15 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     if let Some(deposit) = entity.sensor_deposit {
         1u8.hash(hasher);
-        deposit.owner.hash(hasher);
-        deposit.center.hash(hasher);
-        deposit.add_radius.hash(hasher);
-        deposit.remove_radius.hash(hasher);
-        deposit.building_array.hash(hasher);
+        deposit.owner().hash(hasher);
+        deposit.center().hash(hasher);
+        deposit.add_radius().hash(hasher);
+        deposit.remove_radius().hash(hasher);
+        deposit.building_array().hash(hasher);
         // The cached `DetectDisguiseRange=` circle. It is the
         // radius Limbo will decrement, so it selects which
         // cells leave the disguise-detect plane.
-        deposit.detect_disguise_radius.hash(hasher);
+        deposit.detect_disguise_radius().hash(hasher);
     } else {
         0u8.hash(hasher);
     }
@@ -2164,11 +2164,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // hashed with its active/stashed locomotor payload below.
     if let Some(ref r) = entity.rocking {
         1u8.hash(hasher);
-        r.angle_sideways.to_bits().hash(hasher);
-        r.angle_forwards.to_bits().hash(hasher);
-        r.vel_sideways.to_bits().hash(hasher);
-        r.vel_forwards.to_bits().hash(hasher);
-        r.is_ship_rocking.hash(hasher);
+        r.angle_sideways().to_bits().hash(hasher);
+        r.angle_forwards().to_bits().hash(hasher);
+        r.vel_sideways().to_bits().hash(hasher);
+        r.vel_forwards().to_bits().hash(hasher);
+        r.is_ship_rocking().hash(hasher);
     } else {
         0u8.hash(hasher);
     }
@@ -3728,15 +3728,15 @@ mod tube_movement_hash_tests {
         exact_z.position.exact_z_leptons = Some(-36);
         assert_ne!(exact_z_hash, hash_entity(exact_z));
 
-        let state = LowBridgeTubeMovementState {
-            tube_id: TubeId(3),
-            cursor: 1,
-            target: DriveCoord {
+        let state = LowBridgeTubeMovementState::for_test(
+            TubeId(3),
+            1,
+            DriveCoord {
                 x: 640,
                 y: 128,
                 z: -19,
             },
-        };
+        );
         let mut active = fixture;
         active.position.exact_z_leptons = Some(-37);
         active.low_bridge_tube_state = Some(state);
@@ -3744,31 +3744,39 @@ mod tube_movement_hash_tests {
         assert_ne!(exact_z_hash, active_hash);
 
         let variants = [
-            LowBridgeTubeMovementState {
-                tube_id: TubeId(4),
-                ..state
+            {
+                let mut value = state;
+                value.set_tube_id_for_test(TubeId(4));
+                value
             },
-            LowBridgeTubeMovementState { cursor: 2, ..state },
-            LowBridgeTubeMovementState {
-                target: DriveCoord {
+            {
+                let mut value = state;
+                value.set_cursor_for_test(2);
+                value
+            },
+            {
+                let mut value = state;
+                value.set_target_for_test(DriveCoord {
                     x: 641,
-                    ..state.target
-                },
-                ..state
+                    ..state.target()
+                });
+                value
             },
-            LowBridgeTubeMovementState {
-                target: DriveCoord {
+            {
+                let mut value = state;
+                value.set_target_for_test(DriveCoord {
                     y: 129,
-                    ..state.target
-                },
-                ..state
+                    ..state.target()
+                });
+                value
             },
-            LowBridgeTubeMovementState {
-                target: DriveCoord {
+            {
+                let mut value = state;
+                value.set_target_for_test(DriveCoord {
                     z: -18,
-                    ..state.target
-                },
-                ..state
+                    ..state.target()
+                });
+                value
             },
         ];
         for variant in variants {
@@ -3952,19 +3960,19 @@ mod infantry_hash_tests {
         assert_ne!(absent, base_hash);
 
         let mut sequence = base.clone();
-        sequence.sequence = SequenceKind::Attack;
+        sequence.set_sequence_for_test(SequenceKind::Attack);
         assert_ne!(base_hash, hash(Some(sequence)));
 
         let mut frame_index = base.clone();
-        frame_index.frame_index = 1;
+        frame_index.set_frame_index_for_test(1);
         assert_ne!(base_hash, hash(Some(frame_index)));
 
         let mut elapsed_frames = base.clone();
-        elapsed_frames.elapsed_frames = 1;
+        elapsed_frames.set_elapsed_frames_for_test(1);
         assert_ne!(base_hash, hash(Some(elapsed_frames)));
 
         let mut finished = base;
-        finished.finished = true;
+        finished.set_finished_for_test(true);
         assert_ne!(base_hash, hash(Some(finished)));
     }
 
@@ -3974,9 +3982,9 @@ mod infantry_hash_tests {
         // restore cannot become a second simulation clock through hashing.
         let absent = hash_with_animation(EntityCategory::Infantry, None);
         let mut animation = Animation::new(SequenceKind::Die1);
-        animation.frame_index = u16::MAX;
-        animation.elapsed_frames = u16::MAX;
-        animation.finished = true;
+        animation.set_frame_index_for_test(u16::MAX);
+        animation.set_elapsed_frames_for_test(u16::MAX);
+        animation.set_finished_for_test(true);
         assert_eq!(
             absent,
             hash_with_animation(EntityCategory::Infantry, Some(animation))
@@ -4354,8 +4362,8 @@ mod rocking_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
     use crate::sim::combat::Health;
-    use crate::sim::components::RockingState;
     use crate::sim::game_entity::GameEntity;
+    use crate::sim::rocking::RockingState;
     use crate::util::fixed_math::SimFixed;
 
     fn make_sim_with_one_vehicle() -> Simulation {
@@ -4391,9 +4399,10 @@ mod rocking_hash_tests {
         // Mutate only the rocking state of one — hashes must diverge.
         let mut a = a;
         let id = a.substrate.entities.values().next().unwrap().stable_id();
-        a.substrate.entities.get_mut(id).unwrap().rocking = Some(RockingState {
-            angle_sideways: SimFixed::lit("0.1"),
-            ..Default::default()
+        a.substrate.entities.get_mut(id).unwrap().rocking = Some({
+            let mut value = RockingState::default();
+            value.set_angle_sideways_for_test(SimFixed::lit("0.1"));
+            value
         });
         assert_ne!(a.state_hash(), b.state_hash());
     }
@@ -4404,13 +4413,15 @@ mod rocking_hash_tests {
         let mut b = make_sim_with_one_vehicle();
         let id_a = a.substrate.entities.values().next().unwrap().stable_id();
         let id_b = b.substrate.entities.values().next().unwrap().stable_id();
-        a.substrate.entities.get_mut(id_a).unwrap().rocking = Some(RockingState {
-            vel_sideways: SimFixed::lit("0.01"),
-            ..Default::default()
+        a.substrate.entities.get_mut(id_a).unwrap().rocking = Some({
+            let mut value = RockingState::default();
+            value.set_vel_sideways_for_test(SimFixed::lit("0.01"));
+            value
         });
-        b.substrate.entities.get_mut(id_b).unwrap().rocking = Some(RockingState {
-            vel_sideways: SimFixed::lit("0.02"),
-            ..Default::default()
+        b.substrate.entities.get_mut(id_b).unwrap().rocking = Some({
+            let mut value = RockingState::default();
+            value.set_vel_sideways_for_test(SimFixed::lit("0.02"));
+            value
         });
         assert_ne!(a.state_hash(), b.state_hash());
     }

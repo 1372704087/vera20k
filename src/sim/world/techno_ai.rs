@@ -6777,15 +6777,15 @@ mod tests {
             .entities
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
-            .low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-            tube_id: TubeId(0),
-            cursor: 0,
-            target: DriveCoord {
+            .low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+            TubeId(0),
+            0,
+            DriveCoord {
                 x: 6 * 256 + 128,
                 y: 5 * 256 + 128,
                 z: 0,
             },
-        });
+        ));
         assert_ordinary_drive_host_error(
             &low_bridge_tube,
             &control,

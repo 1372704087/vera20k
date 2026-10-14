@@ -30,7 +30,7 @@ use crate::render::unit_slope_transition_cache::{
     TransitionUnitSpriteEntry, TransitionUnitSpriteKey,
 };
 use crate::rules::house_colors::{self, HouseColorIndex};
-use crate::sim::components::HarvestOverlay;
+use crate::sim::animation::HarvestOverlay;
 #[cfg(test)]
 use crate::sim::movement::slope_transition::SLOPE_TRANSITION_FRAMES;
 use crate::sim::voxel_frame_catalog::{
@@ -625,7 +625,7 @@ pub(crate) fn build_unit_instances(
             display_binary_frame,
         );
         if let Some(ref ho) = entity.harvest_overlay
-            && ho.visible
+            && ho.visible()
             && !moving
             && let Some((page, instance)) = emit_harvest_overlay(
                 state,
@@ -687,7 +687,7 @@ fn unit_animation_frames(
     let body = if entity.category() != EntityCategory::Unit {
         entity
             .voxel_animation
-            .map_or(0, |animation| animation.frame)
+            .map_or(0, |animation| animation.frame())
     } else {
         let frames = frame_counts
             .get(&(model.to_string(), VxlLayer::Body, 0))
@@ -843,8 +843,8 @@ fn body_pose(
     }
     let rocking = entity.rocking.as_ref()?;
     let angles = [
-        rocking.angle_sideways.to_num::<f32>(),
-        rocking.angle_forwards.to_num::<f32>(),
+        rocking.angle_sideways().to_num::<f32>(),
+        rocking.angle_forwards().to_num::<f32>(),
     ];
     match locomotor.kind {
         LocomotorKind::Fly if entity.crash.is_crashing() && band != EntityDrawBand::Ground => {
@@ -946,7 +946,7 @@ fn turret_images_cached(
         crate::util::fixed_math::SimFixed::lit("0.005");
     matches!(slope_state, UnitRenderSlopeState::Stable(_))
         && entity.rocking.as_ref().is_none_or(|rocking| {
-            rocking.angle_sideways.abs() < TILT_GATE && rocking.angle_forwards.abs() < TILT_GATE
+            rocking.angle_sideways().abs() < TILT_GATE && rocking.angle_forwards().abs() < TILT_GATE
         })
 }
 
@@ -1646,7 +1646,7 @@ fn emit_harvest_overlay(
     // Map body facing (0-255) to counter-clockwise SHP frame index (0..7).
     // +32 offset for isometric rotation (SHP frame 0 = screen-N, not cell-N).
     let facing_index: u16 = (8 - (body_facing.wrapping_add(32) / 32) as u16) % 8;
-    let shp_frame: u16 = facing_index * 15 + overlay.frame;
+    let shp_frame: u16 = facing_index * 15 + overlay.frame();
     let key = ShpSpriteKey {
         palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
         type_id: "OREGATH".to_string(),
@@ -1734,9 +1734,7 @@ mod tests {
     use crate::sim::intern::InternedId;
     use crate::sim::movement::locomotor::LocomotorState;
     use crate::sim::snapshot::GameSnapshot;
-    use crate::sim::spawn_manager::{
-        SpawnManagerMode, SpawnManagerState, SpawnSlot, SpawnSlotState,
-    };
+    use crate::sim::spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState};
     use crate::sim::timer::CdTimer;
     use crate::sim::world::Simulation;
 
@@ -1913,10 +1911,11 @@ mod tests {
             BodyDraw::Composite
         );
         entity.crash.set_crashing_for_test(true);
-        entity.rocking = Some(crate::sim::components::RockingState {
-            angle_sideways: crate::util::fixed_math::SimFixed::from_num(0.5),
-            angle_forwards: crate::util::fixed_math::SimFixed::from_num(-0.25),
-            ..Default::default()
+        entity.rocking = Some({
+            let mut value = crate::sim::rocking::RockingState::default();
+            value.set_angle_sideways_for_test(crate::util::fixed_math::SimFixed::from_num(0.5));
+            value.set_angle_forwards_for_test(crate::util::fixed_math::SimFixed::from_num(-0.25));
+            value
         });
         for turret_parts in [false, true] {
             assert_eq!(
@@ -1940,10 +1939,11 @@ mod tests {
             BodyDraw::Pose(PoseTilt::Jumpjet([0.5, -0.25]))
         );
         // Under 0.005 on both axes the Jumpjet draws its plain facing matrix.
-        entity.rocking = Some(crate::sim::components::RockingState {
-            angle_sideways: crate::util::fixed_math::SimFixed::from_num(0.004),
-            angle_forwards: crate::util::fixed_math::SimFixed::from_num(-0.004),
-            ..Default::default()
+        entity.rocking = Some({
+            let mut value = crate::sim::rocking::RockingState::default();
+            value.set_angle_sideways_for_test(crate::util::fixed_math::SimFixed::from_num(0.004));
+            value.set_angle_forwards_for_test(crate::util::fixed_math::SimFixed::from_num(-0.004));
+            value
         });
         assert!(matches!(
             body_draw(&entity, EntityDrawBand::Top, 0, true, true),
@@ -2196,28 +2196,24 @@ mod tests {
     }
 
     fn spawn_manager(states: &[SpawnSlotState]) -> SpawnManagerState {
-        SpawnManagerState {
-            spawn_type: InternedId::default(),
-            missile_family: None,
-            regen_rate: 400,
-            reload_rate: 0,
-            kamikaze_wait_frames: 0,
-            slots: states
+        let mut manager = SpawnManagerState::for_test(
+            InternedId::default(),
+            states
                 .iter()
                 .enumerate()
-                .map(|(index, &state)| SpawnSlot {
-                    spawn: (state != SpawnSlotState::Regenerating).then_some(index as u64 + 1),
-                    state,
-                    timer: CdTimer::default(),
-                    is_missile_spawn: true,
+                .map(|(index, &state)| {
+                    SpawnSlot::for_test(
+                        (state != SpawnSlotState::Regenerating).then_some(index as u64 + 1),
+                        state,
+                        CdTimer::default(),
+                        true,
+                    )
                 })
                 .collect(),
-            update_timer: CdTimer::started(10, 20),
-            spawn_timer: CdTimer::default(),
-            current_target: None,
-            queued_target: None,
-            mode: SpawnManagerMode::Idle,
-        }
+        );
+        manager.set_rates_for_test(400, 0);
+        manager.set_update_timer_for_test(CdTimer::started(10, 20));
+        manager
     }
 
     #[test]
@@ -2278,10 +2274,10 @@ mod tests {
     #[test]
     fn gsi_13_07_no_spawn_alt_selection_is_not_manager_timer_gated() {
         let mut manager = spawn_manager(&[SpawnSlotState::ReadyDocked]);
-        assert!(!manager.update_timer.expired(10));
+        assert!(!manager.update_timer().expired(10));
         assert_eq!(no_spawn_alt_type_id("V3", true, Some(&manager)), None);
 
-        manager.slots[0].state = SpawnSlotState::InFlight;
+        manager.slots_mut_for_test()[0].set_state_for_test(SpawnSlotState::InFlight);
         assert_eq!(
             no_spawn_alt_type_id("V3", true, Some(&manager)).as_deref(),
             Some("V3WO"),

@@ -48,15 +48,29 @@ pub(super) enum BridgeStateUpdate {
     Unchanged,
 }
 
-/// Persisted analogue of the runtime Foot bridge-state mismatch byte.
+/// Persisted analogue of the runtime Foot bridge-state mismatch byte
+/// (`Foot+0x68B`).
 ///
-/// The owner integration stores this alongside locomotor runtime state. It is
-/// intentionally independent from A* bridge-layer selection and from the
-/// `on_bridge` occupancy byte.
+/// The Foot constructor zeroes it (`0x004D33BA`); the Drive (`0x004B3391`,
+/// `0x004B45ED`) and Walk (`0x0075B662`) movement processors set it when the
+/// candidate cell's bridge bit and the current bridge state differ
+/// ([`Self::latch`]), and nothing clears it. It is intentionally independent
+/// from A* bridge-layer selection and from the `on_bridge` occupancy byte.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RuntimeBridgeTransitionState {
-    /// Set when candidate bridge bit and current bridge state differ.
-    pub pending_mismatch: bool,
+    pending_mismatch: bool,
+}
+
+impl RuntimeBridgeTransitionState {
+    /// `Foot+0x68B`: a bridge mismatch was seen.
+    pub(crate) const fn pending_mismatch(self) -> bool {
+        self.pending_mismatch
+    }
+
+    /// The mismatch store, `Foot+0x68B = 1`.
+    pub(super) fn latch(&mut self) {
+        self.pending_mismatch = true;
+    }
 }
 
 /// Read-only runtime bridge row for oracle diagnostics.

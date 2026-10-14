@@ -1054,7 +1054,7 @@ impl Simulation {
     /// the hashed `RuntimeBridgeTransitionState::pending_mismatch`.
     pub(super) fn latch_foot_68b(&mut self, id: u64) {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            actor.runtime_bridge_transition.pending_mismatch = true;
+            actor.runtime_bridge_transition.latch();
         }
     }
 

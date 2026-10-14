@@ -33,8 +33,8 @@
 
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::RockingState;
 use crate::sim::movement::air_movement::current_fly_height;
+use crate::sim::rocking::RockingState;
 use crate::sim::world::FrameEffects;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{NativeF64Bits, X87Chop53};
@@ -187,9 +187,7 @@ impl Simulation {
             }
             let vel_forwards = spin_rate(forwards, SPIN_TENTH, None);
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                let rocking = entity.rocking.get_or_insert_with(RockingState::default);
-                rocking.vel_sideways = vel_sideways;
-                rocking.vel_forwards = vel_forwards;
+                RockingState::spin_for_crash(&mut entity.rocking, vel_sideways, vel_forwards);
             }
         }
         self.detach_all_pointer_expired(id, rules, registry, frame_effects);

@@ -2748,15 +2748,15 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
         for _ in 0..41 {
             entity.mission.increment_ai_counter();
         }
-        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-            tube_id: TubeId(0),
-            cursor: 1,
-            target: DriveCoord {
+        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+            TubeId(0),
+            1,
+            DriveCoord {
                 x: 384,
                 y: 128,
                 z: 17,
             },
-        });
+        ));
         sim.substrate.entities.insert(entity);
         let original_building_owner = sim.interner.intern("Russians");
         // Keep the later combat/capture target adjacent to the Tube exit.

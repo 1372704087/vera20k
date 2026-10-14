@@ -285,7 +285,10 @@ fn a_return_order_ends_the_harvesting_byte_and_oregath() {
     assert!(!sample.harvesting, "Unit+0x6D2 cleared by the unit AI");
     let miner = s.sim.substrate.entities.get(s.miner).unwrap();
     assert!(
-        miner.harvest_overlay.as_ref().is_none_or(|ho| !ho.visible),
+        miner
+            .harvest_overlay
+            .as_ref()
+            .is_none_or(|ho| !ho.visible()),
         "OREGATH hidden with the byte"
     );
 }

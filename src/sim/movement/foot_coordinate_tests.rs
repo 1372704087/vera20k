@@ -143,11 +143,11 @@ fn world_queries_match_all_original_foot_coordinate_rows_and_snapshot() {
                 vec![],
                 vec![TubeFact::explicit((0, 0), exit, 0, vec![0])],
             ));
-            e.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-                tube_id: TubeId(0),
-                cursor: 0,
-                target: NULL_COORD,
-            });
+            e.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+                TubeId(0),
+                0,
+                NULL_COORD,
+            ));
         }
         sim.substrate.entities.insert(e);
         assert_eq!(
@@ -196,11 +196,11 @@ fn hover_reads_its_location_z_and_at_coord_ignores_tube_exit() {
     e.position.exact_z_leptons = None;
     e.position.z = 1;
     assert_eq!(navigation_coordinate(&e, None).unwrap().z, 104);
-    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-        tube_id: TubeId(0),
-        cursor: 0,
-        target: NULL_COORD,
-    });
+    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+        TubeId(0),
+        0,
+        NULL_COORD,
+    ));
     let terrain = ResolvedTerrainGrid::from_cells_with_tubes(
         1,
         1,
@@ -285,11 +285,11 @@ fn missing_foot_receiver_is_an_error_and_tube_does_not_hide_missing_descriptor()
     let mut e = entity(1, LocomotorKind::Drive, NULL_COORD, NULL_COORD);
     e.locomotor = None;
     assert!(navigation_coordinate(&e, None).is_err());
-    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-        tube_id: TubeId(0),
-        cursor: 0,
-        target: NULL_COORD,
-    });
+    e.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+        TubeId(0),
+        0,
+        NULL_COORD,
+    ));
     e.locomotor = None;
     assert!(
         navigation_coordinate(&e, None)

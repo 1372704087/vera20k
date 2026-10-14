@@ -423,7 +423,7 @@ pub(super) mod retail_tests {
                 .entities
                 .get(v3)
                 .and_then(|e| e.spawn_manager.as_ref())
-                .and_then(|m| m.slots[0].spawn)
+                .and_then(|m| m.slots()[0].spawn())
                 .expect("the V3 builds its missile");
             let mut seen_anims: BTreeSet<_> = sim.anims().map(|(&id, _)| id).collect();
             let mut anim_names = BTreeSet::new();
@@ -751,12 +751,12 @@ pub(super) mod retail_tests {
                 .entities
                 .get(dred)
                 .and_then(|e| e.spawn_manager.as_ref())
-                .map(|m| m.slots.clone())
+                .map(|m| m.slots().to_vec())
                 .unwrap_or_default();
             for (slot, missile) in slots
                 .iter()
                 .enumerate()
-                .filter_map(|(slot, s)| Some((slot, s.spawn?)))
+                .filter_map(|(slot, s)| Some((slot, s.spawn()?)))
             {
                 let out = sim
                     .substrate
@@ -916,15 +916,15 @@ pub(super) mod retail_tests {
                 .entities
                 .get(carrier)
                 .and_then(|e| e.spawn_manager.as_ref())
-                .map(|m| m.slots.clone())
+                .map(|m| m.slots().to_vec())
                 .unwrap_or_default();
             states.resize(slots.len(), Vec::new());
             for (seen, slot) in states.iter_mut().zip(&slots) {
-                if seen.last() != Some(&slot.state) {
-                    seen.push(slot.state);
+                if seen.last() != Some(&slot.state()) {
+                    seen.push(slot.state());
                 }
             }
-            let hornets: BTreeSet<u64> = slots.iter().filter_map(|slot| slot.spawn).collect();
+            let hornets: BTreeSet<u64> = slots.iter().filter_map(|slot| slot.spawn()).collect();
             let goal = [
                 i32::from(target_cell.0) * 256 + 128,
                 i32::from(target_cell.1) * 256 + 128,
@@ -1088,7 +1088,7 @@ pub(super) mod retail_tests {
             .entities
             .get(v3)
             .and_then(|e| e.spawn_manager.as_ref())
-            .and_then(|m| m.slots[0].spawn)
+            .and_then(|m| m.slots()[0].spawn())
             .expect("the V3 builds its missile");
         let mut seen_anims: BTreeSet<_> = sim.anims().map(|(&id, _)| id).collect();
         let mut tracked = None;
@@ -1133,18 +1133,18 @@ pub(super) mod retail_tests {
                 .entities
                 .get(v3)
                 .and_then(|e| e.spawn_manager.as_ref())
-                .map(|m| m.slots[0].clone())
+                .map(|m| m.slots()[0].clone())
                 .expect("the V3's slot");
             assert_eq!(
                 sim.substrate.entities.get(target).unwrap().health.current(),
                 strength,
                 "the rocket never reaches the target"
             );
-            if slot.state == SpawnSlotState::Regenerating {
+            if slot.state() == SpawnSlotState::Regenerating {
                 freed.get_or_insert(frame);
             }
             if detonated.is_some() {
-                if slot.state == SpawnSlotState::ReadyDocked && slot.spawn.is_some() {
+                if slot.state() == SpawnSlotState::ReadyDocked && slot.spawn().is_some() {
                     refilled = Some(frame);
                     break;
                 }

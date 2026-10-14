@@ -89,17 +89,19 @@ pub fn infantry_facing_slot(facing: u8) -> u16 {
 /// Attach to any entity that should animate. The `tick_animations()` system
 /// reads and updates this each frame. The render loop reads `sequence` and
 /// `frame_index` to select the correct SHP frame via `resolve_shp_frame()`.
+/// Only this module writes it. Its native counterpart has not been traced
+/// (#1593).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Animation {
     /// Currently playing sequence.
-    pub sequence: SequenceKind,
+    sequence: SequenceKind,
     /// Current frame within the sequence (0 to frame_count - 1).
     /// Infantry draws from its private native Stage and Doing instead.
-    pub frame_index: u16,
+    frame_index: u16,
     /// Reached native frames accumulated since the last image advance.
-    pub elapsed_frames: u16,
+    elapsed_frames: u16,
     /// True if a HoldLast sequence has reached its final frame.
-    pub finished: bool,
+    finished: bool,
 }
 
 impl Animation {
@@ -113,6 +115,26 @@ impl Animation {
         }
     }
 
+    /// The playing sequence.
+    pub fn sequence(&self) -> SequenceKind {
+        self.sequence
+    }
+
+    /// The frame within the sequence.
+    pub fn frame_index(&self) -> u16 {
+        self.frame_index
+    }
+
+    /// Reached native frames since the last image advance.
+    pub fn elapsed_frames(&self) -> u16 {
+        self.elapsed_frames
+    }
+
+    /// A HoldLast sequence reached its last frame.
+    pub fn finished(&self) -> bool {
+        self.finished
+    }
+
     /// Switch to a different sequence, resetting frame and timing.
     /// No-op if already playing the requested sequence.
     pub fn switch_to(&mut self, sequence: SequenceKind) {
@@ -122,6 +144,30 @@ impl Animation {
             self.elapsed_frames = 0;
             self.finished = false;
         }
+    }
+
+    /// Install a fixture's sequence.
+    #[cfg(test)]
+    pub(crate) fn set_sequence_for_test(&mut self, sequence: SequenceKind) {
+        self.sequence = sequence;
+    }
+
+    /// Install a fixture's frame.
+    #[cfg(test)]
+    pub(crate) fn set_frame_index_for_test(&mut self, frame_index: u16) {
+        self.frame_index = frame_index;
+    }
+
+    /// Install a fixture's elapsed frames.
+    #[cfg(test)]
+    pub(crate) fn set_elapsed_frames_for_test(&mut self, elapsed_frames: u16) {
+        self.elapsed_frames = elapsed_frames;
+    }
+
+    /// Install a fixture's HoldLast end.
+    #[cfg(test)]
+    pub(crate) fn set_finished_for_test(&mut self, finished: bool) {
+        self.finished = finished;
     }
 }
 
@@ -596,6 +642,128 @@ pub(crate) fn tick_dying_animation(
     };
     advance_animation(anim, def, game_options);
     anim.finished
+}
+
+/// Per-entity voxel HVA animation state.
+///
+/// Attached to voxel entities that cycle through HVA animation frames at runtime.
+/// Used for harvesting miners (arm/turret animation), and potentially other voxel
+/// units with multi-frame HVA files. The render loop reads `frame` to select
+/// the correct pre-rendered atlas sprite.
+///
+/// gamemd keeps no such clock: `UnitClass::DrawVoxelBody @ 0x0073B470` takes
+/// the HVA frame as `FootClass+0x538` modulo the HVA's frame count
+/// (`0x0073B4DA..0x0073B4E7`), so this one is a residual (#1593).
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct VoxelAnimation {
+    /// Current HVA frame index (0-based).
+    frame: u32,
+    /// Total number of HVA animation frames.
+    frame_count: u32,
+    /// Reached native frames accumulated since last image advance.
+    elapsed_frames: u16,
+    /// Reached native frames per image. 0 = no auto-advance.
+    frame_delay: u16,
+    /// Whether the animation is currently playing (cycling frames).
+    playing: bool,
+}
+
+impl VoxelAnimation {
+    /// Create a new VoxelAnimation in stopped state.
+    pub fn new(frame_count: u32, frame_delay: u16) -> Self {
+        Self {
+            frame: 0,
+            frame_count,
+            elapsed_frames: 0,
+            frame_delay,
+            playing: false,
+        }
+    }
+
+    /// The HVA frame to draw.
+    pub fn frame(&self) -> u32 {
+        self.frame
+    }
+
+    /// The HVA's frame count.
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    /// Reached native frames since the last image advance.
+    pub fn elapsed_frames(&self) -> u16 {
+        self.elapsed_frames
+    }
+
+    /// Reached native frames per image.
+    pub fn frame_delay(&self) -> u16 {
+        self.frame_delay
+    }
+
+    /// The animation cycles.
+    pub fn playing(&self) -> bool {
+        self.playing
+    }
+
+    /// The loaded HVA's frame count, once the unit atlas knows it. Answers
+    /// whether it changed.
+    pub(crate) fn adopt_frame_count(&mut self, frame_count: u32) -> bool {
+        let changed = self.frame_count != frame_count;
+        self.frame_count = frame_count;
+        changed
+    }
+}
+
+/// Harvest overlay animation state for the oregath.shp ore-gathering sprite.
+///
+/// Attached to harvester entities (HARV, CMIN). Shows the visual "sucking up ore"
+/// animation as an SHP overlay on top of the VXL body when actively harvesting.
+/// Uses the effect palette (anim.pal), independent of house colors.
+///
+/// gamemd keeps no such state: `UnitClass::DrawIt @ 0x0073CEC0` draws
+/// `OREGATH.SHP` frame `(FootClass+0x538 + frame) % 15` for the facing
+/// (`0x0073D25C..0x0073D273`), so this one is a residual (#1593).
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct HarvestOverlay {
+    /// Current animation frame (0..14, 15 frames per facing direction).
+    frame: u16,
+    /// Whether the overlay is currently visible and animating.
+    visible: bool,
+}
+
+impl HarvestOverlay {
+    /// A hidden overlay at frame 0, the constructor's.
+    pub(crate) const fn hidden() -> Self {
+        Self {
+            frame: 0,
+            visible: false,
+        }
+    }
+
+    /// The frame to draw.
+    pub fn frame(&self) -> u16 {
+        self.frame
+    }
+
+    /// The overlay is drawn and animating.
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+
+    /// The miner's sync: the overlay follows Unit+0x6D2 (harvesting),
+    /// restarting at frame 0 when it shows or hides.
+    pub(crate) fn follow(&mut self, harvesting: bool) {
+        if harvesting != self.visible {
+            self.visible = harvesting;
+            self.frame = 0;
+        }
+    }
+
+    /// Install a fixture's overlay.
+    #[cfg(test)]
+    pub(crate) fn for_test(frame: u16, visible: bool) -> Self {
+        Self { frame, visible }
+    }
 }
 
 /// Number of animation frames in oregath.shp per facing direction.

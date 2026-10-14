@@ -389,7 +389,7 @@ mod tests {
             .as_ref()
             .expect("has anim");
         assert_eq!(
-            anim.sequence,
+            anim.sequence(),
             SequenceKind::Stand,
             "normal paradrops render the attached PARACH anim, not body Paradrop frames"
         );
@@ -610,7 +610,7 @@ mod tests {
                 .animation
                 .as_ref()
                 .unwrap()
-                .sequence
+                .sequence()
         };
         assert_eq!(sequence(&sim), SequenceKind::Stand);
 
@@ -658,7 +658,7 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(
-            anim.sequence,
+            anim.sequence(),
             SequenceKind::Die1,
             "must NOT overwrite Die1 with Stand on landing"
         );

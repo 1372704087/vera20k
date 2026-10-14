@@ -10,8 +10,8 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::object_type::{FactoryType, ObjectType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::animation::{Animation, SequenceKind};
+use crate::sim::animation::{HarvestOverlay, VoxelAnimation};
 use crate::sim::combat::Health;
-use crate::sim::components::{HarvestOverlay, VoxelAnimation};
 use crate::sim::game_entity::{GameEntity, TechnoConstructorInit};
 use crate::sim::miner::{Miner, MinerConfig, miner_kind_for_object};
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
@@ -235,10 +235,7 @@ impl Simulation {
             let mcfg: MinerConfig = rules.map(MinerConfig::from_rules).unwrap_or_default();
             let storage = obj.storage.max(0) as u16;
             ge.miner = Some(Miner::new(kind, &mcfg, storage));
-            ge.harvest_overlay = Some(HarvestOverlay {
-                frame: 0,
-                visible: false,
-            });
+            ge.harvest_overlay = Some(HarvestOverlay::hidden());
         }
         // Passenger cargo for transports and garrisonable buildings.
         if obj.passengers > 0 {

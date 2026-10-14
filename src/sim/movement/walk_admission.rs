@@ -82,7 +82,7 @@ impl Simulation {
                 .get_mut(id)
                 .ok_or("retired Walk admission owner")?
                 .runtime_bridge_transition
-                .pending_mismatch = true;
+                .latch();
         }
         let (height, cell) = {
             let cells = NativeCellQuery::canonical(self.resolved_terrain.as_ref().unwrap());

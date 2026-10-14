@@ -368,9 +368,9 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| {
                         manager
-                            .slots
+                            .slots()
                             .iter()
-                            .map(|slot| slot.spawn)
+                            .map(|slot| slot.spawn())
                             .collect::<Vec<_>>()
                     }),
                     entity.slave.owner(),
@@ -417,9 +417,9 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     entity.techno_ctor_random_word(),
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| manager
-                        .slots
+                        .slots()
                         .iter()
-                        .map(|slot| slot.spawn)
+                        .map(|slot| slot.spawn())
                         .collect::<Vec<_>>()),
                     entity.slave.owner(),
                     entity.slave_manager.clone(),

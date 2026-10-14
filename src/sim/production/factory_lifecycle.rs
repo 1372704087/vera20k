@@ -998,9 +998,9 @@ pub(crate) fn validate_restored_factory_state(
             .expect("validated factory root");
         let spawn_alias = entity.spawn_manager.as_ref().is_some_and(|manager| {
             manager
-                .slots
+                .slots()
                 .iter()
-                .filter_map(|slot| slot.spawn)
+                .filter_map(|slot| slot.spawn())
                 .any(|id| roots.contains(&id))
         });
         let slave_alias = entity

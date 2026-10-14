@@ -4076,6 +4076,7 @@ impl Simulation {
     /// reconciles every existing entity, so existing and future entities
     /// always agree with the toggle. Enabling preserves logs an entity
     /// already accumulated; disabling drops them all.
+    #[cfg(any(feature = "dev-overlays", test))]
     pub(crate) fn set_debug_event_logging(&mut self, enabled: bool) {
         self.debug_event_logging = enabled;
         for entity in self.substrate.entities.values_mut() {

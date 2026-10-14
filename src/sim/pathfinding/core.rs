@@ -1019,7 +1019,7 @@ pub struct PathCell {
 pub const INFANTRY_SUBCELL_MASK: u8 = 0x1C;
 
 /// Whether a terrain object with these cell-plane bits closes the cell to infantry.
-pub fn terrain_object_blocks_infantry(cell_bits: u8) -> bool {
+fn terrain_object_blocks_infantry(cell_bits: u8) -> bool {
     cell_bits & INFANTRY_SUBCELL_MASK == INFANTRY_SUBCELL_MASK
 }
 

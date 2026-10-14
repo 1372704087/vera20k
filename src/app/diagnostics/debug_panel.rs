@@ -211,13 +211,15 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 );
             }
 
-            // Show terrain cost for common SpeedTypes at cursor cell.
-            // The active overlay SpeedType is highlighted.
-            if let Some(sim) = state
+            // Show the cursor cell's land row for common SpeedTypes: the
+            // value Can_Enter_Cell reads. The active overlay SpeedType is
+            // highlighted.
+            if let Some(cell) = state
                 .match_state
                 .sim_runtime
                 .as_ref()
-                .map(|rt| &rt.simulation)
+                .and_then(|rt| rt.simulation.resolved_terrain.as_ref())
+                .and_then(|terrain| terrain.cell(cursor_rx, cursor_ry))
             {
                 use crate::rules::locomotor_type::SpeedType;
                 let speed_types = [
@@ -228,25 +230,23 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                     (SpeedType::Amphibious, "Amphibious"),
                 ];
                 for (st, name) in &speed_types {
-                    if let Some(cg) = sim.terrain_costs.get(st) {
-                        let cost = cg.cost_at(cursor_rx, cursor_ry);
-                        let label = if cost == 0 {
-                            format!("{}: BLOCKED", name)
+                    let cost = super::debug_overlays::land_row(cell, *st);
+                    let label = if cost == 0 {
+                        format!("{}: BLOCKED", name)
+                    } else {
+                        format!("{}: row={}%", name, cost)
+                    };
+                    let is_active = *st == active_st;
+                    let color = if is_active {
+                        if cost == 0 {
+                            egui::Color32::from_rgb(180, 0, 0)
                         } else {
-                            format!("{}: cost={}", name, cost)
-                        };
-                        let is_active = *st == active_st;
-                        let color = if is_active {
-                            if cost == 0 {
-                                egui::Color32::from_rgb(180, 0, 0)
-                            } else {
-                                egui::Color32::from_rgb(20, 120, 20)
-                            }
-                        } else {
-                            egui::Color32::from_rgb(130, 130, 130)
-                        };
-                        ui.colored_label(color, label);
-                    }
+                            egui::Color32::from_rgb(20, 120, 20)
+                        }
+                    } else {
+                        egui::Color32::from_rgb(130, 130, 130)
+                    };
+                    ui.colored_label(color, label);
                 }
             }
 

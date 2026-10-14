@@ -17,7 +17,7 @@
 //!
 //! Scope note: this is a determinism + baseline guard, not a miner-dock test.
 //! Driving a harvester physically to ore and through the full refinery dock
-//! handshake needs movement world-setup (terrain costs / resolved terrain) that
+//! handshake needs movement world-setup (resolved terrain, navigation) that
 //! the dedicated miner-dock suite (`miner_tests.rs`) provides and owns; this
 //! harness only guards that the miner system stays wired and deterministic.
 //!

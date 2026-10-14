@@ -4118,12 +4118,6 @@ mod tests {
             &terrain_state,
             sim.resolved_terrain.as_mut(),
         );
-        sim.terrain_costs =
-            crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
-                sim.resolved_terrain
-                    .as_ref()
-                    .expect("pre-damage resolved terrain"),
-            );
         let initial_path = crate::sim::pathfinding::PathGrid::from_resolved_terrain(
             sim.resolved_terrain
                 .as_ref()

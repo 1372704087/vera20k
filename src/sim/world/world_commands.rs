@@ -352,7 +352,7 @@ impl Simulation {
     }
 
     /// Publish one wall-sale RecalcAttributes result to the transaction-local
-    /// path/cost view and the retained base movement-class topology. Zone ID
+    /// path view and the retained base movement-class topology. Zone ID
     /// assignment remains owned by the ordered native repair callback.
     fn refresh_wall_sale_recalc_prefix(
         &mut self,
@@ -366,11 +366,6 @@ impl Simulation {
         };
 
         if navigation_changed {
-            crate::sim::pathfinding::terrain_cost::refresh_canonical_terrain_costs_at(
-                &mut self.terrain_costs,
-                terrain,
-                (rx, ry),
-            );
             if tail_grid.as_ref().is_some_and(|tail| {
                 tail.width() != terrain.width() || tail.height() != terrain.height()
             }) {
@@ -512,7 +507,6 @@ impl Simulation {
                     radar_dirty_cells: &mut self.radar_terrain_dirty_cells,
                     radar_dirty_generation: &mut self.radar_terrain_dirty_generation,
                     tactical_dirty_cells: &mut self.tactical_dirty_cells,
-                    terrain_costs: &mut self.terrain_costs,
                     zone_grid: &mut self.zone_grid,
                     path_grid: &mut self.path_grid,
                     bridge_state: self.bridge_state.as_ref(),

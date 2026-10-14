@@ -16,7 +16,6 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::passability::LandType;
-use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 use crate::sim::pathfinding::zone_hierarchy::{
     ZoneEdgeRecord, ZoneHierarchy, ZoneLevelGraph, ZoneRecord,
 };
@@ -194,16 +193,6 @@ fn install_world(
     // Map-load authority retains Size height beside the bounds (the shared
     // Foot zone precheck reads both).
     sim.playfield_size_height = Some(i32::from(terrain.height()));
-    sim.terrain_costs = SpeedType::ALL_WITH_COSTS
-        .iter()
-        .copied()
-        .map(|speed_type| {
-            (
-                speed_type,
-                TerrainCostGrid::from_resolved_terrain(&terrain, speed_type),
-            )
-        })
-        .collect();
     sim.resolved_terrain = Some(terrain);
     sim.overlay_grid = Some(OverlayGrid::new(GRID_SIZE, GRID_SIZE));
     for &(rx, ry) in ore_cells {
@@ -222,12 +211,10 @@ fn install_world(
         sim.zone_grid = None;
     }
     for &(rx, ry) in ore_cells {
+        let cell = sim.resolved_terrain.as_ref().unwrap().cell(rx, ry).unwrap();
         assert_eq!(
-            sim.terrain_costs
-                .get(&SpeedType::Track)
-                .expect("Track terrain costs")
-                .cost_at(rx, ry),
-            70,
+            cell.speed_costs.cost_for_speed_type(SpeedType::Track),
+            Some(70)
         );
     }
 }

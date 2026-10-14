@@ -1,4 +1,4 @@
-//! Pathfinding system — A* search, zone connectivity, terrain costs, and path smoothing.
+//! Pathfinding system — A* search, zone connectivity, terrain speed, and path smoothing.
 //!
 //! Combines cell-level A* with zone-aware hierarchical search for fast unreachability
 //! detection and hierarchy-marked pruning.
@@ -22,7 +22,6 @@ pub mod path_smooth;
 
 // Terrain and movement costs
 pub mod passability;
-pub mod terrain_cost;
 pub mod terrain_speed;
 
 // Zone connectivity (flood-fill zones, hierarchy, zone-aware search)

@@ -73,7 +73,6 @@ pub(crate) fn collect_area(
         &mut world.radar_terrain_dirty_cells,
         &mut world.radar_terrain_dirty_generation,
         &mut world.tactical_dirty_cells,
-        &mut world.terrain_costs,
         &mut world.zone_grid,
         &mut world.path_grid,
         world.bridge_state.as_ref(),

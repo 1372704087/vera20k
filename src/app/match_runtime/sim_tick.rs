@@ -1661,7 +1661,6 @@ mod tests {
     };
     use crate::map::overlay::OverlayEntry;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-    use crate::rules::locomotor_type::SpeedType;
     use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
     use crate::sim::intern::StringInterner;
     use crate::sim::terrain_object::{
@@ -1679,7 +1678,7 @@ mod tests {
     }
 
     #[test]
-    fn gsi_04_10_dynamic_navigation_rebuild_refreshes_path_and_track_costs() {
+    fn gsi_04_10_dynamic_navigation_rebuild_refreshes_the_path_grid() {
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
                 "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n",
@@ -1724,21 +1723,11 @@ mod tests {
 
         assert!(sim.rebuild_dynamic_navigation(&rules));
         assert!(!sim.path_grid().expect("terrain").is_walkable(0, 0));
-        assert_eq!(
-            sim.terrain_costs[&SpeedType::Track].cost_at(0, 0),
-            0,
-            "terrain object must block both navigation caches before removal"
-        );
 
         unmark_terrain_occupation(&tree, sim.resolved_terrain.as_mut());
         assert!(sim.rebuild_dynamic_navigation(&rules));
 
         assert!(sim.path_grid().expect("terrain").is_walkable(0, 0));
-        assert_eq!(
-            sim.terrain_costs[&SpeedType::Track].cost_at(0, 0),
-            100,
-            "terrain cost authority must be rebuilt from the cleared resolved cell"
-        );
     }
 
     #[test]

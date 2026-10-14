@@ -1725,8 +1725,8 @@ fn assert_native_fields(actual: &Value, expected: &Value, context: &str) {
 }
 
 /// Supplied clear33x33/diamond16 map from the native fixture's local ground
-/// prior. The physical map/theater startup is outside this test; path/zone,
-/// terrain-cost and occupation updates still use their production owners.
+/// prior. The physical map/theater startup is outside this test; path/zone
+/// and occupation updates still use their production owners.
 pub(super) fn install_ground(
     sim: &mut Simulation,
     rules: &RuleSet,

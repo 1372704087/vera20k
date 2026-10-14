@@ -2934,10 +2934,6 @@ fn print_under_cell_row(
     cell: (u16, u16),
     grid: &PathGrid,
     terrain: &ResolvedTerrainGrid,
-    costs: &std::collections::BTreeMap<
-        crate::rules::locomotor_type::SpeedType,
-        crate::sim::pathfinding::terrain_cost::TerrainCostGrid,
-    >,
     zones: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
 ) {
     use crate::rules::locomotor_type::SpeedType;
@@ -2951,7 +2947,7 @@ fn print_under_cell_row(
         println!("  {label} {cell:?}: NOT IN RESOLVED TERRAIN");
         return;
     };
-    let cost = |st: SpeedType| costs.get(&st).map_or(255, |g| g.cost_at(cell.0, cell.1));
+    let cost = |st: SpeedType| rt.speed_costs.cost_for_speed_type(st).unwrap_or(255);
     let zone_of = |mz: MovementZone| {
         zones
             .and_then(|z| z.map_for(mz))
@@ -2966,7 +2962,7 @@ fn print_under_cell_row(
     println!(
         "  {label} {cell:?}: struct={} bwalk={} trans={} g_lvl={} deck_lvl={} gwalk={} \
          || under: water={} cliff={} gwblk={} base_gwblk={} land={} base_land={} yr_land={} \
-         zone_type={} || cost Foot={} Track={} Wheel={} Amph={} Hover={} \
+         zone_type={} || row Foot={} Track={} Wheel={} Amph={} Hover={} \
          || zone(G/B) Normal={} AmphDest={} Infantry={}",
         pc.bridge_structural,
         pc.bridge_walkable,
@@ -3001,11 +2997,9 @@ fn print_under_cell_row(
 /// `PathGrid::from_resolved_terrain_with_bridges` (`sim/pathfinding/core.rs`)
 /// hardcodes `ground_walkable = true` for any intact structural bridge cell,
 /// with the comment "Intact bridge deck → walkable (overrides underlying
-/// terrain)". `TerrainCostGrid::from_resolved_terrain` (`terrain_cost.rs`) does
-/// the same, returning `COST_NORMAL` for every SpeedType on an elevated bridge
-/// cell. Both flags therefore describe the deck, not the ground under it, on
+/// terrain)". The flag therefore describes the deck, not the ground under it, on
 /// every fixture — which is why this test prints the *underlying* terrain fields
-/// those two overrides mask, and prints them for the valley floor either side of
+/// that override masks, and prints them for the valley floor either side of
 /// the structural band as well.
 #[test]
 #[ignore = "requires a retail RA2/YR install (RA2_DIR or config.toml)"]
@@ -3097,14 +3091,7 @@ fn retail_under_high_span_geometry() {
                 }
             }
             for (label, c) in &cells {
-                print_under_cell_row(
-                    label,
-                    *c,
-                    grid,
-                    terrain,
-                    &sim.terrain_costs,
-                    sim.zone_grid.as_ref(),
-                );
+                print_under_cell_row(label, *c, grid, terrain, sim.zone_grid.as_ref());
             }
         }
     }

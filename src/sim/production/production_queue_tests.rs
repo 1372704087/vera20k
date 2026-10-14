@@ -7,11 +7,9 @@ use super::{
     queue_view_for_owner, ready_buildings_for_owner, suspend_production,
 };
 use crate::rules::ini_parser::IniFile;
-use crate::rules::locomotor_type::SpeedType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
 use crate::sim::pathfinding::PathGrid;
-use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 use crate::sim::rng::SimRng;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{SimSoundEvent, Simulation};
@@ -1751,10 +1749,6 @@ fn naval_unit_rally_uses_water_pathing_after_spawn() {
         off_104: 200,
         off_108: 200,
     });
-    sim.terrain_costs.insert(
-        SpeedType::Float,
-        TerrainCostGrid::from_resolved_terrain(&terrain, SpeedType::Float),
-    );
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 20, 20);
     sim.substrate
         .entities

@@ -185,7 +185,6 @@ fn recalc_keeps_marked_structure_over_partial_terrain_occupation_and_bridge_deck
     cell.bridge_transition = true;
     cell.bridge_facts.raw_flags |= crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
     crate::sim::world::navigation::NavigationCaches {
-        terrain_costs: &mut sim.terrain_costs,
         zones: &mut sim.zone_grid,
         path: &mut sim.path_grid,
         playfield_bounds: sim.playfield_bounds,

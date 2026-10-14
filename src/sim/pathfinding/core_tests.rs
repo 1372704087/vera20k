@@ -1399,3 +1399,59 @@ fn gsi_04_10_resolved_zero_occupation_is_walkable_path_input() {
         "resolved OccupationBits=0 is a walkable PathGrid input"
     );
 }
+
+/// A terrain object with `TemperateOccupationBits` short of the full
+/// sub-cell mask blocks vehicles but not infantry. 56 of 60 stock temperate
+/// terrain types are `=4`, i.e. a single sub-cell bit.
+fn tree_cell(rx: u16, ry: u16, bits: u8) -> ResolvedTerrainCell {
+    ResolvedTerrainCell {
+        terrain_object_occupation: Some(bits),
+        terrain_object_blocks: bits != 0,
+        // Resolved terrain folds the terrain object into ground_walk_blocked;
+        // base_ground_walk_blocked is the value without it.
+        ground_walk_blocked: bits != 0,
+        base_ground_walk_blocked: false,
+        ..make_resolved_cell(rx, ry)
+    }
+}
+
+#[test]
+fn partial_terrain_occupation_blocks_vehicles_but_not_infantry() {
+    let terrain =
+        ResolvedTerrainGrid::from_cells(2, 1, vec![tree_cell(0, 0, 4), make_resolved_cell(1, 0)]);
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    assert!(grid.is_walkable_for_infantry(0, 0));
+    assert!(!grid.is_walkable(0, 0));
+    assert_eq!(grid.terrain_object_cell_bits_at(0, 0), 0x10);
+}
+
+#[test]
+fn full_terrain_occupation_blocks_infantry_too() {
+    let terrain = ResolvedTerrainGrid::from_cells(1, 1, vec![tree_cell(0, 0, 7)]);
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    assert!(!grid.is_walkable_for_infantry(0, 0));
+    assert!(!grid.is_walkable(0, 0));
+    assert_eq!(grid.terrain_object_cell_bits_at(0, 0), 0x1C);
+}
+
+#[test]
+fn terrain_occupation_five_and_six_leave_one_subcell_for_infantry() {
+    for bits in [5u8, 6u8] {
+        let terrain = ResolvedTerrainGrid::from_cells(1, 1, vec![tree_cell(0, 0, bits)]);
+        let grid = PathGrid::from_resolved_terrain(&terrain);
+        assert!(grid.is_walkable_for_infantry(0, 0), "bits={bits}");
+        assert!(!grid.is_walkable(0, 0), "bits={bits}");
+    }
+}
+
+#[test]
+fn terrain_relaxation_never_reopens_a_cliff_cell() {
+    let cliff_with_tree = ResolvedTerrainCell {
+        is_cliff_like: true,
+        base_ground_walk_blocked: true,
+        ..tree_cell(0, 0, 4)
+    };
+    let terrain = ResolvedTerrainGrid::from_cells(1, 1, vec![cliff_with_tree]);
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    assert!(!grid.is_walkable_for_infantry(0, 0));
+}

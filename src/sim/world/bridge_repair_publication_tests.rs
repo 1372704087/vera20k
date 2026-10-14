@@ -1,5 +1,4 @@
 use super::*;
-use crate::rules::locomotor_type::SpeedType;
 use crate::sim::{command::Command, pathfinding::PathGrid};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -364,7 +363,6 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
         );
     }
     assert!(sim.zone_grid.is_some());
-    assert!(sim.terrain_costs.contains_key(&SpeedType::Foot));
     if with_aircraft {
         let id = aircraft.expect("fixture must install the landed Fly before PerCell");
         assert!(
@@ -1270,14 +1268,12 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
         replay.resolve_type_handles(&rules);
         assert!(replay.path_grid.is_none());
         assert!(replay.zone_grid.as_ref().unwrap().is_native_load_pending());
-        assert!(replay.terrain_costs.is_empty());
         replay.rebuild_caches_after_load(map_terrain, sim.terrain_speed_config.clone(), &rules);
         replay
             .restore_map_authority_after_snapshot_load(&rules, &registry, None)
             .unwrap();
         assert!(replay.path_grid.is_some());
         assert!(replay.zone_grid.is_some());
-        assert!(!replay.terrain_costs.is_empty());
         // Scenario reload applies native Seed(0); compare both continuations
         // under that established load rule, not uninterrupted RNG preservation.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);

@@ -1416,13 +1416,6 @@ fn gsi_04_07_wall_sell_ordered_cleanup_detach_navigation_and_zero_refund_rng() {
     assert!(!path.is_walkable(4, 4));
     assert!(!path.is_walkable(4, 3));
     assert!(!path.is_walkable(5, 4));
-    sim.terrain_costs = crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
-        sim.resolved_terrain.as_ref().unwrap(),
-    );
-    assert_eq!(
-        sim.terrain_costs[&crate::rules::locomotor_type::SpeedType::Track].cost_at(4, 4),
-        0
-    );
     sim.rebuild_zone_grid_full(&path);
     let ground_zone_before = sim
         .zone_grid
@@ -1609,14 +1602,6 @@ fn gsi_04_07_wall_sell_ordered_cleanup_detach_navigation_and_zero_refund_rng() {
             [crate::map::resolved_terrain::zone_class::GROUND; 5]
         );
     }
-    assert_eq!(
-        sim.terrain_costs[&crate::rules::locomotor_type::SpeedType::Track].cost_at(4, 4),
-        100
-    );
-    assert_eq!(
-        sim.terrain_costs[&crate::rules::locomotor_type::SpeedType::Track].cost_at(5, 4),
-        100
-    );
     assert_eq!(
         sim.houses.get(&wall_owner).unwrap().economy.credits(),
         credits_before
@@ -1826,14 +1811,6 @@ fn dynamic_navigation_publication_composes_structures_bibs_and_bridges() {
     assert!(grid.cell(1, 1).expect("west bridgehead").transition);
     assert!(grid.cell(2, 1).expect("bridge body").bridge_walkable);
     assert!(grid.cell(3, 1).expect("east bridgehead").transition);
-    assert_eq!(
-        sim.terrain_costs.len(),
-        crate::rules::locomotor_type::SpeedType::ALL_WITH_COSTS.len(),
-        "canonical publication must install every terrain-cost row"
-    );
-    for speed_type in crate::rules::locomotor_type::SpeedType::ALL_WITH_COSTS {
-        assert!(sim.terrain_costs.contains_key(speed_type));
-    }
     let normal_zones = sim
         .zone_grid
         .as_ref()
@@ -2789,8 +2766,6 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             &crate::sim::mission::authority::EntityReadyInputProvider,
         )
         .expect("queue remains pending through TubeMovement");
-        sim.terrain_costs =
-            crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(&terrain);
         sim.resolved_terrain = Some(terrain);
 
         sim.advance_tick(&[], Some(&rules), Some(&path), None, 67);
@@ -2903,24 +2878,18 @@ fn gsi_04_10_terrain_object(
 }
 
 #[test]
-fn gsi_04_10_in_tick_refresh_updates_tail_path_and_cost_before_consumers() {
-    use crate::rules::locomotor_type::SpeedType;
-    use crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids;
+fn gsi_04_10_in_tick_refresh_updates_the_tail_path_before_consumers() {
     use crate::sim::terrain_object::{mark_terrain_occupation, unmark_terrain_occupation};
 
     let mut sim = Simulation::new();
     sim.resolved_terrain = Some(gsi_04_10_clear_terrain(2, 1));
     let tree = gsi_04_10_terrain_object(&mut sim, 1, (0, 0), 7);
     mark_terrain_occupation(&tree, sim.resolved_terrain.as_mut());
-    sim.terrain_costs = build_canonical_terrain_cost_grids(
-        sim.resolved_terrain.as_ref().expect("resolved terrain"),
-    );
     let mut input_path_grid = PathGrid::from_resolved_terrain_with_bridges(
         sim.resolved_terrain.as_ref().expect("resolved terrain"),
     );
     input_path_grid.set_blocked(1, 0, true);
     assert!(!input_path_grid.is_walkable(0, 0));
-    assert_eq!(sim.terrain_costs[&SpeedType::Track].cost_at(0, 0), 0);
 
     unmark_terrain_occupation(&tree, sim.resolved_terrain.as_mut());
     sim.path_grid = Some(Arc::new(input_path_grid));
@@ -2935,19 +2904,12 @@ fn gsi_04_10_in_tick_refresh_updates_tail_path_and_cost_before_consumers() {
         !phase_six_consumer_grid.is_walkable(1, 0),
         "unrelated dynamic blockers from the input grid must survive"
     );
-    assert_eq!(sim.terrain_costs.len(), SpeedType::ALL_WITH_COSTS.len());
-    assert_eq!(
-        sim.terrain_costs[&SpeedType::Track].cost_at(0, 0),
-        100,
-        "Phase 6+ must see the rebuilt cost authority in the lethal-event tick"
-    );
 }
 
 #[test]
 fn gsi_04_10_zero_occupation_removal_forces_ground_zone_with_same_walkability() {
     use crate::map::resolved_terrain::zone_class;
-    use crate::rules::locomotor_type::{MovementZone, SpeedType};
-    use crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids;
+    use crate::rules::locomotor_type::MovementZone;
     use crate::sim::pathfinding::zone_map::ZONE_INVALID;
     use crate::sim::terrain_object::{mark_terrain_occupation, unmark_terrain_occupation};
 
@@ -2964,14 +2926,10 @@ fn gsi_04_10_zero_occupation_removal_forces_ground_zone_with_same_walkability() 
             .zone_type,
         zone_class::BUILDING
     );
-    sim.terrain_costs = build_canonical_terrain_cost_grids(
-        sim.resolved_terrain.as_ref().expect("resolved terrain"),
-    );
     let input_path_grid = PathGrid::from_resolved_terrain_with_bridges(
         sim.resolved_terrain.as_ref().expect("resolved terrain"),
     );
     assert!(input_path_grid.is_walkable(0, 0));
-    assert_eq!(sim.terrain_costs[&SpeedType::Track].cost_at(0, 0), 100);
     sim.rebuild_zone_grid_full(&input_path_grid);
     assert_eq!(
         sim.zone_grid
@@ -5881,14 +5839,6 @@ fn test_real_ship_locomotor_move_command_crosses_water_cells() {
     sim.resolved_terrain = Some(terrain.clone());
     assert!(sim.rebuild_dynamic_navigation(&rules));
 
-    sim.terrain_costs.insert(
-        crate::rules::locomotor_type::SpeedType::Float,
-        crate::sim::pathfinding::terrain_cost::TerrainCostGrid::from_resolved_terrain(
-            &terrain,
-            crate::rules::locomotor_type::SpeedType::Float,
-        ),
-    );
-
     let ship_id = sim
         .spawn_object("DEST", "Americans", 0, 0, 64, &rules)
         .expect("spawn destroyer");
@@ -5946,14 +5896,6 @@ fn test_real_ship_locomotor_crosses_water_surface_cells_with_non_water_land_type
     install_rectangular_test_map(&mut sim, terrain.width(), terrain.height());
     sim.resolved_terrain = Some(terrain.clone());
     assert!(sim.rebuild_dynamic_navigation(&rules));
-
-    sim.terrain_costs.insert(
-        crate::rules::locomotor_type::SpeedType::Float,
-        crate::sim::pathfinding::terrain_cost::TerrainCostGrid::from_resolved_terrain(
-            &terrain,
-            crate::rules::locomotor_type::SpeedType::Float,
-        ),
-    );
 
     let ship_id = sim
         .spawn_object("DEST", "Americans", 0, 0, 64, &rules)
@@ -6022,14 +5964,6 @@ fn test_real_ship_move_command_can_path_under_bridge_when_too_big() {
         ),
     );
 
-    sim.terrain_costs.insert(
-        crate::rules::locomotor_type::SpeedType::Float,
-        crate::sim::pathfinding::terrain_cost::TerrainCostGrid::from_resolved_terrain(
-            &terrain,
-            crate::rules::locomotor_type::SpeedType::Float,
-        ),
-    );
-
     let ship_id = sim
         .spawn_object("DEST", "Americans", 0, 1, 64, &rules)
         .expect("spawn destroyer");
@@ -6086,7 +6020,6 @@ fn test_real_ship_move_command_can_path_under_bridge_when_too_big() {
 #[test]
 fn a_ship_order_routes_around_an_island_through_the_live_search() {
     use crate::map::resolved_terrain::zone_class;
-    use crate::rules::locomotor_type::SpeedType;
     use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 
     let rules = real_ship_test_rules();
@@ -6125,9 +6058,8 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
     });
     sim.playfield_size_height = Some(9);
     sim.resolved_terrain = Some(terrain);
-    // The production navigation build: path grid, terrain costs and zones.
+    // The production navigation build: path grid and zones.
     assert!(sim.rebuild_dynamic_navigation(&rules));
-    assert!(sim.terrain_costs.contains_key(&SpeedType::Float));
     let path_grid = (*sim.path_grid_snapshot().expect("navigation grid")).clone();
 
     let ship_id = sim

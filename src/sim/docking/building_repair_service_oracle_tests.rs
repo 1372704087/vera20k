@@ -345,9 +345,6 @@ fn scene(golden: &Value, row: &Value) -> Scene {
     sim.path_grid = Some(Arc::new(path));
     sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(32, 32));
     sim.install_resolved_terrain_for_new_map(terrain);
-    sim.terrain_costs = crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
-        sim.resolved_terrain.as_ref().unwrap(),
-    );
     // Native scenes supply an existing human House and empty storage before
     // either Techno is constructed. Install that same membership prerequisite.
     let owner = sim.interner.intern("Russians");

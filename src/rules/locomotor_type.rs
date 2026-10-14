@@ -202,9 +202,9 @@ pub enum SpeedType {
 }
 
 impl SpeedType {
-    /// All SpeedTypes that have terrain cost grids (excludes Winged which ignores terrain).
+    /// All SpeedTypes with a land row (excludes Winged, which ignores terrain).
     /// Order matches the binary enum table.
-    pub const ALL_WITH_COSTS: &[SpeedType] = &[
+    pub const ALL_WITH_LAND_ROWS: &[SpeedType] = &[
         SpeedType::Foot,
         SpeedType::Track,
         SpeedType::Wheel,
@@ -245,16 +245,16 @@ impl SpeedType {
         }
     }
 
-    /// Next SpeedType in `ALL_WITH_COSTS`, wrapping around.
+    /// Next SpeedType in `ALL_WITH_LAND_ROWS`, wrapping around.
     pub fn cycle_next(&self) -> SpeedType {
-        let list = Self::ALL_WITH_COSTS;
+        let list = Self::ALL_WITH_LAND_ROWS;
         let idx = list.iter().position(|s| s == self).unwrap_or(0);
         list[(idx + 1) % list.len()]
     }
 
-    /// Previous SpeedType in `ALL_WITH_COSTS`, wrapping around.
+    /// Previous SpeedType in `ALL_WITH_LAND_ROWS`, wrapping around.
     pub fn cycle_prev(&self) -> SpeedType {
-        let list = Self::ALL_WITH_COSTS;
+        let list = Self::ALL_WITH_LAND_ROWS;
         let idx = list.iter().position(|s| s == self).unwrap_or(0);
         list[(idx + list.len() - 1) % list.len()]
     }
@@ -377,26 +377,6 @@ impl MovementZone {
             MovementZone::WaterBeach,
             MovementZone::CrusherAll,
         ]
-    }
-
-    /// Which SpeedType governs terrain cost for this movement zone.
-    /// Controls how fast a unit moves on passable cells (not which cells are passable).
-    pub fn speed_type(&self) -> SpeedType {
-        match self {
-            MovementZone::Normal
-            | MovementZone::Crusher
-            | MovementZone::Destroyer
-            | MovementZone::CrusherAll
-            | MovementZone::Subterranean => SpeedType::Track,
-            MovementZone::AmphibiousCrusher
-            | MovementZone::AmphibiousDestroyer
-            | MovementZone::Amphibious => SpeedType::Amphibious,
-            MovementZone::Infantry | MovementZone::InfantryDestroyer => SpeedType::Foot,
-            MovementZone::Water => SpeedType::Float,
-            MovementZone::WaterBeach => SpeedType::FloatBeach,
-            MovementZone::Fly => SpeedType::Winged,
-            MovementZone::Invalid => SpeedType::Track,
-        }
     }
 
     /// Whether this MovementZone can traverse bridges (ground-capable).

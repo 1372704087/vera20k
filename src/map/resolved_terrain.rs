@@ -320,10 +320,6 @@ impl ResolvedTerrainCell {
         self.bridge_transition
     }
 
-    pub fn is_elevated_bridge_cell(&self) -> bool {
-        self.bridge_walkable && self.bridge_deck_level > self.level
-    }
-
     pub fn bridge_deck_level_if_any(&self) -> Option<u8> {
         self.has_bridge_deck.then_some(self.bridge_deck_level)
     }

@@ -211,7 +211,6 @@ use crate::sim::overlay_grid::{
 };
 use crate::sim::passenger;
 use crate::sim::pathfinding::PathGrid;
-use crate::sim::pathfinding::terrain_cost::{TerrainCostGrid, build_canonical_terrain_cost_grids};
 use crate::sim::pathfinding::terrain_speed;
 use crate::sim::pathfinding::zone_incremental::{
     PackedZoneCoord, ZoneRepairKind, repair_zone_cell,
@@ -1190,10 +1189,6 @@ pub struct Simulation {
     /// Per-player state keyed by uppercase owner name. Deterministic iteration
     /// via BTreeMap. Equivalent to the original engine's HouseClass array.
     pub houses: BTreeMap<InternedId, HouseState>,
-    /// Per-SpeedType terrain cost grids for cost-aware A* pathfinding.
-    /// Built once at map load — units look up their SpeedType to pick the right grid.
-    #[serde(skip)]
-    pub terrain_costs: BTreeMap<SpeedType, TerrainCostGrid>,
     /// Derived movement inputs reused across object turns (blocker plane).
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
@@ -1439,7 +1434,6 @@ pub(crate) struct SimulationAreaDamageCellPrelude<'a> {
     radar_dirty_cells: &'a mut Vec<(u16, u16)>,
     radar_dirty_generation: &'a mut u64,
     tactical_dirty_cells: &'a mut Vec<(u16, u16)>,
-    terrain_costs: &'a mut BTreeMap<SpeedType, TerrainCostGrid>,
     zone_grid: &'a mut Option<ZoneGrid>,
     path_grid: &'a mut Option<Arc<PathGrid>>,
     bridge_state: Option<&'a BridgeRuntimeState>,
@@ -1512,7 +1506,6 @@ impl crate::sim::combat::combat_aoe::AoECellPrelude for SimulationAreaDamageCell
         repair: ZoneRepairKind,
     ) {
         repair_wall_damage_navigation_authorities(
-            self.terrain_costs,
             self.zone_grid,
             self.path_grid,
             terrain,
@@ -1539,7 +1532,6 @@ pub(crate) fn simulation_area_damage_cell_prelude<'a>(
     radar_dirty_cells: &'a mut Vec<(u16, u16)>,
     radar_dirty_generation: &'a mut u64,
     tactical_dirty_cells: &'a mut Vec<(u16, u16)>,
-    terrain_costs: &'a mut BTreeMap<SpeedType, TerrainCostGrid>,
     zone_grid: &'a mut Option<ZoneGrid>,
     path_grid: &'a mut Option<Arc<PathGrid>>,
     bridge_state: Option<&'a BridgeRuntimeState>,
@@ -1560,7 +1552,6 @@ pub(crate) fn simulation_area_damage_cell_prelude<'a>(
         radar_dirty_cells,
         radar_dirty_generation,
         tactical_dirty_cells,
-        terrain_costs,
         zone_grid,
         path_grid,
         bridge_state,
@@ -1569,7 +1560,6 @@ pub(crate) fn simulation_area_damage_cell_prelude<'a>(
 }
 
 pub(crate) fn repair_wall_damage_navigation_authorities(
-    terrain_costs: &mut BTreeMap<SpeedType, TerrainCostGrid>,
     zone_grid: &mut Option<ZoneGrid>,
     path_grid: &mut Option<Arc<PathGrid>>,
     terrain: &ResolvedTerrainGrid,
@@ -1598,11 +1588,6 @@ pub(crate) fn repair_wall_damage_navigation_authorities(
             )));
         }
     }
-    crate::sim::pathfinding::terrain_cost::refresh_canonical_terrain_costs_at(
-        terrain_costs,
-        terrain,
-        cell,
-    );
     let tail_path_grid = path_grid
         .as_deref()
         .expect("wall repair installed a path grid");
@@ -1673,7 +1658,6 @@ pub(crate) struct SimulationWallRuntimeHost<'a> {
     pub(crate) radar_dirty_cells: &'a mut Vec<(u16, u16)>,
     pub(crate) radar_dirty_generation: &'a mut u64,
     pub(crate) tactical_dirty_cells: &'a mut Vec<(u16, u16)>,
-    pub(crate) terrain_costs: &'a mut BTreeMap<SpeedType, TerrainCostGrid>,
     pub(crate) zone_grid: &'a mut Option<ZoneGrid>,
     pub(crate) path_grid: &'a mut Option<Arc<PathGrid>>,
     pub(crate) bridge_state: Option<&'a BridgeRuntimeState>,
@@ -1700,7 +1684,6 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
         repair: ZoneRepairKind,
     ) {
         repair_wall_damage_navigation_authorities(
-            self.terrain_costs,
             self.zone_grid,
             self.path_grid,
             terrain,
@@ -2517,7 +2500,6 @@ impl Simulation {
                                 radar_dirty_cells: &mut self.radar_terrain_dirty_cells,
                                 radar_dirty_generation: &mut self.radar_terrain_dirty_generation,
                                 tactical_dirty_cells: &mut self.tactical_dirty_cells,
-                                terrain_costs: &mut self.terrain_costs,
                                 zone_grid: &mut self.zone_grid,
                                 path_grid: &mut self.path_grid,
                                 bridge_state: self.bridge_state.as_ref(),
@@ -3359,7 +3341,6 @@ impl Simulation {
             bunker_wall_events: Vec::new(),
             team_script_vm: TeamScriptVm::default(),
             houses: BTreeMap::new(),
-            terrain_costs: BTreeMap::new(),
             zone_grid: None,
             path_grid: None,
             structure_navigation_cells: BTreeSet::new(),
@@ -3815,7 +3796,7 @@ impl Simulation {
 
     /// Overlay Mark5FC570 ->Recalc47D2B0 completes before its Logic caller
     /// returns. Both the global ore rung and a Terrain AI slot must publish
-    /// movement costs before the next object; retain render dirty receipts.
+    /// the path view before the next object; retain render dirty receipts.
     pub(crate) fn publish_tiberium_cells(
         &mut self,
         rules: &RuleSet,
@@ -5490,12 +5471,9 @@ impl Simulation {
                 );
             }
         }
-        let terrain_costs = build_canonical_terrain_cost_grids(&resolved_terrain);
-
         self.resolved_terrain = Some(resolved_terrain);
         self.terrain_speed_config = terrain_speed_config;
         self.resolve_rule_animation_lists(rules);
-        self.terrain_costs = terrain_costs;
     }
 
     /// Rebuild LogicClass membership flags from the restored active order.
@@ -5558,14 +5536,13 @@ impl Simulation {
         self.path_grid.clone()
     }
 
-    /// Rebuild terrain costs, dynamic structure blockers, zones, and the
-    /// canonical PathGrid as one simulation-owned projection.
+    /// Rebuild dynamic structure blockers, zones, and the canonical PathGrid
+    /// as one simulation-owned projection.
     pub fn rebuild_dynamic_navigation(&mut self, rules: &RuleSet) -> bool {
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return false;
         };
         let result = navigation::NavigationCaches {
-            terrain_costs: &mut self.terrain_costs,
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
             playfield_bounds: self.playfield_bounds,
@@ -5590,7 +5567,7 @@ impl Simulation {
     /// Publish marked-structure footprint changes into the path view only.
     /// Native cell occupation marks are read live by the pathfinder, and the
     /// zone map is built from terrain movement classes, which structures do
-    /// not change; costs and zone IDs therefore stay as they are.
+    /// not change; zone IDs therefore stay as they are.
     fn publish_structure_navigation(&mut self, rules: &RuleSet) {
         let current =
             navigation::structure_movement_cells(&self.substrate.entities, &self.interner, rules);
@@ -5673,11 +5650,7 @@ impl Simulation {
         // During initial map Reveal no navigation views are installed yet;
         // their first full rebuild reads every admitted Mark. Avoid scanning
         // all structures once per placement before that rebuild.
-        if cells.is_empty()
-            || (self.path_grid.is_none()
-                && self.zone_grid.is_none()
-                && self.terrain_costs.is_empty())
-        {
+        if cells.is_empty() || (self.path_grid.is_none() && self.zone_grid.is_none()) {
             return;
         }
         let blocked = navigation::structure_blocked_among(
@@ -5702,7 +5675,6 @@ impl Simulation {
             return;
         };
         let mut caches = navigation::NavigationCaches {
-            terrain_costs: &mut self.terrain_costs,
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
             playfield_bounds: self.playfield_bounds,
@@ -5733,7 +5705,6 @@ impl Simulation {
             return;
         };
         navigation::NavigationCaches {
-            terrain_costs: &mut self.terrain_costs,
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
             playfield_bounds: self.playfield_bounds,
@@ -5749,7 +5720,6 @@ impl Simulation {
             return;
         };
         navigation::NavigationCaches {
-            terrain_costs: &mut self.terrain_costs,
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
             playfield_bounds: self.playfield_bounds,
@@ -5843,7 +5813,6 @@ impl Simulation {
             radar_dirty_cells: &mut self.radar_terrain_dirty_cells,
             radar_dirty_generation: &mut self.radar_terrain_dirty_generation,
             tactical_dirty_cells: &mut self.tactical_dirty_cells,
-            terrain_costs: &mut self.terrain_costs,
             zone_grid: &mut self.zone_grid,
             path_grid: &mut self.path_grid,
             bridge_state: self.bridge_state.as_ref(),

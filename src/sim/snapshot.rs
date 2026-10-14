@@ -2878,13 +2878,11 @@ impl Simulation {
 mod tests {
     use super::*;
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
-    use crate::rules::locomotor_type::{MovementZone, SpeedType};
+    use crate::rules::locomotor_type::MovementZone;
     use crate::sim::movement::locomotor::MovementLayer;
     use crate::sim::pathfinding::PathGrid;
-    use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
     use crate::sim::pathfinding::zone_map::ZoneGrid;
     use crate::sim::world::{RevealOutcome, Simulation};
-    use std::collections::BTreeMap;
 
     /// Helper: advance a sim by one tick with empty inputs.
     fn tick(sim: &mut Simulation) {
@@ -3406,26 +3404,6 @@ mod tests {
         }
     }
 
-    fn all_terrain_costs(terrain: &ResolvedTerrainGrid) -> BTreeMap<SpeedType, TerrainCostGrid> {
-        let mut costs = BTreeMap::new();
-        for speed_type in [
-            SpeedType::Foot,
-            SpeedType::Track,
-            SpeedType::Wheel,
-            SpeedType::Hover,
-            SpeedType::Winged,
-            SpeedType::Float,
-            SpeedType::Amphibious,
-            SpeedType::FloatBeach,
-        ] {
-            costs.insert(
-                speed_type,
-                TerrainCostGrid::from_resolved_terrain(terrain, speed_type),
-            );
-        }
-        costs
-    }
-
     fn rebuild_load_caches(sim: &mut Simulation, terrain: ResolvedTerrainGrid) {
         // Synthetic fixtures use unchecked snapshots and often bypass the
         // monotonic allocators. Rebuild their substrate caches directly; the
@@ -3551,8 +3529,6 @@ mod tests {
         let path = restored.path_grid().expect("canonical restored path grid");
         assert!(path.is_walkable(0, 0));
         assert!(!path.is_walkable(2, 0));
-        assert_eq!(restored.terrain_costs[&SpeedType::Track].cost_at(0, 0), 100);
-        assert_eq!(restored.terrain_costs[&SpeedType::Track].cost_at(2, 0), 0);
         let normal_zones = restored
             .zone_grid
             .as_ref()
@@ -8857,13 +8833,6 @@ mod tests {
             !PathGrid::from_resolved_terrain(&stale_original_grid)
                 .is_walkable(destroyed_cell.0, destroyed_cell.1)
         );
-        assert_eq!(
-            all_terrain_costs(&stale_original_grid)[&SpeedType::Track]
-                .cost_at(destroyed_cell.0, destroyed_cell.1),
-            0,
-            "the caller fixture must carry the original blocked cost cache"
-        );
-        sim.terrain_costs = all_terrain_costs(&original_occupied_grid);
         sim.resolved_terrain = Some(original_occupied_grid);
 
         let result = damage_terrain_object_at_cell(
@@ -8879,12 +8848,6 @@ mod tests {
         assert_eq!(result, TerrainDamageResult::Destroyed);
         assert!(sim.unregister_non_entity_object(destroyed_id));
         sim.substrate.pending_delete.queue_object(destroyed_id);
-        sim.terrain_costs =
-            crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
-                sim.resolved_terrain
-                    .as_ref()
-                    .expect("post-destruction terrain"),
-            );
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // destroyed-terrain persistence on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -8977,11 +8940,6 @@ mod tests {
                 ),
             0
         );
-        assert_eq!(
-            restored.terrain_costs[&SpeedType::Track].cost_at(destroyed_cell.0, destroyed_cell.1),
-            100,
-            "canonical post-load costs must ignore the stale caller cache"
-        );
 
         let path = PathGrid::from_resolved_terrain_with_bridges(reconciled);
         assert!(path.is_walkable(destroyed_cell.0, destroyed_cell.1));
@@ -9055,7 +9013,6 @@ mod tests {
         rebuild_load_caches(&mut a, terrain.clone());
         rebuild_load_caches(&mut b, terrain);
 
-        assert_eq!(a.terrain_costs, b.terrain_costs);
         assert_eq!(cell_order(&a, 3, 2, MovementLayer::Ground), vec![2, 1]);
         assert_eq!(
             cell_order(&a, 3, 2, MovementLayer::Ground),

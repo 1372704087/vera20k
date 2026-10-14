@@ -171,9 +171,6 @@ pub(super) fn world_with(
     sim.zone_grid = Some(zones);
     sim.path_grid = Some(Arc::new(path));
     sim.install_resolved_terrain_for_new_map(terrain);
-    sim.terrain_costs = crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
-        sim.resolved_terrain.as_ref().unwrap(),
-    );
     sim
 }
 

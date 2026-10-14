@@ -472,14 +472,8 @@ pub(super) fn commit_miner_snapshot(sim: &mut Simulation, snap: &MinerSnapshot) 
 /// Unit body animation uses Foot+0x538 through the shared body-counter owner.
 fn sync_harvest_visuals(entity: &mut crate::sim::game_entity::GameEntity) {
     let is_harvesting = entity.miner.as_ref().is_some_and(|miner| miner.harvesting);
-    if let Some(ref mut ho) = entity.harvest_overlay {
-        if is_harvesting && !ho.visible {
-            ho.visible = true;
-            ho.frame = 0;
-        } else if !is_harvesting && ho.visible {
-            ho.visible = false;
-            ho.frame = 0;
-        }
+    if let Some(overlay) = entity.harvest_overlay.as_mut() {
+        overlay.follow(is_harvesting);
     }
 }
 

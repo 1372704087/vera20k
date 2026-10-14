@@ -1864,7 +1864,7 @@ fn a_dead_carriers_airborne_hornet_crashes() {
         hornet
             .rocking
             .as_ref()
-            .is_some_and(|rocking| rocking.vel_sideways != SimFixed::ZERO),
+            .is_some_and(|rocking| rocking.vel_sideways() != SimFixed::ZERO),
         "Crash drew the spin"
     );
     let manager_slot = sim
@@ -1963,7 +1963,7 @@ fn a_dead_carriers_hornets_crash_from_the_last_slot() {
                 .get(hornet)
                 .and_then(|e| e.rocking.as_ref())
                 .expect("a crashing Hornet spins")
-                .vel_sideways
+                .vel_sideways()
         })
         .collect();
     for (rate, &(_, sign)) in rates.iter().zip(&draws) {

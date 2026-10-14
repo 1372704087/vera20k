@@ -1540,9 +1540,9 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
         .spawn_manager
         .as_ref()
         .unwrap()
-        .slots
+        .slots()
         .iter()
-        .filter_map(|slot| slot.spawn)
+        .filter_map(|slot| slot.spawn())
         .collect::<Vec<_>>();
     assert_eq!(child_ids.len(), 3);
     assert!(
@@ -1887,9 +1887,9 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
         .spawn_manager
         .as_ref()
         .expect("constructor spawn manager")
-        .slots
+        .slots()
         .iter()
-        .map(|slot| slot.spawn.expect("constructor-filled spawn slot"))
+        .map(|slot| slot.spawn().expect("constructor-filled spawn slot"))
         .collect::<Vec<_>>();
     assert_eq!(child_ids, vec![2, 3, 4]);
     for (index, child_id) in child_ids.iter().copied().enumerate() {
@@ -1997,9 +1997,9 @@ fn techno_constructor_manager_pools_survive_delivery_without_reconstruction() {
                 .spawn_manager
                 .as_ref()
                 .unwrap()
-                .slots
+                .slots()
                 .iter()
-                .filter_map(|slot| slot.spawn)
+                .filter_map(|slot| slot.spawn())
                 .collect::<Vec<_>>()
         } else {
             sim.substrate
@@ -2037,9 +2037,9 @@ fn techno_constructor_manager_pools_survive_delivery_without_reconstruction() {
                 .spawn_manager
                 .as_ref()
                 .unwrap()
-                .slots
+                .slots()
                 .iter()
-                .filter_map(|slot| slot.spawn)
+                .filter_map(|slot| slot.spawn())
                 .collect::<Vec<_>>()
         } else {
             sim.substrate
@@ -2366,11 +2366,10 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
             native_before.wrapping_add(slot as u32 + 2) as i32
         );
         assert_eq!(
-            upgrade.structure_upgrade_link,
-            Some(StructureUpgradeLink {
-                parent_stable_id: 1,
-                slot: slot as u8,
-            })
+            upgrade.structure_upgrade_link(),
+            Some(crate::sim::game_entity::StructureUpgradeLink::for_test(
+                1, slot as u8
+            ))
         );
         assert!(!upgrade.lifecycle.in_limbo());
         assert!(!upgrade.lifecycle.cell_marked);

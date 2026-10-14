@@ -55,7 +55,7 @@ pub(super) fn navigation_coordinate(
     // awaiting Uninit. Tube+28 is the exit, not the retained transit target.
     if let Some(state) = entity.low_bridge_tube_state {
         let tube = terrain
-            .and_then(|grid| grid.tube(state.tube_id))
+            .and_then(|grid| grid.tube(state.tube_id()))
             .ok_or("Foot coordinate references a missing active TubeClass")?;
         return Ok(DriveCoord {
             x: i32::from(tube.exit.0 as i16) * 256 + 128,

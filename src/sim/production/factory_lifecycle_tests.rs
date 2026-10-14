@@ -676,9 +676,9 @@ pub(super) fn children(sim: &Simulation, parent: u64) -> Vec<u64> {
         .as_ref()
     {
         manager
-            .slots
+            .slots()
             .iter()
-            .map(|slot| slot.spawn.unwrap())
+            .map(|slot| slot.spawn().unwrap())
             .collect()
     } else {
         sim.substrate

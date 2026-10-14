@@ -9,8 +9,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::animation::HarvestOverlay;
 use crate::sim::combat::Health;
-use crate::sim::components::HarvestOverlay;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
@@ -1829,10 +1829,7 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
                 value: config.ore_bale_value,
             });
         }
-        entity.harvest_overlay = Some(HarvestOverlay {
-            frame: 6,
-            visible: true,
-        });
+        entity.harvest_overlay = Some(HarvestOverlay::for_test(6, true));
     }
     arm_cutting(&mut sim, miner_id);
 
@@ -1859,8 +1856,8 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(entity.teleport_state().is_none());
         let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(overlay.visible);
-        assert_eq!(overlay.frame, 6);
+        assert!(overlay.visible());
+        assert_eq!(overlay.frame(), 6);
     }
 
     tick_miners_n(&mut sim, &rules, GATE - 1);
@@ -1885,9 +1882,10 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         assert_eq!(miner.reserved_refinery, None);
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(overlay.visible);
+        assert!(overlay.visible());
         assert_eq!(
-            overlay.frame, 6,
+            overlay.frame(),
+            6,
             "nonzero overlay state remains live through F+18"
         );
     }
@@ -1918,8 +1916,8 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(entity.teleport_state().is_none());
         let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(!overlay.visible);
-        assert_eq!(overlay.frame, 0);
+        assert!(!overlay.visible());
+        assert_eq!(overlay.frame(), 0);
     }
 
     open_playfield(&mut sim);

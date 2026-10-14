@@ -27,9 +27,7 @@ use crate::sim::base_plan_generation::{preflight_recalc, recalc_base_plan};
 use crate::sim::combat::Health;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
-use crate::sim::game_entity::{
-    GameEntity, GeneratedTechnoInit, StructureUpgradeLink, TechnoConstructorInit,
-};
+use crate::sim::game_entity::{GameEntity, GeneratedTechnoInit, TechnoConstructorInit};
 use crate::sim::intern::InternedId;
 use crate::sim::production::{self, ProductionCategory};
 use crate::sim::vision::MAX_SIGHT_RANGE;
@@ -644,10 +642,7 @@ impl Simulation {
         )?;
         {
             let upgrade = self.substrate.entities.get_mut(stable_id)?;
-            upgrade.structure_upgrade_link = Some(StructureUpgradeLink {
-                parent_stable_id,
-                slot,
-            });
+            upgrade.link_structure_upgrade(parent_stable_id, slot);
         }
         if self
             .reveal_constructed_object_at_height(
@@ -1545,9 +1540,9 @@ impl Simulation {
             .and_then(|entity| entity.spawn_manager.as_ref())
             .map(|manager| {
                 manager
-                    .slots
+                    .slots()
                     .iter()
-                    .filter_map(|slot| slot.spawn)
+                    .filter_map(|slot| slot.spawn())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -1938,8 +1933,7 @@ impl Simulation {
             .max()
             .unwrap_or(1);
 
-            if max_fc > 1 && va.frame_count != max_fc {
-                va.frame_count = max_fc;
+            if max_fc > 1 && va.adopt_frame_count(max_fc) {
                 updated += 1;
             }
         }

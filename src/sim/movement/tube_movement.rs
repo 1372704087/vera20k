@@ -39,9 +39,54 @@ use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, distance_
 /// occupation. Immutable path bytes remain in the map-owned [`TubeFact`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct LowBridgeTubeMovementState {
-    pub tube_id: TubeId,
-    pub cursor: u8,
-    pub target: DriveCoord,
+    tube_id: TubeId,
+    cursor: u8,
+    target: DriveCoord,
+}
+
+impl LowBridgeTubeMovementState {
+    /// The tube (FootClass+0x684).
+    pub fn tube_id(&self) -> TubeId {
+        self.tube_id
+    }
+
+    /// The step along the tube's path.
+    pub fn cursor(&self) -> u8 {
+        self.cursor
+    }
+
+    /// The retained transit target.
+    pub fn target(&self) -> DriveCoord {
+        self.target
+    }
+
+    /// Install a fixture's tube.
+    #[cfg(test)]
+    pub(crate) fn set_tube_id_for_test(&mut self, tube_id: TubeId) {
+        self.tube_id = tube_id;
+    }
+
+    /// Install a fixture's cursor.
+    #[cfg(test)]
+    pub(crate) fn set_cursor_for_test(&mut self, cursor: u8) {
+        self.cursor = cursor;
+    }
+
+    /// Install a fixture's transit target.
+    #[cfg(test)]
+    pub(crate) fn set_target_for_test(&mut self, target: DriveCoord) {
+        self.target = target;
+    }
+
+    /// A fixture's transit.
+    #[cfg(test)]
+    pub(crate) fn for_test(tube_id: TubeId, cursor: u8, target: DriveCoord) -> Self {
+        Self {
+            tube_id,
+            cursor,
+            target,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

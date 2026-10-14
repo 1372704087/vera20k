@@ -319,7 +319,12 @@ fn deployed_model_overrides_disguise_no_spawn_alt_and_miner_display_hints() {
     latch_unloading_image(&mut sim, id, "MINERHINT");
     {
         let entity = sim.entities_mut().get_mut(id).unwrap();
-        entity.spawn_manager.as_mut().unwrap().slots.clear();
+        entity
+            .spawn_manager
+            .as_mut()
+            .unwrap()
+            .slots_mut_for_test()
+            .clear();
         entity
             .disguise
             .get_or_insert_with(Default::default)

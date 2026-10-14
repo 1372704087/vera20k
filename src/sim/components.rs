@@ -571,52 +571,6 @@ pub enum VxlLayer {
     Shadow,
 }
 
-/// Per-entity voxel HVA animation state.
-///
-/// Attached to voxel entities that cycle through HVA animation frames at runtime.
-/// Used for harvesting miners (arm/turret animation), and potentially other voxel
-/// units with multi-frame HVA files. The render loop reads `frame` to select
-/// the correct pre-rendered atlas sprite.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub struct VoxelAnimation {
-    /// Current HVA frame index (0-based).
-    pub frame: u32,
-    /// Total number of HVA animation frames.
-    pub frame_count: u32,
-    /// Reached native frames accumulated since last image advance.
-    pub elapsed_frames: u16,
-    /// Reached native frames per image. 0 = no auto-advance.
-    pub frame_delay: u16,
-    /// Whether the animation is currently playing (cycling frames).
-    pub playing: bool,
-}
-
-impl VoxelAnimation {
-    /// Create a new VoxelAnimation in stopped state.
-    pub fn new(frame_count: u32, frame_delay: u16) -> Self {
-        Self {
-            frame: 0,
-            frame_count,
-            elapsed_frames: 0,
-            frame_delay,
-            playing: false,
-        }
-    }
-}
-
-/// Harvest overlay animation state for the oregath.shp ore-gathering sprite.
-///
-/// Attached to harvester entities (HARV, CMIN). Shows the visual "sucking up ore"
-/// animation as an SHP overlay on top of the VXL body when actively harvesting.
-/// Uses the effect palette (anim.pal), independent of house colors.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub struct HarvestOverlay {
-    /// Current animation frame (0..14, 15 frames per facing direction).
-    pub frame: u16,
-    /// Whether the overlay is currently visible and animating.
-    pub visible: bool,
-}
-
 /// Constructor row for a generic AnimClass-like runtime spawn.
 ///
 /// This preserves the fields passed to `AnimClass::Constructor` separately from
@@ -722,43 +676,6 @@ pub struct BunkerWallAnimEvent {
     pub damaged: bool,
 }
 
-/// Body rocking state for voxel-bodied units.
-///
-/// Tracks spring-damped roll/pitch angles driven by weapon impacts and EMP
-/// wobble. Drive/Ship slope interpolation is locomotor-owned state and is
-/// intentionally independent from this optional component.
-///
-/// Optional component on `GameEntity` — present on vehicles, ships, and
-/// voxel-bodied buildings; `None` for infantry and SHP-bodied buildings, and
-/// for aircraft until `FootClass::Crash` sets their spin rates.
-#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-pub struct RockingState {
-    /// Roll angle, rad. Positive sign matches AngleRotatedSideways convention.
-    pub angle_sideways: SimFixed,
-    /// Pitch angle, rad. Positive sign matches AngleRotatedForwards convention.
-    pub angle_forwards: SimFixed,
-    /// Roll angular velocity, rad/tick.
-    pub vel_sideways: SimFixed,
-    /// Pitch angular velocity, rad/tick.
-    pub vel_forwards: SimFixed,
-    /// If true, integrate without damping (EMP wobble, naval continuous rocking).
-    pub is_ship_rocking: bool,
-}
-
-impl RockingState {
-    /// Tilt-renderer deadband — both angles below this snap to zero and the unit
-    /// renders via the static atlas path.
-    pub const DEADBAND: SimFixed = SimFixed::lit("0.00002");
-
-    /// Returns true when the body-rocking transform is neutral.
-    #[cfg(test)]
-    pub fn is_neutral(&self) -> bool {
-        !self.is_ship_rocking
-            && self.angle_sideways.abs() <= Self::DEADBAND
-            && self.angle_forwards.abs() <= Self::DEADBAND
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -786,8 +703,8 @@ mod tests {
         assert_send_sync::<Position>();
         assert_send_sync::<crate::sim::combat::Health>();
         assert_send_sync::<BuildingUp>();
-        assert_send_sync::<VoxelAnimation>();
-        assert_send_sync::<HarvestOverlay>();
+        assert_send_sync::<crate::sim::animation::VoxelAnimation>();
+        assert_send_sync::<crate::sim::animation::HarvestOverlay>();
         assert_send_sync::<crate::sim::movement::locomotor::LocomotorState>();
         assert_send_sync::<NavigationState>();
         assert_send_sync::<DriveLocomotionRuntime>();
@@ -891,41 +808,5 @@ mod tests {
             });
 
         assert_ne!(hash_drive(&drive_a), hash_drive(&drive_b));
-    }
-
-    #[test]
-    fn rocking_default_is_neutral() {
-        let r = RockingState::default();
-        assert!(r.is_neutral());
-    }
-
-    #[test]
-    fn rocking_active_angle_is_not_neutral() {
-        let r = RockingState {
-            angle_sideways: SimFixed::lit("0.01"),
-            ..Default::default()
-        };
-        assert!(!r.is_neutral());
-    }
-
-    #[test]
-    fn rocking_within_deadband_is_neutral() {
-        // SimFixed precision is ~1.5e-5, so 1e-5 rounds to 0; pick a value
-        // strictly between the smallest representable nonzero and DEADBAND.
-        // DEADBAND is 2e-5; SIM_EPSILON is ~1.5e-5 — exactly one delta below.
-        let r = RockingState {
-            angle_sideways: SimFixed::DELTA,
-            ..Default::default()
-        };
-        assert!(r.is_neutral());
-    }
-
-    #[test]
-    fn rocking_ship_rocking_is_not_neutral() {
-        let r = RockingState {
-            is_ship_rocking: true,
-            ..Default::default()
-        };
-        assert!(!r.is_neutral());
     }
 }

@@ -19,11 +19,11 @@ pub struct SensorDeposit {
     /// a record of the add, not the removal's authority: every native remove
     /// re-reads the live owner (`0x00455980`, `0x004556D0`, `0x004DE940`), so
     /// `remove_cached_sensor_deposit` must not consult this field.
-    pub owner: InternedId,
-    pub center: (u16, u16),
-    pub add_radius: u16,
-    pub remove_radius: i16,
-    pub building_array: bool,
+    owner: InternedId,
+    center: (u16, u16),
+    add_radius: u16,
+    remove_radius: i16,
+    building_array: bool,
     /// `DetectDisguiseRange=` (`TechnoTypeClass+0x5F4`) circle stamped by
     /// `BuildingClass::AddDetectDisguiseAt @ 0x00455A80` alongside the sensor
     /// array. Unlike the sensor array, its paired
@@ -31,11 +31,48 @@ pub struct SensorDeposit {
     /// (`0x00455991` loads `+0x5F4`), so add and remove are symmetric and one
     /// radius suffices.
     #[serde(default)]
-    pub detect_disguise_radius: u16,
+    detect_disguise_radius: u16,
 }
 
 impl SensorDeposit {
-    fn unit(owner: InternedId, center: (u16, u16), radius: u16) -> Self {
+    /// The house the circle was stamped for.
+    pub(crate) fn owner(&self) -> InternedId {
+        self.owner
+    }
+
+    /// The stamped cell.
+    pub(crate) fn center(&self) -> (u16, u16) {
+        self.center
+    }
+
+    /// The add radius.
+    pub(crate) fn add_radius(&self) -> u16 {
+        self.add_radius
+    }
+
+    /// The remove radius.
+    pub(crate) fn remove_radius(&self) -> i16 {
+        self.remove_radius
+    }
+
+    /// A building's sensor array, not a unit's.
+    pub(crate) fn building_array(&self) -> bool {
+        self.building_array
+    }
+
+    /// The `DetectDisguiseRange=` circle's radius.
+    pub(crate) fn detect_disguise_radius(&self) -> u16 {
+        self.detect_disguise_radius
+    }
+
+    /// Install a fixture's stamped cell.
+    #[cfg(test)]
+    pub(crate) fn set_center_for_test(&mut self, center: (u16, u16)) {
+        self.center = center;
+    }
+
+    /// A unit sensor array's deposit: one radius for the add and the remove.
+    pub(crate) fn unit(owner: InternedId, center: (u16, u16), radius: u16) -> Self {
         Self {
             owner,
             center,

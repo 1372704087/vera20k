@@ -3231,7 +3231,7 @@ impl TacticalCaptureSession {
                             "turret_offset": crate::sim::combat::fire_coord::firer_art(rules, object)
                                 .map_or(0, |art| art.turret_offset),
                             "rocking_angles_fixed_bits": entity.rocking.as_ref().map(|rocking| [
-                                rocking.angle_sideways.to_bits(), rocking.angle_forwards.to_bits()]),
+                                rocking.angle_sideways().to_bits(), rocking.angle_forwards().to_bits()]),
                         })
                     };
                     observation["action_line_inputs"] = inputs;

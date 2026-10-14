@@ -3906,11 +3906,11 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .low_bridge_tube_state = Some(
-            crate::sim::movement::tube_movement::LowBridgeTubeMovementState {
-                tube_id: crate::map::tube_facts::TubeId(0),
-                cursor: 0,
-                target: crate::sim::components::DriveCoord::cell(10, 10, 0),
-            },
+            crate::sim::movement::tube_movement::LowBridgeTubeMovementState::for_test(
+                crate::map::tube_facts::TubeId(0),
+                0,
+                crate::sim::components::DriveCoord::cell(10, 10, 0),
+            ),
         );
         assert_eq!(
             self_click_command(&sim, rules, owner, &[id], Some(&hover)),
@@ -4425,9 +4425,7 @@ mod tests {
     /// or imports arbitrary native EMP/Robot latch bytes.
     #[test]
     fn represented_infantry_controllability_gates_match_native_hut_clicks() {
-        use crate::sim::spawn_manager::{
-            SpawnManagerMode, SpawnManagerState, SpawnSlot, SpawnSlotState,
-        };
+        use crate::sim::spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState};
         use crate::sim::timer::CdTimer;
         let packet: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/engineer_bridge_cursor_caller.json",
@@ -4517,33 +4515,21 @@ mod tests {
                     } else {
                         None
                     };
-                    slots.push(SpawnSlot {
-                        spawn: child,
-                        state: match native_slot["state"].as_i64().unwrap() {
+                    slots.push(SpawnSlot::for_test(
+                        child,
+                        match native_slot["state"].as_i64().unwrap() {
                             0 => SpawnSlotState::ReadyDocked,
                             1 => SpawnSlotState::KamikazeWait,
                             2 => SpawnSlotState::InFlight,
                             other => panic!("unrepresented native slot state {other}"),
                         },
-                        timer: CdTimer::default(),
-                        is_missile_spawn: false,
-                    });
+                        CdTimer::default(),
+                        false,
+                    ));
                 }
                 let spawn_type = sim.interner.intern("ENGINEER");
                 sim.entities_mut().get_mut(engineer).unwrap().spawn_manager =
-                    Some(SpawnManagerState {
-                        spawn_type,
-                        missile_family: None,
-                        regen_rate: 0,
-                        reload_rate: 0,
-                        kamikaze_wait_frames: 0,
-                        slots,
-                        update_timer: CdTimer::default(),
-                        spawn_timer: CdTimer::default(),
-                        current_target: None,
-                        queued_target: None,
-                        mode: SpawnManagerMode::Idle,
-                    });
+                    Some(SpawnManagerState::for_test(spawn_type, slots));
             }
             let before = sim.state_hash();
             let actor = serde_json::to_value(sim.entities().get(engineer).unwrap()).unwrap();

@@ -1949,8 +1949,8 @@ fn restore_object_references(
         // fields, so admission requires the same references to resolve before
         // any cleanup mutates the restored graph.
         if let Some(manager) = entity.spawn_manager.as_ref() {
-            for slot in &manager.slots {
-                if let Some(spawn_id) = slot.spawn {
+            for slot in manager.slots() {
+                if let Some(spawn_id) = slot.spawn() {
                     require_resolved_reference(
                         entity_ids.contains(&spawn_id),
                         "EntityStore",
@@ -1961,7 +1961,7 @@ fn restore_object_references(
                     )?;
                 }
             }
-            if let Some(TargetKind::Entity(target_id)) = manager.current_target {
+            if let Some(TargetKind::Entity(target_id)) = manager.current_target() {
                 require_resolved_reference(
                     entity_ids.contains(&target_id),
                     "EntityStore",
@@ -1971,7 +1971,7 @@ fn restore_object_references(
                     target_id,
                 )?;
             }
-            if let Some(TargetKind::Entity(target_id)) = manager.queued_target {
+            if let Some(TargetKind::Entity(target_id)) = manager.queued_target() {
                 require_resolved_reference(
                     entity_ids.contains(&target_id),
                     "EntityStore",
@@ -4799,10 +4799,7 @@ mod tests {
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(1, "UP1", "Americans", 4, 5);
         entity.set_techno_ctor_random_word_for_test(0xA55A);
-        entity.structure_upgrade_link = Some(crate::sim::game_entity::StructureUpgradeLink {
-            parent_stable_id: 77,
-            slot: 2,
-        });
+        entity.link_structure_upgrade(77, 2);
         sim.substrate.entities.insert(entity);
         // Native load resets Scenario RNG to Seed(0); align the source before
         // comparing persistence/hash state unrelated to that separate rule.
@@ -4816,11 +4813,10 @@ mod tests {
         assert_eq!(restored.scenario_rng.logical_state(), source_rng);
         assert_eq!(restored_entity.techno_ctor_random_word(), 0xA55A);
         assert_eq!(
-            restored_entity.structure_upgrade_link,
-            Some(crate::sim::game_entity::StructureUpgradeLink {
-                parent_stable_id: 77,
-                slot: 2,
-            })
+            restored_entity.structure_upgrade_link(),
+            Some(crate::sim::game_entity::StructureUpgradeLink::for_test(
+                77, 2
+            ))
         );
         assert_eq!(restored.state_hash(), source_hash);
 
@@ -4835,10 +4831,7 @@ mod tests {
             .entities
             .get_mut(1)
             .unwrap()
-            .structure_upgrade_link
-            .as_mut()
-            .unwrap()
-            .slot = 1;
+            .link_structure_upgrade(77, 1);
         assert_ne!(changed_link.state_hash(), source_hash);
     }
 
@@ -6237,15 +6230,15 @@ mod tests {
         entity.in_logic_vector.set_for_test(true);
         entity.position.z = 3;
         entity.position.exact_z_leptons = Some(-37);
-        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-            tube_id: TubeId(9),
-            cursor: 2,
-            target: DriveCoord {
+        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+            TubeId(9),
+            2,
+            DriveCoord {
                 x: 1_536,
                 y: 2_048,
                 z: -19,
             },
-        });
+        ));
         sim.substrate.entities.insert(entity);
         sim.substrate
             .logic
@@ -6277,15 +6270,15 @@ mod tests {
         assert_eq!(restored_entity.position.exact_z_leptons, Some(-37));
         assert_eq!(
             restored_entity.low_bridge_tube_state,
-            Some(LowBridgeTubeMovementState {
-                tube_id: TubeId(9),
-                cursor: 2,
-                target: DriveCoord {
+            Some(LowBridgeTubeMovementState::for_test(
+                TubeId(9),
+                2,
+                DriveCoord {
                     x: 1_536,
                     y: 2_048,
                     z: -19,
-                },
-            })
+                }
+            ))
         );
         assert!(!restored_entity.lifecycle.cell_marked);
         assert!(
@@ -6936,14 +6929,7 @@ mod tests {
         let mut cloak = CloakRuntime::new(0);
         cloak.establish_unlimbo_fully_cloaked();
         entity.cloak = Some(cloak);
-        entity.sensor_deposit = Some(SensorDeposit {
-            owner: viewer,
-            center: (3, 3),
-            add_radius: 2,
-            remove_radius: 2,
-            building_array: false,
-            detect_disguise_radius: 0,
-        });
+        entity.sensor_deposit = Some(SensorDeposit::unit(viewer, (3, 3), 2));
         sim.substrate.entities.insert(entity);
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // fog/sensor/cloak persistence on that same post-load cursor.
@@ -6979,7 +6965,7 @@ mod tests {
             .sensor_deposit
             .as_mut()
             .unwrap()
-            .center = (4, 3);
+            .set_center_for_test((4, 3));
         assert_ne!(restored.state_hash(), same_hash);
     }
 
@@ -7664,34 +7650,30 @@ mod tests {
                 Some(9_999),
             ),
         ));
-        parent_entity.spawn_manager = Some(SpawnManagerState {
-            spawn_type: sim.interner.intern("HORNET"),
-            missile_family: None,
-            regen_rate: 45,
-            reload_rate: 20,
-            kamikaze_wait_frames: 0,
-            slots: vec![
-                SpawnSlot {
-                    spawn: Some(child),
-                    state: SpawnSlotState::ReadyDocked,
-                    timer: CdTimer::default(),
-                    is_missile_spawn: false,
-                },
+        let mut manager = SpawnManagerState::for_test(
+            sim.interner.intern("HORNET"),
+            vec![
+                SpawnSlot::for_test(
+                    Some(child),
+                    SpawnSlotState::ReadyDocked,
+                    CdTimer::default(),
+                    false,
+                ),
                 // A second saved pointer to the same child deliberately proves
                 // that swizzle aliases are valid, not duplicate ownership.
-                SpawnSlot {
-                    spawn: Some(child),
-                    state: SpawnSlotState::ReadyDocked,
-                    timer: CdTimer::default(),
-                    is_missile_spawn: false,
-                },
+                SpawnSlot::for_test(
+                    Some(child),
+                    SpawnSlotState::ReadyDocked,
+                    CdTimer::default(),
+                    false,
+                ),
             ],
-            update_timer: CdTimer::default(),
-            spawn_timer: CdTimer::default(),
-            current_target: Some(TargetKind::Entity(target)),
-            queued_target: Some(TargetKind::Entity(target)),
-            mode: SpawnManagerMode::Launching,
-        });
+        );
+        manager.set_rates_for_test(45, 20);
+        manager.set_current_target_for_test(Some(TargetKind::Entity(target)));
+        manager.set_queued_target_for_test(Some(TargetKind::Entity(target)));
+        manager.set_mode_for_test(SpawnManagerMode::Launching);
+        parent_entity.spawn_manager = Some(manager);
         sim.substrate.entities.insert(parent_entity);
 
         let mut child_entity = GameEntity::test_default(child, "HORNET", "AMERICANS", 2, 1);
@@ -7752,8 +7734,8 @@ mod tests {
                         .spawn_manager
                         .as_mut()
                         .unwrap()
-                        .slots[0]
-                        .spawn = Some(9_999);
+                        .slots_mut_for_test()[0]
+                        .set_spawn_for_test(Some(9_999));
                     ("EntityStore", ids.parent, "spawn_manager.slots.spawn")
                 }
                 MissingRole::CurrentTarget => {
@@ -7764,7 +7746,9 @@ mod tests {
                         .spawn_manager
                         .as_mut()
                         .unwrap()
-                        .current_target = Some(crate::sim::combat::TargetKind::Entity(9_999));
+                        .set_current_target_for_test(Some(crate::sim::combat::TargetKind::Entity(
+                            9_999,
+                        )));
                     ("EntityStore", ids.parent, "spawn_manager.current_target")
                 }
                 MissingRole::QueuedTarget => {
@@ -7775,7 +7759,9 @@ mod tests {
                         .spawn_manager
                         .as_mut()
                         .unwrap()
-                        .queued_target = Some(crate::sim::combat::TargetKind::Entity(9_999));
+                        .set_queued_target_for_test(Some(crate::sim::combat::TargetKind::Entity(
+                            9_999,
+                        )));
                     ("EntityStore", ids.parent, "spawn_manager.queued_target")
                 }
                 MissingRole::SpawnOwner => {
@@ -7837,11 +7823,11 @@ mod tests {
             .spawn_manager
             .as_mut()
             .unwrap();
-        for slot in &mut manager.slots {
-            slot.spawn = None;
+        for slot in manager.slots_mut_for_test() {
+            slot.set_spawn_for_test(None);
         }
-        manager.current_target = Some(TargetKind::Cell(7, 8));
-        manager.queued_target = Some(TargetKind::Cell(9, 10));
+        manager.set_current_target_for_test(Some(TargetKind::Cell(7, 8)));
+        manager.set_queued_target_for_test(Some(TargetKind::Cell(9, 10)));
         sim.substrate
             .entities
             .get_mut(ids.child)
@@ -8257,9 +8243,9 @@ mod tests {
                 .spawn_manager
                 .as_ref()
                 .unwrap()
-                .slots
+                .slots()
                 .iter()
-                .map(|slot| slot.spawn)
+                .map(|slot| slot.spawn())
                 .collect::<Vec<_>>(),
             vec![Some(ids.child), Some(ids.child)]
         );

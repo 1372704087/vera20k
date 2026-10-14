@@ -1294,11 +1294,7 @@ mod tests {
             if index == 1 {
                 entity.lifecycle.set_object_alive_for_test(false);
             } else if index == 2 {
-                entity.structure_upgrade_link =
-                    Some(crate::sim::game_entity::StructureUpgradeLink {
-                        parent_stable_id: id - 1,
-                        slot: 0,
-                    });
+                entity.link_structure_upgrade(id - 1, 0);
             }
             let result = sim.try_reveal_entity_with_context(
                 id,

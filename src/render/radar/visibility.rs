@@ -455,11 +455,11 @@ mod tests {
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(1, "MTNK", "Soviet", 4, 5);
         assert!(enemy_sensed_prefilter(&entity));
-        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-            tube_id: TubeId(2),
-            cursor: 0,
-            target: DriveCoord { x: 0, y: 0, z: 0 },
-        });
+        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+            TubeId(2),
+            0,
+            DriveCoord { x: 0, y: 0, z: 0 },
+        ));
         assert!(!enemy_sensed_prefilter(&entity));
 
         entity.set_category_for_test(EntityCategory::Aircraft);

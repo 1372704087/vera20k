@@ -128,7 +128,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
                 -1
             );
             assert_eq!((entity.position.rx, entity.position.ry), (1, 0));
-            assert_eq!(tube.cursor, 0);
+            assert_eq!(tube.cursor(), 0);
             assert_eq!(entity.navigation.path_replay.cursor, 2);
             assert_eq!(entity.navigation.path_replay.reference_cell, Some((1, 0)));
             assert_eq!(
@@ -661,11 +661,11 @@ fn entry_active_tube_excludes_drive_slope_process_for_the_whole_turn() {
     entity.set_type_ref_for_test(sim.intern("DRIVE"));
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     entity.low_bridge_tube_state = Some(
-        crate::sim::movement::tube_movement::LowBridgeTubeMovementState {
-            tube_id: crate::map::tube_facts::TubeId(0),
-            cursor: 0,
-            target: DriveCoord::cell(0, 0, 0),
-        },
+        crate::sim::movement::tube_movement::LowBridgeTubeMovementState::for_test(
+            crate::map::tube_facts::TubeId(0),
+            0,
+            DriveCoord::cell(0, 0, 0),
+        ),
     );
     sim.substrate.entities.insert(entity);
 

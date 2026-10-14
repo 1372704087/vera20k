@@ -107,11 +107,11 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
         }
     }
     if input["tube"].is_array() {
-        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
-            tube_id: TubeId(0),
-            cursor: 0,
-            target: DriveCoord { x: 0, y: 0, z: 0 },
-        });
+        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+            TubeId(0),
+            0,
+            DriveCoord { x: 0, y: 0, z: 0 },
+        ));
     }
     if input["nav_com_coord"].is_array() {
         let nav = coord(&input["nav_com_coord"]);

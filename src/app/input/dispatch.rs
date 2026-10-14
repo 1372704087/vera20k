@@ -3318,11 +3318,11 @@ mod deploy_key_tests {
             .get_mut(heli)
             .unwrap()
             .low_bridge_tube_state = Some(
-            crate::sim::movement::tube_movement::LowBridgeTubeMovementState {
-                tube_id: crate::map::tube_facts::TubeId(0),
-                cursor: 0,
-                target: crate::sim::components::DriveCoord::cell(10, 10, 0),
-            },
+            crate::sim::movement::tube_movement::LowBridgeTubeMovementState::for_test(
+                crate::map::tube_facts::TubeId(0),
+                0,
+                crate::sim::components::DriveCoord::cell(10, 10, 0),
+            ),
         );
         assert_eq!(
             deploy_key_command(&sim, Some(&rules), heli, sim.session.current_house),

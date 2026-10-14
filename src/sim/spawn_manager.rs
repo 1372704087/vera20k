@@ -78,6 +78,9 @@ use crate::util::direction_tables::CELL_DELTAS;
 #[cfg(test)]
 #[path = "spawn_manager_oracle_tests.rs"]
 mod oracle_tests;
+#[cfg(test)]
+#[path = "spawn_manager_tests.rs"]
+mod tests;
 
 /// A spawned child's SpawnOwner, `TechnoClass+0x2D4`: the object whose
 /// spawn manager holds the child. The manager's launch sets it
@@ -157,14 +160,64 @@ pub enum SpawnSlotState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpawnSlot {
     /// Stable id of the child, or `None` while regenerating.
-    pub spawn: Option<u64>,
-    pub state: SpawnSlotState,
+    spawn: Option<u64>,
+    state: SpawnSlotState,
     /// The slot's timer (`+0x08`): the kamikaze wait, the reload and the
     /// regeneration. A ready slot keeps the timer it last ran out.
-    pub timer: CdTimer,
+    timer: CdTimer,
     /// `+0x14`: set when the pool's child type is one of the three hardcoded
     /// rocket families. Drives the launch's owner gates and the kamikaze path.
-    pub is_missile_spawn: bool,
+    is_missile_spawn: bool,
+}
+
+impl SpawnSlot {
+    /// The child's stable id.
+    pub fn spawn(&self) -> Option<u64> {
+        self.spawn
+    }
+
+    /// The slot's state.
+    pub fn state(&self) -> SpawnSlotState {
+        self.state
+    }
+
+    /// The slot's timer.
+    pub fn timer(&self) -> CdTimer {
+        self.timer
+    }
+
+    /// The pool's child is a rocket.
+    pub fn is_missile_spawn(&self) -> bool {
+        self.is_missile_spawn
+    }
+
+    /// A fixture's slot.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        spawn: Option<u64>,
+        state: SpawnSlotState,
+        timer: CdTimer,
+        is_missile_spawn: bool,
+    ) -> Self {
+        Self {
+            spawn,
+            state,
+            timer,
+            is_missile_spawn,
+        }
+    }
+
+    /// Install a fixture's child.
+    #[cfg(test)]
+    pub(crate) fn set_spawn_for_test(&mut self, spawn: Option<u64>) {
+        self.spawn = spawn;
+    }
+
+    /// Install a fixture's state.
+    #[cfg(test)]
+    pub(crate) fn set_state_for_test(&mut self, state: SpawnSlotState) {
+        self.state = state;
+    }
 }
 
 /// Manager-level machine (native `ManagerMode` at +0x70).
@@ -182,28 +235,138 @@ pub enum SpawnManagerMode {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpawnManagerState {
     /// Interned `Spawns=` child type name.
-    pub spawn_type: InternedId,
+    spawn_type: InternedId,
     /// Which hardcoded rocket family the child belongs to, if any.
-    pub missile_family: Option<MissileFamily>,
+    missile_family: Option<MissileFamily>,
     /// `SpawnRegenRate=` in frames.
-    pub regen_rate: u32,
+    regen_rate: u32,
     /// `SpawnReloadRate=` in frames.
-    pub reload_rate: u32,
+    reload_rate: u32,
     /// `PauseFrames + TiltFrames` for this pool's missile family, cached at
     /// construction so the per-tick machine never needs the RuleSet. Zero for
     /// aircraft pools, which never enter `KamikazeWait`.
-    pub kamikaze_wait_frames: u32,
-    pub slots: Vec<SpawnSlot>,
+    kamikaze_wait_frames: u32,
+    slots: Vec<SpawnSlot>,
     /// Gates the whole AI pass (20 frames, then 10).
-    pub update_timer: CdTimer,
+    update_timer: CdTimer,
     /// The manager's SpawnTimer (`+0x5C`): spaces launches across the pool.
-    pub spawn_timer: CdTimer,
-    pub current_target: Option<TargetKind>,
-    pub queued_target: Option<TargetKind>,
-    pub mode: SpawnManagerMode,
+    spawn_timer: CdTimer,
+    current_target: Option<TargetKind>,
+    queued_target: Option<TargetKind>,
+    mode: SpawnManagerMode,
 }
 
 impl SpawnManagerState {
+    /// The interned `Spawns=` child type.
+    pub fn spawn_type(&self) -> InternedId {
+        self.spawn_type
+    }
+
+    /// The child's rocket family, if any.
+    pub fn missile_family(&self) -> Option<MissileFamily> {
+        self.missile_family
+    }
+
+    /// `SpawnRegenRate=` in frames.
+    pub fn regen_rate(&self) -> u32 {
+        self.regen_rate
+    }
+
+    /// `SpawnReloadRate=` in frames.
+    pub fn reload_rate(&self) -> u32 {
+        self.reload_rate
+    }
+
+    /// The pool's kamikaze wait in frames.
+    pub fn kamikaze_wait_frames(&self) -> u32 {
+        self.kamikaze_wait_frames
+    }
+
+    /// The pool's slots.
+    pub fn slots(&self) -> &[SpawnSlot] {
+        &self.slots
+    }
+
+    /// The AI pass's gate.
+    pub fn update_timer(&self) -> CdTimer {
+        self.update_timer
+    }
+
+    /// The SpawnTimer (`+0x5C`).
+    pub fn spawn_timer(&self) -> CdTimer {
+        self.spawn_timer
+    }
+
+    /// The live target.
+    pub fn current_target(&self) -> Option<TargetKind> {
+        self.current_target
+    }
+
+    /// The target SetTarget queued for the next AI pass.
+    pub fn queued_target(&self) -> Option<TargetKind> {
+        self.queued_target
+    }
+
+    /// The ManagerMode (`+0x70`).
+    pub fn mode(&self) -> SpawnManagerMode {
+        self.mode
+    }
+
+    /// A fixture's idle pool of `slots` with zero rates and timers.
+    #[cfg(test)]
+    pub(crate) fn for_test(spawn_type: InternedId, slots: Vec<SpawnSlot>) -> Self {
+        Self {
+            spawn_type,
+            missile_family: None,
+            regen_rate: 0,
+            reload_rate: 0,
+            kamikaze_wait_frames: 0,
+            slots,
+            update_timer: CdTimer::default(),
+            spawn_timer: CdTimer::default(),
+            current_target: None,
+            queued_target: None,
+            mode: SpawnManagerMode::Idle,
+        }
+    }
+
+    /// Install a fixture's rates.
+    #[cfg(test)]
+    pub(crate) fn set_rates_for_test(&mut self, regen_rate: u32, reload_rate: u32) {
+        self.regen_rate = regen_rate;
+        self.reload_rate = reload_rate;
+    }
+
+    /// Install a fixture's AI gate.
+    #[cfg(test)]
+    pub(crate) fn set_update_timer_for_test(&mut self, update_timer: CdTimer) {
+        self.update_timer = update_timer;
+    }
+
+    /// Install a fixture's current target.
+    #[cfg(test)]
+    pub(crate) fn set_current_target_for_test(&mut self, current_target: Option<TargetKind>) {
+        self.current_target = current_target;
+    }
+
+    /// Install a fixture's queued target.
+    #[cfg(test)]
+    pub(crate) fn set_queued_target_for_test(&mut self, queued_target: Option<TargetKind>) {
+        self.queued_target = queued_target;
+    }
+
+    /// Install a fixture's mode.
+    #[cfg(test)]
+    pub(crate) fn set_mode_for_test(&mut self, mode: SpawnManagerMode) {
+        self.mode = mode;
+    }
+
+    /// A fixture's slots.
+    #[cfg(test)]
+    pub(crate) fn slots_mut_for_test(&mut self) -> &mut Vec<SpawnSlot> {
+        &mut self.slots
+    }
+
     /// Slots whose state is not `Regenerating` — the native
     /// `CountAliveSpawns`. The parent's `Spawner=yes` fire gate uses this.
     pub fn count_alive_spawns(&self) -> usize {

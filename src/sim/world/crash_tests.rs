@@ -225,8 +225,8 @@ fn crash_matches_native_rows() {
         } else {
             let rocking = entity.rocking.as_ref().unwrap();
             for (actual, expected) in [
-                (rocking.vel_sideways, &row["sideways_bits"]),
-                (rocking.vel_forwards, &row["forwards_bits"]),
+                (rocking.vel_sideways(), &row["sideways_bits"]),
+                (rocking.vel_forwards(), &row["forwards_bits"]),
             ] {
                 assert!(
                     (actual.to_num::<f64>() - f32_hex(expected)).abs() <= 1.0 / 65536.0,
@@ -609,7 +609,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         entity
             .rocking
             .as_ref()
-            .is_some_and(|r| r.vel_sideways != SimFixed::ZERO)
+            .is_some_and(|r| r.vel_sideways() != SimFixed::ZERO)
     );
 
     let grid = crate::sim::pathfinding::PathGrid::test_all_passable(70, 70);
@@ -1065,7 +1065,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
         entity
             .rocking
             .as_ref()
-            .is_some_and(|r| r.vel_sideways != SimFixed::ZERO),
+            .is_some_and(|r| r.vel_sideways() != SimFixed::ZERO),
         "Crash drew the spin"
     );
     assert!(
@@ -1618,14 +1618,14 @@ fn retail_dustbowl_flak_shoots_a_harrier_down() {
                 assert_eq!(entity.kill_record.killer(), Some(russians));
             }
             let rocking = entity.rocking.as_ref().expect("a crash spins");
-            spun |= rocking.angle_sideways != SimFixed::ZERO;
+            spun |= rocking.angle_sideways() != SimFixed::ZERO;
             heights.push(height);
             let xy = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
             track.push((xy[0], xy[1]));
             println!(
                 "frame {frame}: height {height}, roll {:.4}, pitch {:.4}",
-                rocking.angle_sideways.to_num::<f64>(),
-                rocking.angle_forwards.to_num::<f64>()
+                rocking.angle_sideways().to_num::<f64>(),
+                rocking.angle_forwards().to_num::<f64>()
             );
             for (id, anim) in sim.substrate.anims.iter() {
                 if anim.type_id == smoke_type {

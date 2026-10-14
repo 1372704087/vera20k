@@ -1429,7 +1429,7 @@ pub(crate) fn resolve_object_shp_frame(
     if entity.category() == EntityCategory::Unit
         && entity.animation.as_ref().is_none_or(|anim_state| {
             matches!(
-                anim_state.sequence,
+                anim_state.sequence(),
                 animation::SequenceKind::Stand | animation::SequenceKind::Walk
             )
         })
@@ -1488,12 +1488,12 @@ pub(crate) fn resolve_object_shp_frame(
         return u16::try_from(animation::resolve_shp_frame(record, facing, stage)).ok();
     }
     if let (Some(anim_state), Some(set)) = (entity.animation.as_ref(), sequence_set)
-        && let Some(def) = set.get(&anim_state.sequence)
+        && let Some(def) = set.get(&anim_state.sequence())
     {
         return u16::try_from(animation::resolve_shp_frame(
             def,
             facing,
-            i32::from(anim_state.frame_index),
+            i32::from(anim_state.frame_index()),
         ))
         .ok();
     }

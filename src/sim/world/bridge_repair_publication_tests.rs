@@ -1976,7 +1976,8 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
             }
         }
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.health.current = i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap();
+        e.health
+            .set_for_test(i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap());
         *e.locomotor.as_mut().unwrap().jumpjet_runtime_mut().unwrap() = JumpjetRuntime::default()
             .with_destination_for_test(DriveCoord {
                 x: 2752,
@@ -1994,7 +1995,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
         let e = sim.substrate.entities.get(id).unwrap();
         let state = e.locomotor.as_ref().unwrap().jumpjet_runtime().unwrap();
         assert_eq!(
-            i64::from(e.health.current),
+            i64::from(e.health.current()),
             row["output"]["health"].as_i64().unwrap()
         );
         assert_eq!(

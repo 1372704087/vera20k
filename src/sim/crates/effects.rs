@@ -168,7 +168,7 @@ pub(super) fn apply_heal_base_crate(
         })
         .filter_map(|(id, entity)| {
             let strength = sim.object_type(entity.type_ref(), rules)?.strength;
-            Some((id, entity.health.current.wrapping_sub(strength)))
+            Some((id, entity.health.current().wrapping_sub(strength)))
         })
         .collect();
     let warhead = sim.interner.intern(&rules.bridge_warheads.c4_name);

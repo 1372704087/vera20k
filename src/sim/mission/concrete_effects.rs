@@ -544,7 +544,7 @@ pub(crate) fn assign_target_commits(
     match requested {
         Some(TargetKind::Entity(id)) => entities.get(id).is_some_and(|target| {
             target.lifecycle.object_alive
-                && target.health.current != 0
+                && target.health.current() != 0
                 && !target.sinking.is_active()
                 && !(target.category() == crate::map::entities::EntityCategory::Infantry
                     && target.mission_leaf.as_infantry().is_some_and(|leaf| {

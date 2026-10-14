@@ -269,7 +269,7 @@ impl Simulation {
                 }
                 let owner = self.substrate.entities.get(id).map(|entity| entity.owner());
                 if let Some(entity) = self.substrate.entities.get_mut(victim) {
-                    entity.health.current = 0;
+                    entity.health.set(0);
                 }
                 self.record_the_kill(
                     victim,

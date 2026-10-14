@@ -231,7 +231,7 @@ mod tests {
     use super::*;
     use crate::map::resolved_terrain::test_flat_ground_grid;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern::test_interner;
     use crate::sim::mission::MissionDispatchTimer;
@@ -294,7 +294,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 1000 },
+            Health::new(1000),
             ty,
             EntityCategory::Structure,
             0,
@@ -350,7 +350,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 1000 },
+                Health::new(1000),
                 mover_type,
                 EntityCategory::Unit,
                 0,
@@ -377,7 +377,7 @@ mod tests {
                 .get_mut(MOVER)
                 .unwrap()
                 .health
-                .current = input["blocker_health"].as_i64().unwrap_or(1000) as i32;
+                .set_for_test(input["blocker_health"].as_i64().unwrap_or(1000) as i32);
             sim.substrate.occupancy.add(
                 12,
                 12,

@@ -7,7 +7,7 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::miner::ResourceType;
 use crate::sim::occupancy::CellListInsertion;
 use crate::sim::pathfinding::PathGrid;
@@ -535,7 +535,7 @@ pub(super) fn spawn_structure(
         0,
         0,
         owner_id,
-        Health { current: 1000 },
+        Health::new(1000),
         type_id_interned,
         crate::map::entities::EntityCategory::Structure,
         0,

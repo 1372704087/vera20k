@@ -9,7 +9,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{HarvestOverlay, Health};
+use crate::sim::combat::Health;
+use crate::sim::components::HarvestOverlay;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
@@ -147,9 +148,7 @@ fn spawn_miner(sim: &mut Simulation, sid: u64, kind: MinerKind, rx: u16, ry: u16
         0,
         0,
         owner_id,
-        Health {
-            current: health_val,
-        },
+        Health::new(health_val),
         type_id_interned,
         EntityCategory::Unit,
         0,
@@ -215,7 +214,7 @@ fn spawn_refinery(sim: &mut Simulation, sid: u64, rx: u16, ry: u16) {
         0,
         0,
         owner_id,
-        Health { current: 900 },
+        Health::new(900),
         type_id,
         EntityCategory::Structure,
         0,
@@ -268,7 +267,7 @@ fn spawn_structure_owned(
         0,
         0,
         owner_id,
-        Health { current: 900 },
+        Health::new(900),
         type_id_interned,
         EntityCategory::Structure,
         0,
@@ -302,7 +301,7 @@ fn spawn_inert_dock_instance(sim: &mut Simulation) {
         0,
         0,
         owner_id,
-        Health { current: 900 },
+        Health::new(900),
         type_id,
         EntityCategory::Structure,
         0,
@@ -2621,7 +2620,7 @@ fn stop_does_not_force_guard_on_a_non_miner() {
         0,
         0,
         owner_id,
-        Health { current: 300 },
+        Health::new(300),
         type_id,
         EntityCategory::Unit,
         0,
@@ -2738,7 +2737,7 @@ fn occupy_refinery(sim: &mut Simulation, refinery_sid: u64, occupant_sid: u64) {
         0,
         0,
         owner_id,
-        Health { current: 600 },
+        Health::new(600),
         type_id,
         EntityCategory::Unit,
         0,
@@ -3334,7 +3333,9 @@ fn damaged_refinery_ore_only_unload_smokes_twice_without_special_anim() {
     let miner_id = spawn_docked_miner(&mut sim, &[(ResourceType::Ore, 25); 5]);
     {
         let refinery = sim.substrate.entities.get_mut(2).expect("refinery");
-        refinery.health.current = rules.object("GAREFN").expect("refinery type").strength / 2;
+        refinery
+            .health
+            .set_for_test(rules.object("GAREFN").expect("refinery type").strength / 2);
     }
 
     let trace = trace_unload_presentation(&mut sim, &rules, miner_id, 60);
@@ -3444,7 +3445,7 @@ fn refinery_death_drops_the_unloading_miner_at_the_kill() {
         sim.substrate
             .entities
             .get(2)
-            .is_none_or(|refinery| refinery.dying || refinery.health.current == 0),
+            .is_none_or(|refinery| refinery.dying || refinery.health.current() == 0),
         "the refinery died"
     );
     let miner_entity = sim

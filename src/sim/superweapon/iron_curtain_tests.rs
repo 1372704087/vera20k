@@ -600,7 +600,7 @@ fn curtained_infantry_die_and_announce_each_loss() {
     assert!(launched < radar && radar < first_loss);
     for id in [first, second] {
         let infantry = sim.substrate.entities.get(id).unwrap();
-        assert!(infantry.dying && infantry.health.current == 0);
+        assert!(infantry.dying && infantry.health.current() == 0);
         assert!(infantry.invulnerability.is_none());
     }
     assert!(!sim.substrate.entities.get(tank).unwrap().dying);
@@ -657,5 +657,5 @@ fn retail_iron_curtain_through_production_frames() {
         Some((launch_frame, 750, InvulnKind::IronCurtain))
     );
     let conscript = sim.substrate.entities.get(conscript).unwrap();
-    assert!(conscript.dying && conscript.health.current == 0);
+    assert!(conscript.dying && conscript.health.current() == 0);
 }

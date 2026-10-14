@@ -449,7 +449,7 @@ impl Simulation {
                     rules.map(|r| (r, &self.interner)),
                 );
                 state.should_begin_takeoff(
-                    entity.health.current,
+                    entity.health.current(),
                     || air_movement::current_fly_height(entity, self.resolved_terrain.as_ref()),
                     base,
                 )

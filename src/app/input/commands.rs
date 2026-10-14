@@ -960,8 +960,8 @@ mod tests {
 
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
+    use crate::sim::combat::Health;
     use crate::sim::command::{Command, CommandEnvelope};
-    use crate::sim::components::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::HouseState;
     use crate::sim::world::Simulation;
@@ -1239,7 +1239,7 @@ mod tests {
             0,
             0,
             local,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0,

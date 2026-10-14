@@ -19,8 +19,9 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
 use crate::sim::combat::AttackTarget;
+use crate::sim::combat::Health;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::{BuildingUp, Health};
+use crate::sim::components::BuildingUp;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::MissionType;
 use crate::sim::overlay_grid::{OverlayGrid, recalc_overlay_passability};
@@ -1748,7 +1749,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
                 .get_mut(blocker_id)
                 .unwrap()
                 .health
-                .current = 0;
+                .set_for_test(0);
             sim.begin_infantry_death_sequence(
                 blocker_id,
                 crate::sim::world::InfantryDeathSequence::Die1,
@@ -3570,7 +3571,7 @@ fn a_sale_refunds_regardless_of_health_and_clears_peer_contacts() {
             .set_credits_for_test(1000);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAPOWR", 20, 20);
         if let Some(ge) = sim.substrate.entities.get_mut(1) {
-            ge.health = Health { current: health };
+            ge.health = Health::new(health);
             ge.mark_live_contact_with(99);
         }
         let mut peer = GameEntity::test_default(99, "MTNK", "Americans", 22, 20);
@@ -3844,7 +3845,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     // Occupant placed on the map alive.
     let pax = sim.substrate.entities.get(31).expect("occupant exists");
     assert!(!pax.dying, "occupant should not be dying");
-    assert!(pax.health.current > 0, "occupant should be alive");
+    assert!(pax.health.current() > 0, "occupant should be alive");
     assert!(
         matches!(pax.passenger_role, PassengerRole::None),
         "occupant role should be None"

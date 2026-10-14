@@ -682,7 +682,7 @@ mod tests {
     use super::*;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
     use crate::map::tube_facts::TubeSource;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::occupancy::CellListInsertion;
 
@@ -763,7 +763,7 @@ mod tests {
             0,
             0,
             crate::sim::intern::test_intern("Americans"),
-            Health { current: 100 },
+            Health::new(100),
             crate::sim::intern::test_intern(kind),
             EntityCategory::Unit,
             0,

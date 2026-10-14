@@ -3154,7 +3154,7 @@ impl TacticalCaptureSession {
                     "type_id": type_name, "category": entity.category(),
                     "cell": [entity.position.rx, entity.position.ry],
                     "physical_leptons": [coord.x, coord.y, coord.z], "on_bridge": entity.on_bridge,
-                    "health": entity.health.current, "active": entity.is_active(),
+                    "health": entity.health.current(), "active": entity.is_active(),
                     "veterancy_raw_bits": entity.veterancy.raw().bits(),
                     "veterancy_rank_cache": entity.veterancy.rank_cache(),
                     "elite_flash_frames": entity.flashing.frames(),
@@ -5547,7 +5547,7 @@ mod tests {
     fn iron_curtain_example_curtains_a_tank_under_fire() {
         use crate::map::entities::EntityCategory;
         use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
-        use crate::sim::{components::Health, game_entity::GameEntity, world::Simulation};
+        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
 
         let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
             "tools/map_observation.iron-curtain.example.json",
@@ -5576,7 +5576,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 400 },
+                Health::new(400),
                 type_ref,
                 EntityCategory::Unit,
                 0,

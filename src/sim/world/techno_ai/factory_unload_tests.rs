@@ -396,7 +396,7 @@ fn actor_input(actor: &mut GameEntity, native: &Value) {
     actor.in_logic_vector = native["logic_registered"] == 1;
     actor.in_playfield = native["in_playfield"] == 1;
     actor.on_bridge = native["on_bridge"] == 1;
-    actor.health.current = int(&native["health"]);
+    actor.health.set_for_test(int(&native["health"]));
     actor.body_facing.snap(
         native["primary_facing"][0].as_u64().unwrap() as u16,
         int(&native["frame"]) as u32,
@@ -556,7 +556,7 @@ fn assert_actor(actor: &GameEntity, native: &Value, name: &str) {
     for (key, actual) in [
         ("mission", actor.mission.current().raw()),
         ("queued", actor.mission.queued().raw()),
-        ("health", actor.health.current),
+        ("health", actor.health.current()),
     ] {
         assert_eq!(json!(actual), native[key], "{name}: {key}");
     }

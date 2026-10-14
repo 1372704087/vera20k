@@ -1279,7 +1279,7 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
             .find(|boundary| boundary["label"] == "held_ctor_complete_gapowr")
             .unwrap();
         assert_eq!(
-            i64::from(building.health.current),
+            i64::from(building.health.current()),
             ctor["state"]["building"]["health"].as_i64().unwrap()
         );
         assert_eq!(

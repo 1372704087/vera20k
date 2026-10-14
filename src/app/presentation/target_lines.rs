@@ -642,7 +642,7 @@ mod tests {
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 1000 },
+            crate::sim::combat::Health::new(1000),
             factory_type,
             EntityCategory::Structure,
             0,

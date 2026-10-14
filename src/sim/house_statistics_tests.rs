@@ -99,7 +99,9 @@ fn native_null_record_kill_books_each_live_callback_immediately() {
         victim.set_owner_for_test(owner);
         victim.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
         victim.set_category_for_test(EntityCategory::Structure);
-        victim.health.current = i32::try_from(row["before"]["health"].as_i64().unwrap()).unwrap();
+        victim
+            .health
+            .set_for_test(i32::try_from(row["before"]["health"].as_i64().unwrap()).unwrap());
         victim.dont_score = dont_score;
         sim.substrate.entities.insert(victim);
         let before_rng = sim.rng_state();
@@ -129,7 +131,7 @@ fn native_null_record_kill_books_each_live_callback_immediately() {
             let victim = sim.substrate.entities.get(1).unwrap();
             assert_eq!(victim.owner(), owner, "{name}: old owner still installed");
             assert_eq!(
-                i64::from(victim.health.current),
+                i64::from(victim.health.current()),
                 after["health"].as_i64().unwrap(),
                 "{name}"
             );
@@ -325,7 +327,7 @@ fn native_house_statistics_survive_snapshot_and_retained_ship_terminal_record() 
         hull.set_type_ref_for_test(sim.interner.intern("AEGIS"));
         hull.set_owner_for_test(owner);
         hull.set_category_for_test(crate::map::entities::EntityCategory::Unit);
-        hull.health.current = 1;
+        hull.health.set_for_test(1);
         sim.substrate.entities.insert(hull);
         let bytes = GameSnapshot::save_validated(&sim, 1, 2, "native House state", 3);
         let mut restored = GameSnapshot::load_validated(&bytes, 1, 2, "HOUSE-STATS.MAP")

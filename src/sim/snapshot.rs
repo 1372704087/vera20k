@@ -2898,7 +2898,7 @@ mod tests {
         use crate::rules::ini_parser::IniFile;
         use crate::rules::overlay_types::OverlayTypeRegistry;
         use crate::rules::ruleset::RuleSet;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::movement::locomotor::MovementLayer;
         use crate::sim::ore_growth::{OreGrowthConfig, OreGrowthState};
@@ -2987,7 +2987,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 EntityCategory::Unit,
                 0,
@@ -4412,7 +4412,7 @@ mod tests {
                 crate::sim::game_entity::GameEntity::test_default(1, "SIGNED", "Americans", 0, 0);
             entity.set_type_ref_for_test(sim.intern("SIGNED"));
             entity.set_owner_for_test(sim.intern("Americans"));
-            entity.health.current = actual;
+            entity.health.set_for_test(actual);
             entity.estimated_health =
                 crate::sim::estimated_health::EstimatedHealth::from_raw(estimated);
             sim.substrate.entities.insert(entity);
@@ -4429,7 +4429,7 @@ mod tests {
                 .expect("restore signed health");
             let entity = restored.substrate.entities.get(1).unwrap();
             assert_eq!(
-                (entity.health.current, entity.estimated_health.get()),
+                (entity.health.current(), entity.estimated_health.get()),
                 (actual, estimated)
             );
             assert_eq!(restored.state_hash(), before);
@@ -4439,7 +4439,7 @@ mod tests {
                 .get_mut(1)
                 .unwrap()
                 .health
-                .current = actual.wrapping_add(1);
+                .set_for_test(actual.wrapping_add(1));
             assert_ne!(restored.state_hash(), before);
             restored
                 .substrate
@@ -4447,7 +4447,7 @@ mod tests {
                 .get_mut(1)
                 .unwrap()
                 .health
-                .current = actual;
+                .set_for_test(actual);
             restored
                 .substrate
                 .entities
@@ -5002,7 +5002,7 @@ mod tests {
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 1000 },
+            crate::sim::combat::Health::new(1000),
             type_ref,
             crate::map::entities::EntityCategory::Structure,
             0,
@@ -5104,7 +5104,7 @@ mod tests {
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 750 },
+            crate::sim::combat::Health::new(750),
             type_ref,
             crate::map::entities::EntityCategory::Structure,
             0,
@@ -5355,7 +5355,7 @@ mod tests {
     #[test]
     fn wave_active_inactive_dummy_links_roundtrip_with_identical_hash() {
         use crate::map::entities::EntityCategory;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::projectile::ProjectileCoord;
         use crate::sim::wave::{Wave, WaveRecordedCell, WaveUpdateContext};
@@ -5376,7 +5376,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 200 },
+                Health::new(200),
                 type_ref,
                 EntityCategory::Unit,
                 0,
@@ -5722,7 +5722,8 @@ mod tests {
     fn gsi_13_06_body_frame_counter_roundtrips_and_changes_hash() {
         use crate::map::entities::EntityCategory;
         use crate::rules::locomotor_type::LocomotorKind;
-        use crate::sim::components::{DriveCoord, Health};
+        use crate::sim::combat::Health;
+        use crate::sim::components::DriveCoord;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::movement::ShipLocomotionRuntime;
         use crate::sim::movement::locomotor::LocomotorState;
@@ -5740,7 +5741,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 EntityCategory::Unit,
                 0,
@@ -5809,8 +5810,8 @@ mod tests {
     #[test]
     fn gsi_05_10_pending_building_fire_roundtrips_and_changes_hash() {
         use crate::map::entities::EntityCategory;
+        use crate::sim::combat::Health;
         use crate::sim::combat::combat_weapon::WeaponSlot;
-        use crate::sim::components::Health;
         use crate::sim::game_entity::{DelayedFire, GameEntity, PendingBuildingFire};
         use crate::sim::projectile::ProjectileCoord;
 
@@ -5825,7 +5826,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 600 },
+                Health::new(600),
                 type_ref,
                 EntityCategory::Structure,
                 0,
@@ -6660,7 +6661,7 @@ mod tests {
     #[test]
     fn foot_air_distinct_native_caches_roundtrip_and_continue_notifications() {
         use crate::map::entities::EntityCategory;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
 
         let mut sim = Simulation::with_seed(0);
@@ -6676,7 +6677,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -6770,7 +6771,7 @@ mod tests {
     #[test]
     fn foot_air_retired_cached_slot_survives_restore_until_physical_destruction() {
         use crate::map::entities::EntityCategory;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
 
         let mut sim = Simulation::with_seed(0);
@@ -6787,7 +6788,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 EntityCategory::Unit,
                 0,
@@ -6840,7 +6841,7 @@ mod tests {
     fn cell_fog_sensor_and_cloak_state_roundtrips_with_hash() {
         use crate::map::entities::EntityCategory;
         use crate::sim::cloak_disguise::CloakRuntime;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::sensor_lifecycle::SensorDeposit;
 
@@ -6866,7 +6867,7 @@ mod tests {
             0,
             0,
             source_owner,
-            Health { current: 600 },
+            Health::new(600),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -8315,7 +8316,7 @@ mod tests {
     #[test]
     fn entity_construction_frame_round_trips_as_dispatch_start() {
         use crate::map::entities::EntityCategory;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
 
         let mut sim = Simulation::new();
@@ -8328,7 +8329,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0,

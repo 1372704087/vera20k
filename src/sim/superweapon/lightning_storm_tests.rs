@@ -20,7 +20,7 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::superweapon_type::SuperWeaponKind;
 use crate::sim::anim_class::AnimId;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
@@ -1267,7 +1267,7 @@ fn a_bridge_strike_hits_the_deck_only() {
         let mut entity = GameEntity::test_default(id, "DUMMY", "Soviet", 5, 5);
         entity.set_owner_for_test(owner);
         entity.set_type_ref_for_test(type_ref);
-        entity.health = Health { current: 100 };
+        entity.health = Health::new(100);
         entity.on_bridge = on_bridge;
         if on_bridge {
             entity.position.z = 4;
@@ -1295,8 +1295,8 @@ fn a_bridge_strike_hits_the_deck_only() {
 
     strike(&mut sim, &rules, (5, 5), None);
 
-    assert_eq!(sim.substrate.entities.get(1).unwrap().health.current, 100);
-    assert_eq!(sim.substrate.entities.get(2).unwrap().health.current, 0);
+    assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 100);
+    assert_eq!(sim.substrate.entities.get(2).unwrap().health.current(), 0);
 }
 
 /// The strike damages a building in the cell and its damage state follows.
@@ -1316,13 +1316,13 @@ fn a_strike_damages_a_building() {
     building.lifecycle.cell_marked = true;
     building.set_owner_for_test(sim.interner.intern("Soviet"));
     building.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
-    building.health = Health { current: 150 };
+    building.health = Health::new(150);
     sim.substrate.entities.insert(building);
 
     strike(&mut sim, &rules, (5, 5), None);
 
     let building = sim.substrate.entities.get(10).expect("building remains");
-    assert_eq!(building.health.current, 50);
+    assert_eq!(building.health.current(), 50);
     assert!(matches!(
         building.health.compare_ratio(
             rules
@@ -1367,9 +1367,7 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
         let mut carrier = GameEntity::test_default(10, "BOOMER", "Soviet", 5, 5);
         carrier.set_owner_for_test(sim.interner.intern("Soviet"));
         carrier.set_type_ref_for_test(sim.interner.intern("BOOMER"));
-        carrier.health = Health {
-            current: carrier_hp,
-        };
+        carrier.health = Health::new(carrier_hp);
         sim.substrate.entities.insert(carrier);
         let _ = sim.reveal(10);
         let mut overlays = OverlayGrid::new(12, 12);
@@ -1383,7 +1381,7 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
 
     let (fatal, fatal_rng) = run(100);
     assert!(fatal.substrate.entities.get(10).is_some_and(|entity| {
-        entity.health.current == 0 && entity.dying && !entity.in_logic_vector
+        entity.health.current() == 0 && entity.dying && !entity.in_logic_vector
     }));
     assert_eq!(
         fatal.overlay_grid.as_ref().unwrap().cell(5, 5).overlay_id,
@@ -1413,7 +1411,13 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
     assert!(boundary.substrate.pending_delete.is_empty());
     assert!(boundary.live_object_order_snapshot().contains(&10));
     assert_eq!(
-        boundary.substrate.entities.get(10).unwrap().health.current,
+        boundary
+            .substrate
+            .entities
+            .get(10)
+            .unwrap()
+            .health
+            .current(),
         1
     );
     let mut expected = SimRng::new(1);
@@ -1498,7 +1502,7 @@ fn retail_storm_strikes_through_production_frames() {
     let tank = sim
         .spawn_object_at_height("HTNK", "Russians", target.0, target.1, 0, 0, &rules)
         .expect("HTNK stands at the target");
-    let strength = sim.substrate.entities.get(tank).unwrap().health.current;
+    let strength = sim.substrate.entities.get(tank).unwrap().health.current();
     let sw_type = charge_super(&mut sim, americans, STORM);
 
     click(&mut sim, &rules, americans, STORM, target);
@@ -1558,7 +1562,7 @@ fn retail_storm_strikes_through_production_frames() {
         sim.substrate
             .entities
             .get(tank)
-            .is_none_or(|entity| entity.health.current < strength),
+            .is_none_or(|entity| entity.health.current() < strength),
         "the strikes reached the tank"
     );
     let (active, time_to_end, _, _, _, cell, owner) = sim.lightning_storm.globals_for_test();

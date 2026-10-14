@@ -706,7 +706,7 @@ pub(super) fn capability_cursor_for_hover(
         // building shows the enter/dock cursor (the click issues
         // RepairAtDepot; see `input::context_order`).
         if sel_entity.category() == EntityCategory::Unit
-            && sel_entity.health.current < sel_obj.strength
+            && sel_entity.health.current() < sel_obj.strength
             && matches!(hover.kind, HoverTargetKind::FriendlyStructure)
             && hovered_obj.is_some_and(|o| o.unit_repair)
         {
@@ -2057,7 +2057,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     actor.lifecycle.object_alive,
                     actor.lifecycle.in_limbo,
                     actor.in_logic_vector,
-                    actor.health.current,
+                    actor.health.current(),
                     sim.building_operational_state(house, &rules),
                 )
             };
@@ -2475,7 +2475,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     .unwrap();
                 // A damaged friendly hut and a capturable hostile hut must
                 // still terminate this branch instead of taking those fallbacks.
-                sim.entities_mut().get_mut(hut).unwrap().health.current = 150;
+                sim.entities_mut()
+                    .get_mut(hut)
+                    .unwrap()
+                    .health
+                    .set_for_test(150);
                 if relation == "allied" {
                     sim.house_alliances
                         .entry("AMERICANS".into())

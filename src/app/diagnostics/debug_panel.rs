@@ -273,7 +273,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                             sim.interner.resolve(entity.type_ref()),
                             cat_str,
                             sim.interner.resolve(entity.owner()),
-                            entity.health.current,
+                            entity.health.current(),
                             state
                                 .rules()
                                 .and_then(

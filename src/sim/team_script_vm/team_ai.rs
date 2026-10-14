@@ -59,7 +59,7 @@ const RELAXED_STRAY_ACTIONS: [i32; 2] = [0x35, 0x36];
 /// the shared ScenarioInit/placement scope admits limbo members).
 pub(super) fn member_is_live(entity: &GameEntity, placement_scope_active: bool) -> bool {
     entity.lifecycle.object_alive
-        && entity.health.current != 0
+        && entity.health.current() != 0
         && (placement_scope_active || !entity.lifecycle.in_limbo)
 }
 

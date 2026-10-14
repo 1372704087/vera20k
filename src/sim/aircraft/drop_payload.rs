@@ -594,7 +594,7 @@ mod tests {
             0,
             0,
             sim.interner.intern("Americans"),
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             sim.interner.intern("E1"),
             EntityCategory::Infantry,
             0,

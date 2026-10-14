@@ -240,7 +240,7 @@ fn record_kill_credit(
 ) {
     victim.killed_by = killer_owner;
     if callback == KillCallback::Terminal
-        || victim.health.current == 0
+        || victim.health.current() == 0
         || killer_owner.is_some()
         || victim.crashing
     {

@@ -69,7 +69,7 @@ fn install_supplied_base_defense_team(sim: &mut Simulation, member: u64) {
 /// auxiliary stack word, which Rust's timer does not consume.
 #[test]
 fn native_base_response_dispatch_matches_14_represented_original_tails() {
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::rng::{SimRng, trace_draws};
     use crate::sim::timer::CdTimer;
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
@@ -134,7 +134,7 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
                 0,
                 0,
                 house,
-                Health { current: 100 },
+                Health::new(100),
                 type_id,
                 category,
                 0,

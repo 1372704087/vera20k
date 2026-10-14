@@ -8,9 +8,9 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::base_plan::{BasePlanNode, pack_base_plan_cell};
+use crate::sim::combat::Health;
 use crate::sim::combat::{AttackTarget, TargetKind};
 use crate::sim::command::Command;
-use crate::sim::components::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseAiActivationLatches;
 use crate::sim::world::{SimSoundEvent, Simulation};
@@ -143,7 +143,7 @@ fn spawn_infantry(sim: &mut Simulation, type_str: &str, owner: &str, rx: u16, ry
         0,
         0,
         owner_id,
-        Health { current: 125 },
+        Health::new(125),
         type_id,
         EntityCategory::Infantry,
         0,
@@ -735,7 +735,12 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
-    sim.substrate.entities.get_mut(mcv).unwrap().health.current = 225;
+    sim.substrate
+        .entities
+        .get_mut(mcv)
+        .unwrap()
+        .health
+        .set_for_test(225);
     let deployed_at = sim.session.binary_frame;
     assert!(sim.deploy_mcv(
         mcv,
@@ -1210,7 +1215,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     )
     .unwrap();
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.health.current = input["health"].as_i64().unwrap_or(100) as i32;
+    actor
+        .health
+        .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
     actor.position.sub_x = SimFixed::from_num(128);
     actor.position.sub_y = SimFixed::from_num(128);
     actor.position.exact_z_leptons = Some(0);

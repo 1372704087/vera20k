@@ -1289,7 +1289,7 @@ mod retail_construction_tests {
                                 sim.interner.resolve(entity.type_ref()),
                                 entity.position.rx,
                                 entity.position.ry,
-                                entity.health.current,
+                                entity.health.current(),
                                 entity.mission.effective().raw(),
                                 match sim.team_script_vm.team_for_member(id) {
                                     Some((member_team, _)) if member_team == team_id => "in",
@@ -2178,7 +2178,7 @@ mod retail_construction_tests {
                 target_id: rhino,
             },
         ));
-        let full = sim.entities().get(rhino).unwrap().health.current;
+        let full = sim.entities().get(rhino).unwrap().health.current();
         let move_mission = MissionId::from_known(MissionType::Move);
         let (mut hit, mut charged, mut moved, mut died) = (None, None, None, None);
         let (mut gi_cell, mut crushed) = (None, false);
@@ -2186,7 +2186,7 @@ mod retail_construction_tests {
             let output = tick_with_due_commands(&mut scenario);
             let sim = scenario.sim();
             let entity = sim.entities().get(rhino).expect("the Rhino lives");
-            if hit.is_none() && entity.health.current < full {
+            if hit.is_none() && entity.health.current() < full {
                 assert!(
                     sim.team_script_vm.team_for_member(rhino).is_none(),
                     "the Rhino joined a team before the hit"
@@ -2209,7 +2209,7 @@ mod retail_construction_tests {
             match sim
                 .entities()
                 .get(gi)
-                .filter(|gi| !gi.dying && gi.health.current > 0)
+                .filter(|gi| !gi.dying && gi.health.current() > 0)
             {
                 Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
                 None => {
@@ -2295,7 +2295,7 @@ mod retail_construction_tests {
             match sim
                 .entities()
                 .get(gi)
-                .filter(|gi| !gi.dying && gi.health.current > 0)
+                .filter(|gi| !gi.dying && gi.health.current() > 0)
             {
                 Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
                 None => {
@@ -2507,7 +2507,7 @@ mod retail_construction_tests {
                 _ => None,
             }));
             if let Some(entity) = scenario.sim().entities().get(spy) {
-                hurt |= entity.health.current < 100;
+                hurt |= entity.health.current() < 100;
                 if capturing.is_none()
                     && entity.mission.current().known() == Some(MissionType::Capture)
                 {
@@ -2689,7 +2689,7 @@ mod retail_construction_tests {
         let strength = rules.object("HARV").expect("retail HARV").strength;
         let at = {
             let entity = sim.substrate.entities.get_mut(miner).unwrap();
-            entity.health.current = strength / 2;
+            entity.health.set_for_test(strength / 2);
             (i32::from(entity.position.rx), i32::from(entity.position.ry))
         };
         let america = house_of(sim, "Americans");

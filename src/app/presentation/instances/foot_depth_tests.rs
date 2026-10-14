@@ -9,7 +9,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cloak_disguise::DisguiseRuntime;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
 use crate::sim::runtime::{SimResources, SimRuntime};
@@ -79,7 +79,7 @@ fn entity(runtime: &mut SimRuntime, name: &str, category: EntityCategory) -> Gam
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         category,
         0,

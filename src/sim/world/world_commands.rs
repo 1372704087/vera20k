@@ -1300,7 +1300,7 @@ impl Simulation {
                     e.category() == crate::map::entities::EntityCategory::Unit
                         && self
                             .object_type(e.type_ref(), rules)
-                            .is_some_and(|object| e.health.current < object.strength)
+                            .is_some_and(|object| e.health.current() < object.strength)
                         && !e.dying
                 });
                 if !entity_ok {
@@ -1753,7 +1753,7 @@ impl Simulation {
                             return None;
                         }
                         if !b.lifecycle.object_alive
-                            || b.health.current <= 0
+                            || b.health.current() <= 0
                             || b.lifecycle.in_limbo
                         {
                             return None;
@@ -2148,7 +2148,7 @@ impl Simulation {
     ///   arm bypass that prefix and keep a team member in its team.
     pub(crate) fn order_actor_admits(&self, stable_id: u64) -> bool {
         self.substrate.entities.get(stable_id).is_some_and(|e| {
-            e.lifecycle.object_alive && e.health.current > 0 && !e.lifecycle.in_limbo
+            e.lifecycle.object_alive && e.health.current() > 0 && !e.lifecycle.in_limbo
         })
     }
 
@@ -2161,7 +2161,7 @@ impl Simulation {
     /// corpse that is still resolvable in the store.
     pub(crate) fn order_object_token_admits(&self, stable_id: u64) -> bool {
         self.substrate.entities.get(stable_id).is_some_and(|e| {
-            e.lifecycle.object_alive && e.health.current != 0 && !e.lifecycle.in_limbo
+            e.lifecycle.object_alive && e.health.current() != 0 && !e.lifecycle.in_limbo
         })
     }
 
@@ -2220,7 +2220,7 @@ impl Simulation {
         if refinery.category() != crate::map::entities::EntityCategory::Structure {
             return false;
         }
-        if refinery.health.current == 0 || refinery.dying || refinery.building_up() {
+        if refinery.health.current() == 0 || refinery.dying || refinery.building_up() {
             return false;
         }
         let refinery_owner = self.interner.resolve(refinery.owner());
@@ -2535,7 +2535,7 @@ mod tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::HouseState;
     use crate::sim::miner::{Miner, MinerConfig, MinerKind, MinerState};
@@ -2573,7 +2573,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: health },
+            Health::new(health),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -2714,7 +2714,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -3138,7 +3138,12 @@ mod tests {
         );
 
         assert!(move_onto(&mut sim, 2));
-        sim.substrate.entities.get_mut(2).unwrap().health.current = 0;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(0);
         assert!(!move_onto(&mut sim, 2));
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().navigation.nav_com,
@@ -3182,7 +3187,7 @@ mod tests {
                 0,
                 0,
                 sim.interner.intern(owner),
-                Health { current: 125 },
+                Health::new(125),
                 sim.interner.intern("E1"),
                 EntityCategory::Infantry,
                 0,
@@ -3273,7 +3278,7 @@ mod tests {
 
         for kill in [
             |e: &mut GameEntity| e.lifecycle.object_alive = false,
-            |e: &mut GameEntity| e.health.current = 0,
+            |e: &mut GameEntity| e.health.set_for_test(0),
         ] {
             let mut sim = Simulation::new();
             spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
@@ -3313,7 +3318,12 @@ mod tests {
         assert!(sim.order_object_token_admits(2));
 
         // Now the same target at zero strength, still present in the store.
-        sim.substrate.entities.get_mut(2).unwrap().health.current = 0;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(0);
         assert!(
             sim.substrate.entities.contains(2),
             "target stays resolvable"
@@ -3403,7 +3413,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 600 },
+            Health::new(600),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -3427,7 +3437,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 900 },
+            Health::new(900),
             type_ref,
             EntityCategory::Structure,
             0,
@@ -3473,7 +3483,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 1000 },
+            Health::new(1000),
             type_ref,
             EntityCategory::Structure,
             0,
@@ -3657,7 +3667,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 1000 },
+            Health::new(1000),
             type_id,
             EntityCategory::Structure,
             0,
@@ -3687,7 +3697,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 400 },
+            Health::new(400),
             type_id,
             EntityCategory::Unit,
             0,

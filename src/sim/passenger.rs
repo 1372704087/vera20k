@@ -486,7 +486,7 @@ pub fn can_dock_occupier_garrison(
         return false;
     }
     if is_at_or_below_red_hp(
-        building.health.current,
+        building.health.current(),
         building_obj.strength,
         rules.general.condition_red,
     ) {
@@ -1174,7 +1174,7 @@ fn is_at_or_below_red_hp(current: i32, strength: i32, condition_red: f64) -> boo
     use crate::util::native_x87::MaskedX87Ordering::{Equal, Less, Unordered};
     current > 0
         && matches!(
-            crate::sim::components::Health { current }.compare_ratio(strength, condition_red),
+            crate::sim::combat::Health::new(current).compare_ratio(strength, condition_red),
             Less | Equal | Unordered
         )
 }
@@ -1203,7 +1203,7 @@ pub(crate) fn reconcile_civilian_garrison_owner_for_building(
         return false;
     }
     if is_at_or_below_red_hp(
-        building.health.current,
+        building.health.current(),
         object.strength,
         rules.general.condition_red,
     ) {
@@ -1480,7 +1480,7 @@ ConditionYellow=50%
         ge.set_type_ref_for_test(type_id);
         let obj = rules.object(type_ref).expect("type exists");
         ge.foundation = obj.foundation.clone();
-        ge.health.current = obj.strength;
+        ge.health.set_for_test(obj.strength);
         ge.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(obj.strength);
         ge.passenger_role = PassengerRole::Transport {
             cargo: PassengerCargo::new(obj.max_number_occupants, 1),
@@ -2191,7 +2191,7 @@ ConditionYellow=50%
         let pax = place_inside_garrison(&mut sim, &rules, bldg, "E1", "Americans");
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.current = 100;
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2424,7 +2424,7 @@ ConditionYellow=50%
         );
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.current = 100;
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2462,7 +2462,7 @@ ConditionYellow=50%
         assert!(!sim.live_object_order_snapshot().contains(&pax));
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.current = 100;
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2501,7 +2501,7 @@ ConditionYellow=50%
                 .entities
                 .get_mut(bldg)
                 .expect("building exists");
-            building.health.current = 100;
+            building.health.set_for_test(100);
         }
 
         assert!(
@@ -2769,7 +2769,9 @@ ConditionYellow=50%
         let passenger =
             spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 10, 10);
         let actor = sim.substrate.entities.get_mut(passenger).unwrap();
-        actor.health.current = row["input"]["health"].as_i64().unwrap() as i32;
+        actor
+            .health
+            .set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
         actor.attack_target = Some(crate::sim::combat::AttackTarget::new(transport));
         actor
             .mission_leaf

@@ -176,7 +176,7 @@ fn paid_snapshot(
         "mission":mission_state(actor),
         "passive_scan":passive_scan_state(actor),
         "actor": {"position":[position.x,position.y,position.z],
-            "health":actor.health.current,"mission":actor.mission.current().raw(),
+            "health":actor.health.current(),"mission":actor.mission.current().raw(),
             "queued":actor.mission.queued().raw(),
             "dispatch":[dispatch.start_frame(),dispatch.delay()],
             "rearm":[actor.rearm_timer.start_frame(),actor.rearm_timer.duration()]},

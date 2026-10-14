@@ -34,7 +34,7 @@ impl Simulation {
             online: entity.building_online(),
             tesla_chargers: 0,
             emp_remaining: 0,
-            health: entity.health.current,
+            health: entity.health.current(),
             powered: object.powered,
             power_drain: power_system::native_building_power_drain(object.power),
             powered_special: object.powered_special,

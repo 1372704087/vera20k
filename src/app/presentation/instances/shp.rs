@@ -1514,9 +1514,7 @@ mod tests {
         for row in crate::sim::health_ratio_fixture::rows() {
             assert_eq!(
                 crate::sim::building_art::requested_damage_state(
-                    crate::sim::components::Health {
-                        current: row.input.current
-                    },
+                    crate::sim::combat::Health::new(row.input.current),
                     row.input.strength,
                     row.input.yellow(),
                 ),

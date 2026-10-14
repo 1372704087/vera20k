@@ -471,7 +471,7 @@ mod tests {
     // -- F14 boundary tests: sim-side callers moved here so `sim/` never
     // names `crate::render`. Coverage preserved verbatim. --
     use crate::map::terrain;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
 
     #[test]
     fn test_screen_coords_computed() {
@@ -482,7 +482,7 @@ mod tests {
             2, // z=2 for elevation
             0,
             crate::sim::intern::test_intern("Americans"),
-            Health { current: 100 },
+            Health::new(100),
             crate::sim::intern::test_intern("HTNK"),
             EntityCategory::Unit,
             0,
@@ -511,7 +511,7 @@ mod tests {
             0,
             64,
             crate::sim::intern::test_intern("Americans"),
-            Health { current: 100 },
+            Health::new(100),
             crate::sim::intern::test_intern("HTNK"),
             EntityCategory::Unit,
             0,

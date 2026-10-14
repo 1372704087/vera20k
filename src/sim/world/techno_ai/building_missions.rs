@@ -1170,7 +1170,7 @@ pub(super) fn process_delayed_fire(
         return;
     };
     // Health 0 returned before the call (`0x00440072`).
-    if entity.dying || entity.health.current == 0 {
+    if entity.dying || entity.health.current() == 0 {
         return;
     }
     let Some(pending) = entity.pending_building_fire.as_mut() else {
@@ -1303,7 +1303,7 @@ pub(super) fn range_drop(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: Ob
         return;
     };
     // Health 0 returned before it (`0x00440072`).
-    if entity.dying || entity.health.current == 0 {
+    if entity.dying || entity.health.current() == 0 {
         return;
     }
     let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {

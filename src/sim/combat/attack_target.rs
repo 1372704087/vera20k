@@ -127,7 +127,7 @@ pub(crate) fn target_present(
         Some(TargetKind::Cell(..)) => true,
         Some(TargetKind::Entity(id)) => entities
             .get(id)
-            .is_some_and(|target| !target.dying && target.health.current > 0),
+            .is_some_and(|target| !target.dying && target.health.current() > 0),
     }
 }
 

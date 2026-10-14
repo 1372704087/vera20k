@@ -1554,7 +1554,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         animation.finished.hash(hasher);
     }
     entity.owner().hash(hasher);
-    entity.health.current.hash(hasher);
+    entity.health.current().hash(hasher);
     entity.estimated_health.get().hash(hasher);
     entity.type_ref().hash(hasher);
     (entity.category() as u8).hash(hasher);
@@ -3539,7 +3539,8 @@ mod particle_hash_tests {
 mod tube_movement_hash_tests {
     use super::Simulation;
     use crate::map::tube_facts::TubeId;
-    use crate::sim::components::{DriveCoord, Health};
+    use crate::sim::combat::Health;
+    use crate::sim::components::DriveCoord;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
 
@@ -3551,7 +3552,7 @@ mod tube_movement_hash_tests {
             0,
             0,
             crate::sim::intern::test_intern("Allies"),
-            Health { current: 100 },
+            Health::new(100),
             crate::sim::intern::test_intern("MTNK"),
             crate::map::entities::EntityCategory::Unit,
             0,
@@ -3632,7 +3633,7 @@ mod tube_movement_hash_tests {
 mod radio_contact_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     fn vehicle_entity(sim: &mut Simulation, id: u64) -> GameEntity {
@@ -3643,7 +3644,7 @@ mod radio_contact_hash_tests {
             0,
             0,
             sim.interner.intern("Americans"),
-            Health { current: 100 },
+            Health::new(100),
             sim.interner.intern("MTNK"),
             EntityCategory::Unit,
             0,
@@ -3764,7 +3765,7 @@ mod infantry_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
     use crate::sim::animation::{Animation, SequenceKind};
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::{GameEntity, InfantryRuntime};
 
     fn hash_entity(sim: &mut Simulation, category: EntityCategory) -> GameEntity {
@@ -3775,7 +3776,7 @@ mod infantry_hash_tests {
             0,
             0,
             sim.interner.intern("Allies"),
-            Health { current: 100 },
+            Health::new(100),
             sim.interner.intern("E1"),
             category,
             0,
@@ -3994,7 +3995,7 @@ mod infantry_hash_tests {
                     0,
                     0,
                     owner,
-                    Health { current: 100 },
+                    Health::new(100),
                     type_ref,
                     category,
                     0,
@@ -4199,7 +4200,8 @@ mod native_frame_tests {
 mod rocking_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::{Health, RockingState};
+    use crate::sim::combat::Health;
+    use crate::sim::components::RockingState;
     use crate::sim::game_entity::GameEntity;
     use crate::util::fixed_math::SimFixed;
 
@@ -4216,7 +4218,7 @@ mod rocking_hash_tests {
             0,
             0,
             owner,
-            Health { current: 400 },
+            Health::new(400),
             type_id,
             EntityCategory::Unit,
             0,
@@ -4275,7 +4277,8 @@ mod rocking_hash_tests {
 mod c4_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::{Health, PendingC4Detonation};
+    use crate::sim::combat::Health;
+    use crate::sim::components::PendingC4Detonation;
     use crate::sim::game_entity::GameEntity;
 
     #[test]
@@ -4292,7 +4295,7 @@ mod c4_hash_tests {
             0,
             0,
             owner,
-            Health { current: 125 },
+            Health::new(125),
             type_id,
             EntityCategory::Infantry,
             0,
@@ -4397,7 +4400,8 @@ mod bridge161_hash_projection_tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::locomotor_type::LocomotorKind;
-    use crate::sim::components::{DriveCoord, Health};
+    use crate::sim::combat::Health;
+    use crate::sim::components::DriveCoord;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotion::piggyback::LocomotorRuntimePayload;
     use crate::sim::movement::locomotor::LocomotorState;
@@ -4413,7 +4417,7 @@ mod bridge161_hash_projection_tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Infantry,
             0,

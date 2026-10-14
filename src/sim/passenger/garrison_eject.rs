@@ -110,7 +110,7 @@ fn uninit_garrison_passenger_without_exit(
     context: UninitContext<'_>,
 ) {
     if let Some(pax) = sim.substrate.entities.get_mut(passenger_id) {
-        pax.health.current = 0;
+        pax.health.set(0);
         pax.passenger_role.clear_carrier_relation();
     }
     sim.uninit_with_context(passenger_id, context);
@@ -1078,7 +1078,7 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("UnInit keeps the no-exit occupant resolvable until the drain");
-        assert_eq!(passenger.health.current, 0);
+        assert_eq!(passenger.health.current(), 0);
         assert!(passenger.dying);
         assert!(matches!(passenger.passenger_role, PassengerRole::None));
         assert!(!passenger.lifecycle.object_alive);

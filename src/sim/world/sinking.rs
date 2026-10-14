@@ -54,7 +54,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        entity.health.current = 1;
+        entity.health.set(1);
         entity.lifecycle.object_alive = true;
         entity.sinking.active = true;
         self.techno_death_stun(

@@ -372,7 +372,7 @@ fn cell_scatter_dispatch_matches_original_execution() {
                 0,
                 0,
                 owner,
-                crate::sim::components::Health { current: 100 },
+                crate::sim::combat::Health::new(100),
                 kind,
                 EntityCategory::Unit,
                 0,

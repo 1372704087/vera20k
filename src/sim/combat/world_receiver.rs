@@ -33,7 +33,7 @@ fn respond_to_base_attack(
             .push(super::receiver_fixture::BaseDefenseResponseTraceEntry {
                 site: _site,
                 victim_id,
-                health: victim.health.current,
+                health: victim.health.current(),
                 last_attacker_house_index,
             });
         return;
@@ -433,7 +433,7 @@ fn area_record_dispatches(world: &Simulation, rules: &RuleSet, event: &EntityDam
                     && rules
                         .object(world.interner.resolve(target.type_ref()))
                         .is_some_and(|object| object.invisible_in_game))
-                && target.health.current > 0
+                && target.health.current() > 0
                 && target.lifecycle.cell_marked
                 && !target.lifecycle.in_limbo
         })
@@ -962,7 +962,7 @@ pub(crate) fn commit_entities(
                 });
             }
             target.lifecycle.object_alive = true;
-            target.health.current = 1;
+            target.health.set(1);
             target.dying = false;
             #[cfg(test)]
             death

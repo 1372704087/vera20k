@@ -2118,7 +2118,7 @@ impl Simulation {
     ) -> bool {
         let admitted = self.substrate.entities.get(id).is_some_and(|entity| {
             entity.lifecycle.object_alive
-                && entity.health.current > 0
+                && entity.health.current() > 0
                 && entity
                     .locomotor
                     .as_ref()
@@ -3075,7 +3075,7 @@ impl Simulation {
                     // already booked (`combat::record_kill::record_kill_credit`);
                     // a crashing infantryman falls at Health 1 (`0x0051BC57`)
                     // after the kill that booked its loss.
-                    entity.health.current == 0 || entity.killed_by.is_some() || entity.crashing,
+                    entity.health.current() == 0 || entity.killed_by.is_some() || entity.crashing,
                     entity.dont_score,
                 )
             })
@@ -3103,7 +3103,7 @@ impl Simulation {
     /// (702FF0), and consumes the score record (703003..7031DC) before Destroy.
     pub(crate) fn begin_receiver_kill_record(&mut self, id: u64) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            debug_assert_eq!(entity.health.current, 0);
+            debug_assert_eq!(entity.health.current(), 0);
             entity.destruction_recorded = false;
             entity.killed_by = None;
         }
@@ -3127,7 +3127,8 @@ impl Simulation {
         };
 
         debug_assert_eq!(
-            target.health.current, 0,
+            target.health.current(),
+            0,
             "PostMortem Object callbacks run at exact zero"
         );
         #[cfg(test)]
@@ -3424,7 +3425,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.health.current != 0)
+            .is_some_and(|entity| entity.health.current() != 0)
         {
             self.object_destroy_callback(stable_id, context);
         }
@@ -3492,7 +3493,7 @@ impl Simulation {
                 if passenger.passenger_role.inside_transport_id() == Some(carrier_id) {
                     passenger.passenger_role.clear_carrier_relation();
                 }
-                passenger.health.current = 0;
+                passenger.health.set(0);
             }
             self.uninit_with_context(passenger_id, context);
         }
@@ -3808,7 +3809,7 @@ impl Simulation {
             let facts = (
                 object_get_coords_cell(hut),
                 hut.lifecycle.object_alive,
-                hut.health.current,
+                hut.health.current(),
                 hut.mission.current().known() == Some(crate::sim::mission::MissionType::Selling),
                 hut.owner(),
             );
@@ -4283,7 +4284,7 @@ impl Simulation {
                     object_get_coords_cell(expired),
                     high_flying,
                     expired.lifecycle.object_alive,
-                    expired.health.current,
+                    expired.health.current(),
                     expired.mission.current().known()
                         == Some(crate::sim::mission::MissionType::Selling),
                     Some(expired.owner()),
@@ -4878,7 +4879,7 @@ impl Simulation {
             let unsampled_owner = self.substrate.entities.get(stable_id).and_then(|entity| {
                 entity
                     .building_power_health_sample()
-                    .filter(|sample| *sample != entity.health.current)
+                    .filter(|sample| *sample != entity.health.current())
                     .map(|_| entity.owner())
             });
             if (game_state as u8) != 0
@@ -5222,7 +5223,7 @@ mod base_plan_lifecycle_tests {
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Structure,
             0,

@@ -872,7 +872,7 @@ impl Simulation {
     fn capture_reason(
         &self,
         controller_owner: InternedId,
-        health: crate::sim::components::Health,
+        health: crate::sim::combat::Health,
         strength: i32,
         rules: &RuleSet,
     ) -> CaptureReason {

@@ -401,7 +401,8 @@ mod map_wall_owner_candidate_tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::terrain_rules::TerrainClass;
-    use crate::sim::components::{BuildingUp, Health};
+    use crate::sim::combat::Health;
+    use crate::sim::components::BuildingUp;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::overlay_grid::{MapWallOwnerCandidate, OverlayGrid};
     use crate::sim::power_system::PowerState;
@@ -657,7 +658,7 @@ mod map_wall_owner_candidate_tests {
                     0,
                     0,
                     owner,
-                    Health { current: 100 },
+                    Health::new(100),
                     kind,
                     EntityCategory::Structure,
                     0,
@@ -1324,7 +1325,7 @@ mod map_wall_owner_candidate_tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             EntityCategory::Structure,
             0,

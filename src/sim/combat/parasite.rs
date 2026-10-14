@@ -516,7 +516,7 @@ impl Simulation {
         let (amount, ignore_defenses) = if infantry {
             // 0x0062A0AF: an Infantry victim takes its own current Health,
             // ignoring defenses: one bite kills unless ReceiveDamage refuses.
-            (victim_entity.health.current, true)
+            (victim_entity.health.current(), true)
         } else {
             if let Some(system) = rules
                 .combat_damage
@@ -623,7 +623,7 @@ impl Simulation {
                 .get_mut(owner)
                 .unwrap()
                 .health
-                .current = 0;
+                .set(0);
             self.detach_parasite_victim(owner, victim, frame);
             self.uninit_with_context(
                 owner,
@@ -669,7 +669,7 @@ impl Simulation {
                 .get_mut(owner)
                 .unwrap()
                 .health
-                .current = 0;
+                .set(0);
             self.uninit_with_context(
                 owner,
                 UninitContext::with_rules(rules).with_effects(effects),
@@ -764,7 +764,7 @@ impl Simulation {
                 .get_mut(owner)
                 .unwrap()
                 .health
-                .current = 0;
+                .set(0);
             self.uninit_with_context(
                 owner,
                 UninitContext::with_rules(rules).with_effects(effects),
@@ -1218,7 +1218,7 @@ impl Simulation {
             sim.substrate
                 .entities
                 .get(eater)
-                .map_or(0, |e| e.health.current)
+                .map_or(0, |e| e.health.current())
         };
         // 0x004D998C..0x004D99A4: an expiring eater that is dead drops the
         // link (the scenario-ended arm has no represented state).

@@ -659,7 +659,12 @@ mod tests {
             let rules = battle_bunker_rules_with_strength(strength);
             let mut sim = Simulation::new();
             insert_garrisoned_battle_bunker(&mut sim, &rules, 10, 11);
-            sim.substrate.entities.get_mut(10).unwrap().health.current = actual;
+            sim.substrate
+                .entities
+                .get_mut(10)
+                .unwrap()
+                .health
+                .set_for_test(actual);
             let before = credits_for_owner(&sim, "Americans");
             assert!(sell_building_now_for_test(&mut sim, &rules, 10));
             assert_eq!(credits_for_owner(&sim, "Americans") - before, 200);

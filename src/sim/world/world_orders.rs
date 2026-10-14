@@ -653,7 +653,7 @@ impl Simulation {
                         .houses
                         .get(&building.owner())
                         .is_some_and(|house| house.multiplay_passive));
-            let full = building.health.current == object.strength;
+            let full = building.health.current() == object.strength;
             let refused_capture = building.mission.current().known() == Some(MissionType::Selling)
                 || building.is_warped_out();
             let capturable = object.capturable;
@@ -878,7 +878,7 @@ impl Simulation {
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
                 Some((
                     pending,
-                    building.health.current,
+                    building.health.current(),
                     object.bridge_repair_hut,
                     (building.position.rx, building.position.ry),
                 ))

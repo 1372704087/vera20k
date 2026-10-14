@@ -10,7 +10,8 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::object_type::{FactoryType, ObjectType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::animation::{Animation, SequenceKind};
-use crate::sim::components::{HarvestOverlay, Health, VoxelAnimation};
+use crate::sim::combat::Health;
+use crate::sim::components::{HarvestOverlay, VoxelAnimation};
 use crate::sim::game_entity::{GameEntity, TechnoConstructorInit};
 use crate::sim::miner::{Miner, MinerConfig, miner_kind_for_object};
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
@@ -44,11 +45,9 @@ impl Simulation {
         let Some(obj) = rules.object(type_id) else {
             return Ok(None);
         };
-        let health = Health {
-            // Native class constructors copy signed type Strength unchanged.
-            // Original copy slices: object_health corpus / constructors.
-            current: obj.strength,
-        };
+        // Native class constructors copy signed type Strength unchanged.
+        // Original copy slices: object_health corpus / constructors.
+        let health = Health::new(obj.strength);
         let category = EntityCategory::from(obj.category);
         let uses_voxel = object_uses_voxel(type_id, obj, rules);
         let sight_range = (obj.sight.max(0) as u16).min(MAX_SIGHT_RANGE);

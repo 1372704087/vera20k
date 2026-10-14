@@ -357,7 +357,7 @@ impl Simulation {
         // `0x0051DA96..0x0051DAA1`: an accepted action at Health exactly 0
         // re-enters Stop_Driver, whose own Do_Action finds the action it
         // just wrote. The Can_Enter_Cell it runs reads no overlay here.
-        if actor.health.current == 0
+        if actor.health.current() == 0
             && let Err(cause) = self.infantry_stop_driver(id, rules, None, effects)
         {
             log::debug!("infantry {id} Do_Action Stop_Driver: {cause}");
@@ -387,8 +387,8 @@ impl Simulation {
         let Some(doing) = actor.mission_leaf.as_infantry().map(|leaf| leaf.doing()) else {
             return;
         };
-        if actor.health.current <= 0 && !in_death_sequence(doing) {
-            actor.health.current = 1;
+        if actor.health.current() <= 0 && !in_death_sequence(doing) {
+            actor.health.set(1);
         }
     }
 
@@ -770,7 +770,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return;
         };
-        if actor.category() != EntityCategory::Infantry || actor.health.current <= 0 {
+        if actor.category() != EntityCategory::Infantry || actor.health.current() <= 0 {
             return;
         }
         let Some(doing) = actor.mission_leaf.as_infantry().map(|leaf| leaf.doing()) else {

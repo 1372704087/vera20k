@@ -765,7 +765,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(other)
-                    .map(|entity| entity.health.current)
+                    .map(|entity| entity.health.current())
                 else {
                     return false;
                 };

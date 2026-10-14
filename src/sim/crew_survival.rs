@@ -1167,7 +1167,7 @@ impl Simulation {
 
     fn set_crew_health(&mut self, id: u64, health: i32) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.health.current = health;
+            entity.health.set(health);
         }
     }
 

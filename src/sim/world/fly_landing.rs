@@ -188,7 +188,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.health.current > 0)
+                .is_some_and(|e| e.health.current() > 0)
                 && let Some(sound) = sound
             {
                 let sound_id = self.interner.intern(&sound);
@@ -634,7 +634,8 @@ mod tests {
         e.position.sub_x = SimFixed::from_num(128);
         e.position.sub_y = SimFixed::from_num(128);
         e.position.exact_z_leptons = Some(input["registration_z"].as_i64().unwrap_or(900) as i32);
-        e.health.current = input["health"].as_i64().unwrap_or(100) as i32;
+        e.health
+            .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
         e.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
         e.locomotor = Some(LocomotorState::from_object_type(
             rules.object("TEST").unwrap(),
@@ -900,7 +901,7 @@ mod tests {
                     0,
                     0,
                     owner,
-                    crate::sim::components::Health { current: 100 },
+                    crate::sim::combat::Health::new(100),
                     type_ref,
                     if occupant.is_some() {
                         EntityCategory::Unit

@@ -238,7 +238,7 @@ impl ParasiteVictimFacts {
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             ) && !target.lifecycle.in_limbo
                 && target.lifecycle.object_alive
-                && target.health.current != 0
+                && target.health.current() != 0
                 && target.parasite.eater().is_none()
                 && target_obj.parasiteable
                 && target.bunker_link.installed_in().is_none(),

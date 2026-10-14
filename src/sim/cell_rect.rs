@@ -2938,7 +2938,7 @@ mod tests {
 
     #[test]
     fn gsi_04_05_reservation_checkoccupancy_first_blocker_order_is_exact() {
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::entity_store::EntityStore;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::intern::InternedId;
@@ -2960,7 +2960,7 @@ mod tests {
             0,
             0,
             InternedId::from_index(0),
-            Health { current: 10 },
+            Health::new(10),
             InternedId::from_index(1),
             EntityCategory::Structure,
             0,
@@ -3014,7 +3014,7 @@ mod tests {
 
     #[test]
     fn gsi_04_05_reservation_checkoccupancy_ignores_deck_buildings_and_ground_units() {
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::entity_store::EntityStore;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::intern::InternedId;
@@ -3032,7 +3032,7 @@ mod tests {
                 0,
                 0,
                 InternedId::from_index(0),
-                Health { current: 10 },
+                Health::new(10),
                 InternedId::from_index(stable_id as u32),
                 category,
                 0,

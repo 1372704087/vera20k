@@ -606,7 +606,7 @@ impl Simulation {
                     if let (Some(strength), Some(entity)) =
                         (strength, self.substrate.entities.get_mut(slave))
                     {
-                        entity.health.current = strength;
+                        entity.health.set(strength);
                         entity.estimated_health.reset(strength);
                     }
                 }
@@ -1718,7 +1718,7 @@ impl Simulation {
             .substrate
             .entities
             .get(slave)
-            .map(|entity| entity.health.current)
+            .map(|entity| entity.health.current())
         else {
             return;
         };

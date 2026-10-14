@@ -157,7 +157,7 @@ pub(super) fn commit_receiver_health(
         // Techno70202E tests exact0 after Object returns. Negative healed HP
         // remains on its ordinary tail.
         entered_techno_death = became_fatal
-            || (reached_survivor_postlude && !already_dead && target.health.current == 0);
+            || (reached_survivor_postlude && !already_dead && target.health.current() == 0);
         if entered_techno_death {
             fatal_category = target.category();
         }

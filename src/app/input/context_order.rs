@@ -1827,7 +1827,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                                     && resources
                                         .rules
                                         .object(sim.interner.resolve(e.type_ref()))
-                                        .is_some_and(|obj| e.health.current < obj.strength)
+                                        .is_some_and(|obj| e.health.current() < obj.strength)
                                     && !e.is_deployed()
                             })
                         })
@@ -2569,7 +2569,7 @@ fn selected_rally_producer_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
 
@@ -3055,7 +3055,7 @@ mod tests {
                     0,
                     0,
                     house,
-                    Health { current: 300 },
+                    Health::new(300),
                     kind,
                     category,
                     0,
@@ -3327,7 +3327,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 300 },
+                Health::new(300),
                 type_ref,
                 category,
                 0,
@@ -3926,7 +3926,11 @@ mod tests {
         let hut = sim
             .spawn_object("CABHUT", owner, 10, 10, 0, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(hut).unwrap().health.current = 150;
+        sim.entities_mut()
+            .get_mut(hut)
+            .unwrap()
+            .health
+            .set_for_test(150);
         if relation == "allied" {
             sim.house_alliances
                 .entry("AMERICANS".into())

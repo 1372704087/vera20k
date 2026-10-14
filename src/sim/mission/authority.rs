@@ -1401,7 +1401,7 @@ mod tests {
     fn native_e1_override_callers_keep_target_action_and_destination_refusal_order() {
         use crate::rules::ini_parser::IniFile;
         use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::house_state::HouseState;
         use crate::sim::movement::locomotor::LocomotorState;
         use crate::sim::rng::SimRng;
@@ -1485,7 +1485,7 @@ mod tests {
                     0,
                     0,
                     owner,
-                    Health { current: 100 },
+                    Health::new(100),
                     sim.interner.intern("E1"),
                     EntityCategory::Infantry,
                     0,
@@ -1544,7 +1544,7 @@ mod tests {
                         0,
                         0,
                         owner,
-                        Health { current: 100 },
+                        Health::new(100),
                         sim.interner.intern("MTNK"),
                         EntityCategory::Unit,
                         0,

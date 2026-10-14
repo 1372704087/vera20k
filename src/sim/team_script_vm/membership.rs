@@ -143,7 +143,7 @@ impl Simulation {
         }
         let entity = self.substrate.entities.get(entity_id)?;
         if !entity.lifecycle.object_alive
-            || entity.health.current == 0
+            || entity.health.current() == 0
             || (entity.lifecycle.in_limbo && !self.object_placement_scope_active())
             || entity.owner() != team.owner
         {

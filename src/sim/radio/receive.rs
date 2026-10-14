@@ -803,7 +803,7 @@ fn unit_prepare_to_dock(
     let Some(entity) = sim.substrate.entities.get_mut(unit) else {
         return RadioResponse::Roger;
     };
-    if !entity.turret_rotation_latch && entity.body_facing_current(frame) != DOCK_FACING {
+    if !entity.turret_rotation_latch.is_set() && entity.body_facing_current(frame) != DOCK_FACING {
         crate::sim::movement::drive_do_turn(entity, DOCK_FACING, frame);
         return RadioResponse::Roger;
     }
@@ -1280,20 +1280,16 @@ fn foot_run_away(
         );
     }
     // 0x004D90A5..0x004D90C6.
-    if sim
-        .substrate
-        .entities
-        .get(foot)
-        .is_some_and(|entity| !entity.turret_rotation_latch && entity.navigation.nav_com.is_none())
-        && let Err(cause) = sim.scatter(
-            foot,
-            None,
-            ScatterFlags::new(true, true),
-            rules,
-            None,
-            effects,
-        )
-    {
+    if sim.substrate.entities.get(foot).is_some_and(|entity| {
+        !entity.turret_rotation_latch.is_set() && entity.navigation.nav_com.is_none()
+    }) && let Err(cause) = sim.scatter(
+        foot,
+        None,
+        ScatterFlags::new(true, true),
+        rules,
+        None,
+        effects,
+    ) {
         log::debug!("RUN_AWAY foot {foot} did not scatter: {cause}");
     }
 }

@@ -101,10 +101,6 @@ fn default_true() -> bool {
     true
 }
 
-/// `TechnoClass::Constructor @ 0x006F2B9C` seeds `+0x120` with `-100`, so a
-/// freshly built object is already past the idle-turret dwell on frame 0.
-pub(crate) const NATIVE_LAST_FIRE_FRAME_INIT: i64 = -100;
-
 /// The barrel elevation's rate: the TechnoClass constructor passes 3
 /// (`PUSH 3` at `0x006F2EDE`) to `FacingClass(int) @ 0x004C91E0`.
 const BARREL_ELEVATION_ROT: i32 = 3;
@@ -117,10 +113,6 @@ pub(crate) const BARREL_LEVEL: u16 = 0x4000;
 /// `0x006F6DD9`, `SUB` at `0x006F6DDF`), kept to a word.
 pub(crate) fn unlimbo_barrel_target(fire_angle: i32) -> u16 {
     BARREL_LEVEL.wrapping_sub(u16::from(fire_angle as u8) << 8)
-}
-
-fn default_last_fire_frame() -> i64 {
-    NATIVE_LAST_FIRE_FRAME_INIT
 }
 
 /// Persistent TechnoClass state used by the active House base-defence
@@ -649,59 +641,33 @@ pub struct GameEntity {
     /// [`AiSellRepair`]: crate::sim::production::AiSellRepair
     #[serde(default)]
     pub(crate) ai_sell_repair: crate::sim::production::AiSellRepair,
-    /// The turret heading, `TechnoClass+0x3A0` (SecondaryFacing): a
-    /// `Turret=yes` unit's and every aircraft's. A building aims its
-    /// [`Self::body_facing`] instead.
-    pub barrel_facing: Option<crate::sim::movement::FacingClass>,
-    /// Turret rotation latch — `UnitClass+0x6AF`, written only by
-    /// `UnitClass::Facing_Update @ 0x00736990` (cleared at `0x00736AD5`, re-set
-    /// from `FacingClass::Is_Rotating` at `0x00736B16`). Its readers include
-    /// the transport unload (`0x0073D892`), the radio receivers and Scatter's
-    /// coordinate arm (`0x00743CFD`), besides
-    /// `UnitClass::GetFireError @ 0x00741233`. While set, the aim block is
-    /// skipped so the turret finishes the arc it started instead of
-    /// re-snapshotting every frame, and — unless the projectile homes — the
-    /// fire gate answers FIRE_ROTATING(4) at `0x00741250`, refusing the shot
-    /// until the arc completes.
+    /// The turret heading, `TechnoClass+0x3A0` (SecondaryFacing), a
+    /// [`FacingClass`] that moves only through its own methods. VERA keeps
+    /// one for a `Turret=yes` unit and every aircraft: construction installs
+    /// it (`world_spawn::construction`) and a Fly order installs it on an
+    /// aircraft built without one (`air_movement::ensure_fly_secondary_facing`).
+    /// A building aims its [`Self::body_facing`] instead.
     ///
-    /// Not folded into `world_hash`: it is last tick's `barrel_facing`
-    /// `Is_Rotating`, which the hash already folds, so a divergence surfaces
-    /// one tick later through the interpolator itself.
+    /// [`FacingClass`]: crate::sim::movement::FacingClass
+    pub(crate) barrel_facing: Option<crate::sim::movement::FacingClass>,
+    /// The turret rotation latch (`UnitClass+0x6AF`), a
+    /// [`TurretRotationLatch`] that `world::unit_post` owns.
+    ///
+    /// [`TurretRotationLatch`]: crate::sim::world::unit_post::TurretRotationLatch
     #[serde(default)]
-    pub turret_rotation_latch: bool,
-    /// Frame of this object's own last shot — `TechnoClass+0x120`. The
-    /// constructor seeds `-100` (`0x006F2B9C`) and the single other writer in
-    /// the image is `TechnoClass::Fire_At @ 0x006FF743`, which stores
-    /// `g_CurrentFrameCounter`. `UnitClass::Facing_Update` gates the idle turret
-    /// return on `frame - this >= GuardAreaTargetingDelay + 5`, so the dwell is
-    /// measured from the unit's own last shot, NOT from target loss.
-    /// BuildingClass::Update starts a Gattling building's idle decay once
-    /// `frame - this > GuardAreaTargetingDelay + 5` (`0x0043FEE9`).
+    pub(crate) turret_rotation_latch: crate::sim::world::unit_post::TurretRotationLatch,
+    /// The frame of the object's own last shot (`TechnoClass+0x120`), a
+    /// [`LastFireFrame`] that FireAt (`combat::world_fire`) writes.
     ///
-    /// Not folded into `world_hash`: its two consumers' results are, so a
-    /// divergence surfaces one tick later through `barrel_facing` or
-    /// `gattling`.
-    #[serde(default = "default_last_fire_frame")]
-    pub last_fire_frame: i64,
-    /// Turret rotation-sound latch — `TechnoClass+0x49C`. It holds the
-    /// inverse of the last reached turret-control visit's sample (`+0x4A0`),
-    /// except when constructor/Unlimbo/Limbo initialization arms it. It is
-    /// `true` when the next rotating visit must request a loop. It tracks
-    /// the rotation edge even when the cue is absent or inaudible, and Load
-    /// retains it while reconstructing the external handle.
-    /// `TechnoClass::Unlimbo`'s type-derived initialization arms it
-    /// (the block that copies type fields to the instance), as do the
-    /// constructor (`0x006F30D6`) and the `TechnoClass::Limbo` sound cleanup
-    /// (reference/Steam `0x006F6C5B`). Written by
-    /// [`crate::sim::world::turret_rotate_sound`] only, for a `Turret=yes`
-    /// building.
+    /// [`LastFireFrame`]: crate::sim::combat::world_fire::LastFireFrame
+    #[serde(default)]
+    pub(crate) last_fire_frame: crate::sim::combat::world_fire::LastFireFrame,
+    /// The turret rotation-sound latch (`TechnoClass+0x49C`), a
+    /// [`TurretRotateLatch`] that `world::turret_rotate_sound` owns.
     ///
-    /// Folded into `world_hash` only while unarmed: the latch retains control
-    /// history that no other folded field reproduces. It does not indicate
-    /// successful playback. The armed default folds nothing so an object that
-    /// never turned keeps its prior hash stream.
-    #[serde(default = "default_true")]
-    pub turret_rotate_latch: bool,
+    /// [`TurretRotateLatch`]: crate::sim::world::TurretRotateLatch
+    #[serde(default)]
+    pub(crate) turret_rotate_latch: crate::sim::world::TurretRotateLatch,
     /// Techno+4F8: one ordinary VoiceDeploy attempt is suppressed after a
     /// SlaveManager relocation (6B01C4). Constructor6F30FA starts false.
     /// The Building resource-Archive voice459C20 bypasses both the test and
@@ -719,18 +685,12 @@ pub struct GameEntity {
     /// `+0x144`, `+0x4B8`), owned by `combat::gattling`.
     #[serde(default)]
     pub(crate) gattling: crate::sim::combat::gattling::GattlingState,
-    /// `TechnoClass+0x148`, the voxel turret's animation counter. The
-    /// constructor zeroes it (`0x006F2BE2`); the unit firing update
-    /// (`0x007370D5`, `0x007370F2`, `0x0073713A`) and the building's attack
-    /// (`0x0044B23C`, `0x0044B713`) and Gattling block (`0x0043FE88`,
-    /// `0x0043FF8B`) advance it. Only the draws read it
-    /// (`UnitClass::DrawVoxelBody @ 0x0073B500`: while the body's HVA frame is
-    /// 0 the turret's frame is this modulo its frame count; the building's
-    /// voxel draw `0x0043DA80`, emitted by `emit_building_turret_vxl`).
+    /// The voxel turret's animation counter (`TechnoClass+0x148`), a
+    /// [`TurretAnimCounter`] that `combat::gattling` owns.
     ///
-    /// Not folded into `world_hash`: its one reader is presentation.
+    /// [`TurretAnimCounter`]: crate::sim::combat::gattling::TurretAnimCounter
     #[serde(default)]
-    pub turret_anim_frame: i32,
+    pub(crate) turret_anim_frame: crate::sim::combat::gattling::TurretAnimCounter,
     /// Optional presentation-only native recoil, owned by voxel_recoil.
     voxel_recoil: Option<Box<voxel_recoil::VoxelRecoil>>,
     /// Techno+3B8, the burst index, owned by `combat::burst`; it survives
@@ -1613,7 +1573,7 @@ impl GameEntity {
             // The Unlimbo direction; the class constructor supplies the rate.
             body_facing: crate::sim::movement::FacingClass::new(u16::from(facing) << 8, 0),
             // Unlimbo's type-derived initialization arms the turret loop latch.
-            turret_rotate_latch: true,
+            turret_rotate_latch: Default::default(),
             suppress_deploy_voice: false,
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
             body_frame_counter: 0,
@@ -1671,13 +1631,13 @@ impl GameEntity {
             tether: crate::sim::radio::Tether::default(),
             ai_sell_repair: Default::default(),
             barrel_facing: None,
-            turret_rotation_latch: false,
-            last_fire_frame: NATIVE_LAST_FIRE_FRAME_INIT,
+            turret_rotation_latch: Default::default(),
+            last_fire_frame: Default::default(),
             // `TechnoClass` constructor `0x006F2E81..0x006F2E8C`: started
             // at the construction frame with no duration.
             rearm_timer: crate::sim::combat::rof::RearmTimer::new(construction_frame as i32),
             gattling: Default::default(),
-            turret_anim_frame: 0,
+            turret_anim_frame: Default::default(),
             voxel_recoil: None,
             weapon_burst: Default::default(),
             building_body: (category == EntityCategory::Structure).then(Default::default),

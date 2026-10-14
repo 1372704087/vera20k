@@ -891,7 +891,7 @@ fn gattling_step(
 /// `+0x148 += 1`, the voxel turret's animation counter.
 fn advance_turret_anim(sim: &mut Simulation, id: u64) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.turret_anim_frame = entity.turret_anim_frame.wrapping_add(1);
+        entity.turret_anim_frame.advance();
     }
 }
 
@@ -924,18 +924,18 @@ pub(super) fn gattling_idle(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     };
     if entity.gattling.value() > 0 {
-        entity.turret_anim_frame = entity.turret_anim_frame.wrapping_add(1);
+        entity.turret_anim_frame.advance();
     }
     if entity.mission.effective() == MissionId::from_known(MissionType::Attack) {
         return;
     }
-    let since = now.wrapping_sub(entity.last_fire_frame as i32);
+    let since = now.wrapping_sub(entity.last_fire_frame.frame() as i32);
     if since > rules.general.guard_area_targeting_delay.wrapping_add(5) {
         let elite = is_elite(entity);
         entity.gattling.idle_decay(&obj.gattling_stages, elite);
     }
     if entity.gattling.value() > 0 {
-        entity.turret_anim_frame = entity.turret_anim_frame.wrapping_add(1);
+        entity.turret_anim_frame.advance();
     }
 }
 

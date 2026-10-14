@@ -403,7 +403,7 @@ fn mission_attack_matches_the_original() {
         );
         assert_eq!(delayed[1], 0, "{name}");
         assert_eq!(
-            i64::from(entity.turret_anim_frame),
+            i64::from(entity.turret_anim_frame.frame()),
             row["turret_count"].as_i64().unwrap(),
             "{name} +0x148"
         );

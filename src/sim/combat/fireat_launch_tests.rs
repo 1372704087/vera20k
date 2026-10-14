@@ -492,7 +492,7 @@ fn grand_cannon_recoil_follows_successful_launch_ai_and_snapshot() {
         "retail cannon launch: error={fire_error:?}, mission={:?}, target={:?}, last_fire={}, actually_placed={}, body={:?}, facing={:?}",
         actor.mission,
         actor.attack_target,
-        actor.last_fire_frame,
+        actor.last_fire_frame.frame(),
         actor.building_art.actually_placed(),
         actor.building_body_state(),
         actor.body_facing
@@ -687,7 +687,7 @@ impl Duel {
             actor.navigation.nav_com,
             crate::sim::movement::motion_query::is_moving(actor),
             actor.foot_speed.applied_fraction(),
-            actor.last_fire_frame,
+            actor.last_fire_frame.frame(),
         )
     }
 

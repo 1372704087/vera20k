@@ -390,7 +390,9 @@ fn dress(mut s: Scene, input: &Value) -> Scene {
         if input["miner_tether"] == true {
             entity.tether.set_for_test(Some(refinery));
         }
-        entity.turret_rotation_latch = input["turret_latch"] == true;
+        entity
+            .turret_rotation_latch
+            .set_for_test(input["turret_latch"] == true);
         let raw = input["facing"].as_u64().unwrap_or(0xC000) as u16;
         let mut body = FacingClass::new(raw, 5);
         body.set(raw, frame);

@@ -286,7 +286,7 @@ impl<'a> FireSubject<'a> {
             // `+0x6AF` as it stood before this frame's `Facing_Update`: Unit AI
             // runs `Fire_At_Target @ 0x007365E1` first, and VERA commits the
             // new latch in `apply_unit_facing` after the fire phase.
-            turret_rotation_latch: firer.turret_rotation_latch,
+            turret_rotation_latch: firer.turret_rotation_latch.is_set(),
             sequence: firer
                 .mission_leaf
                 .as_infantry()

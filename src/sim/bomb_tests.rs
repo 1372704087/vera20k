@@ -852,7 +852,7 @@ fn retail_non_fire_once_shot_retains_target() {
     assert!(!rules.weapon("M1Carbine").unwrap().fire_once);
     attack(&mut sim, gi, tank);
     run_until(&mut sim, rules, &grid, 200, |sim| {
-        entity(sim, gi).last_fire_frame >= 0
+        entity(sim, gi).last_fire_frame.frame() >= 0
     })
     .expect("the stock GI fires");
     assert_eq!(

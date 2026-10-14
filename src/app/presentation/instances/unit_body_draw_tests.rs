@@ -266,7 +266,9 @@ fn unit_hva_frames_match_native_selected_model_remainders() {
     assert_eq!(rows.len(), 56);
     for row in rows {
         entity.body_frame_counter = row["body_counter"].as_i64().unwrap() as u32;
-        entity.turret_anim_frame = row["turret_counter"].as_i64().unwrap() as i32;
+        entity
+            .turret_anim_frame
+            .set_for_test(row["turret_counter"].as_i64().unwrap() as i32);
         let (body, turret) =
             unit_animation_frames(&entity, row["selected"].as_str().unwrap(), 0, &frame_counts);
         assert_eq!(
@@ -632,7 +634,7 @@ fn retail_mirage_body_frame_matches_original_unit_shp() {
 fn indexed_turret_animation_uses_its_selected_hva_count() {
     let mut entity =
         crate::sim::game_entity::GameEntity::test_default(1, "FV", "Americans", 10, 10);
-    entity.turret_anim_frame = 1;
+    entity.turret_anim_frame.set_for_test(1);
     let frames = std::collections::BTreeMap::from([
         (("FV".to_string(), VxlLayer::Body, 0), 1),
         (("FV".to_string(), VxlLayer::Turret, 0), 1),

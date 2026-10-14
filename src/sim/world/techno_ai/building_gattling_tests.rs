@@ -135,8 +135,12 @@ fn prepare(sim: &mut Simulation, id: u64, input: &Value) {
     if state["veterancy"].as_f64().unwrap_or(0.0) >= 2.0 {
         entity.veterancy.set_rank_for_test(RANK_ELITE_U16);
     }
-    entity.last_fire_frame = int("last_fire_frame", -100);
-    entity.turret_anim_frame = int("turret_count", 0) as i32;
+    entity
+        .last_fire_frame
+        .set_for_test(int("last_fire_frame", -100));
+    entity
+        .turret_anim_frame
+        .set_for_test(int("turret_count", 0) as i32);
 }
 
 /// A sound the Gattling calls start, stop or release, by report name.
@@ -255,7 +259,7 @@ fn assert_gattling(sim: &Simulation, id: u64, row: &Value, stage_before: i32) {
         "{name} +0xC4"
     );
     assert_eq!(
-        i64::from(entity.turret_anim_frame),
+        i64::from(entity.turret_anim_frame.frame()),
         native["turret_count"].as_i64().unwrap(),
         "{name} +0x148"
     );
@@ -561,7 +565,9 @@ fn gattling_idle_decay_matches_the_original() {
         prepare(&mut sim, building, input);
         let since = input["since"].as_i64().unwrap();
         let entity = sim.substrate.entities.get_mut(building).unwrap();
-        entity.last_fire_frame = i64::from(FRAME) - since;
+        entity
+            .last_fire_frame
+            .set_for_test(i64::from(FRAME) - since);
         if input["dead"] == true {
             entity.health.set_for_test(0);
         }
@@ -712,7 +718,7 @@ fn gattling_cadence_matches_the_original() {
             let native = &frame["gattling"];
             let lff = native["last_fire_frame"].as_i64().unwrap();
             assert_eq!(
-                entity.last_fire_frame,
+                entity.last_fire_frame.frame(),
                 if lff == -100 {
                     -100
                 } else {

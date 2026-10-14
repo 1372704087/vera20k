@@ -1536,7 +1536,7 @@ pub(super) fn emit_admitted_fire(
         };
         entity.rearm_after_fire(binary_frame as i32, rearm);
         entity.weapon_burst.complete_shot(weapon.burst.max(1));
-        entity.last_fire_frame = i64::from(binary_frame);
+        entity.last_fire_frame.record(binary_frame);
     }
     // `0x006FF394..0x006FF43F`, after GetROF: the muzzle anim, appended to the
     // Logic vector behind this shot's bullet.
@@ -1816,6 +1816,49 @@ impl FireCommitBoundary {
                 }
             }
         }
+    }
+}
+
+/// The frame of the object's own last shot, `TechnoClass+0x120`. The
+/// constructor seeds `-100` (`0x006F2B9C`), so a freshly built object is
+/// already past the idle-turret dwell on frame 0, and the single other writer
+/// in the image is `TechnoClass::Fire_At @ 0x006FF743`, which stores
+/// `g_CurrentFrameCounter` ([`Self::record`]). `UnitClass::Facing_Update`
+/// gates the idle turret return on `frame - this >= GuardAreaTargetingDelay +
+/// 5`, so the dwell is measured from the unit's own last shot, NOT from
+/// target loss. BuildingClass::Update starts a Gattling building's idle decay
+/// once `frame - this > GuardAreaTargetingDelay + 5` (`0x0043FEE9`).
+///
+/// Not folded into `world_hash`: its two consumers' results are, so a
+/// divergence surfaces one tick later through `barrel_facing` or `gattling`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct LastFireFrame {
+    frame: i64,
+}
+
+impl Default for LastFireFrame {
+    /// The constructor's `-100` (`0x006F2B9C`).
+    fn default() -> Self {
+        Self { frame: -100 }
+    }
+}
+
+impl LastFireFrame {
+    /// The frame of the last shot.
+    pub(crate) const fn frame(self) -> i64 {
+        self.frame
+    }
+
+    /// `Fire_At @ 0x006FF743`: a shot at `frame`.
+    fn record(&mut self, frame: u32) {
+        self.frame = i64::from(frame);
+    }
+
+    /// Install a fixture's frame.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, frame: i64) {
+        self.frame = frame;
     }
 }
 

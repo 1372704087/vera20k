@@ -697,14 +697,14 @@ fn unit_animation_frames(
             .max(1);
         ((entity.body_frame_counter as i32) % frames as i32) as u32
     };
-    let turret = if body != 0 || entity.turret_anim_frame == 0 {
+    let turret = if body != 0 || entity.turret_anim_frame.frame() == 0 {
         body
     } else {
         frame_counts
             .get(&(model.to_string(), VxlLayer::Turret, turret_index))
             .filter(|&&frames| frames > 1)
             .map_or(0, |&frames| {
-                (entity.turret_anim_frame % frames as i32) as u32
+                (entity.turret_anim_frame.frame() % frames as i32) as u32
             })
     };
     (body, turret)

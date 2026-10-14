@@ -380,7 +380,9 @@ fn original_unit_fire_update_rows() {
                 i32_of(&field("unit", "value")),
                 int(&field("unit", "latch")) != 0,
             );
-            entity.turret_anim_frame = i32_of(&field("unit", "turret_anim"));
+            entity
+                .turret_anim_frame
+                .set_for_test(i32_of(&field("unit", "turret_anim")));
             if elite_of(&field("unit", "veterancy")) {
                 entity.veterancy.set_elite();
             }
@@ -411,7 +413,7 @@ fn original_unit_fire_update_rows() {
             "{name}: latch"
         );
         assert_eq!(
-            i64::from(entity.turret_anim_frame),
+            i64::from(entity.turret_anim_frame.frame()),
             int(&row["turret_anim"]),
             "{name}: +0x148"
         );

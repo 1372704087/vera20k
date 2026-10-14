@@ -93,7 +93,12 @@ fn turret_events(sim: &Simulation, id: u64) -> Vec<String> {
 }
 
 fn latch(sim: &Simulation, id: u64) -> bool {
-    sim.substrate.entities.get(id).unwrap().turret_rotate_latch
+    sim.substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .turret_rotate_latch
+        .is_armed()
 }
 
 fn tick(sim: &mut Simulation, rules: &RuleSet) {
@@ -325,13 +330,15 @@ fn the_latch_is_hashed_state_and_load_rebuilds_the_handle() {
         .entities
         .get_mut(id)
         .unwrap()
-        .turret_rotate_latch = true;
+        .turret_rotate_latch
+        .set_for_test(true);
     assert_ne!(sim.state_hash(), live, "the loop's latch is hashed");
     sim.substrate
         .entities
         .get_mut(id)
         .unwrap()
-        .turret_rotate_latch = false;
+        .turret_rotate_latch
+        .set_for_test(false);
     assert_eq!(sim.state_hash(), live);
 
     // TechnoClass::Load rebuilds +0x488 but retains the saved +0x49C.
@@ -344,7 +351,8 @@ fn the_latch_is_hashed_state_and_load_rebuilds_the_handle() {
             .entities
             .get(id)
             .unwrap()
-            .turret_rotate_latch,
+            .turret_rotate_latch
+            .is_armed(),
         "the saved bit itself round-trips"
     );
     restored
@@ -357,7 +365,8 @@ fn the_latch_is_hashed_state_and_load_rebuilds_the_handle() {
             .entities
             .get(id)
             .unwrap()
-            .turret_rotate_latch,
+            .turret_rotate_latch
+            .is_armed(),
         "Load must preserve the saved unarmed latch"
     );
     tick(&mut restored, &rules);
@@ -559,7 +568,8 @@ fn turret_rotate_sound_matches_native_control_corpus() {
             .entities
             .get_mut(id)
             .unwrap()
-            .turret_rotate_latch = history["initial_latch"].as_bool().unwrap();
+            .turret_rotate_latch
+            .set_for_test(history["initial_latch"].as_bool().unwrap());
         for visit in history["visits"].as_array().unwrap() {
             let prior = latch(&sim, id);
             sim.sound_events.clear();

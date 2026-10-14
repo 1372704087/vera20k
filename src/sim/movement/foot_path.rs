@@ -399,14 +399,12 @@ impl Simulation {
         // A batched request waits for the next frame's batch as if the +640
         // timer still ran (`path_batch`, a proposed deviation): 75AF4B..75AF66
         // calls the owner's vt+0x548 and returns. The admission retry's
-        // recursion runs at once: its +640 was just expired, and native
-        // searches there with the retry spent.
-        if !request.is_retry_recursion()
-            && self.defer_path_search(
-                request.entity_id,
-                super::path_batch::WaitingRequest::NoQueue,
-            )
-        {
+        // recursion waits as well once the Foot's answer for this frame is
+        // claimed, though the retry just expired its +640.
+        if self.defer_path_search(
+            request.entity_id,
+            super::path_batch::WaitingRequest::NoQueue,
+        ) {
             self.walk_owner_clear_doing(request.entity_id)?;
             return Ok(FootPathOutcome::Returned);
         }

@@ -207,12 +207,6 @@ impl FootPathRequest {
         &self.visit.snap
     }
 
-    /// Whether this is the Walk admission retry's recursive Process(0)
-    /// request (75B714/75BAB9/75BC02), which may not retry again.
-    pub(super) fn is_retry_recursion(&self) -> bool {
-        !self.visit.walk_retry_allowed
-    }
-
     /// Find_Path's core search (`Simulation::foot_core_search`) calls this
     /// between its Mark0/Mark1, or before Mark0 for a batched path search
     /// whose `foot_entry` emulates the lift (`foot_path::MoverLift`). The

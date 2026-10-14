@@ -8567,59 +8567,6 @@ fn test_bridgehead_walkability_invariant_across_non_bridge_rebuild_triggers() {
     }
 }
 
-#[test]
-fn test_layered_astar_can_traverse_bridge_after_unrelated_rebuild() {
-    // Build a sim with the realistic bridgehead fixture. Find an A* layered
-    // path Ground(0,0) → Bridge(1,0)..(3,0) → Ground(4,0). Then rebuild the
-    // PathGrid (simulating an unrelated event like a building dying somewhere
-    // off-bridge) and re-find the same path. PRE-G7 this would fail on the
-    // second find: rebuild flips bridgehead bridge_walkable false → A* can't
-    // enter the bridge layer. POST-G7 both finds succeed.
-    let mut sim = Simulation::new();
-    let terrain = make_realistic_bridgehead_terrain();
-    sim.resolved_terrain = Some(terrain.clone());
-    sim.bridge_state = Some(BridgeRuntimeState::from_resolved_terrain(
-        &terrain, true, 10,
-    ));
-
-    let grid_initial =
-        PathGrid::from_resolved_terrain_with_bridges(sim.resolved_terrain.as_ref().unwrap());
-    let path_initial = crate::sim::pathfinding::find_layered_path(
-        &grid_initial,
-        (0, 0),
-        MovementLayer::Ground,
-        (4, 0),
-        None,
-        None,
-        false,
-        false,
-    );
-    assert!(
-        path_initial.is_some(),
-        "intact bridge must allow Ground→Bridge→Ground A* path"
-    );
-
-    // Simulate canonical navigation publication after an unrelated structure
-    // or overlay-authority change.
-    let grid_after_rebuild =
-        PathGrid::from_resolved_terrain_with_bridges(sim.resolved_terrain.as_ref().unwrap());
-    let path_after_rebuild = crate::sim::pathfinding::find_layered_path(
-        &grid_after_rebuild,
-        (0, 0),
-        MovementLayer::Ground,
-        (4, 0),
-        None,
-        None,
-        false,
-        false,
-    );
-    assert!(
-        path_after_rebuild.is_some(),
-        "A* path must still exist after an unrelated rebuild (G7: bridgeheads \
-         must keep bridge_walkable across PathGrid refresh)"
-    );
-}
-
 // --- Slice 6: deferred-delete Dying-window behavior ---
 
 /// Insert a revealed, occupancy-marked 2x2 structure owned by `Americans`.

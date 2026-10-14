@@ -21,7 +21,6 @@ mod stamped_table;
 pub mod path_smooth;
 
 // Terrain and movement costs
-pub mod cell_entry;
 pub mod passability;
 pub mod terrain_cost;
 pub mod terrain_speed;

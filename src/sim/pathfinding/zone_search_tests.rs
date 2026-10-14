@@ -193,15 +193,12 @@ fn hierarchy_endpoint_path(
         &grid,
         start,
         goal,
-        None,
         Some(&zone_grid),
         MovementZone::Normal,
         Some(MovementZone::Normal),
         Some(terrain),
         None,
         None,
-        false,
-        false,
         true,
         Some(hierarchy_endpoint_bounds()),
     )
@@ -361,13 +358,10 @@ fn zoned_path_reachable_returns_path() {
         &grid,
         (0, 0),
         (4, 2),
-        None,
         Some(&zg),
         MovementZone::Normal,
         None,
         None,
-        false,
-        false,
     );
     assert!(path.is_some());
     let path = path.unwrap();
@@ -390,13 +384,10 @@ fn zoned_path_unreachable_returns_none_instantly() {
         &grid,
         (0, 0),
         (4, 0),
-        None,
         Some(&zg),
         MovementZone::Normal,
         None,
         None,
-        false,
-        false,
     );
     assert!(path.is_none());
 }
@@ -415,12 +406,9 @@ fn zoned_path_no_zone_grid_falls_through() {
         (0, 0),
         (4, 1),
         None,
-        None,
         MovementZone::Normal,
         None,
         None,
-        false,
-        false,
     );
     assert!(path.is_some());
 }
@@ -437,13 +425,10 @@ fn zoned_path_same_cell() {
         &grid,
         (2, 0),
         (2, 0),
-        None,
         Some(&zg),
         MovementZone::Normal,
         None,
         None,
-        false,
-        false,
     );
     // 0x00429BF3..0x00429C0A: no route for a goal in the start cell.
     assert!(path.is_none());
@@ -506,14 +491,11 @@ fn tube_hierarchy_precheck_rejects_unequal_base_labels_before_connected_graph() 
         (0, 0),
         (2, 0),
         None, // no native raw-row receipt in this compatibility fixture
-        None,
         Some(&zg),
         MovementZone::Normal,
         Some(MovementZone::Normal),
         None,
         None,
-        false,
-        false,
         Some(&blocker_counts),
     );
 
@@ -561,17 +543,14 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
             (0, 0),
             (2, 0),
             &entry,
-            None,
             Some(&zones),
             MovementZone::Normal,
             Some(MovementZone::Normal),
             None,
             None,
             MoverSearchFacts {
-                foot_entry: Some(&MarkerBoundary),
+                foot_entry: &MarkerBoundary,
                 urgency: 2,
-                mover_is_crusher: false,
-                is_infantry: false,
             },
             Some(&counts),
         );
@@ -603,14 +582,11 @@ fn zone_precheck_failed_hierarchy_keeps_zone_map_same_zone_fallback() {
         (0, 0),
         (2, 0),
         None, // no native raw-row receipt in this compatibility fixture
-        None,
         Some(&zg),
         MovementZone::Normal,
         Some(MovementZone::Normal),
         None,
         None,
-        false,
-        false,
         Some(&blocker_counts),
     )
     .expect("same-zone ZoneMap fallback should survive incomplete hierarchy cell IDs");
@@ -830,13 +806,10 @@ fn caller_count_bridge_detour(
             goal,
             Some(&zones),
             mz,
-            None,
             Some(mz),
             Some(&terrain),
             None,
             counts,
-            false,
-            mz == MovementZone::Infantry,
             true,
             None,
         )
@@ -1594,15 +1567,12 @@ fn tube_hierarchy_explicit_registry_keeps_flat_and_layered_corridor_active() {
         &grid,
         (0, 1),
         (39, 1),
-        None,
         Some(&zones),
         MovementZone::Normal,
         Some(MovementZone::Normal),
         Some(&terrain),
         None,
         Some(&counts),
-        false,
-        false,
         true,
         None,
     )
@@ -1615,15 +1585,12 @@ fn tube_hierarchy_explicit_registry_keeps_flat_and_layered_corridor_active() {
         &grid,
         (0, 1),
         (39, 1),
-        None,
         Some(&zones),
         MovementZone::Normal,
         Some(MovementZone::Normal),
         Some(&terrain),
         None,
         Some(&counts),
-        false,
-        false,
         false,
         None,
     )
@@ -1639,13 +1606,10 @@ fn tube_hierarchy_explicit_registry_keeps_flat_and_layered_corridor_active() {
         (39, 1),
         Some(&zones),
         MovementZone::Normal,
-        None,
         Some(MovementZone::Normal),
         Some(&terrain),
         None,
         Some(&counts),
-        false,
-        false,
         true,
         None,
     )
@@ -1707,15 +1671,12 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
             &grid,
             (0, 0),
             (1, 0),
-            None,
             Some(zones),
             MovementZone::Normal,
             Some(MovementZone::Normal),
             Some(terrain),
             None,
             Some(&counts),
-            false,
-            false,
             true,
             None,
         )
@@ -1934,15 +1895,12 @@ fn tube_hierarchy_missing_record_sentinel_controls_actual_route_gate() {
             &grid,
             (4, 7),
             (5, 7),
-            None,
             Some(&zones),
             MovementZone::Normal,
             Some(MovementZone::Normal),
             Some(&terrain),
             None,
             Some(&counts),
-            false,
-            false,
             true,
             None
         )
@@ -1970,13 +1928,10 @@ fn tube_hierarchy_missing_record_sentinel_controls_actual_route_gate() {
             (6, 7),
             Some(&zones),
             MovementZone::Normal,
-            None,
             Some(MovementZone::Normal),
             Some(&terrain),
             None,
             Some(&counts),
-            false,
-            false,
             true,
             None
         )
@@ -2104,15 +2059,12 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
                     &grid,
                     hole,
                     hole,
-                    None,
                     Some(&zones),
                     MovementZone::Normal,
                     Some(MovementZone::Normal),
                     Some(&terrain),
                     None,
                     None,
-                    false,
-                    false,
                     false,
                     None
                 )
@@ -2128,13 +2080,10 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
                     hole,
                     Some(&zones),
                     MovementZone::Normal,
-                    None,
                     Some(MovementZone::Normal),
                     Some(&terrain),
                     None,
                     None,
-                    false,
-                    false,
                     false,
                     None
                 )

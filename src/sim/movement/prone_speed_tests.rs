@@ -1,12 +1,10 @@
 //! Prone infantry speed integration tests.
 
-use std::collections::BTreeMap;
-
 use super::tick_movement_with_grids;
 use crate::map::entities::EntityCategory;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
-use crate::rules::locomotor_type::{LocomotorKind, SpeedType};
+use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::Health;
 use crate::sim::entity_store::EntityStore;
@@ -14,7 +12,6 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::{test_intern, test_interner};
 use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::occupancy::OccupancyGrid;
-use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 use crate::sim::rng::SimRng;
 use crate::util::fixed_math::SimFixed;
@@ -80,13 +77,11 @@ fn advance_prone_mover(crawls: bool) -> SimFixed {
     let mut occupancy = OccupancyGrid::new();
     let mut sounds = Vec::new();
     let mut lifecycle_requests = Vec::new();
-    let terrain_costs: BTreeMap<SpeedType, TerrainCostGrid> = BTreeMap::new();
 
     tick_movement_with_grids(
         &mut entities,
         None,
         None,
-        &terrain_costs,
         &Default::default(),
         &mut occupancy,
         &mut crate::sim::occupancy::CellOccupationGrid::new(),

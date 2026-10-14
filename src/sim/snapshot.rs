@@ -4760,7 +4760,6 @@ mod tests {
             Some(&[1]),
             None,
             &Default::default(),
-            &Default::default(),
             &mut restored.substrate.occupancy,
             &mut restored.substrate.cell_occupation,
             &mut restored.substrate.raw_cell_occupation,

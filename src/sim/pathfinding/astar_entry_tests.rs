@@ -147,11 +147,7 @@ fn canonical_entry_reaches_blocked_goal_before_static_grid_refusal() {
             (0, 0),
             MovementLayer::Ground,
             (1, 0),
-            &AStarOptions {
-                foot_entry: Some(&entry),
-                is_infantry: true,
-                ..Default::default()
-            },
+            &AStarOptions::new(&entry),
         );
         assert_eq!(result.is_ok(), case["outcome"] == "admit_node_creation");
         let queries = entry.queries.borrow();
@@ -177,7 +173,7 @@ fn unavailable_live_entry_is_not_an_ordinary_blocked_route() {
             (0, 0),
             MovementLayer::Ground,
             (1, 0),
-            &AStarOptions { foot_entry: Some(&entry), ..Default::default() },
+            &AStarOptions::new(&entry),
         ),
         Err(PathSearchFailure::CellEntryUnavailable(cause))
             if cause == "unavailable canonical Cell input"
@@ -261,9 +257,7 @@ fn native_null_candidates_never_reach_entry_or_create_routes() {
             goal,
             &AStarOptions {
                 resolved_terrain: Some(&terrain),
-                foot_entry: Some(&entry),
-                is_infantry: true,
-                ..Default::default()
+                ..AStarOptions::new(&entry)
             },
         );
         assert_eq!(
@@ -451,6 +445,8 @@ fn accepted_descriptor_height_survives_selected_list_transition() {
 /// and 5 still expand (`AStar_main_loop @ 0x00429A90` refuses only 7), at 60x
 /// and 20x the step (`AStar_compute_edge_cost @ 0x00429830`, table
 /// `0x0081870C`): crossing one 20x cell beats a 32-step detour, 60x does not.
+/// An `IsTrain=` mover prices every admitted class as class 0
+/// (`0x00429F5C..0x00429F69`).
 #[test]
 fn a_wall_class_from_the_live_entry_prices_the_crossing() {
     // Column x=3 is a wall line on a 7x17 board, open only at its foot.
@@ -464,7 +460,7 @@ fn a_wall_class_from_the_live_entry_prices_the_crossing() {
         }
     }
     let grid = PathGrid::new(7, 17);
-    let crosses = |class: u8| {
+    let crosses = |class: u8, mover_is_train: bool| {
         let entry = WallLine(class);
         let route = astar_search(
             &grid,
@@ -472,15 +468,17 @@ fn a_wall_class_from_the_live_entry_prices_the_crossing() {
             MovementLayer::Ground,
             (6, 0),
             &AStarOptions {
-                foot_entry: Some(&entry),
-                ..Default::default()
+                mover_is_train,
+                ..AStarOptions::new(&entry)
             },
         )
         .unwrap();
         assert_eq!(route.last().map(|step| (step.rx, step.ry)), Some((6, 0)));
         route.iter().any(|step| step.rx == 3 && step.ry < 16)
     };
-    assert!(crosses(5), "an enemy wall costs 20x: cross it");
-    assert!(!crosses(4), "an allied wall costs 60x: take the gap");
-    assert!(!crosses(7), "a refused wall never expands");
+    assert!(crosses(5, false), "an enemy wall costs 20x: cross it");
+    assert!(!crosses(4, false), "an allied wall costs 60x: take the gap");
+    assert!(!crosses(7, false), "a refused wall never expands");
+    assert!(crosses(4, true), "a train prices an allied wall as clear");
+    assert!(!crosses(7, true), "a train never expands a refused wall");
 }

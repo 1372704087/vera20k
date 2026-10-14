@@ -19,14 +19,13 @@ use crate::map::entities::EntityCategory;
 #[cfg(test)]
 use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
+use crate::rules::locomotor_type::{LocomotorKind, MovementZone};
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::entity_store::{EntityStore, TouchReader};
 use crate::sim::infantry;
 #[cfg(test)]
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::pathfinding::PathGrid;
-use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 #[cfg(test)]
 use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 #[cfg(test)]
@@ -218,7 +217,6 @@ impl FootPathRequest {
         goal: crate::sim::components::DriveCoord,
         entities: &EntityStore,
         ctx: PathfindingContext<'_>,
-        terrain_costs: &BTreeMap<SpeedType, TerrainCostGrid>,
         foot_entry: &dyn crate::sim::pathfinding::SearchFootEntry,
     ) -> Result<Vec<(u16, u16)>, super::movement_path::MovePathFailure> {
         let snap = &self.visit.snap;
@@ -249,16 +247,14 @@ impl FootPathRequest {
             start,
             layer,
             goal,
-            snap.speed_type.and_then(|speed| terrain_costs.get(&speed)),
             snap.movement_zone,
             Some(snap.movement_zone),
             None,
             //The admitted search prepares markers and applies native42AECA
             //urgency downgrade through the live Foot provider.
-            //One crush authority for every search; see `CrushCapability::of`.
-            super::MoverPathFacts::from_snapshot(snap, self.urgency),
+            self.urgency,
             snap.allow_zone_hierarchy,
-            Some(foot_entry),
+            foot_entry,
         )
         // Foot+5E0 words carry no layer; the Process reads OnBridge.
         .map(|(path, _)| path)
@@ -835,7 +831,6 @@ pub(crate) fn tick_movement_with_grids(
     entities: &mut EntityStore,
     live_order: Option<&[u64]>,
     path_grid: Option<&PathGrid>,
-    terrain_costs: &BTreeMap<SpeedType, TerrainCostGrid>,
     alliances: &HouseAllianceMap,
     occupancy: &mut OccupancyGrid,
     cell_occupation: &mut CellOccupationGrid,
@@ -863,7 +858,6 @@ pub(crate) fn tick_movement_with_grids(
     sim.scenario_rng = rng.clone();
     sim.session.tick = sim_tick;
     sim.session.binary_frame = native_frame;
-    sim.terrain_costs = terrain_costs.clone();
     sim.house_alliances = alliances.clone();
     sim.path_grid = path_grid.cloned().map(std::sync::Arc::new);
     sim.zone_grid = zone_grid.cloned();

@@ -721,7 +721,6 @@ impl Simulation {
                 playfield_bounds: self.playfield_bounds,
                 blocker_neighbor_counts: Some(counts),
             },
-            &self.terrain_costs,
             &entry,
         );
         (searched, entry.read_own_cell.get())

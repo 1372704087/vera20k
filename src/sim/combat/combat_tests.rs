@@ -3452,7 +3452,7 @@ fn gsi_04_07_damage_retaliation_peek_rejects_limbo_attacker() {
         let victim = entities.get(2).expect("victim survives");
         (
             victim.health.current(),
-            victim.was_attacked_by_enemy,
+            victim.ai_sell_repair.was_attacked_by_enemy(),
             victim.mission.current(),
             victim.mission.suspended(),
             victim.attack_target.target(),
@@ -3568,7 +3568,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
     for id in protected {
         let victim = sim.substrate.entities.get(id).unwrap();
         assert_eq!(victim.health.current(), 100);
-        assert!(!victim.was_attacked_by_enemy);
+        assert!(!victim.ai_sell_repair.was_attacked_by_enemy());
         assert_eq!(victim.damage_smoke_system_id, None);
     }
     assert_eq!(
@@ -9224,7 +9224,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
             .entities
             .get(hostile_target)
             .unwrap()
-            .was_attacked_by_enemy,
+            .ai_sell_repair
+            .was_attacked_by_enemy(),
         "surviving hostile source sets the persistent Techno tail byte"
     );
     assert!(
@@ -9232,7 +9233,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
             .entities
             .get(allied_target)
             .unwrap()
-            .was_attacked_by_enemy,
+            .ai_sell_repair
+            .was_attacked_by_enemy(),
         "target-owner alliance suppresses the hostile latch"
     );
     assert!(
@@ -9240,7 +9242,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
             .entities
             .get(null_target)
             .unwrap()
-            .was_attacked_by_enemy,
+            .ai_sell_repair
+            .was_attacked_by_enemy(),
         "null radiation/environment source cannot set it"
     );
     let latched_hash = sim.state_hash();
@@ -9248,7 +9251,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
         .entities
         .get_mut(hostile_target)
         .unwrap()
-        .was_attacked_by_enemy = false;
+        .ai_sell_repair
+        .set_was_attacked_by_enemy_for_test(false);
     assert_ne!(
         sim.state_hash(),
         latched_hash,
@@ -9258,7 +9262,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
         .entities
         .get_mut(hostile_target)
         .unwrap()
-        .was_attacked_by_enemy = true;
+        .ai_sell_repair
+        .set_was_attacked_by_enemy_for_test(true);
 
     let selling = |sim: &crate::sim::world::Simulation, id: u64| {
         sim.substrate

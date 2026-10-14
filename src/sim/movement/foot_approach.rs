@@ -1169,8 +1169,8 @@ impl Simulation {
         cells: &NativeCellQuery<'_>,
     ) -> Result<Option<(u16, u16)>, String> {
         use crate::sim::find_nearby_cell::{
-            NearbyAnchorGate, NearbyFootprint, NearbyQuery, PassabilityArgs,
-            find_nearby_passable_cell, map_owned_radius_cap,
+            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
+            map_owned_radius_cap,
         };
         let actor = self
             .substrate
@@ -1219,7 +1219,6 @@ impl Simulation {
                     bridge_aware_zone: bridge_aware,
                 },
                 footprint: NearbyFootprint::SINGLE,
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells: false,
                 check_height: true,
                 check_occupancy: false,

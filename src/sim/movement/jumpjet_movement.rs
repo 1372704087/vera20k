@@ -497,7 +497,6 @@ impl WorldOrderHost<'_> {
                 raw_occupation: Some(&self.sim.substrate.raw_cell_occupation),
                 passability,
                 footprint: NearbyFootprint::SINGLE,
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells,
                 check_height: false,
                 check_occupancy: false,

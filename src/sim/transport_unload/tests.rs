@@ -670,6 +670,43 @@ fn hover_transport_on_water_moves_to_shore_before_unloading() {
     }
 }
 
+/// The water-to-land pre-move pushes no height gate (`0x0073D782`): a bank
+/// two levels above the water still answers Find_Nearby_Passable_Cell, so the
+/// landing craft is sent to it instead of waiting on the water.
+#[test]
+fn hover_transport_on_water_is_sent_to_a_raised_bank() {
+    let mut fx = Fixture::new(|rx, _| rx < 25);
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    for y in 0..MAP {
+        for x in 25..MAP {
+            terrain.cell_mut(x, y).unwrap().level = 2;
+        }
+    }
+    let lcrf = fx.spawn("LCRF", 20, 20, 0x40);
+    fx.board(lcrf, 2);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: lcrf }));
+
+    let mut sent = None;
+    for _ in 0..10 {
+        fx.tick();
+        sent = fx
+            .sim
+            .substrate
+            .entities
+            .get(lcrf)
+            .unwrap()
+            .navigation
+            .nav_com;
+        if sent.is_some() {
+            break;
+        }
+    }
+    assert!(
+        matches!(sent, Some(crate::sim::components::NavTargetRef::Cell { rx, .. }) if rx >= 25),
+        "sent to the raised bank: {sent:?}"
+    );
+}
+
 /// A Move order re-assigns the mission and interrupts the unload.
 #[test]
 fn move_order_cancels_a_running_unload() {
@@ -954,12 +991,10 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     // so the state-3 scan starts at octant 5; the strict pass fails
     // everywhere (ring two is water) and the relaxed restart accepts octant
     // 6 (W), exit cell (19, 20). The FNPC expectation is taken now, with the
-    // passenger still in limbo, exactly as the handler sees it.
+    // passenger still in limbo, exactly as the handler sees it: the free exit
+    // cell passes every argument, so ring 0 answers it.
     let exit = (19u16, 20u16);
-    let expected = {
-        let pax = fx.sim.substrate.entities.get(bggy).expect("passenger");
-        super::find_nearby_passable_for(&fx.sim, &fx.rules, pax, exit, None).expect("FNPC result")
-    };
+    let expected = exit;
     let spawn_elevation = fx
         .sim
         .substrate
@@ -999,6 +1034,60 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     assert!(
         dest.is_none_or(|d| d == expected),
         "Set_Destination got the FNPC slot, not the exit/beyond cell: {dest:?}"
+    );
+}
+
+/// The vehicle passenger's Find_Nearby_Passable_Cell (`0x0073DA96..0x0073DADD`)
+/// runs the playfield anchor gate with no height gate. The strict pass takes
+/// octant 5, exit (19, 21), which lies outside this playfield diamond
+/// (`y - x < 2`), so ring 0 fails and ring 1 answers. Its only in-diamond
+/// cells besides the transport's own are (19, 20) and (20, 21), raised two
+/// levels.
+#[test]
+fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground() {
+    let mut fx = Fixture::new(|_, _| false);
+    fx.sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+        base: 0,
+        off_fc: -1,
+        off_100: -100,
+        off_104: 100,
+        off_108: 200,
+    });
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    for (x, y) in [(19, 20), (20, 21)] {
+        terrain.cell_mut(x, y).unwrap().level = 2;
+    }
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let bggy = fx.spawn("BGGY", 24, 24, 0);
+    assert_eq!(
+        fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
+        ConcealOutcome::Concealed
+    );
+    let boarded = fx
+        .sim
+        .substrate
+        .entities
+        .get_mut(bfrt)
+        .and_then(|t| t.passenger_role.cargo_mut())
+        .is_some_and(|cargo| cargo.board(bggy, 1));
+    assert!(boarded, "cargo accepts the vehicle");
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(bggy)
+        .expect("passenger")
+        .passenger_role = PassengerRole::Inside {
+        transport_id: bfrt,
+        open_topped: true,
+    };
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed_with_missions(&[bggy], 200);
+    assert_eq!(order.len(), 1, "the vehicle left: {order:?}");
+    let cell = fx.cell(bggy);
+    assert!(
+        [(19, 20), (20, 21)].contains(&cell),
+        "placed on raised in-playfield ground, not the exit: {cell:?}"
     );
 }
 

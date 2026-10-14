@@ -235,7 +235,10 @@ fn footprint_clear_of_others(sim: &Simulation, building_id: u64, unit_id: u64) -
         id != unit_id
             && id != building_id
             && e.in_logic_vector
-            && matches!(e.category, EntityCategory::Unit | EntityCategory::Infantry)
+            && matches!(
+                e.category(),
+                EntityCategory::Unit | EntityCategory::Infantry
+            )
             && footprint
                 .iter()
                 .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)
@@ -275,7 +278,10 @@ fn shove_footprint_blockers(
             *id != unit_id
                 && *id != building_id
                 && e.in_logic_vector
-                && matches!(e.category, EntityCategory::Unit | EntityCategory::Infantry)
+                && matches!(
+                    e.category(),
+                    EntityCategory::Unit | EntityCategory::Infantry
+                )
                 && footprint
                     .iter()
                     .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)

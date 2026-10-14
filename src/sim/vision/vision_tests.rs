@@ -1527,7 +1527,7 @@ fn an_aircrafts_altitude_moves_its_revealed_disc() {
 
     let mut store = EntityStore::new();
     let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 30, 30);
-    entity.category = EntityCategory::Aircraft;
+    entity.set_category_for_test(EntityCategory::Aircraft);
     entity.lifecycle.in_limbo = false;
     entity.vision_range = 1;
     entity.position.exact_z_leptons = Some(1500);

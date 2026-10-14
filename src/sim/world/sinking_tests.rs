@@ -30,9 +30,9 @@ fn fixture(relative_z: i32) -> (Simulation, RuleSet, u64) {
     sim.session.house_order.push(owner);
     let id = sim.allocate_stable_id();
     let mut entity = GameEntity::test_default(id, "TEST", "Americans", 113, 59);
-    entity.type_ref = sim.interner.intern("TEST");
-    entity.owner = owner;
-    entity.category = EntityCategory::Unit;
+    entity.set_type_ref_for_test(sim.interner.intern("TEST"));
+    entity.set_owner_for_test(owner);
+    entity.set_category_for_test(EntityCategory::Unit);
     entity.health.current = 0;
     entity.lifecycle.in_limbo = false;
     entity.lifecycle.cell_marked = false;
@@ -427,8 +427,8 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     .unwrap();
     let firer_id = sim.allocate_stable_id();
     let mut firer = GameEntity::test_default(firer_id, "TEST", "Russians", 112, 59);
-    firer.type_ref = sim.interner.intern("TEST");
-    firer.owner = sim.interner.intern("Russians");
+    firer.set_type_ref_for_test(sim.interner.intern("TEST"));
+    firer.set_owner_for_test(sim.interner.intern("Russians"));
     firer.lifecycle.in_limbo = false;
     firer.health.current = 800;
     firer.position.z = 2;

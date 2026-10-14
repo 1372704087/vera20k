@@ -65,7 +65,7 @@ pub(crate) fn request_gate_open_for_cell(
         let Some(candidate) = sim.substrate.entities.get(candidate_id) else {
             continue;
         };
-        if candidate.category != EntityCategory::Structure
+        if candidate.category() != EntityCategory::Structure
             || !rules
                 .object(sim.interner.resolve(candidate.type_ref()))
                 .is_some_and(|obj| obj.gate)

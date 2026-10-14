@@ -549,7 +549,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Walk failed-path receiver")?;
-        if actor.category == EntityCategory::Infantry
+        if actor.category() == EntityCategory::Infantry
             && rules
                 .object(self.interner.resolve(actor.type_ref()))
                 .is_some_and(|object| object.jumpjet)
@@ -570,7 +570,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Walk short-path receiver")?;
-        if actor.category == EntityCategory::Infantry
+        if actor.category() == EntityCategory::Infantry
             && actor.navigation.path_replay.remaining_directions().len() < 4
             && rules
                 .object(self.interner.resolve(actor.type_ref()))
@@ -606,7 +606,7 @@ fn walk_code2_gate(
 /// Whether the Walk owner's vt+0x548 changes `actor`; see
 /// [`Simulation::walk_owner_clear_doing`].
 pub(super) fn walk_doing_to_clear(actor: &crate::sim::game_entity::GameEntity) -> bool {
-    actor.category == EntityCategory::Infantry
+    actor.category() == EntityCategory::Infantry
         && actor
             .mission_leaf
             .as_infantry()

@@ -740,7 +740,7 @@ fn a_killed_building_draws_its_death_anims_before_its_survivors() {
         let logic = sim.logic_order();
         for survivor in sim.substrate.entities.values().filter(|entity| {
             !before.contains(&entity.stable_id())
-                && entity.category == crate::map::entities::EntityCategory::Infantry
+                && entity.category() == crate::map::entities::EntityCategory::Infantry
         }) {
             let survivor_slot = logic
                 .iter()

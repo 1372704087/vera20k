@@ -457,7 +457,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.category == EntityCategory::Aircraft);
+            .is_some_and(|entity| entity.category() == EntityCategory::Aircraft);
         let edge = FlyMapEdge {
             width,
             height,
@@ -503,7 +503,7 @@ impl Simulation {
                     | NavTargetRef::Object { id }
                     | NavTargetRef::Building { id } => self.substrate.entities.get(id),
                 })
-                .filter(|building| building.category == EntityCategory::Structure)
+                .filter(|building| building.category() == EntityCategory::Structure)
                 .and_then(|building| {
                     rules.and_then(|rules| rules.object(self.interner.resolve(building.type_ref())))
                 })
@@ -607,7 +607,7 @@ impl Simulation {
             return 0;
         };
         let object = rules.and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
-        let aircraft = entity.category == EntityCategory::Aircraft;
+        let aircraft = entity.category() == EntityCategory::Aircraft;
         let strafe = aircraft
             && rules.zip(object).is_some_and(|(rules, object)| {
                 crate::sim::combat::combat_weapon::aircraft_strafes(

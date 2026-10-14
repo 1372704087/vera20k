@@ -69,13 +69,13 @@ pub(crate) fn in_death_sequence(doing: i32) -> bool {
 
 /// Infantry's Doing/Stage owns its pose and completion for every locomotor.
 pub(crate) fn doing_owns_sequence(entity: &GameEntity) -> bool {
-    entity.category == EntityCategory::Infantry
+    entity.category() == EntityCategory::Infantry
 }
 
 /// The native Infantry locomotor-class test, independent of which families
 /// have migrated their presentation to Doing/Stage.
 pub(crate) fn uses_jumpjet_locomotor(entity: &GameEntity) -> bool {
-    entity.category == EntityCategory::Infantry
+    entity.category() == EntityCategory::Infantry
         && entity
             .locomotor
             .as_ref()
@@ -411,7 +411,7 @@ impl Simulation {
         // Original51BCA4/51BCAC and51BF5E/51BF66 test Object+90, not
         // Health or the presentation death flag. Retained death sequences
         // still reach Fear -> Fire -> Sequencer until actual UnInit.
-        if actor.category != EntityCategory::Infantry || !actor.is_object_alive() {
+        if actor.category() != EntityCategory::Infantry || !actor.is_object_alive() {
             return Ok(false);
         }
         //51BDE7..51BE3E precedes the second Ready/Commence and Fear. A
@@ -681,7 +681,7 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) {
         let stopped_move = self.substrate.entities.get(id).is_some_and(|actor| {
-            actor.category == EntityCategory::Infantry
+            actor.category() == EntityCategory::Infantry
                 && actor.is_ai_alive()
                 && actor.mission.effective().known() == Some(crate::sim::mission::MissionType::Move)
                 && super::motion_query::is_moving(actor) == Some(false)
@@ -770,7 +770,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return;
         };
-        if actor.category != EntityCategory::Infantry || actor.health.current <= 0 {
+        if actor.category() != EntityCategory::Infantry || actor.health.current <= 0 {
             return;
         }
         let Some(doing) = actor.mission_leaf.as_infantry().map(|leaf| leaf.doing()) else {

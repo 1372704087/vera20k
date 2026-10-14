@@ -510,7 +510,7 @@ impl Simulation {
             return;
         };
         victim_entity.parasite.paralysis = CdTimer::started(frame as i32, paralyzes);
-        let infantry = victim_entity.category == EntityCategory::Infantry;
+        let infantry = victim_entity.category() == EntityCategory::Infantry;
         let location = ground_pose::position_world_coord(&victim_entity.position);
         let raw = victim_entity.body_facing_current(frame);
         let (amount, ignore_defenses) = if infantry {
@@ -796,7 +796,7 @@ impl Simulation {
             .substrate
             .entities
             .get(owner)
-            .is_some_and(|o| o.category == EntityCategory::Unit);
+            .is_some_and(|o| o.category() == EntityCategory::Unit);
         let victim_on_bridge = victim_entity.on_bridge;
         if self.parasite_can_place_at_victim(owner, victim, rules) {
             let victim_entity = self.substrate.entities.get(victim)?;
@@ -905,7 +905,7 @@ impl Simulation {
             .and_then(|o| self.object_type(o.type_ref(), rules))
             .is_some_and(|o| o.naval);
         if !naval {
-            if owner_entity.is_some_and(|o| o.category == EntityCategory::Unit)
+            if owner_entity.is_some_and(|o| o.category() == EntityCategory::Unit)
                 && self
                     .production
                     .terrain_object_cells
@@ -1042,7 +1042,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(owner) else {
             return false;
         };
-        let infantry = entity.category == EntityCategory::Infantry;
+        let infantry = entity.category() == EntityCategory::Infantry;
         // Unlimbo receives the whole coordinate. A deck release from
         // GetReleaseCoords (`0x0062AC60..0x0062ACF6`) carries the deck height,
         // which the reveal adapter reads as `level + 4` with the owner's
@@ -1135,7 +1135,7 @@ impl Simulation {
         };
         let target_entity = target_id.and_then(|id| self.substrate.entities.get(id));
         let target_infantry =
-            target_entity.is_some_and(|target| target.category == EntityCategory::Infantry);
+            target_entity.is_some_and(|target| target.category() == EntityCategory::Infantry);
         // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected,
         // locally controlled firer jumping an Infantry target.
         let reselect = object.reselect_if_limboed
@@ -1170,7 +1170,7 @@ impl Simulation {
         if parasite
             && let Some(target) = target_id.and_then(|id| self.substrate.entities.get_mut(id))
             && matches!(
-                target.category,
+                target.category(),
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             )
         {

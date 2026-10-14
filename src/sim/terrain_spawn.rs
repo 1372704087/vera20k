@@ -1198,7 +1198,7 @@ mod tests {
                 10,
                 EntityCategory::Structure,
             );
-            entity.type_ref = interner.intern(type_name);
+            entity.set_type_ref_for_test(interner.intern(type_name));
             entities.insert(entity);
             occupancy.add(
                 11,
@@ -1386,7 +1386,7 @@ mod tests {
         let attacker_id = sim.allocate_stable_id();
         let mut attacker = GameEntity::test_default(attacker_id, "MTNK", "Americans", 5, 5);
         attacker.health = Health { current: 300 };
-        let owner_id = attacker.owner;
+        let owner_id = attacker.owner();
         // `test_default` interns both owner and type through the shared test
         // interner. Snapshot it only after constructing the entity so those
         // handles resolve through the Simulation that will execute the order.

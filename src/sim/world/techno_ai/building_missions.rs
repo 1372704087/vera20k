@@ -1315,7 +1315,7 @@ pub(super) fn range_drop(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: Ob
     }
     if let TargetKind::Entity(target_id) = target
         && sim.substrate.entities.get(target_id).is_some_and(|target| {
-            target.category == EntityCategory::Aircraft
+            target.category() == EntityCategory::Aircraft
                 && !crate::sim::movement::air_movement::is_low_flying(
                     target,
                     sim.resolved_terrain.as_ref(),
@@ -1381,7 +1381,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return true;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return true;
         }
         if entity.mission.current().known() == Some(MissionType::Selling)

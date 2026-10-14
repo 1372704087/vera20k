@@ -26,7 +26,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category == crate::map::entities::EntityCategory::Structure
+        if entity.category() == crate::map::entities::EntityCategory::Structure
             && !entity.building_has_engineer
             && rules
                 .object(self.interner.resolve(entity.type_ref()))
@@ -42,7 +42,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure {
+        if entity.category() != crate::map::entities::EntityCategory::Structure {
             return;
         }
         entity.building_has_engineer = true;
@@ -64,7 +64,7 @@ impl Simulation {
         let Some(object) = rules.object(self.interner.resolve(entity.type_ref())) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure
+        if entity.category() != crate::map::entities::EntityCategory::Structure
             || !object.infantry_absorb
             || object.extra_power <= 0
             || !entity.building_art.actually_placed

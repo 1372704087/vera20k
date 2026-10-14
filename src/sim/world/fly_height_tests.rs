@@ -353,7 +353,11 @@ fn landing_base_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
             "helipad" => "HELIPAD",
             _ => "PLAIN",
         });
-        sim.substrate.entities.get_mut(id).unwrap().type_ref = type_ref;
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_type_ref_for_test(type_ref);
     }
     for id in holes {
         slots.remove(id);

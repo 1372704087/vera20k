@@ -192,7 +192,7 @@ impl Simulation {
                 return;
             }
             if !matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             ) {
                 return;
@@ -212,9 +212,9 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if (entity.dying && entity.category != EntityCategory::Infantry)
+        if (entity.dying && entity.category() != EntityCategory::Infantry)
             || !matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             )
         {
@@ -231,7 +231,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if entity.category == EntityCategory::Aircraft
+        if entity.category() == EntityCategory::Aircraft
             && entity.mission.current().raw() != 1
             && let Some(ammo) = entity.aircraft_ammo.as_mut()
         {
@@ -400,7 +400,7 @@ impl Simulation {
             let target_is_aircraft = match projectile.target {
                 crate::sim::projectile::ProjectileTarget::Entity(target) => {
                     self.substrate.entities.get(target).is_some_and(|entity| {
-                        entity.category == crate::map::entities::EntityCategory::Aircraft
+                        entity.category() == crate::map::entities::EntityCategory::Aircraft
                     })
                 }
                 _ => false,
@@ -526,7 +526,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.category == EntityCategory::Unit)
+                .is_some_and(|entity| entity.category() == EntityCategory::Unit)
             {
                 self.deactivated_unit_sparks(id, rules);
             }
@@ -569,14 +569,14 @@ impl Simulation {
         // the mutable movement substrates), so this visit must contribute no
         // mission-counter, queued-mission, cadence, or passive-target work.
         if matches!(
-            entity.category,
+            entity.category(),
             EntityCategory::Unit | EntityCategory::Infantry
         ) && entity.low_bridge_tube_state.is_some()
         {
             return outcome;
         }
 
-        let category = entity.category;
+        let category = entity.category();
         techno_ai_shell(self, id, category, rules, ctx, &mut outcome);
         outcome
     }
@@ -1045,9 +1045,9 @@ fn house_heal_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, infantry: bool
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let unit = entity.category == EntityCategory::Unit;
+    let unit = entity.category() == EntityCategory::Unit;
     let admitted = if infantry {
-        entity.category == EntityCategory::Infantry || (unit && object.organic)
+        entity.category() == EntityCategory::Infantry || (unit && object.organic)
     } else {
         unit && !object.organic
     };
@@ -1483,7 +1483,7 @@ fn target_reach_step(
         return;
     };
     if !matches!(
-        entity.category,
+        entity.category(),
         EntityCategory::Unit | EntityCategory::Infantry
     ) || sim.team_script_vm.team_for_member(id).is_some()
         || entity.navigation.nav_com.is_some()
@@ -1582,8 +1582,8 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     ) else {
         return;
     };
-    let infantry = entity.category == EntityCategory::Infantry;
-    let target_building = target.category == EntityCategory::Structure;
+    let infantry = entity.category() == EntityCategory::Infantry;
+    let target_building = target.category() == EntityCategory::Structure;
     let occupiable = infantry
         && target_building
         && target.passenger_role.cargo().is_some_and(|cargo| {
@@ -2041,14 +2041,14 @@ mod tests {
     /// Build a test entity of a specific category (`test_default` makes a Unit).
     fn entity_of(id: u64, category: EntityCategory) -> GameEntity {
         let mut e = GameEntity::test_default(id, "TEST", "Americans", 5, 5);
-        e.category = category;
+        e.set_category_for_test(category);
         e.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(category);
         e
     }
 
     fn register_entity(sim: &mut Simulation, mut entity: GameEntity) {
-        entity.owner = sim.interner.intern("Americans");
-        entity.type_ref = sim.interner.intern("TEST");
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("TEST"));
         sim.substrate.entities.insert(entity);
     }
 
@@ -3522,7 +3522,7 @@ mod tests {
             5,
             true,
         );
-        e.category = category;
+        e.set_category_for_test(category);
         e.mission
             .apply_test_fixture(fixture_with_current(&e.mission, MissionType::Guard));
         e.passive_scan_timer.clear(); // due now
@@ -4228,8 +4228,8 @@ mod tests {
     fn ordinary_drive_host_sim(seed: u64) -> Simulation {
         let mut sim = Simulation::with_seed(seed);
         let mut entity = entity_of(ORDINARY_DRIVE_HOST_ID, EntityCategory::Unit);
-        entity.owner = sim.interner.intern("Americans");
-        entity.type_ref = sim.interner.intern("TEST");
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("TEST"));
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         entity
             .locomotor
@@ -4275,8 +4275,8 @@ mod tests {
         });
         // 512 leptons from the target at (5, 5) — inside the 282..=768 band.
         attacker.position.rx = 7;
-        attacker.owner = sim.interner.intern("Americans");
-        attacker.type_ref = sim.interner.intern(type_name);
+        attacker.set_owner_for_test(sim.interner.intern("Americans"));
+        attacker.set_type_ref_for_test(sim.interner.intern(type_name));
         sim.substrate.entities.insert(attacker);
         // On the map: TechnoClass::AI's 16-frame check drops a target in limbo
         // (GetFireError T12).
@@ -4286,7 +4286,11 @@ mod tests {
         // An enemy: a computer house drops an allied target every frame
         // (`0x006FA30C`).
         let soviet = sim.interner.intern("Soviet");
-        sim.substrate.entities.get_mut(2).unwrap().owner = soviet;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .set_owner_for_test(soviet);
         sim
     }
 
@@ -4713,12 +4717,12 @@ mod tests {
                 [(1, attacker, "Russians", 5), (2, "BRUTE", "YuriCountry", 6)]
             {
                 let mut entity = GameEntity::test_default(id, type_name, owner, rx, 5);
-                entity.category = EntityCategory::Infantry;
+                entity.set_category_for_test(EntityCategory::Infantry);
                 entity.mission_leaf =
                     MissionLeafState::for_entity_category(EntityCategory::Infantry);
                 entity.lifecycle.in_limbo = false;
-                entity.owner = sim.interner.intern(owner);
-                entity.type_ref = sim.interner.intern(type_name);
+                entity.set_owner_for_test(sim.interner.intern(owner));
+                entity.set_type_ref_for_test(sim.interner.intern(type_name));
                 sim.substrate.entities.insert(entity);
             }
             if cloaked {
@@ -4783,8 +4787,8 @@ mod tests {
             let mut sim = Simulation::with_seed(0x6A2D);
             let rules = representative_foot_handler_rules();
             let mut infantry = entity_of(1, EntityCategory::Infantry);
-            infantry.owner = sim.interner.intern("Americans");
-            infantry.type_ref = sim.interner.intern("TEST");
+            infantry.set_owner_for_test(sim.interner.intern("Americans"));
+            infantry.set_type_ref_for_test(sim.interner.intern("TEST"));
             crate::sim::building_entry::set_should_enter_absorber_for_test(&mut infantry, true);
             update_mission_test_fixture(&mut infantry.mission, |fixture| {
                 fixture.current = MissionId::from_known(mission);
@@ -4897,8 +4901,8 @@ mod tests {
         let mut infantry = entity_of(1, EntityCategory::Infantry);
         // The Hunt body resolves the object type (for `StupidHunt=`) and runs
         // the scanner, so the fixture has to be interned in THIS sim.
-        infantry.owner = sim.interner.intern("Americans");
-        infantry.type_ref = sim.interner.intern("TEST");
+        infantry.set_owner_for_test(sim.interner.intern("Americans"));
+        infantry.set_type_ref_for_test(sim.interner.intern("TEST"));
         update_mission_test_fixture(&mut infantry.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::Hunt);
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
@@ -4939,8 +4943,8 @@ mod tests {
         let mut sim = Simulation::with_seed(0xF007);
         let rules = representative_foot_handler_rules();
         let mut unit = entity_of(1, EntityCategory::Unit);
-        unit.owner = sim.interner.intern("Americans");
-        unit.type_ref = sim.interner.intern("TEST");
+        unit.set_owner_for_test(sim.interner.intern("Americans"));
+        unit.set_type_ref_for_test(sim.interner.intern("TEST"));
         update_mission_test_fixture(&mut unit.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::Hunt);
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
@@ -5159,14 +5163,18 @@ mod tests {
         // truncated root past 768.
         attacker.position.rx = 8;
         attacker.position.sub_y += crate::util::fixed_math::SimFixed::from_num(30);
-        attacker.owner = sim.interner.intern("Americans");
-        attacker.type_ref = sim.interner.intern("SHORTVEH");
+        attacker.set_owner_for_test(sim.interner.intern("Americans"));
+        attacker.set_type_ref_for_test(sim.interner.intern("SHORTVEH"));
         sim.substrate.entities.insert(attacker);
         let mut target = entity_of(2, EntityCategory::Unit);
         target.lifecycle.in_limbo = false;
         register_entity(&mut sim, target);
         let soviet = sim.interner.intern("Soviet");
-        sim.substrate.entities.get_mut(2).unwrap().owner = soviet;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .set_owner_for_test(soviet);
 
         let mut expected_rng = sim.clone_scenario_rng();
         let jitter = expected_rng.next_range_u32_inclusive(0, 2) as i32;
@@ -5196,8 +5204,8 @@ mod tests {
         let rules = hunt_body_rules();
         let mut sim = Simulation::with_seed(0x40_0716);
         let mut man = entity_of(1, EntityCategory::Infantry);
-        man.owner = sim.interner.intern("Americans");
-        man.type_ref = sim.interner.intern("DEPINF");
+        man.set_owner_for_test(sim.interner.intern("Americans"));
+        man.set_type_ref_for_test(sim.interner.intern("DEPINF"));
         man.mission_leaf.set_infantry_doing_verified(28).unwrap();
         update_mission_test_fixture(&mut man.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::AreaGuard);
@@ -5587,10 +5595,10 @@ mod tests {
         entity: &GameEntity,
         gates: HostTraceGates,
     ) -> Result<(), HostTraceError> {
-        if entity.category == EntityCategory::Aircraft {
+        if entity.category() == EntityCategory::Aircraft {
             return Err(HostTraceError::AircraftPath);
         }
-        if entity.category != EntityCategory::Unit {
+        if entity.category() != EntityCategory::Unit {
             return Err(HostTraceError::NonUnit);
         }
         if entity.mission.current() != MissionId::from_known(MissionType::Move) {
@@ -6659,7 +6667,7 @@ mod tests {
             .entities
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
-            .category = EntityCategory::Infantry;
+            .set_category_for_test(EntityCategory::Infantry);
         assert_ordinary_drive_host_error(
             &non_unit,
             &control,
@@ -6738,7 +6746,7 @@ mod tests {
             .entities
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
-            .category = EntityCategory::Aircraft;
+            .set_category_for_test(EntityCategory::Aircraft);
         assert_ordinary_drive_host_error(
             &aircraft,
             &control,

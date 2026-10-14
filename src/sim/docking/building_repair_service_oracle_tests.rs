@@ -611,7 +611,7 @@ fn native_pending_entry_and_radio_lifecycle_use_shared_command_owners() {
             if case["contact_is_unit"] == true {
                 // Explicit native original-Unit-vtable RTTI prestate. The
                 // shared gate must reject it before reading Building flags.
-                contact.category = crate::map::entities::EntityCategory::Unit;
+                contact.set_category_for_test(crate::map::entities::EntityCategory::Unit);
             }
         }
         if case["two_contacts"] == true {
@@ -965,7 +965,7 @@ fn native_unit_destination_power_tail_uses_raw_cell_and_shared_setters() {
                 "refinery" => scene.depot,
                 other => panic!("unrepresented current-list fixture {other}"),
             };
-            let category = scene.sim.substrate.entities.get(id).unwrap().category;
+            let category = scene.sim.substrate.entities.get(id).unwrap().category();
             scene.sim.substrate.occupancy.add(
                 x,
                 y,

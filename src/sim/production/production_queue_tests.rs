@@ -1138,7 +1138,7 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     assert!(!vehicle_entity.lifecycle.cell_marked);
     assert!(!vehicle_entity.in_logic_vector);
     assert!(!vehicle_entity.in_playfield);
-    assert_eq!(vehicle_entity.techno_ctor_random_word, mtnk_word);
+    assert_eq!(vehicle_entity.techno_ctor_random_word(), mtnk_word);
 
     let e1_word = (expected.next_u32() & 0xFFFF) as u16;
     assert!(enqueue_by_type(
@@ -1160,7 +1160,7 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     assert!(!e1_entity.lifecycle.cell_marked);
     assert!(!e1_entity.in_logic_vector);
     assert!(!e1_entity.in_playfield);
-    assert_eq!(e1_entity.techno_ctor_random_word, e1_word);
+    assert_eq!(e1_entity.techno_ctor_random_word(), e1_word);
 
     assert!(enqueue_by_type(
         &mut sim,
@@ -1198,7 +1198,7 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
             .entities
             .get(e2_id)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         e2_word
     );
     assert!(sim.substrate.entities.get(vehicle_id).is_some());
@@ -1785,12 +1785,13 @@ fn naval_unit_rally_uses_water_pathing_after_spawn() {
         .values()
         .find(|e| {
             sim.interner
-                .resolve(e.type_ref)
+                .resolve(e.type_ref())
                 .eq_ignore_ascii_case("DEST")
         })
         .expect("spawned destroyer");
     assert_eq!(
-        ship.stable_id, held_id,
+        ship.stable_id(),
+        held_id,
         "delivery reuses Factory+0x58 identity"
     );
     assert_eq!(
@@ -1932,9 +1933,12 @@ fn published_completions_dispatch_each_owners_next_frame_place() {
         .values()
         .filter(|e| {
             sim.interner
-                .resolve(e.owner)
+                .resolve(e.owner())
                 .eq_ignore_ascii_case("Americans")
-                && sim.interner.resolve(e.type_ref).eq_ignore_ascii_case("E1")
+                && sim
+                    .interner
+                    .resolve(e.type_ref())
+                    .eq_ignore_ascii_case("E1")
         })
         .count();
     let soviet = sim
@@ -1942,8 +1946,13 @@ fn published_completions_dispatch_each_owners_next_frame_place() {
         .entities
         .values()
         .filter(|e| {
-            sim.interner.resolve(e.owner).eq_ignore_ascii_case("Soviet")
-                && sim.interner.resolve(e.type_ref).eq_ignore_ascii_case("E1")
+            sim.interner
+                .resolve(e.owner())
+                .eq_ignore_ascii_case("Soviet")
+                && sim
+                    .interner
+                    .resolve(e.type_ref())
+                    .eq_ignore_ascii_case("E1")
         })
         .count();
     assert_eq!(americans, 1);
@@ -2003,9 +2012,12 @@ fn published_completions_dispatch_multiple_categories_for_one_owner() {
         .values()
         .filter(|e| {
             sim.interner
-                .resolve(e.owner)
+                .resolve(e.owner())
                 .eq_ignore_ascii_case("Americans")
-                && sim.interner.resolve(e.type_ref).eq_ignore_ascii_case("E1")
+                && sim
+                    .interner
+                    .resolve(e.type_ref())
+                    .eq_ignore_ascii_case("E1")
         })
         .count();
     let vehicles = sim
@@ -2014,11 +2026,11 @@ fn published_completions_dispatch_multiple_categories_for_one_owner() {
         .values()
         .filter(|e| {
             sim.interner
-                .resolve(e.owner)
+                .resolve(e.owner())
                 .eq_ignore_ascii_case("Americans")
                 && sim
                     .interner
-                    .resolve(e.type_ref)
+                    .resolve(e.type_ref())
                     .eq_ignore_ascii_case("MTNK")
         })
         .count();

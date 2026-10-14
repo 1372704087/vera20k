@@ -363,7 +363,7 @@ impl Simulation {
                     return;
                 };
                 let foot = matches!(
-                    entity.category,
+                    entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
                 );
                 if foot
@@ -376,7 +376,7 @@ impl Simulation {
                     return;
                 }
                 match entity.bunker_link.installed_in() {
-                    Some(bunker) if entity.category == EntityCategory::Unit => {
+                    Some(bunker) if entity.category() == EntityCategory::Unit => {
                         // vtable +0x3C8 Assign_Target(bunker) on the firer.
                         let requested = Some(crate::sim::combat::TargetKind::Entity(bunker));
                         let commits = crate::sim::mission::concrete_effects::assign_target_commits(
@@ -505,7 +505,7 @@ impl Simulation {
         }
         // 0x0071B14E..0x0071B162: a victim that was itself warping lets go.
         if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
-            (entity.category == EntityCategory::Structure).then_some(entity.owner())
+            (entity.category() == EntityCategory::Structure).then_some(entity.owner())
         }) {
             self.invalidate_house_power(owner, false); //71B126, before release
         }
@@ -529,7 +529,7 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
-        let structure = match entity.category {
+        let structure = match entity.category() {
             EntityCategory::Unit if object.harvester => false,
             EntityCategory::Structure
                 if !object.insignificant && !object.is_1x1_with_undeploy() =>
@@ -589,10 +589,10 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        entity.category == EntityCategory::Unit
+        entity.category() == EntityCategory::Unit
             && entity.radio_contacts.slot(0).is_some_and(|contact| {
                 self.substrate.entities.get(contact).is_some_and(|factory| {
-                    factory.category == EntityCategory::Structure
+                    factory.category() == EntityCategory::Structure
                         && self
                             .object_type(factory.type_ref(), rules)
                             .is_some_and(|object| object.weapons_factory)
@@ -738,7 +738,7 @@ impl Simulation {
             .substrate
             .entities
             .get(target)
-            .map(|entity| entity.category)
+            .map(|entity| entity.category())
         else {
             return;
         };
@@ -843,7 +843,7 @@ impl Simulation {
         IDLE_TRACE.with(|trace| trace.borrow_mut().push(attacker));
         if self.substrate.entities.get(attacker).is_some_and(|entity| {
             matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Unit | EntityCategory::Infantry
             )
         }) {
@@ -898,7 +898,7 @@ impl Simulation {
                 } else if let Some(target) = link.target {
                     self.set_temporal_head(target, None);
                     if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
-                        (entity.category == EntityCategory::Structure).then_some(entity.owner())
+                        (entity.category() == EntityCategory::Structure).then_some(entity.owner())
                     }) {
                         self.invalidate_house_power(owner, false); //71AC36
                     }
@@ -934,7 +934,7 @@ impl Simulation {
         };
         self.set_temporal_head(target, None);
         if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
-            (entity.category == EntityCategory::Structure).then_some(entity.owner())
+            (entity.category() == EntityCategory::Structure).then_some(entity.owner())
         }) {
             self.invalidate_house_power(owner, false); //ClearWarp71AD04
         }
@@ -978,7 +978,7 @@ impl Simulation {
         if let Some(target) = target {
             self.set_temporal_head(target, None);
             if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
-                (entity.category == EntityCategory::Structure).then_some(entity.owner())
+                (entity.category() == EntityCategory::Structure).then_some(entity.owner())
             }) {
                 self.invalidate_house_power(owner, false); //ClearWarp71AD04
             }
@@ -1153,7 +1153,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .map(|entity| entity.category)
+            .map(|entity| entity.category())
         else {
             return true;
         };
@@ -1252,7 +1252,7 @@ impl Simulation {
         {
             return;
         }
-        let offset = if entity.category == EntityCategory::Aircraft {
+        let offset = if entity.category() == EntityCategory::Aircraft {
             0
         } else {
             SPARKLE_OFFSET_LEPTONS

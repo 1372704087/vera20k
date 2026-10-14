@@ -45,7 +45,7 @@ fn spawn(
     at: (u16, u16),
 ) {
     let mut entity = GameEntity::test_default(id, type_name, owner, at.0, at.1);
-    entity.category = category;
+    entity.set_category_for_test(category);
     entity.health.current = 300;
     entity.lifecycle.in_limbo = false;
     store.insert(entity);
@@ -580,7 +580,7 @@ fn a_tank_gun_cannot_shoot_an_aircraft_landing() {
     let rules = rules();
     let mut sim = bridge_scene("TANK");
     let target = sim.substrate.entities.get_mut(2).unwrap();
-    target.category = EntityCategory::Aircraft;
+    target.set_category_for_test(EntityCategory::Aircraft);
     target.locomotor = Some(
         crate::sim::movement::locomotor::LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Fly,

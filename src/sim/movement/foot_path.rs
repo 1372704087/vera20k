@@ -205,7 +205,7 @@ impl Simulation {
                 .entities
                 .get(id)
                 .ok_or("a cell list names a retired object")?;
-            if !foot.category.is_foot() {
+            if !foot.category().is_foot() {
                 return Ok(true);
             }
             let direction = if foot.foot_speed.applied_fraction() == SIM_ZERO {
@@ -523,7 +523,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired failed-path receiver")?;
-        match actor.category {
+        match actor.category() {
             EntityCategory::Infantry => {
                 self.infantry_stop_driver(id, rules, registry, frame_effects)
             }

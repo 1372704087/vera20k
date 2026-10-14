@@ -240,7 +240,7 @@ impl Simulation {
         };
         if !self.substrate.entities.get(object).is_some_and(|nav| {
             matches!(
-                nav.category,
+                nav.category(),
                 EntityCategory::Unit | EntityCategory::Infantry
             )
         }) {
@@ -1038,7 +1038,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.category == EntityCategory::Unit)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Unit)
             })
     }
 
@@ -1355,7 +1355,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(entry.entity_id)
-                    .is_some_and(|entity| entity.category == EntityCategory::Aircraft)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Aircraft)
             })
         {
             return Some(BlockingObject::Entity(aircraft.entity_id));

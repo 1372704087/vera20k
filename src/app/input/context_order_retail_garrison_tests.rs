@@ -35,7 +35,9 @@ fn retail_garrison_scene() -> Option<(crate::headless_scenario::HeadlessScenario
     let castle = sim
         .entities()
         .values()
-        .find(|e| e.category == EntityCategory::Structure && sim.resolve(e.type_ref()) == "CASTL03")
+        .find(|e| {
+            e.category() == EntityCategory::Structure && sim.resolve(e.type_ref()) == "CASTL03"
+        })
         .expect("XMP03T4 places one CASTL03");
     assert_eq!((castle.position.rx, castle.position.ry), (82, 112));
     assert_eq!(sim.resolve(castle.owner()), "Neutral");

@@ -363,7 +363,7 @@ pub(crate) fn all_to_hunt(
             sim.commit_direct_damage_receiver(rules, registry, event, frame_effects);
             continue;
         }
-        if techno.category == EntityCategory::Structure {
+        if techno.category() == EntityCategory::Structure {
             continue;
         }
         sim.leave_team(id, false, Some(rules), frame_effects);

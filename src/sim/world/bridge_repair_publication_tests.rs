@@ -82,8 +82,8 @@ fn slave_master_admission_reaches_head_selection_in_the_same_object_turn() {
                 15,
                 EntityCategory::Structure,
             );
-            b.owner = sim.intern("Americans");
-            b.type_ref = sim.intern("CABHUT");
+            b.set_owner_for_test(sim.intern("Americans"));
+            b.set_type_ref_for_test(sim.intern("CABHUT"));
             sim.substrate.entities.insert(b);
             sim.substrate.occupancy.add(
                 16,
@@ -1419,7 +1419,11 @@ fn repair_receiver_failure_stops_runtime_before_consumption_or_frame_commit() {
     // has written its three overlays. This exercises failure delivery, not a
     // claim that missing retail type data is a native admitted state.
     let missing = sim.intern("MISSING_REPAIR_RECEIVER_TYPE");
-    sim.substrate.entities.get_mut(victim).unwrap().type_ref = missing;
+    sim.substrate
+        .entities
+        .get_mut(victim)
+        .unwrap()
+        .set_type_ref_for_test(missing);
     let frame = (sim.session.tick, sim.session.binary_frame);
     let later_counter = sim
         .substrate

@@ -2059,7 +2059,7 @@ impl Simulation {
         );
         self.substrate.entities.values().any(|entity| {
             if entity.owner() != viewer
-                || entity.category != crate::map::entities::EntityCategory::Structure
+                || entity.category() != crate::map::entities::EntityCategory::Structure
                 || !entity.lifecycle.object_alive
                 || entity.lifecycle.in_limbo
             {
@@ -2089,7 +2089,7 @@ impl Simulation {
                     entity.type_ref(),
                     entity.position,
                     entity.damage_fire_state_active,
-                    entity.category,
+                    entity.category(),
                 )
             })
         else {
@@ -3521,8 +3521,8 @@ mod tests {
         let mut sim = Simulation::new();
         let owner_id = 100;
         let mut entity = GameEntity::test_default(owner_id, "UNIT", "Americans", 10, 10);
-        entity.owner = sim.interner.intern("Americans");
-        entity.type_ref = sim.interner.intern("UNIT");
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("UNIT"));
         sim.substrate.entities.insert(entity);
         let type_id = sim.interner.intern("DEPLOY");
         let id = sim

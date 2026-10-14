@@ -340,13 +340,13 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
             .map(|entity| {
                 (
                     entity.stable_id(),
-                    entity.type_ref,
+                    entity.type_ref(),
                     entity.owner(),
                     entity.health.current,
                     entity.dying,
                     entity.lifecycle,
                     entity.in_playfield,
-                    entity.techno_ctor_random_word,
+                    entity.techno_ctor_random_word(),
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| {
                         manager
@@ -390,13 +390,13 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                 .values()
                 .map(|entity| (
                     entity.stable_id(),
-                    entity.type_ref,
+                    entity.type_ref(),
                     entity.owner(),
                     entity.health.current,
                     entity.dying,
                     entity.lifecycle,
                     entity.in_playfield,
-                    entity.techno_ctor_random_word,
+                    entity.techno_ctor_random_word(),
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| manager
                         .slots
@@ -561,11 +561,25 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .unwrap()
                     .type_id = missing
             }
-            "wrong-type" => saved.substrate.entities.get_mut(parent).unwrap().type_ref = other,
-            "wrong-owner" => saved.substrate.entities.get_mut(parent).unwrap().owner = foreign,
+            "wrong-type" => saved
+                .substrate
+                .entities
+                .get_mut(parent)
+                .unwrap()
+                .set_type_ref_for_test(other),
+            "wrong-owner" => saved
+                .substrate
+                .entities
+                .get_mut(parent)
+                .unwrap()
+                .set_owner_for_test(foreign),
             "concrete-category" => {
-                saved.substrate.entities.get_mut(parent).unwrap().category =
-                    crate::map::entities::EntityCategory::Infantry
+                saved
+                    .substrate
+                    .entities
+                    .get_mut(parent)
+                    .unwrap()
+                    .set_category_for_test(crate::map::entities::EntityCategory::Infantry);
             }
             "manager-owned-root" => {
                 saved

@@ -149,7 +149,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         .construct_object_limbo_at_height("CLEG", "Americans", 10, 10, 0, 0, rules)
         .unwrap();
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    assert_eq!(actor.category, EntityCategory::Infantry);
+    assert_eq!(actor.category(), EntityCategory::Infantry);
     assert_eq!(
         actor.locomotor.as_ref().unwrap().active_kind(),
         LocomotorKind::Teleport

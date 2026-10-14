@@ -1025,7 +1025,7 @@ fn ground_building_present(
         cell.iter_layer(MovementLayer::Ground).any(|occupant| {
             entities
                 .get(occupant.entity_id)
-                .is_some_and(|entity| entity.category == EntityCategory::Structure)
+                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         })
     })
 }

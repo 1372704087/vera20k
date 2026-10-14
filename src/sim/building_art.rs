@@ -199,7 +199,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure {
+        if entity.category() != crate::map::entities::EntityCategory::Structure {
             return;
         }
         let slots = entity.building_art.anim_slots;
@@ -236,7 +236,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure
+        if entity.category() != crate::map::entities::EntityCategory::Structure
             || (entity.building_art.actually_placed && !captured)
         {
             return;
@@ -975,8 +975,8 @@ pub(crate) fn slot_test_fixture() -> (Simulation, RuleSet, u64) {
         2,
         crate::map::entities::EntityCategory::Structure,
     );
-    entity.type_ref = sim.interner.intern("B");
-    entity.owner = sim.interner.intern("A");
+    entity.set_type_ref_for_test(sim.interner.intern("B"));
+    entity.set_owner_for_test(sim.interner.intern("A"));
     entity.health.current = 100;
     sim.substrate.entities.insert(entity);
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -1044,8 +1044,8 @@ mod slot_tests {
                     60,
                     crate::map::entities::EntityCategory::Structure,
                 );
-                building.type_ref = sim.interner.intern(name);
-                building.owner = sim.interner.intern("A");
+                building.set_type_ref_for_test(sim.interner.intern(name));
+                building.set_owner_for_test(sim.interner.intern("A"));
                 building.health.current = if damaged { 40 } else { 100 };
                 sim.substrate.entities.insert(building);
                 let slot = row["slot"]["slot"].as_u64().unwrap() as u8;

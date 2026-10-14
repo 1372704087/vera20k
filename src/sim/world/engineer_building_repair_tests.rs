@@ -640,7 +640,7 @@ impl Fixture {
             "{boundary}: Logic membership"
         );
         assert_eq!(
-            entity.native_unique_id,
+            entity.native_unique_id(),
             int(&expected["uid"]),
             "{boundary}: retained UID"
         );
@@ -895,7 +895,7 @@ fn original_nine_routes_ten_walk_arrivals_repair_capture_and_deferred_cleanup() 
                     .substrate
                     .entities
                     .values()
-                    .any(|entity| entity.native_unique_id == uid),
+                    .any(|entity| entity.native_unique_id() == uid),
                 survives_uid,
                 "{name}/{index}: implicit UID roster"
             );

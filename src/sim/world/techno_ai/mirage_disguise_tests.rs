@@ -16,7 +16,7 @@ fn mirage(destination: Option<DriveCoord>) -> (Simulation, RuleSet) {
     let mut sim = Simulation::new();
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_flat_ground_grid(16));
     let mut entity = GameEntity::test_default(1, "MGTK", "Americans", 5, 5);
-    entity.category = EntityCategory::Unit;
+    entity.set_category_for_test(EntityCategory::Unit);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     assert!(
         entity

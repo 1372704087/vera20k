@@ -519,8 +519,8 @@ fn the_production_ai_stage_consumes_the_hospital_count() {
         .substrate
         .entities
         .values()
-        .find(|entity| entity.category == crate::map::entities::EntityCategory::Structure)
-        .map(|entity| entity.stable_id)
+        .find(|entity| entity.category() == crate::map::entities::EntityCategory::Structure)
+        .map(|entity| entity.stable_id())
         .expect("hospital");
     sim.remove_house_self_heal(hospital, &rules);
     assert_eq!(sim.houses[&owner].self_heal_infantry(), 0);

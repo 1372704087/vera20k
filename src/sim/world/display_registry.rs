@@ -29,7 +29,7 @@ pub(crate) fn entity_layer(
     rules: Option<(&RuleSet, &crate::sim::intern::StringInterner)>,
 ) -> DisplayLayer {
     let kind = entity.locomotor.as_ref().map(|l| l.active_kind());
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         // Rocket In_Which_Layer (`0x00663460`) answers the Air layer.
         if kind == Some(LocomotorKind::Rocket) {
             return DisplayLayer::AIR;
@@ -91,7 +91,7 @@ fn entity_sort_key(
     object: Option<&crate::rules::object_type::ObjectType>,
 ) -> i32 {
     let raw = position_world_coord(&entity.position);
-    let (coord, adjust) = if entity.category == EntityCategory::Structure {
+    let (coord, adjust) = if entity.category() == EntityCategory::Structure {
         building_render_order_parts(
             raw,
             object.is_some_and(|object| object.turret_anim_is_voxel),
@@ -126,7 +126,7 @@ impl GroundSortKeys for GroundSortView<'_> {
         if let Some(entity) = self.entities.get(id) {
             // Only BuildingClass GetYSort reads type terms. Every sort pass
             // and Ground insert evaluates this; the handle hop never allocates.
-            let object = (entity.category == EntityCategory::Structure)
+            let object = (entity.category() == EntityCategory::Structure)
                 .then(|| {
                     self.rules.and_then(|rules| {
                         self.type_handles

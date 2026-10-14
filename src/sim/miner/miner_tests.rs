@@ -412,7 +412,7 @@ fn process_units(
             .substrate
             .entities
             .get(id)
-            .is_some_and(|e| e.category == EntityCategory::Unit)
+            .is_some_and(|e| e.category() == EntityCategory::Unit)
         {
             sim.process_ground_locomotor_one(
                 id,
@@ -1090,7 +1090,7 @@ fn unloading_credits_refinery_owner_under_mind_control() {
         .entities
         .get_mut(miner_id)
         .expect("miner entity")
-        .owner = mc_owner;
+        .set_owner_for_test(mc_owner);
 
     let americans_before = credits_for_owner(&sim, "Americans");
     let russians_before = credits_for_owner(&sim, "Russians");
@@ -3893,7 +3893,7 @@ fn captured_harvesting_miner_requeues_harvest_for_the_new_owner() {
     );
 
     let miner = sim.substrate.entities.get(miner_id).expect("miner present");
-    assert_eq!(miner.owner, captor);
+    assert_eq!(miner.owner(), captor);
     assert_eq!(
         miner.mission.current().known(),
         Some(MissionType::Guard),
@@ -3956,7 +3956,7 @@ fn captured_miner_off_ore_under_a_human_house_parks_on_guard() {
     );
 
     let miner = sim.substrate.entities.get(miner_id).expect("miner present");
-    assert_eq!(miner.owner, captor);
+    assert_eq!(miner.owner(), captor);
     assert_eq!(miner.mission.current().known(), Some(MissionType::Guard));
     assert_eq!(miner.mission.queued(), MissionId::NONE);
 }
@@ -4008,7 +4008,7 @@ fn captured_miner_off_ore_under_an_ai_house_requeues_harvest() {
     );
 
     let miner = sim.substrate.entities.get(miner_id).expect("miner present");
-    assert_eq!(miner.owner, captor);
+    assert_eq!(miner.owner(), captor);
     assert_eq!(miner.mission.current().known(), Some(MissionType::Guard));
     assert_eq!(
         miner.mission.queued(),
@@ -4069,7 +4069,7 @@ fn captured_miner_in_radio_contact_gets_only_the_forced_guard() {
     );
 
     let miner = sim.substrate.entities.get(miner_id).expect("miner present");
-    assert_eq!(miner.owner, captor);
+    assert_eq!(miner.owner(), captor);
     assert_eq!(miner.mission.current().known(), Some(MissionType::Guard));
     assert_eq!(miner.mission.queued(), MissionId::NONE);
 }

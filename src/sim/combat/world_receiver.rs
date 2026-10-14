@@ -429,7 +429,7 @@ fn area_record_dispatches(world: &Simulation, rules: &RuleSet, event: &EntityDam
         .get(event.target_id)
         .is_some_and(|target| {
             target.lifecycle.object_alive
-                && !(target.category == EntityCategory::Structure
+                && !(target.category() == EntityCategory::Structure
                     && rules
                         .object(world.interner.resolve(target.type_ref()))
                         .is_some_and(|object| object.invisible_in_game))
@@ -553,7 +553,7 @@ pub(crate) fn commit_entities(
             .entities
             .get(target_id)
             .is_some_and(|target| {
-                target.category == EntityCategory::Unit
+                target.category() == EntityCategory::Unit
                     && target.selected
                     && world.session.current_house == Some(target.owner())
             })
@@ -622,7 +622,7 @@ pub(crate) fn commit_entities(
                 .substrate
                 .entities
                 .get(target_id)
-                .filter(|target| target.category == EntityCategory::Structure)
+                .filter(|target| target.category() == EntityCategory::Structure)
                 .map(|target| target.radio_contacts.iter_live().collect::<Vec<_>>())
         } else {
             None
@@ -1100,7 +1100,7 @@ pub(crate) fn commit_entities(
             damage::DamageState::Yellow | damage::DamageState::Red
         ) && sound_enabled
             && let Some(target) = world.substrate.entities.get(target_id)
-            && target.category == EntityCategory::Structure
+            && target.category() == EntityCategory::Structure
             && target.lifecycle.object_alive
             && rules
                 .object(world.interner.resolve(target.type_ref()))
@@ -1142,7 +1142,7 @@ pub(crate) fn commit_entities(
             .substrate
             .entities
             .get(target_id)
-            .is_some_and(|target| target.category != EntityCategory::Structure)
+            .is_some_and(|target| target.category() != EntityCategory::Structure)
         {
             world.team_took_damage(
                 target_id,
@@ -1192,7 +1192,7 @@ pub(crate) fn commit_entities(
                     .get(target_id)
                     .is_some_and(|target| {
                         matches!(
-                            target.category,
+                            target.category(),
                             EntityCategory::Infantry
                                 | EntityCategory::Unit
                                 | EntityCategory::Aircraft
@@ -1216,7 +1216,7 @@ pub(crate) fn commit_entities(
                     .get(target_id)
                     .map_or((false, false), |target| {
                         (
-                            target.category == EntityCategory::Infantry,
+                            target.category() == EntityCategory::Infantry,
                             target.locomotor.is_some(),
                         )
                     });
@@ -1275,7 +1275,7 @@ pub(crate) fn commit_entities(
                 // UnitClass (`0x007384B9..0x00738530`): the `Harvester=` ping,
                 // with or without a source. A building's ping is its
                 // retaliation block's, below.
-                if target.category != EntityCategory::Structure
+                if target.category() != EntityCategory::Structure
                     && rules
                         .object(world.interner.resolve(target.type_ref()))
                         .is_some_and(|obj| obj.harvester)
@@ -1315,7 +1315,7 @@ pub(crate) fn commit_entities(
                 .entities
                 .get(target_id)
                 .is_some_and(|target| {
-                    target.category == EntityCategory::Structure && target.lifecycle.object_alive
+                    target.category() == EntityCategory::Structure && target.lifecycle.object_alive
                 })
             && let Some(ping) = world.building_hit_response(
                 target_id,
@@ -1393,7 +1393,7 @@ pub(crate) fn handle_death(
             run.handled_deaths.push(dead_id);
         }
         let dead_info = world.substrate.entities.get(dead_id).map(|e| {
-            if e.category == EntityCategory::Structure {
+            if e.category() == EntityCategory::Structure {
                 structure_destroyed = true;
             }
             let world_z_leptons = object_world_z_leptons(e, world.resolved_terrain.as_ref());
@@ -1403,7 +1403,7 @@ pub(crate) fn handle_death(
                 e.position.ry,
                 world_z_leptons,
                 e.owner(),
-                e.category,
+                e.category(),
                 e.veterancy.rank(),
             )
         });
@@ -1567,7 +1567,7 @@ pub(crate) fn handle_death(
                 .entities
                 .get(dead_id)
                 .is_some_and(|building| {
-                    building.category == EntityCategory::Structure
+                    building.category() == EntityCategory::Structure
                         && building.lifecycle.object_alive
                 })
         {
@@ -1606,7 +1606,7 @@ fn finish_concrete_death(
     let Some(entity) = world.substrate.entities.get(dead_id) else {
         return;
     };
-    let category = entity.category;
+    let category = entity.category();
     // Building442230 returns before its result dispatch when Alive is clear.
     if category == EntityCategory::Structure && !entity.lifecycle.object_alive {
         return;
@@ -1914,7 +1914,7 @@ fn run_special_detonation_arm(
                 let victim = object.filter(|&id| {
                     world.substrate.entities.get(id).is_some_and(|target| {
                         matches!(
-                            target.category,
+                            target.category(),
                             EntityCategory::Unit
                                 | EntityCategory::Infantry
                                 | EntityCategory::Aircraft
@@ -2176,7 +2176,7 @@ fn emit_detonation_receivers(
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.category == EntityCategory::Unit),
+                .is_some_and(|entity| entity.category() == EntityCategory::Unit),
             ProjectileTarget::Cell { .. }
             | ProjectileTarget::None
             | ProjectileTarget::DummyCell => false,

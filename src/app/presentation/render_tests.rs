@@ -44,14 +44,14 @@ fn screen_of(store: &EntityStore, sid: u64) -> (f32, f32) {
 }
 
 fn encounter_order(store: &EntityStore) -> Vec<u64> {
-    store.values().map(|entity| entity.stable_id).collect()
+    store.values().map(|entity| entity.stable_id()).collect()
 }
 
 fn selected_order(store: &EntityStore) -> Vec<u64> {
     store
         .values()
         .filter(|entity| entity.selected)
-        .map(|entity| entity.stable_id)
+        .map(|entity| entity.stable_id())
         .collect()
 }
 

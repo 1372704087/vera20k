@@ -112,8 +112,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
     let id = sim.allocate_stable_id();
     let mut building =
         GameEntity::test_default_of_category(id, "B", "", 10, 11, EntityCategory::Structure);
-    building.type_ref = sim.interner.intern("B");
-    building.owner = houses[input["current_owner"].as_u64().unwrap() as usize];
+    building.set_type_ref_for_test(sim.interner.intern("B"));
+    building.set_owner_for_test(houses[input["current_owner"].as_u64().unwrap() as usize]);
     building.health.current = 100;
     building.building_art.set_actually_placed_for_test(true);
     building.mission_leaf =
@@ -130,8 +130,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
             11,
             EntityCategory::Infantry,
         );
-        passenger.type_ref = sim.interner.intern("E1");
-        passenger.owner = houses[owner.as_u64().unwrap() as usize];
+        passenger.set_type_ref_for_test(sim.interner.intern("E1"));
+        passenger.set_owner_for_test(houses[owner.as_u64().unwrap() as usize]);
         passenger.passenger_role = PassengerRole::Inside {
             transport_id: id,
             open_topped: false,

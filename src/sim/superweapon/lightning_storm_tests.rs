@@ -1265,8 +1265,8 @@ fn a_bridge_strike_hits_the_deck_only() {
         // Both stand in the cell's lists, on the map: out of limbo and
         // marked (`+0x74`), which Apply_area_damage's dispatch reads.
         let mut entity = GameEntity::test_default(id, "DUMMY", "Soviet", 5, 5);
-        entity.owner = owner;
-        entity.type_ref = type_ref;
+        entity.set_owner_for_test(owner);
+        entity.set_type_ref_for_test(type_ref);
         entity.health = Health { current: 100 };
         entity.on_bridge = on_bridge;
         if on_bridge {
@@ -1314,8 +1314,8 @@ fn a_strike_damages_a_building() {
     );
     building.lifecycle.in_limbo = false;
     building.lifecycle.cell_marked = true;
-    building.owner = sim.interner.intern("Soviet");
-    building.type_ref = sim.interner.intern("GAPOWR");
+    building.set_owner_for_test(sim.interner.intern("Soviet"));
+    building.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
     building.health = Health { current: 150 };
     sim.substrate.entities.insert(building);
 
@@ -1365,8 +1365,8 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
         let mut sim = Simulation::with_seed(1);
         sim.resolve_rule_animation_lists(&rules);
         let mut carrier = GameEntity::test_default(10, "BOOMER", "Soviet", 5, 5);
-        carrier.owner = sim.interner.intern("Soviet");
-        carrier.type_ref = sim.interner.intern("BOOMER");
+        carrier.set_owner_for_test(sim.interner.intern("Soviet"));
+        carrier.set_type_ref_for_test(sim.interner.intern("BOOMER"));
         carrier.health = Health {
             current: carrier_hp,
         };

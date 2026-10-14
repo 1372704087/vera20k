@@ -112,7 +112,7 @@ mod drive_ship_slope_hash_tests {
     fn hash_with_state(kind: LocomotorKind, stashed: bool, state: SlopeTransitionState) -> u64 {
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(1, "SLOPE", "Americans", 2, 2);
-        entity.category = EntityCategory::Unit;
+        entity.set_category_for_test(EntityCategory::Unit);
         let mut locomotor = LocomotorState::for_test_kind(kind);
         *locomotor.active_slope_transition_mut().unwrap() = state;
         if stashed {
@@ -160,7 +160,7 @@ mod locomotor_field_hash_tests {
     fn hash_with(stashed: bool, mutate: Option<fn(&mut LocomotorState)>) -> u64 {
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(1, "LOCO", "Americans", 2, 2);
-        entity.category = EntityCategory::Unit;
+        entity.set_category_for_test(EntityCategory::Unit);
         let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Teleport);
         if stashed {
             assert!(locomotor.begin_piggyback(LocomotorKind::Drive, 0));
@@ -824,7 +824,7 @@ impl Simulation {
             .values()
             .filter(|entity| entity.owner() == owner && !entity.destruction_recorded)
             .fold((0, 0), |(buildings, others), entity| {
-                if entity.category == crate::map::entities::EntityCategory::Structure {
+                if entity.category() == crate::map::entities::EntityCategory::Structure {
                     (buildings + 1, others)
                 } else {
                     (buildings, others + 1)
@@ -1417,9 +1417,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // survivor roll and skips the engineer roll at death.
         0x6e3_u32.hash(hasher);
     }
-    if entity.techno_ctor_random_word != 0 || entity.structure_upgrade_link.is_some() {
+    if entity.techno_ctor_random_word() != 0 || entity.structure_upgrade_link.is_some() {
         b"techno-constructor-v1".hash(hasher);
-        entity.techno_ctor_random_word.hash(hasher);
+        entity.techno_ctor_random_word().hash(hasher);
         entity.structure_upgrade_link.hash(hasher);
     }
     // One retained native+F8/+FC/+100/+108/+10C/+110 clock, shared
@@ -1438,7 +1438,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"foot-building-entry-68f-690".hash(hasher);
         entity.building_entry.hash(hasher);
     }
-    entity.native_unique_id.hash(hasher);
+    entity.native_unique_id().hash(hasher);
     if let Some(manager) = entity.slave_manager.as_ref() {
         b"slave-manager-v209".hash(hasher);
         manager.hash(hasher);
@@ -1544,7 +1544,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     // Infantry gameplay reads its class-owned Doing/Stage fields.
     // A restored presentation component is not a second state owner.
-    if entity.category != crate::map::entities::EntityCategory::Infantry
+    if entity.category() != crate::map::entities::EntityCategory::Infantry
         && let Some(animation) = entity.animation.as_ref()
     {
         b"entity-animation-v1".hash(hasher);
@@ -1557,7 +1557,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.health.current.hash(hasher);
     entity.estimated_health.get().hash(hasher);
     entity.type_ref().hash(hasher);
-    (entity.category as u8).hash(hasher);
+    (entity.category() as u8).hash(hasher);
     entity.foundation.hash(hasher);
     entity.building_hidden_occupancy.hash(hasher);
     entity.base_reservation_spacing.hash(hasher);
@@ -1590,10 +1590,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.berserk.hash(hasher);
     entity.was_attacked_by_enemy.hash(hasher);
-    if entity.category == crate::map::entities::EntityCategory::Structure {
+    if entity.category() == crate::map::entities::EntityCategory::Structure {
         entity.ai_sellable.hash(hasher);
     }
-    if entity.category == crate::map::entities::EntityCategory::Structure {
+    if entity.category() == crate::map::entities::EntityCategory::Structure {
         entity.repairing.hash(hasher);
         entity.ai_repairable.hash(hasher);
     }
@@ -2205,7 +2205,7 @@ mod teleport_hash_tests {
 
     fn hash_entity(mut entity: GameEntity) -> u64 {
         let mut sim = Simulation::new();
-        entity.stable_id = 1;
+        entity.set_stable_id_for_test(1);
         sim.substrate.entities.insert(entity);
         sim.state_hash()
     }
@@ -4235,7 +4235,7 @@ mod rocking_hash_tests {
 
         // Mutate only the rocking state of one — hashes must diverge.
         let mut a = a;
-        let id = a.substrate.entities.values().next().unwrap().stable_id;
+        let id = a.substrate.entities.values().next().unwrap().stable_id();
         a.substrate.entities.get_mut(id).unwrap().rocking = Some(RockingState {
             angle_sideways: SimFixed::lit("0.1"),
             ..Default::default()
@@ -4247,8 +4247,8 @@ mod rocking_hash_tests {
     fn rocking_velocity_contributes_to_hash() {
         let mut a = make_sim_with_one_vehicle();
         let mut b = make_sim_with_one_vehicle();
-        let id_a = a.substrate.entities.values().next().unwrap().stable_id;
-        let id_b = b.substrate.entities.values().next().unwrap().stable_id;
+        let id_a = a.substrate.entities.values().next().unwrap().stable_id();
+        let id_b = b.substrate.entities.values().next().unwrap().stable_id();
         a.substrate.entities.get_mut(id_a).unwrap().rocking = Some(RockingState {
             vel_sideways: SimFixed::lit("0.01"),
             ..Default::default()
@@ -4264,7 +4264,7 @@ mod rocking_hash_tests {
     fn rocking_none_vs_default_contributes_to_hash() {
         let mut a = make_sim_with_one_vehicle();
         let b = make_sim_with_one_vehicle();
-        let id = a.substrate.entities.values().next().unwrap().stable_id;
+        let id = a.substrate.entities.values().next().unwrap().stable_id();
         a.substrate.entities.get_mut(id).unwrap().rocking = Some(RockingState::default());
         // a has Some(default), b has None — hashes must diverge.
         assert_ne!(a.state_hash(), b.state_hash());

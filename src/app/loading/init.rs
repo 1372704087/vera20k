@@ -475,7 +475,7 @@ mod map_wall_owner_candidate_tests {
             &registry,
             &[gacnst_candidate, gaspot_candidate],
         );
-        assert_eq!(projected_grid.cell(12, 9).wall_owner, Some(gacnst.owner));
+        assert_eq!(projected_grid.cell(12, 9).wall_owner, Some(gacnst.owner()));
 
         let mut northwest_grid = OverlayGrid::new(15, 10);
         northwest_grid.place_overlay(12, 9, 0, 0);
@@ -497,7 +497,7 @@ mod map_wall_owner_candidate_tests {
         );
         assert_eq!(
             northwest_grid.cell(12, 9).wall_owner,
-            Some(gaspot.owner),
+            Some(gaspot.owner()),
             "the former north-west candidate coordinates select the wrong owner"
         );
     }
@@ -2240,11 +2240,11 @@ impl MapLoadInitial {
                             && entity.position.ry == map_entity.cell_y
                             && simulation
                                 .interner
-                                .resolve(entity.type_ref)
+                                .resolve(entity.type_ref())
                                 .eq_ignore_ascii_case(&map_entity.type_id)
                     })
                     .expect("generated map entity reached Simulation")
-                    .techno_ctor_random_word;
+                    .techno_ctor_random_word();
                 (entity_index, expected, actual)
             })
             .collect();

@@ -940,7 +940,7 @@ impl OracleTeam {
             }
             let skip_orders = removed[index]
                 && matches!(
-                    entity.category,
+                    entity.category(),
                     EntityCategory::Infantry | EntityCategory::Aircraft
                 );
             if !skip_orders {

@@ -125,8 +125,8 @@ fn receiver_commit_keeps_negative_heal_on_exact_zero_techno_tail_and_wide_hits()
     ] {
         let mut entities = EntityStore::new();
         let mut entity = GameEntity::test_default(1, "X", "Americans", 2, 2);
-        entity.type_ref = interner.intern("X");
-        entity.owner = interner.intern("Americans");
+        entity.set_type_ref_for_test(interner.intern("X"));
+        entity.set_owner_for_test(interner.intern("Americans"));
         entity.health.current = hp;
         entity.lifecycle.object_alive = alive;
         entity.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-123);

@@ -106,7 +106,7 @@ fn hit_records(
     let soviet = interner.intern("Soviet");
     let allies = interner.intern("Americans");
     let warhead_ref = interner.intern(warhead);
-    let attacker_owner = entities.get(1).map(|attacker| attacker.owner);
+    let attacker_owner = entities.get(1).map(|attacker| attacker.owner());
 
     let mut houses = BTreeMap::from([
         (soviet, HouseState::new(soviet, 0, None, false, 0, 10)),

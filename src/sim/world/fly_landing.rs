@@ -15,7 +15,7 @@ impl Simulation {
     /// `TechnoClass::Limbo`. Mark(REMOVE) itself never touches the tracker.
     pub(super) fn release_foot_air_tracker_before_limbo(&mut self, id: u64) {
         if self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.category != EntityCategory::Structure
+            entity.category() != EntityCategory::Structure
                 && !entity.lifecycle.in_limbo
                 && entity.air_tracker_cell() != (0, 0)
         }) {
@@ -88,7 +88,7 @@ impl Simulation {
         let object = rules.and_then(|r| r.object(self.interner.resolve(entity.type_ref())));
         let dropship = object.is_some_and(|o| o.is_dropship);
         let carryall =
-            entity.category == EntityCategory::Aircraft && object.is_some_and(|o| o.carryall);
+            entity.category() == EntityCategory::Aircraft && object.is_some_and(|o| o.carryall);
         let airport_bound = entity
             .locomotor
             .as_ref()
@@ -405,7 +405,7 @@ impl Simulation {
         }
         !self.substrate.entities.values().any(|other| {
             other.stable_id() != id
-                && other.category == EntityCategory::Aircraft
+                && other.category() == EntityCategory::Aircraft
                 && other.lifecycle.object_alive
                 && !other.lifecycle.in_limbo
                 && match (object, other.navigation.nav_com) {

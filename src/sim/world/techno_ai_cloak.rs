@@ -26,7 +26,7 @@ fn stock_cloak_tick_facts(
     rules: &RuleSet,
 ) -> Option<crate::sim::cloak_disguise::CloakTickFacts> {
     let entity = sim.substrate.entities.get(id)?;
-    if entity.category != EntityCategory::Unit || entity.cloak.is_none() {
+    if entity.category() != EntityCategory::Unit || entity.cloak.is_none() {
         return None;
     }
     let object = rules.object(sim.interner.resolve(entity.type_ref()))?;
@@ -98,7 +98,7 @@ fn stock_cloak_tick_facts(
         sim.substrate
             .entities
             .get(contact_id)
-            .filter(|contact| contact.category == EntityCategory::Structure)
+            .filter(|contact| contact.category() == EntityCategory::Structure)
             .and_then(|contact| rules.object(sim.interner.resolve(contact.type_ref())))
             .is_some_and(|contact_type| contact_type.weapons_factory)
     });
@@ -225,9 +225,9 @@ fn stock_cloak_tick_facts(
         rules.general.cloak_delay_frames,
         rules.general.cloaking_stages,
         object.invisible
-            || (entity.category == EntityCategory::Structure && object.invisible_in_game),
+            || (entity.category() == EntityCategory::Structure && object.invisible_in_game),
         entity.discovery.owned_by_current_house,
-        entity.category == EntityCategory::Structure,
+        entity.category() == EntityCategory::Structure,
     ))
 }
 
@@ -587,12 +587,13 @@ pub(super) fn tick_stock_cloak_producer(
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
-    let Some((category, type_ref, veterancy)) = sim
-        .substrate
-        .entities
-        .get(id)
-        .map(|entity| (entity.category, entity.type_ref(), entity.veterancy.rank()))
-    else {
+    let Some((category, type_ref, veterancy)) = sim.substrate.entities.get(id).map(|entity| {
+        (
+            entity.category(),
+            entity.type_ref(),
+            entity.veterancy.rank(),
+        )
+    }) else {
         return;
     };
     if category != EntityCategory::Unit {

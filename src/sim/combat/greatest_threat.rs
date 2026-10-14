@@ -731,7 +731,7 @@ impl ScanContext<'_> {
             && self.scanner.mission.current().known() == Some(MissionType::AreaGuard)
             && ratio(self.rules.general.condition_red)
                 .is_some_and(|order| order != MaskedX87Ordering::Greater)
-            && candidate.category == EntityCategory::Structure
+            && candidate.category() == EntityCategory::Structure
             && obj()
                 .zip(self.fire_world)
                 .is_some_and(|(obj, world)| world.cost_of(candidate.owner(), obj, self.rules) > 0)
@@ -765,7 +765,7 @@ impl ScanContext<'_> {
         if self.attacker.category != EntityCategory::Unit {
             return false;
         }
-        if candidate.category == EntityCategory::Aircraft {
+        if candidate.category() == EntityCategory::Aircraft {
             // `0x006F7F85..0x006F7FB7`: a vehicle takes an aircraft on the
             // ground (GetHeight, vt+0x1C8), and not on a building's cell (the
             // cell at its GetCoords, `0x00565730`; `0x0047C520` walks `+0xE4`).
@@ -804,7 +804,7 @@ impl ScanContext<'_> {
     ) -> bool {
         if self.standing.human
             || !self.standing.game_mode_nonzero
-            || candidate.category != EntityCategory::Structure
+            || candidate.category() != EntityCategory::Structure
             || self.attacker.category != EntityCategory::Infantry
             || self.standing.team == Some(true)
         {
@@ -1463,7 +1463,7 @@ fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Opt
         for candidate in ctx
             .entities
             .values()
-            .filter(|candidate| candidate.category == EntityCategory::Aircraft)
+            .filter(|candidate| candidate.category() == EntityCategory::Aircraft)
         {
             if (ctx.is_ally(candidate) && !ctx.attacks_allies())
                 || !ctx.house_gates_admit(candidate)
@@ -1870,7 +1870,7 @@ fn evaluate_candidate(
     }
 
     // `0x006F81FA..0x006F8214`: an `InvisibleInGame=` building (`+0x1701`).
-    let building = candidate.category == EntityCategory::Structure;
+    let building = candidate.category() == EntityCategory::Structure;
     if building && candidate_obj.invisible_in_game {
         return None;
     }
@@ -1878,7 +1878,7 @@ fn evaluate_candidate(
     // The class gate, `0x006F821A..0x006F824A`.
     if !threat_mask::admits_class(
         walk.flags,
-        candidate.category,
+        candidate.category(),
         vehicle_like(ctx, candidate, candidate_obj),
     ) {
         return None;
@@ -2172,7 +2172,7 @@ fn quarry_terms(mask: u32, score: i32, all_to_hunt: bool, facts: QuarryFacts) ->
 /// floor (`0x0041B910` → vt+0x50), or a Unit that is not `NonVehicle=`
 /// (`0x00746400`, UnitType `+0xE1B`). Infantry answer false (`0x004263B0`).
 fn vehicle_like(ctx: &ScanContext<'_>, candidate: &GameEntity, obj: &ObjectType) -> bool {
-    match candidate.category {
+    match candidate.category() {
         EntityCategory::Structure => obj.is_1x1_with_undeploy(),
         EntityCategory::Aircraft => crate::sim::movement::air_movement::is_low_flying(
             candidate,
@@ -2307,7 +2307,7 @@ mod tests {
         category: EntityCategory,
     ) {
         let mut entity = GameEntity::test_default(id, type_id, owner, rx, ry);
-        entity.category = category;
+        entity.set_category_for_test(category);
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = true;
         if category == EntityCategory::Structure {

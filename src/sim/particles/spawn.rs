@@ -518,8 +518,8 @@ mod tests {
             let id = sim.allocate_stable_id();
             let mut entity =
                 GameEntity::test_default(id, "TEST", "A", (x >> 8) as u16, (y >> 8) as u16);
-            entity.type_ref = sim.interner.intern("TEST");
-            entity.owner = sim.interner.intern("A");
+            entity.set_type_ref_for_test(sim.interner.intern("TEST"));
+            entity.set_owner_for_test(sim.interner.intern("A"));
             entity.health.current = 40;
             entity.position.sub_x = SimFixed::from_num(x & 255);
             entity.position.sub_y = SimFixed::from_num(y & 255);

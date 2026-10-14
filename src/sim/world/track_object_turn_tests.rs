@@ -19,7 +19,7 @@ fn fixture() -> (Simulation, RuleSet) {
     sim.fog.height = 32;
     sim.session.binary_frame = 10;
     let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-    entity.category = EntityCategory::Unit;
+    entity.set_category_for_test(EntityCategory::Unit);
     entity.lifecycle.object_alive = true;
     entity.lifecycle.in_limbo = false;
     entity.lifecycle.cell_marked = true;

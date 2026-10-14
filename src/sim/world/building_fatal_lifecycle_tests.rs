@@ -319,7 +319,7 @@ impl Fixture {
                 .entities
                 .get(building)
                 .unwrap()
-                .native_unique_id,
+                .native_unique_id(),
             int(&prior["id"])
         );
         let slot_pointer = prior["building"]["slots"][3].as_u64().unwrap();
@@ -886,7 +886,7 @@ impl Fixture {
             .substrate
             .entities
             .values()
-            .filter(|e| e.category == EntityCategory::Infantry)
+            .filter(|e| e.category() == EntityCategory::Infantry)
             .collect();
         assert_eq!(
             crew.len(),
@@ -895,7 +895,7 @@ impl Fixture {
         );
         for (actual, native) in crew.iter().zip(native["crew"].as_array().unwrap()) {
             assert_eq!(
-                actual.native_unique_id,
+                actual.native_unique_id(),
                 int(&native["id"]),
                 "{boundary}: crew constructor order"
             );
@@ -961,7 +961,7 @@ impl Fixture {
                     .anims
                     .iter()
                     .filter(|(_, a)| a.native_unique_id >= floor
-                        && a.native_unique_id < actual.native_unique_id
+                        && a.native_unique_id < actual.native_unique_id()
                         && a.in_logic_vector)
                     .all(|(id, _)| logic.iter().position(|live| live == id).unwrap() < crew_slot),
                 "{boundary}: death Anims admitted before crew"
@@ -1028,7 +1028,7 @@ impl Fixture {
             .substrate
             .entities
             .get(id)
-            .map(|e| e.native_unique_id)
+            .map(|e| e.native_unique_id())
             .or_else(|| self.sim.substrate.anims.get(id).map(|a| a.native_unique_id))
             .or_else(|| self.sim.projectiles.get(id).map(|p| p.native_unique_id))
             .or_else(|| {

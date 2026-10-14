@@ -572,7 +572,7 @@ fn assert_actor(actor: &GameEntity, native: &Value, name: &str) {
         "{name}: dispatch timer"
     );
     assert_eq!(
-        json!(actor.techno_ctor_random_word),
+        json!(actor.techno_ctor_random_word()),
         native["random_phase_raw_u16"],
         "{name}: retained original constructor phase"
     );

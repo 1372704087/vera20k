@@ -150,7 +150,7 @@ fn entity(sim: &Simulation, id: u64) -> &GameEntity {
 fn place(sim: &mut Simulation, rules: &RuleSet, id: u64, (x, y): (i32, i32)) {
     let entity = sim.substrate.entities.get(id).unwrap();
     let old = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
-    let infantry = entity.category == crate::map::entities::EntityCategory::Infantry;
+    let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
     // Foot Mark's list hooks skip Infantry raw callbacks. Unit Mark owns
     // its own raw writes, so only Infantry needs the explicit class receiver.
     if infantry {

@@ -95,9 +95,9 @@ fn rules(input: &Value) -> RuleSet {
 fn enemy(sim: &mut Simulation, kind: &str, category: EntityCategory, cell: (u16, u16)) -> u64 {
     let id = sim.allocate_stable_id();
     let mut entity = GameEntity::test_default(id, kind, "Russians", cell.0, cell.1);
-    entity.owner = sim.intern("Russians");
-    entity.type_ref = sim.intern(kind);
-    entity.category = category;
+    entity.set_owner_for_test(sim.intern("Russians"));
+    entity.set_type_ref_for_test(sim.intern(kind));
+    entity.set_category_for_test(category);
     sim.substrate.entities.insert(entity);
     id
 }

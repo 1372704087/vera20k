@@ -226,8 +226,8 @@ mod tests {
                 (origin.x >> 8) as u16,
                 (origin.y >> 8) as u16,
             );
-            entity.type_ref = sim.interner.intern("GAREFN");
-            entity.owner = sim.interner.intern("A");
+            entity.set_type_ref_for_test(sim.interner.intern("GAREFN"));
+            entity.set_owner_for_test(sim.interner.intern("A"));
             entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(origin.x & 255);
             entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(origin.y & 255);
             entity.position.exact_z_leptons = Some(origin.z);
@@ -260,8 +260,8 @@ mod tests {
             ry,
             crate::map::entities::EntityCategory::Structure,
         );
-        entity.type_ref = sim.interner.intern(name);
-        entity.owner = sim.interner.intern("Americans");
+        entity.set_type_ref_for_test(sim.interner.intern(name));
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
         entity.health.current = 100;
         sim.entities_mut().insert(entity);
     }

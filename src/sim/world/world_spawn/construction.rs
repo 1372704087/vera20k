@@ -87,7 +87,7 @@ impl Simulation {
         rules: Option<&RuleSet>,
         origin: ComponentOrigin,
     ) {
-        let category = ge.category;
+        let category = ge.category();
         let initial = ge.body_facing.destination();
         let uses_voxel = ge.is_voxel;
         // InitManagers6F3F40 classifies the owner after construction; it does
@@ -323,7 +323,7 @@ fn stamp_scoring_flags(
     rules: Option<&RuleSet>,
 ) {
     ge.dont_score = obj.is_some_and(|o| o.dont_score);
-    ge.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(ge.category, obj, rules);
+    ge.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(ge.category(), obj, rules);
 }
 
 fn stamp_building_cell_profile(
@@ -335,7 +335,7 @@ fn stamp_building_cell_profile(
     };
     ge.foundation = obj.foundation.clone();
     ge.spotlight_capable = obj.has_spotlight;
-    if ge.category == EntityCategory::Structure {
+    if ge.category() == EntityCategory::Structure {
         ge.building_hidden_occupancy = Some(obj.hidden_occupancy);
         ge.base_reservation_spacing = obj.base_reservation_spacing;
         ge.determines_waypoint_edge = obj.factory == Some(FactoryType::BuildingType);

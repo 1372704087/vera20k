@@ -433,7 +433,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
         (drone_entity.position.rx, drone_entity.position.ry),
         (11, 10)
     );
-    assert_eq!(drone_entity.category, EntityCategory::Unit);
+    assert_eq!(drone_entity.category(), EntityCategory::Unit);
 }
 
 #[test]

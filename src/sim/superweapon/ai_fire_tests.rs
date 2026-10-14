@@ -502,7 +502,7 @@ fn the_genetic_mutator_target_matches_native() {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let (sub_cell, insertion) = (
                     entity.sub_cell,
-                    crate::sim::occupancy::CellListInsertion::from_category(entity.category),
+                    crate::sim::occupancy::CellListInsertion::from_category(entity.category()),
                 );
                 sim.substrate.occupancy.add(
                     at.0,
@@ -968,7 +968,7 @@ fn the_psychic_dominator_target_matches_native() {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let (sub_cell, insertion) = (
                     entity.sub_cell,
-                    crate::sim::occupancy::CellListInsertion::from_category(entity.category),
+                    crate::sim::occupancy::CellListInsertion::from_category(entity.category()),
                 );
                 sim.substrate.occupancy.add(
                     at.0,

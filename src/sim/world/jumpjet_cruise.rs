@@ -104,7 +104,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.trig
     }
     fn owner_kind(&self) -> FlightOwnerKind {
-        FlightOwnerKind::of(self.owner().category)
+        FlightOwnerKind::of(self.owner().category())
     }
     fn is_object_alive(&self) -> bool {
         self.owner().is_object_alive()
@@ -380,7 +380,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .radio_contacts
             .slot(0)
             .and_then(|contact| self.sim.substrate.entities.get(contact))
-            .filter(|contact| contact.category == EntityCategory::Structure)
+            .filter(|contact| contact.category() == EntityCategory::Structure)
             .and_then(|contact| rules.object(self.sim.interner.resolve(contact.type_ref())))
             .is_some_and(|contact| {
                 contact.weapons_factory
@@ -721,7 +721,7 @@ impl Simulation {
                 entry_state == STATE_TRANSLATE && matches!(state, STATE_HOLD | STATE_DESCEND);
             let entity = host.sim.substrate.entities.get_mut(stable_id).unwrap();
             if host.crash_latched
-                && entity.category == EntityCategory::Infantry
+                && entity.category() == EntityCategory::Infantry
                 && let Some(rules) = rules
                 && let Err(cause) = host.sim.infantry_do_action(
                     stable_id,
@@ -800,7 +800,7 @@ mod tests {
             cell.slope_type = 1;
         }
         let mut entity = GameEntity::test_default(1, "JUMPJETUNIT", "Americans", 10, 10);
-        entity.category = EntityCategory::Unit;
+        entity.set_category_for_test(EntityCategory::Unit);
         entity.body_facing.snap(u16::from(body_facing) << 8, 0);
         entity.position.sub_x = SimFixed::from_num(128);
         entity.position.sub_y = SimFixed::from_num(128);

@@ -871,14 +871,14 @@ mod retail_construction_tests {
                     .entities()
                     .values()
                     .filter(|entity| {
-                        entity.owner() == owner && entity.category != EntityCategory::Structure
+                        entity.owner() == owner && entity.category() != EntityCategory::Structure
                     })
                     .count();
                 let buildings = sim
                     .entities()
                     .values()
                     .filter(|entity| {
-                        entity.owner() == owner && entity.category == EntityCategory::Structure
+                        entity.owner() == owner && entity.category() == EntityCategory::Structure
                     })
                     .count();
                 eprintln!(
@@ -1059,7 +1059,7 @@ mod retail_construction_tests {
                     entity.attack_target.as_ref().map(|attack| attack.target),
                     Some(crate::sim::combat::TargetKind::Entity(target))
                         if sim.entities().get(target).is_some_and(|target| {
-                            target.category == EntityCategory::Structure
+                            target.category() == EntityCategory::Structure
                         })
                 )
         };
@@ -2829,7 +2829,7 @@ mod retail_construction_tests {
             }
             for entity in sim.entities().values() {
                 if entity.owner() == soviet
-                    && entity.category == EntityCategory::Structure
+                    && entity.category() == EntityCategory::Structure
                     && entity.mission.current() == selling
                 {
                     sold.entry(entity.stable_id()).or_insert_with(|| {

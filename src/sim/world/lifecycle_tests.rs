@@ -327,7 +327,7 @@ pub(super) fn insert_entity(sim: &mut Simulation, stable_id: u64, category: Enti
         5,
         category != EntityCategory::Infantry,
     );
-    entity.category = category;
+    entity.set_category_for_test(category);
     sim.substrate.entities.insert(entity);
 }
 
@@ -547,7 +547,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     let passenger_type = sim.interner.intern("OCCUPANT");
     {
         let passenger = sim.substrate.entities.get_mut(passenger_id).unwrap();
-        passenger.type_ref = passenger_type;
+        passenger.set_type_ref_for_test(passenger_type);
         passenger.passenger_role = PassengerRole::Inside {
             transport_id: building_id,
             open_topped: false,
@@ -555,7 +555,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     }
     {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
-        building.type_ref = building_type;
+        building.set_type_ref_for_test(building_type);
         building.foundation = "2x2".to_string();
         let mut cargo = PassengerCargo::new(5, 1);
         assert!(cargo.board(passenger_id, 1));
@@ -1176,7 +1176,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
         .substrate
         .entities
         .values()
-        .find(|entity| sim.interner.resolve(entity.type_ref) == "ZMAPD")
+        .find(|entity| sim.interner.resolve(entity.type_ref()) == "ZMAPD")
         .unwrap();
     assert_eq!(
         crate::sim::movement::slope_transition::state_for_entity(map_entity)
@@ -2217,7 +2217,7 @@ fn unlimbo_adds_a_high_flying_considered_aircraft_to_the_air_tracker() {
         insert_entity(&mut sim, 30, EntityCategory::Unit);
         let type_ref = sim.interner.intern("JJET");
         let entity = sim.substrate.entities.get_mut(30).unwrap();
-        entity.type_ref = type_ref;
+        entity.set_type_ref_for_test(type_ref);
         // UnitType's floor clamp keeps the level-4 input, 416 leptons up.
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Jumpjet));
 
@@ -5077,7 +5077,11 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
             let source_id = sim.allocate_stable_id();
             insert_entity(&mut sim, source_id, EntityCategory::Unit);
             let type_ref = sim.interner.intern("MTNK");
-            sim.substrate.entities.get_mut(source_id).unwrap().type_ref = type_ref;
+            sim.substrate
+                .entities
+                .get_mut(source_id)
+                .unwrap()
+                .set_type_ref_for_test(type_ref);
             shot.source_id = source_id;
             shot.arm_frames = 0;
             Some(source_id)
@@ -5768,7 +5772,7 @@ fn gsi_05_04_building_get_coords_uses_foundation_center_cell() {
     let gapowr = sim.interner.intern("GAPOWR");
     {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
-        target.type_ref = gapowr;
+        target.set_type_ref_for_test(gapowr);
         target.foundation = "2x2".to_string();
     }
     assert!(matches!(
@@ -5876,7 +5880,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
     let victim_type = sim.interner.intern("VICTIM");
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
-        victim.type_ref = victim_type;
+        victim.set_type_ref_for_test(victim_type);
         victim.health.current = 10;
     }
     assert!(matches!(
@@ -5964,7 +5968,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
     let passenger_type = sim.interner.intern("OCCUPANT");
     {
         let passenger = sim.substrate.entities.get_mut(passenger_id).unwrap();
-        passenger.type_ref = passenger_type;
+        passenger.set_type_ref_for_test(passenger_type);
         passenger.passenger_role = PassengerRole::Inside {
             transport_id: building_id,
             open_topped: false,
@@ -5972,7 +5976,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
     }
     {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
-        building.type_ref = building_type;
+        building.set_type_ref_for_test(building_type);
         building.foundation = "2x2".to_string();
         building.health.current = 10;
         let mut cargo = PassengerCargo::new(5, 1);
@@ -6014,7 +6018,11 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
     ] {
         let blocker_id = sim.allocate_stable_id();
         insert_entity(&mut sim, blocker_id, EntityCategory::Unit);
-        sim.substrate.entities.get_mut(blocker_id).unwrap().type_ref = blocker_type;
+        sim.substrate
+            .entities
+            .get_mut(blocker_id)
+            .unwrap()
+            .set_type_ref_for_test(blocker_type);
         assert!(matches!(
             sim.try_reveal_entity(blocker_id, common_raw_request(rx, ry, 0, 128, 128)),
             RevealOutcome::Revealed { .. }
@@ -6513,7 +6521,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
     insert_entity(&mut sim, owner_id, EntityCategory::Unit);
     {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
-        owner.type_ref = sim.interner.intern("FIRER");
+        owner.set_type_ref_for_test(sim.interner.intern("FIRER"));
         owner.health.current = 0;
         owner.dying = true;
         owner.attack_target = Some(AttackTarget::for_cell(4, 5));
@@ -6522,7 +6530,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
     insert_entity(&mut sim, receiver_id, EntityCategory::Unit);
     {
         let receiver = sim.substrate.entities.get_mut(receiver_id).unwrap();
-        receiver.type_ref = sim.interner.intern("VICTIM");
+        receiver.set_type_ref_for_test(sim.interner.intern("VICTIM"));
         receiver.health = Health { current: 30 };
     }
     assert!(matches!(
@@ -6641,7 +6649,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     let victim_type = sim.interner.intern("VICTIM");
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
-        victim.type_ref = victim_type;
+        victim.set_type_ref_for_test(victim_type);
         victim.health.current = 10;
     }
     assert!(matches!(
@@ -6656,7 +6664,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         .entities
         .get_mut(successor_id)
         .unwrap()
-        .type_ref = successor_type;
+        .set_type_ref_for_test(successor_type);
     assert!(matches!(
         sim.try_reveal_entity(successor_id, common_raw_request(8, 9, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6736,7 +6744,11 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
     let victim_id = sim.allocate_stable_id();
     insert_entity(&mut sim, victim_id, EntityCategory::Unit);
     let victim_type = sim.interner.intern("VICTIM");
-    sim.substrate.entities.get_mut(victim_id).unwrap().type_ref = victim_type;
+    sim.substrate
+        .entities
+        .get_mut(victim_id)
+        .unwrap()
+        .set_type_ref_for_test(victim_type);
     sim.substrate.entities.get_mut(victim_id).unwrap().health = Health { current: 30 };
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -6750,7 +6762,7 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
         .entities
         .get_mut(successor_id)
         .unwrap()
-        .type_ref = successor_type;
+        .set_type_ref_for_test(successor_type);
     assert!(matches!(
         sim.try_reveal_entity(successor_id, common_raw_request(8, 9, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6759,7 +6771,11 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
     let wave_id = sim.allocate_stable_id();
     let firer_id = sim.allocate_stable_id();
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(firer_id).unwrap().type_ref = sim.interner.intern("FIRER");
+    sim.substrate
+        .entities
+        .get_mut(firer_id)
+        .unwrap()
+        .set_type_ref_for_test(sim.interner.intern("FIRER"));
     sim.substrate
         .entities
         .get_mut(firer_id)
@@ -6846,7 +6862,7 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.attack_target = Some(AttackTarget {
             target: TargetKind::Cell(4, 5),
         });
@@ -6899,7 +6915,11 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
     let mut sim = Simulation::new();
     let second_id = sim.allocate_stable_id();
     insert_entity(&mut sim, second_id, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(second_id).unwrap().type_ref = sim.interner.intern("SECOND");
+    sim.substrate
+        .entities
+        .get_mut(second_id)
+        .unwrap()
+        .set_type_ref_for_test(sim.interner.intern("SECOND"));
     assert!(matches!(
         sim.try_reveal_entity(second_id, common_raw_request(4, 5, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6907,7 +6927,11 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
 
     let first_id = sim.allocate_stable_id();
     insert_entity(&mut sim, first_id, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(first_id).unwrap().type_ref = sim.interner.intern("FIRST");
+    sim.substrate
+        .entities
+        .get_mut(first_id)
+        .unwrap()
+        .set_type_ref_for_test(sim.interner.intern("FIRST"));
     assert!(matches!(
         sim.try_reveal_entity(first_id, common_raw_request(4, 5, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6915,7 +6939,11 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
 
     let next_id = sim.allocate_stable_id();
     insert_entity(&mut sim, next_id, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(next_id).unwrap().type_ref = sim.interner.intern("NEXT");
+    sim.substrate
+        .entities
+        .get_mut(next_id)
+        .unwrap()
+        .set_type_ref_for_test(sim.interner.intern("NEXT"));
     assert!(matches!(
         sim.try_reveal_entity(next_id, common_raw_request(5, 5, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6925,7 +6953,7 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.veterancy.set_rank_for_test(200);
         firer.attack_target = Some(AttackTarget {
             target: TargetKind::Entity(next_id),
@@ -7013,7 +7041,11 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
     let unit = |sim: &mut Simulation, kind: &str| {
         let id = sim.allocate_stable_id();
         insert_entity(sim, id, EntityCategory::Unit);
-        sim.substrate.entities.get_mut(id).unwrap().type_ref = sim.interner.intern(kind);
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_type_ref_for_test(sim.interner.intern(kind));
         assert!(matches!(
             sim.try_reveal_entity(id, common_raw_request(4, 5, 0, 128, 128)),
             RevealOutcome::Revealed { .. }
@@ -7026,7 +7058,7 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
     insert_entity(&mut sim, factory_id, EntityCategory::Structure);
     {
         let factory = sim.substrate.entities.get_mut(factory_id).unwrap();
-        factory.type_ref = sim.interner.intern("WEAP");
+        factory.set_type_ref_for_test(sim.interner.intern("WEAP"));
         factory.foundation = "1x1".to_string();
     }
     assert!(matches!(
@@ -7045,7 +7077,7 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.attack_target = Some(AttackTarget {
             target: TargetKind::Entity(second_id),
         });
@@ -7096,7 +7128,11 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
 
         let unit_id = sim.allocate_stable_id();
         insert_entity(&mut sim, unit_id, EntityCategory::Unit);
-        sim.substrate.entities.get_mut(unit_id).unwrap().type_ref = sim.interner.intern("UNIT");
+        sim.substrate
+            .entities
+            .get_mut(unit_id)
+            .unwrap()
+            .set_type_ref_for_test(sim.interner.intern("UNIT"));
         assert!(matches!(
             sim.try_reveal_entity(unit_id, common_raw_request(4, 5, 0, 128, 128)),
             RevealOutcome::Revealed { .. }
@@ -7106,7 +7142,7 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
         insert_entity(&mut sim, building_id, EntityCategory::Structure);
         {
             let building = sim.substrate.entities.get_mut(building_id).unwrap();
-            building.type_ref = sim.interner.intern("BLDG");
+            building.set_type_ref_for_test(sim.interner.intern("BLDG"));
             building.foundation = "1x1".to_string();
         }
         assert!(matches!(
@@ -7127,7 +7163,7 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
         insert_entity(&mut sim, firer_id, EntityCategory::Unit);
         {
             let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-            firer.type_ref = sim.interner.intern("FIRER");
+            firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
             firer.attack_target = Some(AttackTarget {
                 target: TargetKind::Entity(building_id),
             });
@@ -7210,7 +7246,7 @@ fn wave_tail_consumes_wall_roll_before_mandatory_cliff_chance_roll() {
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.attack_target = Some(AttackTarget {
             target: TargetKind::Cell(4, 1),
         });
@@ -7331,7 +7367,7 @@ fn assert_direct_fatal_death_weapon_starts_crater(bridge: bool) {
     let victim_id = sim.allocate_stable_id();
     insert_entity(&mut sim, victim_id, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
-    victim.type_ref = sim.interner.intern("VICTIM");
+    victim.set_type_ref_for_test(sim.interner.intern("VICTIM"));
     victim.health = Health { current: 1 };
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -7350,7 +7386,7 @@ fn assert_direct_fatal_death_weapon_starts_crater(bridge: bool) {
         let firer_id = sim.allocate_stable_id();
         insert_entity(&mut sim, firer_id, EntityCategory::Unit);
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.attack_target = Some(AttackTarget::new(victim_id));
         let wave_id = sim.allocate_stable_id();
         let mut wave = Wave::new_owned(
@@ -7427,7 +7463,7 @@ fn wave_cliff_collapse_consumes_exact_body_rng_and_spawns_row_major_anims() {
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
-        firer.type_ref = sim.interner.intern("FIRER");
+        firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.attack_target = Some(AttackTarget {
             target: TargetKind::Cell(4, 1),
         });
@@ -7744,7 +7780,7 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
     let building_type = sim.interner.intern("DUPBLDG");
     {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
-        building.type_ref = building_type;
+        building.set_type_ref_for_test(building_type);
         building.foundation = "2x1".to_string();
         building.health.current = 10;
     }
@@ -7758,7 +7794,11 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
     let wave_id = sim.allocate_stable_id();
     let firer_id = sim.allocate_stable_id();
     insert_entity(&mut sim, firer_id, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(firer_id).unwrap().type_ref = sim.interner.intern("FIRER");
+    sim.substrate
+        .entities
+        .get_mut(firer_id)
+        .unwrap()
+        .set_type_ref_for_test(sim.interner.intern("FIRER"));
     sim.substrate
         .entities
         .get_mut(firer_id)
@@ -8209,7 +8249,7 @@ fn naval_build_const_capture_moves_old_entry_to_new_owner_tail() {
     // (`0x00449197..0x004491D2`).
     assert_eq!(house_buildings(&sim, old_owner), vec![12]);
     assert_eq!(house_buildings(&sim, new_owner), vec![50, 40]);
-    assert_eq!(sim.substrate.entities.get(40).unwrap().owner, new_owner);
+    assert_eq!(sim.substrate.entities.get(40).unwrap().owner(), new_owner);
 }
 
 #[test]

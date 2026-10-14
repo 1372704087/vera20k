@@ -194,7 +194,7 @@ pub(crate) fn fly_speed_facts(
         &crate::sim::intern::StringInterner,
     )>,
 ) -> FlySpeedFacts {
-    let aircraft = entity.category == EntityCategory::Aircraft;
+    let aircraft = entity.category() == EntityCategory::Aircraft;
     let object = rules_context
         .and_then(|(rules, interner)| rules.object(interner.resolve(entity.type_ref())));
     let strafe_or_fighter = aircraft
@@ -394,7 +394,7 @@ fn missile_flight_override(
         &crate::sim::intern::StringInterner,
     )>,
 ) -> Option<bool> {
-    if entity.category == EntityCategory::Aircraft
+    if entity.category() == EntityCategory::Aircraft
         && rules_context.is_some_and(|(rules, interner)| {
             let name = interner.resolve(entity.type_ref());
             name.eq_ignore_ascii_case(&rules.missile_spawn.v3.type_name)
@@ -455,7 +455,7 @@ pub(crate) fn update_fly_height(
     let object = rules_context
         .and_then(|(rules, interner)| rules.object(interner.resolve(entity.type_ref())));
     let flight_level = type_flight_level(entity, rules_context);
-    let has_passenger = entity.category == crate::map::entities::EntityCategory::Aircraft
+    let has_passenger = entity.category() == crate::map::entities::EntityCategory::Aircraft
         && entity
             .passenger_role
             .cargo()

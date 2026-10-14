@@ -339,7 +339,7 @@ impl Simulation {
     pub(crate) fn house_return_cell(&mut self, actor_id: u64) -> Option<(u16, u16)> {
         let actor = self.substrate.entities.get(actor_id)?;
         if !matches!(
-            actor.category,
+            actor.category(),
             EntityCategory::Unit | EntityCategory::Infantry
         ) {
             return None;
@@ -573,7 +573,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return;
         }
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
@@ -594,7 +594,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(|entity| entity.owner())
         else {
             return;
@@ -666,7 +666,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.category == EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         {
             return;
         }
@@ -1005,7 +1005,11 @@ mod tests {
                     sim.substrate.entities.remove(id);
                 }
                 _ => {
-                    sim.substrate.entities.get_mut(id).unwrap().category = EntityCategory::Structure
+                    sim.substrate
+                        .entities
+                        .get_mut(id)
+                        .unwrap()
+                        .set_category_for_test(EntityCategory::Structure);
                 }
             }
             let before = sim.rng_state();

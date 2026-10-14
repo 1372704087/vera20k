@@ -127,7 +127,7 @@ impl Simulation {
         };
         if holds_target
             || firer.locomotor_source.is_some()
-            || (firer.category.is_foot() && firer.foot_locomotor_swap_active)
+            || (firer.category().is_foot() && firer.foot_locomotor_swap_active)
         {
             return;
         }
@@ -142,7 +142,7 @@ impl Simulation {
         let Some(victim) = self.substrate.entities.get(victim_id) else {
             return;
         };
-        let admitted = victim.category.is_foot()
+        let admitted = victim.category().is_foot()
             && crate::sim::world::entity_layer(
                 victim,
                 self.resolved_terrain.as_ref(),
@@ -152,7 +152,7 @@ impl Simulation {
                 victim.invulnerability.as_ref(),
                 frame,
             )
-            && victim.category == EntityCategory::Unit
+            && victim.category() == EntityCategory::Unit
             && !victim.foot_locomotor_swap_active
             && self
                 .object_type(victim.type_ref(), rules)
@@ -171,7 +171,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Unit)
+            .filter(|entity| entity.category() == EntityCategory::Unit)
         else {
             return false;
         };
@@ -182,7 +182,7 @@ impl Simulation {
             .substrate
             .entities
             .get(contact)
-            .filter(|building| building.category == EntityCategory::Structure)
+            .filter(|building| building.category() == EntityCategory::Structure)
             .and_then(|building| self.object_type(building.type_ref(), rules))
             .is_some_and(|object| object.weapons_factory);
         if !factory {
@@ -373,7 +373,7 @@ impl Simulation {
             self.substrate
                 .entities
                 .get(contact)
-                .is_some_and(|contact| contact.category == EntityCategory::Structure)
+                .is_some_and(|contact| contact.category() == EntityCategory::Structure)
         });
         if building_contact {
             crate::sim::radio::broadcast_break(self, target, Some(rules), effects);
@@ -442,7 +442,7 @@ impl Simulation {
         let terrain = self.resolved_terrain.as_ref();
         let held_height = self.substrate.entities.get(held).and_then(|entity| {
             entity
-                .category
+                .category()
                 .is_foot()
                 .then(|| crate::sim::movement::air_movement::current_fly_height(entity, terrain))
         });
@@ -668,7 +668,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(other)
-                .map(|entity| entity.category),
+                .map(|entity| entity.category()),
             CellObjectMember::Terrain(_) => None,
         };
         match category {

@@ -82,7 +82,7 @@ impl BridgeOccupantHost for Occupants<'_, '_> {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.category != EntityCategory::Structure),
+                .is_some_and(|e| e.category() != EntityCategory::Structure),
             CellObjectMember::Terrain(_) => false,
         }
     }
@@ -118,7 +118,7 @@ impl BridgeOccupantHost for Occupants<'_, '_> {
                 .substrate
                 .entities
                 .get(id)
-                .map(|e| match e.category {
+                .map(|e| match e.category() {
                     EntityCategory::Unit => 1,
                     EntityCategory::Aircraft => 2,
                     EntityCategory::Structure => 6,

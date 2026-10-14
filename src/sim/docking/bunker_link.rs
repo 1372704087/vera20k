@@ -120,7 +120,7 @@ pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64,
         .substrate
         .entities
         .get(unit_id)
-        .is_some_and(|unit| unit.category == EntityCategory::Unit)
+        .is_some_and(|unit| unit.category() == EntityCategory::Unit)
         || sim.substrate.entities.get(building_id).is_none()
     {
         return;
@@ -301,7 +301,7 @@ fn is_release_unit(sim: &Simulation, unit_id: u64) -> bool {
     sim.substrate
         .entities
         .get(unit_id)
-        .is_some_and(|unit| unit.category == EntityCategory::Unit)
+        .is_some_and(|unit| unit.category() == EntityCategory::Unit)
 }
 
 /// `rules` feeds the forced head's crate pickup (`Force_Track` 0x4B0D1B);

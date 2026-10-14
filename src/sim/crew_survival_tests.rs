@@ -904,7 +904,7 @@ fn a_killing_hit_spawns_the_building_crew_in_the_same_receiver_call() {
             let crew: Vec<_> = new_ids(&sim, &before)
                 .into_iter()
                 .filter(|&id| {
-                    sim.substrate.entities.get(id).unwrap().category == EntityCategory::Infantry
+                    sim.substrate.entities.get(id).unwrap().category() == EntityCategory::Infantry
                 })
                 .collect();
             assert!(crew.len() <= 5);
@@ -948,7 +948,7 @@ fn renamed_general_crew_types_spawn_through_the_building_death_receiver() {
             kill(&mut sim, &rules, plant, ORDINARY);
             for id in new_ids(&sim, &before) {
                 let crewman = sim.substrate.entities.get(id).unwrap();
-                assert_eq!(crewman.category, EntityCategory::Infantry);
+                assert_eq!(crewman.category(), EntityCategory::Infantry);
                 assert_eq!(type_name(&sim, id), expected, "owner {owner}, seed {seed}");
                 spawned += 1;
             }
@@ -1335,7 +1335,7 @@ fn retail_rules_crew_the_power_plant_and_the_mcv() {
         kill_with(&mut sim, &rules, None, mcv, "Super", ORDINARY);
         for id in new_ids(&sim, &before) {
             let entity = sim.substrate.entities.get(id).unwrap();
-            if entity.category != EntityCategory::Infantry {
+            if entity.category() != EntityCategory::Infantry {
                 continue;
             }
             assert_eq!(type_name(&sim, id), "E1");
@@ -1454,7 +1454,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
         let crew: Vec<_> = new_ids(sim, &before)
             .into_iter()
             .filter(|&id| {
-                sim.substrate.entities.get(id).unwrap().category == EntityCategory::Infantry
+                sim.substrate.entities.get(id).unwrap().category() == EntityCategory::Infantry
             })
             .map(|id| {
                 let entity = sim.substrate.entities.get(id).unwrap();

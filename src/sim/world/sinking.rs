@@ -147,7 +147,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if entity.category != EntityCategory::Unit || !entity.sinking.active {
+        if entity.category() != EntityCategory::Unit || !entity.sinking.active {
             return false;
         }
         let mut coord = position_world_coord(&entity.position);

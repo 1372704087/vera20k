@@ -368,18 +368,17 @@ pub struct TechnoDiscoveryHistory {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GameEntity {
     // --- Always present (every entity has these) ---
-    // Indexed identity is private in production. Synthetic fixtures retain raw
-    // setup access; conditional declarations preserve the exact serde field order.
+    // The object's identity (stable id, native UniqueID, the constructor's
+    // Scenario word, owner, type and class) is private to this module:
+    // readers use the getters, construction and decoding establish it, and
+    // only the owner-change path below moves the owner.
     /// Deterministic stable ID — primary key, used for cross-entity references,
     /// replay logs, state hashing, and networking. Never reused.
-    #[cfg(test)]
-    pub(crate) stable_id: u64,
-    #[cfg(not(test))]
     stable_id: u64,
     /// AbstractClass+10, assigned by the concrete constructor after the base
     /// Techno Scenario word (Unit735454 / Building43BA15). May wrap or duplicate;
     /// stable handles remain the reference and storage authority.
-    pub(crate) native_unique_id: i32,
+    native_unique_id: i32,
     /// Native Techno+24C float bits, initialized to zero by6F2D62 and
     /// preserved by native persistence (70C32A). Only visual-character4 reads
     /// this displacement through70BE50; no simulation/RNG/timer consumer.
@@ -389,7 +388,7 @@ pub struct GameEntity {
     /// `TechnoClass` constructor (`0x006F3254`, stored at native `+0x3C8`).
     /// Later report-selection consumers read this persistent value; placement
     /// failure never refunds the draw.
-    pub techno_ctor_random_word: u16,
+    techno_ctor_random_word: u16,
     /// One native Techno stage clock. Class receivers mutate through this
     /// owner; animation, miner and buildup components carry no competing copy.
     stage: crate::sim::stage::StageClass,
@@ -432,10 +431,9 @@ pub struct GameEntity {
     /// resets on a visual transition or deployment.
     #[serde(default)]
     pub body_frame_counter: u32,
-    /// Owning player/faction name (e.g., "Americans", "Soviet") — interned for zero-cost clones.
-    #[cfg(test)]
-    pub(crate) owner: InternedId,
-    #[cfg(not(test))]
+    /// The owning house (`TechnoClass+0x21C`), interned.
+    /// `TechnoClass::ChangeOwner @ 0x007014A0` moves it; here only the store's
+    /// owner-change path does ([`Self::set_owner_from_store`]).
     owner: InternedId,
     /// Current and maximum hit points.
     pub health: Health,
@@ -443,12 +441,10 @@ pub struct GameEntity {
     /// Native constructors and map admission seed this from admitted health.
     pub(crate) estimated_health: crate::sim::estimated_health::EstimatedHealth,
     /// rules.ini section name (e.g., "HTNK", "E1", "GAPOWR") — interned for zero-cost clones.
-    #[cfg(test)]
-    pub(crate) type_ref: InternedId,
-    #[cfg(not(test))]
     type_ref: InternedId,
-    /// Entity category: Unit, Infantry, Aircraft, or Structure.
-    pub category: EntityCategory,
+    /// The concrete class (`AbstractClass::What_Am_I`): Unit, Infantry,
+    /// Aircraft or Structure. Fixed at construction.
+    category: EntityCategory,
     /// Rules foundation string for structure footprint occupancy.
     ///
     /// Native CellClass list membership is removed from every foundation cell
@@ -1472,6 +1468,54 @@ impl GameEntity {
         self.type_ref
     }
 
+    /// The concrete class, fixed at construction.
+    pub const fn category(&self) -> EntityCategory {
+        self.category
+    }
+
+    /// AbstractClass+10, the native UniqueID.
+    pub(crate) const fn native_unique_id(&self) -> i32 {
+        self.native_unique_id
+    }
+
+    /// The TechnoClass constructor's retained Scenario word (`+0x3C8`).
+    pub(crate) const fn techno_ctor_random_word(&self) -> u16 {
+        self.techno_ctor_random_word
+    }
+}
+
+/// Fixture setup for the identity a constructor or decoder establishes.
+#[cfg(test)]
+impl GameEntity {
+    pub(crate) fn set_stable_id_for_test(&mut self, stable_id: u64) {
+        self.stable_id = stable_id;
+    }
+
+    pub(crate) fn set_native_unique_id_for_test(&mut self, native_unique_id: i32) {
+        self.native_unique_id = native_unique_id;
+    }
+
+    pub(crate) fn set_techno_ctor_random_word_for_test(&mut self, word: u16) {
+        self.techno_ctor_random_word = word;
+    }
+
+    pub(crate) fn set_owner_for_test(&mut self, owner: InternedId) {
+        self.owner = owner;
+    }
+
+    pub(crate) fn set_type_ref_for_test(&mut self, type_ref: InternedId) {
+        self.type_ref = type_ref;
+    }
+
+    /// Changes only the class tag. A fixture that needs another class's
+    /// private state (a Building's body, an Infantry's runtime) constructs it
+    /// with [`Self::test_default_of_category`] instead.
+    pub(crate) fn set_category_for_test(&mut self, category: EntityCategory) {
+        self.category = category;
+    }
+}
+
+impl GameEntity {
     pub(crate) const fn foot_retarget_after_stop(&self) -> bool {
         self.foot_retarget_after_stop
     }

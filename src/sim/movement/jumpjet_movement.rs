@@ -526,7 +526,7 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
         self.sim.object_raw_receiver_at(self.id, destination, false);
     }
     fn owner_kind(&self) -> FlightOwnerKind {
-        FlightOwnerKind::of(self.owner().category)
+        FlightOwnerKind::of(self.owner().category())
     }
     fn balloon_hover(&self) -> bool {
         self.owner().locomotor.as_ref().unwrap().balloon_hover

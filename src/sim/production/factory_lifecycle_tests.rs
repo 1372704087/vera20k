@@ -701,7 +701,7 @@ pub(super) fn assert_constructor_words(sim: &Simulation, parent: u64, expected: 
                 .entities
                 .get(id)
                 .unwrap()
-                .techno_ctor_random_word,
+                .techno_ctor_random_word(),
             word
         );
     }
@@ -1022,7 +1022,7 @@ fn ready_manager_cancel_refunds_disposes_and_constructs_one_successor() {
     assert!(successor > parent);
     assert_eq!(
         sim.interner
-            .resolve(sim.substrate.entities.get(successor).unwrap().type_ref),
+            .resolve(sim.substrate.entities.get(successor).unwrap().type_ref()),
         "GAPOWR"
     );
     assert_constructor_words(&sim, successor, &mut expected);
@@ -1084,7 +1084,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
     let successor = held_id(&sim, owner, ProductionCategory::Vehicle);
     assert_eq!(
         sim.interner
-            .resolve(sim.substrate.entities.get(successor).unwrap().type_ref),
+            .resolve(sim.substrate.entities.get(successor).unwrap().type_ref()),
         "MTNK"
     );
     assert_constructor_words(&sim, successor, &mut expected);

@@ -110,8 +110,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64) {
             2,
             EntityCategory::Infantry,
         );
-        occupant.type_ref = sim.interner.intern("E1");
-        occupant.owner = sim.interner.intern("A");
+        occupant.set_type_ref_for_test(sim.interner.intern("E1"));
+        occupant.set_owner_for_test(sim.interner.intern("A"));
         occupant.passenger_role = PassengerRole::Inside {
             transport_id: id,
             open_topped: false,

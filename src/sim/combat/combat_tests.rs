@@ -358,15 +358,15 @@ fn gsi_04_05_building_attack_frame_prelude_obeys_object_and_type_gates() {
         (6, "SELFYES"),
     ] {
         let mut target = make_entity_owned(id, type_name, id as u16 + 3, 4, 100, "Victim");
-        target.category = EntityCategory::Structure;
+        target.set_category_for_test(EntityCategory::Structure);
         entities.insert(target);
     }
     let mut unit_target = make_entity_owned(7, "SOURCE", 10, 4, 100, "Victim");
-    unit_target.category = EntityCategory::Unit;
+    unit_target.set_category_for_test(EntityCategory::Unit);
     entities.insert(unit_target);
     entities.insert(make_entity_owned(8, "SOURCE", 11, 4, 100, "Victim"));
     let mut dead_target = make_entity_owned(9, "NORMAL", 12, 4, 0, "Victim");
-    dead_target.category = EntityCategory::Structure;
+    dead_target.set_category_for_test(EntityCategory::Structure);
     entities.insert(dead_target);
 
     let mut interner = test_interner();
@@ -510,7 +510,7 @@ fn gsi_04_05_building_attack_frame_precedes_immune_receiver_exit() {
     let mut entities = EntityStore::new();
     entities.insert(make_entity_owned(1, "SOURCE", 4, 4, 100, "Enemy"));
     let mut target = make_entity_owned(2, "IMMUNE", 5, 4, 100, "Victim");
-    target.category = EntityCategory::Structure;
+    target.set_category_for_test(EntityCategory::Structure);
     entities.insert(target);
     let mut interner = test_interner();
     let victim_owner = interner.intern("Victim");
@@ -581,7 +581,7 @@ fn gsi_04_05_protected_techno_response_runs_after_object_health_commit() {
     entities.insert(make_entity_owned(1, "SOURCE", 4, 4, 100, "Enemy"));
     entities.insert(make_entity_owned(2, "PROTECTED", 5, 4, 100, "Victim"));
     let mut protected_building = make_entity_owned(3, "PROTECTEDBLDG", 6, 4, 100, "Victim");
-    protected_building.category = EntityCategory::Structure;
+    protected_building.set_category_for_test(EntityCategory::Structure);
     entities.insert(protected_building);
     entities.insert(make_entity_owned(4, "SOURCE", 7, 4, 100, "Victim"));
 
@@ -1418,7 +1418,7 @@ fn gsi_04_05_building_self_damage_return_zero_stops_receiver_commit() {
     let rules = gsi_04_05_attack_frame_rules();
     let mut entities = EntityStore::new();
     let mut target = make_entity_owned(5, "SELFNO", 5, 4, 100, "Victim");
-    target.category = EntityCategory::Structure;
+    target.set_category_for_test(EntityCategory::Structure);
     entities.insert(target);
     let mut interner = test_interner();
     let victim_owner = interner.intern("Victim");
@@ -1484,8 +1484,8 @@ fn gsi_04_05_building_attack_frame_remains_live_after_world_receiver_dispatch() 
     let target_id = sim
         .spawn_object("NORMAL", "Victim", 6, 4, 0, &rules)
         .expect("Building target spawns");
-    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner;
-    let victim_owner = sim.substrate.entities.get(target_id).unwrap().owner;
+    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner();
+    let victim_owner = sim.substrate.entities.get(target_id).unwrap().owner();
     sim.houses.insert(
         source_owner,
         HouseState::new(source_owner, 0, None, false, 0, 10),
@@ -1534,7 +1534,7 @@ fn gsi_04_05_building_attack_frame_remains_live_after_world_receiver_dispatch() 
 
 fn make_infantry_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> GameEntity {
     let mut e = make_entity(id, type_ref, rx, ry, hp);
-    e.category = EntityCategory::Infantry;
+    e.set_category_for_test(EntityCategory::Infantry);
     e.mission_leaf =
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Infantry);
     e.is_voxel = false;
@@ -1552,7 +1552,7 @@ fn make_structure_entity(
     max: i32,
 ) -> GameEntity {
     let mut entity = make_entity(id, type_ref, rx, ry, max);
-    entity.category = EntityCategory::Structure;
+    entity.set_category_for_test(EntityCategory::Structure);
     entity.is_voxel = false;
     entity.health = Health { current };
     entity
@@ -1912,10 +1912,10 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
             .entities
             .get(target)
             .expect("target should exist");
-        assert_eq!(target_entity.category, EntityCategory::Infantry);
+        assert_eq!(target_entity.category(), EntityCategory::Infantry);
         assert!(
             rules
-                .object(sim.interner.resolve(target_entity.type_ref))
+                .object(sim.interner.resolve(target_entity.type_ref()))
                 .is_some_and(|obj| obj.considered_aircraft)
         );
 
@@ -1980,7 +1980,7 @@ fn ordinary_infantry_remains_ground_for_projectile_legality() {
         .entities
         .get(target)
         .expect("target should exist");
-    assert_eq!(target_entity.category, EntityCategory::Infantry);
+    assert_eq!(target_entity.category(), EntityCategory::Infantry);
 
     install_entity_attack_target_for_test(&mut sim.substrate.entities, attacker, target);
     let mut main_rng = SimRng::new(1);
@@ -2717,14 +2717,14 @@ fn retaliates(case: RetaliationCase) -> bool {
 
     let mut entities = EntityStore::new();
     let mut source = make_entity(1, "SOURCE", source_rx, 5, case.source_health);
-    source.owner = source_owner;
-    source.type_ref = interner.intern("SOURCE");
+    source.set_owner_for_test(source_owner);
+    source.set_type_ref_for_test(interner.intern("SOURCE"));
     source.position.sub_x = crate::util::fixed_math::SimFixed::from_num(case.source_sub_x);
     source.lifecycle.cell_marked = true;
     entities.insert(source);
     let mut victim = make_entity(2, "VICTIM", victim_rx, 5, 100);
-    victim.owner = victim_owner;
-    victim.type_ref = interner.intern("VICTIM");
+    victim.set_owner_for_test(victim_owner);
+    victim.set_type_ref_for_test(interner.intern("VICTIM"));
     victim.lifecycle.cell_marked = true;
     victim.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(case.mission),
@@ -2990,9 +2990,9 @@ fn retaliation_gate_world(
         ),
     ] {
         let mut entity = GameEntity::test_default(id, type_name, "Test", rx, 5);
-        entity.owner = owner;
-        entity.type_ref = sim.interner.intern(type_name);
-        entity.category = category;
+        entity.set_owner_for_test(owner);
+        entity.set_type_ref_for_test(sim.interner.intern(type_name));
+        entity.set_category_for_test(category);
         entity.health.current = health;
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = true;
@@ -3126,9 +3126,9 @@ fn gsi_04_07_a_garrison_retaliates_with_its_occupants_weapon() {
     ));
     let occupant_id = 3;
     let mut occupant = GameEntity::test_default(occupant_id, "E1", "Test", 20, 5);
-    occupant.owner = sim.substrate.entities.get(GATE_VICTIM).unwrap().owner();
-    occupant.type_ref = sim.interner.intern("E1");
-    occupant.category = EntityCategory::Infantry;
+    occupant.set_owner_for_test(sim.substrate.entities.get(GATE_VICTIM).unwrap().owner());
+    occupant.set_type_ref_for_test(sim.interner.intern("E1"));
+    occupant.set_category_for_test(EntityCategory::Infantry);
     occupant.passenger_role = crate::sim::passenger::PassengerRole::Inside {
         transport_id: GATE_VICTIM,
         open_topped: false,
@@ -3195,15 +3195,15 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
 
         let mut entities = EntityStore::new();
         let mut source = make_entity(1, "SOURCE", 6, 5, 200);
-        source.owner = source_owner;
-        source.type_ref = source_type;
+        source.set_owner_for_test(source_owner);
+        source.set_type_ref_for_test(source_type);
         source.lifecycle.in_limbo = false;
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
         let mut victim = make_entity(2, "VICTIM", 8, 5, 100);
-        victim.owner = victim_owner;
-        victim.type_ref = victim_type;
+        victim.set_owner_for_test(victim_owner);
+        victim.set_type_ref_for_test(victim_type);
         victim.health.current = victim_health;
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
@@ -3400,15 +3400,15 @@ fn gsi_04_07_damage_retaliation_peek_rejects_limbo_attacker() {
 
         let mut entities = EntityStore::new();
         let mut source = make_entity(1, "SOURCE", 6, 5, 200);
-        source.owner = source_owner;
-        source.type_ref = source_type;
+        source.set_owner_for_test(source_owner);
+        source.set_type_ref_for_test(source_type);
         source.lifecycle.in_limbo = attacker_in_limbo;
         source.lifecycle.cell_marked = !attacker_in_limbo;
         entities.insert(source);
 
         let mut victim = make_entity(2, "VICTIM", 8, 5, 100);
-        victim.owner = victim_owner;
-        victim.type_ref = victim_type;
+        victim.set_owner_for_test(victim_owner);
+        victim.set_type_ref_for_test(victim_type);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
@@ -3495,7 +3495,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
     let source_id = sim
         .spawn_object("SOURCE", "SourceHouse", 6, 5, 0, &rules)
         .expect("source spawns");
-    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner;
+    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner();
     let protected = [
         (8, InvulnKind::IronCurtain, false),
         (9, InvulnKind::ForceShield, false),
@@ -3646,8 +3646,8 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
     let victim_id = sim
         .spawn_object("MTNK", "VictimHouse", 8, 5, 0, &rules)
         .expect("Grizzly spawns");
-    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner;
-    let victim_owner = sim.substrate.entities.get(victim_id).unwrap().owner;
+    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner();
+    let victim_owner = sim.substrate.entities.get(victim_id).unwrap().owner();
     sim.houses.insert(
         source_owner,
         HouseState::new(source_owner, 0, None, false, 0, 10),
@@ -3847,8 +3847,8 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
 
         let mut entities = EntityStore::new();
         let mut victim = make_entity(10, "HTNK", 8, 5, 400);
-        victim.owner = ai_owner;
-        victim.type_ref = htnk_type;
+        victim.set_owner_for_test(ai_owner);
+        victim.set_type_ref_for_test(htnk_type);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.attack_target = Some(AttackTarget::new(current_id));
@@ -3866,17 +3866,17 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
         entities.insert(victim);
 
         let mut tanya = make_entity(20, "TANY", 6, 5, 200);
-        tanya.owner = tanya_owner;
-        tanya.type_ref = tanya_type;
-        tanya.category = EntityCategory::Infantry;
+        tanya.set_owner_for_test(tanya_owner);
+        tanya.set_type_ref_for_test(tanya_type);
+        tanya.set_category_for_test(EntityCategory::Infantry);
         tanya.lifecycle.in_limbo = false;
         tanya.lifecycle.cell_marked = true;
         entities.insert(tanya);
 
         let mut gi = make_entity(30, "E1", 10, 5, 125);
-        gi.owner = gi_owner;
-        gi.type_ref = gi_type;
-        gi.category = EntityCategory::Infantry;
+        gi.set_owner_for_test(gi_owner);
+        gi.set_type_ref_for_test(gi_type);
+        gi.set_category_for_test(EntityCategory::Infantry);
         gi.lifecycle.in_limbo = false;
         gi.lifecycle.cell_marked = true;
         entities.insert(gi);
@@ -3905,7 +3905,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
 
         let mut houses = BTreeMap::new();
         houses.insert(ai_owner, HouseState::new(ai_owner, 0, None, false, 0, 10));
-        let source_house = entities.get(attacker_id).expect("attacker").owner;
+        let source_house = entities.get(attacker_id).expect("attacker").owner();
         let event = EntityDamageEvent::area(10, 1, 0, attacker_id, Some(source_house), hit_wh);
         let mut occupancy = OccupancyGrid::new();
         let mut main_rng = SimRng::new(5);
@@ -4029,15 +4029,15 @@ fn gsi_04_07_damage_spawn_and_slave_managers_block_retaliation() {
 
         let mut entities = EntityStore::new();
         let mut source = make_entity(1, "SOURCE", 6, 5, 100);
-        source.owner = source_owner;
-        source.type_ref = source_type;
+        source.set_owner_for_test(source_owner);
+        source.set_type_ref_for_test(source_type);
         source.lifecycle.in_limbo = false;
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
         let mut victim = make_entity(2, victim_type_name, 8, 5, 100);
-        victim.owner = victim_owner;
-        victim.type_ref = victim_type;
+        victim.set_owner_for_test(victim_owner);
+        victim.set_type_ref_for_test(victim_type);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
@@ -4162,15 +4162,15 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
 
         let mut entities = EntityStore::new();
         let mut source = make_entity(1, "SOURCE", 6, 5, 100);
-        source.owner = source_owner;
-        source.type_ref = source_type;
+        source.set_owner_for_test(source_owner);
+        source.set_type_ref_for_test(source_type);
         source.lifecycle.in_limbo = false;
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
         let mut victim = make_structure_entity(2, "YAPSYT", 8, 5, 100, 100);
-        victim.owner = victim_owner;
-        victim.type_ref = victim_type;
+        victim.set_owner_for_test(victim_owner);
+        victim.set_type_ref_for_test(victim_type);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
@@ -4186,8 +4186,8 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
         let links: Vec<u64> = (0..link_count).map(|offset| 10 + offset as u64).collect();
         for (offset, &id) in links.iter().enumerate() {
             let mut controlled = make_entity(id, "LINK", 10 + offset as u16, 5, 100);
-            controlled.owner = victim_owner;
-            controlled.type_ref = link_type;
+            controlled.set_owner_for_test(victim_owner);
+            controlled.set_type_ref_for_test(link_type);
             controlled.mind_control =
                 crate::sim::capture_manager::MindControlLink::controlled_by_for_test(2);
             controlled.lifecycle.in_limbo = false;
@@ -4712,8 +4712,8 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     let target_id = sim
         .spawn_object("BARREL", "VictimHouse", 8, 5, 0, &rules)
         .expect("eligible target spawns");
-    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner;
-    let victim_owner = sim.substrate.entities.get(target_id).unwrap().owner;
+    let source_owner = sim.substrate.entities.get(source_id).unwrap().owner();
+    let victim_owner = sim.substrate.entities.get(target_id).unwrap().owner();
     sim.houses.insert(
         source_owner,
         HouseState::new(source_owner, 0, None, false, 0, 10),
@@ -4924,9 +4924,9 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     let later_target = sim
         .spawn_object("BARREL", "VictimHouse", 10, 5, 0, &rules)
         .expect("later ordinary target spawns");
-    let owner_a = sim.substrate.entities.get(source_a).unwrap().owner;
-    let owner_b = sim.substrate.entities.get(source_b).unwrap().owner;
-    let victim_owner = sim.substrate.entities.get(expiry_target).unwrap().owner;
+    let owner_a = sim.substrate.entities.get(source_a).unwrap().owner();
+    let owner_b = sim.substrate.entities.get(source_b).unwrap().owner();
+    let victim_owner = sim.substrate.entities.get(expiry_target).unwrap().owner();
     for (index, owner) in [owner_a, owner_b, victim_owner].into_iter().enumerate() {
         sim.houses.insert(
             owner,
@@ -5397,7 +5397,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         attacker.in_playfield = true;
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
-        victim.category = victim_category;
+        victim.set_category_for_test(victim_category);
         victim.health = Health { current: 100 };
         crate::sim::movement::ground_pose::put_location(&mut victim.position, coordinate);
         victim.lifecycle.in_limbo = false;
@@ -5585,7 +5585,7 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
         attacker.in_playfield = true;
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
-        victim.category = victim_category;
+        victim.set_category_for_test(victim_category);
         victim.health = Health { current: 100 };
         victim.lifecycle.in_limbo = false;
         victim.in_playfield = true;
@@ -6451,7 +6451,7 @@ fn garrison_fire_keeps_occupant_anim_and_sound_path() {
     .expect("garrison rules parse");
     let mut store = EntityStore::new();
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
-    building.category = EntityCategory::Structure;
+    building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
     assert!(cargo.board(1, 1));
     building.passenger_role = crate::sim::passenger::PassengerRole::Transport { cargo };
@@ -6749,7 +6749,7 @@ fn gsi_08_01_unarmed_building_loses_to_a_tank_at_equal_distance() {
     store.insert(make_entity_owned(10, "MTNK", 5, 5, 300, "Americans"));
     store.insert(make_entity_owned(99, "MTNK", 6, 5, 0, "Soviet")); // dead
     let mut building = make_entity_owned(1, "GAPOWR", 7, 5, 750, "Soviet");
-    building.category = crate::map::entities::EntityCategory::Structure;
+    building.set_category_for_test(crate::map::entities::EntityCategory::Structure);
     store.insert(building);
     store.insert(make_entity_owned(200, "MTNK", 7, 5, 300, "Soviet"));
     let interner = test_interner();
@@ -7035,7 +7035,7 @@ fn wall_warhead_damages_and_destroys_wall_overlay() {
         .iter_sorted()
         .filter(|(_, e)| {
             rules
-                .object(sim.interner.resolve(e.type_ref))
+                .object(sim.interner.resolve(e.type_ref()))
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7111,7 +7111,7 @@ fn wall_warhead_damages_and_destroys_wall_overlay() {
         .iter_sorted()
         .filter(|(_, e)| {
             rules
-                .object(sim.interner.resolve(e.type_ref))
+                .object(sim.interner.resolve(e.type_ref()))
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7152,8 +7152,8 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         let obj = rules.object(veh_type).expect("veh object");
         let veh_type_id = sim.interner.intern(veh_type);
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
-        veh.owner = owner_id;
-        veh.type_ref = veh_type_id;
+        veh.set_owner_for_test(owner_id);
+        veh.set_type_ref_for_test(veh_type_id);
         veh.regular_crusher = obj.crusher;
         veh.omni_crusher = obj.omni_crusher;
         veh.locomotor =
@@ -7202,7 +7202,7 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         .iter_sorted()
         .filter(|(_, e)| {
             rules
-                .object(sim.interner.resolve(e.type_ref))
+                .object(sim.interner.resolve(e.type_ref()))
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7252,8 +7252,8 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
         let obj = rules.object(veh_type).expect("veh object");
         let veh_type_id = sim.interner.intern(veh_type);
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
-        veh.owner = owner_id;
-        veh.type_ref = veh_type_id;
+        veh.set_owner_for_test(owner_id);
+        veh.set_type_ref_for_test(veh_type_id);
         veh.regular_crusher = obj.crusher;
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));
@@ -7333,8 +7333,8 @@ fn build_minimal_sim_with_gawall_row(
     for (next_id, rx) in (1u64..).zip(rx_range) {
         grid.place_overlay(rx, ry, 2, 0);
         let mut entity = GameEntity::test_default(next_id, "GAWALL", "Test", rx, ry);
-        entity.owner = owner_id;
-        entity.type_ref = type_id;
+        entity.set_owner_for_test(owner_id);
+        entity.set_type_ref_for_test(type_id);
         entity.health = Health { current: 400 };
         sim.substrate.entities.insert(entity);
     }
@@ -7966,16 +7966,16 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
         10,
         EntityCategory::Structure,
     );
-    derrick.owner = owner;
-    derrick.type_ref = sim.interner.intern("DERRICK");
+    derrick.set_owner_for_test(owner);
+    derrick.set_type_ref_for_test(sim.interner.intern("DERRICK"));
     derrick.foundation = "3x3".to_string();
     derrick.is_voxel = false;
     derrick.health.current = 100;
     sim.substrate.entities.insert(derrick);
     let _ = sim.reveal(1);
     let mut victim = GameEntity::test_default(2, "VICTIM", "Neutral", 13, 11);
-    victim.owner = owner;
-    victim.type_ref = sim.interner.intern("VICTIM");
+    victim.set_owner_for_test(owner);
+    victim.set_type_ref_for_test(sim.interner.intern("VICTIM"));
     victim.health.current = 1000;
     sim.substrate.entities.insert(victim);
     let _ = sim.reveal(2);
@@ -9485,7 +9485,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
         let mut store = EntityStore::new();
         store.insert(victim);
         let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-        attacker.owner = test_intern("Attacker");
+        attacker.set_owner_for_test(test_intern("Attacker"));
         store.insert(attacker);
         let mut interner = test_interner();
         install_entity_attack_target_for_test(&mut store, 1, 10);
@@ -9503,7 +9503,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
 
     // Enemy-owned Structure → one base ping for the VICTIM's owner.
     let mut building = make_entity_owned(10, "CAGAS", 8, 5, 800, "Defender");
-    building.category = EntityCategory::Structure;
+    building.set_category_for_test(EntityCategory::Structure);
     let result = run_attack(building);
     assert_eq!(
         result.consequences.effects().under_attack_events.len(),
@@ -9532,7 +9532,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
     // ReceiveDamage` never compares the source's house before
     // `NotifyUnderAttack` (force-fire on an own building announces).
     let mut friendly = make_entity_owned(10, "CAGAS", 8, 5, 800, "Attacker");
-    friendly.category = EntityCategory::Structure;
+    friendly.set_category_for_test(EntityCategory::Structure);
     let result = run_attack(friendly);
     assert_eq!(
         result.consequences.effects().under_attack_events.len(),
@@ -9546,7 +9546,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
 
     // `Insignificant=yes` building → `BuildingType+0x232` skip.
     let mut prop = make_entity_owned(10, "CATREE", 8, 5, 800, "Defender");
-    prop.category = EntityCategory::Structure;
+    prop.set_category_for_test(EntityCategory::Structure);
     let result = run_attack(prop);
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
@@ -9558,7 +9558,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
     // (`0x00442956`). Retail's 2x2 YAREFN takes the ore-miner line
     // (`building_retaliation`'s tests).
     let mut slave = make_entity_owned(10, "YAREFN", 8, 5, 800, "Defender");
-    slave.category = EntityCategory::Structure;
+    slave.set_category_for_test(EntityCategory::Structure);
     let result = run_attack(slave);
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
@@ -9598,7 +9598,7 @@ fn unit_lost_events_come_from_damage_kills_of_unspawned_non_buildings() {
         let mut store = EntityStore::new();
         store.insert(victim);
         let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-        attacker.owner = test_intern("Attacker");
+        attacker.set_owner_for_test(test_intern("Attacker"));
         store.insert(attacker);
         let mut interner = test_interner();
         install_entity_attack_target_for_test(&mut store, 1, 10);
@@ -9634,7 +9634,7 @@ fn unit_lost_events_come_from_damage_kills_of_unspawned_non_buildings() {
     );
 
     let mut hornet = make_entity_owned(10, "HORNET", 8, 5, 10, "Defender");
-    hornet.category = EntityCategory::Aircraft;
+    hornet.set_category_for_test(EntityCategory::Aircraft);
     let result = run_kill(hornet);
     assert!(
         result.consequences.effects().unit_lost_events.is_empty(),
@@ -9642,7 +9642,7 @@ fn unit_lost_events_come_from_damage_kills_of_unspawned_non_buildings() {
     );
 
     let mut shack = make_entity_owned(10, "CAGAS", 8, 5, 10, "Defender");
-    shack.category = EntityCategory::Structure;
+    shack.set_category_for_test(EntityCategory::Structure);
     let result = run_kill(shack);
     assert!(
         result.consequences.effects().unit_lost_events.is_empty(),
@@ -9674,7 +9674,7 @@ fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
         let mut store = EntityStore::new();
         store.insert(victim);
         let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-        attacker.owner = test_intern("Attacker");
+        attacker.set_owner_for_test(test_intern("Attacker"));
         store.insert(attacker);
         let mut interner = test_interner();
         install_entity_attack_target_for_test(&mut store, 1, 10);
@@ -9865,7 +9865,7 @@ fn projectile_shrapnel_count_measures_to_the_firers_get_coords() {
     // The firer's GetCoords (the 3x3 foundation centre, `0x00447AC0`) is
     // 1280 leptons from the impact, 5 cells; its NW cell's centre is 1557, 6.
     let mut source = make_entity_owned(1, "HQ", 2, 4, 100, "Soviet");
-    source.category = EntityCategory::Structure;
+    source.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=3x3`.
     source.foundation = "3x3".to_string();
     source.lifecycle.cell_marked = true;
@@ -9941,7 +9941,7 @@ fn projectile_shrapnel_aims_at_a_building_foundation_center() {
     entities.insert(source);
     // First ring-table entry is (+1,-1): the HQ's north-west cell.
     let mut target = make_entity_owned(2, "HQ", 6, 4, 100, "Americans");
-    target.category = EntityCategory::Structure;
+    target.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=2x2`.
     target.foundation = "2x2".to_string();
     target.lifecycle.cell_marked = true;
@@ -10176,7 +10176,7 @@ fn projectile_shrapnel_needs_a_non_building_first_object_in_the_bullets_cell() {
     let mut building = EntityStore::new();
     building.insert(firer());
     let mut hq = make_entity_owned(2, "HQ", 5, 5, 100, "Americans");
-    hq.category = EntityCategory::Structure;
+    hq.set_category_for_test(EntityCategory::Structure);
     hq.foundation = "1x1".to_string();
     building.insert(hq);
     assert!(shrapnel_at_cell_5_5(&rules, building, 1).0.is_empty());
@@ -10753,7 +10753,7 @@ fn gsi_08_12_a_grizzly_promotes_through_the_damage_path() {
     assert_eq!(rules.object("MTNK").map(|o| o.cost), Some(700));
     let mut ranks = Vec::new();
     let mut killer = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
-    killer.owner = test_intern("Soviet");
+    killer.set_owner_for_test(test_intern("Soviet"));
     let mut store = EntityStore::new();
     store.insert(killer);
     // Intern the victim type before snapshotting the thread-local test
@@ -10992,7 +10992,7 @@ fn gsi_08_05_a_garrison_shot_takes_the_f32_occupy_multiplier() {
     .expect("garrison rules parse");
     let mut store = EntityStore::new();
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
-    building.category = EntityCategory::Structure;
+    building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
     assert!(cargo.board(1, 1));
     building.passenger_role = crate::sim::passenger::PassengerRole::Transport { cargo };
@@ -11149,7 +11149,7 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     assert!(!rules.object("CAGAS").unwrap().trainable);
     let mut store = EntityStore::new();
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
-    building.category = EntityCategory::Structure;
+    building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
     assert!(cargo.board(1, 1));
     assert!(cargo.board(3, 1));
@@ -11157,7 +11157,7 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     store.insert(building);
     for id in [1, 3] {
         let mut occupant = make_infantry_entity(id, "E1", 5, 5, 125);
-        occupant.owner = test_intern("Soviet");
+        occupant.set_owner_for_test(test_intern("Soviet"));
         occupant.passenger_role = crate::sim::passenger::PassengerRole::Inside {
             transport_id: 10,
             open_topped: false,
@@ -11165,7 +11165,7 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
         store.insert(occupant);
     }
     let mut victim = make_infantry_entity(2, "E2", 8, 5, 1);
-    victim.owner = test_intern("Americans");
+    victim.set_owner_for_test(test_intern("Americans"));
     store.insert(victim);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 10, 2);
@@ -11217,7 +11217,7 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     .expect("mixed garrison fixture parses");
     let mut store = EntityStore::new();
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
-    building.category = EntityCategory::Structure;
+    building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
     assert!(cargo.board(1, 1));
     assert!(cargo.board(3, 1));
@@ -11231,7 +11231,7 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     };
     for (id, kind) in [(shooter, "E1"), (next, "E2")] {
         let mut occupant = make_infantry_entity(id, kind, 5, 5, 125);
-        occupant.owner = test_intern("Soviet");
+        occupant.set_owner_for_test(test_intern("Soviet"));
         occupant.passenger_role = crate::sim::passenger::PassengerRole::Inside {
             transport_id: 10,
             open_topped: false,
@@ -11239,7 +11239,7 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
         store.insert(occupant);
     }
     let mut victim = make_infantry_entity(2, "E3", 8, 5, 400);
-    victim.owner = test_intern("Americans");
+    victim.set_owner_for_test(test_intern("Americans"));
     store.insert(victim);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 10, 2);
@@ -12345,7 +12345,7 @@ fn gsi_08_33_direct_rocker_only_claims_a_vehicle_target() {
         let mut interner = test_interner();
         let mut entities = EntityStore::new();
         let mut target = make_entity(10, type_ref, 8, 5, 200);
-        target.category = category;
+        target.set_category_for_test(category);
         entities.insert(target);
         let occupancy = OccupancyGrid::new();
         let detonation = ProjectileDetonation {
@@ -12444,8 +12444,8 @@ fn a_drive_crusher_without_crusherall_leaves_a_plain_wall_standing() {
         let obj = rules.object(veh_type).expect("veh object");
         let veh_type_id = sim.interner.intern(veh_type);
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
-        veh.owner = owner_id;
-        veh.type_ref = veh_type_id;
+        veh.set_owner_for_test(owner_id);
+        veh.set_type_ref_for_test(veh_type_id);
         veh.regular_crusher = obj.crusher;
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));

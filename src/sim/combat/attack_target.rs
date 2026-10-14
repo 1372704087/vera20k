@@ -172,7 +172,7 @@ pub(crate) fn object_distance_to(
     let distance = crate::util::native_x87::distance_3d_leptons(from, to);
     if let TargetKind::Entity(id) = *target
         && let Some(building) = entities.get(id)
-        && building.category == EntityCategory::Structure
+        && building.category() == EntityCategory::Structure
     {
         let (width, height) = foundation_dimensions(&building.foundation);
         // Height query45ECA0 receives false: Bib never adds to this discount.

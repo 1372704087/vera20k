@@ -20,7 +20,8 @@
 mod departure;
 pub(crate) mod garrison_eject;
 pub(crate) use departure::{
-    DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
+    DepartureFailure, DepartureRoute, depart_cargo_head, exit_cell_position,
+    reveal_unloaded_passenger,
 };
 
 use std::collections::BTreeMap;

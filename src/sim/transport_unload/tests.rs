@@ -1475,6 +1475,54 @@ fn nighthawk_failed_ejection_keeps_cargo_and_leaves_for_guard() {
     assert_eq!(fx.cargo_ids(shad), held, "cargo still retained");
 }
 
+/// KickOutUnit raises no A8E7AC (`0x00415B10..0x00415C50`), so the
+/// passenger's Unlimbo runs Object's class +1AC query (`0x005F4F1B`) after
+/// PlaceInfantryInCell found him a free spot: an enemy infantryman standing
+/// in the landed aircraft's cell refuses him. The refusal takes the bounded
+/// escape above.
+#[test]
+fn nighthawk_passenger_is_refused_by_an_enemy_in_the_aircraft_cell() {
+    use crate::sim::house_state::HouseState;
+
+    let mut fx = Fixture::new(|_, _| false);
+    let owners: Vec<_> = [OWNER, "Russians"]
+        .into_iter()
+        .map(|name| {
+            let owner = fx.sim.interner.intern(name);
+            fx.sim
+                .houses
+                .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+            owner
+        })
+        .collect();
+    fx.sim.session.house_order = owners;
+    fx.sim.session.game_mode_nonzero = true;
+    let enemy = fx
+        .sim
+        .spawn_object("E1", "Russians", 20, 20, 0, &fx.rules)
+        .expect("enemy conscript");
+    assert!(fx.revealed(enemy));
+    let shad = fx.spawn("SHAD", 20, 20, 0);
+    let pax = fx.board(shad, 1);
+    set_altitude(&mut fx, shad, 0);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
+
+    for _ in 0..40 {
+        fx.sim.session.binary_frame += 1;
+        crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
+        if fx.mission(shad) == MissionId::from_known(MissionType::Guard) {
+            break;
+        }
+    }
+    assert_eq!(
+        fx.mission(shad),
+        MissionId::from_known(MissionType::Guard),
+        "the refused ejection leaves for Guard"
+    );
+    assert_eq!(fx.cargo_ids(shad), pax, "the passenger stays in the hold");
+    assert!(!fx.revealed(pax[0]));
+}
+
 #[test]
 fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
     use crate::sim::movement::locomotor::MovementLayer;

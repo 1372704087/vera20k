@@ -185,29 +185,52 @@ fn restore_departure(
     }
 }
 
-/// Reveal a cargo passenger at an exit cell. The passenger's `sub_cell` and
-/// `facing` must already be written by the caller; its role is cleared here.
-/// The shared admitted Unlimbo owns barrel elevation, Techno6F6ED2 spatial
-/// threat publication and Foot4D72F4's type coefficient copy before departure
-/// queues its Move. Original reader/kernel and coefficient-copy execution:
-/// tools/spatial_oracle/astar_threat_inputs.json and astar_mtnk_inputs.json.
-pub(crate) fn reveal_unloaded_passenger(
-    sim: &mut Simulation,
-    rules: &RuleSet,
-    transport_id: u64,
+/// The spot a caller already placed the passenger in at an exit cell: the
+/// passenger's `sub_cell` offset inside `(rx, ry)` at level `z`.
+pub(crate) fn exit_cell_position(
+    sim: &Simulation,
     passenger_id: u64,
     rx: u16,
     ry: u16,
     z: u8,
-    unlimbo_facing: Option<u8>,
-    effects: FrameEffects<'_>,
-) -> Result<(), DepartureFailure> {
+) -> RevealPosition {
     let sub_cell = sim
         .substrate
         .entities
         .get(passenger_id)
         .and_then(|passenger| passenger.sub_cell());
     let (sub_x, sub_y) = lepton::subcell_lepton_offset(sub_cell);
+    RevealPosition {
+        exact_z_leptons: None,
+        rx,
+        ry,
+        z,
+        sub_x,
+        sub_y,
+    }
+}
+
+/// Reveal a cargo passenger at `position` under the caller's Unlimbo
+/// evidence. A caller that raises A8E7AC around the Unlimbo (Mission_Unload
+/// `0x0073DA48..0x0073DB79`, the absorber `0x0044DA40..0x0044DB9D`) skips
+/// Object's class +1AC query (`0x005F4F1B..0x005F4F22`) and passes
+/// `MarkSucceeded`. The landed aircraft raises none and passes the class
+/// admission ([`Simulation::unlimbo_class_entry`]). The passenger's role is
+/// cleared here. The shared admitted Unlimbo owns barrel elevation,
+/// Techno6F6ED2 spatial threat publication and Foot4D72F4's type coefficient
+/// copy before departure queues its Move. Original reader/kernel and
+/// coefficient-copy execution: tools/spatial_oracle/astar_threat_inputs.json
+/// and astar_mtnk_inputs.json.
+pub(crate) fn reveal_unloaded_passenger(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    transport_id: u64,
+    passenger_id: u64,
+    position: RevealPosition,
+    placement: PlacementEvidence,
+    unlimbo_facing: Option<u8>,
+    effects: FrameEffects<'_>,
+) -> Result<(), DepartureFailure> {
     if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
         debug_assert_eq!(
             passenger.passenger_role.inside_transport_id(),
@@ -218,17 +241,8 @@ pub(crate) fn reveal_unloaded_passenger(
     let outcome = sim.try_reveal_entity_with_context(
         passenger_id,
         RevealRequest {
-            position: RevealPosition {
-                exact_z_leptons: None,
-                rx,
-                ry,
-                z,
-                sub_x,
-                sub_y,
-            },
-            // The caller already selected an unoccupied exit cell. The
-            // still-blocked native admission oracle is not fabricated here.
-            placement: PlacementEvidence::MarkSucceeded,
+            position,
+            placement,
             logic_eligible: true,
         },
         UninitContext::with_rules(rules)

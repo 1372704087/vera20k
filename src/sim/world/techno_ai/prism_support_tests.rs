@@ -208,7 +208,7 @@ impl Fixture {
         for &id in &spawned {
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             assert!(
-                entity.building_anim_slots.iter().all(Option::is_none),
+                entity.building_art.anim_slots().iter().all(Option::is_none),
                 "the oracle's anim slots start empty"
             );
             entity.mission.apply_test_fixture(MissionTestFixture {
@@ -426,11 +426,17 @@ fn location(sim: &Simulation, id: u64) -> [i32; 3] {
 }
 
 fn slot_anim(sim: &Simulation, id: u64, slot: usize) -> Option<String> {
-    sim.substrate.entities.get(id).unwrap().building_anim_slots[slot].map(|anim| {
-        sim.interner
-            .resolve(sim.anim(anim).unwrap().type_id)
-            .to_string()
-    })
+    sim.substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .building_art
+        .anim_slots()[slot]
+        .map(|anim| {
+            sim.interner
+                .resolve(sim.anim(anim).unwrap().type_id)
+                .to_string()
+        })
 }
 
 /// Every `recruit` row: Mission_Attack's arm for a GetFireError answering OK

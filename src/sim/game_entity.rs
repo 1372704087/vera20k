@@ -905,20 +905,11 @@ pub struct GameEntity {
     /// (`0x004501CB..0x004501F7`); only `production::factory_ai` reads it.
     #[serde(default)]
     pub(crate) ai_placement_timer: crate::sim::timer::CdTimer,
-    /// Retained Building+6E6 animation-transition flag (saved454469).
-    /// Selfheal and arbitrary health writes do not refresh this value.
+    /// The Building's animation art: its AnimClass slots, their replay
+    /// marks, the damaged-art flag, its StorageClass art, the Stuff flag and
+    /// the Grand_Opening guard. `sim::building_art` owns it.
     #[serde(default)]
-    pub building_damage_state_active: bool,
-    /// Building+55C's 21 retained AnimClass references. AnimStore owns the
-    /// animation objects and their scheduler/timers; these are slot identities.
-    #[serde(default)]
-    pub building_anim_slots: [Option<u64>; 21],
-    /// Building+5B0: effect slots marked for replay by4547C0, cleared by4545D0.
-    #[serde(default)]
-    pub building_anim_effect_replay: [bool; 21],
-    /// Retained raw StorageClass slots and last refinery animation tier.
-    #[serde(default)]
-    pub(crate) building_storage: crate::sim::building_art::BuildingStorage,
+    pub(crate) building_art: crate::sim::building_art::BuildingArt,
     /// Building+6C8: last4555D0 result, sampled for every Building by43FB20.
     #[serde(default)]
     pub building_last_operational: bool,
@@ -927,16 +918,10 @@ pub struct GameEntity {
     /// Removed_From_Game (`0x0050267D`) own it, in `sim::powered_unit`.
     #[serde(default)]
     pub(crate) building_powered_center: bool,
-    /// Building+6EA, constructor43B996 true; distinct from operational6C8.
-    #[serde(default = "default_true")]
-    pub building_stuff_enabled: bool,
     /// Building HasEngineer: starts false, changed-owner transfer sets true.
     /// Authored NeedsEngineer initialization consumes it; never infer from owner.
     #[serde(default)]
     pub building_has_engineer: bool,
-    /// Building+6E4: OnConstructionComplete's one-time allocation guard.
-    #[serde(default)]
-    pub building_actually_placed: bool,
     /// Persisted type fact needed to recreate the owned light on later Unlimbo.
     #[serde(default)]
     pub spotlight_capable: bool,
@@ -1861,15 +1846,10 @@ impl GameEntity {
             building_power_health_sample: 0,
             building_sale: None,
             ai_placement_timer: crate::sim::timer::CdTimer::default(),
-            building_damage_state_active: false,
-            building_anim_slots: [None; 21],
-            building_anim_effect_replay: [false; 21],
-            building_storage: Default::default(),
+            building_art: Default::default(),
             building_last_operational: false,
             building_powered_center: false,
-            building_stuff_enabled: true,
             building_has_engineer: false,
-            building_actually_placed: false,
             spotlight_capable: false,
             building_light: None,
             damage_fire_state_active: false,

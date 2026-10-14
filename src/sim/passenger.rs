@@ -906,22 +906,14 @@ pub(crate) fn process_boarding_passenger(
         }
 
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
+            // Boarding keeps the passenger's TarCom and passive flag:
+            // PerCellProcess's transport and building arms (Infantry
+            // `0x0051A3FC..0x0051A47E` and `0x0051A27F..0x0051A39D`, Unit
+            // `0x0073A28A..0x0073A31C` and `0x0073A6E8..0x0073A793`) write
+            // neither, nor does Limbo. A closed transport's rider has no AI
+            // turn to act on it; an open-topped one reaches the setter below.
             pax.passenger_role
                 .set_inside_transport(transport_id, transport_open_topped);
-            // RESIDUAL: native boarding keeps the passenger's TarCom and
-            // passive flag: PerCellProcess's transport arms (Infantry
-            // `0x0051A3FC..0x0051A47E`, Unit `0x0073A28A..0x0073A31C` and
-            // `0x0073A6E8..0x0073A793`) write neither, nor does Limbo. VERA
-            // clears both for a closed transport. Trigger: boarding a closed
-            // transport while holding a target, which the Enter order's class
-            // setter has already cleared, so only a target acquired after the
-            // order. Effect: native's passenger leaves the transport still
-            // holding it. Frequency: rare. Risk: an unloaded passenger does
-            // not resume that attack.
-            if !transport_open_topped {
-                pax.attack_target.set(None);
-                pax.passively_acquired_target = false;
-            }
         }
         if transport_open_topped {
             // `SetInOpenTransport @ 0x00710470` (Infantry `0x0051A45E`, Unit
@@ -976,9 +968,7 @@ pub(crate) fn process_boarding_passenger(
 /// RESIDUALS: the `Assaulter=` arm (`0x00522A09..0x00522A45`: the
 /// building's occupants are killed, and the assaulter drops its destination
 /// and scatters) is not represented; no retail infantry is an assaulter.
-/// VERA's passenger also drops its target (native Limbo keeps TarCom) and
-/// its movement and order state; an ejected occupant starts without a
-/// target.
+/// VERA's passenger also drops its movement and order state.
 pub(crate) fn add_garrison_occupant(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -1024,10 +1014,8 @@ pub(crate) fn add_garrison_occupant(
         return false;
     };
     if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
+        // Admission and Limbo keep the occupant's TarCom and passive flag.
         pax.passenger_role.set_inside_transport(building_id, false);
-        // The residual this function records: native Limbo keeps TarCom.
-        pax.attack_target.set(None);
-        pax.passively_acquired_target = false;
     }
     sim.refresh_spatial_threat(building_id, rules, None);
     if count == 1 {

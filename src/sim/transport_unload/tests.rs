@@ -618,6 +618,7 @@ fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_tra
     for (transport_type, other_house, keeps) in [
         ("BFRT", false, true),
         ("BFRT", true, false),
+        ("LCRF", true, true),
         ("SHAD", false, true),
     ] {
         let mut fx = Fixture::new(|_, _| false);
@@ -628,6 +629,7 @@ fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_tra
         let pax = fx.sim.substrate.entities.get_mut(passenger).unwrap();
         pax.attack_target.set_for_test(target);
         pax.passively_acquired_target = true;
+        pax.weapon_burst.complete_shot(3);
         if other_house {
             pax.set_owner_for_test(other);
         }
@@ -652,9 +654,13 @@ fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_tra
         if keeps {
             assert_eq!(pax.attack_target.target(), target, "{case}");
             assert!(pax.passively_acquired_target, "{case}");
+            assert_eq!(pax.weapon_burst.index(), 1, "{case}");
         } else {
+            // Through the class setter: its NULL arm resets the burst
+            // (`0x006FCF5B`), which a raw store would not.
             assert_eq!(pax.attack_target.target(), None, "{case}");
             assert!(!pax.passively_acquired_target, "{case}");
+            assert_eq!(pax.weapon_burst.index(), 0, "{case}");
         }
     }
 }

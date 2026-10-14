@@ -86,6 +86,19 @@ impl TarCom {
     ///   whose object is gone or dying. Native PointerExpired
     ///   (`0x007077C0`) has already cleared that target through the setter
     ///   when the object died ([`target_present`]).
+    ///
+    /// RESIDUAL: the stale cleanup is a raw store. Native's clear is
+    /// PointerExpired's TarCom arm: unless `allowClear` or the same-owner
+    /// test exempts it, it re-arms the targeting timer (`+0x180/+0x188`) from
+    /// a Scenario `RandomRanged(4, 8)` (`0x00707A0D`) when more than 10 frames
+    /// remain, then calls the setter (`vt+0x3C8(NULL)`, `0x00707A33`). VERA
+    /// runs that arm in the killing hit's announcement
+    /// (`Simulation::object_destroy_callback`) and UnInit's. Trigger: an
+    /// attacker still holds an object that is gone or dying without that
+    /// announcement having cleared it. Effect: no draw, no timer re-arm and
+    /// none of the setter's resets. Frequency: no production path is known to
+    /// leave such a handle. Risk: if one does, the Scenario stream skips a
+    /// draw.
     pub(crate) fn set(&mut self, target: Option<TargetKind>) {
         self.target = target;
     }
@@ -281,5 +294,32 @@ pub(super) fn attack_world_z_leptons(
         // Bullet::Fire468707 freezes that same unled aim. The flight/impact
         // owners separately resolve ground contact and the final detonation.
         TargetKind::Cell(rx, ry) => crate::sim::projectile::cell_target_coord(terrain, rx, ry).z,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The saved shape before [`TarCom`]: `Option<AttackTarget { target }>`.
+    #[derive(serde::Serialize)]
+    struct AttackTargetBefore {
+        target: TargetKind,
+    }
+
+    #[test]
+    fn tarcom_saves_the_bytes_of_the_optional_attack_target_it_replaced() {
+        for target in [
+            None,
+            Some(TargetKind::Entity(7)),
+            Some(TargetKind::Cell(1, 2)),
+        ] {
+            let before = target.map(|target| AttackTargetBefore { target });
+            assert_eq!(
+                bincode::serialize(&TarCom { target }).unwrap(),
+                bincode::serialize(&before).unwrap(),
+                "{target:?}"
+            );
+        }
     }
 }

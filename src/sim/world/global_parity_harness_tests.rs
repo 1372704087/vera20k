@@ -608,7 +608,14 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // flags in the same finished replay recovers the incoming 9F0CFB4D01682378;
 // all per-frame replay, gameplay and absolute RNG gates remain unchanged.
 // The diagnostic control was removed.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x08F7_A04E_1574_71DE;
+// 2026-10-14: hash composition and coverage only. state_hash folds
+// through the pinned StateHasher instead of std's DefaultHasher (a
+// temporary control folding the finished replay through DefaultHasher
+// still gave the previous 0x08F7_A04E_1574_71DE), fog grids and entities fold
+// as per-House and per-entity digests, cell grids and footprint lists
+// fold as packed byte records, and the edge cache also covers
+// uninitialized cells: code that writes no simulation state.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x6F38_B6BF_3787_953B;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a

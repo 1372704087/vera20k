@@ -7,12 +7,226 @@
 
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
-use crate::sim::components::{DriveCoord, Position};
+use crate::sim::components::DriveCoord;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::{FrameEffects, Simulation};
+use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::{
     BRIDGE_DECK_HEIGHT_LEPTONS, GROUND_LEVEL_HEIGHT_LEPTONS, ground_height_leptons,
 };
+
+/// World position in isometric cell coordinates plus sub-cell lepton offset.
+///
+/// RA2 uses leptons as its spatial unit (256 leptons = 1 cell). We store the
+/// cell coordinate (rx, ry) plus a sub-cell lepton offset (sub_x, sub_y) to
+/// get sub-cell precision without overflowing SimFixed on large maps.
+///
+/// It is an object's Location (`ObjectClass+0x9C..+0xA4`), owned by this
+/// module. Its writers are the gamemd Location writes: SetLocation
+/// ([`Self::put_location`], [`Self::put_world_xy`]), the in-cell offset
+/// ([`Self::put_cell_offset`]), the Z store ([`Self::put_z`]), SetHeight
+/// ([`Self::set_height`]), VERA's level cache ([`Self::store_level`]) and the
+/// whole-Location copy ([`Self::copy_from`]).
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct Position {
+    /// Isometric cell X coordinate.
+    rx: u16,
+    /// Isometric cell Y coordinate.
+    ry: u16,
+    /// Elevation level (0 = ground). Each level is 15px visual offset.
+    z: u8,
+    /// Exact native ObjectClass coordinate Z, in signed leptons.
+    ///
+    /// Ground movement retains ramp height at the native height-write points;
+    /// Drive/Ship residual XY interpolation can retain an earlier sampled Z.
+    /// TubeMovement also retains its signed interpolation remainder after exit.
+    /// Neither coordinate can be reconstructed from the coarse `z` level or
+    /// indiscriminately replaced with the current surface on idle ticks.
+    /// None is the legacy coarse/independent-altitude representation.
+    #[serde(default)]
+    exact_z_leptons: Option<i32>,
+    /// Sub-cell lepton offset X (0..256). 128 = cell center.
+    /// Provides sub-cell precision for smooth movement and accurate range checks.
+    sub_x: SimFixed,
+    /// Sub-cell lepton offset Y (0..256). 128 = cell center.
+    sub_y: SimFixed,
+}
+
+impl Position {
+    /// Cell (`rx`, `ry`) at level `z`, with the exact Z and the sub-cell offset.
+    pub(crate) const fn new(
+        rx: u16,
+        ry: u16,
+        z: u8,
+        exact_z_leptons: Option<i32>,
+        sub_x: SimFixed,
+        sub_y: SimFixed,
+    ) -> Self {
+        Self {
+            rx,
+            ry,
+            z,
+            exact_z_leptons,
+            sub_x,
+            sub_y,
+        }
+    }
+
+    /// Isometric cell X coordinate.
+    pub(crate) const fn rx(&self) -> u16 {
+        self.rx
+    }
+
+    /// Isometric cell Y coordinate.
+    pub(crate) const fn ry(&self) -> u16 {
+        self.ry
+    }
+
+    /// Elevation level (0 = ground).
+    pub(crate) const fn z(&self) -> u8 {
+        self.z
+    }
+
+    /// Exact native ObjectClass coordinate Z, in signed leptons; see the field.
+    pub(crate) const fn exact_z_leptons(&self) -> Option<i32> {
+        self.exact_z_leptons
+    }
+
+    /// Sub-cell lepton offset X (0..256).
+    pub(crate) const fn sub_x(&self) -> SimFixed {
+        self.sub_x
+    }
+
+    /// Sub-cell lepton offset Y (0..256).
+    pub(crate) const fn sub_y(&self) -> SimFixed {
+        self.sub_y
+    }
+
+    /// `ObjectClass::SetLocation @ 0x005F6940`: the Location becomes `coord`.
+    pub(crate) fn put_location(&mut self, coord: DriveCoord) {
+        self.put_world_xy([coord.x, coord.y]);
+        self.put_z(coord.z);
+    }
+
+    /// Store a Location's world XY, SetLocation's X and Y (`+0x9C`, `+0xA0`)
+    /// with the Z kept. On the map the cell is the Location's cell
+    /// (`0x0041BEA0`: each axis divided by 256 toward zero) and the sub-cell the
+    /// remainder. Off it the unsigned cell clamps to 0 or 65535 and the sub-cell
+    /// keeps the rest, so a negative or 16-bit-aliased coordinate from -32768 to
+    /// 65535 * 256 + 32767 still reads back unchanged through
+    /// [`position_world_xy`]; its native cell word comes from that full XY.
+    /// Beyond that range the sub-cell overflows (a debug panic, a wrap in
+    /// release), where native keeps any `i32`; no mover on a map reaches it.
+    pub(crate) fn put_world_xy(&mut self, xy: [i32; 2]) {
+        let [x, y] = xy;
+        let cell_x = crate::util::lepton::lepton_to_cell(x).clamp(0, i32::from(u16::MAX));
+        let cell_y = crate::util::lepton::lepton_to_cell(y).clamp(0, i32::from(u16::MAX));
+        self.rx = cell_x as u16;
+        self.ry = cell_y as u16;
+        self.sub_x = SimFixed::from_num(x.wrapping_sub(cell_x * 256));
+        self.sub_y = SimFixed::from_num(y.wrapping_sub(cell_y * 256));
+    }
+
+    /// The Location's XY inside its current cell: the cell stays and the
+    /// sub-cell offset becomes (`sub_x`, `sub_y`), which a Walk step may carry
+    /// past the cell's edge. Walk stages its step's proposed XY this way for the
+    /// crossing test (native keeps it in a local and sets it at `0x0075C20F`,
+    /// or keeps the old Location for the crossing at `0x0075C12E`); a naval
+    /// factory's exit puts its object at the cell centre after the `+0x1B4`
+    /// SetLocation; an authored infantry takes its sub-cell spot.
+    pub(crate) fn put_cell_offset(&mut self, sub_x: SimFixed, sub_y: SimFixed) {
+        self.sub_x = sub_x;
+        self.sub_y = sub_y;
+    }
+
+    /// The Location's Z (`ObjectClass+0xA4`) in signed leptons, as every
+    /// SetLocation, SetHeight (`0x005F5FFF`, `0x005F6047`), SetZ (`0x005F607A`,
+    /// `0x005F6092`) and the fall in `ObjectClass::AI` (`0x005F3F52`,
+    /// `0x005F3F60`) store it.
+    pub(crate) fn put_z(&mut self, z: i32) {
+        self.exact_z_leptons = Some(z);
+    }
+
+    /// `ObjectClass::SetHeight @ 0x005F5FA0` (every object vtable's `+0x1CC`)
+    /// writing the Location's Z: [`z_at_height`] over the ground under its XY.
+    ///
+    /// Callers that hold the object through a borrow call this where native runs
+    /// SetHeight unmarked: between Mark(REMOVE) and Mark(PUT), or with `+0x74`
+    /// cleared around it, as Drive (`0x004B1A88`, `0x004B209F`) and Walk
+    /// (`0x0075C1FB`) do. [`Simulation::set_object_height`] is the entry point for
+    /// an object id.
+    ///
+    /// Without resolved terrain, the headless movement hosts that pass their
+    /// PathGrid take the cell's level and slope from it. Otherwise (mapless
+    /// fixtures) every lookup would be the Dummy cell, whose constructor ground is
+    /// flat level 0. An unsupported slope leaves Z unchanged.
+    pub(crate) fn set_height(
+        &mut self,
+        on_bridge: bool,
+        height: i32,
+        terrain: Option<&ResolvedTerrainGrid>,
+        path_grid: Option<&PathGrid>,
+    ) {
+        let world_xy = position_world_xy(self);
+        let (level, slope) = ground_fields_at(world_xy, terrain, path_grid).unwrap_or((0, 0));
+        if let Some(ground) = supported_ground(level, slope, world_xy) {
+            self.put_z(z_at_height(ground, height, on_bridge));
+        }
+    }
+
+    /// Store the level the object stands at (`z`), VERA's cache of its cell's
+    /// level plus the deck when OnBridge
+    /// ([`stored_level`](super::movement_bridge::stored_level)). gamemd keeps
+    /// no such field; each mover that changes cell, Unlimbo and spawn placement
+    /// write it with the Location.
+    pub(crate) fn store_level(&mut self, level: u8) {
+        self.z = level;
+    }
+
+    /// Take `other` as the whole Location, its level and exact Z included: an
+    /// Unlimbo's SetLocation of the revealed object (vt+0x1B4 at `0x005F4FA8`),
+    /// an OpenTopped transport's riders taking its Location (`0x007104F0`), and
+    /// Walk putting back the Location its staged boundary step replaced.
+    pub(crate) fn copy_from(&mut self, other: Position) {
+        *self = other;
+    }
+
+    /// A fixture's cell X.
+    #[cfg(test)]
+    pub(crate) fn set_rx_for_test(&mut self, rx: u16) {
+        self.rx = rx;
+    }
+
+    /// A fixture's cell Y.
+    #[cfg(test)]
+    pub(crate) fn set_ry_for_test(&mut self, ry: u16) {
+        self.ry = ry;
+    }
+
+    /// A fixture's level.
+    #[cfg(test)]
+    pub(crate) fn set_z_for_test(&mut self, z: u8) {
+        self.z = z;
+    }
+
+    /// A fixture's exact Z.
+    #[cfg(test)]
+    pub(crate) fn set_exact_z_leptons_for_test(&mut self, exact_z_leptons: Option<i32>) {
+        self.exact_z_leptons = exact_z_leptons;
+    }
+
+    /// A fixture's sub-cell offset X.
+    #[cfg(test)]
+    pub(crate) fn set_sub_x_for_test(&mut self, sub_x: SimFixed) {
+        self.sub_x = sub_x;
+    }
+
+    /// A fixture's sub-cell offset Y.
+    #[cfg(test)]
+    pub(crate) fn set_sub_y_for_test(&mut self, sub_y: SimFixed) {
+        self.sub_y = sub_y;
+    }
+}
 
 impl Simulation {
     /// Object+1C4, Object5F6A10: query virtual+4C with a null requester,
@@ -68,7 +282,7 @@ impl Simulation {
             .get_mut(id)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(z));
+            .put_z(z);
         if marked {
             self.foot_mark_put(id, rules, registry, effects);
         }
@@ -150,7 +364,7 @@ pub(crate) fn navigation_should_be_on_bridge(
 }
 
 /// The world XY of an object's Location (`ObjectClass+0x9C`, `+0xA0`) from
-/// the cell and sub-cell [`set_position_world_xy`] stores.
+/// the cell and sub-cell [`Position::put_world_xy`] stores.
 pub(crate) fn position_world_xy(position: &Position) -> [i32; 2] {
     [
         i32::from(position.rx())
@@ -160,34 +374,6 @@ pub(crate) fn position_world_xy(position: &Position) -> [i32; 2] {
             .wrapping_mul(256)
             .wrapping_add(position.sub_y().to_num::<i32>()),
     ]
-}
-
-/// Store a Location's world XY. On the map the cell is the Location's cell
-/// (`0x0041BEA0`: each axis divided by 256 toward zero) and the sub-cell the
-/// remainder. Off it the unsigned cell clamps to 0 or 65535 and the sub-cell
-/// keeps the rest, so a negative or 16-bit-aliased coordinate from -32768 to
-/// 65535 * 256 + 32767 still reads back unchanged through
-/// [`position_world_xy`]; its native cell word comes from that full XY.
-/// Beyond that range the sub-cell overflows (a debug panic, a wrap in
-/// release), where native keeps any `i32`; no mover on a map reaches it.
-pub(crate) fn set_position_world_xy(position: &mut Position, xy: [i32; 2]) {
-    let [x, y] = xy;
-    let cell_x = crate::util::lepton::lepton_to_cell(x).clamp(0, i32::from(u16::MAX));
-    let cell_y = crate::util::lepton::lepton_to_cell(y).clamp(0, i32::from(u16::MAX));
-    position.set_rx(cell_x as u16);
-    position.set_ry(cell_y as u16);
-    position.set_sub_x(crate::util::fixed_math::SimFixed::from_num(
-        x.wrapping_sub(cell_x * 256),
-    ));
-    position.set_sub_y(crate::util::fixed_math::SimFixed::from_num(
-        y.wrapping_sub(cell_y * 256),
-    ));
-}
-
-/// `ObjectClass::SetLocation @ 0x005F6940`: the Location becomes `coord`.
-pub(crate) fn put_location(position: &mut Position, coord: DriveCoord) {
-    set_position_world_xy(position, [coord.x, coord.y]);
-    position.set_exact_z_leptons(Some(coord.z));
 }
 
 /// `FootClass::SetLocation` (vt+0x1B4 = `0x004DB810`): the Location becomes
@@ -237,7 +423,7 @@ pub(crate) fn foot_set_location(
         return;
     };
     let changed = position_world_coord(&entity.position) != coord;
-    put_location(&mut entity.position, coord);
+    entity.position.put_location(coord);
     if let (true, Some(rules)) = (changed, rules) {
         crate::sim::passenger::open_topped_riders_follow(entities, id, rules, interner);
     }
@@ -509,33 +695,6 @@ pub(crate) fn height_at_z(z: i32, ground: i32, on_bridge: bool) -> i32 {
     })
 }
 
-/// `ObjectClass::SetHeight @ 0x005F5FA0` (every object vtable's `+0x1CC`)
-/// writing the Location's Z: [`z_at_height`] over the ground under its XY.
-///
-/// Callers that hold the object through a borrow call this where native runs
-/// SetHeight unmarked: between Mark(REMOVE) and Mark(PUT), or with `+0x74`
-/// cleared around it, as Drive (`0x004B1A88`, `0x004B209F`) and Walk
-/// (`0x0075C1FB`) do. [`Simulation::set_object_height`] is the entry point for
-/// an object id.
-///
-/// Without resolved terrain, the headless movement hosts that pass their
-/// PathGrid take the cell's level and slope from it. Otherwise (mapless
-/// fixtures) every lookup would be the Dummy cell, whose constructor ground is
-/// flat level 0. An unsupported slope leaves Z unchanged.
-pub(crate) fn set_height(
-    position: &mut Position,
-    on_bridge: bool,
-    height: i32,
-    terrain: Option<&ResolvedTerrainGrid>,
-    path_grid: Option<&PathGrid>,
-) {
-    let world_xy = position_world_xy(position);
-    let (level, slope) = ground_fields_at(world_xy, terrain, path_grid).unwrap_or((0, 0));
-    if let Some(ground) = supported_ground(level, slope, world_xy) {
-        position.set_exact_z_leptons(Some(z_at_height(ground, height, on_bridge)));
-    }
-}
-
 impl Simulation {
     /// `FootClass::SetLocation` in full: a marked object (`+0x74`) leaves its
     /// cell through Mark(UP) and rejoins it through Mark(DOWN) around the
@@ -613,12 +772,8 @@ impl Simulation {
             return;
         };
         let on_bridge = entity.on_bridge();
-        set_height(
-            &mut entity.position,
-            on_bridge,
-            height,
-            self.resolved_terrain.as_ref(),
-            None,
-        );
+        entity
+            .position
+            .set_height(on_bridge, height, self.resolved_terrain.as_ref(), None);
     }
 }

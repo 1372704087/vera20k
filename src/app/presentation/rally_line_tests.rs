@@ -275,10 +275,7 @@ fn simulation_fixture_for_type(
             let target_id = first_id + 1;
             let mut target =
                 GameEntity::test_default(target_id, "MTNK", owner, tx as u16, ty as u16);
-            crate::sim::movement::ground_pose::put_location(
-                &mut target.position,
-                DriveCoord { x, y, z },
-            );
+            target.position.put_location(DriveCoord { x, y, z });
             sim.entities_mut().insert(target);
             entity.set_archive_target(Some(TargetKind::Entity(target_id)));
         } else {
@@ -292,10 +289,7 @@ fn simulation_fixture_for_type(
     for (index, [x, y, z]) in sources.into_iter().enumerate() {
         let mut factory = entity.clone();
         factory.set_stable_id_for_test(first_id + index as u64);
-        crate::sim::movement::ground_pose::put_location(
-            &mut factory.position,
-            DriveCoord { x, y, z },
-        );
+        factory.position.put_location(DriveCoord { x, y, z });
         let coords = crate::sim::movement::ground_pose::object_get_coords(&factory, None);
         let expected = if input.get("sources").is_some() {
             &row["source_coords"][index]
@@ -814,10 +808,10 @@ fn production_rally_workload_timing() {
             entity.set_stable_id_for_test(id);
             entity
                 .position
-                .set_rx(entity.position.rx() + (id % 8) as u16);
+                .set_rx_for_test(entity.position.rx() + (id % 8) as u16);
             entity
                 .position
-                .set_ry(entity.position.ry() + (id % 5) as u16);
+                .set_ry_for_test(entity.position.ry() + (id % 5) as u16);
             sim.entities_mut().insert(entity);
         }
         let mut samples = Vec::new();
@@ -899,14 +893,11 @@ fn production_rally_workload_timing() {
             let mut entity = template.clone();
             entity.set_stable_id_for_test(id);
             entity.selection.set_selected_for_test(selected);
-            ground_pose::put_location(
-                &mut entity.position,
-                DriveCoord {
-                    x: source.x + 8 * ((id - 1) % 32) as i32,
-                    y: source.y + 8 * (((id - 1) / 32) % 32) as i32,
-                    z: source.z,
-                },
-            );
+            entity.position.put_location(DriveCoord {
+                x: source.x + 8 * ((id - 1) % 32) as i32,
+                y: source.y + 8 * (((id - 1) / 32) % 32) as i32,
+                z: source.z,
+            });
             sim.entities_mut().insert(entity);
         }
         let mut samples = Vec::new();

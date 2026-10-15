@@ -93,11 +93,15 @@ fn empty_fv_two_shot_fireat_matches_native_muzzles_ids_rearm_and_rng() {
         let input = &rows[0]["supplied"];
         let origin = coord(&input["source_origin"]);
         let firer = world.substrate.entities.get_mut(firer_id).unwrap();
-        firer.position.set_rx((origin.x / 256) as u16);
-        firer.position.set_ry((origin.y / 256) as u16);
-        firer.position.set_sub_x(SimFixed::from_num(origin.x % 256));
-        firer.position.set_sub_y(SimFixed::from_num(origin.y % 256));
-        firer.position.set_exact_z_leptons(Some(origin.z));
+        firer.position.set_rx_for_test((origin.x / 256) as u16);
+        firer.position.set_ry_for_test((origin.y / 256) as u16);
+        firer
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(origin.x % 256));
+        firer
+            .position
+            .set_sub_y_for_test(SimFixed::from_num(origin.y % 256));
+        firer.position.set_exact_z_leptons_for_test(Some(origin.z));
         firer.body_facing = FacingClass::new(input["body_heading"].as_u64().unwrap() as u16, 0);
         firer.barrel_facing = Some(FacingClass::new(
             input["source_heading"].as_u64().unwrap() as u16,

@@ -6210,8 +6210,8 @@ mod tests {
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.set_cell_marked(false);
         entity.in_logic_vector.set_for_test(true);
-        entity.position.set_z(3);
-        entity.position.set_exact_z_leptons(Some(-37));
+        entity.position.set_z_for_test(3);
+        entity.position.set_exact_z_leptons_for_test(Some(-37));
         entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
             TubeId(9),
             2,

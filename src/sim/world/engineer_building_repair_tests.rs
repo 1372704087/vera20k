@@ -232,7 +232,7 @@ impl Fixture {
         {
             let entity = sim.substrate.entities.get_mut(building).unwrap();
             entity.finish_building_construction_for_test();
-            ground_pose::put_location(&mut entity.position, coord(&before["position"]));
+            entity.position.put_location(coord(&before["position"]));
             entity.health.set_for_test(int(&before["actual_hp"]));
             entity.estimated_health.reset(int(&before["estimated_hp"]));
             entity.repairing.set_for_test(before["paid_repair"] == 1);

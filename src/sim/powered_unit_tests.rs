@@ -46,11 +46,10 @@ fn offline_sparks_match_original_execution() {
         let name = row["name"].as_str().unwrap();
         let location = [0, 1, 2].map(|axis| int(&row["location"][axis]));
         let mut entity = GameEntity::test_default(1, "ROBO", "Americans", 0, 0);
-        crate::sim::movement::ground_pose::set_position_world_xy(
-            &mut entity.position,
-            [location[0], location[1]],
-        );
-        entity.position.set_exact_z_leptons(Some(location[2]));
+        entity.position.put_world_xy([location[0], location[1]]);
+        entity
+            .position
+            .set_exact_z_leptons_for_test(Some(location[2]));
         entity.set_native_unique_id_for_test(int(&row["id"]));
         entity
             .deactivated

@@ -109,8 +109,8 @@ fn escape_counter_matches_native_cell_list_and_raw_owner_gates() {
             blocker.set_owner_for_test(enemy);
             blocker.set_type_ref_for_test(sim.intern(name));
             blocker.set_category_for_test(category);
-            blocker.position.set_sub_x(SimFixed::from_num(128));
-            blocker.position.set_sub_y(SimFixed::from_num(128));
+            blocker.position.set_sub_x_for_test(SimFixed::from_num(128));
+            blocker.position.set_sub_y_for_test(SimFixed::from_num(128));
             blocker.set_foot_occupation_enabled(true);
             let moving = input["occupant"] == "moving";
             if infantry {

@@ -202,7 +202,7 @@ fn a_parachute_landing_in_its_own_cell_runs_the_foot_body() {
     entity.set_owner_for_test(sim.intern("Americans"));
     entity.set_type_ref_for_test(sim.intern("E1"));
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
-    entity.position.set_exact_z_leptons(Some(2));
+    entity.position.set_exact_z_leptons_for_test(Some(2));
     entity.set_falling_down_for_test(true);
     entity.set_fall_rate_for_test(-3);
     sim.substrate.entities.insert(entity);
@@ -263,9 +263,9 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
         super::super::RevealOutcome::Revealed { .. }
     ));
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.position.set_sub_x(SimFixed::from_num(128));
-    entity.position.set_sub_y(SimFixed::from_num(128));
-    entity.position.set_exact_z_leptons(Some(0));
+    entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+    entity.position.set_sub_y_for_test(SimFixed::from_num(128));
+    entity.position.set_exact_z_leptons_for_test(Some(0));
     entity
         .navigation
         .set_nav_com(Some(NavTargetRef::cell(10, 10)));

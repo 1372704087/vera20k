@@ -627,12 +627,10 @@ pub(in crate::sim) fn exit_produced_object(
         {
             // Native +0x124/+0x1B4/+0x124 success tail writes the
             // selected CellClass centre after rally/mission assignment.
-            entity
-                .position
-                .set_sub_x(crate::util::lepton::CELL_CENTER_LEPTON);
-            entity
-                .position
-                .set_sub_y(crate::util::lepton::CELL_CENTER_LEPTON);
+            entity.position.put_cell_offset(
+                crate::util::lepton::CELL_CENTER_LEPTON,
+                crate::util::lepton::CELL_CENTER_LEPTON,
+            );
         }
     }
     BuildingExit::Placed

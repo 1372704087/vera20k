@@ -1270,7 +1270,7 @@ fn a_bridge_strike_hits_the_deck_only() {
         entity.health = Health::new(100);
         entity.set_on_bridge(on_bridge);
         if on_bridge {
-            entity.position.set_z(4);
+            entity.position.set_z_for_test(4);
         }
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.set_cell_marked(true);

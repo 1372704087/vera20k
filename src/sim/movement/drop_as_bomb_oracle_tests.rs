@@ -59,7 +59,7 @@ mod tests {
             if input["parachuted"].as_i64() == Some(1) {
                 entity.begin_parachute_fall(z);
             } else {
-                entity.position.set_exact_z_leptons(Some(z));
+                entity.position.set_exact_z_leptons_for_test(Some(z));
                 entity.begin_bomb_fall();
             }
             entity.set_fall_rate_for_test(int(input, "rate", 0));
@@ -109,7 +109,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(1, "E1", "Americans", 10, 10);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.position.set_exact_z_leptons(Some(416));
+        entity.position.set_exact_z_leptons_for_test(Some(416));
         entity.set_on_bridge(true);
         entity.set_fall_rate_for_test(int(&row["input"], "rate", 0));
         sim.substrate.entities.insert(entity);

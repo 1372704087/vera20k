@@ -562,12 +562,12 @@ fn step(s: &mut Scene, step: &Value, context: &str) {
                 .occupancy
                 .listed_layer(old.0, old.1, s.miner)
                 .unwrap();
-            e.position.set_rx(rx);
-            e.position.set_ry(ry);
+            e.position.set_rx_for_test(rx);
+            e.position.set_ry_for_test(ry);
             e.position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(128));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(128));
             e.position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(128));
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(128));
             let drive = e.locomotor.as_mut().unwrap();
             assert!(drive.store_track_destination(
                 crate::sim::movement::track_process::TrackFamily::Drive,

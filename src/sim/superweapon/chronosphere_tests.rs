@@ -177,15 +177,12 @@ pub(crate) fn place(
         .unwrap_or_else(|| panic!("{kind} constructs at {x},{y}"));
     let frame = sim.session.binary_frame;
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    crate::sim::movement::ground_pose::put_location(
-        &mut entity.position,
-        DriveCoord {
-            x: i32::from(x) * 256 + 128,
-            y: i32::from(y) * 256 + 128,
-            z: i32::from(level + deck) * 104,
-        },
-    );
-    entity.position.set_z(level + deck);
+    entity.position.put_location(DriveCoord {
+        x: i32::from(x) * 256 + 128,
+        y: i32::from(y) * 256 + 128,
+        z: i32::from(level + deck) * 104,
+    });
+    entity.position.set_z_for_test(level + deck);
     entity.set_on_bridge(bridge);
     if latch {
         entity

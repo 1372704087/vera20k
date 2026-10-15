@@ -390,8 +390,8 @@ fn unload_orders_each_loaded_transport_off_buildings() {
     f.spawn("GAPOWR", 8, 20);
     {
         let entity = f.sim.substrate.entities.get_mut(parked).unwrap();
-        entity.position.set_rx(9);
-        entity.position.set_ry(21);
+        entity.position.set_rx_for_test(9);
+        entity.position.set_ry_for_test(21);
     }
     let before = ordered(f.entity(parked));
     let team = f.team(&[parked]);
@@ -783,10 +783,9 @@ impl OracleTeam {
                 .spawn_object_at_height(name, "Russians", rx, ry, 0, 0, &rules)
                 .unwrap_or_else(|| panic!("{name} spawns"));
             let entity = sim.substrate.entities.get_mut(id).unwrap();
-            crate::sim::movement::ground_pose::put_location(
-                &mut entity.position,
-                crate::sim::components::DriveCoord { x, y, z },
-            );
+            entity
+                .position
+                .put_location(crate::sim::components::DriveCoord { x, y, z });
             id
         };
         let zone = place(

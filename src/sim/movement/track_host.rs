@@ -7,7 +7,7 @@
 //! playfield receivers. Discovery/tag4, crates and the refinery radio branch
 //! remain explicit receiver gaps; this host does not replay object AI for them.
 
-use super::ground_pose::{position_world_coord, set_height};
+use super::ground_pose::position_world_coord;
 use super::locomotor::MovementLayer;
 use super::track_process::{TrackFamily, TrackInvocation, TrackPayment, TrackProcess};
 use crate::map::entities::EntityCategory;
@@ -504,8 +504,7 @@ impl Simulation {
                 let marked = entity.lifecycle.cell_marked();
                 entity.lifecycle.set_cell_marked(false);
                 let on_bridge = entity.on_bridge();
-                set_height(
-                    &mut entity.position,
+                entity.position.set_height(
                     on_bridge,
                     0,
                     self.resolved_terrain.as_ref(),
@@ -736,16 +735,17 @@ impl Simulation {
             {
                 // The terminal point skips the bridge predicate but still
                 // enters a new cell.
-                entity.position.set_z(super::movement_bridge::stored_level(
-                    entered.ground_level,
-                    entity.on_bridge(),
-                ));
+                entity
+                    .position
+                    .store_level(super::movement_bridge::stored_level(
+                        entered.ground_level,
+                        entity.on_bridge(),
+                    ));
             }
         }
         if terminal && let Some(entity) = self.substrate.entities.get_mut(id) {
             let on_bridge = entity.on_bridge();
-            set_height(
-                &mut entity.position,
+            entity.position.set_height(
                 on_bridge,
                 0,
                 self.resolved_terrain.as_ref(),

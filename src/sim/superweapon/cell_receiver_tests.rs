@@ -3,8 +3,8 @@ use super::SuperWeaponInstance;
 use crate::map::resolved_terrain::ResolvedTerrainCell;
 use crate::rules::terrain_rules::SpeedCostProfile;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+use crate::sim::components::DriveCoord;
 use crate::sim::{command::Command, house_state::HouseState, production, world::Simulation};
-use crate::sim::{components::DriveCoord, movement::ground_pose};
 
 fn fixture() -> (Simulation, RuleSet) {
     fixture_with_extra("")
@@ -153,14 +153,16 @@ fn held_infantry_survives_launch(name: &str) {
         )
         .unwrap();
     // Supplied unmarked Cell0,0 pose, independent of the fresh constructor.
-    ground_pose::put_location(
-        &mut sim.substrate.entities.get_mut(twin).unwrap().position,
-        DriveCoord {
+    sim.substrate
+        .entities
+        .get_mut(twin)
+        .unwrap()
+        .position
+        .put_location(DriveCoord {
             x: 128,
             y: 128,
             z: 0,
-        },
-    );
+        });
     let marked = sim
         .spawn_object_at_height("E1", "Americans", 1, 1, 0, 0, &rules)
         .unwrap();
@@ -588,15 +590,12 @@ fn genetic_converter_command_uses_selected_bridge_membership() {
             .unwrap();
         {
             let actor = sim.substrate.entities.get_mut(id).unwrap();
-            ground_pose::put_location(
-                &mut actor.position,
-                DriveCoord {
-                    x: 1408,
-                    y: 1408,
-                    z: 416,
-                },
-            );
-            actor.position.set_z(4);
+            actor.position.put_location(DriveCoord {
+                x: 1408,
+                y: 1408,
+                z: 416,
+            });
+            actor.position.set_z_for_test(4);
             actor.set_on_bridge(true);
         }
         assert!(matches!(
@@ -665,10 +664,12 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
     // receiver. Ordinary Infantry Unlimbo refuses a tank's raw vehicle bit;
     // this test does not claim that ordinary spawning creates this prestate.
     for id in [over_strength, wounded] {
-        ground_pose::put_location(
-            &mut sim.substrate.entities.get_mut(id).unwrap().position,
-            DriveCoord::cell(5, 5, 0),
-        );
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .position
+            .put_location(DriveCoord::cell(5, 5, 0));
         assert!(matches!(
             sim.reveal(id),
             crate::sim::world::RevealOutcome::Revealed { .. }
@@ -755,15 +756,12 @@ fn iron_curtain_command_selects_deck_members_and_overlapping_foundation() {
         .unwrap();
     {
         let actor = sim.substrate.entities.get_mut(deck).unwrap();
-        ground_pose::put_location(
-            &mut actor.position,
-            DriveCoord {
-                x: 1408,
-                y: 1408,
-                z: 416,
-            },
-        );
-        actor.position.set_z(4);
+        actor.position.put_location(DriveCoord {
+            x: 1408,
+            y: 1408,
+            z: 416,
+        });
+        actor.position.set_z_for_test(4);
         actor.set_on_bridge(true);
     }
     sim.reveal(deck);
@@ -785,14 +783,16 @@ fn iron_curtain_command_selects_deck_members_and_overlapping_foundation() {
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
-    ground_pose::put_location(
-        &mut sim.substrate.entities.get_mut(twin).unwrap().position,
-        DriveCoord {
+    sim.substrate
+        .entities
+        .get_mut(twin)
+        .unwrap()
+        .position
+        .put_location(DriveCoord {
             x: 1152,
             y: 1152,
             z: 0,
-        },
-    );
+        });
     assert!(
         sim.substrate
             .occupancy
@@ -975,15 +975,12 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .unwrap();
     {
         let actor = sim.substrate.entities.get_mut(tank).unwrap();
-        ground_pose::put_location(
-            &mut actor.position,
-            DriveCoord {
-                x: 1408,
-                y: 1408,
-                z: 728,
-            },
-        );
-        actor.position.set_z(7);
+        actor.position.put_location(DriveCoord {
+            x: 1408,
+            y: 1408,
+            z: 728,
+        });
+        actor.position.set_z_for_test(7);
         actor.set_on_bridge(true);
     }
     sim.reveal(tank);
@@ -1008,15 +1005,12 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .unwrap();
     {
         let actor = sim.substrate.entities.get_mut(boomer).unwrap();
-        ground_pose::put_location(
-            &mut actor.position,
-            DriveCoord {
-                x: 1408,
-                y: 1408,
-                z: 728,
-            },
-        );
-        actor.position.set_z(7);
+        actor.position.put_location(DriveCoord {
+            x: 1408,
+            y: 1408,
+            z: 728,
+        });
+        actor.position.set_z_for_test(7);
         actor.set_on_bridge(true);
     }
     sim.reveal(boomer);
@@ -1042,15 +1036,12 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .unwrap();
     {
         let actor = sim.substrate.entities.get_mut(unmarked).unwrap();
-        ground_pose::put_location(
-            &mut actor.position,
-            DriveCoord {
-                x: 1408,
-                y: 1408,
-                z: 728,
-            },
-        );
-        actor.position.set_z(7);
+        actor.position.put_location(DriveCoord {
+            x: 1408,
+            y: 1408,
+            z: 728,
+        });
+        actor.position.set_z_for_test(7);
         actor.set_on_bridge(true);
     }
     launch_command(&mut sim, &rules, "IC", 5, 5);

@@ -958,8 +958,8 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
         arena.sim.remove_entity_occupancy(id);
         let entity = arena.sim.substrate.entities.get_mut(id).unwrap();
         entity.set_on_bridge(true);
-        entity.position.set_z(4);
-        entity.position.set_exact_z_leptons(Some(deck));
+        entity.position.set_z_for_test(4);
+        entity.position.set_exact_z_leptons_for_test(Some(deck));
         arena.sim.add_entity_occupancy(id);
     }
     arena.attack(dog, gi);
@@ -1028,7 +1028,7 @@ fn a_parasite_is_placed_at_a_falling_victim_below_the_air_line() {
             .get_mut(victim)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(height));
+            .set_exact_z_leptons_for_test(Some(height));
         arena
             .sim
             .parasite_can_place_at_victim(drone, victim, &rules)
@@ -1078,7 +1078,7 @@ fn naval_owner_water_gate_matches_original_can_infect() {
                 .get_mut(victim)
                 .unwrap()
                 .position
-                .set_rx(200);
+                .set_rx_for_test(200);
         }
         assert_eq!(
             arena.sim.parasite_can_infect(owner, Some(victim), &rules),

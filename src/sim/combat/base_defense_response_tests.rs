@@ -731,15 +731,15 @@ fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
         for (id, input) in [(victim, &row["victim"]), (defender, &row["input"])] {
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             let xyz = native::coord(&input["current"]);
-            entity.position.set_rx((xyz.x / 256) as u16);
-            entity.position.set_ry((xyz.y / 256) as u16);
+            entity.position.set_rx_for_test((xyz.x / 256) as u16);
+            entity.position.set_ry_for_test((xyz.y / 256) as u16);
             entity
                 .position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(xyz.x % 256));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(xyz.x % 256));
             entity
                 .position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(xyz.y % 256));
-            entity.position.set_exact_z_leptons(Some(xyz.z));
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(xyz.y % 256));
+            entity.position.set_exact_z_leptons_for_test(Some(xyz.z));
             {
                 let loco = entity.locomotor.as_mut().unwrap();
                 assert!(loco.ensure_installed_track_state());

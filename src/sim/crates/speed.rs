@@ -82,8 +82,8 @@ mod tests {
                 5,
                 true,
             );
-            entity.position.set_sub_x(SimFixed::from_num(128));
-            entity.position.set_sub_y(SimFixed::from_num(128));
+            entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+            entity.position.set_sub_y_for_test(SimFixed::from_num(128));
             sim.substrate.entities.insert(entity);
             if id != 3 {
                 sim.try_reveal_entity(
@@ -201,15 +201,15 @@ mod tests {
                     });
                 let x = 2688 + delta[0];
                 let y = 2688 + delta[1];
-                entity.position.set_rx(x.div_euclid(256) as u16);
-                entity.position.set_ry(y.div_euclid(256) as u16);
+                entity.position.set_rx_for_test(x.div_euclid(256) as u16);
+                entity.position.set_ry_for_test(y.div_euclid(256) as u16);
                 entity
                     .position
-                    .set_sub_x(SimFixed::from_num(x.rem_euclid(256)));
+                    .set_sub_x_for_test(SimFixed::from_num(x.rem_euclid(256)));
                 entity
                     .position
-                    .set_sub_y(SimFixed::from_num(y.rem_euclid(256)));
-                entity.position.set_exact_z_leptons(Some(delta[2]));
+                    .set_sub_y_for_test(SimFixed::from_num(y.rem_euclid(256)));
+                entity.position.set_exact_z_leptons_for_test(Some(delta[2]));
                 // JSON's approximate f64 decoder can round the lower neighbor
                 // of1.0 to1.0. Use the bytes observed before original execution.
                 let factor = NativeF64Bits::from_bits(

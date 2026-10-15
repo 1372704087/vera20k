@@ -809,7 +809,7 @@ mod tests {
         };
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(2, "PEER", "Americans", 0, 0);
-        super::super::ground_pose::put_location(&mut entity.position, current);
+        entity.position.put_location(current);
         entity.locomotor = Some(super::super::locomotor::LocomotorState::for_test_kind(
             family,
         ));
@@ -1038,7 +1038,7 @@ mod tests {
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Drive),
         );
-        peer.position.set_z(4);
+        peer.position.set_z_for_test(4);
         peer.set_on_bridge(true);
         let loco = peer.locomotor.as_mut().unwrap();
         loco.ensure_installed_track_state();
@@ -1107,7 +1107,7 @@ mod tests {
         let mut peer =
             crate::sim::game_entity::GameEntity::test_default(2, "HOVER", "Americans", 4, 3);
         peer.set_type_ref_for_test(hover_type);
-        peer.position.set_z(7);
+        peer.position.set_z_for_test(7);
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover),
         );
@@ -1191,7 +1191,7 @@ mod tests {
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover),
         );
-        peer.position.set_exact_z_leptons(Some(120));
+        peer.position.set_exact_z_leptons_for_test(Some(120));
         entities.insert(peer);
 
         let mut occupancy = OccupancyGrid::new();
@@ -1218,7 +1218,7 @@ mod tests {
             .get_mut(2)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(104));
+            .set_exact_z_leptons_for_test(Some(104));
         let inclusive_boundary = snapshot_bridge_marker_peers(&entities, None, &interner);
         assert_eq!(
             find_nearby_bridge_peer_suffix(&inclusive_boundary, &occupancy, &grid, (5, 4), 0, None),

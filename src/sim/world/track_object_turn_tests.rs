@@ -393,11 +393,11 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
         .get_mut(1)
         .unwrap()
         .position
-        .set_rx(5);
+        .set_rx_for_test(5);
     sim.add_unit_sensor_after_unlimbo(1, &rules);
     let owner = sim.substrate.entities.get(1).unwrap().owner();
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.set_rx(10);
+    entity.position.set_rx_for_test(10);
     entity
         .navigation
         .set_nav_com(Some(NavTargetRef::cell(10, 10)));

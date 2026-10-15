@@ -918,7 +918,6 @@ mod tests {
         use crate::rules::ini_parser::IniFile;
         use crate::sim::components::DriveCoord;
         use crate::sim::game_entity::GameEntity;
-        use crate::sim::movement::ground_pose;
         let data: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "src/sim/production/fixtures/infantry_exit_native.json",
         ))
@@ -959,7 +958,7 @@ mod tests {
                 crate::map::entities::EntityCategory::Structure,
             );
             producer.type_facts.set_foundation_for_test("3x2".into());
-            ground_pose::put_location(&mut producer.position, location);
+            producer.position.put_location(location);
             let dock = (number("dock", 0) as i16, number("dock", 1) as i16);
             let producer_type = rules.object("GAPILE").unwrap();
             assert_eq!(

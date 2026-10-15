@@ -1360,7 +1360,7 @@ mod tests {
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.set_in_limbo_for_test(false);
             air.lifecycle.set_cell_marked(true);
-            air.position.set_exact_z_leptons(Some(altitude));
+            air.position.set_exact_z_leptons_for_test(Some(altitude));
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object(type_id).unwrap(),
                 0,
@@ -1450,8 +1450,10 @@ mod tests {
         let mut entities = EntityStore::new();
         for (stable_id, rx, sub_x) in [(320, 11, 192), (384, 12, 0), (385, 12, 1), (386, 12, 2)] {
             let mut target = GameEntity::test_default(stable_id, "MTNK", "Soviet", rx, 10);
-            target.position.set_sub_x(SimFixed::from_num(sub_x));
-            target.position.set_sub_y(CELL_CENTER_LEPTON);
+            target
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(sub_x));
+            target.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
             target.health.set_for_test(300);
             entities.insert(target);
         }
@@ -1658,8 +1660,8 @@ mod tests {
             let mut vulnerable = GameEntity::test_default(1, "TARGET", "Victim", 5, 5);
             vulnerable.set_type_ref_for_test(target_ref);
             vulnerable.set_owner_for_test(victim_owner);
-            vulnerable.position.set_sub_x(CELL_CENTER_LEPTON);
-            vulnerable.position.set_sub_y(CELL_CENTER_LEPTON);
+            vulnerable.position.set_sub_x_for_test(CELL_CENTER_LEPTON);
+            vulnerable.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
             vulnerable.lifecycle.set_in_limbo_for_test(false);
             vulnerable.lifecycle.set_cell_marked(true);
             entities.insert(vulnerable);
@@ -1667,12 +1669,12 @@ mod tests {
             let mut protected = GameEntity::test_default(2, "TARGET", "Victim", 5, 5);
             protected.set_type_ref_for_test(target_ref);
             protected.set_owner_for_test(victim_owner);
-            protected.position.set_sub_x(SimFixed::from_num(
+            protected.position.set_sub_x_for_test(SimFixed::from_num(
                 CELL_CENTER_LEPTON
                     .to_num::<i32>()
                     .wrapping_add(protected_distance),
             ));
-            protected.position.set_sub_y(CELL_CENTER_LEPTON);
+            protected.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
             protected.lifecycle.set_in_limbo_for_test(false);
             protected.lifecycle.set_cell_marked(true);
             protected.invulnerability = Some(InvulnerabilityState::new(
@@ -1831,7 +1833,7 @@ mod tests {
                 air.set_category_for_test(EntityCategory::Aircraft);
                 air.lifecycle.set_in_limbo_for_test(false);
                 air.health.set_for_test(hp);
-                air.position.set_z(0);
+                air.position.set_z_for_test(0);
                 let mut air_locomotor =
                     crate::sim::movement::locomotor::LocomotorState::from_object_type(
                         rules.object("AIRBOMB").unwrap(),
@@ -1839,7 +1841,7 @@ mod tests {
                     );
                 air_locomotor.set_layer(MovementLayer::Air);
                 air.locomotor = Some(air_locomotor);
-                air.position.set_exact_z_leptons(Some(1));
+                air.position.set_exact_z_leptons_for_test(Some(1));
                 air = air
                     .with_air_spatial_membership_for_test(Some(rx + 5 * 20), enter_order)
                     .with_air_tracker_cell_for_test((rx as i16, 5));
@@ -2033,8 +2035,12 @@ mod tests {
 
         let make_ground = |stable_id, rx, ry, sub_x, sub_y, hp| {
             let mut entity = GameEntity::test_default(stable_id, "TESTUNIT", "Soviet", rx, ry);
-            entity.position.set_sub_x(SimFixed::from_num(sub_x));
-            entity.position.set_sub_y(SimFixed::from_num(sub_y));
+            entity
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(sub_x));
+            entity
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(sub_y));
             entity.health.set_for_test(hp);
             entity
         };
@@ -3832,7 +3838,7 @@ mod tests {
         let ground = GameEntity::test_default(1, "MTNK", "Soviet", 5, 5);
         let mut bridge = GameEntity::test_default(2, "MTNK", "Soviet", 5, 5);
         bridge.set_on_bridge(true);
-        bridge.position.set_z(4);
+        bridge.position.set_z_for_test(4);
 
         let mut entities = EntityStore::new();
         entities.insert(ground);
@@ -3908,8 +3914,8 @@ mod tests {
 
         let mut entities = EntityStore::new();
         let mut unit = GameEntity::test_default(20, "UNIT", "Americans", 5, 5);
-        unit.position.set_sub_x(CELL_CENTER_LEPTON);
-        unit.position.set_sub_y(CELL_CENTER_LEPTON);
+        unit.position.set_sub_x_for_test(CELL_CENTER_LEPTON);
+        unit.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
         entities.insert(unit);
 
         let building = GameEntity::test_default_of_category(
@@ -3924,15 +3930,15 @@ mod tests {
 
         let mut air = GameEntity::test_default(10, "AIR", "Americans", 5, 5);
         air.set_category_for_test(EntityCategory::Aircraft);
-        air.position.set_sub_x(CELL_CENTER_LEPTON);
-        air.position.set_sub_y(CELL_CENTER_LEPTON);
+        air.position.set_sub_x_for_test(CELL_CENTER_LEPTON);
+        air.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
         let mut air_locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
             rules.object("AIR").expect("air type"),
             0,
         );
         air_locomotor.set_layer(MovementLayer::Air);
         air.locomotor = Some(air_locomotor);
-        air.position.set_exact_z_leptons(Some(1));
+        air.position.set_exact_z_leptons_for_test(Some(1));
         air = air
             .with_air_spatial_membership_for_test(Some(5 + 5 * 20), 1)
             .with_air_tracker_cell_for_test((5, 5));

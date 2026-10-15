@@ -798,7 +798,7 @@ fn bridge_placement_retains_selected_cell_but_reads_fresh_world_attributes() {
                     .get_mut(id)
                     .unwrap()
                     .position
-                    .set_rx(20);
+                    .set_rx_for_test(20);
             }
         },
         crate::sim::world::FrameEffects::default(),
@@ -1568,10 +1568,7 @@ fn per_cell_factory_harvester_queue_uses_live_readiness_and_preserves_miner_stat
             if middle_row_underneath {
                 let producer = sim.substrate.entities.get_mut(2).unwrap();
                 producer.type_facts.set_foundation_for_test("1x2".into());
-                super::super::ground_pose::put_location(
-                    &mut producer.position,
-                    DriveCoord::cell(10, 9, 0),
-                );
+                producer.position.put_location(DriveCoord::cell(10, 9, 0));
                 sim.substrate.occupancy =
                     crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
             }
@@ -1973,13 +1970,14 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             z: integer(&at[2]),
         };
         let unit = sim.substrate.entities.get_mut(tank).unwrap();
-        unit.position.set_rx((coordinate.x / 256) as u16);
-        unit.position.set_ry((coordinate.y / 256) as u16);
+        unit.position.set_rx_for_test((coordinate.x / 256) as u16);
+        unit.position.set_ry_for_test((coordinate.y / 256) as u16);
         unit.position
-            .set_sub_x(SimFixed::from_num(coordinate.x % 256));
+            .set_sub_x_for_test(SimFixed::from_num(coordinate.x % 256));
         unit.position
-            .set_sub_y(SimFixed::from_num(coordinate.y % 256));
-        unit.position.set_exact_z_leptons(Some(coordinate.z));
+            .set_sub_y_for_test(SimFixed::from_num(coordinate.y % 256));
+        unit.position
+            .set_exact_z_leptons_for_test(Some(coordinate.z));
         unit.health.set_for_test(integer(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(integer(&before["estimate"]));
         unit.navigation.set_nav_com(

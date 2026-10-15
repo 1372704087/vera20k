@@ -338,8 +338,8 @@ mod tests {
                 5,
                 false,
             );
-            entity.position.set_sub_x(SimFixed::from_num(128));
-            entity.position.set_sub_y(SimFixed::from_num(128));
+            entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+            entity.position.set_sub_y_for_test(SimFixed::from_num(128));
             assert_eq!(
                 entity_sort_key(&entity, rules.object(name)),
                 expected,
@@ -376,13 +376,13 @@ mod tests {
                 },
             );
             let entity = sim.substrate.entities.get_mut(1).unwrap();
-            entity.position.set_rx(10);
-            entity.position.set_ry(10);
-            entity.position.set_sub_x(SimFixed::from_num(128));
-            entity.position.set_sub_y(SimFixed::from_num(128));
+            entity.position.set_rx_for_test(10);
+            entity.position.set_ry_for_test(10);
+            entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+            entity.position.set_sub_y_for_test(SimFixed::from_num(128));
             entity
                 .position
-                .set_exact_z_leptons(Some(input["z"].as_i64().unwrap() as i32));
+                .set_exact_z_leptons_for_test(Some(input["z"].as_i64().unwrap() as i32));
             entity
                 .lifecycle
                 .set_cell_marked(input["marked"].as_bool().unwrap_or(true));
@@ -498,8 +498,8 @@ mod tests {
                 5,
                 false,
             );
-            entity.position.set_sub_x(SimFixed::from_num(128));
-            entity.position.set_sub_y(SimFixed::from_num(128));
+            entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+            entity.position.set_sub_y_for_test(SimFixed::from_num(128));
             sim.entities_mut().insert(entity);
             sim.submit_object_display(id, DisplayLayer::GROUND, Some(&rules));
             units.push(id);
@@ -558,20 +558,20 @@ mod tests {
                     let entity = sim.substrate.entities.get_mut(unit).unwrap();
                     entity
                         .position
-                        .set_sub_x(SimFixed::from_num((128 + delta).rem_euclid(256)));
+                        .set_sub_x_for_test(SimFixed::from_num((128 + delta).rem_euclid(256)));
                     entity
                         .position
-                        .set_ry((entity.position.ry() as i32 + delta.signum()) as u16);
+                        .set_ry_for_test((entity.position.ry() as i32 + delta.signum()) as u16);
                 }
                 1 => {
                     let unit = units[next(4) as usize];
                     let entity = sim.substrate.entities.get_mut(unit).unwrap();
                     entity
                         .position
-                        .set_rx((entity.position.rx() as i32 - delta.signum()) as u16);
+                        .set_rx_for_test((entity.position.rx() as i32 - delta.signum()) as u16);
                     entity
                         .position
-                        .set_sub_y(SimFixed::from_num((128 - delta).rem_euclid(256)));
+                        .set_sub_y_for_test(SimFixed::from_num((128 - delta).rem_euclid(256)));
                 }
                 2 => {
                     let anim = anims[next(8) as usize];

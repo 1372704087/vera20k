@@ -101,9 +101,13 @@ fn place(sim: &mut Simulation, id: u64, kind: &str, category: EntityCategory, at
     entity.set_type_ref_for_test(sim.intern(kind));
     entity.set_owner_for_test(sim.intern("Americans"));
     entity.set_category_for_test(category);
-    entity.position.set_sub_x(SimFixed::from_num(at[0] % 256));
-    entity.position.set_sub_y(SimFixed::from_num(at[1] % 256));
-    entity.position.set_exact_z_leptons(Some(at[2]));
+    entity
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(at[0] % 256));
+    entity
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(at[1] % 256));
+    entity.position.set_exact_z_leptons_for_test(Some(at[2]));
     entity
         .type_facts
         .set_foundation_for_test(if kind == "GAPOWR" { "2x2" } else { "1x1" }.into());

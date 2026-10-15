@@ -100,11 +100,13 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
             let actor = sim.substrate.entities.get_mut(id).unwrap();
             actor
                 .position
-                .set_sub_x(SimFixed::from_num(integer(&xyz[0]) & 255));
+                .set_sub_x_for_test(SimFixed::from_num(integer(&xyz[0]) & 255));
             actor
                 .position
-                .set_sub_y(SimFixed::from_num(integer(&xyz[1]) & 255));
-            actor.position.set_exact_z_leptons(Some(integer(&xyz[2])));
+                .set_sub_y_for_test(SimFixed::from_num(integer(&xyz[1]) & 255));
+            actor
+                .position
+                .set_exact_z_leptons_for_test(Some(integer(&xyz[2])));
             actor.health.set_for_test(integer(&before["health"]));
             actor
                 .lifecycle

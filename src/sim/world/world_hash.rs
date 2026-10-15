@@ -3742,10 +3742,10 @@ mod tube_movement_hash_tests {
         let default_hash = hash_entity(fixture.clone());
 
         let mut exact_z = fixture.clone();
-        exact_z.position.set_exact_z_leptons(Some(-37));
+        exact_z.position.set_exact_z_leptons_for_test(Some(-37));
         let exact_z_hash = hash_entity(exact_z.clone());
         assert_ne!(default_hash, exact_z_hash);
-        exact_z.position.set_exact_z_leptons(Some(-36));
+        exact_z.position.set_exact_z_leptons_for_test(Some(-36));
         assert_ne!(exact_z_hash, hash_entity(exact_z));
 
         let state = LowBridgeTubeMovementState::for_test(
@@ -3758,7 +3758,7 @@ mod tube_movement_hash_tests {
             },
         );
         let mut active = fixture;
-        active.position.set_exact_z_leptons(Some(-37));
+        active.position.set_exact_z_leptons_for_test(Some(-37));
         active.low_bridge_tube_state = Some(state);
         let active_hash = hash_entity(active.clone());
         assert_ne!(exact_z_hash, active_hash);

@@ -162,14 +162,11 @@ fn fixture(case: &Value) -> Simulation {
     entity
         .foot_speed
         .set_speed_fraction(fraction(&before["applied_fraction_bits"]));
-    crate::sim::movement::ground_pose::put_location(
-        &mut entity.position,
-        DriveCoord {
-            x: 2432,
-            y: 2688,
-            z: 312,
-        },
-    );
+    entity.position.put_location(DriveCoord {
+        x: 2432,
+        y: 2688,
+        z: 312,
+    });
     let track = TrackProgress::for_test(
         integer(&before["turn"]),
         integer(&before["cursor"]),
@@ -427,14 +424,11 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
             _ => unreachable!(),
         };
         let entity = sim.substrate.entities.get_mut(UNIT).unwrap();
-        crate::sim::movement::ground_pose::put_location(
-            &mut entity.position,
-            DriveCoord {
-                x: x * 256 + 128,
-                y: y * 256 + 128,
-                z: 312,
-            },
-        );
+        entity.position.put_location(DriveCoord {
+            x: x * 256 + 128,
+            y: y * 256 + 128,
+            z: 312,
+        });
         entity
             .bunker
             .set_bunker_link_for_test(BunkerLink::Approaching(2));
@@ -457,7 +451,7 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
         );
         building.set_owner_for_test(sim.intern("Americans"));
         building.set_type_ref_for_test(sim.intern("NATBNK"));
-        crate::sim::movement::ground_pose::put_location(&mut building.position, supplied(case));
+        building.position.put_location(supplied(case));
         building.bunker_runtime = Some({
             let mut runtime = BunkerRuntime::idle();
             runtime.set_state_for_test(BunkerState::TurnToBuilding);

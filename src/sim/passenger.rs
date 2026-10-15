@@ -1338,7 +1338,7 @@ pub(crate) fn open_topped_riders_follow(
     let (riders, position) = (cargo.passengers.clone(), transport.position);
     for rider in riders {
         if let Some(entity) = entities.get_mut(rider) {
-            entity.position = position;
+            entity.position.copy_from(position);
         }
     }
 }
@@ -3451,8 +3451,8 @@ ConditionYellow=50%
                 blocker.set_sub_cell(Some(subcell));
                 {
                     let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(subcell));
-                    blocker.position.set_sub_x(sub_x);
-                    blocker.position.set_sub_y(sub_y);
+                    blocker.position.set_sub_x_for_test(sub_x);
+                    blocker.position.set_sub_y_for_test(sub_y);
                 }
                 sim.substrate.entities.insert(blocker);
                 assert!(matches!(

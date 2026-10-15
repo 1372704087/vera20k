@@ -220,7 +220,7 @@ fn rocketeer(input: &Value) -> (Simulation, RuleSet, u64) {
         .health
         .set_for_test(input["health"].as_i64().unwrap_or(125) as _);
     entity.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
-    entity.position.set_exact_z_leptons(Some(height));
+    entity.position.set_exact_z_leptons_for_test(Some(height));
     entity
         .mission_leaf
         .set_infantry_doing_verified(input["doing"].as_i64().unwrap_or(-1) as i32)
@@ -658,7 +658,7 @@ fn retail_teleport_default_action_matches_the_native_sequencer() {
         actor.lifecycle.set_in_limbo_for_test(false);
         actor.lifecycle.set_cell_marked(true);
         actor.health.set_for_test(125);
-        actor.position.set_exact_z_leptons(Some(0));
+        actor.position.set_exact_z_leptons_for_test(Some(0));
         actor
             .infantry
             .as_mut()

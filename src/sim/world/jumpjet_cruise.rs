@@ -801,8 +801,8 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "JUMPJETUNIT", "Americans", 10, 10);
         entity.set_category_for_test(EntityCategory::Unit);
         entity.body_facing.snap(u16::from(body_facing) << 8, 0);
-        entity.position.set_sub_x(SimFixed::from_num(128));
-        entity.position.set_sub_y(SimFixed::from_num(128));
+        entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+        entity.position.set_sub_y_for_test(SimFixed::from_num(128));
         let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         locomotor
             .jumpjet_runtime_mut()
@@ -902,7 +902,7 @@ mod tests {
         {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
             entity.set_foot_occupation_enabled(true);
-            entity.position.set_exact_z_leptons(Some(0));
+            entity.position.set_exact_z_leptons_for_test(Some(0));
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
             *runtime = runtime

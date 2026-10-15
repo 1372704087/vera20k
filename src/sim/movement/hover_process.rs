@@ -573,7 +573,7 @@ impl Simulation {
                 entity.set_on_bridge(on_bridge);
                 entity
                     .position
-                    .set_z(super::super::movement_bridge::stored_level(
+                    .store_level(super::super::movement_bridge::stored_level(
                         level, on_bridge,
                     ));
             }
@@ -1370,7 +1370,7 @@ mod tests {
             let mut entity = GameEntity::test_default(1, "ROBO", "Americans", 10, 10);
             entity
                 .position
-                .set_exact_z_leptons(Some(input["z"].as_i64().unwrap() as i32));
+                .set_exact_z_leptons_for_test(Some(input["z"].as_i64().unwrap() as i32));
             let mut loco = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Hover,
             );

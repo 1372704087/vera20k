@@ -401,7 +401,11 @@ mod tests {
             json!({
             "stable_id": 28, "type_id": "MTNK", "owner": "Computer1", "cell": [12, 13]})
         );
-        sim.entities_mut().get_mut(28).unwrap().position.set_rx(14);
+        sim.entities_mut()
+            .get_mut(28)
+            .unwrap()
+            .position
+            .set_rx_for_test(14);
         assert!(
             narrowed.resolve(&sim, &rules).is_err(),
             "cell is current, not initial"

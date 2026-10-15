@@ -348,14 +348,11 @@ fn place_slave(
     // held slaves. The constructor's zero Location is a separate input.
     {
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        crate::sim::movement::ground_pose::put_location(
-            &mut entity.position,
-            DriveCoord {
-                x: i32::from(x) * 256 + 128,
-                y: i32::from(y) * 256 + 128,
-                z: 0,
-            },
-        );
+        entity.position.put_location(DriveCoord {
+            x: i32::from(x) * 256 + 128,
+            y: i32::from(y) * 256 + 128,
+            z: 0,
+        });
     }
     if node["limbo"] != true {
         let outcome = sim.try_reveal_entity_with_context(

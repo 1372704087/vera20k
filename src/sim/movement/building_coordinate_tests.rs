@@ -127,11 +127,15 @@ fn building_navigation_matches_all_native_dispatch_and_direction_rows() {
 }
 
 fn position(entity: &mut GameEntity, c: DriveCoord) {
-    entity.position.set_rx((c.x / 256) as u16);
-    entity.position.set_ry((c.y / 256) as u16);
-    entity.position.set_sub_x(SimFixed::from_num(c.x % 256));
-    entity.position.set_sub_y(SimFixed::from_num(c.y % 256));
-    entity.position.set_exact_z_leptons(Some(c.z));
+    entity.position.set_rx_for_test((c.x / 256) as u16);
+    entity.position.set_ry_for_test((c.y / 256) as u16);
+    entity
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(c.x % 256));
+    entity
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(c.y % 256));
+    entity.position.set_exact_z_leptons_for_test(Some(c.z));
 }
 
 #[test]

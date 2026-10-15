@@ -129,15 +129,15 @@ fn original_object_cell_queries_keep_physical_aliases_and_dummy_fields() {
         sim.resolved_terrain = Some(terrain);
         for id in [1, 2] {
             let entity = sim.substrate.entities.get_mut(id).unwrap();
-            entity.position.set_rx((x.max(0) / 256) as u16);
-            entity.position.set_ry((y.max(0) / 256) as u16);
-            entity.position.set_sub_x(SimFixed::from_num(
+            entity.position.set_rx_for_test((x.max(0) / 256) as u16);
+            entity.position.set_ry_for_test((y.max(0) / 256) as u16);
+            entity.position.set_sub_x_for_test(SimFixed::from_num(
                 x - i32::from(entity.position.rx()) * 256,
             ));
-            entity.position.set_sub_y(SimFixed::from_num(
+            entity.position.set_sub_y_for_test(SimFixed::from_num(
                 y - i32::from(entity.position.ry()) * 256,
             ));
-            entity.position.set_exact_z_leptons(Some(z));
+            entity.position.set_exact_z_leptons_for_test(Some(z));
             entity.lifecycle.set_cell_marked(row.input.marked != 0);
         }
         let subject = FireSubject {
@@ -193,10 +193,10 @@ fn cell_target_equality_uses_real_aliases_and_one_shared_dummy() {
     terrain.test_set_native_allocated_cells(&[(511, 0)]);
     sim.resolved_terrain = Some(terrain);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.set_rx(511);
-    entity.position.set_ry(0);
-    entity.position.set_sub_x(SimFixed::from_num(128));
-    entity.position.set_sub_y(SimFixed::from_num(128));
+    entity.position.set_rx_for_test(511);
+    entity.position.set_ry_for_test(0);
+    entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+    entity.position.set_sub_y_for_test(SimFixed::from_num(128));
     let subject = FireSubject {
         world: &sim,
         rules: &rules,
@@ -210,8 +210,8 @@ fn cell_target_equality_uses_real_aliases_and_one_shared_dummy() {
     assert_eq!(WorldQuery::new(&subject).firer_cell(), FirerCell::Target);
 
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.set_rx(41);
-    entity.position.set_ry(41);
+    entity.position.set_rx_for_test(41);
+    entity.position.set_ry_for_test(41);
     let dummy = sim.resolved_terrain.as_ref().unwrap().shared_cell_dummy();
     dummy.stamp_coord(17, -19);
     dummy.test_set_land_type(6);
@@ -332,11 +332,15 @@ fn original_early_fire_error_retains_cell_between_temporal_and_lifted_gates() {
         let mut sim = bridge_scene("TANK");
         let target = sim.substrate.entities.get_mut(2).unwrap();
         let [x, y, z] = row.supplied.target_xyz;
-        target.position.set_rx((x / 256) as u16);
-        target.position.set_ry((y / 256) as u16);
-        target.position.set_sub_x(SimFixed::from_num(x % 256));
-        target.position.set_sub_y(SimFixed::from_num(y % 256));
-        target.position.set_exact_z_leptons(Some(z));
+        target.position.set_rx_for_test((x / 256) as u16);
+        target.position.set_ry_for_test((y / 256) as u16);
+        target
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(x % 256));
+        target
+            .position
+            .set_sub_y_for_test(SimFixed::from_num(y % 256));
+        target.position.set_exact_z_leptons_for_test(Some(z));
         if row.name == "target_cloaked" {
             let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
             cloak.set_state_for_test(2);

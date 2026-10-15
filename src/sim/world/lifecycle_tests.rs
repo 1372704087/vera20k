@@ -972,7 +972,7 @@ fn grounded_reveal_keeps_headless_inputs_and_the_drop_z() {
     insert_entity(&mut sim, 2, EntityCategory::Infantry);
     let entity = sim.substrate.entities.get_mut(2).unwrap();
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
-    entity.position.set_exact_z_leptons(Some(52));
+    entity.position.set_exact_z_leptons_for_test(Some(52));
     assert!(
         crate::sim::movement::parachute_descent::begin_parachute_descent(
             &mut sim.substrate.entities,
@@ -1314,13 +1314,13 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
         .get_mut(1)
         .unwrap()
         .position
-        .set_rx(outside.0);
+        .set_rx_for_test(outside.0);
     sim.substrate
         .entities
         .get_mut(1)
         .unwrap()
         .position
-        .set_ry(outside.1);
+        .set_ry_for_test(outside.1);
     sim.promote_entity_playfield_membership_after_move(1);
     assert!(
         sim.substrate.entities.get(1).unwrap().in_playfield(),
@@ -2046,7 +2046,7 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         .get_mut(1)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(1));
+        .set_exact_z_leptons_for_test(Some(1));
     sim.tick_air_movement_with_cell_lists_one(
         1,
         None,
@@ -2191,8 +2191,10 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
     // distinguish the two sides of the inclusive 416-lepton threshold.
     {
         let aircraft = sim.substrate.entities.get_mut(1).unwrap();
-        aircraft.position.set_z(0x7f);
-        aircraft.position.set_exact_z_leptons(Some(130 + 415));
+        aircraft.position.set_z_for_test(0x7f);
+        aircraft
+            .position
+            .set_exact_z_leptons_for_test(Some(130 + 415));
     }
     sim.add_entity_occupancy(1);
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0x40);
@@ -2205,7 +2207,7 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
         .get_mut(1)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(130 + 416));
+        .set_exact_z_leptons_for_test(Some(130 + 416));
     sim.add_entity_occupancy(1);
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0x40);
@@ -2312,7 +2314,7 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
     // The tracker follows a cell change of a Fly whose current speed is not
     // zero (`0x004CD60E..0x004CD65F`); without a type Speed it stays put.
     let aircraft = sim.substrate.entities.get_mut(20).unwrap();
-    aircraft.position.set_rx(12);
+    aircraft.position.set_rx_for_test(12);
     aircraft
         .locomotor
         .as_mut()
@@ -6758,16 +6760,16 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     insert_entity(&mut sim, target_id, EntityCategory::Unit);
     {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
-        owner.position.set_rx(0);
-        owner.position.set_ry(0);
+        owner.position.set_rx_for_test(0);
+        owner.position.set_ry_for_test(0);
         owner
             .attack_target
             .set_for_test(Some(TargetKind::Entity(target_id)));
     }
     {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
-        target.position.set_rx(4);
-        target.position.set_ry(0);
+        target.position.set_rx_for_test(4);
+        target.position.set_ry_for_test(0);
         target.health.set_for_test(0);
         target.death.set_dying_for_test(true);
     }
@@ -8697,10 +8699,10 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
         .test_set_dummy_cell_level_slope(3, 1);
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(125));
     let e = sim.substrate.entities.get_mut(1).unwrap();
-    e.position.set_sub_x(SimFixed::from_num(64));
-    e.position.set_sub_y(SimFixed::from_num(192));
-    e.position.set_z(99);
-    e.position.set_exact_z_leptons(Some(731));
+    e.position.set_sub_x_for_test(SimFixed::from_num(64));
+    e.position.set_sub_y_for_test(SimFixed::from_num(192));
+    e.position.set_z_for_test(99);
+    e.position.set_exact_z_leptons_for_test(Some(731));
     e.set_on_bridge(true);
     let xy = crate::sim::movement::ground_pose::position_world_xy(&e.position);
     let ground = crate::util::lepton::ground_height_leptons(3, 1, xy[0], xy[1]).unwrap();
@@ -8735,7 +8737,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         install_common_raw_terrain(&mut sim, 8, 8, 2, None);
         insert_entity(&mut sim, 1, EntityCategory::Unit);
         let e = sim.substrate.entities.get_mut(1).unwrap();
-        e.position.set_exact_z_leptons(Some(-37));
+        e.position.set_exact_z_leptons_for_test(Some(-37));
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         loco.set_balloon_hover_for_test(true);
         let runtime = loco.jumpjet_runtime_mut().unwrap();
@@ -8814,7 +8816,7 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         let origin_z = i32::from(origin_level) * 104 + 600;
         let destination_ground = i32::from(destination_level) * 104;
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.set_exact_z_leptons(Some(origin_z));
+        entity.position.set_exact_z_leptons_for_test(Some(origin_z));
         entity.body_facing.snap(0x0000, 0);
         let loco = entity.locomotor.as_mut().unwrap();
         loco.set_fly_target_height(600);
@@ -8925,7 +8927,7 @@ fn display_lifecycle_is_independent_of_logic_and_survives_production_save() {
             .get_mut(id)
             .unwrap()
             .position
-            .set_rx(7 - id as u16);
+            .set_rx_for_test(7 - id as u16);
     }
     let before_sort = sim.state_hash();
     sim.sort_display_ground(None);
@@ -9006,11 +9008,15 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                     };
                     insert_entity(&mut sim, id, category);
                     let entity = sim.substrate.entities.get_mut(id).unwrap();
-                    entity.position.set_rx((xyz[0] / 256) as u16);
-                    entity.position.set_ry((xyz[1] / 256) as u16);
-                    entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
-                    entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
-                    entity.position.set_exact_z_leptons(Some(xyz[2]));
+                    entity.position.set_rx_for_test((xyz[0] / 256) as u16);
+                    entity.position.set_ry_for_test((xyz[1] / 256) as u16);
+                    entity
+                        .position
+                        .set_sub_x_for_test(SimFixed::from_num(xyz[0] % 256));
+                    entity
+                        .position
+                        .set_sub_y_for_test(SimFixed::from_num(xyz[1] % 256));
+                    entity.position.set_exact_z_leptons_for_test(Some(xyz[2]));
                 }
                 "particle" => {
                     insert_particle_system(&mut sim, id);
@@ -9103,10 +9109,14 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                     let xyz: [i32; 3] =
                         std::array::from_fn(|i| step["xyz"][i].as_i64().unwrap() as i32);
                     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-                        entity.position.set_rx((xyz[0] / 256) as u16);
-                        entity.position.set_ry((xyz[1] / 256) as u16);
-                        entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
-                        entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+                        entity.position.set_rx_for_test((xyz[0] / 256) as u16);
+                        entity.position.set_ry_for_test((xyz[1] / 256) as u16);
+                        entity
+                            .position
+                            .set_sub_x_for_test(SimFixed::from_num(xyz[0] % 256));
+                        entity
+                            .position
+                            .set_sub_y_for_test(SimFixed::from_num(xyz[1] % 256));
                     } else {
                         sim.substrate.particle_systems.get_mut(id).unwrap().coords =
                             IVec3::from_array(xyz);
@@ -9181,14 +9191,14 @@ fn jumpjet_process_compares_live_layer_queries_not_cached_registration() {
         .get_mut(id)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(600));
+        .set_exact_z_leptons_for_test(Some(600));
     sim.complete_jumpjet_display_process(id, before, None);
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
     // The native tail's alive gate prevents another submission after death.
     let before = sim.entity_display_layer(id, None).unwrap();
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     entity.lifecycle.set_object_alive_for_test(false);
-    entity.position.set_exact_z_leptons(Some(0));
+    entity.position.set_exact_z_leptons_for_test(Some(0));
     sim.complete_jumpjet_display_process(id, before, None);
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
 }
@@ -9314,7 +9324,7 @@ fn a_missile_is_tracked_in_the_cell_its_flight_step_reached() {
         .get_mut(1)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(512));
+        .set_exact_z_leptons_for_test(Some(512));
     sim.rocket_move_to(
         1,
         crate::sim::components::DriveCoord::cell(25, 12, 0),

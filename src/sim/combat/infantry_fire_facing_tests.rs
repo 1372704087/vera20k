@@ -72,10 +72,10 @@ fn infantry_fire_start_heading_matches_original_code_vectors() {
             let pos = &mut store.get_mut(id).unwrap().position;
             let x = row[key][0].as_i64().unwrap() as i32;
             let y = row[key][1].as_i64().unwrap() as i32;
-            pos.set_rx((x / 256) as u16);
-            pos.set_ry((y / 256) as u16);
-            pos.set_sub_x(SimFixed::from_num(x % 256));
-            pos.set_sub_y(SimFixed::from_num(y % 256));
+            pos.set_rx_for_test((x / 256) as u16);
+            pos.set_ry_for_test((y / 256) as u16);
+            pos.set_sub_x_for_test(SimFixed::from_num(x % 256));
+            pos.set_sub_y_for_test(SimFixed::from_num(y % 256));
         }
         let firer = store.get_mut(1).unwrap();
         let mut body = FacingClass::new(
@@ -118,7 +118,7 @@ fn infantry_refused_or_reloading_does_not_snap() {
         let mut store = pair();
         let attack = TargetKind::Entity(2);
         if out_of_range {
-            store.get_mut(2).unwrap().position.set_rx(50);
+            store.get_mut(2).unwrap().position.set_rx_for_test(50);
         } else {
             store
                 .get_mut(1)
@@ -233,7 +233,7 @@ fn rocketeer_pair() -> (EntityStore, RuleSet) {
     firer.body_facing = FacingClass::new(0x4000, 127);
     // Object5F6B90 requires +74 as well as the height for the Hover remap.
     firer.lifecycle.set_cell_marked(true);
-    firer.position.set_exact_z_leptons(Some(500));
+    firer.position.set_exact_z_leptons_for_test(Some(500));
     let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
         rules.object("JJ").unwrap(),
         0,
@@ -298,7 +298,7 @@ fn firing_latch_keeps_start_facing_when_target_moves() {
         .set_for_test(Some(TargetKind::Entity(2)));
     visit(&mut store, &rules, 100);
     let facing = store.get(1).unwrap().body_facing;
-    store.get_mut(2).unwrap().position.set_rx(2);
+    store.get_mut(2).unwrap().position.set_rx_for_test(2);
     set_infantry_stage(&mut store, 1, 2);
     let result = visit(&mut store, &rules, 101);
     assert_eq!(result.consequences.fire_events().len(), 1);
@@ -453,10 +453,10 @@ fn cell_and_building_fire_headings_match_original_coordinate_getters() {
     for row in rows.iter().filter(|row| row["target_kind"] != "object") {
         let mut store = EntityStore::new();
         let mut firer = make_infantry_entity(1, "E1", 5, 5, 125);
-        firer.position.set_sub_x(SimFixed::from_num(
+        firer.position.set_sub_x_for_test(SimFixed::from_num(
             row["source"][0].as_i64().unwrap() as i32 % 256,
         ));
-        firer.position.set_sub_y(SimFixed::from_num(
+        firer.position.set_sub_y_for_test(SimFixed::from_num(
             row["source"][1].as_i64().unwrap() as i32 % 256,
         ));
         firer

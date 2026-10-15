@@ -72,10 +72,14 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
     actor.set_owner_for_test(owner);
     actor.set_type_ref_for_test(sim.interner.intern("SQD"));
     actor.set_category_for_test(EntityCategory::Unit);
-    actor.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
-    actor.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
-    actor.position.set_z((xyz[2] / 104) as u8);
-    actor.position.set_exact_z_leptons(Some(xyz[2]));
+    actor
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(xyz[0] % 256));
+    actor
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(xyz[1] % 256));
+    actor.position.set_z_for_test((xyz[2] / 104) as u8);
+    actor.position.set_exact_z_leptons_for_test(Some(xyz[2]));
     actor
         .lifecycle
         .set_in_limbo_for_test(input["limbo"].as_u64().unwrap_or(0) != 0);

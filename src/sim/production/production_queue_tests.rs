@@ -659,7 +659,7 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                 .unwrap();
             assert!(labels.insert(*label, id).is_none());
             let entity = sim.substrate.entities.get_mut(id).unwrap();
-            ground_pose::put_location(&mut entity.position, coord(&native["xyz"]));
+            entity.position.put_location(coord(&native["xyz"]));
             entity.set_archive_target(archive(&native["archive_cell"]));
             entity.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_raw(int(&native["current"])),
@@ -710,7 +710,9 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
             }
         }
         let actor = sim.substrate.entities.get_mut(product).unwrap();
-        ground_pose::put_location(&mut actor.position, coord(&before["product"]["position"]));
+        actor
+            .position
+            .put_location(coord(&before["product"]["position"]));
         actor.set_archive_target(archive(&before["product_archive_cell"]));
         actor.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(int(&before["product"]["mission"])),

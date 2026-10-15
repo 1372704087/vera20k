@@ -1122,8 +1122,12 @@ fn the_sensors_neighbour_pick_is_nearest_to_the_cell_origin_not_lowest_id() {
         };
         for (entity_id, offset) in [(near, 10i32), (far, 200i32)] {
             let entity = sim.substrate.entities.get_mut(entity_id).unwrap();
-            entity.position.set_sub_x(SimFixed::from_num(offset));
-            entity.position.set_sub_y(SimFixed::from_num(offset));
+            entity
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(offset));
+            entity
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(offset));
         }
 
         assert_eq!(

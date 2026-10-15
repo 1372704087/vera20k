@@ -502,13 +502,14 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         unit.health.set_for_test(int(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(int(&before["estimate"]));
         let at = &before["unit_coordinate"];
-        unit.position.set_rx((int(&at[0]) / 256) as u16);
-        unit.position.set_ry((int(&at[1]) / 256) as u16);
+        unit.position.set_rx_for_test((int(&at[0]) / 256) as u16);
+        unit.position.set_ry_for_test((int(&at[1]) / 256) as u16);
         unit.position
-            .set_sub_x(SimFixed::from_num(int(&at[0]) % 256));
+            .set_sub_x_for_test(SimFixed::from_num(int(&at[0]) % 256));
         unit.position
-            .set_sub_y(SimFixed::from_num(int(&at[1]) % 256));
-        unit.position.set_exact_z_leptons(Some(int(&at[2])));
+            .set_sub_y_for_test(SimFixed::from_num(int(&at[1]) % 256));
+        unit.position
+            .set_exact_z_leptons_for_test(Some(int(&at[2])));
         unit.navigation
             .set_nav_com(if let Some(cell) = before["unit_nav"].as_array() {
                 Some(NavTargetRef::cell(

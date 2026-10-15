@@ -25,10 +25,7 @@ fn walk_head_completion_matches_original_rows() {
         let [owner, head] = [&row["owner"], &row["head"]]
             .map(|v| serde_json::from_value::<[i32; 3]>(v.clone()).unwrap());
         let mut entity = GameEntity::test_default(1, "E1", "Americans", 0, 0);
-        crate::sim::movement::ground_pose::set_position_world_xy(
-            &mut entity.position,
-            [owner[0], owner[1]],
-        );
+        entity.position.put_world_xy([owner[0], owner[1]]);
         let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Walk);
         let [x, y, z] = head;
         locomotor.set_step_head(Some(DriveCoord { x, y, z }));
@@ -186,9 +183,9 @@ fn fresh_retry_terminal_retains_raw_head_for_both_track_families() {
             y: 10 * 256 + 153,
             z: 731,
         };
-        entity.position.set_sub_x(SimFixed::from_num(85));
-        entity.position.set_sub_y(SimFixed::from_num(154));
-        entity.position.set_exact_z_leptons(Some(104));
+        entity.position.set_sub_x_for_test(SimFixed::from_num(85));
+        entity.position.set_sub_y_for_test(SimFixed::from_num(154));
+        entity.position.set_exact_z_leptons_for_test(Some(104));
         let track = TrackProgress::for_test(
             0, // The zero-XY sentinel is paid separately after all real points.
             drive_track::raw_track_points(1).len() as i32,

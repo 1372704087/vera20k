@@ -44,13 +44,17 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
     let set_xyz = |entity: &mut GameEntity, xyz: &Value| {
         let x = xyz[0].as_i64().unwrap() as i32;
         let y = xyz[1].as_i64().unwrap() as i32;
-        entity.position.set_rx((x / 256) as u16);
-        entity.position.set_ry((y / 256) as u16);
-        entity.position.set_sub_x(SimFixed::from_num(x % 256));
-        entity.position.set_sub_y(SimFixed::from_num(y % 256));
+        entity.position.set_rx_for_test((x / 256) as u16);
+        entity.position.set_ry_for_test((y / 256) as u16);
         entity
             .position
-            .set_exact_z_leptons(Some(xyz[2].as_i64().unwrap() as i32));
+            .set_sub_x_for_test(SimFixed::from_num(x % 256));
+        entity
+            .position
+            .set_sub_y_for_test(SimFixed::from_num(y % 256));
+        entity
+            .position
+            .set_exact_z_leptons_for_test(Some(xyz[2].as_i64().unwrap() as i32));
     };
     let mut source = GameEntity::test_default(1, "ORCA", "Americans", 10, 10);
     source.set_category_for_test(EntityCategory::Aircraft);

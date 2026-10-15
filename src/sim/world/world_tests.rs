@@ -3309,12 +3309,12 @@ fn sonic_constructor_dead_pointer_link_lives_until_deferred_delete_at_239() {
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.set_sub_x(SimFixed::from_num(0));
-    firer.position.set_sub_y(SimFixed::from_num(0));
+    firer.position.set_sub_x_for_test(SimFixed::from_num(0));
+    firer.position.set_sub_y_for_test(SimFixed::from_num(0));
     let mut target = GameEntity::test_default(target_id, "TARGET", "Russians", 0, 0);
     target.set_type_ref_for_test(target_type);
-    target.position.set_sub_x(SimFixed::from_num(239));
-    target.position.set_sub_y(SimFixed::from_num(0));
+    target.position.set_sub_x_for_test(SimFixed::from_num(239));
+    target.position.set_sub_y_for_test(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
     let event = sonic_fire_event(&mut sim, firer_id, target_id);
@@ -3394,12 +3394,12 @@ fn sonic_constructor_at_240_registers_then_runs_at_same_pass_tail() {
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.set_sub_x(SimFixed::from_num(0));
-    firer.position.set_sub_y(SimFixed::from_num(0));
+    firer.position.set_sub_x_for_test(SimFixed::from_num(0));
+    firer.position.set_sub_y_for_test(SimFixed::from_num(0));
     let mut target = GameEntity::test_default(target_id, "TARGET", "Russians", 0, 0);
     target.set_type_ref_for_test(target_type);
-    target.position.set_sub_x(SimFixed::from_num(240));
-    target.position.set_sub_y(SimFixed::from_num(0));
+    target.position.set_sub_x_for_test(SimFixed::from_num(240));
+    target.position.set_sub_y_for_test(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
     let event = sonic_fire_event(&mut sim, firer_id, target_id);
@@ -3445,8 +3445,8 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.set_sub_x(SimFixed::from_num(0));
-    firer.position.set_sub_y(SimFixed::from_num(0));
+    firer.position.set_sub_x_for_test(SimFixed::from_num(0));
+    firer.position.set_sub_y_for_test(SimFixed::from_num(0));
     firer
         .attack_target
         .set_for_test(Some(TargetKind::Cell(u16::MAX, 7)));
@@ -3829,13 +3829,9 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
         // This fixture relocates spawned ground objects onto the deck. The
         // native Cell-target range query reads the retained Object coordinate,
         // so update it through the same height owner as ground movement.
-        crate::sim::movement::ground_pose::set_height(
-            &mut entity.position,
-            true,
-            0,
-            sim.resolved_terrain.as_ref(),
-            None,
-        );
+        entity
+            .position
+            .set_height(true, 0, sim.resolved_terrain.as_ref(), None);
         assert_eq!(entity.position.exact_z_leptons(), Some(624));
         sim.add_entity_occupancy(id);
     }
@@ -8217,8 +8213,8 @@ fn test_area_guard_keeps_its_post_when_displaced_inside_the_native_leash() {
 
     sim.remove_entity_occupancy(1);
     if let Some(e) = sim.substrate.entities.get_mut(1) {
-        e.position.set_rx(5);
-        e.position.set_ry(2);
+        e.position.set_rx_for_test(5);
+        e.position.set_ry_for_test(2);
         e.attack_target.set_for_test(None);
         e.navigation.set_nav_com(None);
     }
@@ -8278,8 +8274,8 @@ fn test_fog_revealed_persists_after_unit_moves_away() {
     let _ = (sx, sy); // suppress unused warning
     // Far enough that (1,1) leaves a Sight=1 reveal disc entirely.
     if let Some(e) = sim.substrate.entities.get_mut(1) {
-        e.position.set_rx(6);
-        e.position.set_ry(1);
+        e.position.set_rx_for_test(6);
+        e.position.set_ry_for_test(1);
     }
     let _ = sim.advance_tick(&[], None, Some(&grid), None, 33);
     assert!(!sim.fog.is_cell_visible(americans, 1, 1));
@@ -11366,7 +11362,7 @@ fn engineer_capture_of_an_ordinary_building_requests_the_radar_event() {
         .get_mut(2)
         .expect("second plant")
         .position
-        .set_rx(11);
+        .set_rx_for_test(11);
 
     sim.announce_engineer_capture(1, player, &rules);
     assert_eq!(

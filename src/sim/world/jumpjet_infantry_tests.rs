@@ -480,8 +480,8 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
     sim.remove_entity_occupancy(shooter);
     {
         let enemy = sim.substrate.entities.get_mut(shooter).unwrap();
-        enemy.position.set_rx(59);
-        enemy.position.set_ry(52);
+        enemy.position.set_rx_for_test(59);
+        enemy.position.set_ry_for_test(52);
     }
     sim.add_entity_occupancy(shooter);
     let rearm = sim.substrate.entities.get(1).unwrap().rearm_timer.timer();
@@ -886,7 +886,7 @@ fn rocketeer_crash_fixture(
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.health.set_for_test(125);
-        entity.position.set_exact_z_leptons(Some(height));
+        entity.position.set_exact_z_leptons_for_test(Some(height));
         entity.body_facing = crate::sim::movement::FacingClass::new(0x4000, 127);
         entity
             .foot_speed
@@ -1300,8 +1300,8 @@ fn move_shooter(sim: &mut super::Simulation, shooter: u64, cell: (u16, u16)) {
     sim.remove_entity_occupancy(shooter);
     {
         let unit = sim.substrate.entities.get_mut(shooter).unwrap();
-        unit.position.set_rx(cell.0);
-        unit.position.set_ry(cell.1);
+        unit.position.set_rx_for_test(cell.0);
+        unit.position.set_ry_for_test(cell.1);
         unit.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Drive,

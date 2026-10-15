@@ -284,7 +284,7 @@ impl crate::sim::world::Simulation {
             self.unmark_entity_remove(stable_id, context);
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.position.set_exact_z_leptons(Some(z));
+            entity.position.put_z(z);
         }
         if marked {
             self.mark_entity_put(stable_id, context);
@@ -350,7 +350,7 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(52));
+            .set_exact_z_leptons_for_test(Some(52));
 
         assert!(begin_parachute_descent(&mut entities, id, 1200));
 

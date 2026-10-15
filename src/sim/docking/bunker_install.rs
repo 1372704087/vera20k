@@ -477,7 +477,6 @@ mod tests {
     fn install_coordinates_facing_timer_and_selector_match_native_execution() {
         use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
         use crate::sim::components::DriveCoord;
-        use crate::sim::movement::ground_pose::put_location;
         use serde_json::Value;
 
         // Bounded original states1/2: admission/footprint clearance are
@@ -524,9 +523,11 @@ mod tests {
             building
                 .type_facts
                 .set_foundation_for_test(rules.object("NATBNK").unwrap().foundation.clone());
-            put_location(&mut building.position, coord(&input["building_location"]));
+            building
+                .position
+                .put_location(coord(&input["building_location"]));
             let unit = sim.substrate.entities.get_mut(1).unwrap();
-            put_location(&mut unit.position, coord(&input["unit_location"]));
+            unit.position.put_location(coord(&input["unit_location"]));
             unit.body_facing = movement::FacingClass::new(
                 integer(&input["initial_facing"]) as u16,
                 integer(&input["rot"]),
@@ -658,10 +659,10 @@ mod tests {
             let building = sim.substrate.entities.get_mut(2).unwrap();
             building
                 .position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(96));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(96));
             building
                 .position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(160));
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(160));
         }
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
 
@@ -868,7 +869,7 @@ mod tests {
             assert_eq!(rt(&sim, 2).state, waiting, "not in its cell");
 
             let unit = sim.substrate.entities.get_mut(1).unwrap();
-            unit.position.set_rx(10);
+            unit.position.set_rx_for_test(10);
             assert!(unit.locomotor.as_mut().unwrap().store_track_destination(
                 movement::track_process::TrackFamily::Drive,
                 Some(crate::sim::components::DriveCoord::cell(10, 10, 0)),
@@ -962,7 +963,7 @@ mod tests {
         // Simulate the blocker physically leaving the footprint cell.
         {
             let b = sim.substrate.entities.get_mut(3).unwrap();
-            b.position.set_rx(20);
+            b.position.set_rx_for_test(20);
         }
 
         // Footprint clear now → advance.

@@ -315,14 +315,14 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
         };
         let mut entity = entity_with(kind);
         let current = coord(&input["current"]);
-        entity.position.set_rx((current.x / 256) as u16);
-        entity.position.set_ry((current.y / 256) as u16);
+        entity.position.set_rx_for_test((current.x / 256) as u16);
+        entity.position.set_ry_for_test((current.y / 256) as u16);
         entity
             .position
-            .set_sub_x(SimFixed::from_num(current.x % 256));
+            .set_sub_x_for_test(SimFixed::from_num(current.x % 256));
         entity
             .position
-            .set_sub_y(SimFixed::from_num(current.y % 256));
+            .set_sub_y_for_test(SimFixed::from_num(current.y % 256));
         let head = optional(coord(&input["head"]));
         match kind {
             LocomotorKind::Drive => {

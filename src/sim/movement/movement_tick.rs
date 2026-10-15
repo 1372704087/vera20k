@@ -564,9 +564,11 @@ fn advance_ordinary_mover(
         path_grid,
     );
     if let Some(coord) = movement_step::walk_boundary_crossing(&entity.position) {
-        entity.position = *walk_position_before_step
-            .as_ref()
-            .expect("only Walk can suspend a boundary");
+        entity.position.copy_from(
+            *walk_position_before_step
+                .as_ref()
+                .expect("only Walk can suspend a boundary"),
+        );
         *walk_boundary = Some((entity_id, coord));
         return;
     }
@@ -1106,7 +1108,7 @@ mod pass_cache_tests {
             1,
             "do not double-count live Foot positions"
         );
-        entities.get_mut(7).unwrap().position.set_rx(4);
+        entities.get_mut(7).unwrap().position.set_rx_for_test(4);
         assert_eq!(
             cache
                 .blocker_plane(
@@ -1303,8 +1305,8 @@ Foundation=2x2
                     if let Some(entity) = entities.get_mut(id) {
                         match edit {
                             3 => {
-                                entity.position.set_rx(cell.0);
-                                entity.position.set_ry(cell.1);
+                                entity.position.set_rx_for_test(cell.0);
+                                entity.position.set_ry_for_test(cell.1);
                             }
                             4 => entity.death.set_dying_for_test(!entity.death.is_dying()),
                             _ => entity

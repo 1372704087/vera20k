@@ -385,11 +385,10 @@ mod tests {
                 .collect();
             let terrain = ResolvedTerrainGrid::from_cells(16, 16, cells);
             let mut mover = GameEntity::test_default(1, "MTNK", "Americans", 0, 0);
-            crate::sim::movement::ground_pose::set_position_world_xy(
-                &mut mover.position,
-                [current[0], current[1]],
-            );
-            mover.position.set_exact_z_leptons(Some(current[2]));
+            mover.position.put_world_xy([current[0], current[1]]);
+            mover
+                .position
+                .set_exact_z_leptons_for_test(Some(current[2]));
             let destination = crate::sim::components::DriveCoord {
                 x: destination[0],
                 y: destination[1],

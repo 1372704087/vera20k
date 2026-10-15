@@ -27,7 +27,7 @@ use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId};
 use crate::sim::movement::facing_class::FacingClass;
-use crate::sim::movement::ground_pose::{position_world_coord, put_location};
+use crate::sim::movement::ground_pose::position_world_coord;
 use crate::sim::movement::jumpjet_movement::jumpjet_flight;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::overlay_grid::OverlayGrid;
@@ -264,7 +264,7 @@ fn supplied_world(
         // this byte; these supplied-world controls do not execute Unit's
         // constructor. Preserve it before Mark links any ground footprint.
         actor.set_foot_occupation_enabled(false);
-        put_location(&mut actor.position, coordinate(&state["position"]));
+        actor.position.put_location(coordinate(&state["position"]));
         actor.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(signed(&state["mission"])),
             suspended: MissionId::NONE,
@@ -368,10 +368,9 @@ fn supplied_world(
                 .health
                 .set_for_test(signed(&state["other"]["health"]));
             foreign.set_on_bridge(state["other"]["on_bridge"].as_bool().unwrap());
-            put_location(
-                &mut foreign.position,
-                coordinate(&state["other"]["position"]),
-            );
+            foreign
+                .position
+                .put_location(coordinate(&state["other"]["position"]));
         }
         let foreign_slot = cell(&input["foreign_slot"]);
         assert!(

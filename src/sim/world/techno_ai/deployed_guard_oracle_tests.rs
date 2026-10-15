@@ -241,7 +241,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     actor.lifecycle.set_object_alive_for_test(true);
     // The companion supplies a post-constructor Location at Cell10,10;
     // transport the complete saved XYZ through the existing coordinate owner.
-    ground_pose::put_location(&mut actor.position, coordinate(&before["position"]));
+    actor.position.put_location(coordinate(&before["position"]));
     actor.set_on_bridge(input["bridge"] != 0);
     actor.set_falling_down_for_test(input["falling"].as_i64().unwrap_or(0) != 0);
     actor
@@ -314,7 +314,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         supplied_target.set_stable_id_for_test(2);
         let mut target_coord = ground_pose::position_world_coord(&actor.position);
         target_coord.x = target_coord.x.wrapping_add(signed(&input["delta"]));
-        ground_pose::put_location(&mut supplied_target.position, target_coord);
+        supplied_target.position.put_location(target_coord);
         supplied_target.attack_target.set_for_test(None);
         supplied_target.mission_leaf = MissionLeafState::infantry_raw_for_test(0, 0);
         sim.substrate.entities.insert(supplied_target);

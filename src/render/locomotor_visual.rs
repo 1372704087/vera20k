@@ -192,7 +192,7 @@ mod tests {
         let mut loco = LocomotorState::for_test_kind(kind);
         loco.set_layer(MovementLayer::Air);
         entity.locomotor = Some(loco);
-        entity.position.set_exact_z_leptons(Some(altitude));
+        entity.position.set_exact_z_leptons_for_test(Some(altitude));
         entity
     }
 
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn adjust_for_z_exact_signed_z_ignores_the_coarse_level() {
         let mut entity = air_unit(LocomotorKind::Fly, -400);
-        entity.position.set_z(9);
+        entity.position.set_z_for_test(9);
 
         let z_free = z_free_screen_position(&entity.position);
         let drawn = screen_position(&entity);
@@ -310,10 +310,10 @@ mod tests {
     #[test]
     fn gsi_04_15_exact_z_threshold_bonus_starts_at_728() {
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        entity.position.set_exact_z_leptons(Some(727));
+        entity.position.set_exact_z_leptons_for_test(Some(727));
         assert_eq!(height_lift_px(&entity), 104.0);
 
-        entity.position.set_exact_z_leptons(Some(728));
+        entity.position.set_exact_z_leptons_for_test(Some(728));
         assert_eq!(height_lift_px(&entity), 105.0);
     }
 
@@ -321,7 +321,7 @@ mod tests {
     fn gsi_13_02_building_lift_and_adjust_for_z_remain_separate_exact_steps() {
         let mut entity = GameEntity::test_default(1, "GAPOWR", "Americans", 5, 5);
         entity.set_category_for_test(EntityCategory::Structure);
-        entity.position.set_exact_z_leptons(Some(728));
+        entity.position.set_exact_z_leptons_for_test(Some(728));
 
         let z_free = z_free_screen_position(&entity.position);
         let drawn = screen_position(&entity);
@@ -537,8 +537,8 @@ mod tests {
                 5,
                 EntityCategory::Structure,
             );
-            entity.position.set_exact_z_leptons(exact_z);
-            entity.position.set_z(level);
+            entity.position.set_exact_z_leptons_for_test(exact_z);
+            entity.position.set_z_for_test(level);
             entity
         };
         for entity in [building(Some(52), 0), building(None, 2)] {

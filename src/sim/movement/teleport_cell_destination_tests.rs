@@ -165,7 +165,9 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     );
     actor.lifecycle.set_in_limbo_for_test(false);
     actor.lifecycle.set_cell_marked(true);
-    super::super::ground_pose::put_location(&mut actor.position, coord(&before["actor"]["coords"]));
+    actor
+        .position
+        .put_location(coord(&before["actor"]["coords"]));
     actor.set_on_bridge(signed(&before["actor"]["on_bridge"]) != 0);
     actor.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_raw(signed(&before["actor"]["mission"])),
@@ -267,7 +269,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         let vehicle = sim.substrate.entities.get_mut(target).unwrap();
         vehicle.lifecycle.set_in_limbo_for_test(false);
         vehicle.lifecycle.set_cell_marked(true);
-        super::super::ground_pose::put_location(&mut vehicle.position, supplied);
+        vehicle.position.put_location(supplied);
         vehicle.health.set_for_test(signed(&transport["health"]));
         vehicle.set_on_bridge(
             transport

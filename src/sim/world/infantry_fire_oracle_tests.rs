@@ -112,15 +112,17 @@ fn firing_fixture(case: &Value, rules: &RuleSet) -> SuppliedFootFixture {
     let target = fixture.sim.substrate.entities.get_mut(target_id).unwrap();
     let before = &case["target_before"];
     let position = xyz(&before["position"]);
-    target.position.set_rx((position[0] / 256) as u16);
-    target.position.set_ry((position[1] / 256) as u16);
+    target.position.set_rx_for_test((position[0] / 256) as u16);
+    target.position.set_ry_for_test((position[1] / 256) as u16);
     target
         .position
-        .set_sub_x(SimFixed::from_num(position[0] % 256));
+        .set_sub_x_for_test(SimFixed::from_num(position[0] % 256));
     target
         .position
-        .set_sub_y(SimFixed::from_num(position[1] % 256));
-    target.position.set_exact_z_leptons(Some(position[2]));
+        .set_sub_y_for_test(SimFixed::from_num(position[1] % 256));
+    target
+        .position
+        .set_exact_z_leptons_for_test(Some(position[2]));
     target.set_on_bridge(before["on_bridge"] != 0);
     target.health = Health::new(signed(&before["health"]));
     target.lifecycle.set_in_limbo_for_test(before["limbo"] != 0);
@@ -442,15 +444,17 @@ fn emission_rules() -> Option<RuleSet> {
 
 fn set_recorded_position(actor: &mut GameEntity, position: &Value) {
     let position = xyz(position);
-    actor.position.set_rx((position[0] / 256) as u16);
-    actor.position.set_ry((position[1] / 256) as u16);
+    actor.position.set_rx_for_test((position[0] / 256) as u16);
+    actor.position.set_ry_for_test((position[1] / 256) as u16);
     actor
         .position
-        .set_sub_x(SimFixed::from_num(position[0] % 256));
+        .set_sub_x_for_test(SimFixed::from_num(position[0] % 256));
     actor
         .position
-        .set_sub_y(SimFixed::from_num(position[1] % 256));
-    actor.position.set_exact_z_leptons(Some(position[2]));
+        .set_sub_y_for_test(SimFixed::from_num(position[1] % 256));
+    actor
+        .position
+        .set_exact_z_leptons_for_test(Some(position[2]));
 }
 
 fn emission_fixture(case: &Value, rules: &RuleSet) -> SuppliedFootFixture {

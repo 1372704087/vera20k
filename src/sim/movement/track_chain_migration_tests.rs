@@ -73,10 +73,14 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
     // outside these chain-dispatch fixtures.
     let point = super::super::drive_track::raw_track_points(3)[37];
     let xy = [head.x + i32::from(point.x), head.y + i32::from(point.y)];
-    mover.position.set_rx((xy[0] / 256) as u16);
-    mover.position.set_ry((xy[1] / 256) as u16);
-    mover.position.set_sub_x(SimFixed::from_num(xy[0] % 256));
-    mover.position.set_sub_y(SimFixed::from_num(xy[1] % 256));
+    mover.position.set_rx_for_test((xy[0] / 256) as u16);
+    mover.position.set_ry_for_test((xy[1] / 256) as u16);
+    mover
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(xy[0] % 256));
+    mover
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(xy[1] % 256));
     sim.substrate.entities.insert(mover);
     sim.interner = test_interner();
     sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);

@@ -795,8 +795,8 @@ fn a_crewman_leaving_a_bridge_deck_keeps_the_vehicle_coordinate() {
         {
             let unit = sim.substrate.entities.get_mut(mcv).unwrap();
             unit.set_on_bridge(true);
-            unit.position.set_sub_x(sub_x);
-            unit.position.set_sub_y(sub_y);
+            unit.position.set_sub_x_for_test(sub_x);
+            unit.position.set_sub_y_for_test(sub_y);
         }
         sim.foot_mark_remove(
             mcv,

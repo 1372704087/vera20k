@@ -514,7 +514,7 @@ fn a_human_aircraft_shooting_over_shroud_maps_the_cells_around_it() {
             .get_mut(1)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(1500));
+            .set_exact_z_leptons_for_test(Some(1500));
         let americans = sim.interner.intern("Americans");
         sim.houses.insert(
             americans,

@@ -55,8 +55,8 @@ fn place_actor(
         5,
         true,
     );
-    entity.position.set_sub_x(SimFixed::from_num(128));
-    entity.position.set_sub_y(SimFixed::from_num(128));
+    entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+    entity.position.set_sub_y_for_test(SimFixed::from_num(128));
     sim.substrate.entities.insert(entity);
     sim.try_reveal_entity(
         id,

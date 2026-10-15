@@ -207,15 +207,12 @@ fn scene(input: &Value) -> Scene {
         }
         // make_fixture supplies the transport's full Object+9C XYZ after
         // construction; the held constructor itself leaves Location zero.
-        crate::sim::movement::ground_pose::put_location(
-            &mut unit.position,
-            DriveCoord {
-                x: world_xy[0],
-                y: world_xy[1],
-                z: floor + if on_bridge { 416 } else { 0 } + height,
-            },
-        );
-        unit.position.set_z(if on_bridge { 4 } else { 0 });
+        unit.position.put_location(DriveCoord {
+            x: world_xy[0],
+            y: world_xy[1],
+            z: floor + if on_bridge { 416 } else { 0 } + height,
+        });
+        unit.position.set_z_for_test(if on_bridge { 4 } else { 0 });
         unit.set_on_bridge(on_bridge);
         // The Unit's FacingClass (`+0x388`), settled on the row's facing.
         let mut body = crate::sim::movement::FacingClass::new(facing, 0);

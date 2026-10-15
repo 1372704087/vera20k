@@ -135,14 +135,11 @@ fn put_on_deck(sim: &mut Simulation, rules: &RuleSet, id: u64, water: bool) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     let at = ground_pose::position_world_coord(&entity.position);
     entity.set_on_bridge(true);
-    entity.position.set_z(4);
-    ground_pose::put_location(
-        &mut entity.position,
-        DriveCoord {
-            z: BRIDGE_DECK_HEIGHT_LEPTONS,
-            ..at
-        },
-    );
+    entity.position.set_z_for_test(4);
+    entity.position.put_location(DriveCoord {
+        z: BRIDGE_DECK_HEIGHT_LEPTONS,
+        ..at
+    });
     assert!(sim.foot_mark_put(id, Some(rules), None, FrameEffects::default()));
     assert_eq!(
         sim.substrate.occupancy.listed_layer(CELL.0, CELL.1, id),

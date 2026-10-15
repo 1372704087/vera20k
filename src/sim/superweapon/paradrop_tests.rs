@@ -209,7 +209,7 @@ fn plane_at(sim: &mut Simulation, rules: &RuleSet, at: (u16, u16), passengers: u
         .get_mut(id)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(1500));
+        .set_exact_z_leptons_for_test(Some(1500));
     id
 }
 
@@ -226,8 +226,8 @@ fn fill_spots(sim: &mut Simulation, cell: (u16, u16)) {
         blocker.set_sub_cell(Some(spot));
         {
             let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(spot));
-            blocker.position.set_sub_x(sub_x);
-            blocker.position.set_sub_y(sub_y);
+            blocker.position.set_sub_x_for_test(sub_x);
+            blocker.position.set_sub_y_for_test(sub_y);
         }
         sim.substrate.entities.insert(blocker);
         assert!(matches!(sim.reveal(id), RevealOutcome::Revealed { .. }));
@@ -676,10 +676,14 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value, target: (u1
         for dx in (distance - 4).max(0)..distance + 8 {
             let (x, y) = (centre(target.0) + dx, centre(target.1) + dy);
             let plane = sim.substrate.entities.get_mut(id).unwrap();
-            plane.position.set_rx((x / 256) as u16);
-            plane.position.set_ry((y / 256) as u16);
-            plane.position.set_sub_x(SimFixed::from_num(x % 256));
-            plane.position.set_sub_y(SimFixed::from_num(y % 256));
+            plane.position.set_rx_for_test((x / 256) as u16);
+            plane.position.set_ry_for_test((y / 256) as u16);
+            plane
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(x % 256));
+            plane
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(y % 256));
             let entities = &sim.substrate.entities;
             let plane = entities.get(id).unwrap();
             if crate::sim::combat::object_distance_to(plane, &goal, entities) == Some(distance) {

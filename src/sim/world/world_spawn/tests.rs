@@ -233,13 +233,10 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
             SimFixed::ZERO,
             SimFixed::ZERO,
         );
-        ground_pose::set_position_world_xy(
-            &mut requested,
-            [
-                xyz[0].as_i64().unwrap() as i32,
-                xyz[1].as_i64().unwrap() as i32,
-            ],
-        );
+        requested.put_world_xy([
+            xyz[0].as_i64().unwrap() as i32,
+            xyz[1].as_i64().unwrap() as i32,
+        ]);
         let positioned = if input["priority"] == 0 {
             sim.infantry_unlimbo_position(requested, Some(&rules))
         } else {

@@ -1113,8 +1113,8 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
         let producer_coord = coord(&input["producer_xyz"]);
         {
             let producer = sim.substrate.entities.get_mut(producer_id).unwrap();
-            ground_pose::put_location(&mut producer.position, producer_coord);
-            producer.position.set_z(4);
+            producer.position.put_location(producer_coord);
+            producer.position.set_z_for_test(4);
         }
         sim.mission_assign_exact(producer_id, MissionId::from_known(MissionType::Guard), 0)
             .unwrap();
@@ -1396,10 +1396,9 @@ fn retail_factory_exit_radio_matches_original_reciprocal_cleanup() {
         let ids = (unit, producer);
         {
             let endpoint = sim.substrate.entities.get_mut(producer).unwrap();
-            ground_pose::put_location(
-                &mut endpoint.position,
-                coord(&before["producer"]["position"]),
-            );
+            endpoint
+                .position
+                .put_location(coord(&before["producer"]["position"]));
             endpoint
                 .health
                 .set_for_test(int(&before["producer"]["health"]));

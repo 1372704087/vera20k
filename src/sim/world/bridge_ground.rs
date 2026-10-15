@@ -120,14 +120,16 @@ mod tests {
             )
             .unwrap();
         // Supply the fallout scene's pose after the constructor's zero Location.
-        crate::sim::movement::ground_pose::put_location(
-            &mut sim.substrate.entities.get_mut(id).unwrap().position,
-            crate::sim::components::DriveCoord {
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .position
+            .put_location(crate::sim::components::DriveCoord {
                 x: i32::from(x) * 256 + 128,
                 y: 4 * 256 + 128,
                 z: 0,
-            },
-        );
+            });
         sim.reveal(id);
         id
     }
@@ -588,14 +590,16 @@ mod tests {
                 )
                 .unwrap();
             // The unmarked contrast has this same pose without Cell membership.
-            crate::sim::movement::ground_pose::put_location(
-                &mut sim.substrate.entities.get_mut(id).unwrap().position,
-                crate::sim::components::DriveCoord {
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .position
+                .put_location(crate::sim::components::DriveCoord {
                     x: i32::from(x) * 256 + 128,
                     y: 4 * 256 + 128,
                     z: 0,
-                },
-            );
+                });
             if marked {
                 sim.reveal(id);
             }

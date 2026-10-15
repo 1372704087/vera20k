@@ -256,14 +256,16 @@ mod tests {
                     FrameEffects::default(),
                 )
                 .unwrap();
-            ground_pose::put_location(
-                &mut sim.substrate.entities.get_mut(id).unwrap().position,
-                DriveCoord {
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .position
+                .put_location(DriveCoord {
                     x: cell * 256 + 128,
                     y: cell * 256 + 128,
                     z: 0,
-                },
-            );
+                });
         }
         let type_id = sim.interner.get("NANRCT").unwrap();
         let rng = sim.scenario_rng.native_state_hex();

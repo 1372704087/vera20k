@@ -172,8 +172,8 @@ fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
     let planter = sim.substrate.entities.get_mut(id).unwrap();
     {
         let (rx, ry) = anchor;
-        planter.position.set_rx(rx);
-        planter.position.set_ry(ry);
+        planter.position.set_rx_for_test(rx);
+        planter.position.set_ry_for_test(ry);
     }
     planter
         .navigation

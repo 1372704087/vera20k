@@ -61,14 +61,11 @@ fn damage_feedback_matches_original_draws_house_admission_coordinates_and_contin
         target.lifecycle.set_cell_marked(true);
         target.set_in_playfield(true);
         let coordinate = &input["coordinate"];
-        crate::sim::movement::ground_pose::put_location(
-            &mut target.position,
-            DriveCoord {
-                x: coordinate[0].as_i64().unwrap() as i32,
-                y: coordinate[1].as_i64().unwrap() as i32,
-                z: coordinate[2].as_i64().unwrap() as i32,
-            },
-        );
+        target.position.put_location(DriveCoord {
+            x: coordinate[0].as_i64().unwrap() as i32,
+            y: coordinate[1].as_i64().unwrap() as i32,
+            z: coordinate[2].as_i64().unwrap() as i32,
+        });
         let mut sim = Simulation::new();
         sim.interner = test_interner();
         let owner = target.owner();

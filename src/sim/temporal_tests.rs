@@ -261,15 +261,15 @@ const PLACE_ORIGIN: i32 = 16 * 256;
 fn place(sim: &mut Simulation, id: u64, coord: [i32; 3]) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     let (x, y) = (coord[0] + PLACE_ORIGIN, coord[1] + PLACE_ORIGIN);
-    entity.position.set_rx((x / 256) as u16);
-    entity.position.set_ry((y / 256) as u16);
+    entity.position.set_rx_for_test((x / 256) as u16);
+    entity.position.set_ry_for_test((y / 256) as u16);
     entity
         .position
-        .set_sub_x(crate::util::fixed_math::SimFixed::from_num(x % 256));
+        .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(x % 256));
     entity
         .position
-        .set_sub_y(crate::util::fixed_math::SimFixed::from_num(y % 256));
-    entity.position.set_exact_z_leptons(Some(coord[2]));
+        .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(y % 256));
+    entity.position.set_exact_z_leptons_for_test(Some(coord[2]));
 }
 
 fn set_elite(sim: &mut Simulation, id: u64) {
@@ -2125,8 +2125,8 @@ fn native_initiate_warp_corpus() {
             if factory["in_cell"].as_bool().unwrap_or(true) {
                 // Footprint over the target's cell (Look_up_building_in_cell).
                 let building = sim.substrate.entities.get_mut(factory_id).unwrap();
-                building.position.set_rx(19);
-                building.position.set_ry(19);
+                building.position.set_rx_for_test(19);
+                building.position.set_ry_for_test(19);
             }
             let contacts = &mut sim
                 .substrate
@@ -2340,7 +2340,7 @@ fn a_landing_aircraft_is_not_warped() {
                 crate::rules::locomotor_type::LocomotorKind::Fly,
             ),
         );
-        entity.position.set_exact_z_leptons(Some(height));
+        entity.position.set_exact_z_leptons_for_test(Some(height));
         sim.temporal_detonation(
             cleg,
             TemporalShotTarget::Object(plane),

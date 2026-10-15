@@ -125,7 +125,7 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
             .passive_scan
             .set_passive_scan_timer_for_test(MissionTimer::armed(0, 0));
         entity.passive_scan.set_last_target_scan_frame_for_test(0);
-        entity.position.set_exact_z_leptons(Some(624));
+        entity.position.set_exact_z_leptons_for_test(Some(624));
         sim.substrate.entities.insert(entity);
         sim.mission_assign_exact(id, MissionId::from_known(MissionType::Guard), 0)
             .unwrap();
@@ -146,13 +146,13 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
         terrain.write_native_cell_flags(cell, flags);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
         entity.set_on_bridge(deck);
-        entity.position.set_rx(x as u16);
-        entity.position.set_ry(20);
-        entity.position.set_sub_x(SimFixed::from_num(128));
-        entity.position.set_sub_y(SimFixed::from_num(128));
+        entity.position.set_rx_for_test(x as u16);
+        entity.position.set_ry_for_test(20);
+        entity.position.set_sub_x_for_test(SimFixed::from_num(128));
+        entity.position.set_sub_y_for_test(SimFixed::from_num(128));
         entity
             .position
-            .set_exact_z_leptons(Some(if deck { 1040 } else { 624 }));
+            .set_exact_z_leptons_for_test(Some(if deck { 1040 } else { 624 }));
         sim.substrate.occupancy.add(
             x as u16,
             20,
@@ -169,8 +169,8 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
     if let Some(mode) = input["alternative"].as_str() {
         let y = if mode == "other_cell" { 21 } else { 20 };
         let alternate = sim.substrate.entities.get_mut(3).unwrap();
-        alternate.position.set_ry(y);
-        alternate.position.set_exact_z_leptons(Some(624));
+        alternate.position.set_ry_for_test(y);
+        alternate.position.set_exact_z_leptons_for_test(Some(624));
         let terrain = sim.resolved_terrain.as_mut().unwrap();
         terrain.write_native_cell_flags(
             crate::map::cell_index::NativeCellIdentity::Real(usize::from(y) * 25 + 12),

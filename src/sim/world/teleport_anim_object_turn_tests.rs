@@ -98,10 +98,10 @@ fn relocating_owner(category: EntityCategory, type_name: &str, target: (u16, u16
     if category == EntityCategory::Infantry {
         entity
             .position
-            .set_sub_x(crate::util::lepton::CELL_CENTER_LEPTON);
+            .set_sub_x_for_test(crate::util::lepton::CELL_CENTER_LEPTON);
         entity
             .position
-            .set_sub_y(crate::util::lepton::CELL_CENTER_LEPTON);
+            .set_sub_y_for_test(crate::util::lepton::CELL_CENTER_LEPTON);
         entity.set_sub_cell(Some(0));
     }
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));

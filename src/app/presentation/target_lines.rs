@@ -655,7 +655,7 @@ mod tests {
         let mut power = factory.clone();
         power.set_stable_id_for_test(11);
         power.set_type_ref_for_test(power_type);
-        power.position.set_rx(12);
+        power.position.set_rx_for_test(12);
         power.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(16, 10)));
         sim.entities_mut().insert(factory);
         sim.entities_mut().insert(power);

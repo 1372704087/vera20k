@@ -138,7 +138,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     assert_eq!((xyz[0], xyz[1]), (START, START));
     let frame = sim.session.binary_frame;
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.set_exact_z_leptons(Some(xyz[2]));
+    entity.position.set_exact_z_leptons_for_test(Some(xyz[2]));
     entity.health.set_for_test(int(input, "health", 0) as i32);
     entity
         .crash
@@ -867,7 +867,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.health.set_for_test(300);
-        entity.position.set_exact_z_leptons(Some(500));
+        entity.position.set_exact_z_leptons_for_test(Some(500));
         entity.body_facing = FacingClass::new(0x4000, 5);
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
@@ -1282,7 +1282,7 @@ fn a_jumpjet_shot_down_touching_down_still_crashes() {
     let (mut sim, rules, _, shooter) = jumpjet_fixture(false);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.set_exact_z_leptons(Some(10));
+        entity.position.set_exact_z_leptons_for_test(Some(10));
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
@@ -1405,7 +1405,7 @@ fn a_landed_jumpjet_dies_where_it_stands() {
     let (mut sim, rules, _, shooter) = jumpjet_fixture(false);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.set_exact_z_leptons(Some(0));
+        entity.position.set_exact_z_leptons_for_test(Some(0));
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         *runtime = runtime.clone().with_phase_for_test(

@@ -1100,7 +1100,7 @@ impl Simulation {
             && let Some(family) = TrackFamily::from_kind(loco.active_kind())
             && let Some(mut progress) = loco.track_progress(family)
         {
-            progress.set_turn_index(-1);
+            progress.retire_selector();
             loco.store_track_progress(family, progress);
         }
     }

@@ -530,13 +530,17 @@ impl LocomotorState {
     }
 
     fn installed_track_retained_mut(&mut self) -> Option<TrackRetainedMut<'_>> {
-        match (self.active_kind(), self.runtime_payload_mut()) {
-            (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
-                state.retained.as_mut().map(TrackRetainedMut::Drive)
-            }
-            (LocomotorKind::Ship, LocomotorRuntimePayload::Ship(state)) => {
-                state.retained.as_mut().map(TrackRetainedMut::Ship)
-            }
+        match self.active_kind() {
+            LocomotorKind::Drive => self
+                .drive_runtime_mut()?
+                .retained
+                .as_mut()
+                .map(TrackRetainedMut::Drive),
+            LocomotorKind::Ship => self
+                .ship_runtime_mut()?
+                .retained
+                .as_mut()
+                .map(TrackRetainedMut::Ship),
             _ => None,
         }
     }
@@ -560,16 +564,14 @@ impl LocomotorState {
     /// Only existing lazy allocation sites may call this. Stashes are never
     /// selected, reset or materialized by an installed-instance initializer.
     pub(crate) fn ensure_installed_track_state(&mut self) -> bool {
-        match (self.active_kind(), self.runtime_payload_mut()) {
-            (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
-                state.retained.get_or_insert_with(Default::default);
-                true
-            }
-            (LocomotorKind::Ship, LocomotorRuntimePayload::Ship(state)) => {
-                state.retained.get_or_insert_with(Default::default);
-                true
-            }
-            _ => false,
+        if let Some(state) = self.drive_runtime_mut() {
+            state.retained.get_or_insert_with(Default::default);
+            true
+        } else if let Some(state) = self.ship_runtime_mut() {
+            state.retained.get_or_insert_with(Default::default);
+            true
+        } else {
+            false
         }
     }
 
@@ -668,15 +670,15 @@ impl LocomotorState {
     }
 
     pub(crate) fn store_drive_end_permission(&mut self, value: bool) -> bool {
-        match (self.active_kind(), self.runtime_payload_mut()) {
-            (LocomotorKind::Drive, LocomotorRuntimePayload::Drive(state)) => {
+        match self.drive_runtime_mut() {
+            Some(state) => {
                 let Some(state) = state.retained.as_mut() else {
                     return false;
                 };
                 state.end_permitted = value;
                 true
             }
-            _ => false,
+            None => false,
         }
     }
 

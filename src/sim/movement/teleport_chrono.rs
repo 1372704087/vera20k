@@ -127,7 +127,10 @@ impl Simulation {
 
     /// The Teleport Process of an owner whose Teleport holds a Chronosphere
     /// warp: the state it is in (module docs). Answers whether state 5's
-    /// `Per_Cell_Process(2)` changed a bridge's state.
+    /// `Per_Cell_Process(2)` changed a bridge's state. Each state is
+    /// `TeleportLocomotionClass::Process @ 0x007192F0`'s own
+    /// (`0x007197CC..0x00719BE2`), which stores the warp's state (`+0x38`),
+    /// its timer and the Techno bytes.
     pub(crate) fn process_chrono_warp(
         &mut self,
         id: u64,
@@ -196,7 +199,9 @@ impl Simulation {
                     warp.set_state(4);
                 }
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    entity.set_chrono_warp_delay(rules.general.chrono_delay);
+                    entity
+                        .chrono_warp_delay
+                        .store_chrono_delay(rules.general.chrono_delay);
                 }
             }
             4 => {

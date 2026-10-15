@@ -814,7 +814,8 @@ impl Simulation {
             self.substrate
                 .entities
                 .get_mut(owner)?
-                .set_on_bridge(victim_on_bridge);
+                .on_bridge
+                .store(victim_on_bridge);
             return Some(coords);
         }
         let frame = self.session.binary_frame;
@@ -885,7 +886,8 @@ impl Simulation {
         self.substrate
             .entities
             .get_mut(owner)?
-            .set_on_bridge(on_bridge);
+            .on_bridge
+            .store(on_bridge);
         Some(coords)
     }
 
@@ -1084,7 +1086,10 @@ impl Simulation {
             (None, sub_x, sub_y)
         };
         if let Some(entity) = self.substrate.entities.get_mut(owner) {
-            entity.set_sub_cell(sub_cell);
+            match sub_cell {
+                Some(spot) => entity.sub_cell.hold(spot),
+                None => entity.sub_cell.release(),
+            }
         }
         let revealed = matches!(
             self.try_reveal_entity_with_context(

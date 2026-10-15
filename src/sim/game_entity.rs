@@ -358,13 +358,12 @@ pub struct GameEntity {
     /// [`SetterForceReassign`]: crate::sim::movement::SetterForceReassign
     #[serde(default)]
     pub(crate) setter_force_reassign: crate::sim::movement::SetterForceReassign,
-    /// Techno+0x284, constructor zero (`0x006F2DDE`): the warp-in the
-    /// Chronosphere's Teleport states time (`0x00719B23`). A blocked landing
-    /// writes it (`[General] ChronoDelay=`, `0x00719983`) and it stays for
-    /// every later warp of the object; its other writer, the chrono
-    /// reinforcement (`0x0065F212`, `ChronoReinfDelay=`), is not ported.
+    /// Techno+0x284, a [`ChronoWarpDelay`] that `movement::teleport_movement`
+    /// owns.
+    ///
+    /// [`ChronoWarpDelay`]: crate::sim::movement::teleport_movement::ChronoWarpDelay
     #[serde(default)]
-    chrono_warp_delay: i32,
+    pub(crate) chrono_warp_delay: crate::sim::movement::teleport_movement::ChronoWarpDelay,
     /// The object's target (`TechnoClass+0x2B4`), a [`TarCom`] that the class
     /// target setter (`mission::concrete_effects`) writes.
     pub(crate) attack_target: TarCom,
@@ -832,11 +831,13 @@ impl GameEntity {
 
     /// Techno+0x284, the Chronosphere warp-in's frames.
     pub(crate) fn chrono_warp_delay(&self) -> i32 {
-        self.chrono_warp_delay
+        self.chrono_warp_delay.get()
     }
 
+    /// A fixture's delay.
+    #[cfg(test)]
     pub(crate) fn set_chrono_warp_delay(&mut self, frames: i32) {
-        self.chrono_warp_delay = frames;
+        self.chrono_warp_delay.store_chrono_delay(frames);
     }
 }
 
@@ -1004,12 +1005,8 @@ impl GameEntity {
         self.on_bridge.get()
     }
 
-    /// Store OnBridge through [`OnBridge::store`] for fixtures and for the
-    /// writers in `tube_movement`, `movement_tick`, `transport_unload` and
-    /// `parasite`, which call the record's operations once the movement
-    /// change that owns those files lands.
-    ///
-    /// [`OnBridge::store`]: crate::sim::movement::movement_bridge::OnBridge::store
+    /// A fixture's OnBridge.
+    #[cfg(test)]
     pub(crate) fn set_on_bridge(&mut self, on_bridge: bool) {
         self.on_bridge.store(on_bridge);
     }
@@ -1019,8 +1016,8 @@ impl GameEntity {
         self.sub_cell.get()
     }
 
-    /// Hold `sub_cell`, or release the spot for `None`, for fixtures and for
-    /// the movement files [`Self::set_on_bridge`] names.
+    /// A fixture's spot: held, or released for `None`.
+    #[cfg(test)]
     pub(crate) fn set_sub_cell(&mut self, sub_cell: Option<u8>) {
         match sub_cell {
             Some(spot) => self.sub_cell.hold(spot),
@@ -1033,8 +1030,12 @@ impl GameEntity {
         self.foot_occupation_enabled.get()
     }
 
-    /// Resume or suspend the occupation enable, for fixtures and for the
-    /// movement files [`Self::set_on_bridge`] names.
+    /// Resume or suspend the occupation enable, for fixtures and for the tube
+    /// entry and Unit exit in `movement_tick` and `tube_movement`, which the
+    /// movement change rewriting them moves to [`OccupationEnable`]'s
+    /// operations.
+    ///
+    /// [`OccupationEnable`]: crate::sim::movement::foot_mark::OccupationEnable
     pub(crate) fn set_foot_occupation_enabled(&mut self, enabled: bool) {
         if enabled {
             self.foot_occupation_enabled.resume();
@@ -1435,7 +1436,7 @@ impl GameEntity {
             lift: Default::default(),
             drop_credit: Default::default(),
             setter_force_reassign: Default::default(),
-            chrono_warp_delay: 0,
+            chrono_warp_delay: Default::default(),
             attack_target: TarCom::default(),
             pending_building_fire: Default::default(),
             prism_support_count: Default::default(),

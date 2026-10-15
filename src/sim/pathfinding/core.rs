@@ -13,6 +13,7 @@
 //! - Part of sim/ — depends on map/ (resolved terrain for walkability).
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+use super::native_heap::NativeHeap;
 use super::stamped_table::StampedTable;
 use super::zone_hierarchy::{MarkedZones, ZoneLevelGraph};
 use super::zone_search::PathSearchFailure;
@@ -21,9 +22,11 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::tube_facts::{TubeId, TubeSource};
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::native_x87::{
+    NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, chop_sum_f32, sqrt_approx_f32,
+};
 use std::cell::RefCell;
-use std::cmp::Reverse;
-use std::collections::{BTreeSet, BinaryHeap};
+use std::collections::BTreeSet;
 
 /// Accepted native path descriptor (`gamemd.exe 42AA90` reads the parent descriptor's
 /// height into each outgoing-height slot). The selected cell/list is stamped
@@ -34,12 +37,17 @@ use std::collections::{BTreeSet, BinaryHeap};
 struct PathDescriptor {
     parent: usize,
     height: i16,
+    /// The g its node was created with, which the main loop also keeps per
+    /// list (`+0x24` ground, `+0x20` deck; written at `0x0042A125..0x0042A156`)
+    /// for its closed-candidate test ([`closed_candidate_retried`]).
+    g: f32,
 }
 
 impl PathDescriptor {
     const UNVISITED: Self = Self {
         parent: usize::MAX,
         height: 0,
+        g: 0.0,
     };
 }
 
@@ -55,7 +63,7 @@ type ClosedLayer = StampedTable<PathDescriptor>;
 ///
 /// A search touches only the cells it reaches, so `reset` clears nothing: the
 /// closed lists forget the previous search at once (see `StampedTable`). The
-/// buffers grow when a map is bigger than any before; the `BinaryHeap` is
+/// buffers grow when a map is bigger than any before; the open list is
 /// cleared but keeps capacity. Use through `with_pathfind_workspace` only; it
 /// asserts non-reentrancy so a future recursive A* caller fails loudly instead
 /// of silently sharing buffers.
@@ -63,7 +71,7 @@ type ClosedLayer = StampedTable<PathDescriptor>;
 struct PathfindWorkspace {
     ground: ClosedLayer,
     bridge: ClosedLayer,
-    open: BinaryHeap<Reverse<AStarNode>>,
+    open: NativeHeap<AStarNode>,
 }
 
 impl PathfindWorkspace {
@@ -101,17 +109,16 @@ fn with_pathfind_workspace<R>(
     })
 }
 
-/// Uniform A* edge cost for all 8 compass directions. The original engine has
-/// no diagonal upcharge — `AStar_compute_edge_cost` takes no direction
-/// parameter. The 1000× scale is chosen so DIR_TIEBREAK [1..=8] sits at
-/// exactly 0.001..0.008 of base, matching the binary's tiebreaker ratio.
-const STEP_COST: i32 = 1000;
+/// The expansions a search may make. `AStar_main_loop` takes its limit as an
+/// argument and resolves a negative one to `0xFFF7` (`0x00429D51..0x00429D59`);
+/// both callers (`0x004CBC1E`, `0x00504D9B`) pass -1. The loop tests it
+/// before each node's goal test (`0x00429D6D..0x00429D79`).
+const MAX_SEARCH_NODES: u32 = 0xFFF7;
 
-/// Maximum nodes to evaluate before giving up. Prevents freezing on
-/// pathologically large or impossible searches.
-/// Original engine uses 65,527 (0xFFF7). We match this to avoid failing
-/// on complex paths that the original would find.
-const MAX_SEARCH_NODES: u32 = 65_527;
+/// A route found after exactly this many expansions is refused (`CMP
+/// ECX,0x2710` at `0x0042A3E2`), whether at the goal or at the blocked-goal
+/// tail.
+const REFUSED_EXPANSION_COUNT: u32 = 10_000;
 
 /// RA2 computes paths in 24-step segments. When a segment is exhausted before
 /// reaching the destination, the pathfinder replans from the current position.
@@ -325,37 +332,88 @@ impl HierarchyGate<'_> {
     }
 }
 
-/// Per-direction tie-breaker offsets added to g-cost.
-///
-/// `AStar_main_loop` @ `0x00429A90` adds the eight floats at `0x0081872C`,
-/// `0.001` through `0.008`. With [`STEP_COST`] at 1000 the integers below are
-/// the same fractions of a step, so no separate scaling is applied. Cardinals
-/// get lower values than diagonals, which is what stops path oscillation when
-/// several routes tie. Index order matches [`CELL_DELTAS`]: N, NE, E, SE, S, SW,
-/// W, NW.
-const DIR_TIEBREAK: [i32; 8] = [
-    1, // N   (original ≈0.001)
-    5, // NE  (original ≈0.005)
-    2, // E   (original ≈0.002)
-    6, // SE  (original ≈0.006)
-    3, // S   (original ≈0.003)
-    7, // SW  (original ≈0.007)
-    4, // W   (original ≈0.004)
-    8, // NW  (original ≈0.008)
+/// The direction tiebreaks `AStar_main_loop` adds to each compass edge (`FADD`
+/// at `0x00429F96`): the binary32 table at `0x0081872C`, about 0.001 to 0.008.
+/// Cardinals get lower values than diagonals, which stops path oscillation
+/// when several routes tie. Index order matches [`CELL_DELTAS`]: N, NE, E, SE,
+/// S, SW, W, NW.
+const DIR_TIEBREAK: [f32; 8] = [
+    f32::from_bits(0x3a83_126f), // N   ≈0.001
+    f32::from_bits(0x3ba3_d70a), // NE  ≈0.005
+    f32::from_bits(0x3b03_126f), // E   ≈0.002
+    f32::from_bits(0x3bc4_9ba6), // SE  ≈0.006
+    f32::from_bits(0x3b44_9ba6), // S   ≈0.003
+    f32::from_bits(0x3be5_6042), // SW  ≈0.007
+    f32::from_bits(0x3b83_126f), // W   ≈0.004
+    f32::from_bits(0x3c03_126f), // NW  ≈0.008
 ];
 
-/// **VERA-internal, gamemd has no equivalent.** The native direction-8 arm at
-/// `0x00429FA3` charges the Chebyshev cell distance from the tube entrance to
-/// its **exit** and then skips the `FMUL`/`FADD` entirely — a tube edge takes
-/// **no tiebreak at all**. VERA charges `STEP_COST × path_len()` plus this
-/// constant, which keeps tube jumps ordered after normal edges on a tie.
-///
-/// Trigger: any expansion across a tube edge. Player effect: the tube's cost
-/// differs from retail's whenever the tunnel is not straight (path length vs
-/// endpoint distance), which shifts whether the unit takes the tunnel at all.
-/// Frequency: tunnel maps only, and there on every cross-map order.
-/// Downstream risk: low — it is one arm of the neighbour loop.
-const TUBE_DIR_TIEBREAK: i32 = 9;
+/// The double the closed-candidate test adds to the current g (`FADD` at
+/// `0x00429EEC`, constant `0x007E37C0`): 1.009.
+const CLOSED_RETRY_MARGIN: NativeF64Bits = NativeF64Bits::from_bits(0x3ff0_24dd_2f1a_9fbe);
+
+/// A compass edge's cost (`0x00429F8A..0x00429F9D`): the class's
+/// `AStar_compute_edge_cost` (`0x00429830`) cost, an exact small integer
+/// (class base, code-2 override, ×4 marker), times `PathfinderClass+0x04`
+/// plus the direction's tiebreak, stored as binary32. `+0x04` is the
+/// constructor's 1.0 (`0x0042A6EB`), with no other writer, so its `FMUL`
+/// changes nothing. Native controls: astar_structural_height.json
+/// `edge_costs`.
+fn compass_edge_cost(cost: i32, direction: usize) -> f32 {
+    chop_sum_f32(cost as f32, DIR_TIEBREAK[direction])
+}
+
+/// A node's g and f (`AStar_create_node @ 0x0042A460`): g adds the edge to
+/// the parent's g (`0x0042A529..0x0042A530`) and f adds g to the heuristic
+/// (`0x0042A590..0x0042A59E`), each stored as binary32. Native controls:
+/// astar_structural_height.json `node_costs`.
+fn node_costs(parent_g: f32, edge: f32, cell: (u16, u16), goal: (u16, u16)) -> (f32, f32) {
+    let g = chop_sum_f32(edge, parent_g);
+    (g, chop_sum_f32(heuristic(cell, goal), g))
+}
+
+/// The open list's order: `FCOMP` of two binary32 totals. Nothing else breaks
+/// a tie; equal totals keep their place in the heap.
+fn cheaper(a: &AStarNode, b: &AStarNode) -> bool {
+    a.f_cost < b.f_cost
+}
+
+/// A closed candidate is asked about again when the g its node was created
+/// with is at least the current node's g plus 1.009, summed on the x87
+/// (`0x00429EE2..0x00429F31`). Native controls: astar_structural_height.json
+/// `closed_retries`.
+fn closed_candidate_retried(stored_g: f32, current_g: f32) -> bool {
+    let load = |value: f32| {
+        X87Chop53::load_f32(NativeF32Bits::from_bits(value.to_bits())).expect("finite g")
+    };
+    let margin = X87Chop53::load_f64(CLOSED_RETRY_MARGIN).expect("finite margin");
+    X87Chop53::compare(load(stored_g), X87Chop53::add(load(current_g), margin)) != X87Ordering::Less
+}
+
+/// The node an expansion makes is held while it is the cheapest so far; a
+/// cheaper one takes its place and sends it to the open list
+/// (`0x0042A037..0x0042A0CB`, the held child at `[ESP+0x1C]`).
+fn offer_child(held: &mut Option<AStarNode>, open: &mut NativeHeap<AStarNode>, child: AStarNode) {
+    match held {
+        Some(best) if child.f_cost < best.f_cost => {
+            open.push(std::mem::replace(best, child), cheaper);
+        }
+        Some(_) => open.push(child, cheaper),
+        None => *held = Some(child),
+    }
+}
+
+/// The next node to expand (`0x0042A1B3..0x0042A3B5`): the held child, unless
+/// the open list's root costs no more, which then gives way to it.
+fn next_node(held: Option<AStarNode>, open: &mut NativeHeap<AStarNode>) -> Option<AStarNode> {
+    match held {
+        Some(best) => match open.first() {
+            Some(root) if root.f_cost <= best.f_cost => Some(open.replace_first(best, cheaper)),
+            _ => Some(best),
+        },
+        None => open.pop(cheaper),
+    }
+}
 
 /// Threshold for ground vs bridge closed-list selection.
 /// Binary: `abs(path_height - cell.height_level) < 2`, the `CMP EAX,0x1` at
@@ -426,16 +484,17 @@ fn decode_from(value: usize) -> (usize, bool) {
     (value & !CAME_FROM_BRIDGE, value & CAME_FROM_BRIDGE != 0)
 }
 
+/// The exit of the explicit tube entered at `coord`, the direction-8 candidate.
 fn explicit_tube_edge(
     terrain: Option<&ResolvedTerrainGrid>,
     coord: (u16, u16),
-) -> Option<((u16, u16), usize)> {
+) -> Option<(u16, u16)> {
     let terrain = terrain?;
     let tube = terrain.tube_at_cell(coord.0, coord.1)?;
     if tube.source != TubeSource::ExplicitMap || tube.path_len() == 0 || tube.exit == (0, 0) {
         return None;
     }
-    Some((tube.exit, tube.path_len()))
+    Some(tube.exit)
 }
 
 ///429E19..429E21 tests the actual Cell pointer before layer, zone or +1AC
@@ -670,8 +729,6 @@ pub fn astar_search(
     let total_cells = w * h;
 
     // Persistent A* scratch reused across calls; see `PathfindWorkspace`.
-    // A node's g travels in the open set: the closed lists hold only the
-    // stamp and the parent descriptor.
     with_pathfind_workspace(total_cells, |ws| {
         let PathfindWorkspace {
             ref mut ground,
@@ -683,10 +740,11 @@ pub fn astar_search(
         let start_on_bridge = is_at_bridge_level(start_height, start_cell);
         // Close-on-generation: gamemd stamps a (cell, layer) closed at the
         // moment a node is created for it and freezes its g there. The start
-        // node is created before the loop, so it is stamped here.
+        // node is created before the loop, so it is stamped here, with g 0.
         let start_descriptor = PathDescriptor {
             parent: usize::MAX,
             height: compute_node_height(start_height, None, start_cell),
+            g: 0.0,
         };
         if start_on_bridge {
             bridge.set(start_idx, start_descriptor);
@@ -694,19 +752,21 @@ pub fn astar_search(
             ground.set(start_idx, start_descriptor);
         }
 
-        open.push(Reverse(AStarNode {
-            f_cost: euclidean_heuristic(start.0, start.1, goal.0, goal.1),
-            g_cost: 0,
+        // The start node is expanded first and never enters the open list
+        // (created at `0x00429BE6`).
+        let mut current = AStarNode {
+            f_cost: heuristic(start, goal),
+            g_cost: 0.0,
             x: start.0,
             y: start.1,
             height: start_descriptor.height,
             on_bridge: start_on_bridge,
-        }));
-
-        let mut nodes_evaluated: u32 = 0;
+        };
+        // The expansions made so far, `[ESP+0x28]`.
+        let mut expanded: u32 = 0;
 
         // --- Main loop ---
-        while let Some(Reverse(current)) = open.pop() {
+        let tail = 'search: loop {
             let cx = current.x;
             let cy = current.y;
             let c_idx = cy as usize * w + cx as usize;
@@ -724,22 +784,7 @@ pub fn astar_search(
             // is stamped closed when its node is created, so the open set can
             // never hold two nodes for the same (cell, layer).
 
-            // Goal check: cell AND height must match
-            if (cx, cy) == goal && current.height == goal_height {
-                // Use the node's push-time layer flag (same value came_from was keyed on).
-                return Ok(reconstruct_path_dual(
-                    ground,
-                    bridge,
-                    start_idx,
-                    start_on_bridge,
-                    c_idx,
-                    on_bridge,
-                    w,
-                ));
-            }
-
-            nodes_evaluated += 1;
-            if nodes_evaluated >= MAX_SEARCH_NODES {
+            if expanded >= MAX_SEARCH_NODES {
                 log::warn!(
                     "A* search exhausted {} nodes without finding path from ({},{}) to ({},{})",
                     MAX_SEARCH_NODES,
@@ -750,6 +795,14 @@ pub fn astar_search(
                 );
                 return Err(PathSearchFailure::CellSearchExhausted);
             }
+
+            // Goal check: cell AND height must match
+            // (`0x00429D7F..0x00429D9B`).
+            if (cx, cy) == goal && current.height == goal_height {
+                break 'search current;
+            }
+
+            let mut held = None;
 
             // --- Neighbor expansion ---
             for (dir_index, &(dx, dy)) in CELL_DELTAS.iter().enumerate() {
@@ -779,29 +832,33 @@ pub fn astar_search(
                 let neighbor_height =
                     compute_node_height(current.height, Some(cur_cell), neighbor_cell);
 
-                // Closed check on appropriate list
-                // Binary `1.009` handling is an early closed-neighbor skip/fallback
-                // nuance, not true A* reopen. Do not reinsert selected-layer closed
-                // cells without a dedicated parity fixture for the blocked-goal path.
-                if neighbor_use_bridge {
-                    if bridge.contains(n_idx) {
-                        continue;
-                    }
-                } else if ground.contains(n_idx) {
-                    continue;
-                }
-
                 // Original429E54..429EAF exempts structural deck candidates
                 // from the ordinary zone comparison. The signed-height/list
                 // predicate is executed in astar_structural_height.json.
                 // Residual: HierarchyGate also consults blocker-neighbor counts;
                 // full equivalence of that adapter to the original hierarchy
                 // comparison is not established by the scalar fragment corpus.
-                let neighbor_is_bridge_deck = is_at_bridge_level(current.height, neighbor_cell);
                 if let Some(gate) = options.hierarchy_gate
-                    && !neighbor_is_bridge_deck
+                    && !neighbor_use_bridge
                     && !gate.allows(nx, ny)
                 {
+                    continue;
+                }
+
+                // A closed candidate (`0x00429EC7..0x00429F31`) is passed over
+                // unless its node's g is at least the current g plus 1.009.
+                // Then the class and edge cost are asked, but a closed cell
+                // never gets a second node (`0x00429FF3..0x0042A018`), so the
+                // only effect is the blocked-goal tail below: a cell other than
+                // the goal is passed over at once.
+                let closed = if neighbor_use_bridge {
+                    bridge.get(n_idx)
+                } else {
+                    ground.get(n_idx)
+                };
+                if closed.is_some_and(|descriptor| {
+                    (nx, ny) != goal || !closed_candidate_retried(descriptor.g, current.g_cost)
+                }) {
                     continue;
                 }
 
@@ -826,24 +883,20 @@ pub fn astar_search(
                     // into the success tail — "walk as close to the blocked
                     // target as you can". The tail additionally requires the
                     // aborting node to be at least one real step from the
-                    // start, so a start-adjacent blocked goal fails outright.
+                    // start (depth 2, `0x0042A3F8`), so a start-adjacent
+                    // blocked goal fails outright. Residual: the tail is off
+                    // for a Unit whose type is `Passive=` (`UnitType+0xE0C`,
+                    // `0x00429D2F..0x00429D4A`); stock rules set it for none.
                     if (nx, ny) == goal && blocked_goal_height_matches(current.height, goal_height)
                     {
                         if c_idx == start_idx && on_bridge == start_on_bridge {
                             return Err(PathSearchFailure::CellSearchExhausted);
                         }
-                        // Use the current node's push-time layer flag (same
-                        // value came_from was keyed on when pushed).
-                        return Ok(reconstruct_path_dual(
-                            ground,
-                            bridge,
-                            start_idx,
-                            start_on_bridge,
-                            c_idx,
-                            on_bridge,
-                            w,
-                        ));
+                        break 'search current;
                     }
+                    continue;
+                }
+                if closed.is_some() {
                     continue;
                 }
 
@@ -868,19 +921,18 @@ pub fn astar_search(
                 // Can_Enter_Cell. PathfinderClass+0x01 is constructor-zero and
                 // has no retail writer, so the dormant bridge-flank block does
                 // not inspect either cardinal beside a diagonal destination.
-                let mut step_cost = apply_search_cost_class_multiplier(STEP_COST, cost_class);
-
-                // No height term. `AStar_compute_edge_cost` @ `0x00429830`
-                // multiplies by exactly four things — the `0x0081870C` class
-                // base, the code-2 blocker-prediction override, `4.0` when the
-                // destination carries `CellClass+0x140 & 0x40000` (the
-                // search-scoped bridge marker, applied below), and the dormant
-                // `PathfinderClass+0x01` flank term — and `AStar_main_loop` @
-                // `0x00429A90` adds only the direction tiebreak and one `FMUL`
-                // by `PathfinderClass+0x04`. Its seven reads of the cell level
-                // byte `+0x11B` all feed the bridge/layer selection, never a
-                // cost. A ×4 on height change would have made every ramp step
-                // cost as much as four flat ones.
+                //
+                // No height term. `AStar_compute_edge_cost` multiplies by
+                // exactly four things — the class base, the code-2
+                // blocker-prediction override, `4.0` when the destination
+                // carries `CellClass+0x140 & 0x40000` (the search-scoped bridge
+                // marker, applied below), and the dormant flank term — and
+                // `AStar_main_loop` adds only the direction tiebreak and one
+                // `FMUL` by `PathfinderClass+0x04`. Its seven reads of the cell
+                // level byte `+0x11B` all feed the bridge/layer selection,
+                // never a cost. A ×4 on height change would have made every
+                // ramp step cost as much as four flat ones.
+                let mut cost = CLASS_BASE[usize::from(cost_class)];
 
                 // The class's code-2 multiplier; the receiver walks the chain
                 // on the list the class was asked about.
@@ -890,16 +942,15 @@ pub fn astar_search(
                     } else {
                         MovementLayer::Ground
                     };
-                    step_cost *= code2_multiplier(options.urgency, || {
+                    cost *= code2_multiplier(options.urgency, || {
                         options.foot_entry.code2_chain_jams((nx, ny), list)
                     })
                     .map_err(PathSearchFailure::CellEntryUnavailable)?;
                 }
 
-                step_cost = apply_search_marker_cost(step_cost, options.marker_overlay, (nx, ny));
-
-                // Direction tie-breaker
-                let tentative_g = current.g_cost + step_cost + DIR_TIEBREAK[dir_index];
+                cost = apply_search_marker_cost(cost, options.marker_overlay, (nx, ny));
+                let edge = compass_edge_cost(cost, dir_index);
+                let (g_cost, f_cost) = node_costs(current.g_cost, edge, (nx, ny), goal);
 
                 // Node creation. gamemd stamps the selected layer's closed
                 // array and records g at this point and never revisits the
@@ -916,25 +967,32 @@ pub fn astar_search(
                     PathDescriptor {
                         parent: encode_from(c_idx, on_bridge),
                         height: neighbor_height,
+                        g: g_cost,
                     },
                 );
-                let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
-                open.push(Reverse(AStarNode {
-                    f_cost: tentative_g + h,
-                    g_cost: tentative_g,
-                    x: nx,
-                    y: ny,
-                    height: neighbor_height,
-                    on_bridge: neighbor_use_bridge,
-                }));
+                offer_child(
+                    &mut held,
+                    open,
+                    AStarNode {
+                        f_cost,
+                        g_cost,
+                        x: nx,
+                        y: ny,
+                        height: neighbor_height,
+                        on_bridge: neighbor_use_bridge,
+                    },
+                );
             }
 
             // Direction 8 is a TubeClass jump. It is not an adjacent neighbor and
             // must not use the normal terrain/height/corner-cut predicates. Auto
             // low-bridge shells have path_len=0 and remain predicate-only.
+            // Residual: gamemd's direction-8 candidate also passes the layer
+            // choice, hierarchy gate, closed test and Foot+1AC (with direction
+            // 8) of the compass arms; here it is only tested closed on the
+            // ground list.
             if !on_bridge
-                && let Some(((nx, ny), path_len)) =
-                    explicit_tube_edge(options.resolved_terrain, (cx, cy))
+                && let Some((nx, ny)) = explicit_tube_edge(options.resolved_terrain, (cx, cy))
                 && nx < grid.width()
                 && ny < grid.height()
                 && search_cell_allocated(options.resolved_terrain, (nx, ny))
@@ -943,8 +1001,10 @@ pub fn astar_search(
                 if !ground.contains(n_idx) {
                     let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
                     let neighbor_height = neighbor_cell.signed_level();
-                    let tube_steps = i32::try_from(path_len).unwrap_or(1).max(1);
-                    let tentative_g = current.g_cost + STEP_COST * tube_steps + TUBE_DIR_TIEBREAK;
+                    // `0x00429FA3..0x00429FE6`: the Chebyshev cell distance to
+                    // the exit, stored as binary32, with no tiebreak or `FMUL`.
+                    let edge = f32::from(cx.abs_diff(nx).max(cy.abs_diff(ny)));
+                    let (g_cost, f_cost) = node_costs(current.g_cost, edge, (nx, ny), goal);
 
                     // Same close-on-generation rule as the compass edges.
                     ground.set(
@@ -952,39 +1012,48 @@ pub fn astar_search(
                         PathDescriptor {
                             parent: encode_from(c_idx, on_bridge),
                             height: neighbor_height,
+                            g: g_cost,
                         },
                     );
-                    let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
-                    open.push(Reverse(AStarNode {
-                        f_cost: tentative_g + h,
-                        g_cost: tentative_g,
-                        x: nx,
-                        y: ny,
-                        height: neighbor_height,
-                        on_bridge: false,
-                    }));
+                    offer_child(
+                        &mut held,
+                        open,
+                        AStarNode {
+                            f_cost,
+                            g_cost,
+                            x: nx,
+                            y: ny,
+                            height: neighbor_height,
+                            on_bridge: false,
+                        },
+                    );
                 }
             }
-        }
 
-        Err(PathSearchFailure::CellSearchExhausted)
+            expanded += 1;
+            current = next_node(held, open).ok_or(PathSearchFailure::CellSearchExhausted)?;
+        };
+
+        if expanded == REFUSED_EXPANSION_COUNT {
+            return Err(PathSearchFailure::CellSearchExhausted);
+        }
+        // Use the tail node's push-time layer flag (same value came_from was
+        // keyed on).
+        Ok(reconstruct_path_dual(
+            ground,
+            bridge,
+            start_idx,
+            start_on_bridge,
+            tail.y as usize * w + tail.x as usize,
+            tail.on_bridge,
+            w,
+        ))
     })
 }
 
-fn apply_search_cost_class_multiplier(step_cost: i32, cost_class: u8) -> i32 {
-    // Original: `AStar_compute_edge_cost` @ `0x00429830` indexes the class base
-    // table at `0x0081870C` (read site `0x00429848`, its only reader). There is
-    // no `NeighborStepCost` symbol in this program.
-    let multiplier = match cost_class {
-        0 | 2 | 3 => 1,
-        1 => 1000,
-        4 => 60,
-        5 => 20,
-        6 => 8,
-        _ => 1,
-    };
-    step_cost.saturating_mul(multiplier)
-}
+/// `AStar_compute_edge_cost`'s class bases, the binary32 table at `0x0081870C`
+/// (read at `0x00429848`, its only reader), as the integers they are.
+const CLASS_BASE: [i32; 8] = [1, 1000, 1, 1, 60, 20, 8, 10_000];
 
 /// Per-cell walkability and bridge metadata for pathfinding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1673,16 +1742,14 @@ impl PathGrid {
     }
 }
 
-/// A* search node stored in the open set (priority queue).
-///
-/// Implements Ord so BinaryHeap<Reverse<AStarNode>> gives us a min-heap
-/// ordered by f_cost (lowest cost explored first).
-#[derive(Debug, Clone, Eq, PartialEq)]
+/// An A* search node: being expanded, held as an expansion's cheapest child,
+/// or in the open list.
+#[derive(Debug, Clone, Copy)]
 struct AStarNode {
-    /// Total estimated cost: g_cost + heuristic.
-    f_cost: i32,
-    /// Cost from start to this node (actual, not estimated).
-    g_cost: i32,
+    /// Binary32 total: g plus the heuristic. The open list orders by it alone.
+    f_cost: f32,
+    /// Binary32 cost from the start.
+    g_cost: f32,
     /// Cell coordinates.
     x: u16,
     y: u16,
@@ -1697,54 +1764,23 @@ struct AStarNode {
     on_bridge: bool,
 }
 
-impl Ord for AStarNode {
-    /// **VERA-internal tie-break, gamemd equivalent UNCHECKED.** Native
-    /// resolves an exact f-tie by its heap's insertion order, which a
-    /// `BinaryHeap` cannot reproduce; this orders by g descending, then y,
-    /// then x so the search is reproducible for lockstep and replay.
-    ///
-    /// Trigger: two open nodes with identical f. Player effect: a different
-    /// expansion order, and so possibly a different equal-cost route.
-    /// Frequency: uncommon once the 0.001-0.008 direction tiebreaks apply,
-    /// since they separate most otherwise-equal edges. Downstream risk: none
-    /// within VERA — it is what makes the search deterministic.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Primary: f_cost ascending (lower is better).
-        // Tiebreak: higher g_cost preferred (closer to goal, more "explored").
-        self.f_cost
-            .cmp(&other.f_cost)
-            .then_with(|| other.g_cost.cmp(&self.g_cost))
-            .then_with(|| self.y.cmp(&other.y))
-            .then_with(|| self.x.cmp(&other.x))
-    }
-}
-
-impl PartialOrd for AStarNode {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// Euclidean distance heuristic for 8-directional grid movement.
-///
-/// Matches the original engine's per-node heuristic computation —
-/// sqrt(dx² + dy²) — applied at A* node creation time.
+/// The heuristic `AStar_create_node` adds: `Sqrt_Approx` (`0x004CAC40`) of
+/// the cell's whole-cell offset to the goal squared and summed in 32-bit
+/// integers (`0x0042A54A..0x0042A590`).
 ///
 /// Intentionally **inadmissible** under uniform edge cost: when both dx and
 /// dy are nonzero, Euclidean overestimates the true minimum path cost
-/// (which is `max(dx, dy) * STEP_COST` since one diagonal step covers
-/// both axes for the same price). The original engine accepts this
-/// inadmissibility — A* trades optimality for shorter expansion, and
-/// the resulting path geometry is part of the engine's character.
-///
-/// Implementation: scaled integer sqrt at full precision. `u64`
-/// intermediate avoids overflow on 512×512 maps.
-fn euclidean_heuristic(ax: u16, ay: u16, bx: u16, by: u16) -> i32 {
-    let dx = (ax as i64 - bx as i64).unsigned_abs();
-    let dy = (ay as i64 - by as i64).unsigned_abs();
-    let sum_sq: u64 = dx * dx + dy * dy;
-    // sqrt(sum_sq) * STEP_COST, computed as sqrt(sum_sq * STEP_COST²) for full precision.
-    (sum_sq * 1_000_000).isqrt() as i32
+/// (which is `max(dx, dy)` steps since one diagonal step covers both axes for
+/// the same price). The original engine accepts this inadmissibility — A*
+/// trades optimality for shorter expansion, and the resulting path geometry
+/// is part of the engine's character. The table root never exceeds the exact
+/// one.
+fn heuristic(cell: (u16, u16), goal: (u16, u16)) -> f32 {
+    let dx = i32::from(cell.0) - i32::from(goal.0);
+    let dy = i32::from(cell.1) - i32::from(goal.1);
+    let squares = dy.wrapping_mul(dy).wrapping_add(dx.wrapping_mul(dx));
+    let root = sqrt_approx_f32(X87Chop53::load_i32(squares)).expect("an integer root is finite");
+    f32::from_bits(root.bits())
 }
 
 fn apply_search_marker_cost(

@@ -158,7 +158,8 @@ def node_cost(row):
     return dict(input=row,g_bits=f'{g:08x}',f_bits=f'{f:08x}',depth=depth,code_unchanged=True,allocation_guards_intact=True)
 
 def node_rows():
-    goal=[300,300]
+    # Every candidate cell stays at non-negative coordinates.
+    goal=[520,520]
     gs=[0.0,1.001,2.006,23.087,1000.005,4013.37,65535.996,131071.99,16777215.0,1.5e8]
     edges=[1.001,1.005,1.008,4.002,60.007,1000.008,4000.004,3.0]
     offsets=[(0,0),(1,0),(0,1),(1,1),(2,1),(-3,4),(5,-12),(10,10),(100,37),(-255,0),(300,-400),

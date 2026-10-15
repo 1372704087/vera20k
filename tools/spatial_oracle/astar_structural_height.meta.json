@@ -35,5 +35,5 @@
     "closed_retry_continue": "0x00429F37"
   },
   "replay_command": "python -m tools.spatial_oracle.astar_structural_height",
-  "payload_sha256": "aefd6c8e7cf8472088199bc9976533d3076d9c4cede049fdb025e6efbfcd6923"
+  "payload_sha256": "7e1c1d3d2c9ea7b89d46f54cb45f36b3fa21bb9444b7951811db7116b693c0e6"
 }

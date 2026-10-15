@@ -51,35 +51,96 @@ fn test_path_grid_set_blocked() {
     assert!(grid.is_walkable(3, 4));
 }
 
+/// An expansion's cheapest child is held out of the open list; on a tie the
+/// open list's root is expanded first and the held child takes its place
+/// (`0x0042A1B3..0x0042A1E2`).
 #[test]
-fn test_euclidean_heuristic_cardinal() {
-    // Pure cardinal: sqrt(25) * 1000 = 5000.
-    let h: i32 = euclidean_heuristic(0, 0, 5, 0);
-    assert_eq!(h, 5000);
+fn the_held_child_gives_way_to_an_equal_open_root() {
+    let node = |f_cost: f32, x: u16| AStarNode {
+        f_cost,
+        g_cost: 0.0,
+        x,
+        y: 0,
+        height: 0,
+        on_bridge: false,
+    };
+    let mut open = NativeHeap::default();
+    let mut held = None;
+    for (x, f_cost) in [(1, 5.0), (2, 3.0), (3, 3.0)] {
+        offer_child(&mut held, &mut open, node(f_cost, x));
+    }
+    // The first 3.0 replaced 5.0 as the held child; the second went to the
+    // open list.
+    assert_eq!(held.map(|n| n.x), Some(2));
+    assert_eq!(next_node(held, &mut open).map(|n| n.x), Some(3));
+    assert_eq!(open.pop(cheaper).map(|n| n.x), Some(2));
+    // A held child cheaper than the root goes next.
+    assert_eq!(
+        next_node(Some(node(1.0, 4)), &mut open).map(|n| n.x),
+        Some(4)
+    );
 }
 
+/// A route found after exactly 10,000 expansions is refused (`0x0042A3E2`).
+/// In a corridor each expansion reaches one new cell, so the goal 10,000
+/// cells away is found at that count.
 #[test]
-fn test_euclidean_heuristic_diagonal() {
-    // Pure diagonal (3,3): sqrt(18) * 1000 ≈ 4242.64;
-    // isqrt(18_000_000) = 4242 (4242² = 17_994_564, 4243² = 18_003_049).
-    let h: i32 = euclidean_heuristic(0, 0, 3, 3);
-    assert_eq!(h, 4242);
+fn a_route_found_after_exactly_ten_thousand_expansions_is_refused() {
+    let grid = PathGrid::new(10_002, 1);
+    assert!(find_path(&grid, (0, 0), (9_999, 0)).is_some());
+    assert!(find_path(&grid, (0, 0), (10_000, 0)).is_none());
+    assert!(find_path(&grid, (0, 0), (10_001, 0)).is_some());
 }
 
-#[test]
-fn test_euclidean_heuristic_mixed() {
-    // dx=5, dy=3: sqrt(34) * 1000 ≈ 5830.95;
-    // isqrt(34_000_000) = 5830 (5830² = 33_988_900, 5831² = 34_000_561).
-    let h: i32 = euclidean_heuristic(0, 0, 5, 3);
-    assert_eq!(h, 5830);
+/// Admits the goal only from one neighbour, at class 5 (base 20), and refuses
+/// it from every other.
+struct OneDoorGoal {
+    goal: (u16, u16),
+    door: (u16, u16),
 }
 
+impl SearchFootEntry for OneDoorGoal {
+    fn classify(&self, query: SearchEntryQuery) -> Result<u8, String> {
+        let SearchEntryCandidate::CopiedCoord(candidate) = query.candidate else {
+            panic!("A* asks copied coordinates");
+        };
+        Ok(if candidate != self.goal {
+            0
+        } else if query.from == Some(self.door) {
+            5
+        } else {
+            7
+        })
+    }
+}
+
+/// A closed goal is asked about again from a neighbour whose g is at least
+/// 1.009 below the goal node's (`0x00429EE2..0x00429F31`). Refused there, the
+/// search ends at that neighbour (`0x0042A17D`) and never expands the goal's
+/// node.
 #[test]
-fn test_euclidean_heuristic_zero() {
-    // Heuristic at goal cell must be 0 — guarantees A* can recognize the
-    // goal as the lowest-f node when popped.
-    let h: i32 = euclidean_heuristic(7, 7, 7, 7);
-    assert_eq!(h, 0);
+fn a_closed_goal_refused_from_a_cheaper_neighbor_ends_the_route_there() {
+    let grid = PathGrid::new(3, 2);
+    let entry = OneDoorGoal {
+        goal: (2, 0),
+        door: (1, 0),
+    };
+    let path = astar_search(
+        &grid,
+        (0, 0),
+        MovementLayer::Ground,
+        (2, 0),
+        &AStarOptions::new(&entry),
+    )
+    .unwrap();
+    // The goal's node came from the door at g about 21; the diagonal (1, 1)
+    // is expanded first at g about 1 and finds it refused.
+    assert_eq!(
+        path.iter()
+            .map(|step| (step.rx, step.ry))
+            .collect::<Vec<_>>(),
+        [(0, 0), (1, 1)]
+    );
 }
 
 /// 0x00429BF3..0x00429C0A: AStar has no route for a goal in its start cell.
@@ -930,26 +991,6 @@ fn search_marker_overlay_uses_xor_parity() {
     overlay.toggle((3, 1));
     assert!(!overlay.contains((3, 1)));
     assert!(overlay.is_empty());
-}
-
-#[test]
-fn astar_edge_cost_marker_stacks_after_code2_before_tiebreak() {
-    let mut overlay = SearchMarkerOverlay::new();
-    overlay.toggle((3, 1));
-
-    let code2_cost = STEP_COST * CODE2_MULT_JAM;
-    let marked_cost = apply_search_marker_cost(code2_cost, Some(&overlay), (3, 1));
-    assert_eq!(
-        marked_cost,
-        STEP_COST * CODE2_MULT_JAM * SEARCH_MARKER_COST_MULTIPLIER
-    );
-
-    let tentative = marked_cost + DIR_TIEBREAK[2];
-    assert_eq!(
-        tentative,
-        STEP_COST * CODE2_MULT_JAM * SEARCH_MARKER_COST_MULTIPLIER + DIR_TIEBREAK[2],
-        "marker must multiply the code-2 step cost, with direction tiebreak added afterward"
-    );
 }
 
 #[test]

@@ -1330,6 +1330,16 @@ impl ProjectileStore {
         self.projectiles.remove(&id)
     }
 
+    /// BulletClass::LoseTarget468430 changes only +10C. Its world query is
+    /// shared with PointerExpired468517..46859C; neither resets flight state.
+    pub(crate) fn lose_targets(&mut self, target_id: u64, replacement: ProjectileTarget) {
+        for projectile in self.projectiles.values_mut().rev() {
+            if projectile.target == ProjectileTarget::Entity(target_id) {
+                projectile.target = replacement;
+            }
+        }
+    }
+
     /// Apply `BulletClass::PointerExpired @ 0x004684E0` to one stored Bullet.
     ///
     /// Source and target are independent arms: when both match the expired

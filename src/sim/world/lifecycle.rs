@@ -505,7 +505,7 @@ fn base_reservation_perimeter_rect(rect: CellRect) -> CellRect {
 /// `DAT_0089DDF0`/`DAT_0089DDF2` words read zero in the image, and the only
 /// writer in the program — the four-instruction routine at `0x00466270` — zeroes
 /// them, so the sentinel is the cell (0, 0) rather than a general off-map test.
-const NULL_TARGET_CELL_SENTINEL: (u16, u16) = (0, 0);
+const NULL_TARGET_CELL_SENTINEL: (i16, i16) = (0, 0);
 
 /// Cell selected after the represented ObjectClass virtual `GetCoords` result
 /// is truncated from world leptons. BuildingClass shifts its stored NW anchor
@@ -4501,6 +4501,87 @@ impl Simulation {
         );
     }
 
+    /// Teleport Process7193CC..7193F4 calls Bullet::LoseTarget468430 on every
+    /// matching Bullet in reverse construction order, including non-Logic
+    /// bullets. Stable IDs retain that construction order in the store.
+    pub(super) fn lose_projectile_targets(&mut self, target_id: u64, rules: Option<&RuleSet>) {
+        if !self
+            .projectiles
+            .iter()
+            .any(|(_, bullet)| bullet.target == ProjectileTarget::Entity(target_id))
+        {
+            return;
+        }
+        // Every matching Bullet queries the same unchanged object. Resolve
+        // once: no RNG/timer writes occur, and repeated dummy stamps agree.
+        let replacement = self.projectile_lost_target(target_id, UninitContext::new(rules, None));
+        self.projectiles.lose_targets(target_id, replacement);
+    }
+
+    /// Shared target repair in LoseTarget468430 and PointerExpired468517.
+    /// Both read +48, pack signed cells, then test A8E7AC, IsInAir, and the
+    /// empty-cell sentinel before Map5657A0. The map owns aliasing and Dummy.
+    fn projectile_lost_target(
+        &self,
+        target_id: u64,
+        context: UninitContext<'_>,
+    ) -> ProjectileTarget {
+        let entity = self.substrate.entities.get(target_id);
+        let xy = entity
+            .map(crate::sim::movement::ground_pose::object_center_xy)
+            .or_else(|| {
+                self.substrate
+                    .particle_systems
+                    .get(target_id)
+                    .map(|system| [system.coords.x, system.coords.y])
+            })
+            .or_else(|| {
+                self.smudge_grid
+                    .as_ref()?
+                    .object(target_id)
+                    .map(|smudge| [smudge.location().x, smudge.location().y])
+            });
+        let Some([x, y]) = xy else {
+            return ProjectileTarget::None;
+        };
+        let (rx, ry) = (
+            crate::util::lepton::lepton_to_cell_packed(x),
+            crate::util::lepton::lepton_to_cell_packed(y),
+        );
+        let terrain = context.terrain().or(self.resolved_terrain.as_ref());
+        if self.object_placement_scope_active()
+            || entity.is_some_and(|entity| {
+                crate::sim::movement::air_movement::is_high_flying(
+                    entity,
+                    terrain,
+                    context.rules().map(|rules| (rules, &self.interner)),
+                )
+            })
+            || (rx, ry) == NULL_TARGET_CELL_SENTINEL
+        {
+            return ProjectileTarget::None;
+        }
+        match terrain {
+            Some(terrain) => match crate::sim::cell_rect::get_cellclass_fallback(
+                Some(terrain),
+                i32::from(rx),
+                i32::from(ry),
+            ) {
+                crate::sim::cell_rect::CellRef::Real(cell) => ProjectileTarget::Cell {
+                    rx: cell.rx,
+                    ry: cell.ry,
+                },
+                crate::sim::cell_rect::CellRef::Dummy { .. } => ProjectileTarget::DummyCell,
+            },
+            // Preserve the existing terrainless fixture representation. Real
+            // worlds always query MapClass and retain its returned identity.
+            None => ProjectileTarget::Cell {
+                rx: rx as u16,
+                ry: ry as u16,
+            },
+        }
+    }
+
     fn broadcast_pointer_expired(
         &mut self,
         expired_id: u64,
@@ -4527,7 +4608,6 @@ impl Simulation {
         }
         let Some((
             expired_target_cell,
-            expired_is_high_flying,
             expired_object_alive,
             expired_health,
             expired_is_selling,
@@ -4537,16 +4617,8 @@ impl Simulation {
             .entities
             .get(expired_id)
             .map(|expired| {
-                // High-flying objects expire to null (the target's vt+0x54 at
-                // `0x00468562`); lower objects preserve their cell.
-                let high_flying = crate::sim::movement::air_movement::is_high_flying(
-                    expired,
-                    context.terrain().or(self.resolved_terrain.as_ref()),
-                    context.rules().map(|rules| (rules, &self.interner)),
-                );
                 (
                     object_get_coords_cell(expired),
-                    high_flying,
                     expired.lifecycle.object_alive,
                     expired.health.current(),
                     expired.mission.current().known()
@@ -4563,7 +4635,7 @@ impl Simulation {
                 // has no Techno flags, selling mission or Techno owner;
                 // its retained coordinates and liveness are still readable
                 // during ObjectLimbo's synchronous expiry announcement.
-                Some((cell, false, system.alive(), 255, false, None))
+                Some((cell, system.alive(), 255, false, None))
             })
             .or_else(|| {
                 let smudge = self.smudge_grid.as_ref()?.object(expired_id)?;
@@ -4571,14 +4643,7 @@ impl Simulation {
                 let cell = u16::try_from(crate::util::lepton::lepton_to_cell(location.x))
                     .ok()
                     .zip(u16::try_from(crate::util::lepton::lepton_to_cell(location.y)).ok());
-                Some((
-                    cell,
-                    false,
-                    smudge.object_alive(),
-                    smudge.health(),
-                    false,
-                    None,
-                ))
+                Some((cell, smudge.object_alive(), smudge.health(), false, None))
             })
         else {
             return;
@@ -4814,28 +4879,8 @@ impl Simulation {
                 let target_matches = self.projectiles.get(listener_id).is_some_and(|projectile| {
                     projectile.target == ProjectileTarget::Entity(expired_id)
                 });
-                let projectile_replacement_target = if let Some((rx, ry)) = expired_target_cell
-                    && target_matches
-                    && !expired_is_high_flying
-                    && (rx, ry) != NULL_TARGET_CELL_SENTINEL
-                {
-                    match context.terrain().or(self.resolved_terrain.as_ref()) {
-                        Some(terrain) => match crate::sim::cell_rect::get_cellclass_fallback(
-                            Some(terrain),
-                            i32::from(rx),
-                            i32::from(ry),
-                        ) {
-                            crate::sim::cell_rect::CellRef::Real(_) => {
-                                ProjectileTarget::Cell { rx, ry }
-                            }
-                            crate::sim::cell_rect::CellRef::Dummy { .. } => {
-                                ProjectileTarget::DummyCell
-                            }
-                        },
-                        // Terrainless synthetic fixtures keep their historical
-                        // stable-cell fallback. Production is terrain-backed.
-                        None => ProjectileTarget::Cell { rx, ry },
-                    }
+                let projectile_replacement_target = if target_matches {
+                    self.projectile_lost_target(expired_id, context)
                 } else {
                     ProjectileTarget::None
                 };

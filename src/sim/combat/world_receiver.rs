@@ -68,7 +68,7 @@ pub(crate) fn apply_foot_radiation(
     // documents its bounded final-health agreement and intermediate precision
     // residual; relocating the call does not establish numeric equivalence.
     let damage = (level as f64 * rules.radiation.level_factor) as i32;
-    let receiver = combat_aoe::AreaDamageReceiver::Entity(EntityDamageEvent::direct_receiver(
+    let receiver = EntityDamageEvent::direct_receiver(
         stable_id,
         damage,
         0,
@@ -79,8 +79,10 @@ pub(crate) fn apply_foot_radiation(
             ignore_defenses: false,
             arg6: true,
         },
-    ));
-    Some(world.commit_noncombat_aoe_receivers(rules, overlay_registry, &[receiver], effects))
+    );
+    // Native calls the concrete receiver directly: Apply_area_damage's
+    // marked/positive-health gates must not suppress this Foot call.
+    Some(world.commit_direct_damage_receiver(rules, overlay_registry, receiver, effects))
 }
 
 fn respond_to_base_attack(

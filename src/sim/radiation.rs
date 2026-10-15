@@ -84,7 +84,7 @@ pub struct RadiationState {
     sites: BTreeMap<(u16, u16), RadSite>,
 }
 
-/// A weapon detonation that emits radiation, recorded by the combat tick and
+/// A weapon detonation that emits radiation, recorded by the Bullet transaction and
 /// folded into `RadiationState` the same tick.
 #[derive(Debug, Clone, Copy)]
 pub struct RadDetonation {

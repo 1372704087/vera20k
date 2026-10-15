@@ -336,6 +336,61 @@ fn an_off_map_limbo_foot_does_not_receive_a_stale_cell_pulse() {
 }
 
 #[test]
+fn foot_radiation_direct_dispatch_does_not_require_cell_marking() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = fixture.rules;
+    let (mut sim, victim, _) = create_first_site(&rules, 17);
+    assert!(sim.unmark_entity_remove(victim, super::UninitContext::new(Some(&rules), None),));
+    let actor = sim.substrate.entities.get(victim).unwrap();
+    assert!(actor.lifecycle.object_alive() && !actor.lifecycle.in_limbo());
+    assert!(!actor.lifecycle.cell_marked());
+    let health = actor.health.current();
+    sim.session.binary_frame = 32;
+    // Supply the Foot prefix's live Mark(REMOVE) boundary. IsInAir is false
+    // for an unmarked object; native4DA629 still dispatches its receiver.
+    let _receipt = crate::sim::combat::world_receiver::apply_foot_radiation(
+        &mut sim,
+        &rules,
+        victim,
+        None,
+        FrameEffects::default(),
+    );
+    assert!(sim.substrate.entities.get(victim).unwrap().health.current() < health);
+}
+
+#[test]
+fn foot_radiation_dispatches_a_raw_alive_zero_health_receiver() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = fixture.rules;
+    let (mut sim, victim, _) = create_first_site(&rules, 17);
+    let actor = sim.substrate.entities.get_mut(victim).unwrap();
+    actor.health.set_for_test(0);
+    assert!(actor.lifecycle.object_alive() && actor.lifecycle.cell_marked());
+    assert!(!actor.lifecycle.in_limbo());
+    sim.session.binary_frame = 32;
+    // Foot does not gate Health. Techno70202E..70203E forces its fatal
+    // continuation after the Object receiver returns with Health still zero.
+    let _receipt = crate::sim::combat::world_receiver::apply_foot_radiation(
+        &mut sim,
+        &rules,
+        victim,
+        None,
+        FrameEffects::default(),
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(victim)
+            .is_none_or(|actor| !actor.lifecycle.object_alive()),
+        "direct concrete receiver must enter its zero-health fatal continuation"
+    );
+}
+
+#[test]
 fn a_later_foot_can_receive_a_site_created_by_an_earlier_bullet() {
     let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;

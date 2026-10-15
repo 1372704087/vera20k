@@ -59,6 +59,10 @@ pub(super) struct DebugInstances {
     pub pathgrid: Vec<SpriteInstance>,
     pub cell_grid: Vec<SpriteInstance>,
     pub path: Vec<SpriteInstance>,
+    /// Numbered foot route: three vectors because one batch binds one texture.
+    pub foot_stroke: Vec<SpriteInstance>,
+    pub foot_nodes: Vec<SpriteInstance>,
+    pub foot_text: Vec<SpriteInstance>,
     pub heightmap: Vec<SpriteInstance>,
 }
 
@@ -453,6 +457,15 @@ fn build_smudge_instances(state: &AppState, sw: f32, sh: f32) -> Vec<SpriteInsta
 
 /// Build debug visualization instances (only when toggled on via hotkeys).
 pub(super) fn build_debug_instances(state: &AppState, sw: f32, sh: f32) -> DebugInstances {
+    let foot_path = if state.diag.debug_show_foot_path {
+        debug_overlays::build_foot_path_overlay_instances(state, sw, sh)
+    } else {
+        debug_overlays::FootPathInstances {
+            stroke: Vec::new(),
+            nodes: Vec::new(),
+            text: Vec::new(),
+        }
+    };
     DebugInstances {
         pathgrid: if state.diag.debug_show_pathgrid {
             debug_overlays::build_terrain_cost_overlay_instances(state, sw, sh)
@@ -469,6 +482,9 @@ pub(super) fn build_debug_instances(state: &AppState, sw: f32, sh: f32) -> Debug
         } else {
             Vec::new()
         },
+        foot_stroke: foot_path.stroke,
+        foot_nodes: foot_path.nodes,
+        foot_text: foot_path.text,
         heightmap: if state.diag.debug_show_heightmap {
             debug_overlays::build_heightmap_overlay_instances(state, sw, sh)
         } else {

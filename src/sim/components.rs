@@ -300,20 +300,34 @@ impl FootPathQueue {
             .collect()
     }
 
-    /// The cells the remaining words step through from the reference cell
-    /// (Foot+558), as the path markers read them. Diagnostics and tests.
-    pub(crate) fn remaining_cells(&self) -> Vec<(i16, i16)> {
-        self.reference_cell
-            .map(|reference| Self::walk_words(reference, self.remaining_directions()))
-            .unwrap_or_default()
+    /// The cells the unpaid words step through, starting from the cell the head
+    /// word steps out of.
+    ///
+    /// Native shifts the 24-dword `Foot+5E0` queue left as it consumes, so index
+    /// 0 always steps out of the mover's own cell. Rust keeps the paid prefix
+    /// behind a cursor instead, which leaves the stored reference (`Foot+558`) as
+    /// a valid origin only where its owner refreshes it: `walk_host`'s completed
+    /// step rewrites it from the object's position after every paid step, and
+    /// `hover_process` rewrites it per cell. The chain and tube pops
+    /// (`track_host`, `tube_movement`) preserve it, as
+    /// [`crate::sim::movement::path_markers::consume_path_replay`] records, so on
+    /// those paths the reference stays at the accepted endpoint while the cursor
+    /// moves on and a suffix walked from it falls a cell further behind the mover
+    /// per paid step. The anchor is therefore the caller's to supply: pass the
+    /// object's position cell, the same cell movement applies the head word to.
+    ///
+    /// A tube word (8) names no adjacent cell and ends the walk, as in
+    /// [`Self::walk_words`]. Diagnostics and tests.
+    pub(crate) fn remaining_cells_from(&self, head: (i16, i16)) -> Vec<(i16, i16)> {
+        Self::walk_words(head, self.remaining_directions())
     }
 
-    /// The reference cell followed by [`Self::remaining_cells`].
+    /// The reference cell followed by the unpaid cells walked from it.
     #[cfg(test)]
     pub(crate) fn route_cells(&self) -> Vec<(u16, u16)> {
         self.reference_cell
             .into_iter()
-            .chain(self.remaining_cells())
+            .chain(self.remaining_cells_from(self.reference_cell.unwrap_or((0, 0))))
             .map(|(x, y)| (x as u16, y as u16))
             .collect()
     }

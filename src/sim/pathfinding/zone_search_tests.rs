@@ -1211,7 +1211,10 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     let route = &engineer.navigation.path_replay;
     assert_eq!(route.reference_cell(), Some((1, 0)));
     assert_eq!(
-        route.remaining_cells().last().copied(),
+        route
+            .remaining_cells_from((engineer.position.rx() as i16, engineer.position.ry() as i16))
+            .last()
+            .copied(),
         Some((5, 0)),
         "Capture must retain the admitted building Cell as its path goal"
     );

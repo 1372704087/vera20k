@@ -797,6 +797,65 @@ impl crate::sim::world::Simulation {
             self.session.binary_frame,
         )
     }
+
+    /// `MapClass::Find_Nearby_Passable_Cell` in the argument shape
+    /// OnConstructionComplete's FreeUnit searches (`0x00446BF4..0x00446CCD`,
+    /// `0x00446D42..0x00446E10`) and the Unit setter's Dock arm
+    /// (`0x00743032..0x007430EE`) push: SpeedType 2 (Wheel), whatever the
+    /// mover's own; the zone `MapClass::GetZoneID @ 0x0056D230` gives the seed
+    /// for `movement_zone` (`Type+0x5B4`) without the bridge lookup, and that
+    /// MovementZone; not bridge-aware; 1x1; the height gate on; no obstacle
+    /// gate; bridge cells refused; a zero target cell, so selection is the
+    /// frame-counter modulo and draws no RNG; no quadrant skip; no final
+    /// occupancy check. `options` carries the overlay rejection. `None` when
+    /// nothing passes or the map size is unknown.
+    pub(crate) fn nearby_wheel_cell(
+        &self,
+        seed: (u16, u16),
+        movement_zone: MovementZone,
+        options: NearbySearchOptions,
+    ) -> Option<(u16, u16)> {
+        let (width, height) = self.map_size_diamond()?;
+        let zone = self
+            .zone_grid
+            .as_ref()
+            .zip(self.resolved_terrain.as_ref())
+            .and_then(|(zones, terrain)| {
+                zones.get_zone_id_native(terrain, seed, movement_zone, false)
+            });
+        let query = NearbyQuery {
+            native_cells: None,
+            raw_occupation: Some(&self.substrate.raw_cell_occupation),
+            passability: PassabilityArgs {
+                speed_type: SpeedType::Wheel,
+                required_zone_id: zone,
+                movement_zone,
+                bridge_aware_zone: false,
+            },
+            footprint: NearbyFootprint::SINGLE,
+            allow_bridge_cells: false,
+            check_height: true,
+            check_occupancy: false,
+            radius_cap: map_owned_radius_cap(width, height),
+            target_cell: None,
+            path_grid: self.path_grid(),
+            resolved_terrain: self.resolved_terrain.as_ref(),
+            overlay_grid: self.overlay_grid.as_ref(),
+            occupancy: Some(&self.substrate.occupancy),
+            entities: Some(&self.substrate.entities),
+            zone_grid: self.zone_grid.as_ref(),
+            playfield_bounds: self.playfield_bounds,
+        };
+        find_nearby_passable_cell_with_options(
+            (i32::from(seed.0), i32::from(seed.1)),
+            &query,
+            options,
+            // The frame counter is committed late, so during this advance it
+            // still holds the current frame — the value the selection modulo
+            // must alias.
+            self.session.binary_frame,
+        )
+    }
 }
 
 #[cfg(test)]

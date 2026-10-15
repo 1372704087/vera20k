@@ -3806,10 +3806,6 @@ impl Simulation {
             listener.damage_smoke_system_id.system(),
             listener.aircraft_ammo.as_ref().and_then(|ammo| ammo.dock()),
             listener
-                .miner
-                .as_ref()
-                .and_then(|miner| miner.reserved_refinery()),
-            listener
                 .pending_c4_detonation
                 .pending()
                 .and_then(|pending| pending.source_entity_id()),
@@ -4313,10 +4309,6 @@ impl Simulation {
             .aircraft_ammo
             .as_ref()
             .is_some_and(|ammo| ammo.dock() == Some(expired_id));
-        let clear_refinery = listener
-            .miner
-            .as_ref()
-            .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id));
 
         // Steam gamemd3e81a617, TechnoPointerExpired7078B2..7078DB:
         // Transporter+11C survives a live hull's ordinary Limbo announcement,
@@ -4346,7 +4338,6 @@ impl Simulation {
             || prune_nav_queue
             || clear_dock
             || clear_airfield
-            || clear_refinery
             || clear_passenger_role
             || clear_c4_source
             || expire_mega_pointer)
@@ -4385,9 +4376,6 @@ impl Simulation {
         }
         if clear_airfield && let Some(ammo) = listener.aircraft_ammo.as_mut() {
             ammo.set_dock(None);
-        }
-        if clear_refinery && let Some(miner) = listener.miner.as_mut() {
-            miner.forget_refinery();
         }
         if clear_passenger_role {
             listener.passenger_role.clear_carrier_relation();

@@ -2011,6 +2011,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             // home_refinery: None.
             None::<u64>.hash(hasher);
         }
+        // The retired return-order refinery; nothing writes it.
         miner.reserved_refinery().hash(hasher);
         let native_ore_field = true;
         if !native_ore_field {

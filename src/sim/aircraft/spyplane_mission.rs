@@ -143,49 +143,24 @@ fn head_for_opposite_edge(
 /// One camera snapshot (`0x00415666..0x004156FB` in Approach,
 /// `0x004157EB..0x00415854` in Overfly): `ReReveal` (vt+0x48C =
 /// `0x0070B1D0`) and `UpdateReveal` (vt+0x488 = `0x0070AF50`) with the
-/// weapon's `Damage=` as the radius, through the vision owner; both skip a
-/// plane outside the playfield (`+0x3D5`) or of a MultiplayPassive house
-/// (HouseType `+0x1A6`). Approach then plays `SpyPlaneCamera=` at the
-/// plane (`VocClass::PlayAt @ 0x007509E0`).
+/// weapon's `Damage=` as the radius ([`Simulation::refresh_object_sight`],
+/// past both functions' gates). The snapshot stands until the plane's next
+/// `ReReveal`: its next snapshot, or `FootClass::AI`'s 15-frame refresh.
+/// Approach then plays `SpyPlaneCamera=` at the plane (`VocClass::PlayAt @
+/// 0x007509E0`).
 ///
 /// `MapClass @ 0x00567DA0` (the fog border around the snapshot, radius
 /// `LastSightRange + 3`) is presentation: the shroud renderer rebuilds from
 /// the vision owner.
-///
-/// RESIDUAL: VERA rebuilds each object's ordinary sight every frame
-/// (`world::refresh_fog`), so the snapshot's admission is released in the
-/// frame it is taken, where native keeps it until the plane's next
-/// `ReReveal` (its next snapshot, or `FootClass::AI`'s 15-frame refresh).
-/// Trigger: a snapshot in a `FogOfWar=` game. Effect: the area fogs over up
-/// to 15 frames sooner; its shroud stays lifted either way.
 fn snapshot(sim: &mut Simulation, id: u64, rules: &RuleSet, sound: bool) {
     let Some((_, damage)) = weapon(sim, id, rules) else {
         return;
     };
-    let Some(plane) = sim.substrate.entities.get(id) else {
-        return;
-    };
-    let passive = sim
-        .houses
-        .get(&plane.owner())
-        .is_some_and(|house| house.multiplay_passive);
-    if plane.in_playfield() && !passive {
-        let config = sim.sight_reveal_config(Some(rules));
-        let heights = sim.sight_height_grid(&config);
-        let ability =
-            crate::sim::vision::entity_has_sight_ability(plane, &sim.interner, Some(rules));
-        crate::sim::vision::force_refresh_entity_vision_at_radius(
-            &mut sim.fog,
-            plane,
-            &config,
-            heights.as_deref(),
-            sim.resolved_terrain.as_ref(),
-            ability,
-            &sim.interner,
-            damage,
-        );
-    }
-    if sound && let Some(camera) = rules.general.spy_plane_camera.clone() {
+    sim.refresh_object_sight(id, Some(rules), damage);
+    if sound
+        && let Some(camera) = rules.general.spy_plane_camera.clone()
+        && let Some(plane) = sim.substrate.entities.get(id)
+    {
         let event = SimSoundEvent::voc_at(camera, &plane.position);
         sim.sound_events.push(event);
     }

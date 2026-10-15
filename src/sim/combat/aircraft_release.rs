@@ -464,7 +464,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             ),
             location.z,
             radius,
-            heights.as_deref(),
+            heights.levels(),
             final_pass,
             &config,
             crate::sim::world::UninitContext::new(Some(strike.rules), strike.overlay_registry)

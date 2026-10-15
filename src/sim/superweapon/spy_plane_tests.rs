@@ -548,7 +548,7 @@ fn spyplane_missions_match_native() {
             // A snapshot held from before, as the row's `+0x250` stands for.
             let config = sim.sight_reveal_config(Some(&rules));
             let plane = sim.substrate.entities.get(id).unwrap();
-            crate::sim::vision::force_refresh_entity_vision_at_radius(
+            crate::sim::vision::force_refresh_entity_vision(
                 &mut sim.fog,
                 plane,
                 &config,

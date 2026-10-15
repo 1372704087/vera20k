@@ -4004,13 +4004,12 @@ impl Simulation {
         let height_grid = self.sight_height_grid(&reveal_config);
         for (stable_id, _, reveal) in membership_updates {
             if reveal && let Some(entity) = self.substrate.entities.get(stable_id) {
-                let sight_ability =
-                    crate::sim::vision::entity_has_sight_ability(entity, &self.interner, rules);
+                let sight_ability = reveal_config.sight_ability(entity, &self.interner, rules);
                 crate::sim::vision::reveal_entity_vision(
                     &mut self.fog,
                     entity,
                     &reveal_config,
-                    height_grid.as_deref(),
+                    height_grid.levels(),
                     self.resolved_terrain.as_ref(),
                     sight_ability,
                     &self.interner,
@@ -6285,7 +6284,7 @@ impl Simulation {
             path_grid,
             &self.house_alliances,
             config,
-            height_grid.as_deref(),
+            height_grid.levels(),
             self.resolved_terrain.as_ref(),
             &self.interner,
             rules,

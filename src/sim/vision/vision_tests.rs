@@ -2054,6 +2054,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
         None,
         false,
         &interner,
+        0,
     );
     assert!(fog.is_cell_revealed(owner, 10, 10));
     assert!(!fog.is_cell_gap_covered(owner, 10, 10));

@@ -370,6 +370,7 @@ fn native_trigger_reveal_whole_area_histories_match_original_cache_and_residents
                 input["size"][1].as_i64().unwrap() as i32,
             )),
             false,
+            Vec::new(),
         );
         for (pass, history) in row["passes"]
             .as_array()

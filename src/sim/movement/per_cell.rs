@@ -191,9 +191,16 @@ impl Simulation {
             self.unit_per_cell_factory_clearance(id, rules, registry, effects);
         }
         // 0x0073AC52..0x0073AC74: ReReveal then UpdateReveal, after the
-        // clearance arms and before Ready/Commence.
+        // clearance arms and before Ready/Commence. RESIDUAL: native returns
+        // before them from arms VERA runs elsewhere or not at all: the
+        // `Grinding=`, `UnitAbsorb=` and transport entries, their failure
+        // tail (`0x0073A796`), and Guard's map exit (`0x0073AC0E..
+        // 0x0073AC4F`). Trigger: a unit arriving to board a transport or
+        // to leave the map (VERA boards in the passenger pass and has no
+        // grinder). Effect: VERA reveals one more footprint, at that cell,
+        // and its cells stay revealed.
         if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
-            self.refresh_object_sight(id, rules);
+            self.refresh_object_sight(id, rules, 0);
         }
         // Unit PerCell2 739EC0: after MCV retry, +6D1==0 admits
         // Ready(+200)73ACC2 -> Commence(+1EC)73ACD1, BEFORE full-cell
@@ -596,8 +603,10 @@ impl Simulation {
     /// RESIDUAL: other Capture branches, Eaten, building Enter and the C4 cell
     /// arm (`0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
     /// ports with their own owners (`capture_manager`, `passenger`); native
-    /// runs them before the Foot body, with some early returns. Trigger: an
-    /// infantry arriving on a mission cell. Risk: same-frame receiver ordering.
+    /// runs them before the Foot body, with some early returns, which also
+    /// skip the reveal (`0x0051A8D7`). Trigger: an infantry arriving on a
+    /// mission cell. Risk: same-frame receiver ordering, and one more
+    /// revealed footprint for an infantryman such an arm takes in.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,
@@ -712,7 +721,7 @@ impl Simulation {
             // 0x0051A8CB..0x0051A8EB: ReReveal then UpdateReveal, before the
             // water and rock check.
             if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
-                self.refresh_object_sight(id, rules);
+                self.refresh_object_sight(id, rules, 0);
             }
             if self.per_cell_owner_alive(id) {
                 self.foot_per_cell_process(id, reason, rules, registry, effects);

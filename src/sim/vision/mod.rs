@@ -5,11 +5,11 @@
 //! Vec<u8> grid per owner for O(1) lookup.
 //!
 //! A source's sight moves only at native reveal events
-//! ([`force_refresh_entity_vision`] and its siblings): `ReReveal @ 0x0070B1D0`
-//! then `UpdateReveal @ 0x0070AF50`, from Unit and Infantry cell arrivals,
-//! the Jumpjet descent, Fly's phase transition, the high-flyer refresh and
-//! the Spy Plane. Between events its footprint stays where the last one
-//! put it ([`recompute_owner_visibility_in_place`]).
+//! ([`force_refresh_entity_vision`], [`refresh_entity_vision_for_viewer`]):
+//! `ReReveal @ 0x0070B1D0` then `UpdateReveal @ 0x0070AF50`, from Unit and
+//! Infantry cell arrivals, the Jumpjet descent, Fly's phase transition, the
+//! high-flyer refresh and the Spy Plane. Between events its footprint stays
+//! where the last one put it ([`recompute_owner_visibility_in_place`]).
 //!
 //! ## Performance
 //! Direct source-aware writes publish viewer knowledge. Queries use a cached
@@ -598,11 +598,6 @@ pub struct FogState {
     /// hashed, so it restarts at 0 after a load.
     #[serde(skip)]
     pub(crate) view_generation: u64,
-    /// The footprint inputs besides a source's own that the last frame's
-    /// sight pass read ([`recompute_owner_visibility_in_place`]). Runtime
-    /// only: after a load the first pass computes every footprint.
-    #[serde(skip)]
-    footprint_context: Option<FootprintContext>,
     /// Native CellClass::FoggedObjects vectors, keyed by viewer and cell. IDs
     /// may be shared across every cell in one building footprint.
     #[serde(default)]
@@ -628,30 +623,6 @@ pub struct FogState {
     /// selection uses the original x86-masked bit index (`h & 31`).
     #[serde(default)]
     pub cloaked_by_houses: Vec<u32>,
-}
-
-/// What a sight footprint ([`collect_reveal_cells`]) reads besides its
-/// source's origin and radius.
-#[derive(Debug, Clone, PartialEq)]
-struct FootprintContext {
-    reveal_by_height: bool,
-    map_size: Option<(i32, i32)>,
-    dimensions: (u16, u16),
-    height_grid: Option<Vec<u8>>,
-}
-
-impl FootprintContext {
-    fn matches(
-        &self,
-        config: &VisionConfig,
-        dimensions: (u16, u16),
-        height_grid: Option<&[u8]>,
-    ) -> bool {
-        self.reveal_by_height == config.reveal_by_height
-            && self.map_size == config.map_size
-            && self.dimensions == dimensions
-            && self.height_grid.as_deref() == height_grid
-    }
 }
 
 impl FogState {
@@ -1512,6 +1483,9 @@ pub struct VisionConfig {
     /// `[AudioVisual] AllyReveal=`: an allied house's reveals map this
     /// house's cells too ([`direct_reveal_viewers`]).
     ally_reveal: bool,
+    /// The houses whose type is `MultiplayPassive=` (HouseType `+0x1A6`):
+    /// no reveal of theirs passes its gates ([`holds_sight`]).
+    passive_owners: Vec<InternedId>,
 }
 
 #[cfg(test)]
@@ -1524,6 +1498,7 @@ impl Default for VisionConfig {
             reveal_by_height: true,
             map_size: None,
             ally_reveal: true,
+            passive_owners: Vec::new(),
         }
     }
 }
@@ -1532,11 +1507,12 @@ impl VisionConfig {
     /// The rules' sight keys (none in a fixture without rules: no veteran
     /// or elevation sight, `RevealByHeight=` and `AllyReveal=` at their
     /// constructor defaults), the map's `Size=` diamond, whether a Techno
-    /// needs the stored playfield byte.
+    /// needs the stored playfield byte, and the `MultiplayPassive=` houses.
     pub(crate) fn new(
         rules: Option<&crate::rules::ruleset::RuleSet>,
         map_size: Option<(i32, i32)>,
         require_playfield_membership: bool,
+        passive_owners: Vec<InternedId>,
     ) -> Self {
         Self {
             require_playfield_membership,
@@ -1545,7 +1521,29 @@ impl VisionConfig {
             reveal_by_height: rules.is_none_or(|r| r.general.reveal_by_height),
             map_size,
             ally_reveal: rules.is_none_or(|r| r.general.ally_reveal),
+            passive_owners,
         }
+    }
+
+    /// Whether `owner`'s house type is `MultiplayPassive=`, which stops
+    /// both reveal functions (`0x0070AF66..0x0070AF77`,
+    /// `0x0070B1DF..0x0070B1F0`).
+    pub(crate) fn passive_owner(&self, owner: InternedId) -> bool {
+        self.passive_owners.contains(&owner)
+    }
+
+    /// Whether `entity`'s reveal under this configuration applies the
+    /// `SIGHT` ability ([`entity_has_sight_ability`]). The ability changes
+    /// the radius only through a nonzero `VeteranSight=`
+    /// (`veteran_sight_cells`, `0x0070B082..0x0070B0A4`), so under retail's
+    /// `0.0` its rules lookup is skipped.
+    pub(crate) fn sight_ability(
+        &self,
+        entity: &crate::sim::game_entity::GameEntity,
+        interner: &StringInterner,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
+    ) -> bool {
+        self.veteran_sight != 0.0 && entity_has_sight_ability(entity, interner, rules)
     }
 
     /// `[General] RevealByHeight=`: whether a sight reveal tests its cells'
@@ -1613,7 +1611,7 @@ pub fn recompute_owner_visibility_with_rules(
 /// veteran gate (`0x0070B01E..0x0070B07A`), resolved off the type's ability
 /// arrays through the shared `HasWeaponAbility` predicate. No rules — as in
 /// headless fixtures — reads as no ability.
-pub(crate) fn entity_has_sight_ability(
+fn entity_has_sight_ability(
     entity: &crate::sim::game_entity::GameEntity,
     interner: &crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -1688,20 +1686,6 @@ pub fn recompute_owner_visibility_in_place(
     }
 
     fog.alliances = alliances.clone();
-    // Retained footprints are current when last frame's inputs still hold.
-    let retained_footprints = !visit_every_cell()
-        && fog
-            .footprint_context
-            .as_ref()
-            .is_some_and(|context| context.matches(config, (width, height), height_grid));
-    if !retained_footprints {
-        fog.footprint_context = Some(FootprintContext {
-            reveal_by_height: config.reveal_by_height,
-            map_size: config.map_size,
-            dimensions: (width, height),
-            height_grid: height_grid.map(<[u8]>::to_vec),
-        });
-    }
 
     let admitted: Vec<_> = entities
         .values()
@@ -1744,11 +1728,11 @@ pub fn recompute_owner_visibility_in_place(
         // A source keeps the footprint its last reveal stored (`+0x254`,
         // `+0x260`) until a reveal event moves it ([`force_refresh_entity_vision`]):
         // `UpdateReveal @ 0x0070AF50` runs from cell arrivals and its other
-        // callers, never from a frame pass. On tracked maps with the same
-        // footprint inputs its cells kept their bits; otherwise they are
-        // marked again where they stand.
+        // callers, never from a frame pass. On tracked maps its cells kept
+        // their bits; a map whose clear visited every cell (after a load,
+        // or a writer that bypassed publishing) has them marked again.
         if retained_sight_covers(fog, entity.stable_id(), owner, viewers) {
-            if !retained_footprints || viewers.iter().any(|viewer| untracked.contains(viewer)) {
+            if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                 fog.mark_retained_sight(entity.stable_id());
             }
             #[cfg(test)]
@@ -1759,17 +1743,18 @@ pub fn recompute_owner_visibility_in_place(
         // viewers changed, takes its sight as it stands now. RESIDUAL: this
         // frame pass stands in for the reveals of Unlimbo (`0x006F6D27`),
         // ChangeOwner (`0x0070187B`, `0x00448D83`), construction completion
-        // (`0x00446829`) and the parasite exits (`0x0062A40B`, `0x0062A7A8`),
-        // and for the alliance re-admission (`0x004ADCD0`), all of which
-        // native runs inside their callers. Trigger: a new, captured or
-        // newly allied source. Effect: its sight opens at this pass, later
-        // in the same frame, and an owner or alliance change also moves a
-        // retained footprint for the viewers that keep it.
-        // The ability changes the radius only through a nonzero VeteranSight=
-        // (`veteran_sight_cells`, 0x0070B082..0x0070B0A4), retail's 0.0
-        // included; skip its rules lookup otherwise.
-        let sight_ability =
-            config.veteran_sight != 0.0 && entity_has_sight_ability(entity, interner, rules);
+        // (`0x00446829`), the parasite exits (`0x0062A40B`, `0x0062A7A8`)
+        // and reinforcement placement (`0x0065E28D`), and for the alliance
+        // re-admission (`0x004ADCD0`), all of which native runs inside their
+        // callers. Trigger: a new, captured, placed or newly allied source.
+        // Effect: its sight opens at this pass, later in the same frame,
+        // and an owner or alliance change also moves a retained footprint
+        // for the viewers that keep it. It also gives sight to an object
+        // that has just entered the playfield, which native promotes
+        // (`0x006F511A`) without a reveal until its next reveal event (its
+        // next cell arrival): a unit driving in from the map edge sees a
+        // cell sooner.
+        let sight_ability = config.sight_ability(entity, interner, rules);
         let geometry = entity_sight_geometry(entity, owner, config, terrain, sight_ability, None);
         if let Some(admission) = sight_admission(fog, geometry, config, height_grid) {
             reconcile_source_sight(fog, entity.stable_id(), admission, viewers, false, true);
@@ -1781,15 +1766,12 @@ pub fn recompute_owner_visibility_in_place(
     }
 }
 
-/// Whether `entity` holds sight at all: alive, out of limbo, not carried,
-/// and, under live map authority, inside the playfield (the stored byte
-/// `+0x3D5` that `UpdateReveal @ 0x0070AF50` and `ReReveal @ 0x0070B1D0`
-/// test first).
-///
-/// RESIDUAL: both natives also return for a `MultiplayPassive=` owner
-/// (`0x0070AF66..0x0070AF77`, `0x0070B1DF..0x0070B1F0`); VERA gives that
-/// owner's objects sight. Retail sets the key only for the neutral houses,
-/// whose maps no player views.
+/// Whether `entity` holds its own house's sight: alive, out of limbo, not
+/// carried, and past the gates `UpdateReveal @ 0x0070AF50` and `ReReveal @
+/// 0x0070B1D0` test first: under live map authority the stored playfield
+/// byte `+0x3D5`, and an owner that is not `MultiplayPassive=`
+/// (`0x0070AF66..0x0070AF77`, `0x0070B1DF..0x0070B1F0`). Every reveal of
+/// an object's own sight and the frame pass admit through it.
 pub(crate) fn holds_sight(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
@@ -1798,6 +1780,7 @@ pub(crate) fn holds_sight(
         && !entity.lifecycle.in_limbo()
         && (!config.require_playfield_membership || entity.in_playfield())
         && !entity.passenger_role.is_inside_transport()
+        && !config.passive_owner(entity.owner())
 }
 
 /// Run the same effective-sight writer used by the ordinary Techno
@@ -1830,41 +1813,17 @@ pub(crate) fn reveal_entity_vision(
     );
 }
 
-/// Explicit admitted release/readmit event (e.g. FootAI4DA6F7/4DA706),
-/// distinct from unchanged view reconciliation. The caller owns its timer/gates.
-pub(crate) fn force_refresh_entity_vision(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sight_ability: bool,
-    interner: &StringInterner,
-) {
-    update_entity_sight_admission(
-        fog,
-        entity,
-        config,
-        height_grid,
-        terrain,
-        sight_ability,
-        interner,
-        true,
-        None,
-        None,
-    );
-}
-
 /// `TechnoClass::ReReveal @ 0x0070B1D0` then `TechnoClass::UpdateReveal @
-/// 0x0070AF50` with its radius argument (`param_5`): a nonzero radius
-/// replaces the object's elevation- and veterancy-scaled sight
-/// (`0x0070B0A6..0x0070B0AF`), so even an object with no `Sight=` reveals;
-/// zero keeps that sight. The Spy Plane's camera passes its weapon's
-/// `Damage=` (`aircraft::spyplane_mission`). A negative radius (no retail
-/// weapon) reveals nothing here; native hands it to `0x005678E0`
-/// unverified. The caller owns both functions' gates (the stored playfield
-/// byte `+0x3D5`, a MultiplayPassive house).
-pub(crate) fn force_refresh_entity_vision_at_radius(
+/// 0x0070AF50` with its radius argument (`param_5`), for every viewer of
+/// the object's house: its last footprint leaves and its sight opens where
+/// it stands. A nonzero radius replaces the object's elevation- and
+/// veterancy-scaled sight (`0x0070B0A6..0x0070B0AF`), so even an object
+/// with no `Sight=` reveals; zero keeps that sight. The Spy Plane's camera
+/// passes its weapon's `Damage=` (`aircraft::spyplane_mission`). A negative
+/// radius (no retail weapon) reveals nothing here; native hands it to
+/// `0x005678E0` unverified. The caller owns both functions' gates
+/// ([`holds_sight`]).
+pub(crate) fn force_refresh_entity_vision(
     fog: &mut FogState,
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
@@ -1982,6 +1941,30 @@ fn reconcile_source_sight(
     }
 }
 
+/// The footprint `TechnoClass::UpdateReveal(0, 0, 0, 0, 0)` (`0x0070AF50`)
+/// reveals for `entity`'s own house where it stands, a zero radius
+/// included; `None` without a fog plane. The caller owns the gates
+/// ([`holds_sight`]).
+pub(crate) fn entity_own_sight(
+    fog: &FogState,
+    entity: &crate::sim::game_entity::GameEntity,
+    config: &VisionConfig,
+    height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+    sight_ability: bool,
+) -> Option<SightAdmission> {
+    entity_sight_admission(
+        fog,
+        entity,
+        entity.owner(),
+        config,
+        height_grid,
+        terrain,
+        sight_ability,
+        None,
+    )
+}
+
 /// The footprint `TechnoClass::UpdateReveal @ 0x0070AF50` reveals for
 /// `entity`'s sight, computed as the ordinary writer computes it and recorded
 /// as a reveal by `revealer`; none for a zero radius (`0x0070B186`).
@@ -2063,8 +2046,7 @@ fn sight_admission(
     })
 }
 
-/// A sight admission's revealer, origin and radius: with the same
-/// [`FootprintContext`], the same footprint.
+/// A sight admission's revealer, origin and radius.
 #[derive(Clone, Copy)]
 struct SightGeometry {
     owner: InternedId,

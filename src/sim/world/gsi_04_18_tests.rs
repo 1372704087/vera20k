@@ -697,6 +697,8 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
     use crate::sim::timer::CdTimer;
     use crate::util::fixed_math::SimFixed;
     let (mut sim, _rules, owner) = fixture();
+    // A live map: the reveal leaves test the stored playfield byte.
+    sim.playfield_bounds = Some(crate::sim::arena_fixture::OPEN_PLAYFIELD);
     insert_sight_unit(&mut sim, 2, owner, 13, 13);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
     loco.set_layer(MovementLayer::Air);

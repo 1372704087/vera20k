@@ -460,7 +460,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
                 && !owner.lifecycle.in_limbo()
                 && !owner.is_falling_down()
         }) {
-            self.sim.refresh_object_sight(id, rules);
+            self.sim.refresh_object_sight(id, rules, 0);
         }
         let location = self.location();
         let here = self.cell_of([location[0], location[1]]);

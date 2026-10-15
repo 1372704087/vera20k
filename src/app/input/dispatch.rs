@@ -1446,6 +1446,24 @@ pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     );
 }
 
+/// Toggle the foot-path step overlay (Ctrl+Shift+O).
+///
+/// Independent of `toggle_pathgrid_overlay`: the terrain-cost wash and the
+/// numbered route answer different questions, and the route is useful with the
+/// cost grid off.
+#[cfg(feature = "dev-overlays")]
+pub(crate) fn toggle_foot_path_overlay(state: &mut AppState) {
+    state.diag.debug_show_foot_path = !state.diag.debug_show_foot_path;
+    log::info!(
+        "Debug foot-path step overlay: {}",
+        if state.diag.debug_show_foot_path {
+            "ON (blue=route, magenta=next step, yellow=arrival)"
+        } else {
+            "OFF"
+        }
+    );
+}
+
 /// Toggle debug pause (J hotkey / dev overlay).
 ///
 /// On resume, local frame admission is re-anchored so elapsed modal time
@@ -1894,6 +1912,9 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         }
         KeyCode::F9 | KeyCode::KeyP => {
             toggle_pathgrid_overlay(state);
+        }
+        KeyCode::KeyO => {
+            toggle_foot_path_overlay(state);
         }
         KeyCode::BracketRight => {
             if state.diag.debug_show_pathgrid {

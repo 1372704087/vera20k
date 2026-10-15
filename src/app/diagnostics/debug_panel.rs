@@ -356,11 +356,15 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                                 entity.position.sub_y(),
                             ));
                             if crate::sim::movement::motion_query::is_moving(entity) == Some(true) {
-                                // The Foot+5E0 words from the reference cell.
+                                // The unpaid Foot+5E0 words, walked from the
+                                // mover's own cell.
                                 let path: Vec<(u16, u16)> = entity
                                     .navigation
                                     .path_replay
-                                    .remaining_cells()
+                                    .remaining_cells_from((
+                                        entity.position.rx() as i16,
+                                        entity.position.ry() as i16,
+                                    ))
                                     .into_iter()
                                     .map(|(x, y)| (x as u16, y as u16))
                                     .collect();

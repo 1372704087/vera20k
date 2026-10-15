@@ -723,6 +723,14 @@ impl Simulation {
                 // below writes Guard. Ordinary Move/Attack handlers see the
                 // cleared NavCom/TarCom on their next dispatch and own the idle
                 // transition, including Temporal LetGo at that later boundary.
+                // `0x004C757D..0x004C759C`: a Foot's navigation list is
+                // emptied (twice: inline, then `0x004DA1C0`); the planning-path
+                // writes that follow have no VERA state.
+                if let Some(entity) = self.substrate.entities.get_mut(*entity_id)
+                    && entity.category() != crate::map::entities::EntityCategory::Structure
+                {
+                    entity.navigation.clear_nav_list();
+                }
                 // Event6 sends BREAK to every sparse contact (vt28065ACE0
                 // at4C75E0), before NULL destination4C75ED/target4C75F8.
                 // Unlike MEGAMISSION it never clears Foot pending-entry+500.
@@ -1532,8 +1540,8 @@ impl Simulation {
                 // a hop and cuts where it ends. Any other mission queues
                 // Harvest for the host's next Ready/Commence, and state 0
                 // cuts where the drive ends.
-                // RESIDUAL: `0x004DA1C0` after the archive clear and the
-                // Assign_Target of the event's target are not represented.
+                // RESIDUAL: the Assign_Target of the event's target is not
+                // represented.
                 let now = self.session.binary_frame;
                 let _ = self.mission_queue_exact(
                     *entity_id,
@@ -1549,8 +1557,10 @@ impl Simulation {
                 if let Some(rules) = rules {
                     self.reset_slave_manager(*entity_id, rules, frame_effects);
                 }
+                // `0x004C7448`, `0x004C7453`.
                 if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
                     e.set_archive_target(None);
+                    e.navigation.clear_nav_list();
                 }
                 // The setter's unchanged-NavCom return leaves a miner already
                 // driving to this cell alone.
@@ -2470,8 +2480,6 @@ impl Simulation {
             Some(rules),
             frame_effects,
         );
-        // Foot4DA1C0 (`0x004C7453`) clears the +5AC vector, distinct from
-        // NavQueue588/598, and has no represented producer here.
         self.assign_target_represented(id, None, Some(rules), overlay_registry, frame_effects)
             .unwrap_or_else(|cause| panic!("Unload order target: {cause}"));
         self.assign_destination_represented(id, None, Some(rules), overlay_registry, frame_effects)

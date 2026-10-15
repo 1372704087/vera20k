@@ -1580,7 +1580,10 @@ fn per_cell_factory_clearance_sends_a_computer_unit_to_its_post() {
         (sim, rules)
     };
     let (mut twin, _) = world();
-    let post = twin.house_return_cell(1).expect("a post near the base");
+    let owner = twin.substrate.entities.get(1).unwrap().owner();
+    let post = twin
+        .house_return_cell(owner, 1)
+        .expect("a post near the base");
     let (mut sim, rules) = world();
     sim.per_cell_process(
         1,

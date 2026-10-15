@@ -1447,8 +1447,9 @@ impl Simulation {
     ///   unless the Techno+0x1F8 override is up; the call then clears it.
     /// - 0x742D46..0x742E1F: while radio slot 0 holds a WeaponsFactory
     ///   building (BuildingType+16BD, ReadINI 0x460A72) and the current
-    ///   mission is not Enter, it clears only NavQueue (+588) and the +5AC
-    ///   vector (not represented) and returns: the exiting unit keeps NavCom.
+    ///   mission is not Enter, it clears only the navigation list (+5AC,
+    ///   0x742DFF) and NavQueue (+588, 0x742E0E) and returns: the exiting
+    ///   unit keeps NavCom.
     /// - 0x741E88: the live path word is cleared unless an Enter mission lacks
     ///   a radio contact; 0x7423BE clears NavQueue; 0x74314F enters Foot's
     ///   null arm ([`Self::foot_null_destination`]), whose locomotor Stop
@@ -1518,6 +1519,7 @@ impl Simulation {
             .expect("same setter actor");
         super::movement_commands::clear_destination_path_head(actor);
         if factory_contact && !current_enter {
+            actor.navigation.clear_nav_list();
             actor.navigation.clear_nav_queue();
             return false;
         }

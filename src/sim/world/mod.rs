@@ -5301,18 +5301,20 @@ impl Simulation {
     ///
     /// `+0x484` census (`search_instructions CALL [+0x484]`), the sites a
     /// miner can reach besides Move arrival, this owner change and the depot
-    /// exit, with their gates; none is run by VERA today:
+    /// exit, with their gates:
     /// - `DriveLocomotionClass::Stop_And_Scatter @ 0x004B48BE` → `+0x484(0,1)`
-    ///   after `Stop_Moving` when the NavQueue is non-empty. VERA scatter is
-    ///   UNCHECKED; natively a human-parked Guard miner scattered on ore
-    ///   would re-queue Harvest through this call.
-    /// - `FootClass::Enter_Destination @ 0x004DA1A6` (call at 0x004DA1C0;
-    ///   callers `EventClass::Execute` 0x004C7453/0x004C759C and
-    ///   `UnitClass::Receive_Radio` 0x00737546) → `+0x484(0,1)` when
-    ///   NavCom == 0, current == Guard and no WeaponsFactory contact.
+    ///   after `Stop_Moving` when the NavQueue is non-empty. Not run by VERA:
+    ///   VERA scatter is UNCHECKED; natively a human-parked Guard miner
+    ///   scattered on ore would re-queue Harvest through this call.
+    /// - `FootClass::Queue_Navigation_List @ 0x004DA0E0` → `+0x484(0,1)` at
+    ///   `0x004DA1A6` when NavCom == 0, Get_Mission == Guard and contact 0 is
+    ///   not a WeaponsFactory building ([`Simulation::queue_navigation_list`]).
+    ///   Its callers are ExitObject's Infantry post (`0x00444DAC`) and the
+    ///   Unit WeaponsFactory destination arm (`0x00742E28`, not ported).
     /// - `FootClass::Check_Destination_Is_UnitRepair_Dock @ 0x004DBA15` →
     ///   `+0x484(0, !depot-contact)` when NavCom == 0 && TarCom == 0
-    ///   (virtual slot; miner reachability unestablished).
+    ///   (virtual slot; miner reachability unestablished; VERA's
+    ///   `track_navigation_gate`).
     /// - `FootClass::ReceiveDamage @ 0x004D74C7`, gated on
     ///   `MissionControl[current].NoThreat && !Zombie` (retail `[Harmless]`)
     ///   for a teamless Foot hit by a source; the damage receiver

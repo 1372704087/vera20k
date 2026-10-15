@@ -134,10 +134,11 @@ impl Simulation {
     /// a later Restore reinstates the old selector with a NULL target and NULL
     /// destination.
     /// After the Slave Manager reset, the ordinary Foot arm clears
-    /// ArchiveTarget through TechnoClass70C610 (`0x004C7448..0x004C7451`),
-    /// before the class target and destination setters. The executed GI
-    /// `archive_A_B` control in `walk_first_path.json` records that order.
-    /// Raw event mission 11 takes the earlier AreaGuard arm instead.
+    /// ArchiveTarget through TechnoClass70C610 (`0x004C7448..0x004C7451`)
+    /// and empties the navigation list (`0x004C7453`), before the class
+    /// target and destination setters. The executed GI `archive_A_B` control
+    /// in `walk_first_path.json` records that order. Raw event mission 11
+    /// takes the earlier AreaGuard arm instead, which clears neither.
     ///
     /// This is NOT the shared funnel's business, because not every player order
     /// is a MEGAMISSION. Stop is its own opcode — `StopCommandClass::Execute`
@@ -186,8 +187,8 @@ impl Simulation {
         {
             self.reset_slave_manager(id, rules, frame_effects);
         }
-        // Event4C7446 tests the Foot receiver; non-Foot actors skip this
-        // call. Raw mission11 (`0x004C73EF` reads the event's own byte) uses
+        // Event4C7446 tests the Foot receiver; non-Foot actors skip these
+        // calls. Raw mission11 (`0x004C73EF` reads the event's own byte) uses
         // AreaGuard's separate Archive assignment at4C7430.
         if mission != MissionType::AreaGuard
             && let Some(entity) = self.substrate.entities.get_mut(id)
@@ -199,6 +200,7 @@ impl Simulation {
             )
         {
             entity.set_archive_target(None);
+            entity.navigation.clear_nav_list();
         }
     }
 

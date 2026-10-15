@@ -615,18 +615,12 @@ fn exit_at_dock(
 /// The Infantry arm's tail (`0x00444CA3..0x00444DDF`). An object with a
 /// NavCom whose type is neither `JumpJet=` (`+0xD94`) nor `Teleporter=`
 /// (`+0xCD4`) archives that NavCom, queues Move and takes the dock Cell as
-/// its destination (`0x00444CDF..0x00444D0B`). The producer then sends it
-/// HELLO, and on ROGER message 9 (`0x00444DBC..0x00444DD9`).
-///
-/// RESIDUAL: a computer owner (IsControlledByHuman `0x0050B730` on the
-/// producer's House), or any owner of a `Hospital=` producer (`+0x16C1`),
-/// first takes `0x00444D34..0x00444DB7`: Queue_Mission(Area_Guard), the
-/// House500200 post, archived and appended to the Foot list at `+0x5AC`
-/// (`0x004DA0E0`, which VERA does not represent); no post when it is the
-/// zero Cell or the producer has no `Factory=`. Trigger: every Infantry a
-/// computer House produces. Effect: it stays at its exit or walks to the
-/// rally instead of guarding a post near its base, and the post's Scenario
-/// RNG draws are not made.
+/// its destination (`0x00444CDF..0x00444D0B`). Then a producer whose House
+/// is not controlled by a human (`0x0050B730` on the producer's `+0x21C`),
+/// or any producer with `Hospital=` (`+0x16C1`), posts it ([`exit_post`],
+/// `0x00444D11..0x00444DB7`), and the post joins its navigation list
+/// ([`Simulation::queue_navigation_list`], `0x00444DAC`). The producer then
+/// sends it HELLO, and on ROGER message 9 (`0x00444DBC..0x00444DD9`).
 fn infantry_exit_tail(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -668,6 +662,7 @@ fn infantry_exit_tail(
             log::debug!("{spawned} factory exit destination: {cause}");
         }
     }
+    infantry_exit_post(sim, rules, producer_id, spawned, overlay_registry, effects);
     // Shared radio owner supplies HELLO bookkeeping and the
     // literal9 receiver; neither is an invented contact write.
     if crate::sim::radio::transmit(
@@ -692,15 +687,93 @@ fn infantry_exit_tail(
     }
 }
 
+/// The Infantry tail's post (`0x00444D11..0x00444DB7`); see
+/// [`infantry_exit_tail`].
+fn infantry_exit_post(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    producer_id: u64,
+    spawned: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) {
+    let Some(producer) = ExitProducer::of(sim, rules, producer_id) else {
+        return;
+    };
+    if !producer.computer && !producer.hospital {
+        return;
+    }
+    if let Some(post) = exit_post(sim, rules, &producer, spawned) {
+        sim.queue_navigation_list(spawned, post, rules, overlay_registry, effects);
+    }
+}
+
+/// What ExitObject's posts read from the producer.
+struct ExitProducer {
+    /// `+0x21C`, the House House500200 runs on.
+    house: crate::sim::intern::InternedId,
+    /// That House is not controlled by a human (`0x0050B730`); a missing
+    /// House counts as human.
+    computer: bool,
+    /// BuildingType `Hospital=` (`+0x16C1`).
+    hospital: bool,
+    /// BuildingType `Factory=` (`+0xEB8`) is set.
+    factory: bool,
+}
+
+impl ExitProducer {
+    fn of(sim: &Simulation, rules: &RuleSet, producer_id: u64) -> Option<Self> {
+        let producer = sim.substrate.entities.get(producer_id)?;
+        let house = producer.owner();
+        let object = sim.object_type(producer.type_ref(), rules);
+        Some(Self {
+            house,
+            computer: sim
+                .houses
+                .get(&house)
+                .is_some_and(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero)),
+            hospital: object.is_some_and(|object| object.hospital),
+            factory: object.is_some_and(|object| object.factory.is_some()),
+        })
+    }
+}
+
+/// The post both ExitObject arms inline (generic `0x00444907..0x0044496C`,
+/// Infantry `0x00444D34..0x00444DB7`): Queue_Mission(Area_Guard, 0), then
+/// House500200 on the producer's House for the object
+/// ([`Simulation::house_return_cell`]). A post that is not the zero Cell
+/// (`0x0089C818`, written only by its static initializer `0x0043B0E0`) from
+/// a producer with `Factory=` becomes the object's ArchiveTarget and is
+/// returned; otherwise the ArchiveTarget is cleared.
+fn exit_post(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    producer: &ExitProducer,
+    spawned: u64,
+) -> Option<crate::sim::components::NavTargetRef> {
+    use crate::sim::mission::{MissionId, MissionType, authority::LiveReadyInputProvider};
+    let _ = sim.mission_queue_exact(
+        spawned,
+        MissionId::from_known(MissionType::AreaGuard),
+        0,
+        sim.session.binary_frame,
+        &LiveReadyInputProvider { rules },
+    );
+    let post = sim
+        .house_return_cell(producer.house, spawned)
+        .filter(|_| producer.factory)
+        .map(|(x, y)| crate::sim::components::NavTargetRef::cell(x, y));
+    if let Some(entity) = sim.substrate.entities.get_mut(spawned) {
+        entity.set_archive_target(post.map(Into::into));
+    }
+    post
+}
+
 /// The generic arm's tail (`0x004448CE..0x0044496C`): Queue_Mission(Move)
 /// (`0x004448D6`) and the dock Cell as the object's destination (vt+0x480,
-/// `0x004448F2`). A computer owner (IsControlledByHuman `0x0050B730` on the
-/// producer's House) then queues Area_Guard (`0x0044490F`) and archives its
-/// House500200 post (`0x00444924`, `0x0070C610`), or a null archive when
-/// the post is the zero Cell (`0x0089C818`) or the producer has no
-/// `Factory=` (`+0xEB8`); no VERA caller passes a producer without
-/// `Factory=`. House500200 runs on the producer's House for the object,
-/// which that House owns: [`Simulation::house_return_cell`].
+/// `0x004448F2`). A producer whose House is not controlled by a human
+/// (`0x0050B730`) then posts the object ([`exit_post`]); no VERA caller
+/// passes a producer without `Factory=`.
 fn generic_exit_tail(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -727,31 +800,10 @@ fn generic_exit_tail(
     ) {
         log::debug!("{spawned} factory exit destination: {cause}");
     }
-    let Some(producer) = sim.substrate.entities.get(producer_id) else {
-        return;
-    };
-    let computer = sim
-        .houses
-        .get(&producer.owner())
-        .is_some_and(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero));
-    if !computer {
-        return;
-    }
-    let factory = sim
-        .object_type(producer.type_ref(), rules)
-        .is_some_and(|object| object.factory.is_some());
-    let _ = sim.mission_queue_exact(
-        spawned,
-        MissionId::from_known(MissionType::AreaGuard),
-        0,
-        sim.session.binary_frame,
-        &LiveReadyInputProvider { rules },
-    );
-    let post = sim.house_return_cell(spawned).filter(|_| factory);
-    if let Some(entity) = sim.substrate.entities.get_mut(spawned) {
-        entity.set_archive_target(
-            post.map(|(x, y)| crate::sim::components::NavTargetRef::cell(x, y).into()),
-        );
+    if let Some(producer) = ExitProducer::of(sim, rules, producer_id)
+        && producer.computer
+    {
+        exit_post(sim, rules, &producer, spawned);
     }
 }
 

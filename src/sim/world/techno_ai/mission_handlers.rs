@@ -955,11 +955,13 @@ pub(super) fn foot_enter_idle_mode_queue(
 impl Simulation {
     /// Infantry EnterIdle51CBA0 after the sole Foot4D82B0 base.
     /// P2/P5 actual human E1 controls execute constructor-empty planning and
-    /// destination history, and stock-false DefaultToGuardArea/GUARD_AREA.
-    /// History4DA030 and specialized AI/slave AreaGuard selection remain
-    /// explicit sibling mechanisms, not defaults claimed to reproduce those
-    /// branches. A resumed attack-move (HaveMegaMission, vt+0x4AC at
-    /// `0x0051CBBC`) returns the base's answer before the selector.
+    /// stock-false DefaultToGuardArea/GUARD_AREA. Specialized AI/slave
+    /// AreaGuard selection remains an explicit sibling mechanism, not a
+    /// default claimed to reproduce those branches. A resumed attack-move
+    /// (HaveMegaMission, vt+0x4AC at `0x0051CBBC`) returns the base's answer
+    /// before the selector. Without a Wait mission or a TarCom, the
+    /// navigation list may send it on first (Handle_Navigation_List,
+    /// `0x0051CC21`), before the selector reads NavCom.
     pub(crate) fn infantry_enter_idle_mode(
         &mut self,
         id: u64,
@@ -974,6 +976,14 @@ impl Simulation {
         if entity.mega_mission.is_attack_move() {
             return saved_base_return;
         }
+        if entity.mission.effective().known() != Some(MissionType::Deliberate)
+            && entity.attack_target.target().is_none()
+        {
+            self.handle_navigation_list(id, Some(rules), registry, effects);
+        }
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return saved_base_return;
+        };
         let selection = foot_enter_idle_mode_selection(
             rules,
             entity.category(),
@@ -1656,8 +1666,14 @@ fn evaluate_foot_rescue(
             .expect("Rescue receiver")
             .mission
             .set_handler_state(1);
+        let owner = sim
+            .substrate
+            .entities
+            .get(id)
+            .expect("Rescue receiver")
+            .owner();
         let destination = sim
-            .house_return_cell(id)
+            .house_return_cell(owner, id)
             .map(|(rx, ry)| crate::sim::components::NavTargetRef::cell(rx, ry));
         let _ = sim.assign_destination_represented(
             id,
@@ -1699,11 +1715,12 @@ const AREA_GUARD_CADENCE_JITTER_MAX: u32 = 5;
 /// work precedes the cadence draw. Native execution: foot_missions ordinary
 /// post/leash, scan-point and retail idle controls.
 ///
-/// The head (tank bunker, then [`foot_building_entry_head`]) precedes it.
-/// With a Target and a post it approaches through
+/// The heads (tank bunker, [`foot_building_entry_head`], then a computer
+/// Foot's navigation list, [`Simulation::area_guard_navigation_head`])
+/// precede it. With a Target and a post it approaches through
 /// [`Simulation::approach_target`] (`0x004D6F32`). Required larger chains:
 /// Tesla ElectricAssault adjacency4D6F44 (+68E, Overpowerable), the
-/// AI C4/Sabotage arm4D6DDA and the early waypoint/harvester arms.
+/// AI C4/Sabotage arm4D6DDA and the early harvester arm.
 /// They retain their existing boundaries; these controls do not certify them.
 pub(super) fn evaluate_foot_area_guard(
     sim: &mut Simulation,
@@ -1732,6 +1749,7 @@ pub(super) fn evaluate_foot_area_guard(
     if let Some(head) = foot_building_entry_head(sim, rules, id, MissionType::AreaGuard, ctx) {
         return head;
     }
+    sim.area_guard_navigation_head(id, rules, ctx.overlay_registry, ctx.effects);
     let needs_post = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.archive_target().is_none() && entity.mission.queued() == MissionId::NONE
     });

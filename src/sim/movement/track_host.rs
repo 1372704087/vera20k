@@ -1201,6 +1201,15 @@ impl Simulation {
         if entity.lift.target().is_some() {
             self.release_locomotor(id, true, rules, None, effects);
         }
+        // RESIDUAL: `0x007389C4..0x00738A27` is not ported: a Unit whose
+        // mission (vt+0x184) is Move, with no NavCom, standing exactly on its
+        // Cell's center at height 0, transmits OVER_OUT to radio contact 0
+        // (vt+0x274(3), `crate::sim::radio::transmit_to_contact`). Trigger:
+        // a Unit on Move at rest on a level-0 Cell center with a radio
+        // contact. Effect: VERA keeps the link native breaks. Frequency: not
+        // measured.
+        // `0x00738A2F`: the navigation list may send it on.
+        self.handle_navigation_list(id, rules, None, effects);
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return saved_base_return;
         };

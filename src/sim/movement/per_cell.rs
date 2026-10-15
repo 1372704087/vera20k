@@ -447,7 +447,7 @@ impl Simulation {
                 .and_then(|producer| self.object_type(producer.type_ref(), rules))
                 .is_some_and(|object| object.weapons_factory)
         {
-            self.unit_factory_post(id, rules, effects);
+            self.unit_factory_post(id, unit.owner(), rules, effects);
             return;
         }
         let archive = unit.archive_target();
@@ -471,12 +471,10 @@ impl Simulation {
             );
         }
         // RESIDUAL:73AB6C..73ABD0 rereads the first ground Building, NavCom,
-        // and distinct counts+5BC/+598 before Scatter(NULL,1,1). NavQueue
-        // represents+598; vector+5AC/count+5BC is not represented. Its full
-        // producer/consumer/save/expiry chain is required before this fallback
-        // can be ported; SuspendedNavCom(+5A8) is not that vector. The composed
-        // fresh human control publishes NavCom in the first Scatter and skips
-        // this second call, so no invented count or factory marker is needed.
+        // and the navigation list and NavQueue counts (+5BC, +598) before
+        // Scatter(NULL,1,1); it is not ported. The composed fresh human
+        // control publishes NavCom in the first Scatter and skips this second
+        // call, so no invented count or factory marker is needed.
         // The Slave Miner (73A9D9), harvester (73AAF5) and computer post
         // (73AA9C, 73AB4C) arms jump here too. VERA returns from them first.
         // A war factory clears its product on its own foundation (location
@@ -505,8 +503,14 @@ impl Simulation {
     /// Whether a Hover or Jumpjet product is moving at its arrival call is
     /// not established; if it is, `ready_to_commence_answer`'s moving-defer
     /// residual applies.
-    fn unit_factory_post(&mut self, id: u64, rules: &RuleSet, effects: FrameEffects<'_>) {
-        let Some(post) = self.house_return_cell(id) else {
+    fn unit_factory_post(
+        &mut self,
+        id: u64,
+        owner: crate::sim::intern::InternedId,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some(post) = self.house_return_cell(owner, id) else {
             if let Some(unit) = self.substrate.entities.get_mut(id) {
                 unit.set_archive_target(None);
             }

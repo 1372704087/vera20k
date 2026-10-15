@@ -2735,3 +2735,78 @@ fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
         }
     }
 }
+
+/// ExitObject's Infantry tail posts a computer barracks' infantryman
+/// (`0x00444D11..0x00444DB7`): Area_Guard queued, then House500200's post
+/// on the producer's House archived and queued on its navigation list
+/// (`0x00444DAC`). The list's idle tail (`0x004DA1A6`) sends the guarding
+/// infantryman there at once: Unlimbo's Enter_Idle_Mode latched the Foot
+/// base, so Handle_Navigation_List takes the post off the list and the
+/// selector queues Move over Area_Guard. A human barracks posts nothing.
+#[test]
+fn a_computer_barracks_sends_its_infantry_to_a_listed_post() {
+    use super::production_spawn::{ExitArm, exit_arm};
+    use crate::sim::combat::TargetKind;
+    use crate::sim::components::NavTargetRef;
+    use crate::sim::mission::MissionType;
+
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    assert_eq!(exit_arm(rules.object("GAPILE").unwrap()), ExitArm::Infantry);
+    let mut final_rng = Vec::new();
+    for human in [true, false] {
+        let mut sim = Simulation::with_seed(0x4444_D110);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.intern("Americans");
+        let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 50_000, 10);
+        house.base_center = Some((20, 20));
+        sim.houses.insert(owner, house);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 12, 12);
+        arm_build_via(
+            &mut sim,
+            &rules,
+            "Americans",
+            "E1",
+            ProductionCategory::Infantry,
+            70,
+        );
+        assert!(
+            sim.production
+                .factories
+                .test_arm_ready(owner, ProductionCategory::Infantry)
+        );
+        let product =
+            super::factory_lifecycle::active_entity_id(&sim, owner, ProductionCategory::Infantry)
+                .unwrap();
+        assert_eq!(
+            super::production_queue::exit_produced_object(
+                &mut sim,
+                &rules,
+                1,
+                product,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            ),
+            crate::sim::ai_base_building::BuildingExit::Placed,
+            "human {human}"
+        );
+        let e1 = sim.substrate.entities.get(product).unwrap();
+        assert_eq!(e1.navigation.nav_list(), [], "human {human}");
+        if human {
+            assert_eq!(e1.navigation.nav_com(), None);
+            assert_eq!(e1.archive_target(), None);
+        } else {
+            let post = e1.navigation.nav_com().expect("sent to its post");
+            assert!(matches!(post, NavTargetRef::Cell { .. }), "{post:?}");
+            assert_eq!(e1.archive_target(), Some(TargetKind::from(post)));
+            assert_eq!(e1.mission.queued().known(), Some(MissionType::Move));
+        }
+        final_rng.push(sim.rng_state());
+    }
+    assert_ne!(final_rng[0], final_rng[1], "House500200 draws the post");
+}

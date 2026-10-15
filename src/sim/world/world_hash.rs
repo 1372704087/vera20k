@@ -43,7 +43,7 @@ mod retained_cell_hash_tests {
         let mut entity = GameEntity::test_default(1, "FV", "Test", 10, 10);
         // Every cell is deliberately unallocated. These different requested
         // coordinates retain the same process object; hashing may not stamp it.
-        for retained_field in 0..7 {
+        for retained_field in 0..8 {
             entity.attack_target.set_for_test(None);
             entity.suspended_attack_target.set_for_test(None);
             entity.set_archive_target(None);
@@ -68,6 +68,9 @@ mod retained_cell_hash_tests {
                 6 => entity
                     .navigation
                     .push_nav_queue_for_test(NavTargetRef::cell(13, 14)),
+                7 => entity
+                    .navigation
+                    .set_nav_list_for_test(vec![NavTargetRef::cell(15, 16)], false),
                 _ => unreachable!(),
             }
             sim.substrate.entities.insert(entity.clone());
@@ -734,6 +737,7 @@ impl Simulation {
                             .into_iter()
                             .flatten()
                             .chain(entity.navigation.nav_queue().iter().copied())
+                            .chain(entity.navigation.nav_list().iter().copied())
                             .any(|target| match target {
                                 NavTargetRef::Cell { rx, ry } => {
                                     keeps_dummy(TargetKind::Cell(rx, ry))
@@ -1799,6 +1803,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.navigation.nav_com().hash(hasher);
     entity.navigation.suspended_nav_com().hash(hasher);
     entity.navigation.nav_queue().hash(hasher);
+    // Foot+5AC/+6B1 hash only when used, so established goldens without a
+    // navigation list keep their values.
+    if !entity.navigation.nav_list().is_empty() || entity.navigation.nav_list_loops() {
+        0x5ac_u32.hash(hasher);
+        entity.navigation.nav_list().hash(hasher);
+        entity.navigation.nav_list_loops().hash(hasher);
+    }
     entity.navigation.pending_destination_setter().hash(hasher);
 
     entity.foot_speed.applied_fraction().hash(hasher);

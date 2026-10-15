@@ -1532,6 +1532,110 @@ fn per_cell_factory_clearance_starts_a_slave_miners_hunt() {
     assert_eq!(unit.navigation.nav_com(), None, "no archive destination");
 }
 
+/// 73AA0D..73AA9C: a computer House's unit cleared by its war factory
+/// takes its House500200 post, not its archive: Move toward the post
+/// Commences, the post is archived and AreaGuard waits behind the Move.
+/// The producer's second row under the unit keeps the following Ready
+/// (`0x0073ACC2`) from promoting AreaGuard.
+#[test]
+fn per_cell_factory_clearance_sends_a_computer_unit_to_its_post() {
+    use crate::sim::combat::TargetKind;
+    use crate::sim::components::NavTargetRef;
+    use crate::sim::mission::MissionType;
+
+    let world = || {
+        let (mut sim, rules) = factory_per_cell_fixture(true, false, "");
+        let owner = sim.intern("Americans");
+        let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
+        house.base_center = Some((20, 20));
+        sim.houses.insert(owner, house);
+        let producer = sim.substrate.entities.get_mut(2).unwrap();
+        producer.type_facts.set_foundation_for_test("1x2".into());
+        producer.position.put_location(DriveCoord::cell(10, 9, 0));
+        sim.substrate.occupancy =
+            crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_archive_target(Some(TargetKind::Cell(12, 10)));
+        (sim, rules)
+    };
+    let (mut twin, _) = world();
+    let post = twin.house_return_cell(1).expect("a post near the base");
+    let (mut sim, rules) = world();
+    sim.per_cell_process(
+        1,
+        super::super::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::sim::radio::take_transmit_log()
+            .first()
+            .map(|send| (send.msg, send.reply)),
+        Some((8, Some(23)))
+    );
+    let unit = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(unit.mission.current().known(), Some(MissionType::Move));
+    assert_eq!(unit.mission.mission_start_frame(), 57, "the Move Commenced");
+    assert_eq!(unit.mission.queued().known(), Some(MissionType::AreaGuard));
+    assert_eq!(
+        unit.navigation.nav_com(),
+        Some(NavTargetRef::cell(post.0, post.1))
+    );
+    assert_eq!(
+        unit.archive_target(),
+        Some(TargetKind::Cell(post.0, post.1))
+    );
+    assert_eq!(
+        sim.rng_state(),
+        twin.rng_state(),
+        "House500200's draws only"
+    );
+}
+
+/// 73AB43: without a post the computer unit's archive clears, and it keeps
+/// its mission and stands. Mapless, House500200 has no map authority and
+/// answers no post without drawing.
+#[test]
+fn per_cell_factory_clearance_without_a_post_clears_the_archive() {
+    use crate::sim::combat::TargetKind;
+
+    let (mut sim, rules) = factory_per_cell_fixture(true, false, "");
+    let owner = sim.intern("Americans");
+    sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
+    );
+    let unit = sim.substrate.entities.get_mut(1).unwrap();
+    unit.set_archive_target(Some(TargetKind::Cell(12, 10)));
+    let mission = unit.mission;
+    let rng = sim.rng_state();
+    sim.per_cell_process(
+        1,
+        super::super::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::sim::radio::take_transmit_log()
+            .first()
+            .map(|send| send.msg),
+        Some(8)
+    );
+    let unit = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(unit.archive_target(), None);
+    assert_eq!(unit.navigation.nav_com(), None, "no archive destination");
+    assert_eq!(unit.mission, mission);
+    assert_eq!(sim.rng_state(), rng);
+}
+
 #[test]
 fn per_cell_factory_clearance_reads_unit_archive_through_the_shared_setter() {
     use crate::sim::combat::TargetKind;

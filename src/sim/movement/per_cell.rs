@@ -302,8 +302,10 @@ impl Simulation {
     }
 
     /// Unit739EC0's tethered arrival chapter73A7D2..73AADB, before its
-    /// Ready/Commence checkpoint. The human continuation calls the existing
-    /// archive destination, FootStop4DF0D0 and UnitScatter743A50 owners.
+    /// Ready/Commence checkpoint. A computer House's unit from a war factory
+    /// takes its post ([`Self::unit_factory_post`]); the other continuation
+    /// calls the existing archive destination, FootStop4DF0D0 and
+    /// UnitScatter743A50 owners.
     /// Source: anytown_damage/unit_unlimbo radio receipt and original Unit
     /// listing; the composed factory-Unload control binds the null-NavCom arm.
     fn unit_per_cell_factory_clearance(
@@ -432,20 +434,20 @@ impl Simulation {
         let producer = contact
             .and_then(|contact| self.substrate.entities.get(contact))
             .filter(|contact| contact.category() == EntityCategory::Structure);
-        let human = self
+        // A missing House cannot stand in for Human50B730.
+        let Some(human) = self
             .houses
             .get(&unit.owner())
-            .map(|house| house.is_controlled_by_human(self.session.game_mode_nonzero));
-        if human.is_none()
-            || (human == Some(false)
-                && producer
-                    .and_then(|producer| self.object_type(producer.type_ref(), rules))
-                    .is_some_and(|object| object.weapons_factory))
+            .map(|house| house.is_controlled_by_human(self.session.game_mode_nonzero))
+        else {
+            return;
+        };
+        if !human
+            && producer
+                .and_then(|producer| self.object_type(producer.type_ref(), rules))
+                .is_some_and(|object| object.weapons_factory)
         {
-            // RESIDUAL:73AA19's House500200 placement/spreading owner is
-            // unported. It draws Scenario RNG for armed computer units,
-            // queues Move, Commences, archives its post and queues AreaGuard.
-            // A missing House cannot stand in for Human50B730.
+            self.unit_factory_post(id, rules, effects);
             return;
         }
         let archive = unit.archive_target();
@@ -475,9 +477,59 @@ impl Simulation {
         // can be ported; SuspendedNavCom(+5A8) is not that vector. The composed
         // fresh human control publishes NavCom in the first Scatter and skips
         // this second call, so no invented count or factory marker is needed.
-        // The Slave Miner (73A9D9) and harvester (73AAF5) arms jump here too:
-        // with a null NavCom on a ground Building they would Scatter
-        // natively. VERA returns from both arms first.
+        // The Slave Miner (73A9D9), harvester (73AAF5) and computer post
+        // (73AA9C, 73AB4C) arms jump here too: with a null NavCom on a ground
+        // Building they would Scatter natively. VERA returns from them first.
+        // After a post the NavCom is set, so the tail would not Scatter;
+        // without one it Scatters only a unit standing on a Building.
+    }
+
+    /// `0x0073AA0D..0x0073AA9C`: a computer House's unit cleared by its war
+    /// factory takes a post near its base, House500200 (`0x0073AA19`,
+    /// [`Self::house_return_cell`], two Scenario draws). The post queues Move
+    /// (`0x0073AA48`), becomes the destination (vt+0x480, `0x0073AA65`), the
+    /// mission Commences (vt+0x1EC, `0x0073AA70`), the post is archived
+    /// (`0x0070C610`, `0x0073AA88`) and AreaGuard is queued (`0x0073AA96`).
+    /// With no post (the packed zero Cell at `0x00B1CFB8`, which only the
+    /// static initializer `0x00735320` writes) the archive clears
+    /// (`0x0073AB43`).
+    ///
+    /// RESIDUAL: VERA's Unit Ready_To_Commence answers ready for a moving
+    /// unit (its moving-defer is off, `ready_to_commence_answer`), so the
+    /// queued AreaGuard commences at the first readiness check, from the
+    /// Ready/Commence that follows (`0x0073ACC2`) on. Native keeps it queued
+    /// behind the Move while the unit moves. Trigger: every computer vehicle
+    /// sent to a post. Effect: it is on AreaGuard, scanning around its post,
+    /// while it drives there.
+    fn unit_factory_post(&mut self, id: u64, rules: &RuleSet, effects: FrameEffects<'_>) {
+        let Some(post) = self.house_return_cell(id) else {
+            if let Some(unit) = self.substrate.entities.get_mut(id) {
+                unit.set_archive_target(None);
+            }
+            return;
+        };
+        let now = self.session.binary_frame;
+        let readiness = LiveReadyInputProvider { rules };
+        let _ = self.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Move),
+            0,
+            now,
+            &readiness,
+        );
+        let _ =
+            self.set_unit_destination(id, NavTargetRef::cell(post.0, post.1), rules, true, effects);
+        let _ = self.mission_commence_exact(id, now);
+        if let Some(unit) = self.substrate.entities.get_mut(id) {
+            unit.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(post.0, post.1)));
+        }
+        let _ = self.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::AreaGuard),
+            0,
+            now,
+            &readiness,
+        );
     }
 
     /// `InfantryClass::Per_Cell_Process @ 0x00519630`: for reason 2 its

@@ -14,6 +14,8 @@ const RULES: &str = "\
 [General]\nRepairPercent=15%\nRepairStep=8\n\
 [Clear]\nFoot=100%\nTrack=100%\nWheel=100%\nFloat=0%\nHover=50%\nAmphibious=80%\nFloatBeach=0%\n\
 Buildable=yes\n\
+[Tiberium]\nFoot=90%\nTrack=70%\nWheel=50%\nFloat=0%\nFloatBeach=0%\nHover=50%\nAmphibious=50%\n\
+Buildable=no\n\
 [CombatDamage]\nC4Warhead=Super\nIronCurtainDuration=750\n\
 [InfantryTypes]\n0=DOG\n1=E1\n\
 [VehicleTypes]\n0=DRON\n1=MTNK\n2=DLPH\n3=MCV\n4=TRAN\n\
@@ -687,6 +689,65 @@ fn a_teleport_warp_ejects_the_drone_before_the_host_relocates() {
     assert!(released.parasite.is_paralyzed(arena.frame()));
     let (rx, ry) = arena.cell(drone);
     assert!(rx.abs_diff(11) <= 1 && ry.abs_diff(10) <= 1);
+}
+
+#[test]
+fn a_teleport_warp_drops_the_drone_onto_ore_through_the_frames_overlay_table() {
+    // ExitUnit's Unlimbo (0x0062A5E8..0x0062A61F) asks the drone's own
+    // Can_Enter_Cell, whose overlay arm reads the OverlayTypeClass table the
+    // frame binds: a Chrono Miner warping off an ore field drops its drone on
+    // ore. Without the table the query fails and the drone is deleted.
+    use crate::sim::tiberium::test_support::{bales_at, overlay_registry, place_tiberium_on_map};
+    let rules = rules();
+    let mut arena = Arena::new(&rules);
+    let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+    let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    arena.infect(&rules, drone, tank);
+    // The overlay grid matches the arena's 32x32 map.
+    arena.sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(32, 32));
+    for y in 9..=11 {
+        for x in 10..=12 {
+            place_tiberium_on_map(
+                &mut arena.sim,
+                (x, y),
+                crate::sim::miner::ResourceType::Ore,
+                5,
+            );
+        }
+    }
+    assert!(arena.sim.rebuild_dynamic_navigation(&rules));
+    arena.grid = (*arena.sim.path_grid_snapshot().unwrap()).clone();
+    let host = arena.sim.substrate.entities.get_mut(tank).unwrap();
+    host.locomotor = Some(
+        crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+            crate::rules::locomotor_type::LocomotorKind::Teleport,
+        ),
+    );
+    host.install_teleport_state_for_test(Some(
+        crate::sim::movement::teleport_movement::TeleportState::for_test(
+            crate::sim::movement::teleport_movement::TeleportPhase::Relocate,
+            20,
+            20,
+            0,
+        ),
+    ));
+    let commands = arena.sim.take_due_commands();
+    let _ = arena.sim.advance_tick(
+        &commands,
+        Some(&rules),
+        Some(&arena.grid),
+        Some(overlay_registry()),
+        33,
+    );
+
+    assert_eq!(arena.cell(tank), (20, 20));
+    let released = arena.sim.substrate.entities.get(drone).unwrap();
+    assert!(!released.lifecycle.in_limbo() && released.lifecycle.object_alive());
+    let (rx, ry) = arena.cell(drone);
+    assert!(
+        bales_at(&arena.sim, rx, ry) > 0,
+        "released onto ore at ({rx},{ry})"
+    );
 }
 
 #[test]

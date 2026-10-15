@@ -360,8 +360,8 @@ impl crate::sim::world::Simulation {
     /// at `0x0089E778` (`0x004812EC`, `0x004813CC`).
     /// AircraftClass::Drop_Payload (`0x00415D9B..0x00415DD1`),
     /// InfantryClass::ReceiveDamage's InfDeath 9 arm
-    /// (`0x0051897C..0x00518A0D`) and the Infantry tube exit (`0x0051B967`)
-    /// ask it so.
+    /// (`0x0051897C..0x00518A0D`), the Infantry tube exit (`0x0051B967`) and
+    /// ParasiteClass::GetReleaseCoords (`0x0062ADE9`) ask it so.
     pub(crate) fn place_infantry_in_ground_cell(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,

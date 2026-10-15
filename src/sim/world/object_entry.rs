@@ -1047,7 +1047,7 @@ fn classify_foot_entry<'a>(
         let (b, blocker) = live
             .blocker(blocker_id)
             .ok_or("repair list has retired blocker")?;
-        if victim_cell == Some(crate::sim::movement::coord_cell(b.position)) {
+        if victim_cell.is_some_and(|cell| cell == crate::sim::movement::coord_cell(b.position)) {
             return Ok(0);
         }
         let bt = mover

@@ -368,8 +368,10 @@ impl<'a> UninitContext<'a> {
         Self { effects, ..self }
     }
 
-    pub(crate) const fn effects(self) -> FrameEffects<'a> {
-        self.effects
+    /// The effects, with this context's overlay table bound when they carry
+    /// none, so a receiver reads one table whichever carrier lent it.
+    pub(crate) fn effects(self) -> FrameEffects<'a> {
+        self.effects.with_overlay_registry(self.registry)
     }
 
     /// Techno Unlimbo's direction for this synchronous reveal. The caller's

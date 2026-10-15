@@ -49,14 +49,10 @@ pub(super) fn emit_projectile_shrapnel(
     detonation: &ProjectileDetonation,
     location: ProjectileCoord,
 ) {
-    let Some(parent_weapon) = rules.weapon(world.interner.resolve(detonation.payload.weapon))
-    else {
-        return;
-    };
-    let Some(parent_projectile) = parent_weapon
-        .projectile
-        .as_deref()
-        .and_then(|name| rules.projectile(name))
+    let Some(parent_projectile) = detonation
+        .payload
+        .projectile_type()
+        .and_then(|kind| rules.projectile(world.interner.resolve(kind)))
     else {
         return;
     };
@@ -195,7 +191,8 @@ pub(super) fn emit_projectile_shrapnel(
             payload: ProjectilePayload::new(
                 child_weapon.damage,
                 world.interner.intern(child_warhead_name),
-                world.interner.intern(child_weapon_name),
+                Some(world.interner.intern(&child_projectile.id)),
+                child_weapon.bright,
             ),
             speed_leptons_per_frame: child_weapon.speed.clamp(1, i32::from(u16::MAX)) as u16,
             velocity: crate::sim::projectile::launch::shrapnel_launch_velocity(

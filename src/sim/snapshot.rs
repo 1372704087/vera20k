@@ -1038,7 +1038,9 @@ use crate::sim::world::Simulation;
 // independent per-firer radial launch counter (Techno+43C).
 // 361 -> 362: Bullet targets can retain a Terrain object identity. Its target
 // tag and strong-reference validation differ from Entity and Cell targets.
-const SNAPSHOT_VERSION: u32 = 362;
+// 362 -> 363: Bullet constructor type/Bright and the independently nullable
+// installed WeaponType replace the conflated payload weapon identity.
+const SNAPSHOT_VERSION: u32 = 363;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4485,7 +4487,8 @@ mod tests {
         // 359 -> 360: retained airstrike managers and aircraft relationships.
         // 360 -> 361: retained radial launch settings and firing index.
         // 361 -> 362: Terrain Bullet target identity and reference validation.
-        assert_eq!(super::SNAPSHOT_VERSION, 362);
+        // 362 -> 363: independent Bullet constructor and installed-weapon fields.
+        assert_eq!(super::SNAPSHOT_VERSION, 363);
     }
 
     #[test]
@@ -7689,11 +7692,7 @@ mod tests {
             origin: ProjectileCoord::new(0, 0, 0),
             target,
             initial_target_position: ProjectileCoord::new(256, 256, 0),
-            payload: ProjectilePayload::new(
-                1,
-                InternedId::from_index(0),
-                InternedId::from_index(0),
-            ),
+            payload: ProjectilePayload::new(1, InternedId::from_index(0), None, false),
             speed_leptons_per_frame: 64,
             velocity: ProjectileVelocity::new(64, 0, 0),
             trajectory: ProjectileTrajectory::Straight,
@@ -7757,10 +7756,59 @@ mod tests {
         spawn.payload = crate::sim::projectile::ProjectilePayload::new(
             1,
             sim.interner.intern("WH"),
-            sim.interner.intern("GUN"),
-        );
+            rules
+                .weapon("GUN")
+                .unwrap()
+                .projectile
+                .as_deref()
+                .map(|name| sim.interner.intern(name)),
+            rules.weapon("GUN").unwrap().bright,
+        )
+        .with_installed_weapon(Some(sim.interner.intern("GUN")));
         sim.admit_projectile(projectile_id, spawn);
         (sim, rules, tree_id, projectile_id)
+    }
+
+    #[test]
+    fn bullet_constructor_fields_roundtrip_and_hash_independently() {
+        use crate::sim::projectile::ProjectilePayload;
+        let (mut sim, _, _, projectile_id) = terrain_target_snapshot_fixture();
+        let base = sim.projectiles.get(projectile_id).unwrap().payload;
+        let baseline_hash = sim.state_hash();
+        let baseline_bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
+        let mut restored_baseline = GameSnapshot::load(&baseline_bytes).unwrap().sim;
+        restored_baseline.restore_after_snapshot_load().unwrap();
+        let restored_baseline_hash = restored_baseline.state_hash();
+        let mut hashes = BTreeSet::new();
+        let mut restored_hashes = BTreeSet::new();
+        // Native Construct carries type+AC and Bright+E0 independently of the
+        // optional WeaponType+130. In particular a null weapon must not erase
+        // the type/Bright supplied to a shrapnel or transient drop Bullet.
+        for kind in [None, base.projectile_type()] {
+            for installed in [None, base.installed_weapon()] {
+                for bright in [false, true] {
+                    let payload =
+                        ProjectilePayload::new(base.base_damage, base.warhead, kind, bright)
+                            .with_installed_weapon(installed);
+                    sim.projectiles.get_mut(projectile_id).unwrap().payload = payload;
+                    assert!(hashes.insert(sim.state_hash()));
+                    let bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
+                    let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+                    restored.restore_after_snapshot_load().unwrap();
+                    assert_eq!(
+                        restored.projectiles.get(projectile_id).unwrap().payload,
+                        payload
+                    );
+                    let restored_hash = restored.state_hash();
+                    assert!(restored_hashes.insert(restored_hash));
+                    assert_eq!(restored_hash == restored_baseline_hash, payload == base);
+                    sim.projectiles.get_mut(projectile_id).unwrap().payload = base;
+                    assert_eq!(sim.state_hash(), baseline_hash);
+                }
+            }
+        }
+        assert_eq!(hashes.len(), 8);
+        assert_eq!(restored_hashes.len(), 8);
     }
 
     #[test]

@@ -351,8 +351,11 @@ fn retail_elite_comet_terrain_child_recurses_from_its_tree_on_first_logic() {
         .find(|(_, p)| p.target == ProjectileTarget::Terrain(tree_id))
         .map(|(&id, p)| {
             assert_eq!(
-                scene.world.interner.resolve(p.payload.weapon),
-                "SuperCometFragment"
+                scene
+                    .world
+                    .interner
+                    .resolve(p.payload.projectile_type().unwrap()),
+                "SuperSmallCometP"
             );
             id
         })
@@ -602,14 +605,17 @@ fn terrain_bullet_expiry_matches_original_live_observer() {
             .unwrap()
             .health = row["case"]["health"].as_i64().unwrap() as i32;
         let weapon = scene.rules.weapon("CometFragment").unwrap();
-        let payload = crate::sim::projectile::ProjectilePayload::new(
+        let payload = super::combat_tests::payload_from_weapon(
             weapon.damage,
             scene
                 .world
                 .interner
                 .intern(weapon.warhead.as_deref().unwrap()),
             scene.world.interner.intern(&weapon.id),
-        );
+            &scene.rules,
+            &mut scene.world.interner,
+        )
+        .with_installed_weapon(None);
         let bullet = super::projectile_delivery::FiredBullet::launched(
             &scene.world,
             1,
@@ -1021,12 +1027,14 @@ fn shrapnel_children_and_lasers_match_original_spawn_shrapnel() {
             source_id,
             target: ProjectileTarget::Entity(ids["victim"]),
             impact: native_coord(&row["origin"]),
-            payload: crate::sim::projectile::ProjectilePayload::new(
+            payload: super::combat_tests::payload_from_weapon(
                 parent_weapon.damage,
                 world
                     .interner
                     .intern(parent_weapon.warhead.as_deref().unwrap()),
                 world.interner.intern(&parent_weapon.id),
+                &rules,
+                &mut world.interner,
             ),
             reason: ProjectileDetonationReason::ReachedTarget,
         };
@@ -1103,9 +1111,21 @@ fn shrapnel_children_and_lasers_match_original_spawn_shrapnel() {
                 "{name}: processed weapon speed"
             );
             assert_eq!(
-                world.interner.resolve(actual.payload.weapon),
-                child_weapon.id,
+                world
+                    .interner
+                    .resolve(actual.payload.projectile_type().unwrap()),
+                child_weapon.projectile.as_deref().unwrap(),
                 "{name}"
+            );
+            assert_eq!(
+                actual.payload.installed_weapon(),
+                None,
+                "{name}: Construct does not SetWeapon"
+            );
+            assert_eq!(
+                actual.payload.bright(),
+                expected["bright"] == 1,
+                "{name}: explicit Construct Bright"
             );
             assert_eq!(
                 child_weapon.projectile.as_deref(),
@@ -1312,7 +1332,11 @@ fn elite_bounces_recurse_only_when_children_get_their_logic_visits() {
             .projectiles
             .iter()
             .filter(|(id, _)| **id != parent)
-            .all(|(_, p)| scene.world.interner.resolve(p.payload.weapon) == "SuperCometFragment")
+            .all(|(_, p)| scene
+                .world
+                .interner
+                .resolve(p.payload.projectile_type().unwrap())
+                == "SuperSmallCometP")
     );
     assert_eq!(
         scene

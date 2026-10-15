@@ -17,7 +17,7 @@ use serde_json::Value;
 fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return() {
     use crate::sim::native_identity::NativeUniqueIdCursor;
     use crate::sim::projectile::{
-        ProjectileCollisionPolicy, ProjectileDetonationReason, ProjectilePayload, ProjectileSpawn,
+        ProjectileCollisionPolicy, ProjectileDetonationReason, ProjectileSpawn,
         ProjectileTrajectory, ProjectileVelocity, ProjectileVisualState, TargetExpiryPolicy,
     };
     let Some((base, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
@@ -99,10 +99,12 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
             input["live"]
         );
         assert_eq!(input["live"], input["placement"]);
-        let payload = ProjectilePayload::new(
+        let payload = super::combat_tests::payload_from_weapon(
             rules.weapon("HoverMissile").unwrap().damage,
             world.interner.intern("HE"),
             world.interner.intern("HoverMissile"),
+            &rules,
+            &mut world.interner,
         );
         let target = ProjectileTarget::Cell { rx: 10, ry: 20 };
         let id = world.allocate_stable_id();
@@ -362,6 +364,13 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                 .health
                 .current();
             let rng = world.scenario_rng.logical_state();
+            let payload = super::combat_tests::payload_from_weapon(
+                25,
+                missing,
+                weapon,
+                &rules,
+                &mut world.interner,
+            );
             let output = commit_projectiles(
                 &mut world,
                 &mut ReceiverRun::default(),
@@ -370,7 +379,7 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                     source_id: RAD_NO_ATTACKER,
                     target: ProjectileTarget::Cell { rx: 10, ry: 20 },
                     impact: ProjectileCoord::new(2688, 5248, 624),
-                    payload: crate::sim::projectile::ProjectilePayload::new(25, missing, weapon),
+                    payload,
                     reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
                 }],
                 &rules,

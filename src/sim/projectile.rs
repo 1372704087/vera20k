@@ -913,8 +913,13 @@ pub struct ProjectilePayload {
     /// Damage after firing-side modifiers, before target/warhead resolution.
     pub base_damage: i32,
     pub warhead: InternedId,
-    /// Weapon identity retained for impact-only effects such as radiation.
-    pub weapon: InternedId,
+    /// Construct4664C0's independent BulletType pointer (+AC).
+    projectile_type: Option<InternedId>,
+    /// Constructor466401 clears +130. Only SetWeaponType installs it;
+    /// shrapnel and direct falling-damage bullets leave it null.
+    installed_weapon: Option<InternedId>,
+    /// Construct4664E6's byte argument, independent of installed Weapon.
+    bright: bool,
     /// `BulletClass+0x150`, 1/256 units: `BulletClass::Construct` writes
     /// [`Self::UNSCALED`] (`0x00466546`) and only a Prism master's supported
     /// shot writes another value (`BuildingClass::ProcessDelayedFire`,
@@ -930,13 +935,39 @@ impl ProjectilePayload {
     pub const UNSCALED: i32 = 256;
 
     /// A payload as `BulletClass::Construct` leaves it: unscaled damage.
-    pub fn new(base_damage: i32, warhead: InternedId, weapon: InternedId) -> Self {
+    pub fn new(
+        base_damage: i32,
+        warhead: InternedId,
+        projectile_type: Option<InternedId>,
+        bright: bool,
+    ) -> Self {
         Self {
             base_damage,
             warhead,
-            weapon,
+            projectile_type,
+            installed_weapon: None,
+            bright,
             damage_multiplier: Self::UNSCALED,
         }
+    }
+
+    pub fn projectile_type(&self) -> Option<InternedId> {
+        self.projectile_type
+    }
+
+    pub fn installed_weapon(&self) -> Option<InternedId> {
+        self.installed_weapon
+    }
+
+    pub fn bright(&self) -> bool {
+        self.bright
+    }
+
+    /// The sole +130 mutation, corresponding to SetWeaponType46B260.
+    /// Constructing another payload does not infer this reference from type.
+    pub fn with_installed_weapon(mut self, weapon: Option<InternedId>) -> Self {
+        self.installed_weapon = weapon;
+        self
     }
 
     /// The same payload carrying another `+0x150` multiplier, as a Prism
@@ -1323,6 +1354,15 @@ impl ProjectileStore {
         self.projectiles.get(&id)
     }
 
+    /// Re-read the authoritative fields at a DetonateAtCoord callback
+    /// boundary. The explicit impact and reason belong to the caller;
+    /// source/target may have changed during synchronous receiver callbacks.
+    pub(crate) fn current_detonation(&self, request: ProjectileDetonation) -> ProjectileDetonation {
+        self.get(request.projectile_id).map_or(request, |bullet| {
+            detonation(bullet, request.impact, request.reason)
+        })
+    }
+
     pub(crate) fn get_mut(&mut self, id: u64) -> Option<&mut Projectile> {
         self.projectiles.get_mut(&id)
     }
@@ -1383,6 +1423,59 @@ impl ProjectileStore {
         self.spawn_at(id, 0, spawn, spawn.origin)
     }
 
+    /// Constructor466380/Construct4664C0 before Fire: registered as an
+    /// Object/Bullet observer, still in Limbo with zero Location. Velocity is
+    /// unused until Fire; initialize its Rust representation to zero.
+    pub(crate) fn construct(
+        &mut self,
+        id: u64,
+        native_unique_id: i32,
+        binary_frame: u32,
+        source_id: u64,
+        target: ProjectileTarget,
+        payload: ProjectilePayload,
+    ) -> u64 {
+        let zero = ProjectileCoord::new(0, 0, 0);
+        assert!(
+            !self.projectiles.contains_key(&id),
+            "duplicate Bullet identity {id}"
+        );
+        self.projectiles.insert(
+            id,
+            Projectile {
+                id,
+                native_unique_id,
+                in_logic_vector: false,
+                source_id,
+                position: zero,
+                launch_origin: zero,
+                launch_target: zero,
+                previous_cell: (-1, -1),
+                target,
+                last_target_position: zero,
+                payload,
+                speed_leptons_per_frame: 0,
+                velocity: ProjectileVelocity::new(0, 0, 0),
+                trajectory: ProjectileTrajectory::Straight,
+                guidance: None,
+                visual: ProjectileVisualState::new(0, 0, 0),
+                arm_timer: crate::sim::timer::CdTimer::started(binary_frame as i32, 0),
+                fuse_frames_remaining: None,
+                ranged_fuse: false,
+                proximity_reference: zero,
+                last_distance_half: 0,
+                tracks_target: false,
+                target_expiry: TargetExpiryPolicy::DetonateAtLastKnown,
+                collision: ProjectileCollisionPolicy::NONE,
+                on_bridge: false,
+                firer_house: None,
+                awaiting_anim: false,
+                awaited_anim: None,
+            },
+        );
+        id
+    }
+
     pub(crate) fn spawn_at(
         &mut self,
         id: u64,
@@ -1390,49 +1483,38 @@ impl ProjectileStore {
         spawn: ProjectileSpawn,
         location: ProjectileCoord,
     ) -> u64 {
-        self.projectiles.insert(
+        self.construct(
             id,
-            Projectile {
-                id,
-                native_unique_id: spawn.native_unique_id,
-                in_logic_vector: false,
-                source_id: spawn.source_id,
-                position: location,
-                launch_origin: spawn.origin,
-                launch_target: spawn.initial_target_position,
-                previous_cell: ((spawn.origin.x / 256) as i16, (spawn.origin.y / 256) as i16),
-                target: spawn.target,
-                last_target_position: spawn.initial_target_position,
-                payload: spawn.payload,
-                speed_leptons_per_frame: spawn.speed_leptons_per_frame,
-                velocity: spawn.velocity,
-                trajectory: spawn.trajectory,
-                guidance: spawn.guidance,
-                visual: spawn.visual,
-                arm_timer: crate::sim::timer::CdTimer::started(
-                    binary_frame as i32,
-                    spawn.arm_frames,
-                ),
-                fuse_frames_remaining: spawn.fuse_frames,
-                ranged_fuse: spawn.ranged_fuse,
-                proximity_reference: spawn.initial_target_position,
-                // `ProximityDetector::Setup @ 0x004E1130` seeds `+0x24` with
-                // the FULL distance from the placed Object.Location to its
-                // reference coordinate (Fire468A63..468A93), not FireCoord
-                // or the halved distance `Check` writes afterwards.
-                last_distance_half: proximity_initial_distance(
-                    location,
-                    spawn.initial_target_position,
-                ),
-                tracks_target: spawn.tracks_target,
-                target_expiry: spawn.target_expiry,
-                collision: spawn.collision,
-                on_bridge: false,
-                firer_house: None,
-                awaiting_anim: false,
-                awaited_anim: None,
-            },
+            spawn.native_unique_id,
+            binary_frame,
+            spawn.source_id,
+            spawn.target,
+            spawn.payload,
         );
+        // Fire468670 owns placement, motion and proximity initialization;
+        // direct detonations never execute this part of the lifetime.
+        let projectile = self.projectiles.get_mut(&id).expect("constructed Bullet");
+        projectile.position = location;
+        projectile.launch_origin = spawn.origin;
+        projectile.launch_target = spawn.initial_target_position;
+        projectile.previous_cell = ((spawn.origin.x / 256) as i16, (spawn.origin.y / 256) as i16);
+        projectile.last_target_position = spawn.initial_target_position;
+        projectile.speed_leptons_per_frame = spawn.speed_leptons_per_frame;
+        projectile.velocity = spawn.velocity;
+        projectile.trajectory = spawn.trajectory;
+        projectile.guidance = spawn.guidance;
+        projectile.visual = spawn.visual;
+        projectile.arm_timer =
+            crate::sim::timer::CdTimer::started(binary_frame as i32, spawn.arm_frames);
+        projectile.fuse_frames_remaining = spawn.fuse_frames;
+        projectile.ranged_fuse = spawn.ranged_fuse;
+        projectile.proximity_reference = spawn.initial_target_position;
+        // ProximitySetup4E1130 measures placed Location, not FireCoord.
+        projectile.last_distance_half =
+            proximity_initial_distance(location, spawn.initial_target_position);
+        projectile.tracks_target = spawn.tracks_target;
+        projectile.target_expiry = spawn.target_expiry;
+        projectile.collision = spawn.collision;
         id
     }
 
@@ -2629,11 +2711,8 @@ mod tests {
                 ProjectileTarget::None => ProjectileCoord::new(0, 0, 0),
                 ProjectileTarget::DummyCell => ProjectileCoord::new(0, 0, 0),
             },
-            payload: ProjectilePayload::new(
-                40,
-                InternedId::from_index(3),
-                InternedId::from_index(4),
-            ),
+            payload: ProjectilePayload::new(40, InternedId::from_index(3), None, false)
+                .with_installed_weapon(Some(InternedId::from_index(4))),
             speed_leptons_per_frame: 64,
             velocity: ProjectileVelocity::new(64, 0, 0),
             trajectory: ProjectileTrajectory::Straight,

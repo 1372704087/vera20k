@@ -76,7 +76,6 @@ fn fixture(row: &Value, kind: &crate::rules::projectile_type::ProjectileType) ->
     terrain.test_set_native_allocated_cells(&[cell_xy]);
     *terrain.cell_mut(cell_xy.0, cell_xy.1).unwrap() = cell;
     sim.install_resolved_terrain_for_new_map(terrain);
-    let weapon = sim.interner.intern("FIXTURE_UNUSED_WEAPON");
     let warhead = sim.interner.intern("FIXTURE_UNUSED_WARHEAD");
     let id = sim.allocate_stable_id();
     sim.admit_projectile(
@@ -89,7 +88,7 @@ fn fixture(row: &Value, kind: &crate::rules::projectile_type::ProjectileType) ->
             origin: coord,
             target: ProjectileTarget::None,
             initial_target_position: coord,
-            payload: ProjectilePayload::new(0, warhead, weapon),
+            payload: ProjectilePayload::new(0, warhead, None, false),
             speed_leptons_per_frame: 0,
             velocity: input["velocity"].as_array().map_or_else(
                 || ProjectileVelocity::new(0, 0, 0),

@@ -192,8 +192,10 @@ pub(crate) fn admitted_kirov_bomb(
     let payload = ProjectilePayload::new(
         weapon.damage,
         sim.interner.intern(weapon.warhead.as_deref().unwrap()),
-        sim.interner.intern(weapon_name),
-    );
+        Some(sim.interner.intern(weapon.projectile.as_deref().unwrap())),
+        weapon.bright,
+    )
+    .with_installed_weapon(Some(sim.interner.intern(weapon_name)));
     let id = sim.allocate_stable_id();
     let velocity = ProjectileVelocity::from_native(std::array::from_fn(|i| {
         crate::util::native_x87::NativeF64Bits::from_bits(

@@ -360,11 +360,8 @@ impl Simulation {
                 let trailer = self
                     .projectiles
                     .get(id)
-                    .and_then(|projectile| {
-                        rules.weapon(self.interner.resolve(projectile.payload.weapon))
-                    })
-                    .and_then(|weapon| weapon.projectile.as_deref())
-                    .and_then(|type_id| rules.projectile(type_id))
+                    .and_then(|projectile| projectile.payload.projectile_type())
+                    .and_then(|type_id| rules.projectile(self.interner.resolve(type_id)))
                     .and_then(|kind| head.trailer(kind, self.session.binary_frame));
                 if let Some((name, position)) = trailer {
                     self.spawn_named_anim(

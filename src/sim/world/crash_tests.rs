@@ -11,6 +11,295 @@ use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::rng::SimRng;
 use crate::util::fixed_math::SimFixed;
 
+/// Original746100 executes both falling constructions and their complete
+/// Detonate/Release calls with a supplied Unit receiver. This comparison is
+/// deliberately the constructor/observer/destructor boundary; the real TELE
+/// drop in locomotor_lift_tests covers the full Unit death and nested effects.
+#[test]
+fn magnetron_temporary_bullet_state_matches_original_construction() {
+    use crate::sim::native_identity::NativeUniqueIdCursor;
+    use crate::sim::projectile::{ProjectileCoord, ProjectilePayload, ProjectileTarget};
+    use crate::sim::world::{FrameEffects, UninitContext};
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = fixture.rules;
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/projectile_oracle/magnetron_drop.json",
+    ))
+    .unwrap();
+    for row in corpus["cases"].as_array().unwrap() {
+        assert_eq!(
+            row["input"]["health"],
+            rules.object("MTNK").unwrap().strength
+        );
+        let weapon = rules
+            .weapon(rules.combat_damage.death_weapon.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(weapon.projectile.as_deref(), Some("Invisible"));
+        assert!(!weapon.bright && weapon.rad_level == 0);
+        for (index, expected) in row["bullets"].as_array().unwrap().iter().enumerate() {
+            let state = &expected["constructed"];
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 31);
+            sim.resolved_terrain
+                .as_mut()
+                .unwrap()
+                .cell_mut(10, 20)
+                .unwrap()
+                .level = 6;
+            let falling = sim
+                .spawn_object("MTNK", "Russians", 10, 20, 0, &rules)
+                .unwrap();
+            let credit = sim
+                .spawn_object("TELE", "Americans", 15, 20, 0, &rules)
+                .unwrap();
+            let source = if row["input"]["source_self"] == true {
+                falling
+            } else {
+                credit
+            };
+            sim.session.binary_frame = row["input"]["frame"].as_u64().unwrap() as u32;
+            sim.native_unique_ids = Some(NativeUniqueIdCursor::test_at_current_value(
+                state["native_id"].as_u64().unwrap() as u32 - 1,
+            ));
+            let warhead = if index == 0 {
+                &rules.bridge_warheads.crush_name
+            } else {
+                &rules.bridge_warheads.c4_name
+            };
+            let payload = ProjectilePayload::new(
+                rules.object("MTNK").unwrap().strength,
+                sim.interner.intern(warhead),
+                weapon
+                    .projectile
+                    .as_deref()
+                    .map(|name| sim.interner.intern(name)),
+                true,
+            );
+            let id = sim.construct_projectile(
+                source,
+                ProjectileTarget::Entity(falling),
+                payload,
+                &rules,
+            );
+            let bullet = sim.projectiles.get(id).unwrap();
+            assert_eq!(bullet.native_unique_id, state["native_id"]);
+            assert_eq!(bullet.position, ProjectileCoord::new(0, 0, 0));
+            assert_eq!(
+                serde_json::json!([bullet.position.x, bullet.position.y, bullet.position.z]),
+                state["location"]
+            );
+            assert_eq!(bullet.source_id, source);
+            assert_eq!(bullet.target, ProjectileTarget::Entity(falling));
+            assert_eq!(bullet.payload.base_damage, state["damage"]);
+            assert_eq!(
+                bullet.payload.damage_multiplier(),
+                state["damage_multiplier"]
+            );
+            assert_eq!(
+                sim.interner.resolve(bullet.payload.warhead),
+                state["warhead"]
+            );
+            assert_eq!(
+                sim.interner
+                    .resolve(bullet.payload.projectile_type().unwrap()),
+                state["projectile"]
+            );
+            assert_eq!(bullet.payload.bright(), state["bright"]);
+            assert!(
+                bullet.payload.installed_weapon().is_none() && state["installed_weapon"].is_null()
+            );
+            assert_eq!(
+                i32::from(bullet.speed_leptons_per_frame),
+                state["maximum_speed"]
+            );
+            assert_eq!(bullet.arm_timer.start_frame(), state["timers"][2]);
+            assert_eq!(bullet.arm_timer.duration(), state["timers"][3]);
+            assert_eq!(bullet.proximity_reference, ProjectileCoord::new(0, 0, 0));
+            assert_eq!(bullet.last_distance_half, 0);
+            assert!(!bullet.in_logic_vector && state["in_logic"] == false);
+            assert!(!bullet.on_bridge && state["on_bridge"] == false);
+            assert_eq!(sim.substrate.display.layer_of(id), None);
+            assert!(
+                state["object_registered"] == true
+                    && state["bullet_registered"] == true
+                    && state["expiry_registered"] == true
+            );
+            if index == 0 {
+                sim.notify_pointer_expired(falling, UninitContext::with_rules(&rules));
+                let repaired = sim.projectiles.get(id).unwrap();
+                assert_eq!(repaired.target, ProjectileTarget::Cell { rx: 10, ry: 20 });
+                assert_eq!(expected["after_detonate"]["target"]["kind"], "cell");
+                assert_eq!(
+                    repaired.source_id == crate::sim::combat::RAD_NO_ATTACKER,
+                    expected["after_detonate"]["source"].is_null()
+                );
+            }
+            sim.destroy_unfired_projectile(id, &rules, None, FrameEffects::default());
+            assert!(sim.projectiles.get(id).is_none());
+            assert!(!sim.substrate.logic.as_slice().contains(&id));
+            assert_eq!(sim.substrate.display.layer_of(id), None);
+            assert!(
+                expected["destroyed"]["object_registered"] == false
+                    && expected["destroyed"]["bullet_registered"] == false
+                    && expected["destroyed"]["expiry_registered"] == false
+            );
+        }
+    }
+}
+
+/// The native Unit receiver is supplied and makes no RNG draws or effect
+/// births. An empty receiver boundary isolates the same two Detonate tails:
+/// real constructor -> scatter/light/Anim -> Release, without claiming the
+/// full Unit-death callback is represented by an empty cell. The actual TELE
+/// integration test above that boundary covers damage, credit and expiry.
+#[test]
+fn magnetron_temporary_bullet_tails_match_original_rng_lights_and_ids() {
+    use crate::sim::combat::{CombatLightRequest, RAD_NO_ATTACKER};
+    use crate::sim::native_identity::NativeUniqueIdCursor;
+    use crate::sim::projectile::{
+        ProjectileCoord, ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload,
+        ProjectileTarget,
+    };
+    use crate::sim::world::FrameEffects;
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let mut rules = fixture.rules;
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/projectile_oracle/magnetron_drop.json",
+    ))
+    .unwrap();
+    // Both native source cases execute identical tails. Source/target expiry
+    // differences are compared by the constructor/observer test separately.
+    let row = &corpus["cases"][0];
+    for input in row["effect_inputs"].as_array().unwrap() {
+        rules.bind_anim_frame_count_for_test(
+            input["name"].as_str().unwrap(),
+            input["frame_count"].as_i64().unwrap() as i32,
+        );
+    }
+    let mut sim = Simulation::with_seed(31);
+    crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+    for cell in &mut sim.resolved_terrain.as_mut().unwrap().cells {
+        cell.level = 6;
+    }
+    sim.session.binary_frame = row["input"]["frame"].as_u64().unwrap() as u32;
+    sim.main_rng =
+        SimRng::from_native_state_hex_for_test(row["rng_before"]["main"].as_str().unwrap()).into();
+    sim.scenario_rng =
+        SimRng::from_native_state_hex_for_test(row["rng_before"]["scenario"].as_str().unwrap());
+    sim.mapgen_rng =
+        SimRng::from_native_state_hex_for_test(row["rng_before"]["mapgen"].as_str().unwrap());
+    sim.native_unique_ids = Some(NativeUniqueIdCursor::test_at_current_value(
+        row["native_id_before"].as_u64().unwrap() as u32,
+    ));
+    let native_lights: Vec<_> = row["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["kind"] == "combat_light")
+        .collect();
+    let native_anims: Vec<_> = row["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["kind"] == "anim_ctor")
+        .collect();
+    for (index, expected) in row["bullets"].as_array().unwrap().iter().enumerate() {
+        let state = &expected["constructed"];
+        let payload = ProjectilePayload::new(
+            state["damage"].as_i64().unwrap() as i32,
+            sim.interner.intern(state["warhead"].as_str().unwrap()),
+            Some(sim.interner.intern(state["projectile"].as_str().unwrap())),
+            state["bright"].as_bool().unwrap(),
+        );
+        let target = ProjectileTarget::Cell { rx: 10, ry: 20 };
+        let id = sim.construct_projectile(RAD_NO_ATTACKER, target, payload, &rules);
+        assert_eq!(
+            sim.projectiles.get(id).unwrap().native_unique_id,
+            state["native_id"]
+        );
+        let impact = ProjectileCoord::new(
+            expected["impact"][0].as_i64().unwrap() as i32,
+            expected["impact"][1].as_i64().unwrap() as i32,
+            expected["impact"][2].as_i64().unwrap() as i32,
+        );
+        sim.commit_logic_projectile_detonations(
+            &rules,
+            None,
+            &[ProjectileDetonation {
+                projectile_id: id,
+                source_id: RAD_NO_ATTACKER,
+                target,
+                impact,
+                payload,
+                reason: ProjectileDetonationReason::DeathWeapon,
+            }],
+            FrameEffects::default(),
+        );
+        assert_eq!(sim.combat_light_requests.len(), index + 1);
+        let CombatLightRequest::Impact {
+            target_id,
+            damage,
+            warhead_ref,
+            coord,
+            force_create,
+            flags,
+        } = &sim.combat_light_requests[index]
+        else {
+            panic!("native impact light");
+        };
+        let light = native_lights[index];
+        assert_eq!(*target_id, None);
+        assert_eq!(*damage, light["damage"]);
+        assert_eq!(sim.interner.resolve(*warhead_ref), light["warhead"]);
+        assert_eq!(
+            serde_json::json!([coord.x, coord.y, coord.z]),
+            light["location"]
+        );
+        assert_eq!(*force_create, light["force"] == 1);
+        assert_eq!(*flags, light["flags"]);
+        let anim = sim
+            .substrate
+            .anims
+            .iter()
+            .find(|(_, anim)| {
+                anim.native_unique_id as u64 == native_anims[index]["native_id"].as_u64().unwrap()
+            })
+            .map(|(_, anim)| anim)
+            .expect("interleaved native Anim allocation");
+        assert_eq!(
+            sim.interner.resolve(anim.type_id),
+            native_anims[index]["name"]
+        );
+        assert_eq!(
+            serde_json::json!([anim.world_coord.x, anim.world_coord.y, anim.world_coord.z]),
+            native_anims[index]["location"]
+        );
+        assert_eq!(
+            sim.scenario_rng.native_state_hex(),
+            expected["rng_after"]["scenario"]
+        );
+        sim.destroy_unfired_projectile(id, &rules, None, FrameEffects::default());
+        assert!(sim.projectiles.get(id).is_none());
+    }
+    assert_eq!(sim.substrate.anims.len(), native_anims.len());
+    assert_eq!(
+        sim.native_unique_ids.as_ref().unwrap().current_raw(),
+        row["native_id_after"]
+    );
+    assert_eq!(sim.main_rng.native_state_hex(), row["rng_after"]["main"]);
+    assert_eq!(
+        sim.scenario_rng.native_state_hex(),
+        row["rng_after"]["scenario"]
+    );
+    assert_eq!(
+        sim.mapgen_rng.native_state_hex(),
+        row["rng_after"]["mapgen"]
+    );
+}
+
 /// The oracle's aircraft stands at the centre of cell (52, 52).
 const START: i32 = 52 * 256 + 128;
 
@@ -744,8 +1033,15 @@ fn a_death_weapon_detonates_once_without_cluster_draws() {
     let payload = ProjectilePayload::new(
         150,
         sim.interner.intern("CrashWH"),
-        sim.interner.intern("CrashGun"),
-    );
+        rules
+            .weapon("CrashGun")
+            .unwrap()
+            .projectile
+            .as_deref()
+            .map(|name| sim.interner.intern(name)),
+        rules.weapon("CrashGun").unwrap().bright,
+    )
+    .with_installed_weapon(Some(sim.interner.intern("CrashGun")));
     let detonation = |reason| ProjectileDetonation {
         projectile_id: 1,
         source_id: 1,

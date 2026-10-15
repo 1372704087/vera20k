@@ -1413,8 +1413,10 @@ pub(super) fn emit_admitted_fire(
             let payload = ProjectilePayload::new(
                 base_damage,
                 world.interner.intern(&warhead.id),
-                world.interner.intern(selected.weapon_id),
+                projectile_type.map(|kind| world.interner.intern(&kind.id)),
+                weapon.bright,
             )
+            .with_installed_weapon(Some(world.interner.intern(selected.weapon_id)))
             .with_damage_multiplier(damage_multiplier);
             // `BulletClass::Fire` (`0x006FF014`) at the launch source.
             super::admit_fired_bullet(

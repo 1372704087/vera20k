@@ -762,6 +762,16 @@ pub(crate) enum LifecycleTestEvent {
         source_id: u64,
         target: ProjectileTarget,
     },
+    UnfiredProjectileConstructed {
+        stable_id: u64,
+        native_id: i32,
+        source_id: u64,
+        target: ProjectileTarget,
+        payload: crate::sim::projectile::ProjectilePayload,
+        position: crate::sim::projectile::ProjectileCoord,
+        in_logic: bool,
+        in_display: bool,
+    },
     TerrainExpiryBoundary {
         stable_id: u64,
         cell: (u16, u16),
@@ -2891,7 +2901,10 @@ impl Simulation {
             // `ObjectClass::UnInit @ 0x005F65F0` broadcasts the bullet's
             // expiry before it leaves Logic; an anim riding it ends
             // (`AnimClass::PointerExpired @ 0x00425150`, `+0x17C`).
-            self.expire_anim_attached_bullet(stable_id, None);
+            self.notify_pointer_expired(stable_id, UninitContext::default());
+            // ObjectLimbo5F4D61 repeats DetachAll before removing the fired
+            // Bullet's membership. The later scalar destructor repeats once.
+            self.notify_pointer_expired(stable_id, UninitContext::default());
         }
         // The same UnInit's Limbo (vt+0xD4) detaches a dying tree's custom
         // sound (`object_sound`).
@@ -2933,6 +2946,33 @@ impl Simulation {
             debug_assert!(retired);
         }
         finalized
+    }
+
+    /// COM Release46AFF0 -> scalar Bullet destructor46B5C0 for a temporary
+    /// never-Fired Bullet. Its Limbo early-return performs no registration
+    /// changes; destruction still uses the common observer/cleanup owner.
+    pub(crate) fn destroy_unfired_projectile(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some(bullet) = self.projectiles.get(id) else {
+            return;
+        };
+        assert!(
+            !bullet.in_logic_vector && self.substrate.display.layer_of(id).is_none(),
+            "temporary Bullet {id} must not be Fired before direct destruction"
+        );
+        self.substrate
+            .pending_delete
+            .remove(DeferredDeleteTicket::Object(id));
+        self.finalize_and_remove_common(
+            id,
+            UninitContext::new(Some(rules), registry).with_effects(effects),
+            1,
+        );
     }
 
     /// Open-topped cargo entry hides the passenger but then directly restores
@@ -4466,10 +4506,11 @@ impl Simulation {
 
     /// ObjectClass::Detach_From_All_Lists represented listener broadcast.
     ///
-    /// The callback pass runs while the target remains alive, unconcealed,
-    /// cell-marked, and resolvable. The represented callbacks below do not add
-    /// or erase listener objects, so the native live-vector cursor and this
-    /// monotonic construction-order walk have the same observable result.
+    /// The callback pass runs before removing the target from its store.
+    /// A never-Fired Bullet is still in Limbo; ordinary Object UnInit reaches
+    /// this boundary while its target is alive and marked. Listener UnInit may
+    /// queue deletion, but final erasure waits for the common drain, retaining
+    /// the construction-order cursor through nested callbacks.
     ///
     /// gamemd-derived: active YR `DispatchPointerExpiredCleanup @ 0x007258D0`
     /// is called directly by `ObjectClass__UnInit @ 0x005F65F0` and by
@@ -4482,6 +4523,7 @@ impl Simulation {
         if !self.substrate.entities.contains(expired_id)
             && !self.substrate.particle_systems.contains_key(expired_id)
             && !self.production.terrain_objects.contains_key(&expired_id)
+            && self.projectiles.get(expired_id).is_none()
             && self
                 .smudge_grid
                 .as_ref()
@@ -4714,6 +4756,14 @@ impl Simulation {
                 Some((cell, system.alive(), 255, false, None))
             })
             .or_else(|| {
+                let bullet = self.projectiles.get(expired_id)?;
+                let point = bullet.position;
+                let cell = u16::try_from(crate::util::lepton::lepton_to_cell(point.x))
+                    .ok()
+                    .zip(u16::try_from(crate::util::lepton::lepton_to_cell(point.y)).ok());
+                Some((cell, true, bullet.payload.base_damage, false, None))
+            })
+            .or_else(|| {
                 let tree = self.production.terrain_objects.get(&expired_id)?;
                 let coord = tree.world_coord();
                 let cell = u16::try_from(crate::util::lepton::lepton_to_cell(coord.x))
@@ -4860,6 +4910,11 @@ impl Simulation {
                             .object(expired_id)
                             .map(|object| (object.object_alive(), object.in_limbo()))
                     })
+                    .or_else(|| {
+                        self.projectiles
+                            .get(expired_id)
+                            .map(|bullet| (true, !bullet.in_logic_vector))
+                    })
                     .unwrap_or((false, true));
                 self.trace_lifecycle_for_test(LifecycleTestEvent::UninitRemovalListenerVisited {
                     expired_id,
@@ -4966,7 +5021,7 @@ impl Simulation {
                     );
                 }
             } else if kind == ObjectKind::Anim {
-                self.expire_anim_owner_reference(listener_id, expired_id);
+                self.anim_pointer_expired(listener_id, expired_id, context.rules());
             } else if kind == ObjectKind::ParticleSystem {
                 self.substrate
                     .particle_systems
@@ -5290,6 +5345,11 @@ impl Simulation {
         if self.production.terrain_objects.contains_key(&stable_id) {
             // Terrain destructor71B7D6 repeats expiry before leaving its
             // registry. This is later than the live lethal/UnInit callbacks.
+            self.notify_pointer_expired(stable_id, context);
+        }
+        if self.projectiles.get(stable_id).is_some() {
+            // BulletDtor466581 announces expiry before clearing construction
+            // fields or leaving its registry, including never-Fired bullets.
             self.notify_pointer_expired(stable_id, context);
         }
         if self

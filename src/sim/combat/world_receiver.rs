@@ -2030,8 +2030,10 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
         )),
         ProjectileTarget::None => None,
     };
-    let altitude = rules
-        .weapon(world.interner.resolve(detonation.payload.weapon))
+    let altitude = detonation
+        .payload
+        .installed_weapon()
+        .and_then(|weapon| rules.weapon(world.interner.resolve(weapon)))
         .and_then(|weapon| weapon.projectile.as_deref())
         .and_then(|projectile| rules.projectile(projectile))
         .map_or(0, |projectile| projectile.detonation_altitude);
@@ -2055,8 +2057,13 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
     let payload = ProjectilePayload::new(
         weapon.damage,
         world.interner.intern(&warhead.id),
-        world.interner.intern(&weapon.id),
-    );
+        weapon
+            .projectile
+            .as_deref()
+            .map(|name| world.interner.intern(name)),
+        true,
+    )
+    .with_installed_weapon(Some(world.interner.intern(&weapon.id)));
     if let Some(bullet) = super::FiredBullet::launched(
         world,
         native_unique_id,
@@ -2163,8 +2170,15 @@ fn emit_detonation_receivers(
 
     // Named location: `BulletClass::Detonate @ 0x004690b0`. Radiation is
     // outside and before the exclusive special-effect chain.
-    if let Some(weapon) = rules.weapon(world.interner.resolve(detonation.payload.weapon))
+    if let Some(weapon) = detonation
+        .payload
+        .installed_weapon()
+        .and_then(|weapon| rules.weapon(world.interner.resolve(weapon)))
         && weapon.rad_level > 0
+        && let Some(rad_warhead) = weapon
+            .warhead
+            .as_deref()
+            .and_then(|name| rules.warhead(name))
     {
         out.effects
             .rad_detonations
@@ -2172,7 +2186,9 @@ fn emit_detonation_receivers(
                 rx: impact_rx,
                 ry: impact_ry,
                 rad_level: weapon.rad_level,
-                spread: super::cell_spread::whole_cells(warhead.cell_spread_f64),
+                // 46917A/469180 read Weapon+AC -> Warhead+124, which
+                // need not be the Bullet's independently constructed warhead.
+                spread: super::cell_spread::whole_cells(rad_warhead.cell_spread_f64),
             });
     }
 
@@ -2213,6 +2229,9 @@ fn emit_detonation_receivers(
                 detonation,
                 bullet_location(world, detonation).0,
             );
+
+            let current = world.projectiles.current_detonation(*detonation);
+            let detonation = &current;
 
             // `0x00469A69..0x00469A75`: the bullet's live Owner's house, or
             // none once the owner is gone (`BulletClass+0xB0` is detached).
@@ -2395,7 +2414,9 @@ pub(crate) fn commit_projectile_detonations_inline(
     emit: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) {
-    for detonation in projectile_detonations {
+    for request in projectile_detonations {
+        let current = world.projectiles.current_detonation(*request);
+        let detonation = &current;
         let Some(warhead) = rules.warhead(world.interner.resolve(detonation.payload.warhead))
         else {
             log::warn!(
@@ -2405,15 +2426,10 @@ pub(crate) fn commit_projectile_detonations_inline(
             );
             continue;
         };
-        let projectile_type = rules
-            .weapon(world.interner.resolve(detonation.payload.weapon))
-            .and_then(|weapon| weapon.projectile.as_deref())
-            .and_then(|projectile| rules.projectile(projectile));
-        let inviso = projectile_type.is_some_and(|projectile| projectile.inviso);
-        // `CreateBullet` hands the bullet the weapon's `Bright=` (`+0x12F`).
-        let bright = rules
-            .weapon(world.interner.resolve(detonation.payload.weapon))
-            .is_some_and(|weapon| weapon.bright);
+        let projectile_type = detonation
+            .payload
+            .projectile_type()
+            .and_then(|projectile| rules.projectile(world.interner.resolve(projectile)));
         let death_weapon =
             detonation.reason == crate::sim::projectile::ProjectileDetonationReason::DeathWeapon;
         let (clusters, cluster_draws) = match projectile_type {
@@ -2424,10 +2440,10 @@ pub(crate) fn commit_projectile_detonations_inline(
         };
         let mut coordinate = detonation.impact;
         for _ in 0..clusters {
-            let clustered = ProjectileDetonation {
+            let clustered = world.projectiles.current_detonation(ProjectileDetonation {
                 impact: coordinate,
                 ..*detonation
-            };
+            });
             let damage_start = emit.damage_events.len();
             let explosion_start = emit.effects.explosion_effects.len();
             let smudge_start = emit.effects.smudge_spawn_requests.len();
@@ -2472,13 +2488,19 @@ pub(crate) fn commit_projectile_detonations_inline(
                 .extend(outer_explosion_effects);
             under_attack_events.append(&mut pings);
             let anim_start = emit.effects.smudge_spawn_requests.len();
+            let live_tail = world.projectiles.current_detonation(clustered);
+            let inviso = live_tail
+                .payload
+                .projectile_type()
+                .and_then(|id| rules.projectile(world.interner.resolve(id)))
+                .is_some_and(|kind| kind.inviso);
             emit_detonation_anim(
                 world,
                 rules,
-                &clustered,
+                &live_tail,
                 warhead,
                 inviso,
-                bright,
+                live_tail.payload.bright(),
                 area_wall_route.map(|_| area_result),
                 emit,
             );

@@ -190,8 +190,9 @@ an observer-off replay proving unchanged frame bytes and gameplay boundaries.
 Optional v2 `observe_projectiles: true` and `observe_anim_types: ["BBBLELRG"]`
 add an `effects` snapshot at L0 and every committed frame. Each option is
 independent. Projectile rows read every live projectile in stable-ID order,
-including physical XYZ, source, visual counters and Logic membership; its weapon
-resolves the type name through the loaded rules. Animation rows read the global
+including physical XYZ, source, visual counters and Logic membership. The type
+name comes from the constructed BulletType; `weapon` is the independently
+installed weapon name, or `null` for bullets constructed without one. Animation rows read the global
 animation owner filtered by the requested types, including attached animations,
 with attachment, stored and absolute XYZ, flags, visibility, bounds and the
 existing complete runtime/timer. An unavailable absolute coordinate is `null`.

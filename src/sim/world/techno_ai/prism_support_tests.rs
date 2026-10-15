@@ -752,7 +752,8 @@ fn prism_bonus_damage_matches_the_original() {
         let payload = ProjectilePayload::new(
             input["damage"].as_i64().unwrap() as i32,
             interner.intern("PRISM"),
-            interner.intern("PRISMSHOT"),
+            None,
+            false,
         )
         .with_damage_multiplier(input["multiplier"].as_i64().unwrap() as i32);
         assert_eq!(

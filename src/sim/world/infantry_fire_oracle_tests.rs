@@ -690,7 +690,10 @@ fn assert_fired_bullet(
         "{name}: M60 raw damage"
     );
     assert_eq!(
-        fixture.sim.interner.resolve(bullet.payload.weapon),
+        fixture
+            .sim
+            .interner
+            .resolve(bullet.payload.installed_weapon().unwrap()),
         expected["weapon"]["name"].as_str().unwrap(),
         "{name}: weapon identity"
     );

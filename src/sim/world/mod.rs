@@ -4166,6 +4166,51 @@ impl Simulation {
         )
     }
 
+    /// CreateBullet46B050 without Fire: consumes one native constructor ID,
+    /// retains the independent construction fields and joins Object expiry
+    /// listeners through the existing store, but not Logic or Display.
+    pub(crate) fn construct_projectile(
+        &mut self,
+        source: u64,
+        target: crate::sim::projectile::ProjectileTarget,
+        payload: crate::sim::projectile::ProjectilePayload,
+        rules: &RuleSet,
+    ) -> u64 {
+        let native_id = crate::sim::native_identity::NativeUniqueIdCursor::assign_runtime(
+            &mut self.native_unique_ids,
+        );
+        let id = self.allocate_stable_id();
+        self.projectiles.construct(
+            id,
+            native_id,
+            self.session.binary_frame,
+            source,
+            target,
+            payload,
+        );
+        self.construct_bullet_scheme(id, rules);
+        #[cfg(test)]
+        self.trace_lifecycle_for_test(LifecycleTestEvent::UnfiredProjectileConstructed {
+            stable_id: id,
+            native_id,
+            source_id: source,
+            target,
+            payload,
+            position: self
+                .projectiles
+                .get(id)
+                .expect("constructed Bullet")
+                .position,
+            in_logic: self
+                .projectiles
+                .get(id)
+                .expect("constructed Bullet")
+                .in_logic_vector,
+            in_display: self.substrate.display.layer_of(id).is_some(),
+        });
+        id
+    }
+
     pub(crate) fn admit_projectile(
         &mut self,
         stable_id: u64,
@@ -4195,10 +4240,10 @@ impl Simulation {
         let Some(projectile) = self.projectiles.get(bullet) else {
             return;
         };
-        let firers_palette = rules
-            .weapon(self.interner.resolve(projectile.payload.weapon))
-            .and_then(|weapon| weapon.projectile.as_deref())
-            .and_then(|id| rules.projectile(id))
+        let firers_palette = projectile
+            .payload
+            .projectile_type()
+            .and_then(|id| rules.projectile(self.interner.resolve(id)))
             .is_some_and(|kind| kind.firers_palette);
         let house = firers_palette
             .then(|| self.substrate.entities.get(projectile.source_id))
@@ -4232,17 +4277,19 @@ impl Simulation {
     ) {
         for projectile in spawns {
             let stable_id = self.allocate_stable_id();
-            let inviso = rules
-                .weapon(self.interner.resolve(projectile.payload.weapon))
-                .and_then(|weapon| weapon.projectile.as_deref())
-                .and_then(|id| rules.projectile(id))
+            let inviso = projectile
+                .payload
+                .projectile_type()
+                .and_then(|id| rules.projectile(self.interner.resolve(id)))
                 .is_some_and(|kind| kind.inviso);
             let placement = projectile.initial_target_position;
             self.admit_projectile(stable_id, projectile);
             self.construct_bullet_scheme(stable_id, rules);
             #[cfg(test)]
             if let Some(fixture) = self.receiver_fixture.as_mut() {
-                fixture.admitted_spawns.push((stable_id, inviso, projectile));
+                fixture
+                    .admitted_spawns
+                    .push((stable_id, inviso, projectile));
             }
             if inviso {
                 self.projectiles.fire_inviso(stable_id, placement, false);

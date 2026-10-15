@@ -10,6 +10,7 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::movement::teleport_movement::{TeleportPhase, TeleportState};
+use crate::sim::world::FrameEffects;
 use crate::sim::world::common_raw_test_terrain_cell;
 
 fn rules(bind_warp_art: bool) -> RuleSet {
@@ -170,6 +171,285 @@ fn unbound_warp_art_relocates_without_an_anim() {
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
     assert_eq!(sim.substrate.anims.len(), 0);
+}
+
+#[test]
+fn teleport_loses_incoming_bullet_target_before_relocation() {
+    use crate::sim::projectile::{ProjectileCoord, ProjectileTarget};
+    let rules = rules(false);
+    let mut sim = relocating_legionnaire((8, 9));
+    install_destination_cells(&mut sim, &rules);
+    let mut shot = super::super::lifecycle_tests::gsi_05_02_projectile(1, None);
+    shot.target = ProjectileTarget::Entity(1);
+    shot.initial_target_position = ProjectileCoord::new(1408, 1408, 208);
+    sim.projectiles.spawn(99, shot);
+    // Another target and a shot fired by this unit but aimed elsewhere are
+    // outside LoseTarget's exact target comparison.
+    shot.target = ProjectileTarget::Entity(2);
+    sim.projectiles.spawn(98, shot);
+    let unrelated = sim.projectiles.get(98).unwrap().clone();
+    let mut expected = sim.projectiles.get(99).unwrap().clone();
+    expected.target = ProjectileTarget::Cell { rx: 5, ry: 5 };
+
+    sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
+        .unwrap();
+
+    assert_eq!(
+        sim.projectiles.get(99),
+        Some(&expected),
+        "LoseTarget changes only the target, even when the teleporter is also its firer"
+    );
+    let mover = sim.substrate.entities.get(1).unwrap();
+    assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
+    assert_eq!(sim.projectiles.get(98), Some(&unrelated));
+}
+
+#[test]
+fn teleport_without_relocation_keeps_incoming_bullet_target() {
+    use crate::sim::projectile::ProjectileTarget;
+    let rules = rules(false);
+    for post_warp in [false, true] {
+        let mut sim = relocating_legionnaire(if post_warp { (8, 9) } else { (5, 5) });
+        install_destination_cells(&mut sim, &rules);
+        let mut state = TeleportState::for_test(
+            if post_warp {
+                TeleportPhase::ChronoDelay
+            } else {
+                TeleportPhase::Relocate
+            },
+            8,
+            9,
+            10,
+        );
+        if !post_warp {
+            // The native refusal compares full XYZ, not just the cell.
+            state.set_destination_for_test(
+                crate::sim::movement::ground_pose::position_world_coord(
+                    &sim.substrate.entities.get(1).unwrap().position,
+                ),
+            );
+        }
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .install_teleport_state_for_test(Some(state));
+        let mut shot = super::super::lifecycle_tests::gsi_05_02_projectile(1, None);
+        shot.target = ProjectileTarget::Entity(1);
+        sim.projectiles.spawn(99, shot);
+        let expected = sim.projectiles.get(99).unwrap().clone();
+
+        sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
+            .unwrap();
+
+        assert_eq!(sim.projectiles.get(99), Some(&expected));
+    }
+}
+
+#[test]
+fn teleport_target_loss_and_pointer_expiry_match_native_controls() {
+    use crate::sim::components::DriveCoord;
+    use crate::sim::projectile::ProjectileTarget;
+
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/projectile_oracle/teleport_targets.json",
+    ))
+    .unwrap();
+    let rules = rules(false);
+    // These controls must pass the earlier high-flight gate and actually
+    // query MapClass; otherwise a null result would hide the intended branch.
+    for (name, kind) in [("unallocated_cell", "dummy"), ("word_wrap", "cell")] {
+        let row = corpus["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["input"]["name"] == name)
+            .unwrap();
+        assert_eq!(row["target"]["kind"], kind);
+        assert_eq!(row["map_queries"].as_array().unwrap().len(), 1);
+    }
+    for row in corpus["rows"].as_array().unwrap() {
+        for expire in [false, true] {
+            let mut sim = relocating_chrono_unit((9, 8));
+            let mut terrain = ResolvedTerrainGrid::from_cells(
+                512,
+                32,
+                (0..32)
+                    .flat_map(|y| {
+                        (0..512).map(move |x| common_raw_test_terrain_cell(x, y, 6, false))
+                    })
+                    .collect(),
+            );
+            let mut allocated: Vec<_> = (16..25)
+                .flat_map(|y| (6..25).map(move |x| (x, y)))
+                .collect();
+            allocated.extend([(0, 20), (511, 20)]);
+            terrain.test_set_native_allocated_cells(&allocated);
+            sim.install_resolved_terrain_for_new_map(terrain);
+            let input = &row["input"];
+            let xyz: [i32; 3] = serde_json::from_value(input["xyz"].clone()).unwrap();
+            let entity = sim.substrate.entities.get_mut(1).unwrap();
+            entity.position.put_location(DriveCoord {
+                x: xyz[0],
+                y: xyz[1],
+                z: xyz[2],
+            });
+            entity
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap());
+            let mut shot = super::super::lifecycle_tests::gsi_05_02_projectile(1, None);
+            shot.target = ProjectileTarget::Entity(1);
+            sim.admit_projectile(99, shot);
+            let mut expected = sim.projectiles.get(99).unwrap().clone();
+            expected.target = match row["target"]["kind"].as_str().unwrap() {
+                "none" => ProjectileTarget::None,
+                "dummy" => ProjectileTarget::DummyCell,
+                "cell" => ProjectileTarget::Cell {
+                    rx: row["target"]["cell"][0].as_u64().unwrap() as u16,
+                    ry: row["target"]["cell"][1].as_u64().unwrap() as u16,
+                },
+                other => panic!("unexpected native target {other}"),
+            };
+            let repair = |sim: &mut Simulation| {
+                if expire {
+                    sim.detach_all_pointer_expired(1, &rules, None, FrameEffects::default());
+                } else {
+                    sim.lose_projectile_targets(1, Some(&rules));
+                }
+            };
+            if input["scope"].as_bool().unwrap() {
+                sim.with_object_placement_scope(repair);
+            } else {
+                repair(&mut sim);
+            }
+            if expire {
+                assert_eq!(row["expiry_source_cleared"], true);
+                expected.source_id = crate::sim::combat::RAD_NO_ATTACKER;
+            } else {
+                assert_eq!(row["source_preserved"], true);
+            }
+            assert_eq!(
+                sim.projectiles.get(99),
+                Some(&expected),
+                "{} expiry={expire}",
+                input["name"]
+            );
+        }
+    }
+}
+
+#[test]
+fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot() {
+    use crate::sim::combat::{FiredBullet, RAD_NO_ATTACKER, admit_fired_bullet};
+    use crate::sim::projectile::{
+        ProjectileCoord, ProjectilePayload, ProjectileTarget, ProjectileVelocity,
+    };
+    use crate::sim::snapshot::GameSnapshot;
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    assert_eq!(
+        rules.object("CMIN").unwrap().locomotor,
+        LocomotorKind::Teleport
+    );
+    let weapon = rules.weapon("MissileLauncher").unwrap();
+    assert_eq!(weapon.projectile.as_deref(), Some("AAHeatSeeker2"));
+    assert!(rules.projectile("AAHeatSeeker2").unwrap().ag);
+    assert_eq!(rules.projectile("AAHeatSeeker2").unwrap().rot, 60);
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/projectile_oracle/teleport_targets.json",
+    ))
+    .unwrap();
+    let flight = &corpus["flight"];
+    // Translate the supplied native level6 scene to this fixture's level2
+    // centre(5,5). Relative target/flight coordinates and binary frame/ID agree.
+    let translated = |value: &serde_json::Value| {
+        let xyz: [i32; 3] = serde_json::from_value(value.clone()).unwrap();
+        ProjectileCoord::new(xyz[0] - 1792, xyz[1] - 3840, xyz[2] - 416)
+    };
+    let mut sim = relocating_owner(EntityCategory::Unit, "CMIN", (9, 8));
+    install_destination_cells(&mut sim, &rules);
+    sim.session.binary_frame = 1;
+    let bullet_id = sim.allocate_stable_id();
+    let payload = ProjectilePayload::new(
+        weapon.damage,
+        sim.intern(weapon.warhead.as_deref().unwrap()),
+        sim.intern("MissileLauncher"),
+    );
+    let bullet = FiredBullet::launched(
+        &sim,
+        100,
+        RAD_NO_ATTACKER,
+        ProjectileTarget::Entity(1),
+        payload,
+        102,
+        translated(&flight["old"]),
+        ProjectileVelocity::new(1, 0, 0),
+    )
+    .unwrap();
+    admit_fired_bullet(&mut sim, &rules, weapon, bullet_id, bullet);
+    let original = sim.projectiles.get(bullet_id).unwrap().clone();
+
+    sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
+        .unwrap();
+
+    let mut expected = original;
+    expected.target = ProjectileTarget::Cell { rx: 5, ry: 5 };
+    assert_eq!(sim.projectiles.get(bullet_id), Some(&expected));
+    let mover = sim.substrate.entities.get(1).unwrap();
+    assert_eq!((mover.position.rx(), mover.position.ry()), (9, 8));
+    let repaired_hash = sim.state_hash();
+    sim.projectiles.get_mut(bullet_id).unwrap().target = ProjectileTarget::Entity(1);
+    assert_ne!(repaired_hash, sim.state_hash());
+    sim.projectiles.get_mut(bullet_id).unwrap().target = expected.target;
+
+    // Native load resets the Scenario stream; keep that independent policy
+    // equal while checking the repaired target and its next flight step.
+    sim.scenario_rng = crate::sim::rng::SimRng::new(0);
+    let saved = GameSnapshot::save(&sim, 0, 0, "teleport-target", 0);
+    let mut restored = GameSnapshot::load(&saved).unwrap().sim;
+    restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
+    restored.resolved_terrain = sim.resolved_terrain.clone();
+    restored.restore_after_snapshot_load().unwrap();
+    // Bullet Load46AE9C..46AEB0 deliberately restarts the arm timer at zero.
+    // Canonicalize that existing load policy before comparing continuation.
+    sim.projectiles
+        .get_mut(bullet_id)
+        .unwrap()
+        .arm_timer
+        .start(sim.session.binary_frame as i32, 0);
+    assert_eq!(
+        restored.projectiles.get(bullet_id),
+        sim.projectiles.get(bullet_id)
+    );
+    for world in [&mut sim, &mut restored] {
+        assert!(world.object_ai_visit_one(
+            bullet_id,
+            Some(&rules),
+            techno_ai::ObjectAiCtx::default()
+        ));
+        let advanced = world.projectiles.get(bullet_id).unwrap();
+        assert_eq!(advanced.position, translated(&flight["candidate"]));
+        assert_eq!(
+            advanced.last_target_position,
+            translated(&flight["homing_targets"][0])
+        );
+        let actual = advanced
+            .velocity
+            .native()
+            .map(|v| format!("{:016x}", v.bits()));
+        let expected: Vec<_> = flight["velocity"]["bits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        assert_eq!(actual.as_slice(), expected.as_slice());
+        assert!(world.pending_projectile_detonations.is_empty());
+    }
+    assert_eq!(sim.state_hash(), restored.state_hash());
 }
 
 #[test]

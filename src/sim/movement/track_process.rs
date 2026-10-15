@@ -54,9 +54,8 @@ impl TrackProgress {
         self.turn_index
     }
 
-    /// Store the selector: the tube entry's (`0x004B1484`) in
-    /// `begin_path_tube_step`, which the movement change rewriting it moves to
-    /// [`Self::retire_selector`], and fixtures.
+    /// A fixture's selector.
+    #[cfg(test)]
     pub(crate) fn set_turn_index(&mut self, turn_index: i32) {
         self.turn_index = turn_index;
     }

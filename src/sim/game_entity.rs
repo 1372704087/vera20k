@@ -517,10 +517,6 @@ pub struct GameEntity {
         crate::sim::movement::movement_bridge::RuntimeBridgeTransitionState,
     /// Infantry sprite animation state (sequence + frame + timing).
     pub(crate) animation: Option<Animation>,
-    /// Voxel HVA animation state (frame cycling for multi-frame models).
-    pub(crate) voxel_animation: Option<crate::sim::animation::VoxelAnimation>,
-    /// Harvest overlay animation (oregath.shp ore-gathering visual).
-    pub(crate) harvest_overlay: Option<crate::sim::animation::HarvestOverlay>,
     /// The harvester's hold, unload and harvest latches, a [`Miner`] that
     /// `sim::miner` owns; construction installs it for a harvester type.
     pub(crate) miner: Option<Miner>,
@@ -1431,8 +1427,6 @@ impl GameEntity {
             on_bridge: Default::default(),
             runtime_bridge_transition: Default::default(),
             animation: None,
-            voxel_animation: None,
-            harvest_overlay: None,
             miner: None,
             slave_manager: None,
             slave: Default::default(),

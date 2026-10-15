@@ -7070,27 +7070,23 @@ impl Simulation {
         #[cfg(debug_assertions)]
         self.debug_assert_factory_invariants();
 
-        // Living sprite/voxel/harvest animation state belongs to the committed
-        // simulation frame. Keep it inside the authoritative frame transaction
-        // so hashed side effects and every snapshot observe the same state.
-        // Dying animation advancement remains in the live-object scheduler,
-        // which owns the single pending-delete drain above.
+        // Living sprite animation state belongs to the committed simulation
+        // frame. Keep it inside the authoritative frame transaction so hashed
+        // side effects and every snapshot observe the same state. Dying
+        // animation advancement remains in the live-object scheduler, which
+        // owns the single pending-delete drain above.
         if frame_committed && let Some(animation_sequences) = animation_sequences {
             let game_options = self.session.game_options.clone();
             let binary_frame = self.session.binary_frame;
-            {
-                let (entities, interner) = self.entities_mut_and_interner();
-                animation::tick_non_dying_animations(
-                    entities,
-                    animation_sequences,
-                    rules,
-                    &game_options,
-                    interner,
-                    binary_frame,
-                )
-            };
-            animation::tick_voxel_animations(self.entities_mut());
-            animation::tick_harvest_overlays(self.entities_mut());
+            let (entities, interner) = self.entities_mut_and_interner();
+            animation::tick_non_dying_animations(
+                entities,
+                animation_sequences,
+                rules,
+                &game_options,
+                interner,
+                binary_frame,
+            );
         }
         building_anim::finalize(self);
         #[cfg(debug_assertions)]

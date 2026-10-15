@@ -1072,6 +1072,28 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     );
 }
 
+/// State 0's scorer (`0x00740B60`) calls a cell full of infantry only when
+/// all five raw infantry bits are set (`+0x124 & 0x1F == 0x1F`), and it asks
+/// only the nearest object's alliance. Three allied conscripts leave octant
+/// 5's cell (19, 21) open, so from facing 0 the transport still backs onto
+/// octant 5 and turns to octant 1 (0x20). Calling that cell closed would
+/// pick octant 6 and turn to 0x40.
+#[test]
+fn exit_scorer_keeps_a_cell_with_three_allied_infantry_open() {
+    let mut fx = Fixture::new(|_, _| false);
+    for _ in 0..3 {
+        let conscript = fx.spawn("E1", 19, 21, 0);
+        assert!(fx.revealed(conscript));
+    }
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let pax = fx.board(bfrt, 1);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&pax, 200);
+    assert_eq!(order.len(), 1, "the conscript left: {order:?}");
+    assert_eq!(fx.facing(bfrt), 0x20, "backs onto octant 5");
+}
+
 /// Mission_Unload's scan asks the passenger's own `Can_Enter_Cell` at the
 /// transport's height (`0x0073D994`, `0x0073D9C2`). Its height prelude
 /// (`0x004D9C60`) refuses a cell two levels above the transport, so the strict

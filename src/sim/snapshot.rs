@@ -1038,9 +1038,11 @@ use crate::sim::world::Simulation;
 // independent per-firer radial launch counter (Techno+43C).
 // 361 -> 362: Bullet targets can retain a Terrain object identity. Its target
 // tag and strong-reference validation differ from Entity and Cell targets.
-// 362 -> 363: Bullet constructor type/Bright and the independently nullable
+// 362 -> 363: Scenario owns the campaign countdown and authored caption, and
+// sidebar entry flash deadlines and redraw scheduling survive saves.
+// 363 -> 364: Bullet constructor type/Bright and the independently nullable
 // installed WeaponType replace the conflated payload weapon identity.
-const SNAPSHOT_VERSION: u32 = 363;
+const SNAPSHOT_VERSION: u32 = 364;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1066,6 +1068,8 @@ pub(crate) struct SavedSidebarOrder {
     owner: InternedId,
     strips: [Vec<SavedCameoId>; 4],
     scroll_rows: [usize; 4],
+    flash_deadlines: [Vec<i32>; 4],
+    redraw_until: i32,
 }
 
 impl SavedSidebarOrder {
@@ -1074,11 +1078,24 @@ impl SavedSidebarOrder {
         strips: [Vec<SavedCameoId>; 4],
         scroll_rows: [usize; 4],
     ) -> Self {
+        let flash_deadlines = std::array::from_fn(|index| vec![0; strips[index].len()]);
         Self {
             owner,
             strips,
             scroll_rows,
+            flash_deadlines,
+            redraw_until: 0,
         }
+    }
+
+    pub(crate) fn with_flash(mut self, deadlines: [Vec<i32>; 4], redraw_until: i32) -> Self {
+        self.flash_deadlines = deadlines;
+        self.redraw_until = redraw_until;
+        self
+    }
+
+    pub(crate) fn flash(&self) -> (&[Vec<i32>; 4], i32) {
+        (&self.flash_deadlines, self.redraw_until)
     }
 
     #[cfg(test)]
@@ -3500,7 +3517,7 @@ mod tests {
         // Synthetic fixtures use unchecked snapshots and often bypass the
         // monotonic allocators. Rebuild their substrate caches directly; the
         // production path uses `restore_after_snapshot_load`.
-        sim.substrate.entities.rebuild_infantry_registry();
+        sim.substrate.entities.rebuild_class_registries();
         sim.rebuild_logic_membership();
         sim.substrate
             .occupancy
@@ -4487,8 +4504,9 @@ mod tests {
         // 359 -> 360: retained airstrike managers and aircraft relationships.
         // 360 -> 361: retained radial launch settings and firing index.
         // 361 -> 362: Terrain Bullet target identity and reference validation.
-        // 362 -> 363: independent Bullet constructor and installed-weapon fields.
-        assert_eq!(super::SNAPSHOT_VERSION, 363);
+        // 362 -> 363: retained Scenario countdown and sidebar cameo flash deadlines.
+        // 363 -> 364: independent Bullet constructor and installed-weapon fields.
+        assert_eq!(super::SNAPSHOT_VERSION, 364);
     }
 
     #[test]

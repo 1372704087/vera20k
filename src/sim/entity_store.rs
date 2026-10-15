@@ -18,7 +18,7 @@
 //! - Part of sim/ — depends only on sim/game_entity.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
@@ -28,6 +28,10 @@ use crate::util::lookup_hash::LookupMap;
 /// Only this module can authorize a live indexed-owner write.
 /// Payload consumers can read owner identity but cannot construct this capability.
 pub(crate) struct OwnerChangeAuthority(());
+
+/// Only this module can write an entity's AircraftTracker membership, so the
+/// airborne set ([`EntityStore::airborne`]) changes with it.
+pub(crate) struct AirMembershipAuthority(());
 
 /// Container for all game entities, keyed by stable_id.
 ///
@@ -60,6 +64,11 @@ pub struct EntityStore {
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).
     infantry_registry: Vec<u64>,
+    /// FootClass array8B3DC4, including Aircraft and stored limbo objects.
+    /// Derived from the same monotonic constructor IDs as Techno below;
+    /// parent Foot registration precedes its constructor-manager children.
+    /// UnInit retains rows; removal/replacement/restore update this cache.
+    foot_registry: Vec<u64>,
     /// Derived TechnoClass registration index from monotonic constructor IDs.
     /// Production construction stores each parent before manager children;
     /// see construction33/55,world_spawn::store_with_constructor_managers,
@@ -69,6 +78,13 @@ pub struct EntityStore {
     /// of the dense storage's empty slots and compaction schedule.
     /// RMG PreconsumedGenerated registration parity is not established here.
     techno_registry: Vec<u64>,
+    /// VERA-only: `(enter order, stable_id)` of every stored entity the
+    /// AircraftTracker holds (an air bucket), in the order
+    /// [`Self::airborne`] yields them. The entity's tracker membership is the
+    /// source of truth: [`Self::insert`] and [`Self::remove`] keep this set,
+    /// and [`Self::set_air_membership`], the membership's one live writer,
+    /// writes both. Rebuilt on load, never saved or hashed.
+    airborne: BTreeSet<(u64, u64)>,
     /// Which entities may have changed since each reader last took its log
     /// ([`Self::take_touched`]). Every route to a `&mut GameEntity` goes
     /// through the store, so an entity missing from a log has not changed.
@@ -140,7 +156,9 @@ impl Clone for EntityStore {
             slot_of: self.slot_of.clone(),
             owners: self.owners.clone(),
             infantry_registry: self.infantry_registry.clone(),
+            foot_registry: self.foot_registry.clone(),
             techno_registry: self.techno_registry.clone(),
+            airborne: self.airborne.clone(),
             touched: TouchLogs::everything(),
         }
     }
@@ -166,7 +184,9 @@ impl EntityStore {
             slot_of: HashMap::default(),
             owners: Vec::new(),
             infantry_registry: Vec::new(),
+            foot_registry: Vec::new(),
             techno_registry: Vec::new(),
+            airborne: BTreeSet::new(),
             touched: TouchLogs::everything(),
         }
     }
@@ -178,6 +198,15 @@ impl EntityStore {
         self.touched.note(id, self.len());
         let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
         let owner = entity.owner();
+        let foot = entity.category().is_foot();
+        // A replaced entity leaves the airborne set; this one joins it if the
+        // tracker holds it.
+        if let Some(order) = self.get(id).map(GameEntity::air_spatial_enter_order) {
+            self.airborne.remove(&(order, id));
+        }
+        if entity.air_spatial_bucket().is_some() {
+            self.airborne.insert((entity.air_spatial_enter_order(), id));
+        }
         let entity = Some(Box::new(entity));
         if let Some(&slot) = self.slot_of.get(&id) {
             self.entities[slot as usize] = entity;
@@ -211,6 +240,15 @@ impl EntityStore {
                 .partition_point(|&existing| existing < id);
             self.infantry_registry.insert(index, id);
         }
+        if let Ok(index) = self.foot_registry.binary_search(&id) {
+            self.foot_registry.remove(index);
+        }
+        if foot {
+            let index = self
+                .foot_registry
+                .partition_point(|&existing| existing < id);
+            self.foot_registry.insert(index, id);
+        }
         id
     }
 
@@ -218,8 +256,15 @@ impl EntityStore {
     pub fn remove(&mut self, stable_id: u64) -> Option<GameEntity> {
         let slot = self.slot_of.remove(&stable_id)? as usize;
         let removed = self.entities[slot].take().map(|entity| *entity);
+        if let Some(entity) = &removed {
+            self.airborne
+                .remove(&(entity.air_spatial_enter_order(), stable_id));
+        }
         self.touched.note(stable_id, self.len());
         self.remove_infantry_index(stable_id);
+        if let Ok(index) = self.foot_registry.binary_search(&stable_id) {
+            self.foot_registry.remove(index);
+        }
         if let Ok(index) = self.techno_registry.binary_search(&stable_id) {
             self.techno_registry.remove(index);
         }
@@ -399,6 +444,14 @@ impl EntityStore {
         self.techno_registry.len()
     }
 
+    pub(crate) fn foot_registry_at(&self, index: usize) -> Option<u64> {
+        self.foot_registry.get(index).copied()
+    }
+
+    pub(crate) fn foot_registry_len(&self) -> usize {
+        self.foot_registry.len()
+    }
+
     /// Native InfantryClass array index. Read afresh after a callback: removing
     /// a row shifts successors left, while a newly constructed row is visible.
     /// This is distinct from the live Logic vector and includes dead/limbo rows.
@@ -455,9 +508,56 @@ impl EntityStore {
         }
     }
 
-    /// Rebuild the infantry registry from primary storage. Owned by
+    /// Write `stable_id`'s AircraftTracker membership, its bucket (`None`:
+    /// not tracked) and enter order, and the airborne set with it. The
+    /// tracker's Add, Remove and Update (`Simulation::aircraft_tracker_add`
+    /// and its siblings) are the only callers. No-op if the entity is absent.
+    pub(crate) fn set_air_membership(
+        &mut self,
+        stable_id: u64,
+        bucket: Option<u16>,
+        enter_order: u64,
+    ) {
+        let Some(&slot) = self.slot_of.get(&stable_id) else {
+            return;
+        };
+        self.touched.note(stable_id, self.slot_of.len());
+        let Some(entity) = self.entities[slot as usize].as_deref_mut() else {
+            return;
+        };
+        self.airborne
+            .remove(&(entity.air_spatial_enter_order(), stable_id));
+        entity.set_air_membership_from_store(bucket, enter_order, AirMembershipAuthority(()));
+        if bucket.is_some() {
+            self.airborne.insert((enter_order, stable_id));
+        }
+    }
+
+    /// The stored entities the AircraftTracker holds, by enter order and,
+    /// for the ties only fixtures make, stable_id: what a walk of every
+    /// entity with an air bucket, sorted on `(air_spatial_enter_order,
+    /// stable_id)`, gives, without the walk. Debug builds check it against
+    /// that walk on every call (the live-read check).
+    pub(crate) fn airborne(&self) -> impl Iterator<Item = &GameEntity> {
+        debug_assert!(
+            !crate::sim::touch_log::live_read_check_enabled()
+                || self.airborne == self.walk_airborne(),
+            "the airborne set disagrees with the entities"
+        );
+        self.airborne.iter().filter_map(|&(_, id)| self.get(id))
+    }
+
+    /// `(enter order, stable_id)` of every stored entity the tracker holds.
+    fn walk_airborne(&self) -> BTreeSet<(u64, u64)> {
+        self.values()
+            .filter(|entity| entity.air_spatial_bucket().is_some())
+            .map(|entity| (entity.air_spatial_enter_order(), entity.stable_id()))
+            .collect()
+    }
+
+    /// Rebuild class registries from primary storage. Owned by
     /// Deserialize; synthetic fixtures may also rebuild after raw setup.
-    pub(crate) fn rebuild_infantry_registry(&mut self) {
+    pub(crate) fn rebuild_class_registries(&mut self) {
         let infantry: Vec<u64> = self
             .stored()
             .filter(|(_, entity)| {
@@ -468,6 +568,12 @@ impl EntityStore {
         // Storage iterates in ascending stable_id order, so the infantry
         // registry comes out sorted.
         self.infantry_registry = infantry;
+        self.foot_registry = self
+            .stored()
+            .filter(|(_, entity)| entity.category().is_foot())
+            .map(|(id, _)| id)
+            .collect();
+        self.techno_registry = self.stored().map(|(id, _)| id).collect();
     }
 }
 
@@ -539,8 +645,8 @@ impl<'de> serde::Deserialize<'de> for EntityStore {
             store.owners.push(entity.owner());
             store.entities.push(Some(entity));
         }
-        store.rebuild_infantry_registry();
-        store.techno_registry = store.ids.clone();
+        store.rebuild_class_registries();
+        store.airborne = store.walk_airborne();
         Ok(store)
     }
 }
@@ -598,15 +704,19 @@ mod tests {
     }
 
     /// Insert, remove and lookup answer as the former `BTreeMap` storage did,
-    /// across compactions, re-stored ids and ids below the newest, and the
-    /// owner column follows every entity's owner through them and through
-    /// `change_owner`.
+    /// across compactions, re-stored ids and ids below the newest; the owner
+    /// column follows every entity's owner through them and through
+    /// `change_owner`, and the airborne set every entity's tracker membership
+    /// through them and through `set_air_membership`.
     #[test]
     fn storage_answers_as_an_ordered_map_through_compactions() {
         let mut store = EntityStore::new();
         let mut model: BTreeMap<u64, u16> = BTreeMap::new();
         let houses = ["Americans", "Russians", "YuriCountry"].map(crate::sim::intern::test_intern);
         let mut owners: BTreeMap<u64, InternedId> = BTreeMap::new();
+        // Tracked entities' (bucket, enter order). Orders repeat across ids,
+        // as fixtures' do, so ties fall to stable_id.
+        let mut tracked: BTreeMap<u64, (u16, u64)> = BTreeMap::new();
         let mut seed = 0x2545_f491_4f6c_dd1d_u64;
         let mut next = |bound: u64| {
             seed ^= seed << 13;
@@ -630,6 +740,12 @@ mod tests {
                     let mut entity = make_entity(newest);
                     entity.position.set_rx_for_test(step as u16);
                     entity.set_owner_for_test(houses[step % 3]);
+                    if next(4) == 0 {
+                        let membership = (next(400) as u16, next(1_000));
+                        entity = entity
+                            .with_air_spatial_membership_for_test(Some(membership.0), membership.1);
+                        tracked.insert(newest, membership);
+                    }
                     store.insert(entity);
                     model.insert(newest, step as u16);
                     owners.insert(newest, houses[step % 3]);
@@ -640,6 +756,14 @@ mod tests {
                     let mut entity = make_entity(id);
                     entity.position.set_rx_for_test(step as u16);
                     entity.set_owner_for_test(houses[step % 3]);
+                    // A replacement starts untracked or tracked afresh.
+                    tracked.remove(&id);
+                    if next(2) == 0 {
+                        let membership = (next(400) as u16, next(1_000));
+                        entity = entity
+                            .with_air_spatial_membership_for_test(Some(membership.0), membership.1);
+                        tracked.insert(id, membership);
+                    }
                     store.insert(entity);
                     model.insert(id, step as u16);
                     owners.insert(id, houses[step % 3]);
@@ -653,6 +777,7 @@ mod tests {
                     };
                     assert_eq!(store.remove(id).map(|e| e.position.rx()), model.remove(&id));
                     owners.remove(&id);
+                    tracked.remove(&id);
                 }
                 _ => {
                     let id = next(newest + 1);
@@ -665,6 +790,19 @@ mod tests {
                     store.change_owner(id, houses[step % 3]);
                     if let Some(owner) = owners.get_mut(&id) {
                         *owner = houses[step % 3];
+                    }
+                    // The tracker's Add or Update, or its Remove.
+                    let membership = (next(3) > 0).then(|| (next(400) as u16, next(1_000)));
+                    store.set_air_membership(
+                        id,
+                        membership.map(|(bucket, _)| bucket),
+                        membership.map_or(0, |(_, order)| order),
+                    );
+                    if model.contains_key(&id) {
+                        match membership {
+                            Some(membership) => tracked.insert(id, membership),
+                            None => tracked.remove(&id),
+                        };
                     }
                 }
             }
@@ -686,6 +824,22 @@ mod tests {
                         .all(|(&id, &owner)| store.owner_of(id) == Some(owner)
                             && store.get(id).map(GameEntity::owner) == Some(owner))
                 );
+                let mut expected_airborne: Vec<(u64, u64, u16)> = tracked
+                    .iter()
+                    .map(|(&id, &(bucket, order))| (order, id, bucket))
+                    .collect();
+                expected_airborne.sort_unstable();
+                let airborne: Vec<(u64, u64, u16)> = store
+                    .airborne()
+                    .map(|e| {
+                        (
+                            e.air_spatial_enter_order(),
+                            e.stable_id(),
+                            e.air_spatial_bucket().unwrap(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(airborne, expected_airborne);
                 assert_eq!(store.len(), model.len());
                 assert_eq!(
                     store.keys_sorted(),
@@ -726,6 +880,8 @@ mod tests {
         }
         store.remove(9);
         store.change_owner(7, crate::sim::intern::test_intern("Russians"));
+        store.set_air_membership(4, Some(12), 30);
+        store.set_air_membership(2, Some(12), 31);
         let map: BTreeMap<u64, Box<GameEntity>> = [2, 4, 7]
             .into_iter()
             .map(|id| (id, Box::new(store.get(id).unwrap().clone())))
@@ -738,6 +894,12 @@ mod tests {
         for id in [2, 4, 7] {
             assert_eq!(restored.owner_of(id), Some(store.get(id).unwrap().owner()));
         }
+        let airborne: Vec<u64> = restored.airborne().map(GameEntity::stable_id).collect();
+        assert_eq!(
+            airborne,
+            [4, 2],
+            "tracked entities come back in enter order"
+        );
         assert_eq!(bincode::serialize(&restored).unwrap(), saved);
     }
 
@@ -775,6 +937,12 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&store).unwrap()).unwrap();
         assert_eq!(restored.infantry_registry, [2, 4]);
         assert_eq!(restored.infantry_registry_at(2), None);
+        assert_eq!(store.foot_registry, [2, 3, 4]);
+        assert_eq!(restored.foot_registry, store.foot_registry);
+        let mut building = make_entity(3);
+        building.set_category_for_test(EntityCategory::Structure);
+        store.insert(building);
+        assert_eq!(store.foot_registry, [2, 4]);
     }
 
     #[test]

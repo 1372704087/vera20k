@@ -400,6 +400,12 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                     };
                     match action {
                         SelectAction::Click(sx, sy) => {
+                            // Native TacticalPick6DA380 reads the retained
+                            // Display registrations after the projected click
+                            // gate. ScreenSelection's raw-anchor filter belongs
+                            // to band/type scope, not this pointer pick.
+                            let click_order = crate::app::presentation::instances::
+                                tactical_entity_encounter_order(sim);
                             let world_x: f32 = sx / state.match_state.input.zoom_level
                                 + state.match_state.input.camera_x;
                             let world_y: f32 = sy / state.match_state.input.zoom_level
@@ -412,7 +418,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                             if held_type_select {
                                 let picked = pick_entity_at_point(
                                     sim.entities(),
-                                    &screen_order,
+                                    &click_order,
                                     fog_ref,
                                     preferred_local_owner_name(state).as_deref(),
                                     world_x,
@@ -423,6 +429,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     state.height_map(),
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
+                                    sim.resolved_terrain.as_ref(),
                                 );
                                 queued_selection = if let Some(clicked_id) = picked {
                                     Some(compute_type_select_click_mutation_with_playfield(
@@ -439,7 +446,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                 } else {
                                     compute_click_selection_snapshot_with_playfield(
                                         sim.entities(),
-                                        &screen_order,
+                                        &click_order,
                                         &current_selection,
                                         fog_ref,
                                         preferred_local_owner_name(state).as_deref(),
@@ -455,13 +462,14 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                         ),
                                         Some(&sim.interner),
                                         sim.playfield_bounds.is_some(),
+                                        sim.resolved_terrain.as_ref(),
                                     )
                                 };
                                 held_type_select_batch = true;
                             } else {
                                 queued_selection = compute_click_selection_snapshot_with_playfield(
                                     sim.entities(),
-                                    &screen_order,
+                                    &click_order,
                                     &current_selection,
                                     fog_ref,
                                     preferred_local_owner_name(state).as_deref(),
@@ -475,6 +483,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
                                     sim.playfield_bounds.is_some(),
+                                    sim.resolved_terrain.as_ref(),
                                 );
                             }
                         }

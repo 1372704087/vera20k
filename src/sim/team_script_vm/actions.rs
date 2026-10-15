@@ -17,7 +17,7 @@
 //! `deploy` rows (actions 14, 43, 8 and 9) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 19, 21, 24, 37, 39, 42, 43,
+//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 37, 39, 40, 42, 43,
 //!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 61, 62, 63 and 64 are not ported. A team
 //!   that reaches one stays on it, as a native handler that has not
 //!   finished does, and records the first as its refusal; the rest of its
@@ -126,11 +126,14 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 11
             | 14
             | 16
+            | 17
             | 19
+            | 20
             | 21
             | 24
             | 37
             | 39
+            | 40
             | 42
             | 43
             | 46
@@ -369,6 +372,35 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            17 => {
+                // Steam3e81a617:6E972C..6E977F destroys the current Script,
+                // constructs one from ScriptType::Array8B41CC[argument],
+                // then Reset691590 sets its cursor to-1. It does NOT set
+                // Team+80. Native Current691500 consequently returns -1 on
+                // subsequent visits until another owner advances the Team.
+                // Preserve mission/focus, members, guard timer and RNG. The
+                // original constructor/destructor's instance registry has
+                // no independent Rust identity: this VM owns the attachment.
+                // tools/team_recruit_oracle.py --change-script executes the
+                // caller, constructor/reset and the following script visit.
+                let replacement = usize::try_from(action.argument)
+                    .ok()
+                    .and_then(|index| self.team_script_vm.script_order.get(index))
+                    .copied();
+                if let Some(replacement) = replacement {
+                    if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                        team.script_id = replacement;
+                        team.cursor = -1;
+                    }
+                } else {
+                    // Native directly indexes the array and can fault. Keep
+                    // the attachment on malformed authored input instead.
+                    log::warn!(
+                        "Team {team_id} Script17 names invalid ScriptType ordinal {}",
+                        action.argument
+                    );
+                }
+            }
             37 => {
                 //Steam3e81a617:6E954D..6E957A caches Foot+5D8 before
                 //vtD4 Limbo and vtF8 UnInit, then marks+80 to advance.
@@ -419,11 +451,12 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            // Original6E9BA1..6E9BBD: SetLocal689910(argument, true),
+            // Steam3e81a617: Script39 at6E9BA1 and Script40 at6E9BBE
+            // call SetLocal689910(argument, true/false), respectively,
             // then team+80=1 even if the variable index was rejected. The
             // existing trigger owner keeps dirty admission and timer resets.
-            39 => {
-                self.set_trigger_variable(false, action.argument, true);
+            39 | 40 => {
+                self.set_trigger_variable(false, action.argument, action.action_id == 39);
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
                 }
@@ -449,6 +482,46 @@ impl Simulation {
                     if let Some(entity) = self.substrate.entities.get_mut(member) {
                         crate::sim::infantry::apply_panic_force(object, entity);
                     }
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // Steam gamemd3e81a617: Script20 at6E9683..6E96BC caches
+            // Foot+5D8 before each ChangeOwner(vt+3D4), resolving the
+            // Country through502D30 for every member, then sets Team+80.
+            // The class owner can unlink a transferred member; neither
+            // Team.House nor a Player@ start-slot selector is changed here.
+            20 => {
+                let mut member = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .and_then(|team| team.members().next());
+                while let Some(current) = member {
+                    let next = self
+                        .team_script_vm
+                        .teams
+                        .get(&team_id)
+                        .and_then(|team| team.next_member_after(current));
+                    let owner = u16::try_from(action.argument).ok().and_then(|country| {
+                        self.house_by_country_index(
+                            crate::rules::ruleset::CountryIdx(country),
+                            rules,
+                        )
+                    });
+                    // An unresolved Country is ignored safely. Native null-
+                    // House handling is outside the admitted SOV01 route.
+                    if let Some(owner) = owner {
+                        self.change_owner_with_rules(
+                            current,
+                            owner,
+                            rules,
+                            registry,
+                            frame_effects,
+                        );
+                    }
+                    member = next;
                 }
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;

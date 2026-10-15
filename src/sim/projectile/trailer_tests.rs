@@ -368,7 +368,9 @@ fn scalable_expiry_removes_one_duplicate_per_present_bullet_callback() {
     }
     assert_eq!(store.scalable_members(), [1, 1, 1]);
     assert_eq!(
-        store.pointer_expired(999, 1, ProjectileTarget::None, true),
+        store
+            .pointer_expired(999, 1, ProjectileTarget::None, true)
+            .map(|(_, remaining)| remaining),
         None
     );
     assert_eq!(
@@ -377,17 +379,23 @@ fn scalable_expiry_removes_one_duplicate_per_present_bullet_callback() {
         "no subscriber means no callback"
     );
     assert_eq!(
-        store.pointer_expired(1, 1, ProjectileTarget::None, false),
+        store
+            .pointer_expired(1, 1, ProjectileTarget::None, false)
+            .map(|(_, remaining)| remaining),
         Some(false)
     );
     assert_eq!(store.scalable_members(), [1, 1, 1]);
     assert_eq!(
-        store.pointer_expired(1, 1, ProjectileTarget::None, true),
+        store
+            .pointer_expired(1, 1, ProjectileTarget::None, true)
+            .map(|(_, remaining)| remaining),
         Some(true)
     );
     assert_eq!(store.scalable_members(), [1, 1]);
     assert_eq!(
-        store.pointer_expired(2, 1, ProjectileTarget::None, true),
+        store
+            .pointer_expired(2, 1, ProjectileTarget::None, true)
+            .map(|(_, remaining)| remaining),
         Some(true)
     );
     assert_eq!(store.scalable_members(), [1]);
@@ -423,7 +431,7 @@ fn scalable_expiry_last_match_receipt_keeps_later_subscriber_repairs() {
     }
     let mut pending = true;
     for receiver in 1..=64 {
-        pending = store
+        (_, pending) = store
             .pointer_expired(
                 receiver,
                 1,

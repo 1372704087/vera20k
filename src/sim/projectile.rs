@@ -59,6 +59,7 @@ use crate::map::resolved_terrain::{ResolvedTerrainGrid, SharedCellDummy};
 use crate::sim::anim_class::AnimId;
 use crate::sim::intern::{InternedId, StringInterner};
 use crate::sim::rng::SimRng;
+use crate::sim::touch_log::{TouchLogs, Touched};
 
 /// The warhead ID the AI's impact compares against (`0x0081AF98`).
 const NUKE_WARHEAD: &str = "NUKE";
@@ -1126,6 +1127,18 @@ pub struct Projectile {
 }
 
 impl Projectile {
+    /// The ids [`ProjectileStore::pointer_expired`] compares: the source
+    /// (Owner `+0xB0`) and the target object (`+0x10C`). A source already
+    /// `RAD_NO_ATTACKER` stays so, which changes nothing. VERA-only: feeds the
+    /// pointer-expiry listener index (`ExpiryListeners`); a field that
+    /// callback compares must be named here too.
+    pub(crate) fn expiry_names(&self) -> [Option<u64>; 2] {
+        [
+            (self.source_id != crate::sim::combat::RAD_NO_ATTACKER).then_some(self.source_id),
+            self.target.object_id(),
+        ]
+    }
+
     /// The House whose colour scheme draws a `FirersPalette=` bullet
     /// (`+0x114`); `None` is native's -1.
     pub fn firer_house(&self) -> Option<InternedId> {
@@ -1336,7 +1349,8 @@ impl ProjectileAdvanceResult {
 ///
 /// Storage order is distinct from the world's live Logic vector. The world
 /// visits one registered Bullet at a time, including a newly appended shot
-/// later in the same object pass.
+/// later in the same object pass. Every `&mut Projectile` goes through the
+/// store, which notes it in a touch log.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectileStore {
     projectiles: BTreeMap<u64, Projectile>,
@@ -1346,6 +1360,11 @@ pub struct ProjectileStore {
     /// BulletType+2E8 runtime values, keyed by the retained type identity.
     /// Missing is constructor zero; zero writes remove the redundant entry.
     scaled_spawn_delays: BTreeMap<InternedId, i32>,
+    /// Which bullets may have changed since [`Self::take_touched`]. One
+    /// reader: the pointer-expiry listener index. Transient: never saved,
+    /// compared or hashed.
+    #[serde(skip)]
+    touched: TouchLogs<1>,
 }
 
 impl ProjectileStore {
@@ -1388,6 +1407,11 @@ impl ProjectileStore {
 
     pub(crate) fn scaled_spawn_delay(&self, type_id: InternedId) -> i32 {
         self.scaled_spawn_delays.get(&type_id).copied().unwrap_or(0)
+    }
+
+    /// Whether the scalable process vector (`0x0089DE18`) holds `id`.
+    pub(crate) fn scalable_enrolled(&self, id: u64) -> bool {
+        self.scalable_members.contains(&id)
     }
 
     #[cfg(test)]
@@ -1464,7 +1488,10 @@ impl ProjectileStore {
     }
 
     pub(crate) fn get_mut(&mut self, id: u64) -> Option<&mut Projectile> {
-        self.projectiles.get_mut(&id)
+        let stored = self.projectiles.len();
+        let projectile = self.projectiles.get_mut(&id)?;
+        self.touched.note(id, stored);
+        Some(projectile)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&u64, &Projectile)> {
@@ -1472,45 +1499,61 @@ impl ProjectileStore {
     }
 
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (&u64, &mut Projectile)> {
+        self.touched.note_all();
         self.projectiles.iter_mut()
     }
 
     pub(crate) fn remove(&mut self, id: u64) -> Option<Projectile> {
-        self.projectiles.remove(&id)
+        let removed = self.projectiles.remove(&id);
+        if removed.is_some() {
+            self.touched.note(id, self.projectiles.len());
+        }
+        removed
+    }
+
+    /// Take the touch log, leaving it empty.
+    pub(crate) fn take_touched(&mut self) -> Touched {
+        self.touched.take(0)
     }
 
     /// BulletClass::LoseTarget468430 changes only +10C. Its world query is
     /// shared with PointerExpired468517..46859C; neither resets flight state.
     pub(crate) fn lose_targets(&mut self, target_id: u64, replacement: ProjectileTarget) {
-        for projectile in self.projectiles.values_mut().rev() {
+        let stored = self.projectiles.len();
+        for (&id, projectile) in self.projectiles.iter_mut().rev() {
             if projectile.target.object_id() == Some(target_id) {
                 projectile.target = replacement;
+                self.touched.note(id, stored);
             }
         }
     }
 
-    /// Apply `BulletClass::PointerExpired @ 0x004684E0` to one stored Bullet.
+    /// Apply `BulletClass::PointerExpired @ 0x004684E0` to one stored Bullet,
+    /// or `None` when it is not stored: whether its source or target changed,
+    /// and whether another scalable-list match remains after this callback's
+    /// first removal, when that arm was enabled. Once false, the same
+    /// broadcast can skip further scans; a disabled arm reports false
+    /// without scanning.
     ///
     /// Source and target are independent arms: when both match the expired
     /// object, both change in the same synchronous callback. The projectile
     /// itself remains stored and registered; repeated callbacks are no-ops.
-    /// None means no present subscriber. Some returns whether another
-    /// scalable-list match remains after this callback's first removal,
-    /// when that arm was enabled. Once false, the same broadcast can skip
-    /// further scans; a disabled arm returns Some(false) without scanning.
     pub(crate) fn pointer_expired(
         &mut self,
         projectile_id: u64,
         expired_id: u64,
         replacement_target: ProjectileTarget,
         expired_scalable_bullet_uninit: bool,
-    ) -> Option<bool> {
-        let projectile = self.projectiles.get_mut(&projectile_id)?;
+    ) -> Option<(bool, bool)> {
+        let projectile = self.get_mut(projectile_id)?;
+        let mut changed = false;
         if projectile.source_id == expired_id {
+            changed |= expired_id != crate::sim::combat::RAD_NO_ATTACKER;
             projectile.source_id = crate::sim::combat::RAD_NO_ATTACKER;
         }
         if projectile.target.object_id() == Some(expired_id) {
             projectile.target = replacement_target;
+            changed = true;
         }
         //4685CC..46865D: only a PRESENT Bullet subscriber, control!=0,
         // expired RTTI8/current type.Scalable removes its FIRST matching
@@ -1526,9 +1569,12 @@ impl ProjectileStore {
             // The removed entry was the first match, so only its surviving
             // suffix can hold another. Avoid rescanning known misses at the
             // remaining Bullet subscribers in the same common broadcast.
-            return Some(self.scalable_members[index..].contains(&expired_id));
+            return Some((
+                changed,
+                self.scalable_members[index..].contains(&expired_id),
+            ));
         }
-        Some(false)
+        Some((changed, false))
     }
 
     /// Supply a constructed/in-flight Bullet boundary for a focused fixture.
@@ -1559,6 +1605,7 @@ impl ProjectileStore {
             !self.projectiles.contains_key(&id),
             "duplicate Bullet identity {id}"
         );
+        self.touched.note(id, self.projectiles.len());
         self.projectiles.insert(
             id,
             Projectile {
@@ -1612,7 +1659,7 @@ impl ProjectileStore {
         );
         // Fire468670 owns placement, motion and proximity initialization;
         // direct detonations never execute this part of the lifetime.
-        let projectile = self.projectiles.get_mut(&id).expect("constructed Bullet");
+        let projectile = self.get_mut(id).expect("constructed Bullet");
         projectile.position = location;
         projectile.launch_origin = spawn.origin;
         projectile.launch_target = spawn.initial_target_position;
@@ -1640,14 +1687,14 @@ impl ProjectileStore {
     /// `0x00467F36`: the anim a waiting bullet holds (`+0x154`), or none
     /// when none was constructed, which ends the wait at its next AI.
     pub(crate) fn await_anim(&mut self, id: u64, anim: Option<AnimId>) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.awaited_anim = anim;
         }
     }
 
     /// Bullet `+0x114` as `BulletClass::Construct` leaves it.
     pub(crate) fn set_firer_house(&mut self, id: u64, house: Option<InternedId>) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.firer_house = house;
         }
     }
@@ -1655,7 +1702,7 @@ impl ProjectileStore {
     /// `BulletClass::Construct @ 0x004664C0`'s Owner (`+0xB0`) on a re-fired
     /// bullet.
     pub(crate) fn set_owner(&mut self, id: u64, owner: u64) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.source_id = owner;
         }
     }
@@ -1664,7 +1711,7 @@ impl ProjectileStore {
     /// TechnoClass::FireAt answered: its velocity (`+0xE8`)
     /// ([`launch::aircraft_bullet_velocity`]), and the speed it implies.
     pub(crate) fn redirect(&mut self, id: u64, velocity: ProjectileVelocity) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.velocity = velocity;
             projectile.speed_leptons_per_frame =
                 projectile_velocity_magnitude(velocity).clamp(0.0, f64::from(u16::MAX)) as u16;
@@ -1684,7 +1731,7 @@ impl ProjectileStore {
     /// its starting distance is 0. FireAt then copies the target's OnBridge
     /// (`0x006FF08B`).
     pub(crate) fn fire_inviso(&mut self, id: u64, placement: ProjectileCoord, on_bridge: bool) {
-        let Some(projectile) = self.projectiles.get_mut(&id) else {
+        let Some(projectile) = self.get_mut(id) else {
             return;
         };
         projectile.position = placement;
@@ -1752,7 +1799,7 @@ impl ProjectileStore {
                 .iter()
                 .map(|detonation| &detonation.projectile_id),
         ) {
-            self.projectiles.remove(id);
+            self.remove(*id);
         }
         result
     }
@@ -1768,7 +1815,7 @@ impl ProjectileStore {
         id: u64,
         anim_live: impl FnOnce(AnimId) -> bool,
     ) -> Option<ProjectileAiHead> {
-        let projectile = self.projectiles.get_mut(&id)?;
+        let projectile = self.get_mut(id)?;
         let phase = if projectile.awaiting_anim {
             if projectile.awaited_anim.is_some_and(anim_live) {
                 ProjectileAiPhase::Waiting
@@ -1847,7 +1894,7 @@ impl ProjectileStore {
         let mut result = ProjectileAdvanceResult::default();
 
         let id = head.id;
-        let projectile = self.projectiles.get_mut(&id)?;
+        let projectile = self.get_mut(id)?;
         match head.phase {
             ProjectileAiPhase::Waiting => return Some(result),
             ProjectileAiPhase::AnimEnded => {

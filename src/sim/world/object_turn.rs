@@ -850,6 +850,35 @@ impl Simulation {
             entity.mission_leaf.set_foot_idle_entry_latch(0);
         }
 
+        // Foot4DA554..629 runs before movement and before the class's fire
+        // suffix. A field created by a later Logic slot cannot hit this Foot
+        // retroactively. Complete its receiver/lifecycle callbacks now.
+        if !tube_active_at_entry
+            && let Some(rules) = rules
+            && let Some(receipt) = crate::sim::combat::world_receiver::apply_foot_radiation(
+                sim,
+                rules,
+                stable_id,
+                overlay_registry,
+                object_ctx.effects,
+            )
+        {
+            outcome.destroyed_structure |= receipt.structure_destroyed;
+            outcome.bridge_state_changed |= receipt.bridge_state_changed;
+        }
+        // Foot4DA62F reloads Object+90 after the synchronous receiver.
+        if !tube_active_at_entry
+            && sim.substrate.entities.get(stable_id).is_none_or(|entity| {
+                entity.death.is_dying()
+                    || (matches!(
+                        entity.category(),
+                        EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+                    ) && !entity.lifecycle.object_alive())
+            })
+        {
+            return Ok(outcome);
+        }
+
         if !tube_active_at_entry {
             sim.refresh_high_flying_sight_before_process(stable_id, rules);
         }

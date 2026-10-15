@@ -8972,7 +8972,7 @@ fn combat_resolves_in_live_object_order_not_stable_id() {
 /// Desolator-shaped rules: a deployable radiation infantry, a soft infantry
 /// victim, a heavy-armor vehicle victim, and a building.
 fn radiation_rules() -> RuleSet {
-    let ini: IniFile = IniFile::from_str(
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
         "\
 [General]\nVeteranArmor=1.5\n\n\
 [InfantryTypes]\n0=DESO\n1=E2\n\n\
@@ -8992,33 +8992,21 @@ fn radiation_rules() -> RuleSet {
     RuleSet::from_ini(&ini).expect("radiation rules should parse")
 }
 
-/// One combat tick with the radiation field threaded through.
-fn rad_combat_tick(
-    sim: &mut crate::sim::world::Simulation,
-    rules: &RuleSet,
-    binary_frame: u32,
-) -> CombatTickResult {
-    let mut radiation = std::mem::take(&mut sim.radiation);
-    let result = tick_combat_with_fog(
-        &mut sim.substrate.entities,
-        &mut sim.substrate.occupancy,
-        rules,
-        &mut sim.interner,
-        None,
-        &BTreeMap::new(),
-        None,
-        None,
-        None,
-        sim.resolved_terrain.as_mut(),
-        0,
-        100,
-        binary_frame,
-        &[],
-        Some(&mut radiation),
-        &mut sim.scenario_rng,
+/// A canonical map is required by Foot's GetCoords -> Map::GetCell lookup.
+fn radiation_scene(rules: &RuleSet) -> crate::sim::world::Simulation {
+    let mut sim = crate::sim::world::Simulation::new();
+    crate::sim::arena_fixture::flat_arena(&mut sim, rules);
+    sim
+}
+
+/// Advance the real object visits, including Foot4DA530's radiation prefix
+/// before movement. The combat tail alone does not apply periodic radiation.
+fn rad_frame(sim: &mut crate::sim::world::Simulation, rules: &RuleSet, binary_frame: u32) {
+    sim.session.binary_frame = binary_frame;
+    assert!(
+        sim.advance_tick(&[], Some(rules), None, None, 100)
+            .frame_committed
     );
-    sim.radiation = radiation;
-    result
 }
 
 /// Radiation damage applies only on `frame % RadApplicationDelay == 0`
@@ -9053,7 +9041,7 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
             "original RadSite reader, armor{index}"
         );
     }
-    let mut sim = crate::sim::world::Simulation::new();
+    let mut sim = radiation_scene(&rules);
     let inf = sim
         .spawn_object("E2", "Americans", 5, 5, 0, &rules)
         .expect("infantry spawns");
@@ -9069,14 +9057,14 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
         },
         0,
         &rules.radiation,
-        None,
+        sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources.pending,
     );
 
     // Original Foot4DA554 skips the application on frame15.
     assert_eq!(native_row(15, 0)["admitted"], false);
     assert_eq!(native_row(15, 5)["admitted"], false);
-    rad_combat_tick(&mut sim, &rules, 15);
+    rad_frame(&mut sim, &rules, 15);
     assert_eq!(
         i64::from(sim.substrate.entities.get(inf).unwrap().health.current()),
         native_row(15, 0)["final_health"].as_i64().unwrap()
@@ -9092,7 +9080,7 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
     // the companion's required radiation precision follow-up; no base parity.
     assert_eq!(native_row(16, 0)["admitted"], true);
     assert_eq!(native_row(16, 5)["admitted"], true);
-    rad_combat_tick(&mut sim, &rules, 16);
+    rad_frame(&mut sim, &rules, 16);
     let inf_hp = sim.substrate.entities.get(inf).unwrap().health.current();
     let tank_hp = sim.substrate.entities.get(tank).unwrap().health.current();
     assert_eq!(
@@ -9117,7 +9105,7 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
     // Frame 17: off-boundary again.
     assert_eq!(native_row(17, 0)["admitted"], false);
     assert_eq!(native_row(17, 5)["admitted"], false);
-    rad_combat_tick(&mut sim, &rules, 17);
+    rad_frame(&mut sim, &rules, 17);
     assert_eq!(
         sim.substrate.entities.get(inf).unwrap().health.current(),
         inf_hp
@@ -9131,7 +9119,7 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
 #[test]
 fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
     let rules = radiation_rules();
-    let mut sim = crate::sim::world::Simulation::new();
+    let mut sim = radiation_scene(&rules);
     let tank = sim
         .spawn_object("MTNK", "Americans", 5, 5, 0, &rules)
         .expect("veteran heavy target spawns");
@@ -9150,11 +9138,11 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
         },
         0,
         &rules.radiation,
-        None,
+        sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources.pending,
     );
 
-    let result = rad_combat_tick(&mut sim, &rules, 16);
+    rad_frame(&mut sim, &rules, 16);
     let target = sim.substrate.entities.get(tank).unwrap();
     assert_eq!(
         target.health.current(),
@@ -9166,8 +9154,12 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
         "periodic radiation cannot arm retaliation"
     );
     assert!(
-        result.consequences.effects().under_attack_events.is_empty(),
-        "null source house cannot emit an enemy under-attack event"
+        !sim.sound_events.iter().any(|event| matches!(
+            event,
+            crate::sim::world::SimSoundEvent::UnderAttack { .. }
+                | crate::sim::world::SimSoundEvent::AllyUnderAttack { .. }
+        )),
+        "null source house cannot publish an under-attack notification"
     );
 }
 
@@ -9180,20 +9172,22 @@ fn radiation_skips_only_objects_in_the_air() {
     use crate::sim::movement::locomotor::LocomotorState;
 
     let rules = radiation_rules();
-    let mut sim = crate::sim::world::Simulation::new();
+    let mut sim = radiation_scene(&rules);
     let mut spawn = |kind, rx| {
         sim.spawn_object(kind, "Americans", rx, 5, 0, &rules)
             .expect("victim spawns")
     };
     let high = spawn("E2", 5);
     let low = spawn("E2", 6);
+    let crossing = spawn("E2", 7);
     let hover = spawn("MTNK", 4);
-    for (id, height) in [(high, 208), (low, 207)] {
+    // Foot4DA539 calls TechnoAI first: 6FA655 -> Mission5B3067 ->
+    // Object5F3F2C..5F3F52 adds FallRate to Z before IsInAir4DA588.
+    // Seed the descent so the actual radiation queries see 208 and 207;
+    // a third object crosses the threshold during that same Object AI.
+    for (id, height) in [(high, 211), (low, 210), (crossing, 208)] {
         let paratrooper = sim.substrate.entities.get_mut(id).unwrap();
-        paratrooper
-            .position
-            .set_exact_z_leptons_for_test(Some(height));
-        paratrooper.set_falling_down_for_test(true);
+        paratrooper.begin_parachute_fall(height);
         paratrooper.set_fall_rate_for_test(-3);
     }
     sim.substrate.entities.get_mut(hover).unwrap().locomotor =
@@ -9208,14 +9202,30 @@ fn radiation_skips_only_objects_in_the_air() {
         },
         0,
         &rules.radiation,
-        None,
+        sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources.pending,
     );
 
-    rad_combat_tick(&mut sim, &rules, 16);
+    rad_frame(&mut sim, &rules, 16);
+    for (id, height) in [(high, 208), (low, 207), (crossing, 205)] {
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(id)
+                .unwrap()
+                .position
+                .exact_z_leptons(),
+            Some(height),
+            "Object AI descends before the radiation query"
+        );
+    }
     let health = |id| sim.substrate.entities.get(id).unwrap().health.current();
     assert_eq!(health(high), 300, "in the air at 208");
     assert!(health(low) < 300, "not in the air below 208");
+    assert!(
+        health(crossing) < 300,
+        "the query reads the altitude after this frame's descent"
+    );
     assert!(health(hover) < 300, "a hovering unit is not in the air");
 }
 
@@ -9431,7 +9441,7 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
 #[test]
 fn buildings_take_no_rad_damage() {
     let rules = radiation_rules();
-    let mut sim = crate::sim::world::Simulation::new();
+    let mut sim = radiation_scene(&rules);
     let building = sim
         .spawn_object("GAPOWR", "Americans", 5, 5, 0, &rules)
         .expect("building spawns");
@@ -9447,11 +9457,11 @@ fn buildings_take_no_rad_damage() {
         },
         0,
         &rules.radiation,
-        None,
+        sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources.pending,
     );
 
-    rad_combat_tick(&mut sim, &rules, 16);
+    rad_frame(&mut sim, &rules, 16);
     assert_eq!(
         sim.substrate
             .entities

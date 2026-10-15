@@ -9,6 +9,80 @@ use crate::sim::movement::{DamageRetaliation, ScatterFlags};
 use crate::sim::world::techno_ai_cloak::emit_configured_cloak_sound;
 use crate::sim::world::{FrameEffects, Simulation};
 
+/// FootClass::AI `0x004DA554..0x004DA635`: after the whole Techno AI and
+/// before locomotor Process, read this Foot's current cell and synchronously
+/// enter its concrete ReceiveDamage. Unit/Infantry/Aircraft call Foot at
+/// `0x0073647B` / `0x0051BC9F` / `0x00414DA3`; buildings never reach it.
+/// Numeric/receiver controls: `tools/spatial_oracle/radiation_damage_boundary`.
+pub(crate) fn apply_foot_radiation(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    stable_id: u64,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) -> Option<crate::sim::world::damage_consequences::DamageCommitReceipt> {
+    if !radiation_enabled(world)
+        || !world
+            .session
+            .binary_frame
+            .is_multiple_of(rules.radiation.application_delay as u32)
+    {
+        return None;
+    }
+    let entity = world.substrate.entities.get(stable_id)?;
+    if !matches!(
+        entity.category(),
+        EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+    ) || !entity.lifecycle.object_alive()
+        || entity.mover_facts.immune_to_radiation()
+        || crate::sim::movement::air_movement::is_high_flying(
+            entity,
+            world.resolved_terrain.as_ref(),
+            Some((rules, &world.interner)),
+        )
+        || entity.lifecycle.in_limbo()
+    {
+        return None;
+    }
+    // GetCoords -> signed /256 -> packed CellStruct -> Map5657A0. Use the
+    // canonical cell identity, including stride aliases and dummy stamping.
+    let coord = object_get_coords(world, stable_id)?;
+    let cell = crate::sim::cell_rect::get_cellclass_fallback(
+        world.resolved_terrain.as_ref(),
+        coord.x / 256,
+        coord.y / 256,
+    );
+    let level = match cell {
+        crate::sim::cell_rect::CellRef::Real(cell) => world
+            .radiation
+            .damaging_level((cell.rx, cell.ry), rules.radiation.level_max),
+        // RadiationState has no site on the shared fallback CellClass.
+        crate::sim::cell_rect::CellRef::Dummy { .. } => 0,
+    };
+    if level <= 0 {
+        return None;
+    }
+    let warhead = rules.warhead(&rules.radiation.site_warhead)?;
+    let warhead_id = world.interner.intern(&warhead.id);
+    // Preserve the existing deterministic numeric owner. The native corpus
+    // documents its bounded final-health agreement and intermediate precision
+    // residual; relocating the call does not establish numeric equivalence.
+    let damage = (level as f64 * rules.radiation.level_factor) as i32;
+    let receiver = combat_aoe::AreaDamageReceiver::Entity(EntityDamageEvent::direct_receiver(
+        stable_id,
+        damage,
+        0,
+        RAD_NO_ATTACKER,
+        None,
+        warhead_id,
+        ReceiverCallFlags {
+            ignore_defenses: false,
+            arg6: true,
+        },
+    ));
+    Some(world.commit_noncombat_aoe_receivers(rules, overlay_registry, &[receiver], effects))
+}
+
 fn respond_to_base_attack(
     world: &mut Simulation,
     rules: &RuleSet,

@@ -99,16 +99,6 @@ fn cell_from(base: (u16, u16), delta: (i32, i32)) -> Option<(u16, u16)> {
         .then_some((x as u16, y as u16))
 }
 
-fn cell_in_map(sim: &Simulation, cell: (u16, u16)) -> bool {
-    if let Some(terrain) = sim.resolved_terrain.as_ref() {
-        return terrain.cell(cell.0, cell.1).is_some();
-    }
-    if let Some(grid) = sim.path_grid() {
-        return cell.0 < grid.width() && cell.1 < grid.height();
-    }
-    true
-}
-
 /// Object `0x005F5F00` for `object`: its current cell's signed level, plus
 /// four on a bridge. Without map cells, 0.
 fn object_cell_height(sim: &Simulation, object: &GameEntity) -> i32 {
@@ -142,62 +132,46 @@ fn cell_has_structural_bridge(sim: &Simulation, cell: (u16, u16)) -> bool {
             .is_some_and(|c| c.bridge_facts.has_structural_bridge())
 }
 
-/// Land passability of a cell for one speed type, from the resolved terrain
-/// speed table (a zero cost is impassable), falling back to the path grid.
-fn land_passable_for(sim: &Simulation, cell: (u16, u16), speed_type: SpeedType) -> bool {
-    match sim
-        .resolved_terrain
-        .as_ref()
-        .and_then(|terrain| terrain.cell(cell.0, cell.1))
-    {
-        Some(terrain_cell) => terrain_cell
-            .speed_costs
-            .cost_for_speed_type(speed_type)
-            .is_none_or(|cost| cost > 0),
-        None => sim
-            .path_grid()
-            .is_none_or(|grid| grid.is_walkable(cell.0, cell.1)),
-    }
-}
-
 /// One octant candidate of the exit-cell scorer `FUN_00740B60` (UnitClass
-/// vtable `+0x304`, called with a NULL passenger at `0x0073D7F4`): the cell's
-/// LandType row must have a non-zero Foot column, the cell must carry no
-/// vehicle/building occupation and must not be full of infantry
-/// (`CellClass+0x124 & 0xE0 == 0`, `& 0x1F != 0x1F`), and the nearest object
-/// in it, when any, must be an ally of the transport's owner
-/// (`HouseClass::Is_Ally_ByObject`, `0x00740CE7`..`0x00740CF3`).
+/// vtable `+0x304`, called with a NULL passenger at `0x0073D7F4`), at the
+/// canonical Cell (`0x00740C7E..0x00740D04`). The cell is open when:
+/// - its land row gives Foot speed (`+0xEC` into `0x0089EA40`, `FCOMP 0.0`);
+/// - its raw ground occupation (`+0x124`) has no vehicle or building bit
+///   (`& 0xE0`) and not all five infantry bits (`& 0x1F == 0x1F`);
+/// - the nearest object of its ground list (`CellClass::Find_Nearest_Object
+///   @ 0x0047C3D0` from (0, 0)), when there is one, belongs to an ally of the
+///   transport's House (`HouseClass::Is_Ally` by object, `0x004F9A90`).
 ///
-/// VERA-internal: the Rust cell holds three infantry sub-cells, so "full" is
-/// the sub-cell allocator's refusal; every ground occupant is alliance-tested
-/// rather than only the nearest one.
+/// Without map cells no cell is open.
 fn octant_cell_open(sim: &Simulation, cell: (u16, u16), transport_owner: &str) -> bool {
-    if !cell_in_map(sim, cell) {
+    let Some(terrain) = sim.resolved_terrain.as_ref() else {
+        return false;
+    };
+    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+    let native = cells.lookup((cell.0 as i16, cell.1 as i16));
+    if terrain
+        .land_speed_costs(cells.land_type(native))
+        .cost_for_speed_type(SpeedType::Foot)
+        == Some(0)
+    {
         return false;
     }
-    if !land_passable_for(sim, cell, SpeedType::Foot) {
+    let raw = sim.substrate.raw_cell_occupation.bits_at(
+        crate::sim::occupancy::RawCellKey::from_native(terrain, native),
+        MovementLayer::Ground,
+    );
+    if raw & 0xE0 != 0 || raw & 0x1F == 0x1F {
         return false;
     }
-    let occupancy = sim.substrate.occupancy.get(cell.0, cell.1);
-    if !bump_crush::cell_passable_for_infantry(occupancy, MovementLayer::Ground) {
-        return false;
-    }
-    if let Some(occ) = occupancy {
-        for occupant in occ.iter_layer(MovementLayer::Ground) {
-            let Some(other) = sim.substrate.entities.get(occupant.entity_id) else {
-                continue;
-            };
-            let other_owner = sim.interner.resolve(other.owner());
-            if !crate::map::houses::is_allied_with(
+    sim.nearest_cell_object(cell, MovementLayer::Ground, None)
+        .and_then(|id| sim.substrate.entities.get(id))
+        .is_none_or(|object| {
+            crate::map::houses::is_allied_with(
                 &sim.house_alliances,
                 transport_owner,
-                other_owner,
-            ) {
-                return false;
-            }
-        }
-    }
-    true
+                sim.interner.resolve(object.owner()),
+            )
+        })
 }
 
 /// `FUN_00740B60` with a NULL passenger: score the eight neighbour cells and

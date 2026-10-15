@@ -177,6 +177,17 @@ fn for_each_square_cell(
 }
 
 impl RadiationState {
+    /// A native component fixture supplies retained site words without
+    /// claiming to have executed a detonation or field activation.
+    #[cfg(test)]
+    pub(crate) fn from_retained_site_for_test(site: RadSite) -> Self {
+        Self {
+            creation_order: vec![site.center],
+            sites: BTreeMap::from([(site.center, site)]),
+            cells: BTreeMap::new(),
+        }
+    }
+
     /// Raw level of one cell (un-clamped, may exceed `RadLevelMax`).
     pub fn cell_level(&self, cell: (u16, u16)) -> f64 {
         self.cells.get(&cell).copied().unwrap_or(0.0)

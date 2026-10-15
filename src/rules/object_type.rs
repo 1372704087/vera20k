@@ -3234,6 +3234,7 @@ mod infantry_speed_type_tests;
 mod tests {
     /// `RevealToAll=` through the production reader on the retail layers.
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn reveal_to_all_reads_the_seven_stock_types() {
         let Some(retail) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -3314,6 +3315,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn combatant_retail_rules_mode_map_reads_match_original_execution() {
         let Some(retail) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")

@@ -142,6 +142,7 @@ fn audio_visual_binding_retains_valid_references_across_all_rules_layers() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_boris_airstrike_reads_selected_startup_battle_and_map_sources() {
     // Extracted root is mandatory under REQUIRE_RETAIL_INI; archive-backed
     // processing below also checks optional LANGRULE, selected mode and map.

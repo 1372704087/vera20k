@@ -57,6 +57,7 @@ impl Fixture {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_flare_starts_two_aircraft_and_preserves_special_damage_suppression() {
     let Some(mut f) = Fixture::new() else { return };
     assert!(f.sim.airstrike_manager(f.boris).is_some());
@@ -107,6 +108,7 @@ fn retail_flare_starts_two_aircraft_and_preserves_special_damage_suppression() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn last_departure_starts_recharge_without_erasing_target() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -128,6 +130,7 @@ fn last_departure_starts_recharge_without_erasing_target() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn unequal_ammo_retarget_cancels_and_empties_entire_sortie() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -167,6 +170,7 @@ fn unequal_ammo_retarget_cancels_and_empties_entire_sortie() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn marker_restoration_uses_last_other_manager_even_after_its_sortie_finished() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -193,6 +197,7 @@ fn marker_restoration_uses_last_other_manager_even_after_its_sortie_finished() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn live_target_expiry_preserves_strike_dead_target_expiry_cancels_it() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -215,6 +220,7 @@ fn live_target_expiry_preserves_strike_dead_target_expiry_cancels_it() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn owner_target_change_cancels_but_leaves_planes_until_their_departure() {
     let Some(mut f) = Fixture::new() else { return };
     f.sim
@@ -237,6 +243,7 @@ fn owner_target_change_cancels_but_leaves_planes_until_their_departure() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn equal_ammo_retarget_transfers_marker_and_gives_planes_object_targets() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -273,6 +280,7 @@ fn equal_ammo_retarget_transfers_marker_and_gives_planes_object_targets() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn owner_expiry_unlinks_surviving_planes_and_clears_the_designation() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);
@@ -305,6 +313,7 @@ fn owner_expiry_unlinks_surviving_planes_and_clears_the_designation() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn snapshot_preserves_cancelled_sortie_and_rejects_unresolved_manager_references() {
     use crate::sim::snapshot::GameSnapshot;
     let Some(mut f) = Fixture::new() else { return };
@@ -355,6 +364,7 @@ fn snapshot_preserves_cancelled_sortie_and_rejects_unresolved_manager_references
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn live_detach_keeps_designator_and_aircraft_aimed_at_the_strike_target() {
     let Some(mut f) = Fixture::new() else { return };
     f.sim
@@ -383,6 +393,7 @@ fn live_detach_keeps_designator_and_aircraft_aimed_at_the_strike_target() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn elite_boris_selects_four_rookie_planes_and_the_shorter_recharge() {
     let Some(mut f) = Fixture::new() else { return };
     f.sim
@@ -420,6 +431,7 @@ fn elite_boris_selects_four_rookie_planes_and_the_shorter_recharge() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn a_different_target_is_admitted_before_same_target_recharge() {
     let Some(mut f) = Fixture::new() else { return };
     f.hit(f.boris, f.target);

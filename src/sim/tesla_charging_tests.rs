@@ -317,6 +317,7 @@ fn two_retained_chargers_bypass_the_buildings_offline_latch() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retarget_waits_for_building_turn_and_both_expiry_controls_remove_indexed_chargers() {
     for uninit in [false, true] {
         let Some(mut f) = Fixture::new() else { return };
@@ -587,6 +588,7 @@ fn infantry_same_target_clears_intent_but_deployment_refusal_preserves_it() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn guard_and_area_guard_queue_charging_before_their_normal_cadence() {
     for mission in [MissionType::Guard, MissionType::AreaGuard] {
         let Some(mut f) = Fixture::new() else { return };

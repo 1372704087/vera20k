@@ -737,6 +737,66 @@ fn a_host_lost_in_flight_returns_the_drone_to_its_launch_cell() {
 }
 
 #[test]
+fn a_drone_whose_launch_cell_was_taken_is_deleted_when_its_host_is_lost() {
+    // AttachTo's refusal Unlimbo (0x0062AA2C) raises no 0x00A8E7AC, so the
+    // drone's own Can_Enter_Cell (Object 0x005F4F1B..0x005F4F44) decides: a
+    // tank that took the launch cell during the jump refuses it, and the
+    // refused drone is deleted (0x0062AA39).
+    let rules = rules();
+    let mut arena = Arena::new(&rules);
+    let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+    let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    let rhino = arena.spawn(&rules, "MTNK", "Russians", (14, 10));
+    arena.attack(drone, tank);
+    arena.until(&rules, 100, |sim| {
+        sim.substrate
+            .entities
+            .get(drone)
+            .is_some_and(|d| d.lifecycle.in_limbo())
+    });
+    arena.spawn(&rules, "MTNK", "Russians", (10, 10));
+    arena.hit(&rules, tank, Some(rhino), 400, "AP");
+    arena.until(&rules, 100, |sim| {
+        sim.substrate
+            .entities
+            .get(drone)
+            .is_none_or(|d| !d.lifecycle.in_limbo() || !d.lifecycle.object_alive())
+    });
+    assert!(arena.gone(drone));
+}
+
+#[test]
+fn an_attached_parasite_may_enter_its_victims_cell_and_no_other_held_cell() {
+    // Unit Can_Enter_Cell 0x0073F530..0x0073F56F: an owner holding a victim
+    // answers 0 at the first other object whose map cell is the victim's,
+    // before any blocker rule. An unarmed friendly vehicle's cell still
+    // refuses it.
+    let rules = rules();
+    let mut arena = Arena::new(&rules);
+    let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+    let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    arena.spawn(&rules, "MCV", "Russians", (10, 12));
+    let can_enter = |arena: &Arena, cell: (i16, i16)| {
+        let terrain = arena.sim.resolved_terrain.as_ref().unwrap();
+        let cell = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain).lookup(cell);
+        arena
+            .sim
+            .foot_can_enter(
+                drone,
+                cell,
+                crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
+                &rules,
+                None,
+            )
+            .unwrap()
+    };
+    assert_ne!(can_enter(&arena, (11, 10)), 0, "a free drone is refused");
+    arena.infect(&rules, drone, tank);
+    assert_eq!(can_enter(&arena, (11, 10)), 0);
+    assert_ne!(can_enter(&arena, (10, 12)), 0);
+}
+
+#[test]
 fn one_parasite_per_host_the_second_drone_never_jumps() {
     // TechnoClass::Fire 0x006FF81F locks the host for 0x14 frames; GetFireError
     // 0x006FCAE1 holds the second shot, then CanInfect's one-parasite rule

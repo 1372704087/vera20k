@@ -6832,7 +6832,9 @@ impl Simulation {
         trigger_inputs: Option<TriggerInputs<'_>>,
         effects: FrameEffects<'_>,
     ) -> Result<MasterFrameOutput, FrameAdvanceError> {
-        let effects = effects.with_rules(rules);
+        let effects = effects
+            .with_rules(rules)
+            .with_overlay_registry(overlay_registry);
         // A failed earlier frame never reached collection; drop its value.
         self.frame_sync_checksum = None;
         self.combat_light_requests.clear();

@@ -229,8 +229,8 @@ pub fn cell_passable_for_infantry(occ: Option<&CellOccupancy>, layer: MovementLa
 /// refuses either plane (`0x00481298`) unless the 0x40 occupier is a passable
 /// Gate (`Gate=`, `+0x16B7`, `0x004525F0`).
 ///
-/// RESIDUAL: the slave, crew, drop, unload and parasite cell-coordinate callers
-/// lack the live Gate context and still supply `false`. A ground object bit
+/// RESIDUAL: the slave, crew, drop and unload cell-coordinate callers lack the
+/// live Gate context and still supply `false`. A ground object bit
 /// belonging to an open Gate therefore refuses before RNG where native may
 /// admit; their native comparisons do not cover that exception. Callers with
 /// the context use the native-cell owner.

@@ -214,8 +214,8 @@ impl Simulation {
                 self.substrate.entities.get(id).unwrap(),
                 self.resolved_terrain.as_ref(),
             );
-            let x = ((location.x / 256) as i16).wrapping_add(dx as i16);
-            let y = ((location.y / 256) as i16).wrapping_add(dy as i16);
+            let x = crate::util::lepton::lepton_to_cell_packed(location.x).wrapping_add(dx as i16);
+            let y = crate::util::lepton::lepton_to_cell_packed(location.y).wrapping_add(dy as i16);
             let building = if let Some(terrain) = self.resolved_terrain.as_ref() {
                 match terrain.native_cell_identity((x, y)) {
                     crate::map::cell_index::NativeCellIdentity::Real(index) => {

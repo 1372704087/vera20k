@@ -687,6 +687,55 @@ fn charging_attack_keeps_its_coil_until_a_direct_enemy_scan_succeeds() {
 }
 
 #[test]
+fn freezing_a_retail_charger_clears_its_intent_before_release() {
+    let Some(mut f) = Fixture::new() else { return };
+    let source = f.troopers[0];
+    let cleg = f
+        .sim
+        .spawn_object("CLEG", "Russians", 10, 11, 0, &f.rules)
+        .unwrap();
+    let owner = f.sim.substrate.entities.get(source).unwrap().owner();
+    f.sim.fog.reveal_all_for_owner(owner);
+    assert!(
+        f.sim
+            .acquire_adjacent_tesla_coil(source, &f.rules, None, FrameEffects::default(),)
+    );
+    f.hit(source, f.coil);
+    f.sim.update_tesla_charge(f.coil, &f.rules);
+    assert!(f.charge().is_overpowered());
+    f.assign(cleg, Some(source));
+    f.sim
+        .temporal_initiate_warp(cleg, Some(source), &f.rules, None, FrameEffects::default());
+    assert!(
+        f.sim
+            .temporal_ai_prologue(source, &f.rules, ObjectAiCtx::default(), &mut false,)
+    );
+    let actor = f.sim.substrate.entities.get(source).unwrap();
+    assert!(actor.attack_target.target().is_none());
+    // Infantry51BBEF calls its concrete +3C8 setter, whose reached tail
+    // clears +68E at51B33F before the frozen object returns from AI.
+    assert!(!actor.tesla_charger.is_active());
+    f.sim.update_tesla_charge(f.coil, &f.rules);
+    assert!(f.charge().chargers().is_empty());
+    assert!(!f.charge().is_overpowered());
+
+    f.sim.temporal_let_go(cleg);
+    assert!(!f.sim.substrate.entities.get(source).unwrap().ai_frozen());
+    f.dispatch(source, MissionType::Attack);
+    assert!(
+        f.sim
+            .substrate
+            .entities
+            .get(source)
+            .unwrap()
+            .attack_target
+            .target()
+            .is_none(),
+        "released Attack takes the ordinary no-target idle path, not the charger scan",
+    );
+}
+
+#[test]
 fn retail_fireat_charges_low_power_coil_and_pruning_disables_it_again() {
     use crate::sim::combat::world_fire::FireVisit;
     let Some(mut f) = Fixture::new() else { return };

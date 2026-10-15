@@ -440,9 +440,11 @@ impl Simulation {
                 .advance_after_head(
                     head,
                     binary_frame,
-                    |target_id| {
-                        collision_world
-                            .target_aim(crate::sim::projectile::ProjectileTarget::Entity(target_id))
+                    |target_id, query| {
+                        collision_world.target_coordinate(
+                            crate::sim::projectile::ProjectileTarget::Entity(target_id),
+                            query,
+                        )
                     },
                     terrain,
                     &shared_cell_dummy,

@@ -70,6 +70,8 @@ pub(crate) mod receiver_fixture;
 #[cfg(test)]
 mod aegis_launch_tests;
 #[cfg(test)]
+mod homing_shipyard_tests;
+#[cfg(test)]
 mod shrapnel_chain_tests;
 #[cfg(test)]
 mod bridge_cluster_tests;

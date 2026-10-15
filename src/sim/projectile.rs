@@ -406,6 +406,16 @@ pub enum ProjectileCollisionResponse {
     ImpactLadder(ImpactLadderWorld),
 }
 
+/// The target virtual requested at a Bullet AI boundary. Object410540
+/// forwards+58 to GetCoords; Cell+58 includes its deck. Guided AI466B5D..466BAB then
+/// substitutes Object+A4, whereas final fuse snapping467CA9..467E4D uses+48.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectileTargetQuery {
+    GetCoords,
+    TargetAim,
+    GuidanceAim,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ProjectileCollisionPhase {
     Ordinary {
@@ -414,7 +424,6 @@ pub(crate) enum ProjectileCollisionPhase {
         motion: ProjectileCollisionMotion,
     },
     Shared,
-    TargetLocation,
     /// `0x00468D80` asks the target and the warhead for
     /// [`resolve_impact_coord`]; the candidate is the bullet's Location.
     ImpactLadder,
@@ -1512,7 +1521,6 @@ impl ProjectileStore {
                 |projectile, candidate, phase| match phase {
                     ProjectileCollisionPhase::Ordinary { .. } => None,
                     ProjectileCollisionPhase::Shared => collides_at(projectile, candidate),
-                    ProjectileCollisionPhase::TargetLocation => None,
                     ProjectileCollisionPhase::ImpactLadder => None,
                 },
                 None,
@@ -1563,13 +1571,14 @@ impl ProjectileStore {
     /// Test adapter joining the shared AI head and continuation without the
     /// world's intervening Trailer constructor or retirement transaction. An
     /// awaited anim counts as dead; a test needing a live one calls
-    /// [`Self::begin_ai_visit`] itself.
+    /// [`Self::begin_ai_visit`] itself. Supplied coordinates serve every query;
+    /// world integration tests cover the separate target virtuals.
     #[cfg(test)]
     pub(crate) fn advance_one(
         &mut self,
         id: u64,
         binary_frame: u32,
-        target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
+        mut target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
         terrain: Option<&ResolvedTerrainGrid>,
         shared_cell_dummy: &SharedCellDummy,
         rules_gravity: i32,
@@ -1587,7 +1596,7 @@ impl ProjectileStore {
         self.advance_after_head(
             head,
             binary_frame,
-            target_position,
+            |id, _query| target_position(id),
             terrain,
             shared_cell_dummy,
             rules_gravity,
@@ -1603,7 +1612,7 @@ impl ProjectileStore {
         &mut self,
         head: ProjectileAiHead,
         binary_frame: u32,
-        mut resolve_target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
+        mut resolve_target_position: impl FnMut(u64, ProjectileTargetQuery) -> Option<ProjectileCoord>,
         terrain: Option<&ResolvedTerrainGrid>,
         shared_cell_dummy: &SharedCellDummy,
         rules_gravity: i32,
@@ -1642,7 +1651,16 @@ impl ProjectileStore {
             // collision, and reached-target decisions.
             ProjectileTarget::None => ProjectileCoord::new(0, 0, 0),
             ProjectileTarget::DummyCell => dummy_cell_target_coord(shared_cell_dummy),
-            ProjectileTarget::Entity(target_id) => match resolve_target_position(target_id) {
+            // AI466B5D..466BAB feeds+A4 to guided steering. Fire's frozen
+            // reference and the later +48 fuse snap remain separate queries.
+            ProjectileTarget::Entity(target_id) => match resolve_target_position(
+                target_id,
+                if projectile.tracks_target {
+                    ProjectileTargetQuery::GuidanceAim
+                } else {
+                    ProjectileTargetQuery::TargetAim
+                },
+            ) {
                 Some(position) => {
                     if projectile.tracks_target {
                         projectile.last_target_position = position;
@@ -1900,14 +1918,9 @@ impl ProjectileStore {
             {
                 // +58 is fetched even in the unconditional mode-one arm.
                 let aim = match projectile.target {
-                    ProjectileTarget::Entity(id) => match collides_at(
-                        projectile,
-                        selected_candidate,
-                        ProjectileCollisionPhase::TargetLocation,
-                    ) {
-                        Some(ProjectileCollisionResponse::TargetZClamp(location)) => Some(location),
-                        _ => resolve_target_position(id),
-                    },
+                    ProjectileTarget::Entity(id) => {
+                        resolve_target_position(id, ProjectileTargetQuery::TargetAim)
+                    }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_target_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_target_coord(shared_cell_dummy)),
                     ProjectileTarget::None => None,
@@ -1923,7 +1936,9 @@ impl ProjectileStore {
                 });
                 let location = match projectile.target {
                     _ if !snap => None,
-                    ProjectileTarget::Entity(id) => resolve_target_position(id),
+                    ProjectileTarget::Entity(id) => {
+                        resolve_target_position(id, ProjectileTargetQuery::GetCoords)
+                    }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_ground_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_ground_coord(shared_cell_dummy)),
                     ProjectileTarget::None => None,

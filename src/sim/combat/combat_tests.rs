@@ -2726,6 +2726,92 @@ struct RetaliationCase {
     player_return_fire: bool,
 }
 
+/// ReceiveDamage702A69 asks CanFireAt before the human Sight fallback. This
+/// supplies an already accepted distant hit to the production receiver; it
+/// does not claim an E1 can originate that hit across twelve cells. Stock
+/// SNIPE/AWP's longer range makes a wall refusal observable outside Sight.
+#[test]
+fn stock_sniper_damage_retaliation_uses_wall_context_before_sight_fallback() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &fixture.rules;
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &fixture.processed_rules,
+        Some(&fixture.fixed_art),
+    );
+    let sniper = rules.object("SNIPE").unwrap();
+    assert_eq!(sniper.primary(), Some("AWP"));
+    assert_eq!(sniper.sight, 8);
+    let weapon = rules.weapon("AWP").unwrap();
+    assert_eq!(weapon.range_leptons, 14 * 256);
+    assert_eq!(weapon.projectile.as_deref(), Some("InvisibleLow"));
+    assert!(rules.projectile("InvisibleLow").unwrap().subject_to_walls);
+    assert!(
+        !rules
+            .warhead(weapon.warhead.as_deref().unwrap())
+            .unwrap()
+            .wall
+    );
+    let wall = registry.id_for_name("GAWALL").unwrap();
+
+    for (blocked, source_x, expected) in [(false, 24, true), (true, 18, true), (true, 24, false)] {
+        let mut sim = crate::sim::arena_fixture::rival_arena(rules, 626);
+        let victim = sim
+            .spawn_object("SNIPE", "Americans", 12, 12, 0, rules)
+            .unwrap();
+        let source = sim
+            .spawn_object("E1", "Russians", source_x, 12, 0, rules)
+            .unwrap();
+        let source_owner = sim.substrate.entities.get(source).unwrap().owner();
+        let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
+        if blocked {
+            overlays.place_overlay(13, 12, wall, 0);
+        }
+        sim.overlay_grid = Some(overlays);
+        assert!(
+            combat_targeting::should_retaliate(&sim, rules, victim, source),
+            "the non-range refusal gates must admit this source"
+        );
+        let actor = sim.substrate.entities.get(victim).unwrap();
+        assert_eq!(actor.mission.current().known(), Some(MissionType::Guard));
+        assert!(actor.attack_target.target().is_none());
+        let subject = super::fire_error_world::FireSubject {
+            world: &sim,
+            rules,
+            overlay_registry: Some(&registry),
+            fog: Some(&sim.fog),
+            firer: actor,
+            obj: sniper,
+            target: Some(TargetKind::Entity(source)),
+            weapon_index: 0,
+        };
+        assert_eq!(
+            subject.in_range(),
+            !blocked,
+            "range is denied only by the wall"
+        );
+        let before = actor.health.current();
+        let warhead = sim.interner.intern("SA");
+        sim.commit_direct_damage_receiver(
+            rules,
+            Some(&registry),
+            EntityDamageEvent::area(victim, 1, 0, source, Some(source_owner), warhead),
+            crate::sim::world::FrameEffects::default(),
+        );
+        let actor = sim.substrate.entities.get(victim).unwrap();
+        assert!(
+            actor.health.current() < before,
+            "the supplied hit reached the real receiver"
+        );
+        assert_eq!(
+            actor.attack_target.target(),
+            expected.then_some(TargetKind::Entity(source)),
+            "blocked={blocked}, source_x={source_x}: human Sight may admit the near source, not the distant one"
+        );
+    }
+}
+
 impl Default for RetaliationCase {
     fn default() -> Self {
         Self {

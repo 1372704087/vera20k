@@ -406,7 +406,7 @@ fn passive_acquire_gate(sim: &Simulation, id: u64, rules: &RuleSet, mission: Mis
     }
     let slot = if obj.spray_attack { 0 } else { 1 };
     let target = entity.attack_target.target();
-    let area_fire = fire_subject(sim, rules, id, target, slot)
+    let area_fire = fire_subject(sim, rules, id, target, slot, None)
         .and_then(|subject| subject.weapon_at(slot).map(|weapon| weapon.area_fire))
         .unwrap_or(false);
     !(area_fire && select_weapon(sim, rules, id, target) == slot)
@@ -518,13 +518,14 @@ fn fire_subject<'a>(
     id: u64,
     target: Option<TargetKind>,
     weapon_index: i32,
+    overlay_registry: Option<&'a OverlayTypeRegistry>,
 ) -> Option<FireSubject<'a>> {
     let firer = sim.substrate.entities.get(id)?;
     let obj = rules.object(sim.interner.resolve(firer.type_ref()))?;
     Some(FireSubject {
         world: sim,
         rules,
-        overlay_registry: None,
+        overlay_registry,
         fog: Some(&sim.fog),
         firer,
         obj,
@@ -541,7 +542,7 @@ pub(crate) fn weapon_at_index<'r>(
     id: u64,
     index: i32,
 ) -> Option<&'r WeaponType> {
-    let subject = fire_subject(sim, rules, id, None, index)?;
+    let subject = fire_subject(sim, rules, id, None, index, None)?;
     // `weapon_at` borrows the subject; re-resolve through the rules so the
     // weapon outlives it.
     rules.weapon(&subject.weapon_at(index)?.id)
@@ -604,17 +605,13 @@ pub(crate) fn can_fire_at(
     weapon_index: i32,
     overlay_registry: Option<&OverlayTypeRegistry>,
 ) -> bool {
-    fire_subject(sim, rules, id, Some(target), weapon_index).is_some_and(|subject| {
-        FireSubject {
-            overlay_registry,
-            ..subject
-        }
-        .in_range()
-    })
+    fire_subject(sim, rules, id, Some(target), weapon_index, overlay_registry)
+        .is_some_and(|subject| subject.in_range())
 }
 
 /// GetFireError (vt+0x3C0) for `target` with `weapon_index`; `check_range`
-/// false is vt+0x3BC.
+/// false is vt+0x3BC. Range-bearing callers carry the match's overlay types
+/// into the shared InRange line query (6F7642 -> 4CC310 -> 4CC360).
 pub(super) fn fire_error_at(
     sim: &Simulation,
     rules: &RuleSet,
@@ -622,29 +619,12 @@ pub(super) fn fire_error_at(
     target: Option<TargetKind>,
     weapon_index: i32,
     check_range: bool,
-) -> FireError {
-    fire_subject(sim, rules, id, target, weapon_index).map_or(FireError::Illegal, |subject| {
-        subject.fire_error(check_range)
-    })
-}
-
-/// GetFireError (vt+0x3C0) as a fire routine asks it, with the match's
-/// OverlayTypeClass table for InRange's line of fire.
-pub(super) fn fire_error_with_overlay(
-    sim: &Simulation,
-    rules: &RuleSet,
-    id: u64,
-    target: TargetKind,
-    weapon_index: i32,
     overlay_registry: Option<&OverlayTypeRegistry>,
 ) -> FireError {
-    fire_subject(sim, rules, id, Some(target), weapon_index).map_or(FireError::Illegal, |subject| {
-        FireSubject {
-            overlay_registry,
-            ..subject
-        }
-        .fire_error(true)
-    })
+    fire_subject(sim, rules, id, target, weapon_index, overlay_registry)
+        .map_or(FireError::Illegal, |subject| {
+            subject.fire_error(check_range)
+        })
 }
 
 impl Simulation {
@@ -662,7 +642,15 @@ impl Simulation {
         overlay_registry: Option<&OverlayTypeRegistry>,
     ) -> FireError {
         let weapon = select_weapon(self, rules, id, Some(target));
-        fire_error_with_overlay(self, rules, id, target, weapon, overlay_registry)
+        fire_error_at(
+            self,
+            rules,
+            id,
+            Some(target),
+            weapon,
+            true,
+            overlay_registry,
+        )
     }
 }
 
@@ -736,7 +724,17 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
     }
 
     fn fire_error(&mut self, target: Option<TargetKind>, weapon: i32) -> FireError {
-        fire_error_at(self.sim, self.rules, self.id, target, weapon, true)
+        // Original7098DA PUSH1 before7098E6 GetFireError(vt+3C0): the
+        // held passive target must pass the live wall-aware range query.
+        fire_error_at(
+            self.sim,
+            self.rules,
+            self.id,
+            target,
+            weapon,
+            true,
+            self.ctx.overlay_registry,
+        )
     }
 
     /// The SpawnManager `+0x2D0` that `Retaliate_And_Scan @ 0x00709820` tests.
@@ -915,6 +913,123 @@ pub(crate) fn direct_greatest_threat(
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    /// Original7098DA pushes1 before GetFireError(vt+3C0): a held passive
+    /// target must pass the same wall-aware InRange as ordinary fire. The
+    /// existing171-row scanner corpus consumes that argument/order with
+    /// supplied callees; this test joins it to the real stock range query.
+    #[test]
+    fn stock_passive_scan_drops_a_held_target_behind_a_new_wall() {
+        let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = &fixture.rules;
+        let registry =
+            OverlayTypeRegistry::from_ini(&fixture.processed_rules, Some(&fixture.fixed_art));
+        let weapon = rules.weapon("M60").unwrap();
+        assert_eq!(rules.object("E1").unwrap().primary(), Some("M60"));
+        assert_eq!(weapon.projectile.as_deref(), Some("InvisibleLow"));
+        assert!(rules.projectile("InvisibleLow").unwrap().subject_to_walls);
+        assert!(
+            !rules
+                .warhead(weapon.warhead.as_deref().unwrap())
+                .unwrap()
+                .wall
+        );
+        let wall = registry.id_for_name("GAWALL").unwrap();
+        assert!(registry.flags(wall).unwrap().wall);
+
+        for blocked in [false, true] {
+            let mut sim = crate::sim::arena_fixture::rival_arena(rules, 626);
+            let scanner = sim
+                .spawn_object("E1", "Americans", 12, 12, 0, rules)
+                .unwrap();
+            let victim = sim
+                .spawn_object("E1", "Russians", 15, 12, 0, rules)
+                .unwrap();
+            let owner = sim.substrate.entities.get(scanner).unwrap().owner();
+            sim.fog.mark_visible_for_owner(owner, 15, 12);
+            sim.session.binary_frame = 100;
+            sim.substrate
+                .entities
+                .get_mut(scanner)
+                .unwrap()
+                .passive_scan
+                .timer_mut_for_test()
+                .clear();
+            let ctx = ObjectAiCtx {
+                overlay_registry: Some(&registry),
+                ..ObjectAiCtx::default()
+            };
+            passive_acquire_step(&mut sim, scanner, Some(rules), ctx);
+            let actor = sim.substrate.entities.get(scanner).unwrap();
+            assert_eq!(
+                actor.attack_target.target(),
+                Some(TargetKind::Entity(victim))
+            );
+            assert!(
+                actor.passive_scan.acquired(),
+                "the real passive scan installed this target"
+            );
+
+            let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
+            if blocked {
+                overlays.place_overlay(13, 12, wall, 0);
+            }
+            sim.overlay_grid = Some(overlays);
+            let actor = sim.substrate.entities.get(scanner).unwrap();
+            let subject = FireSubject {
+                world: &sim,
+                rules,
+                overlay_registry: Some(&registry),
+                fog: Some(&sim.fog),
+                firer: actor,
+                obj: rules.object("E1").unwrap(),
+                target: Some(TargetKind::Entity(victim)),
+                weapon_index: select_weapon(&sim, rules, scanner, Some(TargetKind::Entity(victim))),
+            };
+            assert_eq!(
+                subject.in_range(),
+                !blocked,
+                "stock wall/no-wall geometry control"
+            );
+            sim.substrate
+                .entities
+                .get_mut(scanner)
+                .unwrap()
+                .passive_scan
+                .timer_mut_for_test()
+                .clear();
+            let mut expected_scenario = sim.scenario_rng.clone();
+            let jitter = expected_scenario.next_range_u32_inclusive(0, 2);
+            let main = sim.main_rng.state();
+            let mapgen = sim.mapgen_rng.state();
+            passive_acquire_step(&mut sim, scanner, Some(rules), ctx);
+            let actor = sim.substrate.entities.get(scanner).unwrap();
+            assert_eq!(actor.passive_scan.last_scan_frame(), 100);
+            assert_eq!(actor.passive_scan.timer().start_frame(), 100);
+            assert_eq!(
+                actor.passive_scan.timer().duration(),
+                rules.general.normal_targeting_delay as u32 + jitter
+            );
+            assert_eq!(sim.scenario_rng.state(), expected_scenario.state());
+            assert_eq!(sim.main_rng.state(), main);
+            assert_eq!(sim.mapgen_rng.state(), mapgen);
+            assert_eq!(
+                actor.attack_target.target(),
+                (!blocked).then_some(TargetKind::Entity(victim)),
+                "a passive target behind an unbreakable wall must be dropped, blocked={blocked}",
+            );
+            assert_eq!(actor.passive_scan.acquired(), !blocked);
+            let after_scan = sim.scenario_rng.state();
+            passive_acquire_step(&mut sim, scanner, Some(rules), ctx);
+            assert_eq!(
+                sim.scenario_rng.state(),
+                after_scan,
+                "the rearmed timer gates another scan"
+            );
+        }
+    }
 
     const TARGET: i64 = 0x2000_4000;
     const OTHER: i64 = 0x2000_4800;

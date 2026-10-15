@@ -1492,7 +1492,7 @@ fn illegal_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     }
     let weapon = target_scan::select_weapon(sim, rules, id, Some(target));
-    let code = target_scan::fire_error_at(sim, rules, id, Some(target), weapon, false);
+    let code = target_scan::fire_error_at(sim, rules, id, Some(target), weapon, false, None);
     if matches!(code, FireError::Illegal | FireError::Cant) {
         //6FA4CB dispatches class+3C8 before this object's mission handler:
         // Infantry51B1F0 clears68D/requests its action and invalidates5E0.
@@ -3950,7 +3950,7 @@ mod tests {
                 let target = crate::sim::combat::TargetKind::Entity(2);
                 let weapon = target_scan::select_weapon(&sim, &rules, 1, Some(target));
                 assert!(matches!(
-                    target_scan::fire_error_at(&sim, &rules, 1, Some(target), weapon, false),
+                    target_scan::fire_error_at(&sim, &rules, 1, Some(target), weapon, false, None),
                     crate::sim::combat::fire_error::FireError::Illegal
                         | crate::sim::combat::fire_error::FireError::Cant
                 ));

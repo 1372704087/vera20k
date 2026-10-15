@@ -93,22 +93,6 @@ impl ProjectileCollisionWorld<'_> {
         }
     }
 
-    fn level(cell: &CellRef<'_>) -> i32 {
-        match cell {
-            CellRef::Real(c) => i32::from(c.level as i8),
-            CellRef::Dummy { cell } => i32::from(cell.snapshot().level),
-        }
-    }
-
-    fn effective_level(cell: &CellRef<'_>) -> i32 {
-        Self::level(cell)
-            + if cell.bridge_flags_0x1180() & 0x80 != 0 {
-                4
-            } else {
-                0
-            }
-    }
-
     /// 47C3D0(0,0,ground,null) chooses minimum truncated distance of low-byte
     /// XY, with strict ties retaining E4 list order. Nonbuilding Techno
     /// insertions prepend; Building insertions append (47E8A0).
@@ -398,15 +382,11 @@ impl ProjectileCollisionWorld<'_> {
         // `ObjectClass::GetHeight @ 0x005F5F40` on the pre-move coordinate,
         // from the bridge deck for an OnBridge bullet.
         let old_height = || {
-            projectile
-                .position
-                .z
-                .wrapping_sub(self.ground(projectile.position))
-                .wrapping_sub(if projectile.on_bridge {
-                    crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS
-                } else {
-                    0
-                })
+            crate::sim::movement::ground_pose::height_at_z(
+                projectile.position.z,
+                self.ground(projectile.position),
+                projectile.on_bridge,
+            )
         };
         if !vertical && same_cell && old_height() < 208 {
             impact = true;
@@ -490,7 +470,14 @@ impl ProjectileCollisionWorld<'_> {
         {
             return true;
         }
-        let height = candidate.z.wrapping_sub(self.ground(candidate));
+        // 468C8A/468CF2 dispatch Object.GetHeight5F5F40 with the Bullet's
+        // retained OnBridge byte. Keep these ground queries at their original
+        // boundaries, including Flak's target-height prerequisite below.
+        let height = crate::sim::movement::ground_pose::height_at_z(
+            candidate.z,
+            self.ground(candidate),
+            projectile.on_bridge,
+        );
         if height <= -crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS {
             return true;
         }
@@ -498,7 +485,11 @@ impl ProjectileCollisionWorld<'_> {
             && self
                 .target_coordinate(projectile.target, ProjectileTargetQuery::TargetAim)
                 .is_some_and(|target| candidate.z < target.z)
-            && candidate.z.wrapping_sub(self.ground(candidate)) < 0
+            && crate::sim::movement::ground_pose::height_at_z(
+                candidate.z,
+                self.ground(candidate),
+                projectile.on_bridge,
+            ) < 0
         {
             return true;
         }
@@ -556,27 +547,12 @@ impl ProjectileCollisionWorld<'_> {
         ))
     }
 
-    fn cell_location(cell: &CellRef<'_>) -> ProjectileCoord {
-        let (x, y, level, slope) = match cell {
-            CellRef::Real(c) => (
-                i32::from(c.rx as i16),
-                i32::from(c.ry as i16),
-                c.level,
-                c.slope_type,
-            ),
-            CellRef::Dummy { cell } => {
-                let c = cell.snapshot();
-                (c.coord.0, c.coord.1, c.level as u8, c.slope_type)
-            }
-        };
-        let x = x * 256 + 128;
-        let y = y * 256 + 128;
-        let z = crate::util::lepton::ground_height_leptons(level, slope, x, y)
-            .expect("native Cell +48 slope");
-        ProjectileCoord::new(x, y, z)
-    }
-
     fn cliff_wall(&self, projectile: &Projectile, candidate: ProjectileCoord) -> bool {
+        use crate::sim::combat::line_of_fire::{
+            CellObstructionProbe, LineOfFireInputs, cell_blocks_line_of_fire,
+        };
+        // Shared468BB0 resolves the three retained inputs before4CC360.
+        // Source/target use565730; previous and sampled queries use5657A0.
         let source = self.cell(projectile.launch_origin);
         let target = self.cell(projectile.launch_target);
         let previous = if self.terrain.is_some() {
@@ -594,72 +570,41 @@ impl ProjectileCollisionWorld<'_> {
                 cell: self.dummy.clone(),
             }
         };
-        let cell = self.packed_cell(candidate);
-        if !self.cell_blocks(projectile, &source, &target, &previous, &cell) {
-            return false;
-        }
-        // 4CC489..4CC671 retains each Cell pointer, observes +48 in this
-        // order, and may requery the SAME packed candidate. Dummy identities
-        // remain live through all queries; never snapshot them at fetch time.
-        let center = Self::cell_location(&cell);
-        if coord_distance(candidate, center) <= 85 {
-            return true;
-        }
-        let launch = Self::cell_location(&source);
-        let destination = Self::cell_location(&target);
-        let major_x = launch.x.wrapping_sub(destination.x).wrapping_abs();
-        let major_y = launch.y.wrapping_sub(destination.y).wrapping_abs();
-        let off_x = candidate.x.wrapping_sub(center.x).wrapping_abs();
-        let off_y = candidate.y.wrapping_sub(center.y).wrapping_abs();
-        if (major_x > major_y && off_y > off_x) || (major_y > major_x && off_x > off_y) {
-            let second = self.packed_cell(candidate);
-            self.cell_blocks(projectile, &source, &target, &previous, &second)
-        } else {
-            true
-        }
-    }
-
-    fn cell_blocks(
-        &self,
-        projectile: &Projectile,
-        source: &CellRef<'_>,
-        target: &CellRef<'_>,
-        previous: &CellRef<'_>,
-        cell: &CellRef<'_>,
-    ) -> bool {
-        if projectile.collision.subject_to_cliffs
-            && Self::effective_level(cell) - Self::effective_level(previous) >= 4
-            && Self::effective_level(cell) > Self::effective_level(source)
-        {
-            return true;
-        }
-        if !projectile.collision.subject_to_walls
-            || cell == target
-            || Self::level(source) > Self::level(target)
-        {
-            return false;
-        }
-        let (overlay, owner) = self.overlay(cell);
-        if !overlay.is_some_and(|id| {
-            self.overlay_registry
-                .and_then(|registry| registry.flags(id))
-                .is_some_and(|flags| flags.wall)
-        }) {
-            return false;
-        }
-        if self
-            .rules
-            .is_some_and(|rules| rules.allied_wall_transparency)
-            && let (Some(owner), Some(source)) = (owner, self.entities.get(projectile.source_id))
-            && crate::map::houses::is_allied_with(
-                self.alliances,
-                self.interner.resolve(owner),
-                self.interner.resolve(source.owner()),
-            )
-        {
-            return false;
-        }
-        true
+        let los = LineOfFireInputs {
+            overlay_grid: self.overlays,
+            overlay_registry: self.overlay_registry,
+            alliances: Some(self.alliances),
+        };
+        cell_blocks_line_of_fire(
+            CellObstructionProbe {
+                source,
+                target,
+                previous,
+                sample: crate::sim::components::DriveCoord {
+                    x: candidate.x,
+                    y: candidate.y,
+                    z: candidate.z,
+                },
+                subject_to_cliffs: projectile.collision.subject_to_cliffs,
+                subject_to_walls: projectile.collision.subject_to_walls,
+                firing_house: self
+                    .entities
+                    .get(projectile.source_id)
+                    .map(|source| source.owner()),
+            },
+            self.interner,
+            self.rules
+                .is_some_and(|rules| rules.allied_wall_transparency),
+            &los,
+            |(x, y)| {
+                self.packed_cell(ProjectileCoord::new(
+                    i32::from(x) * 256,
+                    i32::from(y) * 256,
+                    0,
+                ))
+            },
+        )
+        .is_some()
     }
 
     /// Resolve each native virtual through its existing coordinate owner.
@@ -751,6 +696,243 @@ mod tests {
             overlay_registry: None,
             rules: None,
             map_size: Some((2, 3)),
+        }
+    }
+
+    /// Instruction-established inputs to468BB0, not stock flight histories.
+    /// The shared probe queries height twice at distinct native boundaries;
+    /// retained Bullet OnBridge is independent of the map's bridge flags.
+    #[test]
+    fn shared_bridge_height_admissions_use_the_retained_bullet_flag() {
+        for (level, slope, dummy) in [(0, 0, false), (2, 1, false), (2, 1, true)] {
+            for (on_bridge, relative_z, flak, aim_height, admitted) in [
+                (true, 0, false, 500, true),
+                (false, 0, false, 500, false),
+                (true, 1, false, 500, false),
+                (true, 415, true, 500, true),
+                (false, 415, true, 500, false),
+                (true, 416, true, 500, false),
+                (true, 415, true, 415, false),
+                (true, 415, true, 414, false),
+            ] {
+                let mut sim = Simulation::new();
+                install_common_raw_terrain(&mut sim, 8, 8, level, None);
+                let (x, y) = if dummy {
+                    (20 * 256 + 128, 21 * 256 + 128)
+                } else {
+                    (640, 640)
+                };
+                if dummy {
+                    sim.shared_cell_dummy.set_level_slope(level as i8, slope);
+                } else {
+                    sim.resolved_terrain
+                        .as_mut()
+                        .unwrap()
+                        .cell_mut(2, 2)
+                        .unwrap()
+                        .slope_type = slope;
+                }
+                let ground = world(&sim).ground(ProjectileCoord::new(x, y, 0));
+                let candidate = ProjectileCoord::new(x, y, ground + relative_z);
+                place(
+                    &mut sim,
+                    2,
+                    ProjectileCoord::new(640, 640, ground + aim_height),
+                    EntityCategory::Unit,
+                );
+                let mut shot = gsi_05_02_projectile(999, None);
+                shot.origin = candidate;
+                shot.target = ProjectileTarget::Entity(2);
+                shot.collision.flak_scatter = flak;
+                sim.projectiles.spawn(100, shot);
+                let mut bullet = sim.projectiles.get(100).unwrap().clone();
+                bullet.on_bridge = on_bridge;
+                let original = bullet.clone();
+                let response =
+                    world(&sim).collide(&bullet, candidate, ProjectileCollisionPhase::Shared);
+                assert_eq!(
+                    response.is_some(),
+                    admitted,
+                    "level={level}, slope={slope}, dummy={dummy}, OnBridge={on_bridge}, z-ground={relative_z}, flak={flak}, aim-ground={aim_height}"
+                );
+                assert_eq!(
+                    bullet, original,
+                    "probe does not rewrite retained Bullet state"
+                );
+                if dummy {
+                    assert_eq!(
+                        sim.shared_cell_dummy.snapshot().coord,
+                        (20, 21),
+                        "height queries stamp the supplied candidate"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Real retail FireAt supplies target OnBridge6FF08B..6FF0B0, not firer
+    /// OnBridge. A deliberately supplied later committed coordinate exercises
+    /// the shared consumer; ordinary first-AI admission is a separate control.
+    #[test]
+    fn retail_inviso_fireat_bridge_flag_reaches_shared_height_and_first_ai() {
+        use crate::sim::combat::{TargetKind, world_fire::FireVisit};
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = retail.rules;
+        let rifle = rules.object("E1").unwrap().primary().unwrap();
+        let weapon = rules.weapon(rifle).unwrap();
+        assert!(
+            rules
+                .projectile(weapon.projectile.as_deref().unwrap())
+                .unwrap()
+                .inviso
+        );
+        for (firer_bridge, target_bridge) in [(false, true), (true, false), (false, false)] {
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 71);
+            let bridge = if firer_bridge { (10, 10) } else { (12, 10) };
+            // Retain the arena's actual Clear speed costs and allocation;
+            // only this supplied bridge cell differs from its initial map.
+            let bridge_cell = sim
+                .resolved_terrain
+                .as_mut()
+                .unwrap()
+                .cell_mut(bridge.0, bridge.1)
+                .unwrap();
+            let supplied =
+                super::super::lifecycle_tests::common_raw_terrain_cell(bridge.0, bridge.1, 0, true);
+            bridge_cell.bridge_facts = supplied.bridge_facts;
+            bridge_cell.has_bridge_deck = supplied.has_bridge_deck;
+            bridge_cell.bridge_walkable = supplied.bridge_walkable;
+            bridge_cell.bridge_deck_level = supplied.bridge_deck_level;
+            sim.bridge_state = Some(
+                crate::sim::bridge_state::BridgeRuntimeState::from_resolved_terrain(
+                    sim.resolved_terrain.as_ref().unwrap(),
+                    true,
+                    1500,
+                ),
+            );
+            assert!(sim.rebuild_dynamic_navigation(&rules));
+            let mut actors = Vec::new();
+            for (kind, owner, x, y, facing, on_bridge) in [
+                ("E1", "Americans", 10, 10, 64, firer_bridge),
+                ("HTNK", "Russians", 12, 10, 192, target_bridge),
+            ] {
+                let id = sim
+                    .construct_object_limbo_at_height(
+                        kind,
+                        owner,
+                        x,
+                        y,
+                        facing,
+                        0,
+                        &rules,
+                        FrameEffects::default(),
+                    )
+                    .unwrap();
+                // OnBridge is an explicit caller prior, as in the existing
+                // original Unit/Infantry Unlimbo controls. Convenience spawn
+                // at a coarse Z does not set this independent retained byte.
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .set_on_bridge(on_bridge);
+                let coord =
+                    crate::sim::components::DriveCoord::cell(x, y, if on_bridge { 416 } else { 0 });
+                assert!(
+                    sim.with_object_placement_scope(|sim| {
+                        sim.reveal_constructed_object_at_coord_with_overlay_context(
+                            id,
+                            coord,
+                            facing,
+                            PlacementEvidence::EvaluateMark,
+                            &rules,
+                            None,
+                            FrameEffects::default(),
+                        )
+                        .is_some()
+                    }),
+                    "supplied {kind} bridge={on_bridge} Unlimbo is admitted"
+                );
+                actors.push(id);
+            }
+            let [firer, target] = <[u64; 2]>::try_from(actors).unwrap();
+            assert_eq!(
+                sim.substrate.entities.get(firer).unwrap().on_bridge(),
+                firer_bridge
+            );
+            assert_eq!(
+                sim.substrate.entities.get(target).unwrap().on_bridge(),
+                target_bridge
+            );
+            let subject = crate::sim::combat::fire_error_world::FireSubject {
+                world: &sim,
+                rules: &rules,
+                overlay_registry: None,
+                fog: None,
+                firer: sim.substrate.entities.get(firer).unwrap(),
+                obj: rules.object("E1").unwrap(),
+                target: Some(TargetKind::Entity(target)),
+                weapon_index: 0,
+            };
+            assert!(
+                subject.in_range(),
+                "real range consumer admits this stock shot"
+            );
+            assert_eq!(
+                subject.fire_error(true),
+                crate::sim::combat::fire_error::FireError::Ok,
+                "GetFireError admits the actual retail FireAt target"
+            );
+            sim.commit_fire_visit(
+                FireVisit::Direct {
+                    id: firer,
+                    target: TargetKind::Entity(target),
+                    weapon_index: 0,
+                },
+                &rules,
+                None,
+                FrameEffects::default(),
+            );
+            let bullet = sim
+                .projectiles
+                .iter()
+                .find_map(|(_, p)| (p.source_id == firer).then(|| p.clone()))
+                .expect("retail M60 FireAt admits a Bullet");
+            assert_eq!(bullet.on_bridge, target_bridge);
+            let collision = world(&sim);
+            // A deliberately supplied later committed position on clear
+            // ground isolates GetHeight from the independent cliff admission
+            // on the target's bridge anchor. No stock flight is claimed.
+            let later_xy = ProjectileCoord::new(bullet.position.x + 256, bullet.position.y, 0);
+            let candidate =
+                ProjectileCoord::new(later_xy.x, later_xy.y, collision.ground(later_xy));
+            let mut later = bullet.clone();
+            later.position = candidate;
+            assert_eq!(
+                collision
+                    .collide(&later, candidate, ProjectileCollisionPhase::Shared)
+                    .is_some(),
+                target_bridge,
+                "supplied later coordinate, firerBridge={firer_bridge}, targetBridge={target_bridge}"
+            );
+            let health = sim.substrate.entities.get(target).unwrap().health.current();
+            // The ordinary Logic frame dispatches Bullet AI separately from
+            // the Techno live-object turn and drains final deletion afterward.
+            sim.advance_tick(&[], Some(&rules), None, None, 16);
+            assert!(
+                sim.projectiles.get(bullet.id).is_none(),
+                "stock ordinary admission still detonates at first AI"
+            );
+            assert!(
+                sim.substrate.entities.get(target).unwrap().health.current() < health,
+                "existing receiver commits the hit"
+            );
+            assert!(
+                sim.pending_projectile_detonations.is_empty(),
+                "detonation commits once in its Logic visit"
+            );
         }
     }
 
@@ -1175,6 +1357,7 @@ mod tests {
             sim.projectiles.spawn(100, spawn);
             let mut projectile = sim.projectiles.get(100).unwrap().clone();
             projectile.position = candidate;
+            projectile.on_bridge = flag("on_bridge");
             projectile.previous_cell = row["previous"]
                 .as_array()
                 .map(|xy| {

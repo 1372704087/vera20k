@@ -1091,7 +1091,9 @@ pub(crate) fn commit_entities(
                     .push(ReceiverStageTrace::ShouldRetaliate { target_id });
                 combat_targeting::should_retaliate(world, rules, target_id, attacker_id)
             };
-            if retaliates && retaliation_reaches(world, rules, target_id, attacker_id) {
+            if retaliates
+                && retaliation_reaches(world, rules, target_id, attacker_id, overlay_registry)
+            {
                 world.override_mission_on_damage_response(
                     target_id,
                     attacker_id,

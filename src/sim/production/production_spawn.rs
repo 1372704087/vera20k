@@ -70,9 +70,10 @@ pub(super) struct DockExit {
 /// zero Cell, then [`dock_exit_coordinate_and_facing`] for that Cell. The
 /// Infantry arm's call (`0x004449AF`) offers the empty Cell (`0x0089C818`,
 /// zeroed by `0x0043B0E0`); the generic arm's (`0x0044464D`) offers
-/// ExitObject's own Cell argument, which both callers pass zero (Factory_AI
-/// `0x00450155`, Place_Production `0x004FB563`). `None` is the empty dock
-/// Cell, on which both arms answer 0 (`0x00445696`).
+/// ExitObject's own Cell argument, which its callers pass zero (Factory_AI
+/// `0x00450155`, Place_Production `0x004FB563`, the Cloning Vat loop
+/// `0x00444A3E`). `None` is the empty dock Cell, on which both arms answer 0
+/// (`0x00445696`).
 pub(super) fn dock_exit(
     sim: &Simulation,
     rules: &RuleSet,

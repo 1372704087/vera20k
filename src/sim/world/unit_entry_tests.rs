@@ -97,6 +97,7 @@ fn a_closed_gate_asks_its_own_house_about_the_mover() {
             sim,
             rules: &rules,
             registry: Some(&registry),
+            facts: None,
         };
         let args = InfantryEntryArgs {
             direction: -1,
@@ -233,6 +234,7 @@ fn unit_post_walk_tail_matches_original_crush_controls() {
             sim: &sim,
             rules: &rules,
             registry: Some(&registry),
+            facts: None,
         };
         let mover = EntryMover::new(
             &live,
@@ -315,6 +317,7 @@ fn an_unarmed_train_answers_five_where_an_unarmed_unit_answers_seven() {
                 sim: &sim,
                 rules: &rules,
                 registry: Some(&registry),
+                facts: None,
             };
             let args = InfantryEntryArgs {
                 direction: -1,
@@ -366,6 +369,7 @@ fn a_crusher_meets_a_terrain_object_with_its_weapon() {
             sim: &sim,
             rules: &rules,
             registry: Some(&registry),
+            facts: None,
         };
         let args = InfantryEntryArgs {
             direction: -1,
@@ -797,31 +801,42 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
             }),
         };
         let expected = row["result"].as_u64().unwrap() as u8;
+        // Each row is asked from the world and again through a path batch's
+        // kept facts, read from this row's world.
         let query = |sim: &mut Simulation| {
-            let live = EntryReadContext {
-                sim,
-                rules: &rules,
-                registry: Some(&registry),
-            };
-            let actual = classify_entry(&live, CellObjectMember::Entity(90), cell, args);
-            let repair = repair_projection.then(|| {
-                classify_entry(
-                    &live,
-                    CellObjectMember::Entity(90),
-                    cell,
-                    crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
-                )
-                .map(|code| code == 7)
-            });
-            (actual, repair)
+            let sim: &Simulation = sim;
+            let kept = EntryFacts::fitted(sim);
+            [None, Some(&kept)].map(|facts| {
+                let live = EntryReadContext {
+                    sim,
+                    rules: &rules,
+                    registry: Some(&registry),
+                    facts,
+                };
+                let actual = classify_entry(&live, CellObjectMember::Entity(90), cell, args);
+                let repair = repair_projection.then(|| {
+                    classify_entry(
+                        &live,
+                        CellObjectMember::Entity(90),
+                        cell,
+                        crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
+                    )
+                    .map(|code| code == 7)
+                });
+                (actual, repair)
+            })
         };
-        let (actual, repair) = if flag("game_mode_nonzero") {
+        let answers = if flag("game_mode_nonzero") {
             sim.with_object_placement_scope(query)
         } else {
             query(&mut sim)
         };
-        if actual != Ok(expected) || repair.is_some_and(|answer| answer != Ok(expected == 7)) {
-            mismatches.push(format!("{input}: expected {expected}, actual {actual:?}"));
+        for ((actual, repair), reads) in answers.into_iter().zip(["world", "kept"]) {
+            if actual != Ok(expected) || repair.is_some_and(|answer| answer != Ok(expected == 7)) {
+                mismatches.push(format!(
+                    "{input} ({reads}): expected {expected}, actual {actual:?}"
+                ));
+            }
         }
     }
     assert_eq!(rows.as_array().unwrap().len(), expected_count);

@@ -1109,8 +1109,6 @@ pub(crate) fn enter_idle_mode(
 /// does.
 ///
 /// RESIDUALS, beside those on [`foot_enter_idle_mode_selection`]:
-/// - the Unit's Area Guard pick (`0x00738B67..0x00738C98`, residual in
-///   `Simulation::unit_enter_idle_mode`) is committed as Guard.
 /// - a Harvester or Weeder vehicle takes its own arm (`0x00738BD8`,
 ///   `Simulation::unit_enter_idle_mode`).
 /// - an unarmed vehicle's Unload arm (`0x00738A7C..0x00738AAF`: `+0x3D4`,
@@ -1214,9 +1212,8 @@ pub(crate) fn foot_enter_idle_mode_selection(
                 FootIdleSelection::KeepBaseReturn
             };
         }
-        // The class's own guard pick: Infantry's [`infantry_idle_guard_pick`];
-        // the Unit's armed branch passes Guard (its Area Guard arm is a
-        // residual on `Simulation::unit_enter_idle_mode`).
+        // The class's own guard pick: Infantry's [`infantry_idle_guard_pick`],
+        // the Unit armed branch's `unit_idle_guard_pick`.
         guard_pick
     };
     let committed_blocks = matches!(mission, Some(MissionType::Patrol | MissionType::AreaGuard))

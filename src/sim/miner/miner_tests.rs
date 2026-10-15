@@ -3824,30 +3824,43 @@ fn player_move_arrival_after_full_harvest_parks_a_human_miner_on_guard() {
 }
 
 /// `In_Radio_Contact` ⇒ the arm returns without assigning anything: a miner
-/// still linked to a refinery keeps Move and no mission is queued.
+/// still linked to a refinery keeps Move and no mission is queued. Exactly on
+/// its Cell's centre at height 0 it breaks that link first (OVER_OUT,
+/// `0x007389C4..0x00738A27`), so the selector runs and queues Harvest on ore.
 #[test]
-fn player_move_arrival_in_radio_contact_assigns_nothing() {
+fn player_move_arrival_in_radio_contact_assigns_nothing_off_a_cell_centre() {
+    use crate::sim::components::DriveCoord;
     use crate::sim::mission::{MissionId, MissionType};
 
-    let mut sim = Simulation::new();
-    let rules = miner_rules();
-    let miner_id = spawn_miner(&mut sim, 1, MinerKind::War, 20, 20);
-    spawn_refinery(&mut sim, 2, 10, 10);
-    place_ore(&mut sim, 20, 20, 5);
-    install_land_types_for_placed_ore(&mut sim);
-    sim.substrate
-        .entities
-        .get_mut(miner_id)
-        .unwrap()
-        .radio_contacts
-        .insert(2);
-    let now = sim.session.binary_frame;
-    sim.mission_assign_exact(miner_id, MissionId::from_known(MissionType::Move), now)
-        .expect("assign Move");
-    visit_object_ai(&mut sim, &rules, miner_id);
-    let e = sim.substrate.entities.get(miner_id).unwrap();
-    assert_eq!(e.mission.current().known(), Some(MissionType::Move));
-    assert_eq!(e.mission.queued(), MissionId::NONE);
+    for at_centre in [false, true] {
+        let mut sim = Simulation::new();
+        let rules = miner_rules();
+        let miner_id = spawn_miner(&mut sim, 1, MinerKind::War, 20, 20);
+        spawn_refinery(&mut sim, 2, 10, 10);
+        place_ore(&mut sim, 20, 20, 5);
+        install_land_types_for_placed_ore(&mut sim);
+        let miner = sim.substrate.entities.get_mut(miner_id).unwrap();
+        miner.radio_contacts.insert(2);
+        if !at_centre {
+            miner.position.put_location(DriveCoord {
+                x: 20 * 256 + 129,
+                y: 20 * 256 + 128,
+                z: 0,
+            });
+        }
+        let now = sim.session.binary_frame;
+        sim.mission_assign_exact(miner_id, MissionId::from_known(MissionType::Move), now)
+            .expect("assign Move");
+        visit_object_ai(&mut sim, &rules, miner_id);
+        let e = sim.substrate.entities.get(miner_id).unwrap();
+        assert_eq!(e.radio_contacts.contains(2), !at_centre);
+        assert_eq!(e.mission.current().known(), Some(MissionType::Move));
+        assert_eq!(
+            e.mission.queued().known(),
+            at_centre.then_some(MissionType::Harvest),
+            "at centre {at_centre}"
+        );
+    }
 }
 
 /// Registers `Americans` (the `spawn_miner` owner) and `YuriCountry` (the

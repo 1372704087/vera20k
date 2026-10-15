@@ -365,6 +365,61 @@ fn a_war_factory_null_destination_empties_the_list() {
     }
 }
 
+/// Unit Assign_Destination's WeaponsFactory arm (`0x00742D46..0x00742E37`):
+/// a tank still leaving its war factory keeps its exit NavCom, and an order
+/// waits on its list for its next idle. The factory's own exit Cell, an Enter
+/// mission or no factory in radio contact 0 takes the order at once.
+#[test]
+fn an_order_during_a_war_factory_exit_waits_on_the_list() {
+    for case in ["exit", "exit_cell", "enter", "no_contact"] {
+        let Some((mut sim, rules)) = retail_world(true) else {
+            return;
+        };
+        let factory = sim
+            .spawn_object("GAWEAP", "Americans", 20, 20, 0, &rules)
+            .unwrap();
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        let mission = if case == "enter" {
+            MissionType::Enter
+        } else {
+            MissionType::Move
+        };
+        set_mission(&mut sim, tank, mission);
+        let location = crate::sim::movement::ground_pose::position_world_coord(
+            &sim.substrate.entities.get(factory).unwrap().position,
+        );
+        let (rx, ry) = crate::sim::movement::war_factory_exit_cell(location);
+        let unit = sim.substrate.entities.get_mut(tank).unwrap();
+        unit.navigation.set_nav_com_for_test(Some(ELSEWHERE));
+        unit.navigation.set_nav_list_for_test(vec![B], false);
+        if case != "no_contact" {
+            unit.radio_contacts.insert(factory);
+        }
+        let order = if case == "exit_cell" {
+            NavTargetRef::Cell { rx, ry }
+        } else {
+            A
+        };
+        sim.assign_destination_represented(
+            tank,
+            Some(order),
+            Some(&rules),
+            None,
+            FrameEffects::default(),
+        )
+        .unwrap();
+        if case == "exit" {
+            assert_eq!(nav_com(&sim, tank), Some(ELSEWHERE), "{case}");
+            assert_eq!(list(&sim, tank), (vec![A], false), "{case}");
+        } else {
+            assert_eq!(nav_com(&sim, tank), Some(order), "{case}");
+            assert_eq!(list(&sim, tank), (vec![B], false), "{case}");
+        }
+    }
+}
+
 /// PointerExpired removes each entry naming the expiring object
 /// (`0x004D9B43..0x004D9B95`), and the expiry broadcast reaches a Foot that
 /// names it only there.

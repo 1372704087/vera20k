@@ -1201,13 +1201,28 @@ impl Simulation {
         if entity.lift.target().is_some() {
             self.release_locomotor(id, true, rules, None, effects);
         }
-        // RESIDUAL: `0x007389C4..0x00738A27` is not ported: a Unit whose
-        // mission (vt+0x184) is Move, with no NavCom, standing exactly on its
-        // Cell's center at height 0, transmits OVER_OUT to radio contact 0
-        // (vt+0x274(3), `crate::sim::radio::transmit_to_contact`). Trigger:
-        // a Unit on Move at rest on a level-0 Cell center with a radio
-        // contact. Effect: VERA keeps the link native breaks. Frequency: not
-        // measured.
+        // 0x007389C4..0x00738A27: a Unit on Move (vt+0x184) with no NavCom,
+        // standing exactly on its Cell's (vt+0x1B8) centre at height 0,
+        // breaks its radio link (OVER_OUT to contact 0, vt+0x274(3)).
+        if let Some(entity) = self.substrate.entities.get(id)
+            && entity.mission.effective().known() == Some(MissionType::Move)
+            && entity.navigation.nav_com().is_none()
+        {
+            let location = position_world_coord(&entity.position);
+            let centre = |lepton: i32| i32::from((lepton / 256) as i16) * 256 + 128;
+            if location.x == centre(location.x)
+                && location.y == centre(location.y)
+                && location.z == 0
+            {
+                crate::sim::radio::transmit_to_contact(
+                    self,
+                    id,
+                    crate::sim::radio::RadioMessage::Break,
+                    rules,
+                    effects,
+                );
+            }
+        }
         // `0x00738A2F`: the navigation list may send it on.
         self.handle_navigation_list(id, rules, None, effects);
         let Some(entity) = self.substrate.entities.get_mut(id) else {
@@ -1247,13 +1262,6 @@ impl Simulation {
         } else if miner {
             rules.and_then(|rules| harvester_idle_selection(self, id, rules, skip_human_land_check))
         } else if armed {
-            // RESIDUAL: the armed arm's Area Guard pick (`0x00738B67..
-            // 0x00738C98`: a House IQ at `[IQ] GuardArea=`, the veteran
-            // GUARD_AREA ability or `DefaultToGuardArea=`, then no team,
-            // slave link, slave manager or bunker) is not ported; the Unit
-            // takes Guard. Trigger: an idle armed vehicle that passes it.
-            // Effect: it holds its ground instead of covering an area.
-            // Frequency: not measured.
             rules.map_or(Some(MissionType::Guard), |rules| {
                 crate::sim::world::foot_enter_idle_mode_selection(
                     rules,
@@ -1262,7 +1270,7 @@ impl Simulation {
                     false,
                     false,
                     effective,
-                    MissionType::Guard,
+                    unit_idle_guard_pick(self, id, rules),
                 )
                 .queued_mission()
             })
@@ -1280,6 +1288,11 @@ impl Simulation {
             self.assign_null_destination(id, rules, None, effects);
         }
         // Unit738CFA..D12 suppresses assignment only after preceding writes.
+        // RESIDUAL: so does `0x00738C9D..0x00738CF8`, ahead of it, for a
+        // Unit on Enter whose radio contact 0 is the `Bunker=` building
+        // under it; VERA queues the selection there. Trigger: Enter_Idle_Mode
+        // for a vehicle entering a tank bunker. Effect: it leaves Enter.
+        // Frequency: not measured.
         let selection = selection.filter(|_| {
             !matches!(
                 self.substrate
@@ -1338,6 +1351,44 @@ mod tests;
 #[cfg(test)]
 #[path = "track_force_tests.rs"]
 mod force_tests;
+
+/// `UnitClass::Enter_Idle_Mode`'s armed guard pick (`0x00738B67..
+/// 0x00738C98`), reached with no NavCom and an effective mission that is
+/// neither Guard nor Area Guard nor frozen: Area Guard when the owner's IQ
+/// (`+0x24C`) reaches `[IQ] GuardArea=` (`Rules+0x1440`), the Unit has the
+/// veteran GUARD_AREA ability (`0x0070D0D0`, 0x10) or its type is
+/// `DefaultToGuardArea=` (`+0xD39`), unless it is in a team (`+0x5D4`), a
+/// slave (`+0x2DC`), a slave master (`+0x2D8`) or in a tank bunker
+/// (`+0x2E4`); otherwise Guard. Unlike Infantry's pick, a human's House
+/// takes the IQ test too.
+fn unit_idle_guard_pick(sim: &Simulation, id: u64, rules: &RuleSet) -> MissionType {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return MissionType::Guard;
+    };
+    let wide = sim
+        .houses
+        .get(&entity.owner())
+        .is_some_and(|house| house.current_iq >= rules.general.iq_guard_area)
+        || sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| {
+                crate::sim::combat::veterancy::has_weapon_ability(
+                    entity.veterancy.rank_kind(),
+                    object,
+                    crate::rules::object_type::Ability::GuardArea,
+                ) || object.default_to_guard_area
+            });
+    if wide
+        && sim.team_script_vm.team_for_member(id).is_none()
+        && entity.slave.owner().is_none()
+        && entity.slave_manager.is_none()
+        && entity.bunker.link().installed_in().is_none()
+    {
+        MissionType::AreaGuard
+    } else {
+        MissionType::Guard
+    }
+}
 
 /// The no-destination harvester selector of `UnitClass::Enter_Idle_Mode @
 /// 0x00738970`, for a unit whose `Harvester=`/`Weeder=` flag

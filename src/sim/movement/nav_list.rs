@@ -4,13 +4,16 @@
 //! queue and send operations.
 //!
 //! - Producers: ExitObject's Infantry post (`0x00444DAC`,
-//!   `production_queue::infantry_exit_tail`) and the Unit WeaponsFactory
-//!   destination arm (`0x00742E28`, not ported; see `track_path`).
+//!   `production_queue::infantry_exit_tail`) and the Unit setter's
+//!   WeaponsFactory arm (`0x00742E28`, `Simulation::unit_factory_exit_arm`):
+//!   an order to a vehicle still leaving its war factory.
 //! - Consumers: Handle_Navigation_List from Infantry (`0x0051CC21`) and Unit
-//!   (`0x00738A2F`) Enter_Idle_Mode, and Mission_Area_Guard's head for a
-//!   computer Foot ([`Simulation::area_guard_navigation_head`]).
+//!   (`0x00738A2F`) Enter_Idle_Mode, Mission_Area_Guard's head for a
+//!   computer Foot ([`Simulation::area_guard_navigation_head`]), and Unit
+//!   Per_Cell_Process's building Scatter tail, which reads the count
+//!   (`0x0073ABAE`, `Simulation::unit_per_cell_building_scatter`).
 //! - Clears: the MEGAMISSION event (`0x004C7453`, `Simulation::queue_megamission`),
-//!   the IDLE event (`0x004C758B`, `0x004C759C`), the Unit null destination's
+//!   the IDLE event (`0x004C758B`, `0x004C759C`), the Unit setter's
 //!   WeaponsFactory arm (`0x00742DFF`) and Unit Receive_Radio's message 7
 //!   (`0x00737546`, an arm with no represented sender). PointerExpired
 //!   removes every entry naming the expiring object

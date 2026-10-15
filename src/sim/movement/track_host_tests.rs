@@ -2549,3 +2549,188 @@ fn inherited_foot_idle_latch_roundtrips_and_hashes_for_every_foot_category() {
         );
     }
 }
+
+/// `0x0073AB6C..0x0073ABD0`: a harvester its war factory clears on the
+/// factory's own foundation, with no NavCom and nothing listed or queued,
+/// scatters. An order given during the exit (listed) skips it: the list
+/// sends the harvester on at its next idle.
+#[test]
+fn per_cell_factory_clearance_scatters_a_harvester_off_the_factory() {
+    use crate::sim::components::NavTargetRef;
+
+    for listed in [false, true] {
+        let (mut sim, rules) = factory_per_cell_fixture(true, false, "Harvester=yes");
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let producer = sim.substrate.entities.get_mut(2).unwrap();
+        producer.type_facts.set_foundation_for_test("5x3".into());
+        producer.position.put_location(DriveCoord::cell(6, 9, 0));
+        sim.substrate.occupancy =
+            crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
+        let order = NavTargetRef::cell(14, 14);
+        let unit = sim.substrate.entities.get_mut(1).unwrap();
+        unit.navigation.set_nav_com_for_test(None);
+        if listed {
+            unit.navigation.set_nav_list_for_test(vec![order], false);
+        }
+        sim.per_cell_process(
+            1,
+            super::super::PerCellReason::Arrival,
+            Some(&rules),
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            crate::sim::radio::take_transmit_log()
+                .first()
+                .map(|send| (send.msg, send.reply)),
+            Some((8, Some(23))),
+            "listed {listed}"
+        );
+        let unit = sim.substrate.entities.get(1).unwrap();
+        if listed {
+            assert_eq!(unit.navigation.nav_com(), None);
+            assert_eq!(unit.navigation.nav_list(), [order]);
+        } else {
+            assert!(unit.navigation.nav_com().is_some(), "scattered");
+        }
+    }
+}
+
+/// A retail world on flat ground with an Americans House at `iq`, human or
+/// not, and a `type_name` Unit at (10, 10) on Move with nothing queued.
+fn retail_unit_on_move(
+    type_name: &str,
+    human: bool,
+    iq: i32,
+) -> Option<(Simulation, RuleSet, u64)> {
+    use crate::sim::mission::state::MissionTestFixture;
+    use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
+
+    let (ini, art) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let owner = sim.intern("Americans");
+    let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10);
+    house.current_iq = iq;
+    sim.houses.insert(owner, house);
+    let id = sim
+        .spawn_object(type_name, "Americans", 10, 10, 0, &rules)
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .mission
+        .apply_test_fixture(MissionTestFixture {
+            current: MissionId::from_known(MissionType::Move),
+            suspended: MissionId::NONE,
+            queued: MissionId::NONE,
+            movement_bypass_latch: 0,
+            handler_state: 0,
+            mission_start_frame: 0,
+            ai_counter: 0,
+            dispatch_timer: MissionDispatchTimer::at_frame(0),
+        });
+    Some((sim, rules, id))
+}
+
+/// `UnitClass::Enter_Idle_Mode`'s armed guard pick (`0x00738B67..
+/// 0x00738C98`) through the production receiver on retail rules, after a Move
+/// with no NavCom: a House IQ at `[IQ] GuardArea=`, a human's too, or a
+/// `DefaultToGuardArea=` type takes Area Guard outside a team or a slave
+/// link; otherwise Guard.
+#[test]
+fn the_unit_guard_pick_follows_house_iq_team_and_type() {
+    use crate::sim::mission::MissionType;
+
+    let Some((_, rules, _)) = retail_unit_on_move("MTNK", true, 0) else {
+        return;
+    };
+    assert!(rules.object("DRON").unwrap().default_to_guard_area);
+    assert!(!rules.object("MTNK").unwrap().default_to_guard_area);
+    let low = rules.general.iq_guard_area - 1;
+    let skirmish = rules.general.max_iq_levels;
+    let (guard, area_guard) = (Some(MissionType::Guard), Some(MissionType::AreaGuard));
+    for (type_name, human, iq, teamed, slave, expected) in [
+        ("MTNK", true, 0, false, false, guard),
+        ("MTNK", true, skirmish, false, false, area_guard),
+        ("MTNK", false, low, false, false, guard),
+        ("MTNK", false, skirmish, false, false, area_guard),
+        ("MTNK", false, skirmish, true, false, guard),
+        ("MTNK", false, skirmish, false, true, guard),
+        ("DRON", true, 0, false, false, area_guard),
+        ("DRON", true, 0, true, false, guard),
+    ] {
+        let (mut sim, rules, id) = retail_unit_on_move(type_name, human, iq).unwrap();
+        let unit = sim.substrate.entities.get_mut(id).unwrap();
+        let object = rules.object(type_name).unwrap();
+        assert!(crate::sim::combat::combat_weapon::is_armed(unit, object));
+        if slave {
+            unit.slave = crate::sim::slave_manager::SlaveLink::for_test(Some(id + 1), vec![]);
+        }
+        if teamed {
+            crate::sim::team_script_vm::join_team_for_test(&mut sim, &[id], false, false);
+        }
+        sim.unit_enter_idle_mode(
+            id,
+            Some(&rules),
+            false,
+            crate::sim::world::FrameEffects::default(),
+        );
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(id)
+                .unwrap()
+                .mission
+                .queued()
+                .known(),
+            expected,
+            "{type_name}: human {human}, IQ {iq}, teamed {teamed}, slave {slave}"
+        );
+    }
+}
+
+/// `0x007389C4..0x00738A27`: a tank on Move with no NavCom, standing exactly
+/// on its Cell's centre at height 0, sends its radio contact OVER_OUT. Off the
+/// centre, or with a NavCom, it keeps the link.
+#[test]
+fn a_unit_at_rest_on_a_cell_centre_breaks_its_radio_link() {
+    use crate::sim::components::NavTargetRef;
+
+    for case in ["centre", "off_centre", "nav_com"] {
+        let Some((mut sim, rules, id)) = retail_unit_on_move("MTNK", true, 0) else {
+            return;
+        };
+        let factory = sim
+            .spawn_object("GAWEAP", "Americans", 20, 20, 0, &rules)
+            .unwrap();
+        let unit = sim.substrate.entities.get_mut(id).unwrap();
+        unit.radio_contacts.insert(factory);
+        if case == "off_centre" {
+            unit.position.put_location(DriveCoord {
+                x: 10 * 256 + 129,
+                y: 10 * 256 + 128,
+                z: 0,
+            });
+        }
+        if case == "nav_com" {
+            unit.navigation
+                .set_nav_com_for_test(Some(NavTargetRef::cell(14, 14)));
+        }
+        crate::sim::radio::take_transmit_log();
+        sim.unit_enter_idle_mode(
+            id,
+            Some(&rules),
+            false,
+            crate::sim::world::FrameEffects::default(),
+        );
+        let over_out = crate::sim::radio::take_transmit_log()
+            .iter()
+            .any(|send| send.sender_sid == id && send.target_sid == factory && send.msg == 3);
+        assert_eq!(over_out, case == "centre", "{case}");
+    }
+}

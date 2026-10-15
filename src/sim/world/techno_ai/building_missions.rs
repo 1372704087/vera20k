@@ -561,10 +561,7 @@ fn mission_factory_unload(
                     //Teleport (and the dormant TS Tunnel) take 44DFAD's
                     //piggyback swap and lifetime cleanup, a separate retained
                     //locomotor mechanism.
-                    let cell = (
-                        ((location.x / 256) as i16).wrapping_add(4) as u16,
-                        ((location.y / 256) as i16).wrapping_add(1) as u16,
-                    );
+                    let cell = crate::sim::movement::war_factory_exit_cell(location);
                     sim.set_unit_destination(
                         product,
                         crate::sim::components::NavTargetRef::cell(cell.0, cell.1),

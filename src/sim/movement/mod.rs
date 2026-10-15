@@ -55,7 +55,7 @@ use crate::util::fixed_math::facing_from_delta_int;
 pub(crate) mod at_coord;
 mod building_coordinate;
 pub(crate) use building_coordinate::exit_coordinate as building_exit_coordinate;
-pub(crate) use building_coordinate::factory_exit_track_coordinate;
+pub(crate) use building_coordinate::{factory_exit_track_coordinate, war_factory_exit_cell};
 mod cell_contact;
 mod drive_locomotion;
 mod foot_approach;

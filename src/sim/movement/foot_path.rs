@@ -760,7 +760,8 @@ impl Simulation {
     /// (+0x3C8: Infantry 0x51B1F0, Unit Techno 0x6FCDB0), then the
     /// House 0x50B730 split: human -> `Queue_Mission(Guard=5, 0)` (0x4D41D6),
     /// nonhuman -> `Queue_Mission(AreaGuard=11, 0)` and, with GameMode != 0,
-    /// `Find_Passable_Cell_Near_Unit` 0x500200 -> `SetDestination(cell, 1)`.
+    /// its own House's post (`Find_Passable_Cell_Near_Unit` 0x500200,
+    /// [`Self::house_return_cell`]) -> `SetDestination(cell, 1)`.
     pub(crate) fn finish_find_path_failure(
         &mut self,
         id: u64,
@@ -849,16 +850,23 @@ impl Simulation {
             now,
             &EntityReadyInputProvider,
         );
-        //0x4D4174..0x4D41C2: with GameMode != 0 a nonhuman actor is relocated to
-        //`Find_Passable_Cell_Near_Unit` 0x500200 (House 0x501AC0 variants over
-        //the House+5498 radius, base-or-starting cell, RNG and the sin/cos
-        //tables) through SetDestination(cell, 1). Residual, deliberately
-        //non-stopping: the actor stays in place under AreaGuard. The owner is
-        //`Simulation::house_return_cell`; this caller is not ported. Trigger:
-        //an AI or neutral House Foot whose core search fails in skirmish.
-        //Effect: no relocation walk and none of House500200's two Scenario
-        //draws. Frequency: not measured.
-        let _ = human;
+        //0x4D4174..0x4D41C2: with GameMode ([0xA8B238]) nonzero, a nonhuman
+        //actor asks its own House (ecx = +0x21C) for a post, House500200 at
+        //0x4D4189, and unless that is the zero Cell (0x8B3D88) is sent there:
+        //SetDestination(cell, 1) through vt+0x480.
+        if !human
+            && self.session.game_mode_nonzero
+            && let Some((rx, ry)) = self.house_return_cell(owner, id)
+        {
+            self.assign_destination_represented(
+                id,
+                Some(crate::sim::components::NavTargetRef::cell(rx, ry)),
+                Some(rules),
+                registry,
+                frame_effects,
+            )
+            .map_err(|cause| format!("Find_Path failure post: {cause}"))?;
+        }
         Ok(())
     }
 
@@ -1501,6 +1509,88 @@ mod tests {
                 route.last() == Some(&goal_cell),
                 !in_playfield,
                 "in_playfield={in_playfield}: {route:?}"
+            );
+        }
+    }
+
+    /// The failure arm's House split (`0x004D4156..0x004D41C2`): a human's
+    /// Foot queues Guard and stays. A computer's queues Area Guard and, in a
+    /// nonzero game mode, is sent to the post its own House draws
+    /// (House500200 at `0x004D4189`, two Scenario draws); in game mode 0 it
+    /// stays and draws nothing.
+    #[test]
+    fn a_failed_search_sends_a_computer_foot_to_its_house_post() {
+        use crate::sim::components::NavTargetRef;
+        use crate::sim::mission::MissionDispatchTimer;
+        use crate::sim::mission::state::MissionTestFixture;
+
+        for (human, skirmish) in [(true, true), (false, false), (false, true)] {
+            let world = || {
+                let (mut sim, rules, registry) =
+                    crate::sim::world::entry_test_fixture::fixture_with_rules(
+                        "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=400\nSpeed=6\nSpeedType=Track\nMovementZone=Normal\nLocomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n",
+                    );
+                sim.playfield_size_height = Some(16);
+                sim.session.game_mode_nonzero = skirmish;
+                let owner = sim.intern("Americans");
+                let mut house =
+                    crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10);
+                house.base_center = Some((16, 16));
+                sim.houses.insert(owner, house);
+                let id = sim
+                    .spawn_object("MTNK", "Americans", 13, 15, 0, &rules)
+                    .unwrap();
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .mission
+                    .apply_test_fixture(MissionTestFixture {
+                        current: MissionId::from_known(MissionType::Move),
+                        suspended: MissionId::NONE,
+                        queued: MissionId::NONE,
+                        movement_bypass_latch: 0,
+                        handler_state: 0,
+                        mission_start_frame: 0,
+                        ai_counter: 0,
+                        dispatch_timer: MissionDispatchTimer::at_frame(0),
+                    });
+                (sim, rules, registry, id)
+            };
+            let (mut twin, _, _, twin_id) = world();
+            let owner = twin.substrate.entities.get(twin_id).unwrap().owner();
+            let post = twin
+                .house_return_cell(owner, twin_id)
+                .expect("a post near the base");
+            let (mut sim, rules, registry, id) = world();
+            sim.finish_find_path_failure(
+                id,
+                DriveCoord::cell(28, 28, 0),
+                &rules,
+                Some(&registry),
+                FrameEffects::default(),
+            )
+            .unwrap();
+            let sent = !human && skirmish;
+            let e = sim.substrate.entities.get(id).unwrap();
+            assert_eq!(
+                e.mission.queued().known(),
+                Some(if human {
+                    MissionType::Guard
+                } else {
+                    MissionType::AreaGuard
+                }),
+                "human {human}, skirmish {skirmish}"
+            );
+            assert_eq!(
+                e.navigation.nav_com(),
+                sent.then(|| NavTargetRef::cell(post.0, post.1)),
+                "human {human}, skirmish {skirmish}"
+            );
+            assert_eq!(
+                sim.rng_state() == twin.rng_state(),
+                sent,
+                "only the post draws: human {human}, skirmish {skirmish}"
             );
         }
     }

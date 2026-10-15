@@ -24,9 +24,9 @@
 //! 0x4D55C0 -> locomotor Stop) clears the destination on every core failure,
 //! and a precheck refusal repeats in the recheck, so the recheck
 //! (0x4B28CD) returns through SetDestination(NULL) unless the continuation
-//! 0x4D41C2 relocated a nonhuman Foot through House500200 (that caller is
-//! unported; see foot_path).
-//! The ladder is ported because native reaches it after that relocation.
+//! 0x4D41C2 relocated a nonhuman Foot through House500200 in a nonzero game
+//! mode (`foot_path::finish_find_path_failure`). The ladder runs after that
+//! relocation.
 //!
 //! Residuals:
 //! - 24-word copy. Find_Path copies at most 24 - prefix words into Foot+5E0

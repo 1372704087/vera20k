@@ -328,9 +328,10 @@ impl Simulation {
     }
 
     /// Ordinary Unit/Infantry arm of House500200 (Find_Passable_Cell_Near_Unit)
-    /// on `house` for `actor_id`. Callers: Foot Mission_Rescue (`0x004DE143`)
-    /// and Unit Per_Cell_Process's war-factory post (`0x0073AA19`) ask the
-    /// actor's own House; ExitObject's generic arm (`0x00444924`) and its
+    /// on `house` for `actor_id`. Callers: Foot Mission_Rescue (`0x004DE143`),
+    /// Find_Path's failure arm (`0x004D4189`) and Unit Per_Cell_Process's
+    /// war-factory post (`0x0073AA19`) ask the actor's own House;
+    /// ExitObject's generic arm (`0x00444924`) and its
     /// Infantry post (`0x00444D51`) ask the producer's. Their original
     /// virtual+2D4/+2D8/+2DC bodies (41BF00/10/20) return zero, selecting
     /// House501AC0 variant0 without the alternative-selector draw. Other

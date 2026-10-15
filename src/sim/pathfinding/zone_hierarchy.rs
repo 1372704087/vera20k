@@ -827,7 +827,10 @@ struct PrecheckScratch {
     /// The best cost each zone has been reached with in the running search.
     best: StampedTable<NativeF32Bits>,
     nodes: Vec<PrecheckNode>,
-    heap: NativeHeap<usize>,
+    /// The size the PathfinderClass constructor gives this heap (`0x2710` at
+    /// `0x0042A7B2`). A full heap drops the insert, but the record and the
+    /// zone's best cost are kept.
+    heap: NativeHeap<usize, 0x2710>,
 }
 
 thread_local! {

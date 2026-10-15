@@ -102,16 +102,16 @@ def f32_bits(value):
 def edge_cost(row):
     u,sp=initialized_process_fixture();arena=Arena(u)
     alloc=lambda n:arena.allocate(n,'supplied AStar edge-cost input')
-    pf=alloc(0xD00);foot=alloc(0x800);record=alloc(12)
+    pf=alloc(0xD00);foot=alloc(0x800)
     current_cell=alloc(0x200);candidate_cell=alloc(0x200);current_slot=alloc(4);candidate_slot=alloc(4)
     # Pathfinder+4 is the constructor's 1.0f (42A6EB); +3C the urgency.
     u.mem_write(pf+0x04,dwords(0x3F800000));u.mem_write(pf+0x3C,dwords(row['urgency']))
     u.mem_write(current_cell+0x24,packed(10,10));u.mem_write(candidate_cell+0x24,packed(11,9))
     u.mem_write(candidate_cell+0x140,dwords(0x40000 if row['marker'] else 0))
     u.mem_write(current_slot,dwords(current_cell));u.mem_write(candidate_slot,dwords(candidate_cell))
-    u.mem_write(record,dwords(current_slot,0,0))
     frame=sp-0x100;u.mem_write(frame,bytes(0x80))
-    u.mem_write(frame+0x18,dwords(row['direction']));u.mem_write(frame+0x20,dwords(record,candidate_slot))
+    # [ESP+0x20] is the current cell's slot (0x429D8D), [ESP+0x24] the candidate's.
+    u.mem_write(frame+0x18,dwords(row['direction']));u.mem_write(frame+0x20,dwords(current_slot,candidate_slot))
     u.mem_write(frame+0x60,b'\x01')
     code=bytes(u.mem_read(0x429F72,0x429FA1-0x429F72))
     u.reg_write(UC_X86_REG_ESP,frame);u.reg_write(UC_X86_REG_ESI,pf)

@@ -64,7 +64,7 @@ fn the_held_child_gives_way_to_an_equal_open_root() {
         height: 0,
         on_bridge: false,
     };
-    let mut open = NativeHeap::default();
+    let mut open = OpenList::default();
     let mut held = None;
     for (x, f_cost) in [(1, 5.0), (2, 3.0), (3, 3.0)] {
         offer_child(&mut held, &mut open, node(f_cost, x));
@@ -140,6 +140,92 @@ fn a_closed_goal_refused_from_a_cheaper_neighbor_ends_the_route_there() {
             .map(|step| (step.rx, step.ry))
             .collect::<Vec<_>>(),
         [(0, 0), (1, 1)]
+    );
+}
+
+/// Refuses only the goal, as a Unit whose type may be `Passive=`.
+struct RefusedGoal {
+    goal: (u16, u16),
+    passive_unit: bool,
+}
+
+impl SearchFootEntry for RefusedGoal {
+    fn classify(&self, query: SearchEntryQuery) -> Result<u8, String> {
+        let SearchEntryCandidate::CopiedCoord(candidate) = query.candidate else {
+            panic!("A* asks copied coordinates");
+        };
+        Ok(if candidate == self.goal { 7 } else { 0 })
+    }
+    fn is_passive_unit(&self) -> bool {
+        self.passive_unit
+    }
+}
+
+/// A `Passive=` Unit never takes the blocked-goal tail (`0x0042A183`): its
+/// search for a refused goal finds no route instead of ending beside it.
+#[test]
+fn a_passive_unit_does_not_end_its_route_beside_a_refused_goal() {
+    let grid = PathGrid::new(4, 1);
+    let route = |passive_unit| {
+        let entry = RefusedGoal {
+            goal: (3, 0),
+            passive_unit,
+        };
+        astar_search(
+            &grid,
+            (0, 0),
+            MovementLayer::Ground,
+            (3, 0),
+            &AStarOptions::new(&entry),
+        )
+        .map(|path| {
+            path.iter()
+                .map(|step| (step.rx, step.ry))
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(route(false), Ok(vec![(0, 0), (1, 0), (2, 0)]));
+    assert_eq!(route(true), Err(PathSearchFailure::CellSearchExhausted));
+}
+
+/// A tube edge costs the cells from the current cell to the tube's exit,
+/// Chebyshev (`0x00429FA3..0x00429FE6`), however long the tube's path. This
+/// one winds ten steps to an exit three cells away, so going through it
+/// (3.0, then 1.002 to the goal) beats walking (about 4.008).
+#[test]
+fn a_tube_edge_costs_the_cells_to_its_exit_not_its_path_length() {
+    let mut cells = Vec::new();
+    for y in 0..3 {
+        for x in 0..5 {
+            cells.push(make_resolved_cell(x, y));
+        }
+    }
+    let start_idx = 5; // (0, 1)
+    cells[start_idx].yr_cell_land_type = YR_CELL_LAND_TUNNEL;
+    cells[start_idx].tube_index = Some(TubeId(0));
+    let terrain = ResolvedTerrainGrid::from_cells_with_tubes(
+        5,
+        3,
+        cells,
+        vec![TubeFact::explicit((0, 1), (3, 1), 2, vec![2; 10])],
+    );
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    let path = astar_search(
+        &grid,
+        (0, 1),
+        MovementLayer::Ground,
+        (4, 1),
+        &AStarOptions {
+            resolved_terrain: Some(&terrain),
+            ..AStarOptions::new(&WalkableEntry::new(&grid))
+        },
+    )
+    .expect("route through the tube");
+    assert_eq!(
+        path.iter()
+            .map(|step| (step.rx, step.ry))
+            .collect::<Vec<_>>(),
+        [(0, 1), (3, 1), (4, 1)]
     );
 }
 

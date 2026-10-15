@@ -56,6 +56,18 @@ impl PathDescriptor {
 /// (close-on-generation), so a closed cell's parent and height are current.
 type ClosedLayer = StampedTable<PathDescriptor>;
 
+/// The open list, unbounded. Residual: `AStar_create_node` takes each node
+/// from a pool of 65,536 (`PathfinderClass+0x10`, allocated at `0x0042A7E0`)
+/// with no bound check (`0x0042A466..0x0042A479`), so gamemd's 65,537th node
+/// lands on the pool's count and the search corrupts memory from there on.
+/// The open list's native size, `0x10000` (`0x0042A760`), can only bind after
+/// that. VERA creates nodes on demand and bounds neither. Trigger: a search
+/// creating more than 65,536 nodes, one per reached cell and layer. Effect:
+/// the search goes on where gamemd's corrupts memory. Frequency: searches
+/// reaching more than about 65,000 cells, such as long routes on the 500x500
+/// scale map (about 125,000 cells). Downstream risk: none within VERA.
+type OpenList = NativeHeap<AStarNode, { usize::MAX }>;
+
 /// Reusable scratch for `astar_search`. Lives in a thread-local so repeated
 /// repaths share one set of full-map-sized buffers instead of allocating them
 /// per call (was the dominant heap pressure source during repath storms —
@@ -71,7 +83,7 @@ type ClosedLayer = StampedTable<PathDescriptor>;
 struct PathfindWorkspace {
     ground: ClosedLayer,
     bridge: ClosedLayer,
-    open: NativeHeap<AStarNode>,
+    open: OpenList,
 }
 
 impl PathfindWorkspace {
@@ -393,7 +405,7 @@ fn closed_candidate_retried(stored_g: f32, current_g: f32) -> bool {
 /// The node an expansion makes is held while it is the cheapest so far; a
 /// cheaper one takes its place and sends it to the open list
 /// (`0x0042A037..0x0042A0CB`, the held child at `[ESP+0x1C]`).
-fn offer_child(held: &mut Option<AStarNode>, open: &mut NativeHeap<AStarNode>, child: AStarNode) {
+fn offer_child(held: &mut Option<AStarNode>, open: &mut OpenList, child: AStarNode) {
     match held {
         Some(best) if child.f_cost < best.f_cost => {
             open.push(std::mem::replace(best, child), cheaper);
@@ -405,7 +417,7 @@ fn offer_child(held: &mut Option<AStarNode>, open: &mut NativeHeap<AStarNode>, c
 
 /// The next node to expand (`0x0042A1B3..0x0042A3B5`): the held child, unless
 /// the open list's root costs no more, which then gives way to it.
-fn next_node(held: Option<AStarNode>, open: &mut NativeHeap<AStarNode>) -> Option<AStarNode> {
+fn next_node(held: Option<AStarNode>, open: &mut OpenList) -> Option<AStarNode> {
     match held {
         Some(best) => match open.first() {
             Some(root) if root.f_cost <= best.f_cost => Some(open.replace_first(best, cheaper)),
@@ -610,6 +622,12 @@ pub trait SearchFootEntry {
     fn prepared_search_markers(&self) -> Option<std::cell::Ref<'_, SearchMarkerOverlay>> {
         None
     }
+    /// Whether the Foot is a Unit (`WhatAmI` 1) whose type is `Passive=`
+    /// (`UnitType+0xE0C`), which AStar reads once (`0x00429D2F..0x00429D4C`):
+    /// such a search never takes the blocked-goal tail.
+    fn is_passive_unit(&self) -> bool {
+        false
+    }
 }
 
 /// The mover facts every search entry carries: `urgency` drives the code-2
@@ -705,9 +723,9 @@ pub fn astar_search(
     options: &AStarOptions<'_>,
 ) -> Result<Vec<LayeredPathStep>, PathSearchFailure> {
     // Start cell may be blocked (e.g. unit standing inside a building footprint
-    // after undock). The start node is seeded into the open set without a
-    // passability check; only neighbor expansion calls Can_Enter_Cell. If all
-    // 8 neighbors are also blocked, the open set exhausts and reports refusal
+    // after undock). The start node is expanded first without a passability
+    // check; only neighbor expansion calls Can_Enter_Cell. If all 8 neighbors
+    // are also blocked, the open list stays empty and reports refusal
     // naturally — no need for an explicit start-cell rejection.
 
     // Original429A90..429B5A widens signed levels before adding the bridge
@@ -764,6 +782,9 @@ pub fn astar_search(
         };
         // The expansions made so far, `[ESP+0x28]`.
         let mut expanded: u32 = 0;
+        // `[ESP+0x13]` (`0x00429D2F..0x00429D4C`): the Foot is a Unit whose
+        // type is `Passive=`.
+        let passive_unit = options.foot_entry.is_passive_unit();
 
         // --- Main loop ---
         let tail = 'search: loop {
@@ -848,9 +869,20 @@ pub fn astar_search(
                 // A closed candidate (`0x00429EC7..0x00429F31`) is passed over
                 // unless its node's g is at least the current g plus 1.009.
                 // Then the class and edge cost are asked, but a closed cell
-                // never gets a second node (`0x00429FF3..0x0042A018`), so the
-                // only effect is the blocked-goal tail below: a cell other than
-                // the goal is passed over at once.
+                // never gets a second node (`0x00429FF3..0x0042A018`), so here
+                // only the goal is asked again, for the blocked-goal tail below.
+                // Residual: gamemd also asks Foot+1AC (`0x00429F54`) and the
+                // edge cost (`0x00429F8A`, whose class-2 chain walk looks cells
+                // up) about any other retried cell and discards both answers.
+                // Their only lasting effect is the shared Dummy cell's
+                // coordinate words, which a lookup of an off-map cell stamps.
+                // Trigger: a retried closed candidate whose Foot+1AC or chain
+                // walk reads an off-map cell. Effect: the Dummy keeps an older
+                // stamp. Frequency: only near map edges, the only place a
+                // lookup leaves the map. Downstream risk: only a later read of
+                // the Dummy's coordinates
+                // without its own lookup, as recorded for the batched searches
+                // (`movement::path_batch`).
                 let closed = if neighbor_use_bridge {
                     bridge.get(n_idx)
                 } else {
@@ -884,10 +916,11 @@ pub fn astar_search(
                     // target as you can". The tail additionally requires the
                     // aborting node to be at least one real step from the
                     // start (depth 2, `0x0042A3F8`), so a start-adjacent
-                    // blocked goal fails outright. Residual: the tail is off
-                    // for a Unit whose type is `Passive=` (`UnitType+0xE0C`,
-                    // `0x00429D2F..0x00429D4A`); stock rules set it for none.
-                    if (nx, ny) == goal && blocked_goal_height_matches(current.height, goal_height)
+                    // blocked goal fails outright. A `Passive=` Unit never
+                    // takes it (`0x0042A183`).
+                    if (nx, ny) == goal
+                        && !passive_unit
+                        && blocked_goal_height_matches(current.height, goal_height)
                     {
                         if c_idx == start_idx && on_bridge == start_on_bridge {
                             return Err(PathSearchFailure::CellSearchExhausted);
@@ -987,10 +1020,20 @@ pub fn astar_search(
             // Direction 8 is a TubeClass jump. It is not an adjacent neighbor and
             // must not use the normal terrain/height/corner-cut predicates. Auto
             // low-bridge shells have path_len=0 and remain predicate-only.
-            // Residual: gamemd's direction-8 candidate also passes the layer
-            // choice, hierarchy gate, closed test and Foot+1AC (with direction
-            // 8) of the compass arms; here it is only tested closed on the
-            // ground list.
+            // Residual: gamemd offers the direction-8 candidate whenever the
+            // current cell has a tube index (`CellClass+0x116`,
+            // `0x00429DCB..0x00429E02`), on either layer, and runs it through
+            // the compass arms' layer choice, hierarchy gate, closed test and
+            // Foot+1AC with direction 8 (`0x00429F54`), so a class of 7 or
+            // more refuses it and a blocked goal can end the route there
+            // (`0x00429FEA..0x0042A19B`). Here it is offered only off the
+            // bridge layer, never asked of Foot+1AC and tested closed on the
+            // ground list only. Trigger: a search reaching a tube entrance.
+            // Effect: a tube gamemd refuses (class 7 or more, or outside the
+            // corridor) can be taken here, one it offers from a deck-layer
+            // node is not, and a blocked goal at a tube exit does not end the
+            // route there. Frequency: maps with tubes only. Downstream risk:
+            // low; it is one arm of the neighbour loop.
             if !on_bridge
                 && let Some((nx, ny)) = explicit_tube_edge(options.resolved_terrain, (cx, cy))
                 && nx < grid.width()

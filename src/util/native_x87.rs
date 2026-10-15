@@ -425,8 +425,9 @@ impl X87Chop53 {
 /// exponents differ by more than 29. Then neither operand has a bit 24 to 29
 /// places below the sum's leading bit, so the rounding of the binary64 sum
 /// cannot carry into the 24 bits binary32 keeps, and truncating that sum
-/// gives the same result. Debug builds check every result against
-/// [`X87Chop53`].
+/// gives the same result. A sum past binary32's range stores the largest
+/// finite value, as the masked store does. Debug builds check every result
+/// against [`X87Chop53`].
 pub(crate) fn chop_sum_f32(lhs: f32, rhs: f32) -> f32 {
     debug_assert!(lhs >= 0.0 && rhs >= 0.0 && lhs.is_finite() && rhs.is_finite());
     let sum = f64::from(lhs) + f64::from(rhs);
@@ -438,11 +439,10 @@ pub(crate) fn chop_sum_f32(lhs: f32, rhs: f32) -> f32 {
     };
     debug_assert_eq!(
         sum32.to_bits(),
-        X87Chop53::store_f32(X87Chop53::add(
+        X87Chop53::store_f32_masked_chop(X87Chop53::add(
             X87Chop53::load_f32(NativeF32Bits::from_bits(lhs.to_bits())).expect("finite"),
             X87Chop53::load_f32(NativeF32Bits::from_bits(rhs.to_bits())).expect("finite"),
         ))
-        .expect("binary32 sum in range")
         .bits(),
         "{lhs:e} + {rhs:e}"
     );
@@ -664,6 +664,7 @@ mod tests {
         assert_eq!(super::chop_sum_f32(0.0, 0.0).to_bits(), 0);
         assert_eq!(super::chop_sum_f32(0.0, 1.5), 1.5);
         assert_eq!(super::chop_sum_f32(f32::from_bits(1), 0.0).to_bits(), 1);
+        assert_eq!(super::chop_sum_f32(f32::MAX, f32::MAX), f32::MAX);
         // Round to nearest would give 0x3F8020C5 here.
         assert_eq!(
             super::chop_sum_f32(1.0, f32::from_bits(0x3a83_126f)).to_bits(),

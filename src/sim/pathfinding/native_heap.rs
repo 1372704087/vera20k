@@ -1,6 +1,8 @@
-//! The binary heap gamemd's two path searches inline: the cell A*'s open list
-//! (`PathfinderClass+0x14`, insert `0x0042A061..0x0042A122`, pop
-//! `0x0042A2BB..0x0042A3B1`) and `Zone_precheck`'s (`0x0042C290`).
+//! The binary heap of gamemd's two path searches: the cell A*'s open list
+//! (`PathfinderClass+0x14`, inline insert `0x0042A061..0x0042A122` and pop
+//! `0x0042A2BB..0x0042A3B1`) and `Zone_precheck`'s (`PathfinderClass+0x68`,
+//! inline inserts `0x0042C401..0x0042C477` and `0x0042C693..0x0042C6F5`, pop
+//! through `MinHeap__SiftDown @ 0x0042DCA0` from `0x0042C4C0`).
 //!
 //! Both compare strictly: an insert climbs only past a parent that costs
 //! more, and a sift moves down only to a child that costs less, the left one
@@ -8,16 +10,19 @@
 //! does not reproduce that order. The caller supplies the cost comparison.
 
 /// A 0-based array heap; native index `i` (1-based) is index `i - 1` here.
+/// `SIZE` is the heap's native size word (`+0x04`): an insert that would
+/// bring the count to it is dropped (`count + 1 >= size`, the A*'s
+/// `0x0042A071`/`0x0042A0D9` and the precheck's `0x0042C40F`/`0x0042C6A0`).
 #[derive(Debug)]
-pub(super) struct NativeHeap<T>(Vec<T>);
+pub(super) struct NativeHeap<T, const SIZE: usize>(Vec<T>);
 
-impl<T> Default for NativeHeap<T> {
+impl<T, const SIZE: usize> Default for NativeHeap<T, SIZE> {
     fn default() -> Self {
         Self(Vec::new())
     }
 }
 
-impl<T: Copy> NativeHeap<T> {
+impl<T: Copy, const SIZE: usize> NativeHeap<T, SIZE> {
     pub(super) fn clear(&mut self) {
         self.0.clear();
     }
@@ -27,8 +32,12 @@ impl<T: Copy> NativeHeap<T> {
         self.0.first()
     }
 
-    /// Insert `item`, climbing past each parent that `less` puts after it.
+    /// Insert `item`, climbing past each parent that `less` puts after it,
+    /// unless the heap is full.
     pub(super) fn push(&mut self, item: T, less: impl Fn(&T, &T) -> bool) {
+        if self.0.len() + 1 >= SIZE {
+            return;
+        }
         let mut position = self.0.len();
         self.0.push(item);
         while position != 0 {
@@ -91,7 +100,7 @@ mod tests {
 
     #[test]
     fn equal_costs_keep_the_native_array_order() {
-        let mut heap = NativeHeap::default();
+        let mut heap = NativeHeap::<_, { usize::MAX }>::default();
         for (arrival, cost) in [5, 3, 3, 7, 3, 1, 3].into_iter().enumerate() {
             heap.push((cost, arrival as u32), less);
         }
@@ -109,7 +118,7 @@ mod tests {
 
     #[test]
     fn replace_first_returns_the_root_and_sifts_the_new_item() {
-        let mut heap = NativeHeap::default();
+        let mut heap = NativeHeap::<_, { usize::MAX }>::default();
         for (arrival, cost) in [2, 4, 4, 6].into_iter().enumerate() {
             heap.push((cost, arrival as u32), less);
         }
@@ -118,5 +127,18 @@ mod tests {
         assert_eq!(heap.first(), Some(&(4, 9)));
         assert_eq!(heap.replace_first((5, 8), less), (4, 9));
         assert_eq!(heap.first(), Some(&(4, 1)));
+    }
+
+    #[test]
+    fn a_full_heap_drops_the_insert() {
+        // Size 3 holds two items: the third insert would bring the count to
+        // the size, even though it is the cheapest.
+        let mut heap = NativeHeap::<_, 3>::default();
+        for (arrival, cost) in [2, 4, 1].into_iter().enumerate() {
+            heap.push((cost, arrival as u32), less);
+        }
+        assert_eq!(heap.pop(less), Some((2, 0)));
+        assert_eq!(heap.pop(less), Some((4, 1)));
+        assert_eq!(heap.pop(less), None);
     }
 }

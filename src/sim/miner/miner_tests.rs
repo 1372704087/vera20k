@@ -4130,3 +4130,38 @@ fn a_deposit_too_small_to_pay_still_scores() {
     let economy = &sim.houses[&owner].economy;
     assert_eq!((economy.credits(), economy.score()), (before, 5));
 }
+
+/// `UnitClass::AI` keeps the harvesting byte (Unit `+0x6D2`) while
+/// `Get_Mission` (`0x005B3040`, called at `0x007365CD`) answers Harvest: the
+/// current mission, or the queued one while the current is NONE.
+#[test]
+fn unit_ai_keeps_harvesting_while_harvest_is_queued_behind_no_mission() {
+    use crate::sim::mission::state::MissionTestFixture;
+    use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
+    for (queued, kept) in [(MissionType::Harvest, true), (MissionType::Guard, false)] {
+        let mut sim = Simulation::new();
+        let id = spawn_miner(&mut sim, 1, MinerKind::War, 10, 10);
+        let entity = sim.substrate.entities.get_mut(id).expect("miner");
+        entity.mission.apply_test_fixture(MissionTestFixture {
+            current: MissionId::NONE,
+            suspended: MissionId::NONE,
+            queued: MissionId::from_known(queued),
+            movement_bypass_latch: 0,
+            handler_state: 0,
+            mission_start_frame: 0,
+            ai_counter: 0,
+            dispatch_timer: MissionDispatchTimer::at_frame(0),
+        });
+        entity.miner.as_mut().expect("miner component").harvesting = true;
+        crate::sim::miner::miner_system::unit_ai_clear_harvesting(&mut sim, id);
+        let miner = sim
+            .substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .miner
+            .as_ref()
+            .unwrap();
+        assert_eq!(miner.harvesting, kept, "queued {queued:?}");
+    }
+}

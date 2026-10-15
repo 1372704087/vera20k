@@ -209,7 +209,6 @@ use crate::sim::intern::{InternedId, StringInterner};
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::movement::turret;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::overlay_grid::{
     WallDamageEvent, WallDamageTransactionHost, WallDirtyStep, WallPointerTarget,
@@ -2051,7 +2050,6 @@ impl Simulation {
             // The receiver already committed these inline before returning.
             damage_events: _,
             remove_attack: _,
-            ammo_deduct: _,
             unit_facing: _,
             spawn_target_updates: _,
             drain_links: _,
@@ -6737,7 +6735,6 @@ impl Simulation {
             // Buildings, Units and Infantry fired in their own live slots.
             // Units also committed Facing_Update after paid movement. This
             // tail hosts the remaining classes;
-            // tick_turret_rotation excludes Units whose facing is already owned.
             // PRODUCES: damage, deaths, bridge damage, fire events. Ordered
             // ReceiveDamage retaliation is committed inline.
             // Engineer repair, capture and consumption, and a C4 plant, occur
@@ -6770,12 +6767,6 @@ impl Simulation {
             self.admit_projectile_spawns(combat_result.projectile_spawns.iter().copied(), rules);
             bridge_state_changed |=
                 self.visit_combat_tail(first_tail_id, rules, overlay_registry, effects);
-            turret::tick_turret_rotation(
-                &mut self.substrate.entities,
-                rules,
-                self.session.binary_frame,
-                &self.interner,
-            );
             // Unit facing already committed immediately after that Unit's
             // FireAt, before this frame's next live Logic object. Each
             // SpawnManager ran in its owner's TechnoClass::AI slot.

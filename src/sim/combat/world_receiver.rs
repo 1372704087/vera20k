@@ -2521,7 +2521,6 @@ pub(crate) fn commit_projectiles(
 
     debug_assert!(emit.remove_attack.is_empty());
     debug_assert!(emit.fire_events.is_empty());
-    debug_assert!(emit.ammo_deduct.is_empty());
     debug_assert!(emit.unit_facing.is_empty());
     debug_assert!(emit.spawn_target_updates.is_empty());
 

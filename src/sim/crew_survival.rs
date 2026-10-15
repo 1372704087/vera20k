@@ -767,7 +767,11 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
         ) > 0xD0
         {
-            self.kill_passengers(unit_id, dying.attacker, rules, registry, effects);
+            self.kill_passengers(
+                unit_id,
+                dying.attacker,
+                UninitContext::new(Some(rules), registry).with_effects(effects),
+            );
         }
         if crashable {
             return;
@@ -867,7 +871,11 @@ impl Simulation {
         // `0x007380A3..0x007380BF`: bomb passengers never escape, even
         // when another hit kills the falling transport without IgnoreDefenses.
         if dying.ignore_defenses || dropped_as_bomb || !admitted {
-            self.record_kill_and_uninit(passenger, dying.attacker, rules, registry, effects);
+            self.record_kill_and_uninit(
+                passenger,
+                dying.attacker,
+                UninitContext::new(Some(rules), registry).with_effects(effects),
+            );
             return;
         }
 
@@ -918,7 +926,11 @@ impl Simulation {
             }
             // `0x007380EC..0x007380F4`: a refused Unlimbo kills.
             if !sim.unlimbo_crew(rules, passenger, unlimbo, Some(facing), registry, effects) {
-                sim.record_kill_and_uninit(passenger, dying.attacker, rules, registry, effects);
+                sim.record_kill_and_uninit(
+                    passenger,
+                    dying.attacker,
+                    UninitContext::new(Some(rules), registry).with_effects(effects),
+                );
                 return;
             }
 

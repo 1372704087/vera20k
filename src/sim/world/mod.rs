@@ -1839,7 +1839,7 @@ impl Simulation {
             crate::sim::combat::FatalLifecycleStage::PostMortemExactZero { killer_owner } => {
                 self.postmortem_exact_zero_callbacks(stable_id, killer_owner, uninit_context);
             }
-            crate::sim::combat::FatalLifecycleStage::BeforeDeathEffects => {
+            crate::sim::combat::FatalLifecycleStage::BeforeDeathEffects { attacker } => {
                 // A building's occupants. A unit's passengers stay for its own
                 // arms: an exploding unit kills them before its death weapon
                 // (`world_receiver::handle_death`), and the rest leave or die
@@ -1882,8 +1882,9 @@ impl Simulation {
                     )
                 });
                 // An absorbing building's passengers leave through
-                // SpawnSurvivors' Phase A; its KillPassengers (`0x00441F27`)
-                // runs after that and finds the list empty.
+                // SpawnSurvivors' Phase A; its KillPassengers (`0x00441F27`,
+                // crediting the attacker) runs after that and finds the list
+                // empty.
                 let absorbs = self
                     .substrate
                     .entities
@@ -1901,7 +1902,7 @@ impl Simulation {
                         uninit_context,
                     );
                 } else if !absorbs {
-                    self.purge_carried_passengers_for_fatal(stable_id, uninit_context);
+                    self.kill_passengers(stable_id, attacker, uninit_context);
                 }
                 //44264C precedes the recursive destruction effects.
                 self.set_building_light_active(stable_id, false);

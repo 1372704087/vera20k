@@ -1041,9 +1041,10 @@ pub(crate) fn commit_entities(
         if entered_techno_death {
             {
                 if callbacks_enabled(world) {
+                    let attacker = killing_attacker(world, std::slice::from_ref(event), target_id);
                     world.apply_fatal_lifecycle_stage(
                         rules,
-                        FatalLifecycleStage::BeforeDeathEffects,
+                        FatalLifecycleStage::BeforeDeathEffects { attacker },
                         target_id,
                         fatal_category,
                         crate::sim::world::UninitContext::with_rules(rules)
@@ -1509,9 +1510,9 @@ pub(crate) fn handle_death(
                     world.kill_passengers(
                         dead_id,
                         attacker,
-                        rules,
-                        overlay_registry,
-                        run.effects(),
+                        crate::sim::world::UninitContext::with_rules(rules)
+                            .with_registry(overlay_registry)
+                            .with_effects(run.effects()),
                     );
                 }
                 // `Fire_Death_Weapon(0)` (`0x0070266D`): its bullet

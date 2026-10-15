@@ -68,6 +68,8 @@ pub(crate) mod world_receiver;
 pub(crate) mod receiver_fixture;
 
 #[cfg(test)]
+mod aegis_launch_tests;
+#[cfg(test)]
 mod bridge_cluster_tests;
 #[cfg(test)]
 mod bridge_launch_tests;

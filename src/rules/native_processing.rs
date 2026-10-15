@@ -566,6 +566,28 @@ impl ProcessedRulesLayers {
             })
     }
 
+    /// TechnoType+6A4 after every reached ReadINI7147B4 pass.
+    pub(crate) fn radial_fire_segments_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, i32)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        member.radial_fire_segments,
+                    )
+                })
+            })
+    }
+
     /// Retained +A8 speed and +A0 projectile after the last Weapon sweep.
     pub(crate) fn weapon_speeds_and_projectiles(
         &self,
@@ -1256,6 +1278,9 @@ struct ProcessedType {
     gunner_turrets: GunnerTurrets,
     recoil: crate::rules::recoil::RecoilConfig,
     airstrike: crate::rules::airstrike::AirstrikeSettings,
+    /// TechnoType constructor711134 and current-default ReadInt7147B4.
+    #[serde(default)]
+    radial_fire_segments: i32,
     /// TechnoType `Prerequisite=` (`+0x638`) and `PrerequisiteOverride=`
     /// (`+0x654`), each read with its current list as the default.
     prerequisite: Vec<Prerequisite>,
@@ -1290,6 +1315,7 @@ impl ProcessedType {
             gunner_turrets: GunnerTurrets::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
             airstrike: crate::rules::airstrike::AirstrikeSettings::default(),
+            radial_fire_segments: 0,
             prerequisite: Vec::new(),
             prerequisite_override: Vec::new(),
             weapon: WeaponReadState::default(),
@@ -2343,6 +2369,12 @@ impl RulesPassProcessor {
         self.allocate_scalar_from(raw, "DeployingAnim", RulesTypeFamily::Animation, 0x80);
         self.allocate_scalar_from(raw, "Enslaves", RulesTypeFamily::Infantry, 0x80);
         self.allocate_scalar_from(raw, "Spawns", RulesTypeFamily::Aircraft, 0x80);
+        // Original ReadINI7147B4..7147C8 stores ReadInt5276D0 directly.
+        // Missing sections never enter this reader; omitted keys retain the
+        // prior value, including across process-resident registry handoffs.
+        let member = &mut self.family_mut(family)[index];
+        member.radial_fire_segments =
+            raw.read_int("RadialFireSegments", member.radial_fire_segments);
     }
 
     fn allocate_fixed_art_techno_reference(

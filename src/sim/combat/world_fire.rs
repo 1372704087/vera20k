@@ -1213,8 +1213,8 @@ pub(super) fn emit_admitted_fire(
         // `TechnoClass::FireAt` step order, `0x006FE663`..`0x006FEA52`:
         // resolve the target delta, scatter it, recompute the facing from the
         // scattered delta, clamp the launch speed to half the straight-line
-        // distance, and only then force a homing or vertical shot to one
-        // lepton per frame. `BulletClass::Fire` keeps the target's own
+        // distance, and then apply the radial fan and homing/vertical scalar
+        // gate. `BulletClass::Fire` keeps the target's own
         // unled coordinate as the bullet's (`0x00468700..0x0046872B`).
         let frozen_target_position = impact;
         let aim = launch_geometry.aim;
@@ -1301,25 +1301,24 @@ pub(super) fn emit_admitted_fire(
         // 6FE947..6FE98A: directed launches read virtual+308. Dropping's
         // second GetCoords read (0x006FE960) stores the value the launch
         // source already holds (`fireat_launch_source`).
-        // RESIDUAL: `RadialFireSegments=` (`TechnoTypeClass+0x6A4`) is not
-        // parsed. One stock author, `[AEGIS]`: native replaces the launch
-        // direction with `body facing + (PI * counter / segments - PI / 2)`,
-        // cycling a counter at `TechnoClass+0x43C`, and forces the ROT>0
-        // launch speed to 1 only when it is zero (`0x006FEA18..0x006FEA3A`).
-        // Player effect: the Aegis Cruiser fires straight at one target
-        // instead of sweeping its flak arc, in every Allied naval engagement.
+        // RadialFireSegments reads PrimaryFacing.Current independently of
+        // the directed launch's virtual+308 (which can use a turret).
+        let body_heading = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .map_or(snap.hull_facing.current(binary_frame), |source| {
+                source.body_facing_current(binary_frame)
+            });
         let directed_heading = projectile_type
             .filter(|projectile| projectile.dropping || projectile.rot != 0)
             .map(|_| {
                 let source = world.substrate.entities.get(snap.stable_id);
-                let hull = source.map_or(snap.hull_facing.current(binary_frame), |source| {
-                    source.body_facing_current(binary_frame)
-                });
                 match snap.category {
                     EntityCategory::Unit if obj.has_turret => source
                         .and_then(|source| source.barrel_facing.as_ref())
                         .map_or(0, |facing| facing.current(binary_frame)),
-                    EntityCategory::Unit | EntityCategory::Infantry => hull,
+                    EntityCategory::Unit | EntityCategory::Infantry => body_heading,
                     EntityCategory::Aircraft => source
                         .and_then(|source| source.barrel_facing.as_ref())
                         .map_or(0, |facing| facing.current(binary_frame)),
@@ -1356,7 +1355,27 @@ pub(super) fn emit_admitted_fire(
                     .wrapping_mul(200)
                     .wrapping_sub(pivot_z)
             });
+        let voxel_downward = (!ballistic && voxel).then(|| {
+            target_location(snap.target)
+                .expect("live native FireAt target")
+                .z
+                < raw_source.z
+        });
+        //6FEAC5..6FEBE6 consumes +43C before pitch or Bullet::Fire can fail.
+        // A nonpositive segment count leaves this independent index alone.
+        let radial_index = world
+            .substrate
+            .entities
+            .get_mut(snap.stable_id)
+            .map_or(0, |source| {
+                source
+                    .weapon_burst
+                    .take_radial_index(obj.radial_fire_segments)
+            });
         let launch = fireat_launch(FireAtLaunch {
+            radial_segments: obj.radial_fire_segments,
+            radial_index,
+            body_heading,
             delta,
             speed: launch_geometry.speed,
             vertical: vertical.is_some(),
@@ -1368,12 +1387,7 @@ pub(super) fn emit_admitted_fire(
                 collision.floater,
             ),
             high_root: high_arc_root(weapon.lobber, raw_source, current_target_coord),
-            voxel_downward: (!ballistic && voxel).then(|| {
-                target_location(snap.target)
-                    .expect("live native FireAt target")
-                    .z
-                    < raw_source.z
-            }),
+            voxel_downward,
             building_pitch_height,
         });
         // A launch with no ballistic solution deletes its bullet
@@ -1383,6 +1397,7 @@ pub(super) fn emit_admitted_fire(
         if let Some(FireAtLaunchResult {
             velocity,
             speed: launch_speed,
+            ..
         }) = launch
         {
             // ProcessDelayedFire writes its support bonus on the bullet this
@@ -1416,7 +1431,15 @@ pub(super) fn emit_admitted_fire(
                     max_speed: weapon.speed,
                     origin,
                     velocity,
-                    speed: launch_speed.clamp(0, i32::from(u16::MAX)) as u16,
+                    // Bullet::Fire normalizes ROT>0 after FireAt's scalar
+                    // math. Keep the current-speed cache derived from that
+                    // returned vector, as the homing owner does each visit.
+                    speed: if guidance.is_some() {
+                        crate::sim::projectile::projectile_velocity_magnitude(velocity)
+                            .clamp(0.0, f64::from(u16::MAX)) as u16
+                    } else {
+                        launch_speed.clamp(0, i32::from(u16::MAX)) as u16
+                    },
                 },
             );
         }

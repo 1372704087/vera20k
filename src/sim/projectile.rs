@@ -985,7 +985,8 @@ pub struct ProjectileSpawn {
     pub payload: ProjectilePayload,
     /// The bullet's CURRENT speed in leptons per frame — native's
     /// `ftol(|velocity|)`, not the weapon's `Speed=`. `TechnoClass::FireAt
-    /// @ 0x006FEA3A` launches every `ROT > 0` or `Vertical` bullet at 1, and
+    /// @ 0x006FEA3A` uses scalar1 for `ROT > 0` or `Vertical` only when
+    /// `RadialFireSegments=0`; a nonzero value retains its clamped scalar.
     /// `BulletClass::Fire @ 0x00468B2C` renormalises a `ROT > 0` bullet's
     /// vector to magnitude 1.0 regardless; `Speed=` only becomes the ceiling
     /// stored at `Bullet+0x110`. Non-homing, non-vertical bullets do keep the

@@ -236,6 +236,7 @@ use crate::util::lepton::LEPTONS_PER_LEVEL;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53};
 
 use super::game_entity::GameEntity;
+#[cfg(test)]
 use super::occupancy::OccupancyGrid;
 
 /// One Unit's post-Foot Facing slot output for this tick — the write half of

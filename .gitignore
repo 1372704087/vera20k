@@ -13,6 +13,7 @@ Thumbs.db
 .DS_Store
 
 *.png
+*.pcx
 *.log
 *.txt
 !tools/requirements-test.txt

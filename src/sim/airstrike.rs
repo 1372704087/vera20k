@@ -230,6 +230,7 @@ impl Simulation {
             self.airstrike_sound(
                 first,
                 rules.general.airstrike_attack_voice.as_deref(),
+                None,
                 Some(rules),
                 effects,
             );
@@ -389,12 +390,16 @@ impl Simulation {
         &mut self,
         source: u64,
         sound: Option<&str>,
+        audible_to: Option<[crate::sim::intern::InternedId; 2]>,
         rules: Option<&RuleSet>,
         effects: FrameEffects<'_>,
     ) {
         if let (Some(sound), Some(entity)) = (sound, self.substrate.entities.get(source)) {
-            self.sound_events
-                .push(SimSoundEvent::voc_at(sound.to_owned(), &entity.position));
+            self.sound_events.push(SimSoundEvent::voc_at_for(
+                sound.to_owned(),
+                audible_to,
+                &entity.position,
+            ));
             effects.flush_sound(self, rules);
         }
     }
@@ -450,9 +455,14 @@ impl Simulation {
                     .and_then(|e| self.houses.get(&e.owner()))
                     .is_some_and(|h| h.is_human)
             {
+                // IsHumanPlayer50B6F0 in skirmish means this machine's local
+                // house. The common sound boundary resolves that audience;
+                // another human player's Boris must not play our abort voice.
+                let house = self.substrate.entities.get(owner).unwrap().owner();
                 self.airstrike_sound(
                     first,
                     rules.and_then(|r| r.general.airstrike_abort_sound.as_deref()),
+                    Some([house, house]),
                     rules,
                     effects,
                 );

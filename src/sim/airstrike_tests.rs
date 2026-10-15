@@ -279,6 +279,11 @@ fn owner_expiry_unlinks_surviving_planes_and_clears_the_designation() {
     let planes = f.sim.airstrike_manager(f.boris).unwrap().aircraft.clone();
     f.sim
         .airstrike_pointer_expired(f.boris, f.boris, Some(&f.rules), FrameEffects::default());
+    let house = f.sim.substrate.entities.get(f.boris).unwrap().owner();
+    assert!(f.sim.sound_events.iter().any(|event| matches!(event,
+        SimSoundEvent::VocAt { sound_id, audible_to: Some(houses), .. }
+            if sound_id == "MIGMissionAborted" && *houses == [house, house]
+    )));
     let m = f.sim.airstrike_manager(f.boris).unwrap();
     assert!(m.aircraft.is_empty());
     assert!(!m.busy && !m.active);

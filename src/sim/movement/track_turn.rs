@@ -37,7 +37,7 @@ pub(super) fn admit_track_entry(entity: &mut GameEntity, has_turret: bool) -> bo
     let latched = loco.track_turn_latched(family).unwrap();
     let admitted = ((valid && track.turn_index() != -1) || queue_eight) && (!latched || has_turret);
     if !admitted {
-        track.set_residual(0);
+        track.clear_residual();
         loco.store_track_progress(family, track);
     }
     admitted

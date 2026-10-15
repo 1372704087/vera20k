@@ -268,8 +268,8 @@ fn balloon_hover_type(
     interner: &crate::sim::intern::StringInterner,
 ) -> bool {
     entity.crash.is_crashing()
-        && rules
-            .object(interner.resolve(entity.type_ref()))
+        && interner
+            .object_type(entity.type_ref(), rules)
             .is_some_and(|object| object.balloon_hover)
 }
 

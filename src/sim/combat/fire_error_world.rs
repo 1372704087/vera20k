@@ -68,8 +68,9 @@ impl<'a> FireSubject<'a> {
 
     fn target_obj(&self) -> Option<&ObjectType> {
         self.target_entity().and_then(|target| {
-            self.rules
-                .object(self.world.interner.resolve(target.type_ref()))
+            self.world
+                .interner
+                .object_type(target.type_ref(), self.rules)
         })
     }
 
@@ -82,12 +83,7 @@ impl<'a> FireSubject<'a> {
     }
 
     fn speed_rules(&self) -> crate::sim::movement::SpeedRules<'_> {
-        crate::sim::movement::SpeedRules::new(
-            self.rules,
-            &self.world.interner,
-            &self.world.type_handles,
-            &self.world.houses,
-        )
+        crate::sim::movement::SpeedRules::new(self.rules, &self.world.interner, &self.world.houses)
     }
 
     /// GetWeapon (vt+0x3F8) at an index ([`combat_weapon::get_weapon`]): an
@@ -189,8 +185,9 @@ impl<'a> FireSubject<'a> {
             .map(|transport| {
                 (
                     transport,
-                    self.rules
-                        .object(self.world.interner.resolve(transport.type_ref())),
+                    self.world
+                        .interner
+                        .object_type(transport.type_ref(), self.rules),
                 )
             });
         // U5 reads the `+0x418` tether byte that radio `0x18` sets, whose

@@ -347,8 +347,8 @@ pub(crate) fn calculate_threat_score(
 ) -> Option<MaskedX87Value> {
     let scorer = entities.get(scorer_id)?;
     let candidate = entities.get(candidate_id)?;
-    let scorer_type = rules.object(interner.resolve(scorer.type_ref()))?;
-    let candidate_type = rules.object(interner.resolve(candidate.type_ref()))?;
+    let scorer_type = interner.object_type(scorer.type_ref(), rules)?;
+    let candidate_type = interner.object_type(candidate.type_ref(), rules)?;
     let coeff_a = load_threat_double(coefficients.my_effectiveness);
     let coeff_b = load_threat_double(coefficients.target_effectiveness);
     let coeff_c = load_threat_double(coefficients.target_special_threat);
@@ -717,10 +717,7 @@ impl ScanContext<'_> {
     /// `candidate`, a Techno other than the scanner.
     fn cell_walk_stops_at(&self, candidate: &GameEntity) -> bool {
         // Only the healer and engineer arms read the type.
-        let obj = || {
-            self.rules
-                .object(self.interner.resolve(candidate.type_ref()))
-        };
+        let obj = || self.interner.object_type(candidate.type_ref(), self.rules);
         // HealthRatio (`0x005F5C60`) against a Rules threshold.
         let ratio =
             |threshold| obj().map(|obj| candidate.health.compare_ratio(obj.strength, threshold));
@@ -1698,9 +1695,7 @@ fn evaluate_candidate(
     // its armor is at or below the `0.02f` floor. Resolve the native selection
     // without the legacy partial fire-error filter; G2b below owns the full
     // native probe, including early REARM before later target-legality gates.
-    let candidate_obj = ctx
-        .rules
-        .object(ctx.interner.resolve(candidate.type_ref()))?;
+    let candidate_obj = ctx.interner.object_type(candidate.type_ref(), ctx.rules)?;
     let scanner_facts = attacker_facts(ctx.scanner, ctx.attacker_obj);
     let candidate_facts = techno_target_facts(
         candidate,

@@ -1956,8 +1956,8 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
             .expect("target should exist");
         assert_eq!(target_entity.category(), EntityCategory::Infantry);
         assert!(
-            rules
-                .object(sim.interner.resolve(target_entity.type_ref()))
+            sim.interner
+                .object_type(target_entity.type_ref(), &rules)
                 .is_some_and(|obj| obj.considered_aircraft)
         );
 
@@ -7216,8 +7216,8 @@ fn wall_warhead_damages_and_destroys_wall_overlay() {
         .entities
         .iter_sorted()
         .filter(|(_, e)| {
-            rules
-                .object(sim.interner.resolve(e.type_ref()))
+            sim.interner
+                .object_type(e.type_ref(), &rules)
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7292,8 +7292,8 @@ fn wall_warhead_damages_and_destroys_wall_overlay() {
         .entities
         .iter_sorted()
         .filter(|(_, e)| {
-            rules
-                .object(sim.interner.resolve(e.type_ref()))
+            sim.interner
+                .object_type(e.type_ref(), &rules)
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7383,8 +7383,8 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         .entities
         .iter_sorted()
         .filter(|(_, e)| {
-            rules
-                .object(sim.interner.resolve(e.type_ref()))
+            sim.interner
+                .object_type(e.type_ref(), &rules)
                 .is_some_and(|o| o.wall)
         })
         .count();
@@ -7639,7 +7639,7 @@ fn selected_weapon_range(
     interner: &StringInterner,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> Option<crate::util::fixed_math::SimFixed> {
-    let obj = rules.object(interner.resolve(attacker.type_ref()))?;
+    let obj = interner.object_type(attacker.type_ref(), rules)?;
     combat_weapon::select_weapon_against(
         rules,
         attacker,

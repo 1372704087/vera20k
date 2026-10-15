@@ -65,7 +65,7 @@ impl Simulation {
     ) -> Option<NavTargetRef> {
         let target = target?;
         let entity = self.substrate.entities.get(id)?;
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
         if combat_weapon::aircraft_strafes(rules, object, entity.veterancy.rank()) {
             return Some(target);
         }
@@ -185,9 +185,7 @@ impl Simulation {
             return true;
         }
         let entity = self.substrate.entities.get(id).unwrap();
-        let object = rules
-            .object(self.interner.resolve(entity.type_ref()))
-            .unwrap();
+        let object = self.interner.object_type(entity.type_ref(), rules).unwrap();
         if object.spawned {
             let resolved = self
                 .resolved_terrain
@@ -202,8 +200,9 @@ impl Simulation {
                 .and_then(|other| self.substrate.entities.get(other))
                 .is_some_and(|other| {
                     other.spawn_manager.is_some()
-                        || rules
-                            .object(self.interner.resolve(other.type_ref()))
+                        || self
+                            .interner
+                            .object_type(other.type_ref(), rules)
                             .is_some_and(|object| object.spawned)
                 })
             {

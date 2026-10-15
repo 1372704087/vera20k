@@ -1902,57 +1902,6 @@ impl Simulation {
         }
     }
 
-    /// Update VoxelAnimation frame_counts for all voxel entities from atlas data.
-    ///
-    /// Called after the unit atlas is built, since frame counts are only known after
-    /// loading HVA files.
-    /// VERA-only: sets each VoxelAnimation clock's frame count from the atlas's HVA counts, its
-    /// source of truth; `UnitClass::DrawVoxelBody @ 0x0073B470` reads the HVA count instead.
-    pub fn update_voxel_anim_frame_counts(
-        &mut self,
-        frame_counts: &std::collections::BTreeMap<
-            (String, crate::sim::components::VxlLayer, i32),
-            u32,
-        >,
-    ) {
-        use crate::sim::components::VxlLayer;
-
-        let keys = self.substrate.entities.keys_sorted();
-        let mut updated: u32 = 0;
-        for &sid in &keys {
-            let Some(entity) = self.substrate.entities.get_mut(sid) else {
-                continue;
-            };
-            let type_ref = entity.type_ref();
-            let Some(ref mut va) = entity.voxel_animation else {
-                continue;
-            };
-            let max_fc: u32 = [
-                VxlLayer::Composite,
-                VxlLayer::Body,
-                VxlLayer::Turret,
-                VxlLayer::Barrel,
-            ]
-            .iter()
-            .filter_map(|layer| {
-                frame_counts.get(&(self.interner.resolve(type_ref).to_string(), *layer, 0))
-            })
-            .copied()
-            .max()
-            .unwrap_or(1);
-
-            if max_fc > 1 && va.adopt_frame_count(max_fc) {
-                updated += 1;
-            }
-        }
-        if updated > 0 {
-            log::info!(
-                "Updated VoxelAnimation frame_count for {} entities",
-                updated
-            );
-        }
-    }
-
     /// `UnitClass::Deploy @ 0x007393C0`: a stopped unit whose DeploysInto
     /// type can stand at its origin turns to the type's `DeployFacing=` or,
     /// already facing it, becomes that building. False when it refuses.

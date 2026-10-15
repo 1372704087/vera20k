@@ -668,8 +668,6 @@ mod tests {
         assert_send_sync::<Position>();
         assert_send_sync::<crate::sim::combat::Health>();
         assert_send_sync::<BuildingUp>();
-        assert_send_sync::<crate::sim::animation::VoxelAnimation>();
-        assert_send_sync::<crate::sim::animation::HarvestOverlay>();
         assert_send_sync::<crate::sim::movement::locomotor::LocomotorState>();
         assert_send_sync::<NavigationState>();
         assert_send_sync::<DriveLocomotionRuntime>();

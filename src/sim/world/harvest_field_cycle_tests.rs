@@ -283,14 +283,6 @@ fn a_return_order_ends_the_harvesting_byte_and_oregath() {
     );
     let sample = frame(&mut s);
     assert!(!sample.harvesting, "Unit+0x6D2 cleared by the unit AI");
-    let miner = s.sim.substrate.entities.get(s.miner).unwrap();
-    assert!(
-        miner
-            .harvest_overlay
-            .as_ref()
-            .is_none_or(|ho| !ho.visible()),
-        "OREGATH hidden with the byte"
-    );
 }
 
 /// A harvest order on a miner already cutting (`Queue_Mission` keeps the

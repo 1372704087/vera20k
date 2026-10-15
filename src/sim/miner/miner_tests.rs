@@ -9,7 +9,6 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::animation::HarvestOverlay;
 use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
@@ -1834,7 +1833,6 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
                 value: config.ore_bale_value,
             });
         }
-        entity.harvest_overlay = Some(HarvestOverlay::for_test(6, true));
     }
     arm_cutting(&mut sim, miner_id);
 
@@ -1859,9 +1857,7 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         assert_eq!(entity.archive_target(), None);
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(entity.teleport_state().is_none());
-        let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(overlay.visible());
-        assert_eq!(overlay.frame(), 6);
+        assert!(miner.harvesting(), "Unit+0x6D2 stays set on fill");
     }
 
     tick_miners_n(&mut sim, &rules, GATE - 1);
@@ -1883,12 +1879,9 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         );
         assert_eq!(entity.archive_target(), None);
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
-        let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(overlay.visible());
-        assert_eq!(
-            overlay.frame(),
-            6,
-            "nonzero overlay state remains live through F+18"
+        assert!(
+            entity.miner.as_ref().unwrap().harvesting(),
+            "Unit+0x6D2 stays set through F+18"
         );
     }
 
@@ -1915,9 +1908,10 @@ fn filling_extraction_waits_for_full_gate_before_war_return() {
         );
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(entity.teleport_state().is_none());
-        let overlay = entity.harvest_overlay.expect("harvest overlay");
-        assert!(!overlay.visible());
-        assert_eq!(overlay.frame(), 0);
+        assert!(
+            !entity.miner.as_ref().unwrap().harvesting(),
+            "the full gate clears Unit+0x6D2"
+        );
     }
 
     open_playfield(&mut sim);

@@ -1068,17 +1068,12 @@ fn assert_gsi_13_10_shp_unit(entity: &GameEntity) {
         "SHP Unit must retain its SHP drawing representation"
     );
     assert!(entity.animation.is_some());
-    assert!(entity.voxel_animation.is_none());
 }
 
 fn assert_gsi_13_10_vxl_unit(entity: &GameEntity) {
     assert_eq!(entity.category(), EntityCategory::Unit);
     assert!(entity.is_voxel());
     assert!(entity.animation.is_none());
-    assert!(
-        entity.voxel_animation.is_none(),
-        "Unit voxel drawing shares the persistent Foot body counter"
-    );
 }
 
 /// FootClass::AI asks every Foot's locomotor `Is_Moving_Now`

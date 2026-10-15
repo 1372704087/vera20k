@@ -2221,11 +2221,6 @@ impl MapLoadInitial {
             map_data.header.height as u16,
         );
         simulation.overlay_grid = Some(overlay_grid.clone());
-        crate::app::loading::init_helpers::bind_staged_app_scenario_metadata(
-            &mut simulation,
-            asset_manager,
-            Some(&rules),
-        );
         let installed_constructor_words = map_data
             .entities
             .iter()
@@ -3140,11 +3135,6 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(69);
     progress.milestone(70);
 
-    crate::app::loading::init_helpers::bind_staged_app_scenario_metadata(
-        &mut staged_simulation,
-        asset_manager,
-        Some(&rules),
-    );
     // Terrain/tiberium + units/infantry/buildings created from the map
     // (gamemd terrain/units/objects/buildings milestones).
     progress.milestone(72);

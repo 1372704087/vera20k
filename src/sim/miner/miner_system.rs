@@ -476,8 +476,7 @@ pub(super) fn build_miner_snapshot(sim: &Simulation, id: u64) -> Option<MinerSna
 /// Commit one dispatched snapshot back to the entity: miner mutations, the
 /// FSM cursor of record (`MissionCom::handler_state`, which
 /// `UnitClass::Mission_Harvest @ 0x0073E5E0` stores at
-/// `0x0073E714..0x0073EE68`), buffered debug events, and the render-side
-/// harvest-visual flags (the former global-tick Phases 3/4/4b for one object).
+/// `0x0073E714..0x0073EE68`) and buffered debug events.
 pub(super) fn commit_miner_snapshot(sim: &mut Simulation, snap: &MinerSnapshot) {
     let Some(entity) = sim.substrate.entities.get_mut(snap.entity_id) else {
         return;
@@ -492,17 +491,6 @@ pub(super) fn commit_miner_snapshot(sim: &mut Simulation, snap: &MinerSnapshot) 
                 to: to.clone(),
             },
         );
-    }
-    sync_harvest_visuals(entity);
-}
-
-/// The HarvestOverlay (oregath.shp) follows Unit+0x6D2 (never hashed).
-/// `UnitClass::Draw @ 0x0073CEC0` draws it only with the locomotor at rest.
-/// Unit body animation uses Foot+0x538 through the shared body-counter owner.
-fn sync_harvest_visuals(entity: &mut crate::sim::game_entity::GameEntity) {
-    let is_harvesting = entity.miner.as_ref().is_some_and(|miner| miner.harvesting);
-    if let Some(overlay) = entity.harvest_overlay.as_mut() {
-        overlay.follow(is_harvesting);
     }
 }
 
@@ -532,7 +520,6 @@ pub(crate) fn unit_ai_clear_harvesting(sim: &mut Simulation, id: u64) {
     if let Some(miner) = entity.miner.as_mut() {
         miner.harvesting = false;
     }
-    sync_harvest_visuals(entity);
 }
 
 /// Test-only mirror of the production Harvest dispatch walk: the same

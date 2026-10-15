@@ -1761,6 +1761,12 @@ impl GameEntity {
         self.lifecycle.object_alive()
     }
 
+    /// `ObjectClass+0x81`, InLimbo: off the map, as an object still in its
+    /// factory or a transport, or a V3 rocket in its launcher.
+    pub fn in_limbo(&self) -> bool {
+        self.lifecycle.in_limbo()
+    }
+
     /// Transitional Rust system gate until ordinary Infantry lifecycle authority
     /// migrates. Distinct from both health-based `is_alive()` and native-alive
     /// `is_object_alive()`; death-sequence state still suppresses current raw-store

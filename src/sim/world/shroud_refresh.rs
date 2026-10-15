@@ -15,6 +15,21 @@ mod tests;
 mod reveal_to_all_tests;
 
 #[cfg(test)]
+#[path = "sight_cadence_tests.rs"]
+mod sight_cadence_tests;
+
+/// [`Simulation::sight_height_grid`]'s answer.
+pub(crate) struct SightHeights(Option<std::sync::Arc<PathGrid>>);
+
+impl SightHeights {
+    /// The ground levels in cell order, borrowed from the path grid
+    /// ([`PathGrid::ground_height_grid`]).
+    pub(crate) fn levels(&self) -> Option<&[u8]> {
+        self.0.as_deref().map(PathGrid::ground_height_grid)
+    }
+}
+
+#[cfg(test)]
 #[derive(Default)]
 struct RevealCalls {
     walks: Vec<Vec<(u16, u16)>>,
@@ -99,7 +114,7 @@ impl Simulation {
                 center,
                 z,
                 radius,
-                height_grid.as_deref(),
+                height_grid.levels(),
                 final_pass,
                 &config,
                 context,
@@ -235,7 +250,7 @@ impl Simulation {
                     center,
                     half_level * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
                     2,
-                    height_grid.as_deref(),
+                    height_grid.levels(),
                     final_pass,
                     &config,
                     context,
@@ -573,7 +588,12 @@ impl Simulation {
             //the bulk counter overwrite, and the RevealToAll branch reveals the
             //rest's alternate sight. Independent41B discovery and campaign
             //Human remain caller residuals.
-            let sources: std::collections::BTreeSet<u64> = self
+            // `0x004ADCD0` re-admits each through `UpdateReveal`
+            // (`0x004ADD4C`, `0x004ADDE4`) where it stands now, not where
+            // its last reveal left it.
+            let config = self.sight_reveal_config(Some(rules));
+            let heights = self.sight_height_grid(&config);
+            let sources: std::collections::BTreeMap<u64, Option<vision::SightAdmission>> = self
                 .substrate
                 .entities
                 .iter_sorted()
@@ -588,7 +608,23 @@ impl Simulation {
                             self.interner.resolve(entity.owner()),
                             self.interner.resolve(owner),
                         );
-                    (own || allied_building).then_some(id)
+                    if !own && !allied_building {
+                        return None;
+                    }
+                    let current = (self.fog.sight_admissions.contains_key(&(id, owner))
+                        && vision::holds_sight(entity, &config))
+                    .then(|| {
+                        vision::entity_own_sight(
+                            &self.fog,
+                            entity,
+                            &config,
+                            heights.levels(),
+                            self.resolved_terrain.as_ref(),
+                            config.sight_ability(entity, &self.interner, Some(rules)),
+                        )
+                    })
+                    .flatten();
+                    Some((id, current))
                 })
                 .collect();
             let old_spy_sat_active = self
@@ -608,7 +644,7 @@ impl Simulation {
             // release/store/reentry path runs here; occupied discovery and
             // nested Tags in the original bracket remain the stated residual.
             let mut alternates = self.reveal_to_all_footprints(owner, rules);
-            alternates.retain(|id, _| !sources.contains(id));
+            alternates.retain(|id, _| !sources.contains_key(id));
             self.fog.transition_whole_map_with_gap_reentry(
                 owner,
                 cells,
@@ -628,35 +664,88 @@ impl Simulation {
 
     /// The settings every reveal reads (`TechnoClass::UpdateReveal @
     /// 0x0070AF50` and its callers, the Psychic Reveal): with a live map the
-    /// stored playfield byte gates a Techno's, the map's `Size=` diamond
-    /// bounds them, and the rules' sight keys and `AllyReveal=` shape them.
+    /// stored playfield byte gates a Techno's, as a `MultiplayPassive=`
+    /// house does, the map's `Size=` diamond bounds them, and the rules'
+    /// sight keys and `AllyReveal=` shape them.
     pub(crate) fn sight_reveal_config(&self, rules: Option<&RuleSet>) -> vision::VisionConfig {
+        let passive_owners = self
+            .houses
+            .iter()
+            .filter(|(_, house)| house.multiplay_passive)
+            .map(|(&owner, _)| owner)
+            .collect();
         vision::VisionConfig::new(
             rules,
             self.map_size_diamond(),
             self.playfield_bounds.is_some(),
+            passive_owners,
         )
+    }
+
+    /// `TechnoClass::ReReveal(0, 0, 0, 0)` (`0x0070B1D0`) then
+    /// `UpdateReveal(0, 0, 0, 0, radius)` (`0x0070AF50`): the object's sight
+    /// leaves the footprint its last reveal stored (`+0x254`, `+0x260`) and
+    /// opens where it stands ([`vision::force_refresh_entity_vision`]; a
+    /// nonzero `radius` replaces its sight), for an object that holds sight
+    /// ([`vision::holds_sight`]). Callers: the Unit and Infantry cell
+    /// arrivals (`0x0073AC5F`/`0x0073AC74`, `0x0051A8D7`/`0x0051A8EB`), the
+    /// Jumpjet descent (`0x0054C93C`/`0x0054C95B`), Fly's landing transition
+    /// (`0x004CD43F`/`0x004CD454`) and the Spy Plane's snapshots
+    /// (`0x00415672`/`0x00415697`, `0x004157F7`/`0x0041581C`).
+    ///
+    /// Carryall_Pickup's pair (`0x00416C6D`/`0x00416C81`) is dormant, as the
+    /// pickup is: it needs an AircraftType with `Carryall=`, which no retail
+    /// type sets (`retail_aircraft_types_are_not_carryalls`).
+    pub(crate) fn refresh_object_sight(
+        &mut self,
+        stable_id: u64,
+        rules: Option<&RuleSet>,
+        radius: i32,
+    ) {
+        let config = self.sight_reveal_config(rules);
+        let Some(entity) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .filter(|entity| vision::holds_sight(entity, &config))
+        else {
+            return;
+        };
+        let height_grid = self.sight_height_grid(&config);
+        let ability = config.sight_ability(entity, &self.interner, rules);
+        vision::force_refresh_entity_vision(
+            &mut self.fog,
+            entity,
+            &config,
+            height_grid.levels(),
+            self.resolved_terrain.as_ref(),
+            ability,
+            &self.interner,
+            radius,
+        );
     }
 
     /// The ground levels a reveal under `config` tests its cells' line of
     /// sight against (`0x00567CB5`): none unless `RevealByHeight=`, or
-    /// without a path grid.
-    pub(crate) fn sight_height_grid(&self, config: &vision::VisionConfig) -> Option<Vec<u8>> {
-        config
-            .reveal_by_height()
-            .then(|| self.path_grid().map(PathGrid::ground_height_grid))
-            .flatten()
+    /// without a path grid. A handle on the current path grid, which keeps
+    /// the levels; taking it copies no cells.
+    pub(crate) fn sight_height_grid(&self, config: &vision::VisionConfig) -> SightHeights {
+        SightHeights(
+            config
+                .reveal_by_height()
+                .then(|| self.path_grid_snapshot())
+                .flatten(),
+        )
     }
 
     /// The gates `TechnoClass::UpdateReveal @ 0x0070AF50` and `ReReveal @
     /// 0x0070B1D0` share for an alternate house: the stored playfield byte
     /// `+0x3D5`, and an owner that is not `MultiplayPassive=`.
-    fn passes_alternate_reveal_gates(&self, entity: &crate::sim::game_entity::GameEntity) -> bool {
-        entity.in_playfield()
-            && !self
-                .houses
-                .get(&entity.owner())
-                .is_some_and(|house| house.multiplay_passive)
+    fn passes_alternate_reveal_gates(
+        entity: &crate::sim::game_entity::GameEntity,
+        config: &vision::VisionConfig,
+    ) -> bool {
+        entity.in_playfield() && !config.passive_owner(entity.owner())
     }
 
     /// The footprint `UpdateReveal(0, 0, 1, PlayerPtr, 0)` reveals for
@@ -670,10 +759,10 @@ impl Simulation {
         height_grid: Option<&[u8]>,
         rules: &RuleSet,
     ) -> Option<vision::SightAdmission> {
-        if !self.passes_alternate_reveal_gates(entity) {
+        if !Self::passes_alternate_reveal_gates(entity, config) {
             return None;
         }
-        let ability = vision::entity_has_sight_ability(entity, &self.interner, Some(rules));
+        let ability = config.sight_ability(entity, &self.interner, Some(rules));
         vision::entity_sight_footprint(
             &self.fog,
             entity,
@@ -719,7 +808,7 @@ impl Simulation {
             entity,
             current,
             &config,
-            height_grid.as_deref(),
+            height_grid.levels(),
             rules,
         ) else {
             return;
@@ -750,15 +839,15 @@ impl Simulation {
         let Some(current) = self.session.current_house else {
             return;
         };
+        let config = self.sight_reveal_config(Some(rules));
         if !self
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| self.passes_alternate_reveal_gates(entity))
+            .is_some_and(|entity| Self::passes_alternate_reveal_gates(entity, &config))
         {
             return;
         }
-        let config = self.sight_reveal_config(Some(rules));
         let footprint = match self.fog.clear_sight_latch(stable_id) {
             Some(footprint) => Some(footprint),
             None => {
@@ -768,7 +857,7 @@ impl Simulation {
                     entity,
                     current,
                     &config,
-                    height_grid.as_deref(),
+                    height_grid.levels(),
                     rules,
                 )
             }
@@ -842,7 +931,7 @@ impl Simulation {
                 entity,
                 current,
                 &config,
-                height_grid.as_deref(),
+                height_grid.levels(),
                 rules,
             ) {
                 footprints.insert(id, footprint);
@@ -907,16 +996,17 @@ impl Simulation {
         }
         let config = self.sight_reveal_config(rules);
         let height_grid = self.sight_height_grid(&config);
-        let ability = vision::entity_has_sight_ability(entity, &self.interner, rules);
+        let ability = config.sight_ability(entity, &self.interner, rules);
+        // The two reveal leaves may reject (`vision::holds_sight`); the due
+        // FootAI branch nevertheless reloads its 15 frames after its calls.
+        let holds_sight = vision::holds_sight(entity, &config);
         for &viewer in &due {
-            // The two reveal leaves may reject membership/zero-radius. The
-            // due FootAI branch nevertheless reloads15 after its calls.
-            if entity.in_playfield() && !entity.passenger_role.is_inside_transport() {
+            if holds_sight {
                 vision::refresh_entity_vision_for_viewer(
                     &mut self.fog,
                     entity,
                     &config,
-                    height_grid.as_deref(),
+                    height_grid.levels(),
                     self.resolved_terrain.as_ref(),
                     ability,
                     &self.interner,

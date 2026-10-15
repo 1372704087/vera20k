@@ -341,7 +341,7 @@ fn native_reshroud_allocated_cursor_stops_on_null_and_calls_shared_receiver() {
             cells,
             MapTransition::Reshroud,
             false,
-            &std::collections::BTreeSet::new(),
+            &std::collections::BTreeMap::new(),
             Some(&[]),
             &std::collections::BTreeMap::new(),
         );

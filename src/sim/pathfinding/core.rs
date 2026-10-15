@@ -1234,6 +1234,10 @@ pub struct PathGrid {
     /// `ground_walkable` recomputed as if the cell held no terrain object.
     /// Same emptiness rule as `terrain_object_cell_bits`.
     ground_walkable_without_terrain_object: Vec<bool>,
+    /// Every cell's `ground_level` in cell order, kept by each cell writer,
+    /// so sight's line of sight borrows the plane
+    /// ([`Self::ground_height_grid`]) instead of copying it per reveal.
+    ground_levels: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1354,6 +1358,7 @@ impl PathGrid {
             height,
             terrain_object_cell_bits: Vec::new(),
             ground_walkable_without_terrain_object: Vec::new(),
+            ground_levels: vec![DEFAULT_WALKABLE_CELL.ground_level; size],
         }
     }
 
@@ -1404,13 +1409,20 @@ impl PathGrid {
         self.height
     }
 
-    /// Build a flat ground-level view derived from this path grid.
+    /// Every cell's ground level in cell order (`y * width + x`).
     ///
-    /// This is intentionally a derived value, not persisted simulation state:
+    /// A derived value, not persisted simulation state:
     /// `ResolvedTerrainGrid` is the terrain-level owner and `PathGrid` is the
     /// current path/cache projection.
-    pub fn ground_height_grid(&self) -> Vec<u8> {
-        self.cells.iter().map(|cell| cell.ground_level).collect()
+    pub fn ground_height_grid(&self) -> &[u8] {
+        debug_assert!(
+            self.cells
+                .iter()
+                .map(|cell| cell.ground_level)
+                .eq(self.ground_levels.iter().copied()),
+            "the level table matches the cells"
+        );
+        &self.ground_levels
     }
 
     /// Mark a cell as blocked (ground layer) or unblocked.
@@ -1583,12 +1595,14 @@ impl PathGrid {
                 *slot = walkable_without_terrain_object;
             }
         }
+        let ground_levels = cells.iter().map(|cell| cell.ground_level).collect();
         Self {
             cells,
             width: terrain.width(),
             height: terrain.height(),
             terrain_object_cell_bits,
             ground_walkable_without_terrain_object,
+            ground_levels,
         }
     }
 
@@ -1605,6 +1619,7 @@ impl PathGrid {
         }
         let index = usize::from(cell.ry) * usize::from(self.width) + usize::from(cell.rx);
         let (path_cell, bits, without_terrain) = project_terrain_path_cell(cell);
+        self.ground_levels[index] = path_cell.ground_level;
         self.cells[index] = path_cell;
         if let Some(slot) = self.terrain_object_cell_bits.get_mut(index) {
             *slot = bits;
@@ -1715,12 +1730,14 @@ impl PathGrid {
     /// Construct from raw cell data (test helper).
     #[cfg(test)]
     pub fn from_cells(cells: Vec<PathCell>, width: u16, height: u16) -> Self {
+        let ground_levels = cells.iter().map(|cell| cell.ground_level).collect();
         Self {
             cells,
             width,
             height,
             terrain_object_cell_bits: Vec::new(),
             ground_walkable_without_terrain_object: Vec::new(),
+            ground_levels,
         }
     }
 
@@ -1741,6 +1758,7 @@ impl PathGrid {
             } else {
                 0
             };
+            self.ground_levels[idx] = ground_level;
             self.cells[idx] = PathCell {
                 ground_walkable: true,
                 bridge_walkable,
@@ -1780,6 +1798,7 @@ impl PathGrid {
     ) {
         if x < self.width && y < self.height {
             let idx = y as usize * self.width as usize + x as usize;
+            self.ground_levels[idx] = ground_level;
             self.cells[idx] = PathCell {
                 ground_walkable: true,
                 bridge_walkable,
@@ -2030,6 +2049,7 @@ impl PathGrid {
             height,
             terrain_object_cell_bits: Vec::new(),
             ground_walkable_without_terrain_object: Vec::new(),
+            ground_levels: vec![DEFAULT_WALKABLE_CELL.ground_level; size],
         }
     }
 
@@ -2042,6 +2062,7 @@ impl PathGrid {
             height,
             terrain_object_cell_bits: Vec::new(),
             ground_walkable_without_terrain_object: Vec::new(),
+            ground_levels: vec![DEFAULT_BLOCKED_CELL.ground_level; size],
         }
     }
 }

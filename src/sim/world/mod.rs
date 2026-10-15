@@ -4019,13 +4019,12 @@ impl Simulation {
         let height_grid = self.sight_height_grid(&reveal_config);
         for (stable_id, _, reveal) in membership_updates {
             if reveal && let Some(entity) = self.substrate.entities.get(stable_id) {
-                let sight_ability =
-                    crate::sim::vision::entity_has_sight_ability(entity, &self.interner, rules);
+                let sight_ability = reveal_config.sight_ability(entity, &self.interner, rules);
                 crate::sim::vision::reveal_entity_vision(
                     &mut self.fog,
                     entity,
                     &reveal_config,
-                    height_grid.as_deref(),
+                    height_grid.levels(),
                     self.resolved_terrain.as_ref(),
                     sight_ability,
                     &self.interner,
@@ -6282,11 +6281,15 @@ impl Simulation {
         }
     }
 
-    /// VERA-only: the per-frame fog recompute from the store; its position reads
-    /// feed only the first tick's diagnostic log of each owner's cell span.
+    /// The per-frame fog pass: ends last frame's sight, releases the sight of
+    /// objects that no longer hold it and admits the sight of objects without
+    /// one (VERA-only, standing in for the lifecycle reveals; residual on
+    /// [`vision::recompute_owner_visibility_in_place`]), then applies SpySat
+    /// and Gap Generator effects. Footprints move only at reveal events
+    /// ([`Self::refresh_object_sight`]).
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: Option<&RuleSet>) {
-        // Recompute visibility in place: end last frame's sight (preserving
-        // FLAG_REVEALED) and reconcile each source's sight with its position.
+        // End last frame's sight (preserving FLAG_REVEALED), then release and
+        // admit sources.
         let path_grid = self.path_grid.as_deref();
         let height_grid = self.sight_height_grid(config);
 
@@ -6296,7 +6299,7 @@ impl Simulation {
             path_grid,
             &self.house_alliances,
             config,
-            height_grid.as_deref(),
+            height_grid.levels(),
             self.resolved_terrain.as_ref(),
             &self.interner,
             rules,

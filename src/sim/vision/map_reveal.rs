@@ -70,6 +70,11 @@ impl FogState {
         old_spy_sat_active: bool,
         source_ids: &std::collections::BTreeSet<u64>,
     ) {
+        // Each source is re-admitted with the footprint it holds.
+        let sources = source_ids
+            .iter()
+            .map(|&id| (id, self.sight_admissions.get(&(id, owner)).cloned()))
+            .collect();
         self.transition_whole_map_with_gap_reentry(
             owner,
             cells,
@@ -79,21 +84,25 @@ impl FogState {
                 MapTransition::Reveal
             },
             old_spy_sat_active,
-            source_ids,
+            &sources,
             None,
             &std::collections::BTreeMap::new(),
         );
     }
 
-    /// `alternates` are the sources the re-admission callback's
-    /// `RevealToAll=` branch reveals on this map, with their footprints.
+    /// `sources` are the callback objects of `0x004ADEE0` and `0x004ADCD0`,
+    /// each with the footprint `UpdateReveal` re-admits for it where it
+    /// stands now (none past its gates); one releases and is re-admitted
+    /// only when it holds an admission on `owner`'s map. `alternates` are
+    /// the sources the re-admission callback's `RevealToAll=` branch reveals
+    /// on this map, with their footprints.
     pub(crate) fn transition_whole_map_with_gap_reentry(
         &mut self,
         owner: InternedId,
         cells: Vec<(u16, u16)>,
         transition: MapTransition,
         old_spy_sat_active: bool,
-        source_ids: &std::collections::BTreeSet<u64>,
+        sources: &std::collections::BTreeMap<u64, Option<SightAdmission>>,
         gap_reentry: Option<&[super::GapGeneratorSource]>,
         alternates: &std::collections::BTreeMap<u64, SightAdmission>,
     ) {
@@ -104,11 +113,11 @@ impl FogState {
         {
             return;
         }
-        let sources: std::collections::BTreeMap<_, _> = self
+        let held: std::collections::BTreeSet<u64> = self
             .sight_admissions
-            .iter()
-            .filter(|(key, _)| key.1 == owner && source_ids.contains(&key.0))
-            .map(|(key, value)| (key.0, value.clone()))
+            .keys()
+            .filter(|key| key.1 == owner && sources.contains_key(&key.0))
+            .map(|key| key.0)
             .collect();
         let gaps = self.gap_sources.get(&owner).cloned().unwrap_or_default();
         let mut gaps_by_id: std::collections::BTreeMap<u64, Vec<_>> =
@@ -125,8 +134,8 @@ impl FogState {
         }
         // `0x004ADEE0` has no `RevealToAll=` branch: an alternate admission
         // keeps its source count through the bulk store.
-        let ids: std::collections::BTreeSet<_> = sources
-            .keys()
+        let ids: std::collections::BTreeSet<_> = held
+            .iter()
             .copied()
             .chain(gaps_by_id.keys().copied())
             .chain(reentry_by_id.keys().copied())
@@ -144,7 +153,7 @@ impl FogState {
         //4ADEE0, per-object release then remove-gap. Activation sees OLD577A
         //false, deactivation OLD577Atrue; the House owner changes it afterwards.
         for &id in &ids {
-            if sources.contains_key(&id) {
+            if held.contains(&id) {
                 self.release_sight_for_viewer((id, owner));
             }
             for &gap in gaps_by_id.get(&id).into_iter().flatten() {
@@ -171,7 +180,9 @@ impl FogState {
         //4ADCD0 repeats registration order, ordinary sight then gap. Stable IDs
         //are monotonic Techno construction identities in the current owner.
         for id in ids {
-            if let Some(source) = sources.get(&id) {
+            if held.contains(&id)
+                && let Some(Some(source)) = sources.get(&id)
+            {
                 self.reconcile_sight_admission(id, owner, source.clone(), false);
             }
             if let Some(footprint) = alternates.get(&id) {

@@ -1608,6 +1608,44 @@ fn a_jumpjet_below_its_floor_sees_from_its_location_z() {
     }
 }
 
+/// A ground viewer sees from its Location Z (`0x0070AF9D`), not its stored
+/// level: raised four levels over level-0 ground, its disc lifts like a
+/// level-4 viewer's.
+#[test]
+fn a_ground_viewer_sees_from_its_location_z() {
+    let (w, h) = (64u16, 64u16);
+    let mut store = EntityStore::new();
+    spawn_with_vision(&mut store, 1, "Americans", 30, 30, 1);
+    store
+        .get_mut(1)
+        .unwrap()
+        .position
+        .set_exact_z_leptons_for_test(Some(4 * 104));
+    let fog = recompute_owner_visibility(
+        &store,
+        Some(&PathGrid::new(w, h)),
+        &Default::default(),
+        &default_config(),
+        &ti(),
+    );
+    let owner = intern::test_intern("Americans");
+    let expected = super::collect_reveal_cells(30, 30, 1, 4 * 104, false, None, (w, h), None);
+    assert_ne!(
+        expected,
+        super::collect_reveal_cells(30, 30, 1, 0, false, None, (w, h), None),
+        "precondition: the lift moves the disc"
+    );
+    for ry in 0..h {
+        for rx in 0..w {
+            assert_eq!(
+                fog.is_cell_visible(owner, rx, ry),
+                expected.contains(&(rx, ry)),
+                "({rx}, {ry})"
+            );
+        }
+    }
+}
+
 /// F10: the view generation render dirty-gates on is runtime-only. A bincode
 /// round trip (the snapshot serializer) restarts it, and each prepared view
 /// bumps it once.
@@ -2016,6 +2054,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
         None,
         false,
         &interner,
+        0,
     );
     assert!(fog.is_cell_revealed(owner, 10, 10));
     assert!(!fog.is_cell_gap_covered(owner, 10, 10));

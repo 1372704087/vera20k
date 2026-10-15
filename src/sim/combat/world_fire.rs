@@ -917,7 +917,7 @@ fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target
         house,
         coord,
         &config,
-        height_grid.as_deref(),
+        height_grid.levels(),
     );
 }
 

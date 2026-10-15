@@ -115,7 +115,7 @@ RNG draw and timer in native frame order, presentation never reads the socket.
 ## Implementation chains, in dependency order
 
 Each stage is one PR. A stage is done when its "Done when" holds and the usual lib
-suite and Clippy pass. Stages 1 to 6 produce the initial game port: a VERA20k that the
+suite passes. Stages 1 to 6 produce the initial game port: a VERA20k that the
 CnCNet client can launch and play. Stage 7 adds native LAN play from the app. Stages 8
 and 9 move internet play into the app.
 

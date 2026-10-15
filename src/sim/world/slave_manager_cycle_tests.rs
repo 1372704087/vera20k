@@ -149,6 +149,58 @@ fn slave_refinery_deploys_digs_carries_home_pays_and_goes_out_again() {
     );
 }
 
+/// DeploySlaves raises no `A8E7AC` around a slave's Unlimbo (`0x006B0647`),
+/// so Object's class `+0x1AC` query (`0x005F4F1B`) runs. An enemy standing on
+/// the drop cell refuses each unarmed slave, and every node waits inside for
+/// the next visit.
+#[test]
+fn an_enemy_on_the_drop_cell_keeps_the_slaves_inside() {
+    use crate::sim::house_state::HouseState;
+
+    let mut s = refinery_with_slaves(2);
+    let enemy_house = s.scene.sim.interner.intern("Russians");
+    s.scene.sim.houses.insert(
+        enemy_house,
+        HouseState::new(enemy_house, 0, None, true, 0, 10),
+    );
+    s.scene.sim.session.house_order.push(enemy_house);
+    let drop = s
+        .scene
+        .sim
+        .slave_drop_cell(s.master, &s.scene.rules)
+        .expect("the refinery's drop cell");
+    // The drop cell lies in the refinery's foundation; the enemy stands there
+    // under a placement scope, as a map's object would.
+    let rules = &s.scene.rules;
+    let enemy = s
+        .scene
+        .sim
+        .with_object_placement_scope(|sim| {
+            sim.spawn_object("SLAV", "Russians", drop.0, drop.1, 0, rules)
+        })
+        .expect("enemy slave");
+    assert!(
+        !s.scene
+            .sim
+            .substrate
+            .entities
+            .get(enemy)
+            .unwrap()
+            .lifecycle
+            .in_limbo()
+    );
+
+    for _ in 0..21 {
+        frame(&mut s);
+    }
+    assert_eq!(manager_state(&s), ManagerState::Working);
+    assert_eq!(node_states(&s), vec![SlaveState::Ready; 2], "both refused");
+    for slave in s.slaves.values() {
+        let entity = s.scene.sim.substrate.entities.get(*slave).unwrap();
+        assert!(entity.lifecycle.in_limbo(), "slave {slave} stayed inside");
+    }
+}
+
 /// A refinery still building up keeps its slaves inside: VERA's
 /// `building_up` stands for the Construction mission state 0 waits out
 /// (`0x006AFD95..0x006AFDA7`). The first visit after the build-up lets them

@@ -1396,9 +1396,12 @@ impl Simulation {
     }
 
     /// `InfantryClass::Unlimbo @ 0x0051DFF0` at `(cell, request)` with facing
-    /// 0: its own PlaceInfantryInCell for the requested coordinate (a
-    /// quadrant request takes its spot without a draw), then the Foot and
-    /// Techno Unlimbo through the reveal.
+    /// 0, through the class Unlimbo ([`Simulation::unlimbo_class_entry`]): its
+    /// own PlaceInfantryInCell for the requested coordinate (a quadrant
+    /// request takes its spot without a draw), then Object's class `+0x1AC`
+    /// query (`0x005F4F1B`), which can refuse the slave. Neither DeploySlaves
+    /// nor its callers (`0x006AFD60`, `0x006AF5F0`) raise `A8E7AC`. The Foot
+    /// and Techno Unlimbo follow through the reveal.
     fn unlimbo_slave(
         &mut self,
         slave: u64,
@@ -1413,26 +1416,26 @@ impl Simulation {
     ) -> bool {
         let z = self.terrain_cell_level(cell.0, cell.1).unwrap_or(0);
         // DeploySlaves6B04C0's Map4ACA10 caller placement remains in
-        // deploy_slaves. The subsequent Infantry51DFF0 call owns this second
-        // placement, using the same floor/priority owner as ordinary infantry.
-        let Some(position) = self.infantry_unlimbo_position(
+        // deploy_slaves; Infantry51DFF0 owns this second placement.
+        let Some((position, placement)) = self.unlimbo_class_entry(
+            slave,
             RevealPosition::new(cell.0, cell.1, z, None, request.0, request.1),
+            PlacementEvidence::EvaluateMark,
             Some(rules),
+            registry,
         ) else {
             return false;
         };
-        if let Some(entity) = self.substrate.entities.get_mut(slave) {
-            entity.set_sub_cell(Some(bump_crush::priority_sub_cell(
-                position.sub_x(),
-                position.sub_y(),
-            )));
+        if placement != PlacementEvidence::RejectedEarly
+            && let Some(entity) = self.substrate.entities.get_mut(slave)
+        {
             entity.set_on_bridge(false);
         }
         let outcome = self.try_reveal_entity_with_context(
             slave,
             RevealRequest {
                 position,
-                placement: PlacementEvidence::MarkSucceeded,
+                placement,
                 logic_eligible: true,
             },
             UninitContext::new(Some(rules), registry)

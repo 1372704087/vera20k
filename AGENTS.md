@@ -299,9 +299,13 @@ their owner. Edit skills in `.agents/skills/`; generate Claude copies with
 `python tools/skill_sync.py --write`, verify with `--check`. Keep conditional detail
 where needed; remove superseded rules.
 
-When changing the shared project contract, update both `AGENTS.md` and `CLAUDE.md`.
-
 ## Codex notes
 
 Use Codex task tools for cross-session context; verify current source/Git before
 treating past conclusions as current. Load only relevant skills and references.
+
+## Claude Code notes
+
+Use host-native tools and relevant skills. For Codex session recovery, consult the
+primary checkout's `LOCAL.md`. Preserve explicitly requested `/loop` invocations.
+Memory holds durable preferences, not progress claims.

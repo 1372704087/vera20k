@@ -42,11 +42,11 @@ do not replace a migration with an initial optimization or an audit-only assignm
 For an explicitly bounded job, keep its acceptance equally bounded. Respect the
 user's edits instead of restoring removed clauses from a template.
 
-The project contracts in [AGENTS.md](../../../AGENTS.md) and
-[CLAUDE.md](../../../CLAUDE.md) already govern review, validation, Git and ownership.
-Do not repeat their build commands, critic protocol, branch mechanics or handoff
-checklists in every prompt. Keep a requested critic clause or other deliberate
-emphasis concise; omitting repeated prose does not waive the project rules.
+The project contract in [AGENTS.md](../../../AGENTS.md) already governs review,
+validation, Git and ownership. Do not repeat its build commands, critic protocol,
+branch mechanics or handoff checklists in every prompt. Keep a requested critic
+clause or other deliberate emphasis concise; omitting repeated prose does not
+waive the project rules.
 
 For parity, name active-retail `gamemd.exe`, porting missing behavior, correcting
 mismatches and completing dependencies. Whole-scope native comparisons and production

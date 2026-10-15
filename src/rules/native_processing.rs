@@ -2446,6 +2446,9 @@ impl RulesPassProcessor {
     }
 
     fn process_bullet_family(&mut self, pass: &IniFile, fixed_art: &IniFile) {
+        // Colors66D3A0 precedes this sweep. Own the small name list while
+        // reference readers below may allocate more native type members.
+        let color_names: Vec<_> = self.colors.iter().map(|(name, _)| name.clone()).collect();
         let mut index = 0;
         while index < self.family_len(RulesTypeFamily::Projectile) {
             if let Some((_id, raw, _effective)) =
@@ -2457,7 +2460,7 @@ impl RulesPassProcessor {
                 let mut art = self.families[&RulesTypeFamily::Projectile][index]
                     .projectile_art
                     .clone();
-                art.read_pass(&raw, fixed_art, |incoming| {
+                art.read_pass(&raw, fixed_art, &color_names, |incoming| {
                     let animation = self.find_or_allocate(RulesTypeFamily::Animation, incoming)?;
                     Some(
                         self.families[&RulesTypeFamily::Animation][animation]

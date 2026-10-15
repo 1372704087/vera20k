@@ -5180,10 +5180,10 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>();
         smudge_anim_inputs.hash(&mut hasher);
-        // These effective ART values feed ordinary FireAt after load. Hash
+        // These effective Bullet values feed FireAt and drawing after load. Hash
         // consumed values in canonical type order, not ART insertion order,
         // authored-key presence, or unrelated presentation metadata.
-        b"art-projectile-config-v3".hash(&mut hasher);
+        b"art-projectile-config-v4".hash(&mut hasher);
         self.projectiles
             .iter()
             .map(|(id, p)| {
@@ -5193,12 +5193,13 @@ impl RuleSet {
                         (
                             &p.image,
                             &p.image_load,
+                            p.voxel_image_load(),
                             p.voxel,
                             p.theater,
                             p.new_theater,
                             p.inviso,
                         ),
-                        (p.rotates, p.flat, p.anim_palette),
+                        (p.rotates, p.flat, p.anim_palette, p.color_scheme()),
                         (
                             p.use_line_trail,
                             p.line_trail_color,
@@ -9996,6 +9997,26 @@ Projectile=Invisible
         second.set_terrain_spawner_frame_count_for_test("TIBTRE01", 24);
 
         assert_eq!(first.source_ini_hash(), second.source_ini_hash());
+        assert_ne!(
+            first.simulation_config_hash(),
+            second.simulation_config_hash()
+        );
+    }
+
+    #[test]
+    fn simulation_config_hash_covers_retained_projectile_color() {
+        let make = |color: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Colors]\nFirst=0,0,0\nSecond=1,2,3\n[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n[GUN]\nProjectile=SHOT\n[SHOT]\nColor={color}\n",
+            )))
+            .unwrap()
+        };
+        let first = make("First");
+        let mut second = make("Second");
+        assert_eq!(first.projectile("SHOT").unwrap().color_scheme(), 1);
+        assert_eq!(second.projectile("SHOT").unwrap().color_scheme(), 3);
+        // Isolate the effective retained field from the raw-text fingerprint.
+        second.source_ini_hash = first.source_ini_hash;
         assert_ne!(
             first.simulation_config_hash(),
             second.simulation_config_hash()

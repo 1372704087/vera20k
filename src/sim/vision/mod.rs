@@ -1748,8 +1748,43 @@ pub fn recompute_owner_visibility_in_place(
     }
     // Each owner's viewers, asked again when a map is added: a reveal's
     // candidates include every map.
+    let maps_before = fog.by_owner.len();
     let mut viewers_by_owner: BTreeMap<InternedId, (usize, Vec<InternedId>)> = BTreeMap::new();
-    for entity in admitted {
+    for entity in &admitted {
+        let owner = entity.owner();
+        viewers_by_owner.entry(owner).or_insert_with(|| {
+            (
+                maps_before,
+                direct_reveal_viewers(fog, owner, config, interner),
+            )
+        });
+    }
+    // Whether each source's retained footprint still covers it
+    // ([`retained_sight_covers`]), asked of every source in one walk of the
+    // admissions, which run in stable-id order as the sources do. The asking
+    // reads the source's own admissions, which the walk below changes only at
+    // that source's turn, and its owner's viewers, which change only when the
+    // walk adds a map: an answer stands while the map count does.
+    let covered: Vec<bool> = {
+        let mut retained = fog.sight_admissions.iter().peekable();
+        admitted
+            .iter()
+            .map(|entity| {
+                let id = entity.stable_id();
+                while retained.next_if(|&(&(source, _), _)| source < id).is_some() {}
+                let owner = entity.owner();
+                let mut viewers = viewers_by_owner[&owner].1.iter();
+                let mut covers = true;
+                while let Some((&(_, viewer), admission)) =
+                    retained.next_if(|&(&(source, _), _)| source == id)
+                {
+                    covers &= viewers.next() == Some(&viewer) && admission.owner == owner;
+                }
+                covers && viewers.next().is_none()
+            })
+            .collect()
+    };
+    for (entity, covered) in admitted.into_iter().zip(covered) {
         let owner = entity.owner();
         let (maps, viewers) = viewers_by_owner
             .entry(owner)
@@ -1758,13 +1793,24 @@ pub fn recompute_owner_visibility_in_place(
             *maps = fog.by_owner.len();
             *viewers = direct_reveal_viewers(fog, owner, config, interner);
         }
+        let covered = if fog.by_owner.len() == maps_before {
+            debug_assert_eq!(
+                covered,
+                retained_sight_covers(fog, entity.stable_id(), owner, viewers),
+                "source {}: its retained-sight answer went stale during the walk",
+                entity.stable_id()
+            );
+            covered
+        } else {
+            retained_sight_covers(fog, entity.stable_id(), owner, viewers)
+        };
         // A source keeps the footprint its last reveal stored (`+0x254`,
         // `+0x260`) until a reveal event moves it ([`force_refresh_entity_vision`]):
         // `UpdateReveal @ 0x0070AF50` runs from cell arrivals and its other
         // callers, never from a frame pass. On tracked maps its cells kept
         // their bits; a map whose clear visited every cell (after a load,
         // or a writer that bypassed publishing) has them marked again.
-        if retained_sight_covers(fog, entity.stable_id(), owner, viewers) {
+        if covered {
             if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                 fog.mark_retained_sight(entity.stable_id());
             }

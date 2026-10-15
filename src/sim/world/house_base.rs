@@ -328,8 +328,9 @@ impl Simulation {
     }
 
     /// Ordinary Unit/Infantry arm of House500200 (Find_Passable_Cell_Near_Unit),
-    /// used by Foot Mission_Rescue and ExitObject's generic arm (`0x00444924`,
-    /// on its own House). Their original virtual+2D4/+2D8/+2DC bodies
+    /// used by Foot Mission_Rescue, ExitObject's generic arm (`0x00444924`,
+    /// on its own House) and Unit Per_Cell_Process's war-factory post
+    /// (`0x0073AA19`). Their original virtual+2D4/+2D8/+2DC bodies
     /// (41BF00/10/20) return zero, selecting House501AC0 variant0 without the
     /// alternative-selector draw. Other classes/variants are not covered here.
     /// Native comparison: spatial_oracle/house_base_return, all28 home rows.

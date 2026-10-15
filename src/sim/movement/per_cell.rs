@@ -478,10 +478,11 @@ impl Simulation {
         // fresh human control publishes NavCom in the first Scatter and skips
         // this second call, so no invented count or factory marker is needed.
         // The Slave Miner (73A9D9), harvester (73AAF5) and computer post
-        // (73AA9C, 73AB4C) arms jump here too: with a null NavCom on a ground
-        // Building they would Scatter natively. VERA returns from them first.
-        // After a post the NavCom is set, so the tail would not Scatter;
-        // without one it Scatters only a unit standing on a Building.
+        // (73AA9C, 73AB4C) arms jump here too. VERA returns from them first.
+        // A war factory clears its product on its own foundation (location
+        // +(4,1), where the exit track ends) with a null NavCom, so natively
+        // every harvester and Slave Miner from a war factory Scatters here, as
+        // does a product without a post. After a post the NavCom is set.
     }
 
     /// `0x0073AA0D..0x0073AA9C`: a computer House's unit cleared by its war
@@ -494,13 +495,16 @@ impl Simulation {
     /// static initializer `0x00735320` writes) the archive clears
     /// (`0x0073AB43`).
     ///
-    /// RESIDUAL: VERA's Unit Ready_To_Commence answers ready for a moving
-    /// unit (its moving-defer is off, `ready_to_commence_answer`), so the
-    /// queued AreaGuard commences at the first readiness check, from the
-    /// Ready/Commence that follows (`0x0073ACC2`) on. Native keeps it queued
-    /// behind the Move while the unit moves. Trigger: every computer vehicle
-    /// sent to a post. Effect: it is on AreaGuard, scanning around its post,
-    /// while it drives there.
+    /// A product reaches this on the factory's Move with nothing queued, so
+    /// the Queue and Commence of Move change nothing. The Ready/Commence that
+    /// follows (`0x0073ACC2`, `0x0073ACD1`) then commences AreaGuard at once:
+    /// Drive emptied HeadTo before this arrival call (`0x004B21ED..
+    /// 0x004B2204`) and Move_To writes only the destination, so the unit is
+    /// not moving (native trace: `spatial_oracle/anytown_damage/
+    /// unit_unlimbo.json`, `factory_unload_rows[0]`, Ready 1 at `0x0073ACC2`).
+    /// Whether a Hover or Jumpjet product is moving at its arrival call is
+    /// not established; if it is, `ready_to_commence_answer`'s moving-defer
+    /// residual applies.
     fn unit_factory_post(&mut self, id: u64, rules: &RuleSet, effects: FrameEffects<'_>) {
         let Some(post) = self.house_return_cell(id) else {
             if let Some(unit) = self.substrate.entities.get_mut(id) {

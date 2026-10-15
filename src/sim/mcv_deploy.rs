@@ -354,6 +354,7 @@ pub(crate) fn mission_unload(
             effects,
         );
         if let Some(e) = sim.substrate.entities.get_mut(id) {
+            // `Path[0] = -1`, the empty queue (`0x0073DD8E`).
             e.navigation.path_replay.set_cursor(
                 e.navigation
                     .path_replay

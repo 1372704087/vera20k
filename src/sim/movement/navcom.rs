@@ -12,6 +12,255 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::world::FrameEffects;
 use crate::util::fixed_math::{SIM_ZERO, SimFixed};
 
+/// FootClass-style owner navigation fields, owned by this module: NavCom
+/// (`Foot+0x5A4`), its auxiliary slot (`Foot+0x5A0`), SuspendedNavCom
+/// (`Foot+0x5A8`) and the NavQueue (`Foot+0x598`). Their writers are the
+/// native operations below: the destination setter's publication, Stop_Moving,
+/// a locomotor's Move_To, the mission override's save and the clears of
+/// PointerExpired, the MEGAMISSION event and Remove_Member.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct NavigationState {
+    /// Foot+55C is retained lifecycle history, not current occupancy.
+    #[serde(default)]
+    pub(crate) neighbor_state: crate::sim::cell_neighbors::FootNeighborState,
+    /// Foot timers, retry count and blockage latch survive path retirement.
+    #[serde(default)]
+    pub(crate) path_runtime: crate::sim::components::FootPathRuntime,
+    /// Foot-owned direction replay and reference cell (+5E0/+558), shared by
+    /// every locomotor instance. Retirement must not discard the owner queue.
+    /// Native chain tails reload the owner at Drive4B1DF7 / Ship6A143A.
+    #[serde(default)]
+    pub(crate) path_replay: crate::sim::components::FootPathQueue,
+    /// `Foot+0x5A0`, NavCom's auxiliary slot, cleared whenever NavCom is
+    /// published or stopped.
+    #[serde(default)]
+    nav_com_aux: Option<NavTargetRef>,
+    /// `Foot+0x5A4`, NavCom.
+    #[serde(default)]
+    nav_com: Option<NavTargetRef>,
+    /// `Foot+0x5A8`, SuspendedNavCom.
+    #[serde(default)]
+    suspended_nav_com: Option<NavTargetRef>,
+    /// `Foot+0x598`, the NavQueue, oldest first.
+    #[serde(default)]
+    nav_queue: Vec<NavTargetRef>,
+    /// A class-setter call (vt+0x480) that Rust deferred and still owes: a
+    /// mission restore's `Assign_Destination(saved, 1)` (`0x004D8F99`) made
+    /// where only NavCom could be written. `Simulation::complete_pending_order`
+    /// makes it at the object's next Process entry.
+    #[serde(default)]
+    pending_destination_setter: bool,
+    /// FootClass+530, constructor positive-zero. FootUnlimbo4D72EA..4D72F4
+    /// copies TechnoType+2F0 only after successful Techno placement, neighbor
+    /// publication and the optional AirTracker tail. It outlives routes and
+    /// locomotor instances; native getter4DC760 reads this retained double.
+    #[serde(default = "default_threat_avoidance_coefficient")]
+    threat_avoidance_coefficient: crate::util::native_x87::NativeF64Bits,
+}
+
+const fn default_threat_avoidance_coefficient() -> crate::util::native_x87::NativeF64Bits {
+    crate::util::native_x87::NativeF64Bits::POSITIVE_ZERO
+}
+
+impl Default for NavigationState {
+    fn default() -> Self {
+        Self::at_frame(0)
+    }
+}
+
+impl NavigationState {
+    /// Foot constructor-owned navigation state, including its frame anchors.
+    pub(crate) fn at_frame(frame: u32) -> Self {
+        Self {
+            neighbor_state: Default::default(),
+            path_runtime: crate::sim::components::FootPathRuntime::at_frame(frame),
+            path_replay: Default::default(),
+            nav_com_aux: None,
+            nav_com: None,
+            suspended_nav_com: None,
+            nav_queue: Vec::new(),
+            pending_destination_setter: false,
+            threat_avoidance_coefficient: default_threat_avoidance_coefficient(),
+        }
+    }
+
+    /// `Foot+0x5A4`, NavCom.
+    pub(crate) fn nav_com(&self) -> Option<NavTargetRef> {
+        self.nav_com
+    }
+
+    /// `Foot+0x5A0`, NavCom's auxiliary slot.
+    pub(crate) fn nav_com_aux(&self) -> Option<NavTargetRef> {
+        self.nav_com_aux
+    }
+
+    /// `Foot+0x5A8`, SuspendedNavCom.
+    pub(crate) fn suspended_nav_com(&self) -> Option<NavTargetRef> {
+        self.suspended_nav_com
+    }
+
+    /// `FootClass::Set_Destination`'s publication: NavComAux cleared
+    /// (`0x004D94C7`), NavCom stored (`0x004D9510`, `0x004D96BC`), and an owed
+    /// class-setter call ([`Self::pending_destination_setter`]) settled by the
+    /// setter it stood for.
+    pub(crate) fn publish_nav_com(&mut self, nav_com: Option<NavTargetRef>) {
+        self.nav_com_aux = None;
+        self.nav_com = nav_com;
+        self.pending_destination_setter = false;
+    }
+
+    /// `FootClass::Stop_Moving @ 0x004DF0D0`: NavComAux (`0x004DF0D2`) and
+    /// NavCom (`0x004DF0D8`) cleared.
+    pub(crate) fn stop_moving(&mut self) {
+        self.nav_com_aux = None;
+        self.nav_com = None;
+    }
+
+    /// `FootClass::PointerExpired`'s NavCom arm: NavComAux (`0x004D9ABD`) and
+    /// NavCom (`0x004D9AC3`) cleared when NavCom is the expiring object.
+    pub(crate) fn expire_nav_com(&mut self) {
+        self.nav_com_aux = None;
+        self.nav_com = None;
+    }
+
+    /// The destination prologue's NavComAux clear (vt+0x47C, `0x004D94A4`),
+    /// made before its refusal tests.
+    pub(crate) fn clear_nav_com_aux(&mut self) {
+        self.nav_com_aux = None;
+    }
+
+    /// NavCom stored alone, without the setter's NavComAux clear: the null
+    /// setter's re-clear after the locomotor Stop (`0x004D96BC`), a
+    /// locomotor's Move_To (Jumpjet's reached cell `0x0054B44B`, Teleport's
+    /// NULL when it refuses `0x00718213`) and UnitClass::PerCellProcess's dock
+    /// restore (`0x0073A4E9`).
+    pub(crate) fn store_nav_com(&mut self, nav_com: Option<NavTargetRef>) {
+        self.nav_com = nav_com;
+    }
+
+    /// `FootClass::Override_Mission`'s save of NavCom into SuspendedNavCom
+    /// (`0x004D8F5B`).
+    pub(crate) fn suspend_nav_com(&mut self) {
+        self.suspended_nav_com = self.nav_com;
+    }
+
+    /// SuspendedNavCom cleared: the MEGAMISSION event (`0x004C73C7`),
+    /// `TeamClass::Remove_Member` (`0x006EA9AD`) and PointerExpired
+    /// (`0x004D9A09`).
+    pub(crate) fn clear_suspended_nav_com(&mut self) {
+        self.suspended_nav_com = None;
+    }
+
+    /// A fixture's NavCom.
+    #[cfg(test)]
+    pub(crate) fn set_nav_com_for_test(&mut self, nav_com: Option<NavTargetRef>) {
+        self.nav_com = nav_com;
+    }
+
+    /// A fixture's NavComAux.
+    #[cfg(test)]
+    pub(crate) fn set_nav_com_aux_for_test(&mut self, nav_com_aux: Option<NavTargetRef>) {
+        self.nav_com_aux = nav_com_aux;
+    }
+
+    /// A fixture's SuspendedNavCom.
+    #[cfg(test)]
+    pub(crate) fn set_suspended_nav_com_for_test(
+        &mut self,
+        suspended_nav_com: Option<NavTargetRef>,
+    ) {
+        self.suspended_nav_com = suspended_nav_com;
+    }
+
+    /// `Foot+0x598`, the NavQueue, oldest first.
+    pub(crate) fn nav_queue(&self) -> &[NavTargetRef] {
+        &self.nav_queue
+    }
+
+    /// A fixture's NavQueue.
+    #[cfg(test)]
+    pub(crate) fn set_nav_queue_for_test(&mut self, nav_queue: Vec<NavTargetRef>) {
+        self.nav_queue = nav_queue;
+    }
+
+    /// Empty the NavQueue.
+    pub(crate) fn clear_nav_queue(&mut self) {
+        self.nav_queue.clear();
+    }
+
+    /// Take the NavQueue's oldest entry.
+    pub(crate) fn pop_nav_queue_front(&mut self) -> Option<NavTargetRef> {
+        (!self.nav_queue.is_empty()).then(|| self.nav_queue.remove(0))
+    }
+
+    /// Append to a fixture's NavQueue.
+    #[cfg(test)]
+    pub(crate) fn push_nav_queue_for_test(&mut self, target: NavTargetRef) {
+        self.nav_queue.push(target);
+    }
+
+    /// Keep only the NavQueue entries `keep` accepts.
+    pub(crate) fn retain_nav_queue(&mut self, keep: impl FnMut(&NavTargetRef) -> bool) {
+        self.nav_queue.retain(keep);
+    }
+
+    /// A deferred class-setter call is owed; see the field.
+    pub(crate) fn pending_destination_setter(&self) -> bool {
+        self.pending_destination_setter
+    }
+
+    /// A mission restore owes the class setter's call with the restored
+    /// NavCom (`FootClass::Restore_Mission`'s vt+0x480 at `0x004D8F99`), which
+    /// Rust makes at the object's next Process entry.
+    pub(crate) fn owe_destination_setter(&mut self) {
+        self.pending_destination_setter = true;
+    }
+
+    /// Arrival ends the order the owed call would have resumed.
+    pub(crate) fn settle_destination_setter(&mut self) {
+        self.pending_destination_setter = false;
+    }
+
+    /// Take the owed call for `Simulation::complete_pending_order` to make.
+    pub(crate) fn take_destination_setter(&mut self) -> bool {
+        std::mem::take(&mut self.pending_destination_setter)
+    }
+
+    /// A fixture's owed call.
+    #[cfg(test)]
+    pub(crate) fn set_pending_destination_setter_for_test(&mut self, pending: bool) {
+        self.pending_destination_setter = pending;
+    }
+
+    /// Retained Foot+530 input to4DC760. Team AvoidThreats overrides this
+    /// value at the getter; it does not mutate the stored coefficient.
+    pub(crate) const fn path_threat_coefficient(&self) -> crate::util::native_x87::NativeF64Bits {
+        self.threat_avoidance_coefficient
+    }
+
+    /// Foot4DC760 reads its TeamType+F2 override without changing Foot+530.
+    /// Original reader/getter controls: astar_threat_inputs.{py,json}.
+    pub(crate) fn path_threat_coefficient_for_team(
+        &self,
+        avoids_threats: bool,
+    ) -> crate::util::native_x87::NativeF64Bits {
+        if avoids_threats {
+            crate::util::native_x87::NativeF64Bits::ONE
+        } else {
+            self.path_threat_coefficient()
+        }
+    }
+
+    /// Successful FootUnlimbo4D72F4's sole type-to-object copy. Failed early
+    /// placement and failed Mark must retain constructor or prior Load state.
+    pub(crate) fn retain_threat_avoidance_after_unlimbo(
+        &mut self,
+        coefficient: crate::util::native_x87::NativeF64Bits,
+    ) {
+        self.threat_avoidance_coefficient = coefficient;
+    }
+}
+
 /// Pixels Walk Move_To lifts a bridge destination (`0x0075AD4D MOV ECX,0x3C`).
 const WALK_BRIDGE_LIFT_PIXELS: i32 = 60;
 
@@ -339,23 +588,18 @@ pub(crate) fn set_destination_internal_coord(
 /// the locomotor dispatch. The Foot+0x6AC skip (4D9607) stops here, and a
 /// Teleport owner's Move_To is dispatched by the Unit setter.
 pub(super) fn publish_nav_com(entity: &mut GameEntity, target: NavTargetRef) {
-    entity.navigation.set_nav_com_aux(None);
-    entity.navigation.set_nav_com(Some(target));
-    entity.navigation.set_pending_destination_setter(false);
+    entity.navigation.publish_nav_com(Some(target));
 }
 
 /// Foot4D94C7/4D9510 NULL reference publication, before locomotor Stop.
 pub(super) fn publish_null_nav_com(entity: &mut GameEntity) {
-    entity.navigation.set_nav_com_aux(None);
-    entity.navigation.set_nav_com(None);
-    entity.navigation.set_pending_destination_setter(false);
+    entity.navigation.publish_nav_com(None);
 }
 
 /// FootClass::Stop_Moving-equivalent owner clear (`0x004DF0D0`): zeroes only
 /// the owner destination pair (NavCom and its auxiliary slot), nothing else.
 pub(crate) fn foot_stop_moving(entity: &mut GameEntity) {
-    entity.navigation.set_nav_com_aux(None);
-    entity.navigation.set_nav_com(None);
+    entity.navigation.stop_moving();
 }
 
 fn drive_set_destination(
@@ -513,7 +757,7 @@ impl crate::sim::world::Simulation {
             .get_mut(id)
             .unwrap()
             .navigation
-            .set_nav_com_aux(None);
+            .clear_nav_com_aux();
         if refused {
             return false;
         }
@@ -563,7 +807,7 @@ impl crate::sim::world::Simulation {
             self.locomotor_stop_moving(id, rules, registry, frame_effects)
                 .unwrap_or_else(|cause| panic!("Foot null destination {id}: {cause}"));
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.navigation.set_nav_com(None);
+                entity.navigation.store_nav_com(None);
             }
         }
         let timing = super::DestinationTiming::from_rules(self.session.binary_frame, rules);
@@ -678,7 +922,7 @@ mod tests {
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Ship));
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(5, 3)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(5, 3)));
         entity.navigation.path_replay = {
             let mut value = crate::sim::components::FootPathQueue::default();
             value.set_directions_for_test(vec![64, 64]);

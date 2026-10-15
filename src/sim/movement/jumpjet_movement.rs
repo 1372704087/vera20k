@@ -585,6 +585,7 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
             &mut self.sim.scenario_rng,
         )
     }
+    /// Move_To's store of the reached cell into NavCom (`0x0054B44B`).
     fn set_nav_com(&mut self, destination: DriveCoord) {
         let (x, y) = self
             .terrain()
@@ -595,7 +596,7 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
             .get_mut(self.id)
             .unwrap()
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(
+            .store_nav_com(Some(crate::sim::components::NavTargetRef::cell(
                 x as u16, y as u16,
             )));
     }

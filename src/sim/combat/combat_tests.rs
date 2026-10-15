@@ -861,7 +861,7 @@ fn retail_damage_scatter_tail_admits_by_rank_ability_and_ownership() {
         if nav {
             actor
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(14, 10)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(14, 10)));
         }
         let rng = sim.scenario_rng.state();
         let warhead = sim.interner.intern("SA");
@@ -1674,7 +1674,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     dead.selection.set_selected_for_test(true);
     dead.attack_target.set_for_test(Some(TargetKind::Entity(2)));
     dead.navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
     dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.set_cell_marked(true);
@@ -1746,7 +1746,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
         .set_for_test(Some(TargetKind::Entity(3)));
     passenger
         .navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
     store.insert(passenger);
     store.insert(make_entity(3, "MTNK", 6, 5, 300));
 
@@ -1777,7 +1777,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     dead.selection.set_selected_for_test(true);
     dead.attack_target.set_for_test(Some(TargetKind::Entity(2)));
     dead.navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
     dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.set_cell_marked(true);
@@ -3259,7 +3259,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         victim.body_facing.snap(0xC000, 0);
         victim
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
         // Supply the actual class receiver for the NULL destination below.
         victim.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -3897,7 +3897,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
             .set_for_test(Some(TargetKind::Entity(current_id)));
         victim
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
             suspended: MissionId::NONE,

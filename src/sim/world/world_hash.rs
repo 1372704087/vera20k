@@ -58,13 +58,13 @@ mod retained_cell_hash_tests {
                 2 => entity.set_archive_target(Some(TargetKind::Cell(5, 6))),
                 3 => entity
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::cell(7, 8))),
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(7, 8))),
                 4 => entity
                     .navigation
-                    .set_nav_com_aux(Some(NavTargetRef::cell(9, 10))),
+                    .set_nav_com_aux_for_test(Some(NavTargetRef::cell(9, 10))),
                 5 => entity
                     .navigation
-                    .set_suspended_nav_com(Some(NavTargetRef::cell(11, 12))),
+                    .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(11, 12))),
                 6 => entity
                     .navigation
                     .push_nav_queue_for_test(NavTargetRef::cell(13, 14)),

@@ -222,7 +222,7 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
     }
     entity
         .navigation
-        .set_nav_com(nav.map(|(x, y)| NavTargetRef::cell(x, y)));
+        .set_nav_com_for_test(nav.map(|(x, y)| NavTargetRef::cell(x, y)));
     entity
         .setter_force_reassign
         .set_for_test(input["force_reassign"] == true);

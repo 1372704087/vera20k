@@ -126,10 +126,12 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
     }
     if input["nav_com_coord"].is_array() {
         let nav = coord(&input["nav_com_coord"]);
-        entity.navigation.set_nav_com(Some(NavTargetRef::Cell {
-            rx: (nav.x / 256) as u16,
-            ry: (nav.y / 256) as u16,
-        }));
+        entity
+            .navigation
+            .set_nav_com_for_test(Some(NavTargetRef::Cell {
+                rx: (nav.x / 256) as u16,
+                ry: (nav.y / 256) as u16,
+            }));
     }
     entity
 }

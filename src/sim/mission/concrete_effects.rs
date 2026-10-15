@@ -638,9 +638,7 @@ pub(crate) fn represented_assign_destination(
     entity: &mut crate::sim::game_entity::GameEntity,
     requested: Option<NavTargetRef>,
 ) {
-    entity.navigation.set_nav_com_aux(None);
-    entity.navigation.set_nav_com(requested);
-    entity.navigation.set_pending_destination_setter(false);
+    entity.navigation.publish_nav_com(requested);
 }
 
 #[cfg(test)]
@@ -789,9 +787,11 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
             mission_current: entity.mission.current(),
             installed_target: entity.attack_target.target(),
         });
-        entity.navigation.set_nav_com_aux(None);
-        entity.navigation.set_nav_com(requested);
-        entity.navigation.set_pending_destination_setter(false);
+        entity.navigation.set_nav_com_aux_for_test(None);
+        entity.navigation.set_nav_com_for_test(requested);
+        entity
+            .navigation
+            .set_pending_destination_setter_for_test(false);
         false
     }
 }
@@ -908,8 +908,10 @@ mod tests {
             .expect("retail ORCA");
         let saved = NavTargetRef::cell(20, 10);
         let aircraft = sim.substrate.entities.get_mut(id).unwrap();
-        aircraft.navigation.set_nav_com(Some(saved));
-        aircraft.navigation.set_pending_destination_setter(true);
+        aircraft.navigation.set_nav_com_for_test(Some(saved));
+        aircraft
+            .navigation
+            .set_pending_destination_setter_for_test(true);
 
         sim.complete_pending_order(id, Some(&rules), None, FrameEffects::default());
 

@@ -2987,7 +2987,7 @@ mod tests {
                 .set_for_test(Some(combat::TargetKind::Entity(2)));
             actor
                 .navigation
-                .set_suspended_nav_com(Some(NavTargetRef::cell(12, 12)));
+                .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(12, 12)));
             actor.set_archive_target(Some(combat::TargetKind::Cell(5, 5)));
             actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
                 crate::sim::combat::TargetKind::Cell(12, 12),

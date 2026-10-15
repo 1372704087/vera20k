@@ -177,7 +177,7 @@ fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
     }
     planter
         .navigation
-        .set_nav_com(Some(NavTargetRef::building(building)));
+        .set_nav_com_for_test(Some(NavTargetRef::building(building)));
     planter
         .locomotor
         .as_mut()
@@ -553,7 +553,7 @@ fn the_arm_plants_only_from_a_sabotage_c4_arrival_at_its_navcom() {
                     .get_mut(actor)
                     .unwrap()
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::building(other)));
+                    .set_nav_com_for_test(Some(NavTargetRef::building(other)));
             }
             _ => {}
         }

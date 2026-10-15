@@ -727,7 +727,7 @@ fn a_gattling_tank_boards_with_its_spin_reset() {
         let tank = spin.sim.substrate.entities.get_mut(spin.tank).unwrap();
         tank.gattling = GattlingState::from_fields(2, 600, true);
         tank.navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::object(hover)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::object(hover)));
         tank.mission.set_current_for_test(
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter),
             0,

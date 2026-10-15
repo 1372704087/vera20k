@@ -81,7 +81,7 @@ fn world(input: &Value, facing: u16) -> (Simulation, RuleSet) {
     }
     actor
         .navigation
-        .set_nav_com(match input["nav"].as_str().unwrap_or("none") {
+        .set_nav_com_for_test(match input["nav"].as_str().unwrap_or("none") {
             "none" => None,
             "target" => Some(match target {
                 TargetKind::Entity(id) => NavTargetRef::object(id),

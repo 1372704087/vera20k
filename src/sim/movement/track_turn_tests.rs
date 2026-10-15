@@ -676,7 +676,7 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                 let speed_before = entity.foot_speed.clone();
                 entity
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::cell(10, 8)));
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(10, 8)));
                 entity.navigation.path_replay =
                     FootPathQueue::for_test(vec![2, 2], 0, Some((8, 8)));
                 set_retained(entity, kind, false, false, {
@@ -850,7 +850,7 @@ fn live_rotation_returns_before_fresh_selection_with_a_queued_path_and_no_displa
         entity.mover_facts.set_drive_accelerates_for_test(false);
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(8, 7)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(8, 7)));
         entity.navigation.path_replay = FootPathQueue::for_test(vec![0, 0], 0, Some((8, 8)));
         let before_position = super::super::ground_pose::position_world_coord(&entity.position);
         let before_facing = serde_json::to_value(entity.body_facing).unwrap();

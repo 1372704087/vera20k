@@ -621,7 +621,7 @@ mod tests {
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(unit.owner());
         unit.navigation
-            .set_nav_com(Some(NavTargetRef::cell(25, 25)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(25, 25)));
         unit.attack_target.set_for_test(Some(TargetKind::Entity(2)));
         let mut target = GameEntity::test_default(2, "HTNK", "Soviet", 14, 10);
         target.set_owner_for_test(sim.interner.intern("Soviet"));

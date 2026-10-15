@@ -203,10 +203,10 @@ fn prepare(row: &Value) -> Scene {
     runtime.set_retries_left(u32::try_from(integer(&native["retries"])).unwrap());
     entity
         .navigation
-        .set_nav_com(native_nav(row, &native["nav"]));
+        .set_nav_com_for_test(native_nav(row, &native["nav"]));
     entity
         .navigation
-        .set_nav_com_aux(native_nav(row, &native["aux"]));
+        .set_nav_com_aux_for_test(native_nav(row, &native["aux"]));
     entity
         .setter_force_reassign
         .set_for_test(byte(&native["force_reassign"]) != 0);

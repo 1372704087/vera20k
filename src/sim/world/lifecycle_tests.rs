@@ -3694,13 +3694,13 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
         .set_for_test(Some(TargetKind::Entity(2)));
     listener
         .navigation
-        .set_suspended_nav_com(Some(NavTargetRef::Entity { id: 2 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
     listener
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::Object { id: 2 }));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
     listener.navigation.set_nav_queue_for_test(vec![
         NavTargetRef::Entity { id: 2 },
         NavTargetRef::Cell { rx: 7, ry: 8 },
@@ -3737,13 +3737,13 @@ fn occupier_capture_retains_live_non_selling_nav_target() {
     listener.removal_facts.set_occupier_for_test(true);
     listener
         .navigation
-        .set_suspended_nav_com(Some(NavTargetRef::Building { id: 2 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
     listener
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: 2 }));
     listener
         .navigation
-        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
     listener
         .navigation
         .set_nav_queue_for_test(vec![NavTargetRef::Building { id: 2 }]);
@@ -3786,10 +3786,10 @@ fn selling_target_disables_occupier_capture_nav_retention() {
     listener.removal_facts.set_occupier_for_test(true);
     listener
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: 2 }));
     listener
         .navigation
-        .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
 
     sim.uninit(2);
 
@@ -3816,7 +3816,7 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
         .set_for_test(Some(TargetKind::Entity(3)));
     listener
         .navigation
-        .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
     listener.passive_scan.timer_mut_for_test().arm(100, 20);
     listener.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Attack),
@@ -8281,10 +8281,10 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
         entity
             .suspended_attack_target
             .set_for_test(Some(TargetKind::Entity(4)));
-        entity.navigation.set_nav_com(None);
+        entity.navigation.set_nav_com_for_test(None);
         entity
             .navigation
-            .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
+            .set_suspended_nav_com_for_test(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
         entity.mission.apply_test_fixture(attack_fixture(
             MissionType::Attack,
             MissionId::from_known(MissionType::Move),
@@ -8429,7 +8429,7 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
         .set_for_test(Some(TargetKind::Entity(2)));
     attacker
         .navigation
-        .set_suspended_nav_com(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Cell { rx: 7, ry: 8 }));
     attacker.mission.apply_test_fixture(attack_fixture(
         MissionType::Attack,
         MissionId::from_known(MissionType::Move),

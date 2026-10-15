@@ -845,7 +845,7 @@ impl OracleTeam {
             }
             entity
                 .navigation
-                .set_nav_com(flag(&member["nav"]).then(|| NavTargetRef::cell(1, 1)));
+                .set_nav_com_for_test(flag(&member["nav"]).then(|| NavTargetRef::cell(1, 1)));
             entity
                 .mission
                 .set_current_for_test(MissionId::from_raw(int(&member["mission"])), 0);

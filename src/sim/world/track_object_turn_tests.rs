@@ -400,7 +400,7 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     entity.position.set_rx_for_test(10);
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 10)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 10)));
     let drive = entity.locomotor.as_mut().unwrap();
     assert!(drive.store_track_head(
         crate::sim::movement::track_process::TrackFamily::Drive,
@@ -631,7 +631,7 @@ fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 9)));
     let drive = entity.locomotor.as_mut().unwrap();
     assert!(drive.store_track_destination(
         crate::sim::movement::track_process::TrackFamily::Drive,
@@ -807,7 +807,7 @@ fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
     entity.set_on_bridge(true);
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 9)));
     entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
     let drive = entity.locomotor.as_mut().unwrap();
     let deck = DriveCoord::cell(10, 9, 416);
@@ -875,7 +875,7 @@ fn terminal_piggyback_end_is_synchronous_and_preserves_owner_speed() {
     );
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 9)));
     entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");

@@ -176,7 +176,7 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.suspended_attack_target.clear();
             if entity.category() != crate::map::entities::EntityCategory::Structure {
-                entity.navigation.set_suspended_nav_com(None);
+                entity.navigation.clear_suspended_nav_com();
             }
         }
         // `0x004C73E1..0x004C73EA`: any queued mission but Attack takes a

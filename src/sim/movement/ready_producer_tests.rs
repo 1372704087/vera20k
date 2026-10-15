@@ -376,9 +376,9 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
             } else {
                 Default::default()
             };
-            entity
-                .navigation
-                .set_nav_com(has_order.then(|| crate::sim::components::NavTargetRef::cell(6, 5)));
+            entity.navigation.set_nav_com_for_test(
+                has_order.then(|| crate::sim::components::NavTargetRef::cell(6, 5)),
+            );
             if kind == LocomotorKind::Walk {
                 assert_eq!(
                     is_moving_now(&entity, None, 100),

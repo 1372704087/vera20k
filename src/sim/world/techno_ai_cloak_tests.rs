@@ -988,13 +988,13 @@ fn a_sensing_house_keeps_both_target_and_destination_across_a_dive() {
             .set_for_test(Some(TargetKind::Entity(cloaker)));
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::object(cloaker)));
+            .set_nav_com_for_test(Some(NavTargetRef::object(cloaker)));
         entity
             .navigation
-            .set_nav_com_aux(Some(NavTargetRef::object(cloaker)));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::object(cloaker)));
         entity
             .navigation
-            .set_suspended_nav_com(Some(NavTargetRef::object(cloaker)));
+            .set_suspended_nav_com_for_test(Some(NavTargetRef::object(cloaker)));
     }
     let american = sim.substrate.entities.get(sensing).unwrap().owner();
     sim.fog.increment_sensor_at(american, cell.0, cell.1);

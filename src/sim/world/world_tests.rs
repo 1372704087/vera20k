@@ -2722,7 +2722,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
         } else {
             entity
                 .navigation
-                .set_nav_com(Some(crate::sim::components::NavTargetRef::building(2)));
+                .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::building(2)));
         }
         for _ in 0..41 {
             entity.mission.increment_ai_counter();
@@ -6754,7 +6754,7 @@ fn test_stop_command_clears_move_and_attack_intent() {
         ));
         e.locomotor = Some(locomotor);
         e.navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 4)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 4)));
         e.attack_target.set_for_test(Some(TargetKind::Entity(1)));
         assert_eq!(crate::sim::movement::motion_query::is_moving(e), Some(true));
     }
@@ -8131,7 +8131,7 @@ fn test_lethal_hit_stuns_the_dying_infantry() {
         let gi = sim.substrate.entities.get_mut(1).unwrap();
         gi.attack_target.set_for_test(Some(TargetKind::Entity(2)));
         gi.navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::Cell {
                 rx: 9,
                 ry: 2,
             }));
@@ -8216,7 +8216,7 @@ fn test_area_guard_keeps_its_post_when_displaced_inside_the_native_leash() {
         e.position.set_rx_for_test(5);
         e.position.set_ry_for_test(2);
         e.attack_target.set_for_test(None);
-        e.navigation.set_nav_com(None);
+        e.navigation.set_nav_com_for_test(None);
     }
     sim.add_entity_occupancy(1);
 

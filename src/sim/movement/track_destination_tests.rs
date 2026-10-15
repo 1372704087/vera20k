@@ -68,7 +68,7 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
             (input["target"] == true).then(|| crate::sim::combat::TargetKind::Cell(11, 10)),
         );
         e.navigation
-            .set_nav_com((input["nav"] != false).then(|| NavTargetRef::cell(11, 10)));
+            .set_nav_com_for_test((input["nav"] != false).then(|| NavTargetRef::cell(11, 10)));
         e.lift.set_swap_active_for_test(input["swap"] == true);
         if input["bunker"] == true {
             e.bunker.set_bunker_link_for_test(
@@ -221,9 +221,10 @@ fn actor(input: &Value) -> GameEntity {
                 ))
         );
     }
-    e.navigation.set_nav_com_aux(Some(NavTargetRef::cell(0, 0)));
     e.navigation
-        .set_nav_com((input["same_nav"] == true).then(|| NavTargetRef::cell(11, 10)));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::cell(0, 0)));
+    e.navigation
+        .set_nav_com_for_test((input["same_nav"] == true).then(|| NavTargetRef::cell(11, 10)));
     e.setter_force_reassign
         .set_for_test(input["force_reassign"] == true);
     e.navigation.set_nav_queue_for_test(vec![
@@ -1005,7 +1006,7 @@ fn noncell_foot_destinations_match_original_anytown_class_calls() {
         ]);
         actor
             .navigation
-            .set_nav_com_aux(Some(NavTargetRef::Object { id: 3 }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: 3 }));
         actor.navigation.path_replay = {
             let mut value = FootPathQueue::default();
             value.set_directions_for_test(

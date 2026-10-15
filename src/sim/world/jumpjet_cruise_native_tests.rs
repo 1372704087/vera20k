@@ -277,7 +277,7 @@ fn supplied_world(
         });
         actor
             .navigation
-            .set_nav_com_aux(state["aux_cell"].as_array().map(|_| {
+            .set_nav_com_aux_for_test(state["aux_cell"].as_array().map(|_| {
                 let at = cell(&state["aux_cell"]);
                 NavTargetRef::cell(at.0, at.1)
             }));
@@ -775,7 +775,7 @@ fn execute_step(
             let entity = sim.substrate.entities.get_mut(actor).unwrap();
             entity
                 .navigation
-                .set_nav_com(inputs["nav_cell"].as_array().map(|_| {
+                .set_nav_com_for_test(inputs["nav_cell"].as_array().map(|_| {
                     let at = cell(&inputs["nav_cell"]);
                     NavTargetRef::cell(at.0, at.1)
                 }));

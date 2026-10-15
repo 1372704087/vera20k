@@ -245,7 +245,7 @@ pub(super) fn row_scene_edited(
         if let Some((nx, ny)) = input.get("owner_nav").map(cell) {
             entity
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(nx, ny)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(nx, ny)));
         }
         smin
     } else {
@@ -403,7 +403,7 @@ fn place_slave(
     if let Some((nx, ny)) = node.get("nav").map(cell) {
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(nx, ny)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(nx, ny)));
     }
     let storage = node["storage"].as_array();
     let mut cargo = Vec::new();

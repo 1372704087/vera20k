@@ -179,7 +179,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
             .get_mut(2)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: 3 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 3 }));
     }
     let owner = sim.substrate.entities.get_mut(1).unwrap();
     owner
@@ -191,7 +191,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     if input["carryall_target"].as_bool().unwrap_or(false) {
         owner
             .navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: 4 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 4 }));
     }
     if input.get("blocker").is_some() {
         insert(
@@ -230,7 +230,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
             let e = sim.substrate.entities.get_mut(id).unwrap();
             e.lifecycle
                 .set_in_limbo_for_test(input["reservation_limbo"].as_bool().unwrap_or(false));
-            e.navigation.set_nav_com(Some(NavTargetRef::cell(
+            e.navigation.set_nav_com_for_test(Some(NavTargetRef::cell(
                 cell[0].as_u64().unwrap() as u16,
                 cell[1].as_u64().unwrap() as u16,
             )));
@@ -345,8 +345,8 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
     entity.aircraft_ammo = Some(ammo);
     entity
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::Entity { id: 2 }));
-    entity.navigation.set_nav_com(
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Entity { id: 2 }));
+    entity.navigation.set_nav_com_for_test(
         input["old_nav"]
             .as_bool()
             .unwrap_or(false)

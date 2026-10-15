@@ -1550,7 +1550,7 @@ fn a_moving_rocketeers_reorder_runs_stop_driver_first() {
         );
         rocketeer
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(60, 52)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(60, 52)));
         rocketeer
             .infantry
             .as_mut()

@@ -55,7 +55,7 @@ fn slave_master_admission_reaches_head_selection_in_the_same_object_turn() {
         let e = sim.substrate.entities.get_mut(slave).unwrap();
         e.slave = crate::sim::slave_manager::SlaveLink::for_test(Some(master), Vec::new());
         e.navigation
-            .set_nav_com(Some(NavTargetRef::Cell { rx: 16, ry: 15 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 16, ry: 15 }));
         e.locomotor
             .as_mut()
             .unwrap()
@@ -736,7 +736,7 @@ pub(in crate::sim::world) fn ready_engineer(
     .unwrap();
     let e = sim.substrate.entities.get_mut(id).unwrap();
     e.navigation
-        .set_nav_com(Some(NavTargetRef::Building { id: hut }));
+        .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
     let head = DriveCoord::cell(16, 15, 0);
     e.locomotor
         .as_mut()
@@ -1078,7 +1078,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
             .timer_mut_for_test()
             .arm(sim.session.binary_frame, 30);
         e.navigation
-            .set_nav_com_aux(Some(NavTargetRef::Cell { rx: 19, ry: 19 }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Cell { rx: 19, ry: 19 }));
         e.navigation
             .push_nav_queue_for_test(NavTargetRef::Building { id: hut });
         e.navigation
@@ -1099,7 +1099,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
         .get_mut(hut)
         .unwrap()
         .navigation
-        .set_nav_com(Some(NavTargetRef::Building { id: hut }));
+        .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
     sim.expire_infantry_bridge_hut_targets(
         hut,
         &rules,
@@ -1150,10 +1150,10 @@ fn repair_pointer_expiry_keeps_sensor_and_occupier_exceptions_and_current_nav_ga
         e.removal_facts.set_occupier_for_test(exception == 1);
         if exception == 2 {
             e.navigation
-                .set_nav_com(Some(NavTargetRef::Cell { rx: 16, ry: 15 }));
+                .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 16, ry: 15 }));
         }
         e.navigation
-            .set_nav_com_aux(Some(NavTargetRef::Building { id: hut }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: hut }));
         let before = e.navigation.clone();
         sim.expire_infantry_bridge_hut_targets(
             hut,
@@ -1365,7 +1365,7 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
             z: 0,
         };
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.navigation.set_nav_com(Some(NavTargetRef::cell(
+        e.navigation.set_nav_com_for_test(Some(NavTargetRef::cell(
             (dest.x / 256) as u16,
             (dest.y / 256) as u16,
         )));

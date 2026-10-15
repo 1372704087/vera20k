@@ -104,7 +104,7 @@ fn fixture(row: &Value) -> (Simulation, TargetLineState, TacticalViewport) {
         let [x, y, z] = point(&actor_input["source"]);
         actor.position.put_location(DriveCoord { x, y, z });
         let [tx, ty] = point(&actor_input["target_cell"]);
-        actor.navigation.set_nav_com(
+        actor.navigation.set_nav_com_for_test(
             (!actor_input["nav_null"].as_bool().unwrap_or(false))
                 .then_some(NavTargetRef::cell(tx as u16, ty as u16)),
         );
@@ -788,7 +788,7 @@ fn move_line_query_leaves_the_simulation_dummy_unchanged() {
         .get_mut(1)
         .unwrap()
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(u16::MAX, u16::MAX)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(u16::MAX, u16::MAX)));
     let terrain = sim.resolved_terrain.as_ref().unwrap();
     let query = NativeCellQuery::canonical(terrain);
     let before = query.dummy().snapshot().coord;

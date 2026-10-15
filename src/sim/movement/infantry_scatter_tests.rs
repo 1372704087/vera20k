@@ -397,7 +397,7 @@ fn damage_gates_match_original_execution() {
         if flag("nav", false) {
             victim
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(9, 9)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(9, 9)));
         }
         let owner = victim.owner();
         let type_ref = victim.type_ref();

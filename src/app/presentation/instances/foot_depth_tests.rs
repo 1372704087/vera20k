@@ -469,7 +469,7 @@ fn composite_factory_split_requires_navcom_and_slot_zero_weapons_factory() {
     tank.radio_contacts.insert(17);
     assert!(!evaluate(&runtime, &tank));
     tank.navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(3, 3)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(3, 3)));
     assert!(
         !super::shp_unit_bridge_fudge_in_runtime(Some(&runtime), &tank),
         "direct SHP has no weapons-factory alternative"

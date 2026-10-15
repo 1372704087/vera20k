@@ -162,7 +162,7 @@ fn native_response_uses_the_paid_foot_head_instead_of_navcom() {
     );
     candidate
         .navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::Cell {
             rx: 7,
             ry: 7,
         }));
@@ -754,7 +754,7 @@ fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
             .get_mut(defender)
             .unwrap()
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::Cell {
                 rx: 9,
                 ry: 5,
             }));

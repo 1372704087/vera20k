@@ -577,9 +577,9 @@ fn walk_null_setter_matches_original_caller_rows() {
             dispatch_timer: MissionDispatchTimer::at_frame(0),
         });
         e.navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: victim }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: victim }));
         e.navigation
-            .set_nav_com_aux(Some(NavTargetRef::Entity { id: victim }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Entity { id: victim }));
         e.navigation.path_replay = FootPathQueue::for_test(vec![2, 3, 4, 5], 0, Some((10, 10)));
         if input["nav_queue"] == 1 {
             e.navigation

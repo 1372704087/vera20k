@@ -84,7 +84,7 @@ mod movement_commands;
 mod movement_path;
 mod movement_step;
 pub(crate) mod movement_tick;
-mod navcom;
+pub(crate) mod navcom;
 #[cfg(test)]
 pub(crate) use navcom::set_walk_destination_coord;
 pub(crate) use navcom::{building_dock_cell, building_dock_coordinate, nav_target_coordinate};

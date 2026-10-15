@@ -1719,7 +1719,7 @@ mod tests {
             .get_mut(90)
             .unwrap()
             .navigation
-            .set_nav_com(nav);
+            .set_nav_com_for_test(nav);
         impassable(
             &EntryReadContext {
                 sim,
@@ -1957,7 +1957,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::Building { id: 71 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Building { id: 71 }));
         assert!(
             !probe(&mut sim),
             "first-Building target skips the earlier enemy blocker"
@@ -1998,7 +1998,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::Cell { rx: 17, ry: 16 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 17, ry: 16 }));
         assert_eq!(
             probe(&mut sim, 72),
             InfantryTargetAdmission::SkipCurrent,
@@ -2014,7 +2014,7 @@ mod tests {
             .get_mut(70)
             .unwrap()
             .navigation
-            .set_nav_com(None);
+            .set_nav_com_for_test(None);
         sim.substrate
             .entities
             .get_mut(70)
@@ -2105,7 +2105,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::Building { id: hut }));
+            .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
         assert!(probe(&mut sim));
         assert_eq!(
             sim.resolved_terrain
@@ -2120,7 +2120,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::Cell { rx: 61, ry: 61 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 61, ry: 61 }));
         assert!(
             probe(&mut sim),
             "two absent coordinates denote the same retained native Dummy Cell"
@@ -2137,7 +2137,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .set_nav_com(None);
+            .set_nav_com_for_test(None);
         sim.substrate
             .entities
             .get_mut(infantry)

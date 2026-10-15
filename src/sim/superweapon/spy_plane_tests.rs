@@ -447,7 +447,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
             .get_mut(id)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(NAV_CELL.0, NAV_CELL.1)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(NAV_CELL.0, NAV_CELL.1)));
     }
     let mission = if row["mission"] == "approach" {
         MissionType::SpyplaneApproach
@@ -484,7 +484,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
         flag(row, "target").then(|| TargetKind::Cell(PLANE_TARGET.0, PLANE_TARGET.1)),
     );
     if !flag(row, "nav_com") {
-        plane.navigation.set_nav_com(None);
+        plane.navigation.set_nav_com_for_test(None);
     }
     plane.set_in_playfield(flag(row, "in_playfield"));
     plane.mission.apply_test_fixture(MissionTestFixture {

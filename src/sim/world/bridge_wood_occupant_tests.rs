@@ -125,8 +125,8 @@ fn prime(scene: &mut HeadlessScenario, input: &Value, initial: &Value, rng: &Val
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         actor.set_on_bridge(false);
         actor.rearm_timer.set_for_test(CdTimer::from_raw(0, 0));
-        actor.navigation.set_nav_com(None);
-        actor.navigation.set_suspended_nav_com(None);
+        actor.navigation.set_nav_com_for_test(None);
+        actor.navigation.set_suspended_nav_com_for_test(None);
         actor.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(initial["mission"].as_i64().unwrap() as i32),
             suspended: MissionId::from_raw(if id == primary {

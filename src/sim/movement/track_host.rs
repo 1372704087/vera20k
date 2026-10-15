@@ -415,7 +415,7 @@ impl Simulation {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
                     super::navcom::foot_stop_moving(entity);
                     entity.navigation.path_replay.clear_live_head();
-                    entity.navigation.set_pending_destination_setter(false);
+                    entity.navigation.settle_destination_setter();
                     if entity.mission.current().known() == Some(MissionType::Move) {
                         let returns = self.unit_enter_idle_mode(id, rules, false, effects);
                         observe(self, id, TrackWorldEvent::Arrival);

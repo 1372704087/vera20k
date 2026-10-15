@@ -703,7 +703,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value, target: (u1
         .attack_target
         .set_for_test(flag(row, "target").then(|| TargetKind::Cell(target.0, target.1)));
     if !flag(row, "nav_com") {
-        plane.navigation.set_nav_com(None);
+        plane.navigation.set_nav_com_for_test(None);
     }
     let passes = i8::try_from(int(&row["passes"])).unwrap();
     plane.mission_leaf.set_paradrop_passes_for_test(passes);

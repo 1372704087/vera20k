@@ -675,7 +675,7 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 if node["nav"].as_bool().unwrap_or(false) {
                     blocker
                         .navigation
-                        .set_nav_com(Some(NavTargetRef::cell(11, 10)));
+                        .set_nav_com_for_test(Some(NavTargetRef::cell(11, 10)));
                 }
                 if node["turn"].as_bool().unwrap_or(false) {
                     let mut facing = crate::sim::movement::FacingClass::new(0, 5);
@@ -713,7 +713,7 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 .get_mut(90)
                 .unwrap()
                 .navigation
-                .set_nav_com(Some(NavTargetRef::Entity {
+                .set_nav_com_for_test(Some(NavTargetRef::Entity {
                     id: ids[index as usize],
                 }));
         }

@@ -255,7 +255,8 @@ pub struct TickResult {
     pub frame_committed: bool,
     pub executed_commands: usize,
     /// The state hash after this frame, on the frames
-    /// [`Simulation::hash_state_every`] selects; `None` on the others.
+    /// [`Simulation::hash_state_every`] selects and on every frame that ends
+    /// the match (`frame_committed` false); `None` on the others.
     pub state_hash: Option<u64>,
     /// This call latched the natural win/loss score snapshot before hashing.
     pub terminal_score_finalized: bool,
@@ -1399,7 +1400,7 @@ pub struct Simulation {
     /// VERA-only: which frames hash their state for the TickResult, by tick
     /// number. Every frame unless the caller asks for fewer; normal play's
     /// frame loop asks for every [`crate::sim::replay::PLAY_HASH_INTERVAL`]th.
-    /// Never saved or hashed.
+    /// A frame that ends the match hashes regardless. Never saved or hashed.
     #[serde(skip, default = "every_frame")]
     state_hash_interval: std::num::NonZeroU64,
     /// Pending gameplay commands waiting for their scheduled execution tick.
@@ -6754,8 +6755,10 @@ impl Simulation {
     }
 
     /// From the next frame on, hash the state for the TickResult only after
-    /// frames whose tick is a multiple of `frames` (1: every frame). A fixed
-    /// frame count, so the same commands always hash the same frames.
+    /// frames whose tick is a multiple of `frames` (1: every frame), and after
+    /// every frame that ends the match (an EXIT, a quit, the current house's
+    /// win or loss, a lost connection), whose `frame_committed` is false. A
+    /// fixed frame count, so the same commands always hash the same frames.
     pub fn hash_state_every(&mut self, frames: std::num::NonZeroU64) {
         self.state_hash_interval = frames;
     }
@@ -7172,11 +7175,14 @@ impl Simulation {
         self.debug_assert_lifecycle_consistent();
         let terminal_score_finalized =
             self.natural_outcome_exit_ready() && self.finalize_terminal_score_snapshot();
-        let state_hash = self
-            .session
-            .tick
-            .is_multiple_of(self.state_hash_interval.get())
-            .then(|| self.state_hash());
+        // A frame that ends the match hashes whatever its tick: the replay
+        // log records it as its last frame.
+        let state_hash = (!frame_committed
+            || self
+                .session
+                .tick
+                .is_multiple_of(self.state_hash_interval.get()))
+        .then(|| self.state_hash());
         Ok(MasterFrameOutput {
             admitted_commands: commands,
             tick: TickResult {

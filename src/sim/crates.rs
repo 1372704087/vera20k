@@ -2277,7 +2277,7 @@ pub(crate) mod tests {
                 .collect::<Vec<_>>(),
             cells
         );
-        assert_eq!(first.tick.state_hash, sim.state_hash());
+        assert_eq!(first.tick.state_hash, Some(sim.state_hash()));
         let published = sim.path_grid_snapshot().unwrap();
         assert!(
             Arc::ptr_eq(&settled, &published),
@@ -2296,7 +2296,7 @@ pub(crate) mod tests {
             .expect("fixture frame must complete");
         assert!(second.overlay_updates.is_empty());
         assert!(Arc::ptr_eq(&published, &sim.path_grid_snapshot().unwrap()));
-        assert_eq!(second.tick.state_hash, sim.state_hash());
+        assert_eq!(second.tick.state_hash, Some(sim.state_hash()));
     }
 
     #[test]

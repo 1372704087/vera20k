@@ -14,7 +14,11 @@
 //! `Simulation::state_hash` (and the optional periodic hashes, taken outside
 //! the timed region) identify the simulation result, so two builds can be
 //! compared for identical behavior as well as for speed. The periodic hashes
-//! are timed on their own, which measures the hash every frame also takes.
+//! are timed on their own, which measures what each hashing frame also takes.
+//!
+//! Frames hash their own state as normal play does, every
+//! `sim::replay::PLAY_HASH_INTERVAL`th frame; `--frame-hash-every 1` hashes
+//! every frame.
 //!
 //! `--map` also takes a loose map file; `python -m tools.scale_map` writes the
 //! flat 500x500-cell map used for 20,000-unit, 30-house runs.
@@ -45,6 +49,7 @@ struct Args {
     order_spread: u64,
     return_at: Option<u64>,
     hash_every: u64,
+    frame_hash_every: std::num::NonZeroU64,
     csv: Option<PathBuf>,
     serial_paths: bool,
 }
@@ -63,6 +68,7 @@ fn parse_args() -> Result<Args, String> {
         order_spread: 30,
         return_at: None,
         hash_every: 0,
+        frame_hash_every: vera20k::sim::replay::PLAY_HASH_INTERVAL,
         csv: None,
         serial_paths: false,
     };
@@ -88,6 +94,10 @@ fn parse_args() -> Result<Args, String> {
             "--order-spread" => args.order_spread = number(value()?)?.max(1),
             "--return-at" => args.return_at = Some(number(value()?)?),
             "--hash-every" => args.hash_every = number(value()?)?,
+            "--frame-hash-every" => {
+                args.frame_hash_every = std::num::NonZeroU64::new(number(value()?)?)
+                    .ok_or("--frame-hash-every needs a positive number")?
+            }
             "--csv" => args.csv = Some(PathBuf::from(value()?)),
             "--serial-paths" => args.serial_paths = true,
             other => return Err(format!("unrecognised argument {other}")),
@@ -216,8 +226,8 @@ fn main() -> Result<(), String> {
             eprintln!(
                 "usage: sim-bench [--ra2-dir <retail path>] [--map Death.mmx] [--seed S] \
                  [--units 20000] [--houses 8] [--ticks 300] [--types E1,E2,MTNK,HTNK] \
-                 [--order-spread 30] [--return-at T] [--hash-every N] [--csv <path>] \
-                 [--serial-paths]"
+                 [--order-spread 30] [--return-at T] [--hash-every N] \
+                 [--frame-hash-every 15] [--csv <path>] [--serial-paths]"
             );
             std::process::exit(2);
         }
@@ -228,6 +238,7 @@ fn main() -> Result<(), String> {
     if !args.serial_paths {
         runtime.simulation.batch_path_searches();
     }
+    runtime.simulation.hash_state_every(args.frame_hash_every);
 
     let owners: Vec<String> = (0..args.houses).map(|i| format!("Bench{i:02}")).collect();
     let owner_ids: Vec<InternedId> = owners

@@ -117,7 +117,7 @@ mod tests {
             map_name: "gsi_17_08.map".to_owned(),
             rules_hash: 0x5678,
         });
-        log.record_tick(41, Vec::new(), 0x9abc);
+        log.record_tick(41, Vec::new(), Some(0x9abc));
         log
     }
 
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(decoded.header.map_name, "gsi_17_08.map");
         assert_eq!(decoded.ticks.len(), 1);
         assert_eq!(decoded.ticks[0].tick, 41);
-        assert_eq!(decoded.ticks[0].state_hash, 0x9abc);
+        assert_eq!(decoded.ticks[0].state_hash, Some(0x9abc));
 
         assert!(
             diagnostics
@@ -165,7 +165,7 @@ mod tests {
         assert!(diagnostics.flush_to(41, &create_blocker, 2_000).is_err());
         assert_eq!(
             diagnostics.replay_log.as_ref().unwrap().ticks[0].state_hash,
-            0x9abc
+            Some(0x9abc)
         );
         std::fs::remove_file(&create_blocker).unwrap();
 
@@ -194,7 +194,7 @@ mod tests {
         assert!(diagnostics.flush_to(41, &blocked, 3_000).is_err());
         let retained = diagnostics.replay_log.as_ref().expect("segment retained");
         assert_eq!(retained.ticks.len(), 1);
-        assert_eq!(retained.ticks[0].state_hash, 0x9abc);
+        assert_eq!(retained.ticks[0].state_hash, Some(0x9abc));
         std::fs::remove_file(&blocked).unwrap();
 
         // Successful lifecycle flush: the segment closes to disk and the slot

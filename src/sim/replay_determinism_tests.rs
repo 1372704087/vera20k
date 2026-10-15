@@ -49,12 +49,12 @@ fn make_move_command() -> CommandEnvelope {
     )
 }
 
-fn run_with_frame_profile(total_ms: u32, frame_ms: u32) -> (u64, Vec<u64>, ReplayLog) {
+fn run_with_frame_profile(total_ms: u32, frame_ms: u32) -> (u64, Vec<Option<u64>>, ReplayLog) {
     let mut sim = make_test_sim();
     let grid = PathGrid::new(32, 32);
     let mut pending = vec![make_move_command()];
     let mut acc_ms: u64 = 0;
-    let mut hashes: Vec<u64> = Vec::new();
+    let mut hashes: Vec<Option<u64>> = Vec::new();
     let mut replay = ReplayLog::new(ReplayHeader {
         pixel_conversion_bounds: sim.session.pixel_conversion_bounds,
         version: 1,
@@ -172,7 +172,7 @@ fn replay_reapplies_header_seed() {
         map_name: desc.map_name.clone(),
         rules_hash: 0,
     });
-    let mut live: Vec<u64> = Vec::new();
+    let mut live: Vec<Option<u64>> = Vec::new();
     let mut pending = vec![make_move_command()];
     for _ in 0..40 {
         let execute_tick = sim.session.tick + 1;

@@ -38,4 +38,4 @@ The same state, inputs and random seed must give the same result on every platfo
 - Three random streams match the original's three generators. A draw on the wrong stream changes every later draw.
 - Objects take their turns in the original's active-object order.
 
-Each frame ends with a state hash that lockstep multiplayer will rely on.
+Normal play hashes the whole state once every 15 frames for its diagnostic replay log; tests and benchmarks can hash every frame. Lockstep multiplayer will rely on the original's own per-frame sync checksum instead.

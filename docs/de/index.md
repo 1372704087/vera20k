@@ -39,4 +39,4 @@ Gleicher Zustand, gleiche Eingaben und gleicher Zufalls-Seed müssen auf jeder P
 - Drei Zufallszahlenströme entsprechen den drei Generatoren des Originals. Eine Ziehung aus dem falschen Strom verändert jede spätere Ziehung.
 - Objekte kommen in der Reihenfolge der aktiven Objekte des Originals an die Reihe.
 
-Jeder Frame endet mit einem Zustands-Hash, auf den der Lockstep-Mehrspielermodus angewiesen sein wird.
+Im normalen Spiel wird der gesamte Zustand alle 15 Frames für das Diagnose-Replay-Log gehasht; Tests und Benchmarks können jeden Frame hashen. Der Lockstep-Mehrspielermodus wird stattdessen auf die Synchronisations-Prüfsumme angewiesen sein, die das Original in jedem Frame berechnet.

@@ -417,7 +417,7 @@ fn prerequisite_loss_events_preserve_player_copies_cleanup_and_snapshot_replay()
     log.record_tick(output.tick.tick, admitted_commands, output.tick.state_hash);
     let hashes =
         ReplayRunner::run_runtime(&mut replay, &log, 67).expect("recorded production replay");
-    assert_eq!(hashes, [live.simulation.state_hash()]);
+    assert_eq!(hashes, [Some(live.simulation.state_hash())]);
     assert_gone(&replay.simulation, parent, &child_ids);
     let mut next = live
         .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())

@@ -824,7 +824,7 @@ mod tests {
                 map_name: simulation.session.map_name.clone(),
                 rules_hash: rules.simulation_config_hash(),
             });
-            replay.record_tick(1, Vec::new(), simulation.state_hash());
+            replay.record_tick(1, Vec::new(), Some(simulation.state_hash()));
             let replay_log = Some(replay);
 
             let startup = startup_authority(LOAD_FIXTURE_SEED);
@@ -866,7 +866,7 @@ mod tests {
                     (
                         replay.header.seed,
                         replay.ticks.len(),
-                        replay.ticks.first().map(|tick| tick.state_hash),
+                        replay.ticks.first().and_then(|tick| tick.state_hash),
                     )
                 }),
                 startup: self.startup.clone(),

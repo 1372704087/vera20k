@@ -926,7 +926,10 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
     );
     println!(
         "[bridge parity] final_hash={:016X}",
-        replayed.last().unwrap()
+        replayed
+            .last()
+            .unwrap()
+            .expect("every replayed frame hashes")
     );
     assert_eq!(
         (
@@ -943,7 +946,10 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         ),
         "bridge absolute RNG states changed",
     );
-    let final_hash = *replayed.last().expect("at least one tick replayed");
+    let final_hash = replayed
+        .last()
+        .expect("at least one tick replayed")
+        .expect("every replayed frame hashes");
     println!(
         "[bridge historical hash receipts] archived_default_incoming={BRIDGE_HARNESS_INCOMING_HASH:016X} archived_r6={BRIDGE_HARNESS_R6_FINAL_HASH:016X}"
     );

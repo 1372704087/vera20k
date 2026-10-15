@@ -656,6 +656,47 @@ mod tests {
     use super::*;
     use crate::sim::occupancy::CellListInsertion;
 
+    /// The unpaid suffix anchors on the mover's live cell, not on the
+    /// accepted-chain reference.
+    #[test]
+    fn path_replay_suffix_follows_the_live_cell() {
+        // An east-then-south dogleg: (10,10) -> (11,10) -> (11,11) -> (12,11).
+        let path = [(10, 10), (11, 10), (11, 11), (12, 11)];
+        let mut queue = fixture_path_replay(&path);
+        assert_eq!(
+            queue.remaining_cells_from((10, 10)),
+            vec![(11, 10), (11, 11), (12, 11)],
+            "before any step the live cell is the acceptance cell"
+        );
+
+        // The mover pays its first step through the pop that *preserves*
+        // Foot+558, which is what Drive (track_host) and the tube entries
+        // (tube_movement) do. Walk and hover instead refresh the reference from
+        // the mover's own cell each step; the production-state walk test covers
+        // that path.
+        consume_path_replay(&mut queue, 1);
+        assert_eq!(
+            queue.remaining_cells_from((11, 10)),
+            vec![(11, 11), (12, 11)],
+            "the suffix must start at the cell the head word steps out of"
+        );
+        // Where the old read came from: with the reference preserved, walking the
+        // suffix from Foot+558 keeps the route anchored at the accepted endpoint
+        // and falls a cell further behind per paid step.
+        assert_ne!(
+            queue.remaining_cells_from(queue.reference_cell().unwrap()),
+            vec![(11, 11), (12, 11)],
+            "reference_cell is not the head word's origin once a step is paid"
+        );
+    }
+
+    /// A tube word names no adjacent cell, so it ends the read route there.
+    #[test]
+    fn tube_word_ends_the_read_route() {
+        let queue = FootPathQueue::for_test(vec![2, 8, 2], 0, Some((10, 10)));
+        assert_eq!(queue.remaining_cells_from((10, 10)), vec![(11, 10)]);
+    }
+
     fn peer(
         category: EntityCategory,
         type_ref: InternedId,

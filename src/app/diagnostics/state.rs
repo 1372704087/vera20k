@@ -75,6 +75,10 @@ pub(crate) struct DiagnosticsState {
     pub(crate) debug_show_cell_grid: bool,
     /// Heightmap overlay toggle.
     pub(crate) debug_show_heightmap: bool,
+    /// Foot-path step overlay toggle (Ctrl+Shift+O): draws the selected units'
+    /// remaining route as a numbered line, so the shape and the step order both
+    /// read at a glance. Independent of the PathGrid terrain-cost overlay.
+    pub(crate) debug_show_foot_path: bool,
     /// Debug unit inspector (X): mirrors sim-side per-entity event logging.
     pub(crate) debug_unit_inspector: bool,
     /// Optional per-tick parity digest capture (diagnostics; never perturbs
@@ -111,6 +115,7 @@ impl DiagnosticsState {
             debug_terrain_cost_speed_type: None,
             debug_show_cell_grid: false,
             debug_show_heightmap: false,
+            debug_show_foot_path: false,
             debug_unit_inspector: false,
             parity_digest_sink,
             #[cfg(feature = "dev-ui")]

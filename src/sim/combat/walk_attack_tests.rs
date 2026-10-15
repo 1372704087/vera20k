@@ -158,7 +158,7 @@ fn walk_destination_search_observes_route_opened_before_process() {
     assert!(
         e.navigation
             .path_replay
-            .remaining_cells()
+            .remaining_cells_from((e.position.rx() as i16, e.position.ry() as i16))
             .contains(&(12, 10)),
         "the first Process searches the now-open route"
     );
@@ -188,6 +188,62 @@ fn walk_destination_search_observes_route_opened_before_process() {
     assert!(crate::sim::movement::motion_query::is_moving(&e) == Some(true));
     assert!(e.navigation.nav_com().is_some());
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_some());
+}
+
+#[test]
+fn the_read_route_starts_at_the_object_after_a_paid_walk_step() {
+    // The suffix a caller reads must step out of the object's own cell. Walk
+    // refreshes Foot+558 from the position on every completed step, so this
+    // catches a read that quietly keeps anchoring on the acceptance point.
+    let (mut sim, rules, actor, _) = walk_attack_scene();
+    walk_command(
+        &mut sim,
+        &rules,
+        crate::sim::command::Command::Move {
+            entity_id: actor,
+            target_rx: 14,
+            target_ry: 10,
+        },
+    );
+    let paid_at_order = sim
+        .substrate
+        .entities
+        .get(actor)
+        .unwrap()
+        .navigation
+        .path_replay
+        .cursor();
+    let mut frames = 0;
+    while frames < 200 {
+        walk_frame(&mut sim, &rules);
+        frames += 1;
+        let cursor = sim
+            .substrate
+            .entities
+            .get(actor)
+            .unwrap()
+            .navigation
+            .path_replay
+            .cursor();
+        if cursor > paid_at_order {
+            break;
+        }
+    }
+    let e = sim.substrate.entities.get(actor).unwrap();
+    let queue = &e.navigation.path_replay;
+    assert!(
+        queue.cursor() > paid_at_order,
+        "the fixture must pay at least one step (frames={frames})"
+    );
+    let head = (e.position.rx() as i16, e.position.ry() as i16);
+    let Some(first) = queue.remaining_cells_from(head).first().copied() else {
+        panic!("a mover mid-route must still have an unpaid suffix");
+    };
+    let (fx, fy) = first;
+    assert!(
+        (fx - head.0).abs() <= 1 && (fy - head.1).abs() <= 1 && first != head,
+        "the head word must leave the object's own cell: head {head:?} first {first:?}"
+    );
 }
 
 #[test]

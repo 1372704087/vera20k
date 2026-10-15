@@ -440,6 +440,37 @@ pub(super) fn dispatch_draw_passes(
         debug_diamond_tex,
         "debug_path",
     );
+    // Numbered foot route. The stroke wants the solid white texture: on a
+    // one-pixel-wide line the iso diamond's transparent corners leave a dotted
+    // trail. Nodes mark cells, so the diamond stays right for them. The step
+    // indices are GAME.FNT glyphs — a third texture, hence a third batch.
+    let white_tex = state
+        .match_state
+        .match_presentation
+        .selection_overlay
+        .as_ref()
+        .map(|o| o.white_texture());
+    draw_pooled_no_depth(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        white_tex,
+        "debug_foot_stroke",
+    );
+    draw_pooled_no_depth(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        debug_diamond_tex,
+        "debug_foot_nodes",
+    );
+    draw_pooled_no_depth(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        Some(state.renderer.bit_font.atlas()),
+        "debug_foot_text",
+    );
     draw_pooled_no_depth(
         &mut pass,
         &state.renderer.batch_renderer,

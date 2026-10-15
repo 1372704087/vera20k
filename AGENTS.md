@@ -75,8 +75,8 @@ each claim reached.
 Keep a native comparison only while a Rust test or tool consumes it: its harness and a
 small corpus of controls rather than bulk replays, with a sidecar recording the binary
 hash and the command. Sidecars pin no hashes of repository sources; those go stale
-without any change in native output. Validation results (test counts, Clippy, captures,
-critic findings) go in the PR description and the checkpoint, not the tree: do not
+without any change in native output. Validation results (test counts, captures, critic
+findings) go in the PR description and the checkpoint, not the tree: do not
 commit receipts, run logs, capture screenshots, critic reviews or static disassembly
 packets.
 
@@ -233,11 +233,12 @@ Before fixing a bug whose expected behavior is established, first make a focused
 - Working Rust: `cargo check -p vera20k` as needed; focused
   `cargo test -p vera20k --lib <module_path>::`.
 - Rust PR readiness: once per PR, after any critic fixes, one full
-  `cargo test -p vera20k --lib` and `cargo clippy -p vera20k --lib` with retail
-  `ini/` and `VERA20K_REQUIRE_RETAIL_INI=1`; no baseline runs, and rerun only after
-  a failure or a `main` merge conflict. Tests tagged `#[ignore = "slow; …"]` run
-  (`-- --ignored`) only when your change touches what they cover. Don't dispatch
-  the manual platform workflows unless asked.
+  `cargo test -p vera20k --lib` with retail `ini/` and `VERA20K_REQUIRE_RETAIL_INI=1`;
+  no baseline runs, and rerun only after a failure or a `main` merge conflict. Tests
+  tagged `#[ignore = "slow; …"]` run (`-- --ignored`) only when your change touches
+  what they cover. Don't dispatch the manual platform workflows unless asked.
+- Clippy: once a month on `main`, not per PR: `cargo clippy -p vera20k --lib` in the
+  same environment, with its fixes in one PR.
 - Asset binding, loader or rules-closure changes: a release-build retail map load
   before merge; the lib suite never runs the app loader against retail assets.
 - Docs/skills: validate content, links/examples and tooling; no Cargo suite.

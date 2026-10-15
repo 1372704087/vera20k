@@ -1659,7 +1659,7 @@ impl Simulation {
         if lift {
             self.foot_mark_remove(infantry, Some(rules), overlay_registry, frame_effects);
             if let Some(entity) = self.substrate.entities.get_mut(infantry) {
-                entity.set_on_bridge(true);
+                entity.on_bridge.store(true);
             }
             self.foot_mark_put(infantry, Some(rules), overlay_registry, frame_effects);
         }

@@ -690,9 +690,24 @@ impl LocomotorState {
         self.layer
     }
 
-    /// Store the Foot's layer.
+    /// Store the Foot's layer: the piggyback swap's copy and fixtures, and
+    /// the unload writers in `transport_unload` until they move to
+    /// [`Self::store_ground_layer`].
     pub(crate) fn set_layer(&mut self, layer: MovementLayer) {
         self.layer = layer;
+    }
+
+    /// Put the cached layer on the ground plane as OnBridge (`Object+0x8C`)
+    /// projects it: [`MovementLayer::Bridge`] on a deck, otherwise
+    /// [`MovementLayer::Ground`]. gamemd keeps no such field (the layer is
+    /// the locomotor's `In_Which_Layer`); a placement or mover that stores
+    /// OnBridge stores this with it.
+    pub(crate) fn store_ground_layer(&mut self, on_bridge: bool) {
+        self.layer = if on_bridge {
+            MovementLayer::Bridge
+        } else {
+            MovementLayer::Ground
+        };
     }
 
     /// The type's `BalloonHover=`.

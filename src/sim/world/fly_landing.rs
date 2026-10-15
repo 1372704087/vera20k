@@ -222,7 +222,8 @@ impl Simulation {
                     .entities
                     .get_mut(id)
                     .unwrap()
-                    .set_on_bridge(true);
+                    .on_bridge
+                    .store(true);
             }
         }
         self.set_object_height(id, base, rules, registry, frame_effects);

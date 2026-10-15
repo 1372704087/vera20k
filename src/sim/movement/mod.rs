@@ -60,7 +60,7 @@ mod cell_contact;
 mod drive_locomotion;
 mod foot_approach;
 mod foot_coordinate;
-mod foot_mark;
+pub(crate) mod foot_mark;
 mod foot_path;
 pub(crate) use drive_locomotion::drive_do_turn;
 #[cfg(test)]

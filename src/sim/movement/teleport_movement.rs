@@ -1049,13 +1049,13 @@ impl crate::sim::world::Simulation {
                         (destination.x / 256) as i16,
                         (destination.y / 256) as i16,
                     ));
-                    entity.set_on_bridge(terrain.native_cell_flags(cell) & 0x100 != 0);
                     entity
-                        .position
-                        .store_level(super::movement_bridge::stored_level(
-                            terrain.native_cell_ground_fields(cell).0,
-                            entity.on_bridge(),
-                        ));
+                        .on_bridge
+                        .store(terrain.native_cell_flags(cell) & 0x100 != 0);
+                    entity.position.store_cell_level(
+                        terrain.native_cell_ground_fields(cell).0,
+                        entity.on_bridge(),
+                    );
                 }
                 let on_bridge = entity.on_bridge();
                 entity.position.set_height(on_bridge, 0, terrain, None);
@@ -1063,11 +1063,7 @@ impl crate::sim::world::Simulation {
                 // lists move through the caller's Mark pair around this
                 // relocation (`0x007195D4` UP, `0x007196B8` DOWN).
                 if let Some(locomotor) = entity.locomotor.as_mut() {
-                    locomotor.set_layer(if on_bridge {
-                        crate::sim::movement::locomotor::MovementLayer::Bridge
-                    } else {
-                        crate::sim::movement::locomotor::MovementLayer::Ground
-                    });
+                    locomotor.store_ground_layer(on_bridge);
                 }
                 // Harvester instant-warp: when chrono delay is 0, finish in one
                 // frame (cleanup runs at end of this frame) — no post-warp lock.

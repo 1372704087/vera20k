@@ -214,7 +214,11 @@ pub struct ObjectLifecycle {
     /// `ObjectClass+0x81`, InLimbo: Limbo sets it (`0x005F4E9E`) and Unlimbo
     /// clears it (`0x005F4F4E`). Independent of LogicVector membership.
     in_limbo: bool,
-    /// Whether Mark/cell-list insertion currently owns cell membership.
+    /// `ObjectClass+0x74`, Marked: whether Mark/cell-list insertion owns cell
+    /// membership. `ObjectClass::Mark` stores it (`0x005F58F7`, `0x005F5913`)
+    /// through `movement::foot_mark`, whose
+    /// `Simulation::replace_foot_marked_byte` also saves, clears and restores
+    /// it around the locomotors' setters.
     cell_marked: bool,
 }
 
@@ -250,10 +254,11 @@ impl ObjectLifecycle {
     }
 
     /// The constructor's facts for a newly built object: alive and in limbo
-    /// (`0x005F392A`, `0x005F3930`).
+    /// (`0x005F392A`, `0x005F3930`), and not Marked (`0x005F394B`).
     pub(crate) fn reset_constructed(&mut self) {
         self.object_alive = true;
         self.in_limbo = true;
+        self.cell_marked = false;
     }
 
     /// IsAlive set again on an object that took a lethal hit: PostMortem's
@@ -2242,7 +2247,7 @@ impl Simulation {
             .entities
             .get_mut(stable_id)
             .expect("member remains represented");
-        entity.set_on_bridge(false);
+        entity.on_bridge.store(false);
         entity.position.put_z(world_z);
         self.submit_entity_display(stable_id, rules, None);
         if foot {
@@ -2469,7 +2474,7 @@ impl Simulation {
                         .fly_runtime_mut()
                         .unwrap()
                         .reject_landing_cell();
-                    entity.set_on_bridge(false);
+                    entity.on_bridge.store(false);
                 }
                 self.foot_mark_remove(id, rules, registry, effects);
                 let height = crate::sim::movement::air_movement::current_fly_height(

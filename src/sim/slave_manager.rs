@@ -1426,11 +1426,6 @@ impl Simulation {
         ) else {
             return false;
         };
-        if placement != PlacementEvidence::RejectedEarly
-            && let Some(entity) = self.substrate.entities.get_mut(slave)
-        {
-            entity.set_on_bridge(false);
-        }
         let outcome = self.try_reveal_entity_with_context(
             slave,
             RevealRequest {
@@ -1918,6 +1913,41 @@ mod tests {
         assert_eq!(entity.body_facing.current(0), 0);
         assert_eq!(sim.scenario_rng.logical_state(), before);
         assert!(!sim.object_placement_scope_active());
+    }
+
+    /// `InfantryClass::Unlimbo @ 0x0051DFF0` and the Foot, Techno and Object
+    /// Unlimbo it reaches store no OnBridge (`Object+0x8C`), so a slave that
+    /// left a bridge deck for its miner keeps the flag when it deploys again.
+    #[test]
+    fn slave_unlimbo_keeps_on_bridge() {
+        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
+        let slave = sim
+            .construct_object_limbo_at_height(
+                "ENGINEER",
+                "Americans",
+                15,
+                15,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(slave)
+            .unwrap()
+            .set_on_bridge(true);
+        let centre = crate::util::lepton::CELL_CENTER_LEPTON;
+        assert!(sim.with_object_placement_scope(|sim| sim.unlimbo_slave(
+            slave,
+            (15, 15),
+            (centre, centre),
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default()
+        )));
+        assert!(sim.substrate.entities.get(slave).unwrap().on_bridge());
     }
 
     #[test]

@@ -1080,9 +1080,12 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Option<u64> {
-        let mut position = self.substrate.entities.get(stable_id)?.position;
-        position.put_location(coord);
-        position.store_level((coord.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8);
+        let position = self
+            .substrate
+            .entities
+            .get(stable_id)?
+            .position
+            .at_location_with_level(coord);
         self.reveal_constructed_object(
             stable_id,
             position,
@@ -1166,11 +1169,6 @@ impl Simulation {
             return None;
         }
 
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id)
-            && is_infantry
-        {
-            entity.set_on_bridge(false);
-        }
         let outcome = self.try_reveal_entity_with_context(
             stable_id,
             RevealRequest {
@@ -1485,13 +1483,11 @@ impl Simulation {
         // before this store; later placement or launch supplies its own pose.
         // Evidence: anytown_damage/unit_unlimbo.{json,meta.json,md}.
         ge.position
-            .put_location(crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 });
-        ge.position.store_level(0);
+            .put_location_with_level(crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 });
 
         // This boundary receives newly constructed objects. Make those constructor
         // facts explicit so storage can never imply cell or logic presence.
         ge.lifecycle.reset_constructed();
-        ge.lifecycle.set_cell_marked(false);
         // ObjectClass's constructor clears IsInLogic (`0x005F398D`).
         ge.in_logic_vector.mark(false);
         ge.kill_record.reset_constructed();
@@ -1764,10 +1760,9 @@ impl Simulation {
             && placement != PlacementEvidence::RejectedEarly
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
-            entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
-                position.sub_x(),
-                position.sub_y(),
-            )));
+            entity
+                .sub_cell
+                .hold_offset(position.sub_x(), position.sub_y());
         }
         Some((position, placement))
     }

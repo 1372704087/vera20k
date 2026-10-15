@@ -694,6 +694,8 @@ pub struct ObjectType {
     pub turret_rot: i32,
     /// Retained TechnoType recoil reader; shared by every voxel turret.
     pub recoil: crate::rules::recoil::RecoilConfig,
+    /// Six retained settings copied when this Techno creates an Airstrike manager.
+    pub airstrike: crate::rules::airstrike::AirstrikeSettings,
     /// VXL turret model name for buildings (TurretAnim= in rules.ini, e.g., "SAM").
     /// The engine loads `{TurretAnim}.VXL` + `{TurretAnim}.HVA` as the turret model.
     pub turret_anim: Option<String>,
@@ -2553,6 +2555,7 @@ impl ObjectType {
             // but ROT= remains the parsed TechnoType +0x71C facing-rate field.
             turret_rot: section.read_int("ROT", 0),
             recoil: crate::rules::recoil::RecoilConfig::from_ini_section(section),
+            airstrike: crate::rules::airstrike::AirstrikeSettings::from_ini_section(section),
             turret_anim: section.read_name("TurretAnim", 0x10).map(str::to_uppercase),
             turret_anim_is_voxel: section.read_bool("TurretAnimIsVoxel", false),
             turret_anim_x: section.read_int("TurretAnimX", 0),

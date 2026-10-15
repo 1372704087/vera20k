@@ -29,8 +29,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     let state = input["state"].as_u64().unwrap_or(3) as u8;
     entity.mission.set_handler_state(u32::from(state));
-    entity.mission_leaf =
-        crate::sim::mission::MissionLeafState::aircraft_raw_for_test(1, state, true);
+    entity.mission_leaf = crate::sim::mission::MissionLeafState::aircraft_raw_for_test(1, state);
+    entity.airstrike.set_test_link(Some(999));
     entity
         .navigation
         .set_nav_com_for_test(input["nav"].as_array().map(|xy| {

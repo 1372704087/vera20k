@@ -969,10 +969,7 @@ fn aircraft_receive(
     let Some(entity) = sim.substrate.entities.get(aircraft) else {
         return RadioResponse::None;
     };
-    let airstrike = entity
-        .mission_leaf
-        .as_aircraft()
-        .is_some_and(|leaf| leaf.airstrike_manager_present());
+    let airstrike = entity.airstrike_link().is_some();
     if !airstrike
         && matches!(
             entity.mission.current().known(),

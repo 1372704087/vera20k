@@ -589,6 +589,13 @@ pub struct GameEntity {
     /// [`is_invulnerable`]: crate::sim::superweapon::invulnerability::is_invulnerable
     #[serde(default)]
     pub(crate) invulnerability: Option<InvulnerabilityState>,
+    /// Techno+294 owned manager or borrowed plane/building link; Airstrike
+    /// owns both the relationship and its cancellation/removal lifecycle.
+    #[serde(default)]
+    pub(crate) airstrike: crate::sim::airstrike::AirstrikeState,
+    /// Techno+1A8/+1B4/+1C0: outer timer and independent tint phase.
+    #[serde(default)]
+    pub(crate) airstrike_tint: crate::sim::superweapon::airstrike_tint::AirstrikeTintState,
     /// The victim side of mind control (`TechnoClass+0x2C0` MindControlledBy,
     /// `+0x2C8` the ring anim), written only by `capture_manager`.
     #[serde(default)]
@@ -1452,6 +1459,8 @@ impl GameEntity {
             spawn_owner_id: Default::default(),
             fall: ObjectFallState::default(),
             invulnerability: None,
+            airstrike: Default::default(),
+            airstrike_tint: Default::default(),
             mind_control: Default::default(),
             temporal: Default::default(),
             bomb: None,

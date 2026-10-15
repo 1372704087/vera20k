@@ -3831,7 +3831,8 @@ impl Simulation {
         .flatten()
         .for_each(&mut name);
         listener.mega_mission.referenced_ids().for_each(&mut name);
-        listener.spawn_manager.is_some()
+        listener.airstrike.owns_manager()
+            || listener.spawn_manager.is_some()
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
             || listener.parasite.eater().is_some()
@@ -3955,14 +3956,6 @@ impl Simulation {
     /// other caller chains remain separate migration work.
     ///
     /// RESIDUALS, recorded rather than guessed:
-    /// - The native suppression clause (`0x0070D4DB..0x0070D4FB`) skips the
-    ///   whole block for a listener whose `+0x294` manager points at the
-    ///   detaching object: the Boris Airstrike link (`AirstrikeClass`,
-    ///   `+0x294` written by `0x0041D540..0x0041DCD9`), not mind control
-    ///   (`+0x2BC`, whose manager has no such field). VERA has no Airstrike
-    ///   manager, so the clause is omitted. A mind-control capture DOES run
-    ///   this sweep in full: the firing controller drops its new victim as
-    ///   its target.
     /// - The aircraft-Patrol arm, which clears two patrol-cursor fields on an
     ///   aircraft whose committed mission is Patrol. Neither field is
     ///   represented; the arm is a no-op for every ground object.
@@ -4005,6 +3998,11 @@ impl Simulation {
         listeners.reverse();
 
         for listener_id in listeners {
+            if let TargetKind::Entity(target_id) = target
+                && self.airstrike_detach_preserves_target(listener_id, target_id)
+            {
+                continue;
+            }
             if !self.listener_targets(listener_id, target) {
                 continue;
             }
@@ -4851,6 +4849,12 @@ impl Simulation {
                 // The TemporalClass forward (`0x00707B34` -> `0x0071AB60`)
                 // follows, outside the control test like the SpawnManager's.
                 self.temporal_pointer_expired(
+                    listener_id,
+                    expired_id,
+                    context.rules(),
+                    context.effects(),
+                );
+                self.airstrike_pointer_expired(
                     listener_id,
                     expired_id,
                     context.rules(),

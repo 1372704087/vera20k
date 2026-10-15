@@ -2195,13 +2195,15 @@ impl Simulation {
             return None;
         };
         let target = match event.target {
-            // FireAt aims at the target's vt+0xA4 (`0x006FE1EE`): its GetCoords
-            // (`0x0041BDD0`), which is a Building's foundation centre.
-            // RESIDUAL: a Building's vt+0xA4 (`0x004500A0`) adds its type's
-            // unparsed `TargetCoordOffset=`, set on the three stock shipyards.
+            // FireAt aims at the target's vt+0xA4 (`0x006FE1EE`), including
+            // a Building's TargetCoordOffset. Wave AI later reads +58 instead.
             crate::sim::combat::TargetKind::Entity(id) => {
                 let entity = entities.get(id)?;
-                let coords = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
+                let coords = crate::sim::movement::ground_pose::object_target_coords(
+                    entity,
+                    terrain,
+                    rules.object(interner.resolve(entity.type_ref())),
+                );
                 ProjectileCoord::new(coords.x, coords.y, coords.z)
             }
             crate::sim::combat::TargetKind::Cell(rx, ry) => {

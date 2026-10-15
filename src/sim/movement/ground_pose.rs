@@ -581,6 +581,27 @@ pub(crate) fn object_get_coords(
     }
 }
 
+/// Object virtual+A4: Object41BDD0 forwards GetCoords; Building4500A0 adds
+/// its type's retained TargetCoordOffset in world leptons. This differs from
+/// virtual+58, whose Object410540 forwarding must keep the unshifted centre.
+/// No RNG, timer or state mutation. The integer adds match4500CD/4500D5/4500D9.
+pub(crate) fn object_target_coords(
+    entity: &crate::sim::game_entity::GameEntity,
+    terrain: Option<&ResolvedTerrainGrid>,
+    object_type: Option<&crate::rules::object_type::ObjectType>,
+) -> DriveCoord {
+    let mut coord = object_get_coords(entity, terrain);
+    if entity.category() == crate::map::entities::EntityCategory::Structure
+        && let Some(kind) = object_type
+    {
+        let [x, y, z] = kind.target_coord_offset();
+        coord.x = coord.x.wrapping_add(x);
+        coord.y = coord.y.wrapping_add(y);
+        coord.z = coord.z.wrapping_add(z);
+    }
+    coord
+}
+
 /// Dispatch a retained Target's virtual+48 without changing its identity.
 /// Object5F65A0/Building447AC0 and Cell486840 remain the coordinate owners;
 /// navigation+4C and Cell+58 (deck target coordinates) are different queries.

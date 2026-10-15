@@ -759,12 +759,6 @@ struct FireAtLaunchAim {
 /// the call-local TarCom authority independently of FireAt's argument. The
 /// argument's coordinate supplies only the launch-speed distance here
 /// (`0x006FE1DA..0x006FE218`, `0x006FE53A`).
-///
-/// RESIDUAL: a building target's vt+0xA4 adds its type's
-/// `TargetCoordOffset=` (`0x004500A0`, BuildingType `+0xEBC`), unparsed; the
-/// launch distance uses its centre. Trigger: shots at the three shipyards,
-/// the only stock types with an offset. Effect: a launch speed a few leptons
-/// per frame off.
 fn fireat_launch_aim(
     world: &Simulation,
     rules: &RuleSet,
@@ -1196,7 +1190,10 @@ pub(super) fn emit_admitted_fire(
             snap,
             weapon,
             launch_source.coord,
-            impact,
+            // 6FE1EE reads the Building argument's+A4. The launch delta and
+            // Bullet::Fire reference below independently read+58 instead.
+            super::fire_coord::effect_target_coordinate(world, rules, snap.target)
+                .unwrap_or(impact),
             tarcom,
         );
         let origin = launch_source.coord;

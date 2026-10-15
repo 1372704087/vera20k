@@ -1027,7 +1027,9 @@ use crate::sim::world::Simulation;
 // 355 -> 356: the Foot navigation list (`+0x5AC`) and its loop flag (`+0x6B1`).
 // 356 -> 357: the voxel HVA and OREGATH frame clocks are gone (#1593); draws
 // take both frames from Foot+0x538. Version 356 records carry them.
-const SNAPSHOT_VERSION: u32 = 357;
+// 357 -> 358: the process-resident BuildingType retains TargetCoordOffset.
+// Its three signed dwords change the saved type-registry layout.
+const SNAPSHOT_VERSION: u32 = 358;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4388,7 +4390,8 @@ mod tests {
         // 354 -> 355: the path batch's next capped turn.
         // 355 -> 356: the Foot navigation list and its loop flag.
         // 356 -> 357: no voxel HVA or OREGATH frame clock.
-        assert_eq!(super::SNAPSHOT_VERSION, 357);
+        // 357 -> 358: retained BuildingType TargetCoordOffset.
+        assert_eq!(super::SNAPSHOT_VERSION, 358);
     }
 
     #[test]

@@ -77,6 +77,7 @@ pub(crate) struct HoverProcessOutcome {
     pub(crate) bridge_state_changed: bool,
 }
 
+/// The `HoverLocomotionClass` object behind the Foot's Locomotor (`+0x674`).
 fn runtime(entity: &GameEntity) -> Option<&HoverRuntime> {
     entity.locomotor.as_ref()?.hover_runtime()
 }

@@ -98,7 +98,8 @@ fn teleport_unit(entity: &GameEntity) -> bool {
 }
 
 /// A Unit on a Jumpjet locomotor: its null destination reaches the Jumpjet's
-/// `Stop_Moving` through the same Unit setter.
+/// `Stop_Moving` through the same Unit setter. The Foot tail then calls
+/// `JumpjetLocomotionClass::Move_To` (`0x0054B1C0`) or `Stop_Moving` (`0x0054B4D0`).
 fn jumpjet_unit(entity: &GameEntity) -> bool {
     entity.category() == EntityCategory::Unit
         && entity
@@ -128,6 +129,7 @@ fn deployment_refuses_destination(actor: &GameEntity) -> bool {
     }
 }
 
+/// The active Drive/Ship locomotor's Destination (`+0x34`).
 pub(super) fn track_destination(entity: &GameEntity) -> Option<DriveCoord> {
     let loco = entity.locomotor.as_ref()?;
     loco.track_destination(super::track_process::TrackFamily::from_kind(

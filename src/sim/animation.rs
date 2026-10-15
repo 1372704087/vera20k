@@ -621,6 +621,8 @@ pub(crate) fn tick_non_dying_animations(
 /// Advance one dying object's death sequence during its own scheduler turn.
 /// Missing animation/type/sequence data takes the immediate-finish path used
 /// by the prior app-owned completion fallback.
+/// VERA-only: steps a sequence the `TerminalLifetime` dying mark keeps in the
+/// store, which native lacks (see that record); the assert checks the mark.
 pub(crate) fn tick_dying_animation(
     entity: &mut crate::sim::game_entity::GameEntity,
     sequence_set: Option<&SequenceSet>,

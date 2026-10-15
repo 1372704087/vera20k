@@ -190,7 +190,8 @@ pub(crate) fn drop_payload(
 }
 
 /// Adds `delta` to the plane's Ammo (`+0x2FC`, a signed int that wraps) and
-/// returns the new count.
+/// returns the new count. `AircraftClass::Drop_Payload` (`0x00415C60`) takes
+/// one at `0x00415C7D..0x00415C8D` and gives it back at `0x00415EC7`.
 fn add_ammo(sim: &mut Simulation, id: u64, delta: i32) -> i32 {
     sim.substrate
         .entities

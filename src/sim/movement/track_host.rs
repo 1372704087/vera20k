@@ -54,10 +54,12 @@ impl TrackPass {
     }
 }
 
+/// The Drive/Ship locomotor's track selector and cursor (`+0x58`/`+0x5C`).
 fn progress(entity: &GameEntity, family: TrackFamily) -> Option<TrackProgress> {
     entity.locomotor.as_ref()?.track_progress(family)
 }
 
+/// The Drive/Ship locomotor's HeadToCoord (`+0x40`), null when absent.
 fn head(entity: &GameEntity, family: TrackFamily) -> DriveCoord {
     entity
         .locomotor
@@ -72,12 +74,15 @@ fn head_or_null(entity: Option<&GameEntity>, family: TrackFamily) -> DriveCoord 
         .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 })
 }
 
+/// Stores the Drive/Ship locomotor's HeadToCoord (`+0x40`).
 fn set_head(entity: &mut GameEntity, family: TrackFamily, value: Option<DriveCoord>) {
     if let Some(loco) = entity.locomotor.as_mut() {
         loco.store_track_head(family, value);
     }
 }
 
+/// Stores the Drive/Ship locomotor's `+0x63`, which Process_Drive_Track's
+/// admission reads (Drive `0x004B0F2C`, Ship `0x006A05FC`).
 fn set_track_valid(entity: &mut GameEntity, family: TrackFamily, value: bool) {
     if let Some(loco) = entity.locomotor.as_mut() {
         loco.store_track_valid(family, value);
@@ -281,6 +286,8 @@ impl Simulation {
         })
     }
 
+    /// The track (`+0x58`/`+0x5C`), HeadToCoord (`+0x40`) and owner Location (`+0x9C`)
+    /// that Process_Drive_Track (Drive `0x004B0F20`, Ship `0x006A05F0`) reads.
     fn track_state(
         &self,
         id: u64,

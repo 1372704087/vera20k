@@ -532,6 +532,8 @@ fn unit_reaches_fire_update(world: &Simulation, id: u64) -> bool {
 /// Non-Unit fire hosts require Health: a Building's delayed fire,
 /// an Infantry's fire and an Aircraft's attack mission do not run for a
 /// Health-0 wreck. Units use their own live-slot IsAlive guard above.
+/// An Aircraft's Mission_Attack runs behind `MissionClass::AI` (`0x005B3060`)'s
+/// IsAlive (`+0x90`, `0x005B306C`) and Health (`+0x6C`, `0x005B30A7`) gates.
 fn attacker_reaches_fire(entity: &crate::sim::game_entity::GameEntity) -> bool {
     entity.is_alive() && !entity.death.is_dying()
 }
@@ -1633,7 +1635,8 @@ fn fireat_tail(
 
 /// What a firer shoots this frame, and its infantry fire latch: a building's
 /// request carries the target its visit fired at ([`super::BuildingShot`]);
-/// any other firer fires at its live target.
+/// any other firer fires at its live target, the Target (`+0x2B4`) that
+/// `UnitClass::Fire_At_Target` (`0x00736DF0`) and an aircraft's Mission_Attack read.
 fn shot_target(
     entity: &crate::sim::game_entity::GameEntity,
     building_shot: Option<super::BuildingShot>,
@@ -1864,6 +1867,8 @@ impl LastFireFrame {
     }
 }
 
+/// `TechnoClass::FireAt` (`0x006FDD50`)'s DecreaseAmmo call (vt+0x390, `0x006FF65A`).
+/// Only aircraft hold this record, and `AircraftClass`'s slot is a bare RET (`0x0041B900`).
 fn deduct_fire_ammo(world: &mut Simulation, firers: &[u64]) {
     for &id in firers {
         if let Some(ammo) = world

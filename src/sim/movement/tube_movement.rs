@@ -888,6 +888,8 @@ fn stop_blocked_mover(entities: &mut EntityStore, entity_id: u64) {
     }
 }
 
+/// `UnitClass::TubeMovement` (`0x007359F0`)'s exit facing (`0x00736055..0x007360A5`):
+/// GetTubeAtCell (`0x00484F20`) at the exit Cell, then its direction (`+0x2C`).
 fn update_unit_final_facing(
     entities: &mut EntityStore,
     entity_id: u64,

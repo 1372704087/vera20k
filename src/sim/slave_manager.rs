@@ -342,7 +342,10 @@ impl SlaveLink {
     }
 }
 
-/// The manager's owner's cell (`vt+0x1B8`): its coordinate's cell.
+/// The manager's owner's cell (`vt+0x1B8`): its coordinate's cell, as
+/// `SlaveManagerClass::GetDeployCenter` (`0x006B0690`), `FindDeployCell`
+/// (`0x006B0300`) and `Update_State`'s relocation check
+/// (`0x006B0062..0x006B01F5`) read it.
 pub(crate) fn owner_cell(owner: &GameEntity) -> (i16, i16) {
     let coord = crate::sim::movement::ground_pose::position_world_coord(&owner.position);
     ((coord.x / 256) as i16, (coord.y / 256) as i16)

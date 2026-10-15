@@ -528,12 +528,14 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
     fn owner_kind(&self) -> FlightOwnerKind {
         FlightOwnerKind::of(self.owner().category())
     }
+    /// The owner type's `BalloonHover=` (`TechnoTypeClass+0xD6A`).
     fn balloon_hover(&self) -> bool {
         self.owner().locomotor.as_ref().unwrap().balloon_hover()
     }
     fn mission_is_enter(&self) -> bool {
         owner_mission_is_enter(self.owner())
     }
+    /// The owner's Location (`+0x9C`).
     fn location(&self) -> DriveCoord {
         super::ground_pose::position_world_coord(&self.owner().position)
     }

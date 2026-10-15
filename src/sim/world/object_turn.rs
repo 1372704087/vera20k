@@ -21,8 +21,9 @@ pub(super) fn unit_body_counter_admitted(tube_active_at_entry: bool) -> bool {
     !tube_active_at_entry
 }
 
-/// `UnitClass::AI` and `InfantryClass::AI` give an object holding a tube
-/// (`+0x684`) the whole turn ([`Simulation::tube_object_turn`]).
+/// `UnitClass::AI` (`0x007360C0`) and `InfantryClass::AI` (`0x0051BAB0`)
+/// give an object holding a tube (`Foot+0x684`) the whole turn
+/// ([`Simulation::tube_object_turn`]).
 fn tube_active(entity: &crate::sim::game_entity::GameEntity) -> bool {
     !entity.death.is_dying()
         && matches!(

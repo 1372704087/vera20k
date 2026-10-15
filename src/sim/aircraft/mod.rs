@@ -100,7 +100,8 @@ pub(crate) fn handler_state(entity: &GameEntity) -> u8 {
 }
 
 /// Mission_Attack's state while Attack is the current mission (`+0xAC`) of
-/// aircraft `entity`.
+/// aircraft `entity`. `TechnoClass::Assign_Target` (`0x006FCDB0`) reads both
+/// in its aircraft arm (`0x006FCE27..0x006FCE3B`).
 pub(crate) fn attack_state(entity: &GameEntity) -> Option<u8> {
     (entity.category() == EntityCategory::Aircraft
         && entity.mission.current() == MissionId::from_known(MissionType::Attack))

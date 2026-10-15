@@ -1364,7 +1364,11 @@ impl Simulation {
     /// Returns Foot+0x6AC, the can't-end branch's other byte: the Foot tail
     /// keeps NavCom without a Move_To and clears it (`0x004D9607`). Both
     /// tails the arm reaches consume it in the same call (`0x00742D0B`,
-    /// `0x00743161`), so it is never stored.
+    /// `0x00743161`), so VERA never stores it. Natively the WeaponsFactory
+    /// arm's returns ([`Self::unit_factory_exit_arm`], `0x00742E37`,
+    /// `0x0074317A`) would leave it set, but that needs radio slot 0 to hold
+    /// a building that is both `DockUnload=` and `WeaponsFactory=`, and no
+    /// retail BuildingType is.
     ///
     /// The arm needs the Chronosphere's warp latch (Techno+0x27C), a
     /// Magnetron holding the owner (+0x2B0) and the Foot lifted byte
@@ -1513,17 +1517,30 @@ impl Simulation {
 
     /// The WeaponsFactory arm of Unit 0x741970 (`0x00742D46..0x00742E41`),
     /// after the Teleporter arm and the UnitRepair tail, before the Dock arm.
-    /// A Unit whose radio contact 0 is a `WeaponsFactory=` building
-    /// (BuildingType `+0x16BD`, the factory it is still leaving), on any
-    /// committed mission but Enter (`+0xAC`), keeps its exit NavCom. Unless
-    /// `destination` is the factory's exit Cell
+    /// It applies to a Unit whose radio contact 0 is a `WeaponsFactory=`
+    /// building ([`Self::is_weapons_factory`], the factory it is still
+    /// leaving), on any committed mission but Enter (`+0xAC`).
+    ///
+    /// The Unit keeps its NavCom; a Drive product follows its exit track and
+    /// has none. Unless `destination` is the factory's exit Cell
     /// ([`war_factory_exit_cell`](super::war_factory_exit_cell),
-    /// `0x00742D98..0x00742DFD`), its navigation list and NavQueue empty
-    /// (`0x00742DFF`, `0x00742E0E`), a destination joins the list
-    /// ([`Self::queue_navigation_list`], `0x00742E28`) for the Unit's next
-    /// idle, and the setter returns (`0x00742E37`, `0x0074317A`). A Unit a
-    /// Magnetron holds (`+0x2B0`) sends its contact OVER_OUT instead
+    /// `0x00742D98..0x00742DFD`):
+    /// - its navigation list and NavQueue empty (`0x00742DFF`, `0x00742E0E`);
+    /// - a destination joins the list ([`Self::queue_navigation_list`],
+    ///   `0x00742E28`) for the Unit's next idle;
+    /// - the setter returns (`0x00742E37`, `0x0074317A`).
+    ///
+    /// A Unit a Magnetron holds (`+0x2B0`) sends its contact OVER_OUT instead
     /// (vt+0x274(3), `0x00742E3A..0x00742E41`) and the setter goes on.
+    ///
+    /// An order given while the factory door opens, with the product inside on
+    /// Guard, gets the same treatment. Readiness then commences its queued Move
+    /// despite the factory contact, and Mission_Move's idle entry runs. At a
+    /// height-0 Cell centre the Unit breaks the link (Enter_Idle_Mode's OVER_OUT
+    /// arm) and Handle_Navigation_List sends it at once. Anywhere else,
+    /// Handle's send re-enters this arm, and its RemoveIndex (`0x004DA068`)
+    /// drops the order.
+    ///
     /// Returns whether the setter returns here.
     fn unit_factory_exit_arm(
         &mut self,
@@ -1539,13 +1556,8 @@ impl Simulation {
         let Some(factory) = actor
             .radio_contacts
             .slot(0)
+            .filter(|&contact| self.is_weapons_factory(contact, rules))
             .and_then(|contact| self.substrate.entities.get(contact))
-            .filter(|contact| {
-                contact.category() == EntityCategory::Structure
-                    && self
-                        .object_type(contact.type_ref(), rules)
-                        .is_some_and(|kind| kind.weapons_factory)
-            })
         else {
             return false;
         };
@@ -1578,6 +1590,20 @@ impl Simulation {
             self.queue_navigation_list(id, destination, rules, registry, frame_effects);
         }
         true
+    }
+
+    /// Whether `id` is a Building (vt+0x2C == 6) whose type has
+    /// `WeaponsFactory=` (BuildingType `+0x16BD`). It is the war factory test
+    /// on a radio contact in the Unit setter's WeaponsFactory arm, in
+    /// Queue_Navigation_List's idle tail (`0x004DA15A..0x004DA1A6`) and in
+    /// Unit Per_Cell_Process's factory clearance.
+    pub(super) fn is_weapons_factory(&self, id: u64, rules: &RuleSet) -> bool {
+        self.substrate.entities.get(id).is_some_and(|building| {
+            building.category() == EntityCategory::Structure
+                && self
+                    .object_type(building.type_ref(), rules)
+                    .is_some_and(|object| object.weapons_factory)
+        })
     }
 
     /// Unit 0x741970's BalloonHover arm (0x741983..0x741A7D), the first test

@@ -1111,10 +1111,6 @@ pub(crate) fn enter_idle_mode(
 /// RESIDUALS, beside those on [`foot_enter_idle_mode_selection`]:
 /// - a Harvester or Weeder vehicle takes its own arm (`0x00738BD8`,
 ///   `Simulation::unit_enter_idle_mode`).
-/// - an unarmed vehicle's Unload arm (`0x00738A7C..0x00738AAF`: `+0x3D4`,
-///   `Passengers=` and cargo, outside a team) is not taken; it gets Guard.
-///   Trigger: an unarmed transport leaving the factory loaded. Effect: it
-///   keeps its cargo aboard.
 pub(crate) fn techno_unlimbo_idle_mode(
     sim: &mut Simulation,
     id: u64,

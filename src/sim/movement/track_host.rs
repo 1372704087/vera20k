@@ -1246,9 +1246,24 @@ impl Simulation {
             .and_then(|object| object.deploys_into.as_deref())
             .and_then(|name| rules.and_then(|rules| rules.object(name)))
             .is_some();
+        // 0x00738A7C..0x00738AAF: an unarmed mission-only Unit (`+0x3D4`) of
+        // a `Passengers=` type (`+0x5E0`) carrying a first passenger
+        // (`+0x118`), outside a team (`+0x5D4`), selects Unload, skipping the
+        // gates and setters below.
+        let unloads = !has_destination
+            && !miner
+            && !armed
+            && entity.is_mission_only()
+            && unit_type.is_some_and(|object| object.passengers > 0)
+            && entity
+                .passenger_role
+                .cargo()
+                .is_some_and(|cargo| !cargo.is_empty())
+            && self.team_script_vm.team_for_member(id).is_none();
         if !has_destination
             && !miner
             && !armed
+            && !unloads
             && (entity.mcv_deploy_pending.is_pending()
                 || current == Some(MissionType::AreaGuard)
                 || (current == Some(MissionType::Unload) && deploys_into))
@@ -1259,6 +1274,8 @@ impl Simulation {
         }
         let selection = if has_destination {
             Some(MissionType::Move)
+        } else if unloads {
+            Some(MissionType::Unload)
         } else if miner {
             rules.and_then(|rules| harvester_idle_selection(self, id, rules, skip_human_land_check))
         } else if armed {
@@ -1280,32 +1297,56 @@ impl Simulation {
             // selector gates do not apply to this branch.
             Some(MissionType::Guard)
         };
-        if selection.is_some() && !has_destination && (miner || !armed) {
+        if selection.is_some() && !has_destination && !unloads && (miner || !armed) {
             // Unit738AF5/738C75 calls Target(NULL) then Destination(NULL,1)
             // before its queue gate. Use the shared concrete setter owners,
             // including retained burst, movement, and Teleporter side effects.
             let _ = self.assign_target_represented(id, None, rules, None, effects);
             self.assign_null_destination(id, rules, None, effects);
         }
+        // 0x00738C9D..0x00738CF8: a Unit on Enter (`+0xAC`) whose radio
+        // contact 0 is a `Bunker=` building (`+0x16AB`) other than the first
+        // ground Building of its own Cell (vt+0x1BC, `0x0047C520`), so one it
+        // is still approaching, queues nothing.
+        let approaching_bunker = self.substrate.entities.get(id).is_some_and(|actor| {
+            let position = position_world_coord(&actor.position);
+            let cell = (
+                (position.x / 256) as i16 as u16,
+                (position.y / 256) as i16 as u16,
+            );
+            actor.mission.current().raw() == 7
+                && actor.radio_contacts.slot(0).is_some_and(|contact| {
+                    self.substrate
+                        .entities
+                        .get(contact)
+                        .is_some_and(|building| {
+                            building.category() == EntityCategory::Structure
+                                && rules
+                                    .and_then(|rules| self.object_type(building.type_ref(), rules))
+                                    .is_some_and(|object| object.bunker)
+                        })
+                        && self.substrate.occupancy.first_building_on_layer(
+                            cell.0,
+                            cell.1,
+                            MovementLayer::Ground,
+                        ) != Some(contact)
+                })
+        });
         // Unit738CFA..D12 suppresses assignment only after preceding writes.
-        // RESIDUAL: so does `0x00738C9D..0x00738CF8`, ahead of it, for a
-        // Unit on Enter whose radio contact 0 is the `Bunker=` building
-        // under it; VERA queues the selection there. Trigger: Enter_Idle_Mode
-        // for a vehicle entering a tank bunker. Effect: it leaves Enter.
-        // Frequency: not measured.
         let selection = selection.filter(|_| {
-            !matches!(
-                self.substrate
-                    .entities
-                    .get(id)
-                    .and_then(|actor| actor.mission.current().known()),
-                Some(
-                    MissionType::Patrol
-                        | MissionType::AreaGuard
-                        | MissionType::Unload
-                        | MissionType::Eaten
+            !approaching_bunker
+                && !matches!(
+                    self.substrate
+                        .entities
+                        .get(id)
+                        .and_then(|actor| actor.mission.current().known()),
+                    Some(
+                        MissionType::Patrol
+                            | MissionType::AreaGuard
+                            | MissionType::Unload
+                            | MissionType::Eaten
+                    )
                 )
-            )
         });
         if let Some(selection) = selection {
             let _ = self.mission_queue_exact(

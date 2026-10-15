@@ -5447,7 +5447,7 @@ impl Simulation {
     ///     while the Guard above is still only queued (a miner caught
     ///     mid-track);
     ///   - any other Unit or Infantry takes its class leaf, Unit
-    ///     `0x00738970` or Infantry `0x0051CBA0` (residual below);
+    ///     `0x00738970` or Infantry `0x0051CBA0`;
     ///   - a Building (`0x0044D6A0` with `initial = 0`) calls `0x00447780(1)`
     ///     and `Queue_Mission(Guard, 0)`.
     ///
@@ -5464,15 +5464,10 @@ impl Simulation {
     /// CaptureUnit and FreeUnit. No stock miner is ever mind-controlled: HARV,
     /// CMIN and SMIN are `ImmuneToPsionics=yes`.
     ///
-    /// RESIDUALS:
-    /// - The Unit leaf's unarmed Unload arm is not ported (residual on
-    ///   [`techno_unlimbo_idle_mode`]). Trigger: a captured or released
-    ///   unarmed transport carrying passengers. Effect: Guard instead of
-    ///   Unload.
-    /// - No stock aircraft can be captured, so the Aircraft Enter_Idle_Mode
-    ///   (`0x004176F0`) here is dormant; the trailing `+0x423`-gated
-    ///   `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)` calls are
-    ///   unidentified.
+    /// RESIDUAL: no stock aircraft can be captured, so the Aircraft
+    /// Enter_Idle_Mode (`0x004176F0`) here is dormant; the trailing
+    /// `+0x423`-gated `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)`
+    /// calls are unidentified.
     ///
     /// `+0x484` census (`search_instructions CALL [+0x484]`), the sites a
     /// miner can reach besides Move arrival, this owner change and the depot

@@ -32,7 +32,6 @@
 //! Trigger: a map or mode layer that sets the key. Effect: the order replaces
 //! the current post instead of preceding it.
 
-use crate::map::entities::EntityCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
@@ -70,13 +69,7 @@ impl Simulation {
         let factory_contact = entity
             .radio_contacts
             .slot(0)
-            .and_then(|contact| self.substrate.entities.get(contact))
-            .is_some_and(|contact| {
-                contact.category() == EntityCategory::Structure
-                    && self
-                        .object_type(contact.type_ref(), rules)
-                        .is_some_and(|object| object.weapons_factory)
-            });
+            .is_some_and(|contact| self.is_weapons_factory(contact, rules));
         if !factory_contact {
             crate::sim::world::enter_idle_mode(self, id, rules, registry, effects);
         }

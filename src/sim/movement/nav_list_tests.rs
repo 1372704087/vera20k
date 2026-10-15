@@ -365,13 +365,15 @@ fn a_war_factory_null_destination_empties_the_list() {
     }
 }
 
-/// Unit Assign_Destination's WeaponsFactory arm (`0x00742D46..0x00742E37`):
-/// a tank still leaving its war factory keeps its exit NavCom, and an order
-/// waits on its list for its next idle. The factory's own exit Cell, an Enter
-/// mission or no factory in radio contact 0 takes the order at once.
+/// Unit Assign_Destination's WeaponsFactory arm (`0x00742D46..0x00742E41`):
+/// a tank still leaving its war factory keeps its NavCom, and an order waits
+/// on its list for its next idle. The factory's own exit Cell (GAWEAP at
+/// (20, 20): (24, 21)), an Enter mission or no factory in radio contact 0
+/// take the order at once. A tank a Magnetron holds sends the factory
+/// OVER_OUT and goes on without listing it.
 #[test]
 fn an_order_during_a_war_factory_exit_waits_on_the_list() {
-    for case in ["exit", "exit_cell", "enter", "no_contact"] {
+    for case in ["exit", "exit_cell", "enter", "no_contact", "magnetron"] {
         let Some((mut sim, rules)) = retail_world(true) else {
             return;
         };
@@ -387,21 +389,21 @@ fn an_order_during_a_war_factory_exit_waits_on_the_list() {
             MissionType::Move
         };
         set_mission(&mut sim, tank, mission);
-        let location = crate::sim::movement::ground_pose::position_world_coord(
-            &sim.substrate.entities.get(factory).unwrap().position,
-        );
-        let (rx, ry) = crate::sim::movement::war_factory_exit_cell(location);
         let unit = sim.substrate.entities.get_mut(tank).unwrap();
         unit.navigation.set_nav_com_for_test(Some(ELSEWHERE));
         unit.navigation.set_nav_list_for_test(vec![B], false);
         if case != "no_contact" {
             unit.radio_contacts.insert(factory);
         }
+        if case == "magnetron" {
+            unit.lift.set_source_for_test(Some(factory + 1));
+        }
         let order = if case == "exit_cell" {
-            NavTargetRef::Cell { rx, ry }
+            NavTargetRef::Cell { rx: 24, ry: 21 }
         } else {
             A
         };
+        crate::sim::radio::take_transmit_log();
         sim.assign_destination_represented(
             tank,
             Some(order),
@@ -410,12 +412,78 @@ fn an_order_during_a_war_factory_exit_waits_on_the_list() {
             FrameEffects::default(),
         )
         .unwrap();
+        let over_out = crate::sim::radio::take_transmit_log()
+            .iter()
+            .any(|send| send.sender_sid == tank && send.target_sid == factory && send.msg == 3);
+        assert_eq!(over_out, case == "magnetron", "{case}");
         if case == "exit" {
             assert_eq!(nav_com(&sim, tank), Some(ELSEWHERE), "{case}");
             assert_eq!(list(&sim, tank), (vec![A], false), "{case}");
         } else {
-            assert_eq!(nav_com(&sim, tank), Some(order), "{case}");
+            if case != "magnetron" {
+                assert_eq!(nav_com(&sim, tank), Some(order), "{case}");
+            }
             assert_eq!(list(&sim, tank), (vec![B], false), "{case}");
+        }
+    }
+}
+
+/// An order given while the factory door opens, with the tank inside on
+/// Guard and no NavCom, is listed. Readiness then commences its queued Move
+/// and Mission_Move's idle entry runs Unit Enter_Idle_Mode. At its Cell's
+/// centre at height 0 the tank breaks the factory link (OVER_OUT,
+/// `0x007389C4`) and Handle_Navigation_List sends it at once. Off the
+/// centre, Handle's send re-enters the WeaponsFactory arm, which lists the
+/// order again, and Handle's RemoveIndex (`0x004DA068`) drops it.
+#[test]
+fn an_order_before_the_factory_door_opens_goes_at_once_or_is_dropped() {
+    for at_centre in [true, false] {
+        let Some((mut sim, rules)) = retail_world(true) else {
+            return;
+        };
+        let factory = sim
+            .spawn_object("GAWEAP", "Americans", 20, 20, 0, &rules)
+            .unwrap();
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        set_mission(&mut sim, tank, MissionType::Guard);
+        let unit = sim.substrate.entities.get_mut(tank).unwrap();
+        unit.radio_contacts.insert(factory);
+        if !at_centre {
+            unit.position
+                .put_location(crate::sim::components::DriveCoord {
+                    x: 10 * 256 + 129,
+                    y: 10 * 256 + 128,
+                    z: 0,
+                });
+        }
+        sim.assign_destination_represented(
+            tank,
+            Some(A),
+            Some(&rules),
+            None,
+            FrameEffects::default(),
+        )
+        .unwrap();
+        assert_eq!(list(&sim, tank), (vec![A], false), "listed");
+        assert_eq!(nav_com(&sim, tank), None, "listed");
+        set_mission(&mut sim, tank, MissionType::Move);
+        sim.unit_enter_idle_mode(tank, Some(&rules), false, FrameEffects::default());
+        assert_eq!(list(&sim, tank), (vec![], false), "at centre {at_centre}");
+        let linked = sim
+            .substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .radio_contacts
+            .contains(factory);
+        if at_centre {
+            assert_eq!(nav_com(&sim, tank), Some(A));
+            assert!(!linked);
+        } else {
+            assert_eq!(nav_com(&sim, tank), None);
+            assert!(linked);
         }
     }
 }

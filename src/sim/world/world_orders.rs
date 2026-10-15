@@ -73,6 +73,19 @@ pub(crate) enum UnitRepairAction {
     Move,
 }
 
+/// What `UnitClass::What_Action_OnObject`'s building arm
+/// (`0x00740122..0x007401BC`) makes of a Select over a Building whose
+/// CAN_LOAD admits the Unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuildingClickAction {
+    /// Action 3.
+    Enter,
+    /// Action 0xB, at a `Grinding=` building (`+0x16AD`).
+    Grind,
+    /// Action 0x1F, for a `MovementZone=Fly` Unit (`Type+0x5B4` 9).
+    NoEnter,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct BuildingEntryResult {
     pub(crate) bridge_state_changed: bool,
@@ -216,6 +229,50 @@ impl Simulation {
         }
         // Rules+16F8 is the fixed 1.0 threshold, not an INI condition key.
         (!target.health.is_full(target_type.strength)).then_some(UnitRepairAction::Repair)
+    }
+
+    /// `UnitClass::What_Action_OnObject`'s building arm
+    /// (`0x00740122..0x007401BC`), with the base action Select: a human
+    /// player's Unit (House `0x0050B6F0`) over a Building of a house allied
+    /// with it (`0x004F9A90`), not being warped out (vt+0x1D4), sends CAN_LOAD
+    /// (`0x0074017E`, [`can_load_query`]). Any answer but ROGER leaves Select
+    /// (`None`), as a busy, unpowered or selling refinery gives a miner.
+    /// Producer-side, like [`Self::unit_repair_action`].
+    ///
+    /// [`can_load_query`]: crate::sim::radio::receive::can_load_query
+    pub(crate) fn unit_building_click_action(
+        &self,
+        actor_id: u64,
+        target_id: u64,
+        rules: &RuleSet,
+    ) -> Option<BuildingClickAction> {
+        let actor = self.substrate.entities.get(actor_id)?;
+        let target = self.substrate.entities.get(target_id)?;
+        if actor.category() != EntityCategory::Unit
+            || !self.house_is_human_player(actor.owner())
+            || !combat::combat_weapon::is_ally_by_object(
+                Some(&self.fog.alliances),
+                &self.interner,
+                target.owner(),
+                actor.owner(),
+            )
+            || target.is_warped_out()
+            || target.category() != EntityCategory::Structure
+            || crate::sim::radio::receive::can_load_query(self, target_id, actor_id, rules)
+                != crate::sim::radio::RadioResponse::Roger
+        {
+            return None;
+        }
+        if self.object_type(actor.type_ref(), rules)?.movement_zone
+            == crate::rules::locomotor_type::MovementZone::Fly
+        {
+            return Some(BuildingClickAction::NoEnter);
+        }
+        Some(if self.object_type(target.type_ref(), rules)?.grinding {
+            BuildingClickAction::Grind
+        } else {
+            BuildingClickAction::Enter
+        })
     }
 
     pub(crate) fn house_is_human_player(&self, owner: InternedId) -> bool {

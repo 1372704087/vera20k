@@ -989,7 +989,8 @@ mod tests {
                         "{case}"
                     );
                     assert_eq!(
-                        raw.owner_at(RawCellKey::Dummy, layer)
+                        raw.occupant_at(RawCellKey::Dummy, layer)
+                            .1
                             .map_or(u32::MAX, |owner| owner.index()),
                         output["dummy_owners"][index].as_u64().unwrap() as u32,
                         "{case}"

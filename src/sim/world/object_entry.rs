@@ -124,8 +124,10 @@ fn row_nonzero(live: &EntryReadContext<'_>, cell: Cell, speed: SpeedType) -> Res
 }
 fn raw(live: &EntryReadContext<'_>, cell: Cell, layer: MovementLayer) -> (u8, Option<InternedId>) {
     let key = crate::sim::occupancy::RawCellKey::from_native(live.terrain(), cell);
-    let grid = &live.sim.substrate.raw_cell_occupation;
-    (grid.bits_at(key, layer), grid.owner_at(key, layer))
+    live.sim
+        .substrate
+        .raw_cell_occupation
+        .occupant_at(key, layer)
 }
 // Unit73F5EF/73F628/73F823 compare actual object pointers, never a Cell
 // sharing the blocker's coordinates. Infantry has a distinct Cell shortcut.

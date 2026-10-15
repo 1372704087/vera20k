@@ -8,35 +8,40 @@
 //! predicate and zone metadata only: the retail producer divides by path
 //! length, so a zero-step shell must never become active movement state.
 
+use super::infantry_entry::InfantryEntryArgs;
 use super::locomotor::LocomotorState;
 use super::track_process::TrackFamily;
+use super::{MovementTickStats, PerCellReason, movement_bridge, walk_head};
 use crate::map::entities::EntityCategory;
-use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::map::retail_trig::TrigTable;
 use crate::map::tube_facts::{TubeFact, TubeId, TubeSource};
+use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{DriveCoord, Position};
+use crate::sim::cell_kernel;
+use crate::sim::components::{DriveCoord, NavTargetRef, Position};
 use crate::sim::entity_store::EntityStore;
+use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::StringInterner;
 use crate::sim::movement::ScatterFlags;
-use crate::sim::movement::bump_crush;
 use crate::sim::movement::ground_pose;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::movement::scatter::ScatterRequests;
 use crate::sim::occupancy::{
     CellListInsertion, CellOccupationGrid, OccupancyGrid, RawCellOccupationGrid,
     VEHICLE_OCCUPATION_BIT, infantry_raw_occupation_mask,
 };
-use crate::sim::pathfinding::PathGrid;
-use crate::sim::rng::SimRng;
+use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation};
 use crate::util::fixed_math::{SIM_ONE, SIM_ZERO};
-use crate::util::lepton::{self, CELL_CENTER_LEPTON};
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, distance_3d_leptons};
 
 /// FootClass-owned active TubeMovement payload.
 ///
 /// `Some` also means the mover is absent from CellClass object lists and raw
-/// occupation. Immutable path bytes remain in the map-owned [`TubeFact`].
+/// occupation, but inside an exit: the Infantry exit lists and marks the
+/// infantryman (`0x0051BA22`, `0x0051BA45`) and runs its self-Scatter before
+/// it clears the tube (`0x0051BA8D`), as
+/// [`Simulation::infantry_tube_exit`] does. Immutable path bytes remain in
+/// the map-owned [`TubeFact`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct LowBridgeTubeMovementState {
     tube_id: TubeId,
@@ -289,32 +294,42 @@ fn detach_for_tube(
     *cell_marked = false;
 }
 
-/// Execute one active Unit/Infantry TubeMovement object turn. Returns `true`
-/// whenever the entity was active at entry, including a successful final which
-/// cleared the state; the caller must therefore suppress ordinary movement for
-/// the remainder of this tick.
-pub(crate) fn tick_active_tube_object(
+/// What one tube step did ([`tick_active_tube_object`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TubeTurn {
+    /// The object holds no tube.
+    Inactive,
+    /// The object moved along its tube, or a Unit left it.
+    Moved,
+    /// A Unit at its tube's end found the exit Cell taken
+    /// ([`Simulation::tube_exit_blocked`]).
+    Blocked,
+    /// An infantryman stands at its tube's end
+    /// ([`Simulation::infantry_tube_exit`]).
+    InfantryExit,
+}
+
+/// One step of an active Unit/Infantry TubeMovement. The exits that read the
+/// whole Simulation are left to [`Simulation::tube_object_turn`].
+fn tick_active_tube_object(
     entities: &mut EntityStore,
     entity_id: u64,
     terrain: &ResolvedTerrainGrid,
-    path_grid: Option<&PathGrid>,
     occupancy: &mut OccupancyGrid,
     cell_occupation: &mut CellOccupationGrid,
     raw_cell_occupation: &mut RawCellOccupationGrid,
     rules: Option<&RuleSet>,
     interner: &StringInterner,
-    rng: &mut SimRng,
     native_frame: u32,
-    scatters: &mut ScatterRequests,
-) -> bool {
+) -> TubeTurn {
     let Some(entity) = entities.get(entity_id) else {
-        return false;
+        return TubeTurn::Inactive;
     };
     let Some(mut state) = entity.low_bridge_tube_state else {
-        return false;
+        return TubeTurn::Inactive;
     };
     let Some(tube) = terrain.tube(state.tube_id) else {
-        return true;
+        return TubeTurn::Moved;
     };
     let category = entity.category();
     let speed = rules
@@ -335,15 +350,12 @@ pub(crate) fn tick_active_tube_object(
             entity_id,
             state,
             terrain,
-            path_grid,
             occupancy,
             cell_occupation,
             raw_cell_occupation,
             rules,
             interner,
-            rng,
             native_frame,
-            scatters,
         );
     }
 
@@ -359,7 +371,7 @@ pub(crate) fn tick_active_tube_object(
         let trig = TrigTable::embedded();
         let next = advance_amount(current, state.target, budget, raw_step, z_step, trig);
         ground_pose::foot_set_location(entities, entity_id, next, rules, interner);
-        return true;
+        return TubeTurn::Moved;
     }
 
     state.cursor = state.cursor.saturating_add(1);
@@ -373,15 +385,12 @@ pub(crate) fn tick_active_tube_object(
             entity_id,
             state,
             terrain,
-            path_grid,
             occupancy,
             cell_occupation,
             raw_cell_occupation,
             rules,
             interner,
-            rng,
             native_frame,
-            scatters,
         );
     }
 
@@ -398,163 +407,88 @@ pub(crate) fn tick_active_tube_object(
         entity.low_bridge_tube_state = Some(state);
     }
     ground_pose::foot_set_location(entities, entity_id, next, rules, interner);
-    true
+    TubeTurn::Moved
 }
 
+/// The tube's end. An infantryman's exit is
+/// [`Simulation::infantry_tube_exit`]; this is `UnitClass::TubeMovement`'s
+/// (`0x00735E36..0x007360AA`). Any object on the ground list (`+0xE4`) of
+/// the Cell holding the Location blocks it (`0x00735E66..0x00735E6E`,
+/// [`Simulation::tube_exit_blocked`]). Otherwise SetLocation (vt+0x1B4) puts
+/// the unit at the exit cell's centre at the target's Z (`+0x570`,
+/// `0x00735FA1..0x00735FEC`).
+///
+/// RESIDUAL: the unblocked arm does not follow the native order or owners.
+/// Native runs Mark(DOWN) (`0x00735FFF`), `Scatter(null, 1, 1)` on itself
+/// without a NavCom (`0x00736005..0x00736028`, #893), the `+0x68B` latch
+/// (`0x00736038`), Per_Cell_Process(2) (`0x0073603F`), then speed 1
+/// (`0x0073604F`) and the facing. Here [`put_unit_after_tube`] stands in for
+/// Mark(DOWN), the self-Scatter and the latch are missing, and the speed and
+/// facing come before the object turn's Per_Cell_Process.
+/// - Trigger: every Unit leaving a map tube.
+/// - Effect: a Unit without a NavCom stays on the exit cell instead of
+///   scattering; Mark(DOWN)'s AddContent discovery and Recalc are skipped.
+/// - Frequency: retail maps with tubes only.
+/// - Risk: Mark(DOWN) writes the raw vehicle bit only while `+0x6B6` holds,
+///   and the tube entry here clears that flag (`detach_for_tube`), so moving
+///   to [`Simulation::foot_mark_put`] needs the entry's Mark(UP)
+///   (`0x004B12BA`) ported first.
 fn finalize_tube_object(
     entities: &mut EntityStore,
     entity_id: u64,
     state: LowBridgeTubeMovementState,
     terrain: &ResolvedTerrainGrid,
-    path_grid: Option<&PathGrid>,
     occupancy: &mut OccupancyGrid,
     cell_occupation: &mut CellOccupationGrid,
     raw_cell_occupation: &mut RawCellOccupationGrid,
     rules: Option<&RuleSet>,
     interner: &StringInterner,
-    rng: &mut SimRng,
     native_frame: u32,
-    scatters: &mut ScatterRequests,
-) -> bool {
+) -> TubeTurn {
     let Some(tube) = terrain.tube(state.tube_id) else {
-        return true;
+        return TubeTurn::Moved;
     };
     let Some(entity) = entities.get(entity_id) else {
-        return true;
+        return TubeTurn::Moved;
     };
-    let category = entity.category();
+    if entity.category() == EntityCategory::Infantry {
+        return TubeTurn::InfantryExit;
+    }
     let reached_cell = (entity.position.rx(), entity.position.ry());
-
-    let infantry_subcell = if category == EntityCategory::Infantry {
-        let terrain_blocked =
-            path_grid.is_some_and(|grid| !grid.is_walkable(reached_cell.0, reached_cell.1));
-        let passable = !terrain_blocked
-            && bump_crush::cell_passable_for_infantry(
-                occupancy.get(reached_cell.0, reached_cell.1),
-                MovementLayer::Ground,
-            );
-        if !passable {
-            scatter_exit_blockers(entities, entity_id, reached_cell, occupancy, scatters);
-            stop_blocked_mover(entities, entity_id);
-            return true;
-        }
-        let (sub_x, sub_y) = entities
-            .get(entity_id)
-            .map(|entity| (entity.position.sub_x(), entity.position.sub_y()))
-            .unwrap_or((CELL_CENTER_LEPTON, CELL_CENTER_LEPTON));
-        bump_crush::allocate_sub_cell_with_preference(
-            occupancy.get(reached_cell.0, reached_cell.1),
-            MovementLayer::Ground,
-            None,
-            sub_x,
-            sub_y,
-            rng,
-        )
-    } else {
-        None
-    };
-
-    if category == EntityCategory::Unit {
-        let blockers: Vec<u64> = occupancy
-            .get(reached_cell.0, reached_cell.1)
-            .map(|cell| {
-                cell.iter_layer(MovementLayer::Ground)
-                    .map(|occupant| occupant.entity_id)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !blockers.is_empty() {
-            scatter_exit_blockers(entities, entity_id, reached_cell, occupancy, scatters);
-            stop_blocked_mover(entities, entity_id);
-            return true;
-        }
+    if occupancy
+        .get(reached_cell.0, reached_cell.1)
+        .is_some_and(|cell| cell.iter_layer(MovementLayer::Ground).next().is_some())
+    {
+        return TubeTurn::Blocked;
     }
 
-    if category == EntityCategory::Infantry && infantry_subcell.is_none() {
-        stop_blocked_mover(entities, entity_id);
-        return true;
-    }
-
-    // Both exits set the Location through SetLocation (vt+0x1B4): a unit at
-    // the exit cell's centre at the target's Z (+0x570,
-    // 0x00735FA1..0x00735FEC), infantry at the spot PlaceInfantryInCell
-    // (0x00481180, `allocate_sub_cell_with_preference` above) chose, at the
-    // floor there (0x00578080, 0x0051B967..0x0051B99C).
-    let (exit, floor_supported) = if let Some(sub_cell) = infantry_subcell {
-        let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(sub_cell));
-        let xy = [
-            i32::from(reached_cell.0) * 256 + sub_x.to_num::<i32>(),
-            i32::from(reached_cell.1) * 256 + sub_y.to_num::<i32>(),
-        ];
-        let floor = ground_pose::ground_surface_z_at(xy, false, Some(terrain), None);
-        let z = floor.unwrap_or_else(|| {
-            entities.get(entity_id).map_or(state.target.z, |entity| {
-                ground_pose::position_world_coord(&entity.position).z
-            })
-        });
-        let exit = DriveCoord {
-            x: xy[0],
-            y: xy[1],
-            z,
-        };
-        (exit, floor.is_some())
-    } else {
-        let exit = DriveCoord::cell(tube.exit.0, tube.exit.1, state.target.z);
-        (exit, false)
-    };
+    let exit = DriveCoord::cell(tube.exit.0, tube.exit.1, state.target.z);
     ground_pose::foot_set_location(entities, entity_id, exit, rules, interner);
     if let Some(entity) = entities.get_mut(entity_id) {
-        if let Some(sub_cell) = infantry_subcell {
-            // The Infantry exit's locomotor Stop_Movement_Animation
-            // (`0x0051BA16`).
-            // RESIDUAL: its Force_Immediate_Destination(null) just before
-            // (`0x0051B9F4`, Walk `0x0075AE30`) is not called here
-            // (`Simulation::foot_force_immediate_destination`).
-            // - Trigger: an infantryman leaving a map tube.
-            // - Effect: Walk's forced null destination is skipped: its head
-            //   and destination handling (`0x0075C240`), then, once both are
-            //   null, the IsMoving clear and the owner's +0x54C callback.
-            // - Frequency: retail maps with tubes only.
-            // - Risk: the next Walk Process sees a stale head or destination.
-            if let Some(locomotor) = entity.locomotor.as_mut() {
-                locomotor.stop_movement_animation();
-            }
-            entity.set_sub_cell(Some(sub_cell));
-            if floor_supported {
-                entity.position.store_level(
-                    terrain
-                        .cell(reached_cell.0, reached_cell.1)
-                        .map_or(entity.position.z(), |cell| cell.level),
-                );
-            }
-        } else {
-            if let Some(cell) = terrain.cell(tube.exit.0, tube.exit.1) {
-                entity.position.store_level(cell.level);
-            }
-            if let Some(loco) = entity.locomotor.as_mut() {
-                loco.store_track_target_fraction(TrackFamily::Drive, SIM_ONE);
-            }
-            // Unit73604F writes the live Foot owner even if PerCell replaced
-            // Drive. Exact post-callback timing remains part of the Process host.
-            entity.foot_speed.set_speed_fraction(SIM_ONE);
+        if let Some(cell) = terrain.cell(tube.exit.0, tube.exit.1) {
+            entity.position.store_level(cell.level);
         }
+        if let Some(loco) = entity.locomotor.as_mut() {
+            loco.store_track_target_fraction(TrackFamily::Drive, SIM_ONE);
+        }
+        // Unit73604F writes the live Foot owner even if PerCell replaced
+        // Drive. Exact post-callback timing remains part of the Process host.
+        entity.foot_speed.set_speed_fraction(SIM_ONE);
         entity.low_bridge_tube_state = None;
     }
-    put_after_tube(
+    put_unit_after_tube(
         entities,
         entity_id,
         occupancy,
         cell_occupation,
         raw_cell_occupation,
     );
-
-    if category == EntityCategory::Unit {
-        update_unit_final_facing(entities, entity_id, terrain, native_frame);
-    }
-    true
+    update_unit_final_facing(entities, entity_id, terrain, native_frame);
+    TubeTurn::Moved
 }
 
-fn put_after_tube(
+/// The Unit exit's stand-in for Mark(DOWN) (see [`finalize_tube_object`]).
+fn put_unit_after_tube(
     entities: &mut EntityStore,
     entity_id: u64,
     occupancy: &mut OccupancyGrid,
@@ -571,65 +505,301 @@ fn put_after_tube(
         ry,
         entity_id,
         MovementLayer::Ground,
-        (entity.category() == EntityCategory::Infantry)
-            .then_some(entity.sub_cell())
-            .flatten(),
+        None,
         CellListInsertion::from_category(entity.category()),
     );
-    match entity.category() {
-        EntityCategory::Unit => {
-            raw_cell_occupation.mark_ground(rx, ry, VEHICLE_OCCUPATION_BIT);
-            cell_occupation.mark_vehicle_on_layer(rx, ry, entity_id, MovementLayer::Ground);
-            entity.set_foot_occupation_enabled(true);
-        }
-        EntityCategory::Infantry => {
-            let mask =
-                infantry_raw_occupation_mask(entity.position.sub_x(), entity.position.sub_y());
-            raw_cell_occupation.mark_ground(rx, ry, mask);
-            // Native Infantry final explicitly calls the same raw mark again.
-            raw_cell_occupation.mark_ground(rx, ry, mask);
-        }
-        _ => {}
-    }
+    raw_cell_occupation.mark_ground(rx, ry, VEHICLE_OCCUPATION_BIT);
+    cell_occupation.mark_vehicle_on_layer(rx, ry, entity_id, MovementLayer::Ground);
+    entity.set_foot_occupation_enabled(true);
     entity.lifecycle.set_cell_marked(true);
 }
 
-/// `UnitClass::TubeMovement`'s blocked exit (`0x00735F55`): `Scatter(null,
-/// 1, 1)` on each ground occupant that is a Unit or Infantry whose locomotor
-/// is not moving. The object turn runs the calls once the pass returns
-/// ([`ScatterRequests`]).
-fn scatter_exit_blockers(
-    entities: &EntityStore,
-    mover_id: u64,
-    cell: (u16, u16),
-    occupancy: &OccupancyGrid,
-    scatters: &mut ScatterRequests,
-) {
-    let blockers: Vec<u64> = occupancy
-        .get(cell.0, cell.1)
-        .map(|cell| {
-            cell.iter_layer(MovementLayer::Ground)
-                .map(|occupant| occupant.entity_id)
-                .collect()
-        })
-        .unwrap_or_default();
-    for blocker_id in blockers {
-        if blocker_id == mover_id {
-            continue;
-        }
-        let Some(blocker) = entities.get(blocker_id) else {
-            continue;
+/// What one active tube object turn did ([`Simulation::tube_object_turn`]).
+#[derive(Debug, Default)]
+pub(crate) struct TubeObjectTurn {
+    pub(crate) movement: MovementTickStats,
+    pub(crate) bridge_state_changed: bool,
+    /// The exit ran `Per_Cell_Process(2)`.
+    pub(crate) per_cell_ran: bool,
+}
+
+impl Simulation {
+    /// The TubeMovement the class AI runs in place of the rest of its turn
+    /// while the object holds a tube (`+0x684`): `UnitClass` `0x007359F0`
+    /// (called at `0x007363B0`) and `InfantryClass` `0x0051B350` (called at
+    /// `0x0051BAC2`). It takes a step along the tube, or at its end the exit,
+    /// which ends with Per_Cell_Process(2) (Unit `0x0073603F`, Infantry
+    /// `0x0051BA9B`). No locomotor Process runs: one the exit calls (the
+    /// Infantry self-Scatter's, `0x0051D478`) is the locomotor's alone and
+    /// reads no tube.
+    ///
+    /// The owed destination setter ([`Simulation::complete_pending_order`])
+    /// and the vehicle-plane reconcile run first, as at a Process entry.
+    pub(crate) fn tube_object_turn(
+        &mut self,
+        id: u64,
+        rules: Option<&RuleSet>,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<TubeObjectTurn, FrameAdvanceError> {
+        let mut turn = TubeObjectTurn::default();
+        self.complete_pending_order(id, rules, registry, effects);
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return Ok(turn);
         };
-        if !matches!(
-            blocker.category(),
-            EntityCategory::Unit | EntityCategory::Infantry
-        ) || blocker.locomotor.is_none()
-            || super::motion_query::is_moving(blocker) == Some(true)
+        self.substrate
+            .cell_occupation
+            .reconcile_entity(entity, &self.substrate.occupancy);
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return Ok(turn);
+        };
+        let step = tick_active_tube_object(
+            &mut self.substrate.entities,
+            id,
+            terrain,
+            &mut self.substrate.occupancy,
+            &mut self.substrate.cell_occupation,
+            &mut self.substrate.raw_cell_occupation,
+            rules,
+            &self.interner,
+            self.session.binary_frame,
+        );
+        let exit = match step {
+            TubeTurn::Inactive => return Ok(turn),
+            TubeTurn::Moved => Ok(false),
+            TubeTurn::Blocked => self.tube_exit_blocked(id, rules, registry, effects),
+            TubeTurn::InfantryExit => self.infantry_tube_exit(id, rules, registry, effects),
+        };
+        turn.movement.movers_total = 1;
+        turn.bridge_state_changed = exit.map_err(|cause| {
+            FrameAdvanceError::new(self.session.tick, self.session.binary_frame, id, cause)
+        })?;
+        if self
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| entity.low_bridge_tube_state.is_none())
         {
-            continue;
+            turn.bridge_state_changed |=
+                self.per_cell_process(id, PerCellReason::Arrival, rules, registry, effects)?;
+            turn.per_cell_ran = true;
         }
-        scatters.request(blocker_id, ScatterFlags::new(true, true));
+        Ok(turn)
     }
+
+    /// A tube exit its Cell refuses. Each Unit or Infantry on the ground
+    /// list (`+0xE4`) of the Cell holding the Location whose locomotor is not
+    /// moving ([`tube_exit_scatters`]) takes `Scatter(null, 1, 1)`: the list
+    /// is copied first and each copy tested as the loop reaches it (Unit
+    /// `0x00735E74..0x00735F62`, Infantry `0x0051B7E6..0x0051B8F4`). Then the
+    /// object's speed becomes 0 (Unit `0x00735F6A`, Infantry `0x0051B8FC`)
+    /// and it stays in the tube, to try again on its next turn. Without rules
+    /// no Scatter admits, so none runs.
+    ///
+    /// Answers whether an Infantry Scatter's immediate Process changed bridge
+    /// state.
+    fn tube_exit_blocked(
+        &mut self,
+        id: u64,
+        rules: Option<&RuleSet>,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<bool, String> {
+        let occupants = self
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|actor| {
+                self.substrate
+                    .occupancy
+                    .get(actor.position.rx(), actor.position.ry())
+            })
+            .map_or_else(Vec::new, |cell| cell.snapshot_layer(MovementLayer::Ground));
+        let mut bridge_state_changed = false;
+        if let Some(rules) = rules {
+            for blocker in occupants {
+                if self
+                    .substrate
+                    .entities
+                    .get(blocker)
+                    .is_some_and(tube_exit_scatters)
+                {
+                    bridge_state_changed |= self.scatter(
+                        blocker,
+                        None,
+                        ScatterFlags::new(true, true),
+                        rules,
+                        registry,
+                        effects,
+                    )?;
+                }
+            }
+        }
+        stop_blocked_mover(&mut self.substrate.entities, id);
+        Ok(bridge_state_changed)
+    }
+
+    /// `InfantryClass` TubeMovement's exit (`0x0051B798..0x0051BAA8`), once
+    /// the last step put the infantryman at its target. It asks its own
+    /// `Can_Enter_Cell` (`+0x1AC`) at the Cell holding its Location
+    /// (`0x0051B7BE`), with direction -1, height 0, no previous cell and
+    /// mode 1 (`0x0051B7C3..0x0051B7D8`).
+    ///
+    /// - Refused, it scatters the stationary Units and Infantry there, sets
+    ///   its own speed to 0 and stays in the tube
+    ///   ([`Self::tube_exit_blocked`]).
+    /// - Admitted, PlaceInfantryInCell (`0x00481180`, `0x0051B967`) picks a
+    ///   spot on the Cell's ground plane, and SetLocation (`0x0051B99C`)
+    ///   puts it there at the floor (`0x00578080`, `0x0051B98A`). Then come
+    ///   the locomotor's Force_Immediate_Destination(null) (`0x0051B9F4`)
+    ///   and Stop_Movement_Animation (`0x0051BA16`), Mark(DOWN)
+    ///   (`0x0051BA22`) and the raw receiver (vt+0xF0, `0x0051BA45`). A
+    ///   NavCom naming the Cell scatters the infantryman itself
+    ///   (`0x0051BA4B..0x0051BA6F`); otherwise its speed becomes 1
+    ///   (`0x0051BA81`). Last, it leaves the tube (`+0x684 = -1`,
+    ///   `0x0051BA8D`) and latches `+0x68B` (`0x0051BA94`). Its
+    ///   Per_Cell_Process(2) (`0x0051BA9B`) follows in
+    ///   [`Self::tube_object_turn`].
+    ///
+    /// The exit does not test PlaceInfantryInCell's answer. Without a spot
+    /// it answers the zeroed coordinate at `0x0089E778` (`0x004812EC`,
+    /// `0x004813CC`; zeroed by `0x0047B300`), so the infantryman goes to the
+    /// floor at (0, 0). That needs an occupant the `+0x1AC` admits but the
+    /// placement refuses, such as a vehicle the infantryman is entering.
+    ///
+    /// RESIDUAL: the Walk tube entry stores the exit Cell's centre (Z 0) as
+    /// the Walk head (`0x0075B3CA..0x0075B3D2`); [`begin_path_tube_step`]
+    /// stores none, so Force_Immediate_Destination(null) here releases the
+    /// raw bit of another spot.
+    /// - Trigger: every infantryman leaving a map tube.
+    /// - Effect: native clears raw spot bit 0 (the centre) of the exit Cell;
+    ///   here the release falls on the infantryman's new spot, still
+    ///   unmarked.
+    /// - Frequency: retail maps with tubes; it matters only with an occupant
+    ///   on that Cell's centre spot.
+    /// - Risk: that occupant keeps a raw bit native clears. The head write
+    ///   belongs to the tube entry.
+    ///
+    /// Answers whether an Infantry Scatter's immediate Process changed
+    /// bridge state.
+    fn infantry_tube_exit(
+        &mut self,
+        id: u64,
+        rules: Option<&RuleSet>,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<bool, String> {
+        let rules = rules.ok_or("Infantry tube exit requires rules")?;
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .ok_or("Infantry tube exit requires map cells")?;
+        let actor = self
+            .substrate
+            .entities
+            .get(id)
+            .ok_or("retired tube mover")?;
+        let location = ground_pose::position_world_coord(&actor.position);
+        let at = (actor.position.rx(), actor.position.ry());
+        let cell = NativeCellQuery::canonical(terrain).lookup_world(location.x, location.y);
+        let args = InfantryEntryArgs {
+            direction: -1,
+            height: 0,
+            previous_cell: None,
+        };
+        if self.foot_can_enter(id, cell, args, rules, registry)? != 0 {
+            return self.tube_exit_blocked(id, Some(rules), registry, effects);
+        }
+
+        let out = self
+            .place_infantry_in_ground_cell(rules, location)
+            .map_or(DriveCoord { x: 0, y: 0, z: 0 }, |spot| {
+                walk_head::selected_head(location, spot, 0, false)
+            });
+        let (exit, level) = {
+            let cells = NativeCellQuery::canonical(
+                self.resolved_terrain
+                    .as_ref()
+                    .ok_or("Infantry tube exit requires map cells")?,
+            );
+            let exit = DriveCoord {
+                z: ground_pose::query_ground_height(&cells, out)?,
+                ..out
+            };
+            (
+                exit,
+                cells.ground_fields(cells.lookup_world(exit.x, exit.y)).0,
+            )
+        };
+        ground_pose::foot_set_location(
+            &mut self.substrate.entities,
+            id,
+            exit,
+            Some(rules),
+            &self.interner,
+        );
+        if let Some(actor) = self.substrate.entities.get_mut(id) {
+            // VERA's spot and level caches follow the Location: the spot is
+            // the one the raw receiver reads from it.
+            actor.set_sub_cell(Some(cell_kernel::infantry_preferred_spot(
+                cell_kernel::CellQueryPoint {
+                    x: exit.x,
+                    y: exit.y,
+                },
+            )));
+            let stored = movement_bridge::stored_level(level, actor.on_bridge());
+            actor.position.store_level(stored);
+        }
+        self.foot_force_immediate_destination(id, None, Some(rules), registry, effects)?;
+        if let Some(locomotor) = self
+            .substrate
+            .entities
+            .get_mut(id)
+            .and_then(|actor| actor.locomotor.as_mut())
+        {
+            locomotor.stop_movement_animation();
+        }
+        self.foot_mark_put(id, Some(rules), registry, effects);
+        if let Some(actor) = self.substrate.entities.get(id) {
+            let location = ground_pose::position_world_coord(&actor.position);
+            self.object_raw_receiver_at(id, location, true);
+        }
+
+        let navcom_names_cell = self.substrate.entities.get(id).is_some_and(|actor| {
+            matches!(actor.navigation.nav_com(), Some(NavTargetRef::Cell { rx, ry }) if (rx, ry) == at)
+        });
+        let mut bridge_state_changed = false;
+        if navcom_names_cell {
+            bridge_state_changed = self.scatter(
+                id,
+                None,
+                ScatterFlags::new(true, true),
+                rules,
+                registry,
+                effects,
+            )?;
+        } else if let Some(actor) = self.substrate.entities.get_mut(id) {
+            actor.foot_speed.set_speed_fraction(SIM_ONE);
+        }
+        if let Some(actor) = self.substrate.entities.get_mut(id) {
+            actor.low_bridge_tube_state = None;
+            actor.runtime_bridge_transition.latch();
+        }
+        Ok(bridge_state_changed)
+    }
+}
+
+/// Whether a blocked tube exit scatters `blocker`: a Unit or Infantry
+/// (`WhatAmI` 1 or 0xF) whose locomotor is not moving (ILocomotion +0x10).
+/// Unit `0x00735EF9..0x00735F31`, Infantry `0x0051B88E..0x0051B8C6`. A Foot
+/// without a locomotor raises a COM error natively (`0x00735F19`); here it is
+/// skipped.
+fn tube_exit_scatters(blocker: &GameEntity) -> bool {
+    matches!(
+        blocker.category(),
+        EntityCategory::Unit | EntityCategory::Infantry
+    ) && blocker.locomotor.is_some()
+        && super::motion_query::is_moving(blocker) != Some(true)
 }
 
 fn stop_blocked_mover(entities: &mut EntityStore, entity_id: u64) {
@@ -753,25 +923,7 @@ mod tests {
                 loco.set_walk_destination(Some(DriveCoord::cell(6, 5, 0)));
             }
             actor.locomotor = Some(loco);
-            let before = serde_json::to_value(&actor).unwrap();
-            let mut entities = EntityStore::new();
-            entities.insert(actor);
-            let mut occupancy = OccupancyGrid::new();
-            occupancy.add(
-                5,
-                5,
-                2,
-                MovementLayer::Ground,
-                Some(0),
-                CellListInsertion::PrependNonBuilding,
-            );
-            let mut scatters = ScatterRequests::default();
-            scatter_exit_blockers(&entities, 1, (5, 5), &occupancy, &mut scatters);
-            assert!(scatters.take().is_empty());
-            assert_eq!(
-                serde_json::to_value(entities.get(2).unwrap()).unwrap(),
-                before
-            );
+            assert!(!tube_exit_scatters(&actor), "{kind:?} is moving");
         }
     }
 
@@ -865,14 +1017,9 @@ mod tests {
         use crate::rules::locomotor_type::LocomotorKind;
         use crate::sim::movement::locomotor::LocomotorState;
         use crate::util::fixed_math::SimFixed;
-        for (category, blocked) in [
-            (EntityCategory::Unit, false),
-            (EntityCategory::Unit, true),
-            (EntityCategory::Infantry, true),
-        ] {
+        for blocked in [false, true] {
             let terrain = explicit_terrain(vec![2, 2]);
             let mut entity = unit(1);
-            entity.set_category_for_test(category);
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
             entity.lifecycle.set_cell_marked(false);
             entity.position.set_rx_for_test(2);
@@ -883,14 +1030,13 @@ mod tests {
                 target: DriveCoord::cell(2, 0, 0),
             };
             entity.low_bridge_tube_state = Some(state);
-            let mut entities = EntityStore::new();
-            entities.insert(entity);
-            let mut occupancy = OccupancyGrid::new();
-            if blocked && category == EntityCategory::Unit {
+            let mut sim = Simulation::new();
+            sim.substrate.entities.insert(entity);
+            if blocked {
                 let mut blocker = unit(2);
                 blocker.position.set_rx_for_test(2);
-                entities.insert(blocker);
-                occupancy.add(
+                sim.substrate.entities.insert(blocker);
+                sim.substrate.occupancy.add(
                     2,
                     0,
                     2,
@@ -899,23 +1045,14 @@ mod tests {
                     CellListInsertion::PrependNonBuilding,
                 );
             }
-            let grid = PathGrid::test_all_blocked(4, 1);
-            assert!(finalize_tube_object(
-                &mut entities,
-                1,
-                state,
-                &terrain,
-                (category == EntityCategory::Infantry).then_some(&grid),
-                &mut occupancy,
-                &mut CellOccupationGrid::new(),
-                &mut RawCellOccupationGrid::new(),
-                None,
-                &crate::sim::intern::test_interner(),
-                &mut SimRng::new(7),
-                21,
-                &mut ScatterRequests::default(),
-            ));
-            let owner = entities.get(1).unwrap();
+            sim.resolved_terrain = Some(terrain);
+            sim.interner = crate::sim::intern::test_interner();
+            let turn = sim
+                .tube_object_turn(1, None, None, FrameEffects::default())
+                .expect("tube turn");
+            assert_eq!(turn.movement.movers_total, 1);
+            assert_eq!(turn.per_cell_ran, !blocked);
+            let owner = sim.substrate.entities.get(1).unwrap();
             assert!(owner.locomotor.as_ref().is_none_or(|loco| {
                 !loco.has_track_state(crate::sim::movement::track_process::TrackFamily::Drive)
             }));
@@ -941,7 +1078,12 @@ mod tests {
             assert_eq!(owner.low_bridge_tube_state.is_some(), blocked);
             if !blocked {
                 assert!(owner.lifecycle.cell_marked());
-                assert_eq!(occupancy.count_on_layer(2, 0, MovementLayer::Ground), 1);
+                assert_eq!(
+                    sim.substrate
+                        .occupancy
+                        .count_on_layer(2, 0, MovementLayer::Ground),
+                    1
+                );
             }
         }
     }
@@ -1124,64 +1266,87 @@ mod tests {
         assert_eq!(entities.get(1).unwrap().body_facing_current(0), 0);
     }
 
-    /// Infantry leaves a tube at its chosen spot, at the floor there
-    /// (`0x00578080` at `0x0051B98A`), through SetLocation (`0x0051B99C`),
-    /// then stops its locomotor's movement animation (`0x0051BA16`).
+    /// One walking infantryman (id 1, `Americans` `E1`) at the end of
+    /// [`explicit_terrain`]'s two-step tube: at in-cell (64, 192) of the
+    /// exit (2, 0), on Clear ground with a Foot speed row, its movement
+    /// animation running.
+    fn infantry_at_tube_end() -> (Simulation, RuleSet) {
+        use crate::rules::ini_parser::IniFile;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=APC\n[AircraftTypes]\n[BuildingTypes]\n\
+             [E1]\nStrength=100\nSpeed=4\n[APC]\nStrength=100\nSpeed=4\n",
+        ))
+        .expect("rules");
+        let mut terrain = explicit_terrain(vec![2, 2]);
+        for x in 0..=3 {
+            terrain.cell_mut(x, 0).unwrap().speed_costs.foot = Some(100);
+        }
+        let mut sim = Simulation::new();
+        let owner = sim.interner.intern("Americans");
+        let kind = sim.interner.intern("E1");
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            1,
+            2,
+            0,
+            0,
+            0,
+            owner,
+            Health::new(100),
+            kind,
+            EntityCategory::Infantry,
+            0,
+            5,
+            true,
+        );
+        entity.lifecycle.set_in_limbo_for_test(false);
+        entity.lifecycle.set_cell_marked(false);
+        let spot = DriveCoord {
+            x: 2 * 256 + 64,
+            y: 192,
+            z: 0,
+        };
+        entity.position.put_location(spot);
+        let mut walk = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+            crate::rules::locomotor_type::LocomotorKind::Walk,
+        );
+        walk.set_step_head(Some(spot));
+        walk.begin_walk_motion();
+        walk.set_step_head(None);
+        entity.locomotor = Some(walk);
+        entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
+            tube_id: TubeId(0),
+            cursor: 2,
+            target: spot,
+        });
+        sim.substrate.entities.insert(entity);
+        sim.resolved_terrain = Some(terrain);
+        (sim, rules)
+    }
+
+    /// Infantry leaves a tube at the spot PlaceInfantryInCell picks
+    /// (`0x0051B967`), at the floor there (`0x00578080` at `0x0051B98A`),
+    /// through SetLocation (`0x0051B99C`). Its movement animation stops
+    /// (`0x0051BA16`), Mark(DOWN) lists it (`0x0051BA22`), the raw receiver
+    /// marks its spot (`0x0051BA45`), its speed becomes 1 (`0x0051BA81`),
+    /// it latches `+0x68B` (`0x0051BA94`) and runs Per_Cell_Process(2)
+    /// (`0x0051BA9B`).
     /// The floor is native's: `tools/ramp_height_vectors.json`
     /// `ramp_1_sub_64_192` (level 0, ramp 1, sub-cell (64, 192)) is 26.
     #[test]
     fn infantry_leaves_a_tube_at_the_floor_of_its_spot() {
-        let mut terrain = explicit_terrain(vec![2, 2]);
-        terrain.cell_mut(2, 0).unwrap().slope_type = 1;
-        let mut entity = unit(1);
-        entity.set_category_for_test(EntityCategory::Infantry);
-        entity.lifecycle.set_cell_marked(false);
-        entity.position.set_rx_for_test(2);
-        entity
-            .position
-            .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(64));
-        entity
-            .position
-            .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(192));
-        entity.position.set_exact_z_leptons_for_test(Some(0));
-        let mut walk = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-            crate::rules::locomotor_type::LocomotorKind::Walk,
-        );
-        walk.set_step_head(Some(DriveCoord {
-            x: 2 * 256 + 64,
-            y: 192,
-            z: 0,
-        }));
-        walk.begin_walk_motion();
-        entity.locomotor = Some(walk);
-        let state = LowBridgeTubeMovementState {
-            tube_id: TubeId(0),
-            cursor: 2,
-            target: DriveCoord {
-                x: 2 * 256 + 64,
-                y: 192,
-                z: 0,
-            },
-        };
-        entity.low_bridge_tube_state = Some(state);
-        let mut entities = EntityStore::new();
-        entities.insert(entity);
-        assert!(finalize_tube_object(
-            &mut entities,
-            1,
-            state,
-            &terrain,
-            None,
-            &mut OccupancyGrid::new(),
-            &mut CellOccupationGrid::new(),
-            &mut RawCellOccupationGrid::new(),
-            None,
-            &crate::sim::intern::test_interner(),
-            &mut SimRng::new(7),
-            21,
-            &mut ScatterRequests::default(),
-        ));
-        let owner = entities.get(1).unwrap();
+        let (mut sim, rules) = infantry_at_tube_end();
+        sim.resolved_terrain
+            .as_mut()
+            .unwrap()
+            .cell_mut(2, 0)
+            .unwrap()
+            .slope_type = 1;
+        let turn = sim
+            .tube_object_turn(1, Some(&rules), None, FrameEffects::default())
+            .expect("tube turn");
+        assert!(turn.per_cell_ran);
+        assert_eq!(turn.movement.movers_total, 1);
+        let owner = sim.substrate.entities.get(1).unwrap();
         assert!(owner.low_bridge_tube_state.is_none());
         assert_eq!(
             owner.locomotor.as_ref().unwrap().walk_animation_moving(),
@@ -1196,6 +1361,223 @@ mod tests {
                 z: 26
             }
         );
+        assert!(owner.lifecycle.cell_marked());
+        assert!(sim.substrate.occupancy.contains_entity(2, 0, 1));
+        assert_eq!(
+            sim.substrate.raw_cell_occupation.bits_at(
+                crate::sim::occupancy::RawCellKey::Real(2, 0),
+                MovementLayer::Ground
+            ),
+            1 << 3
+        );
+        assert_eq!(owner.foot_speed.applied_fraction(), SIM_ONE);
+        assert!(owner.runtime_bridge_transition.pending_mismatch());
+    }
+
+    /// The exit asks the infantryman's own `Can_Enter_Cell` (`0x0051B7D8`).
+    /// An unarmed one refuses a cell holding an enemy: the standing enemy
+    /// takes `Scatter(null, 1, 1)` (`0x0051B8F4`), and the infantryman stays
+    /// in the tube at speed 0 (`0x0051B8FC`), to try again on its next turn.
+    #[test]
+    fn an_enemy_on_the_exit_keeps_the_infantryman_in_the_tube() {
+        let (mut sim, rules) = infantry_at_tube_end();
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        let enemy_owner = sim.interner.intern("Russians");
+        let kind = sim.interner.intern("E1");
+        let mut enemy = GameEntity::new_at_frame_zero_for_test(
+            2,
+            2,
+            0,
+            0,
+            0,
+            enemy_owner,
+            Health::new(100),
+            kind,
+            EntityCategory::Infantry,
+            0,
+            5,
+            true,
+        );
+        enemy.position.put_location(DriveCoord {
+            x: 2 * 256 + 192,
+            y: 64,
+            z: 0,
+        });
+        enemy.set_sub_cell(Some(2));
+        enemy.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Walk,
+            ),
+        );
+        sim.substrate.entities.insert(enemy);
+        sim.add_entity_occupancy(2);
+
+        crate::sim::movement::answered_process::install();
+        let turn = sim
+            .tube_object_turn(1, Some(&rules), None, FrameEffects::default())
+            .expect("tube turn");
+        let processed = crate::sim::movement::answered_process::finish();
+        assert!(!turn.per_cell_ran);
+        let owner = sim.substrate.entities.get(1).unwrap();
+        assert!(owner.low_bridge_tube_state.is_some());
+        assert!(!owner.lifecycle.cell_marked());
+        assert_eq!(owner.foot_speed.applied_fraction(), SIM_ZERO);
+        assert!(!sim.substrate.occupancy.contains_entity(2, 0, 1));
+        let enemy = sim.substrate.entities.get(2).unwrap();
+        assert!(
+            matches!(enemy.navigation.nav_com(), Some(NavTargetRef::Cell { .. })),
+            "the enemy scattered"
+        );
+        assert_eq!(processed, [2], "its Scatter ran its locomotor's Process");
+    }
+
+    /// PlaceInfantryInCell skips a spot another infantryman's raw bit holds:
+    /// with a friend on the spot its Location names, the infantryman leaves
+    /// the tube at the cell's next free spot.
+    #[test]
+    fn a_friend_on_the_spot_sends_the_infantryman_to_the_next() {
+        let (mut sim, rules) = infantry_at_tube_end();
+        let owner = sim.interner.intern("Americans");
+        let kind = sim.interner.intern("E1");
+        let mut friend = GameEntity::new_at_frame_zero_for_test(
+            2,
+            2,
+            0,
+            0,
+            0,
+            owner,
+            Health::new(100),
+            kind,
+            EntityCategory::Infantry,
+            0,
+            5,
+            true,
+        );
+        let spot = DriveCoord {
+            x: 2 * 256 + 64,
+            y: 192,
+            z: 0,
+        };
+        friend.position.put_location(spot);
+        friend.set_sub_cell(Some(3));
+        friend.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Walk,
+            ),
+        );
+        sim.substrate.entities.insert(friend);
+        // Mark lists the friend; its raw receiver marks the spot.
+        sim.add_entity_occupancy(2);
+        sim.object_raw_receiver_at(2, spot, true);
+
+        assert_eq!(
+            sim.infantry_tube_exit(1, Some(&rules), None, FrameEffects::default()),
+            Ok(false)
+        );
+        let infantry = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(
+            ground_pose::position_world_coord(&infantry.position),
+            DriveCoord {
+                x: 2 * 256 + 192,
+                y: 192,
+                z: 0
+            }
+        );
+        assert_eq!(infantry.sub_cell(), Some(4));
+        assert_eq!(
+            sim.substrate.raw_cell_occupation.bits_at(
+                crate::sim::occupancy::RawCellKey::Real(2, 0),
+                MovementLayer::Ground
+            ),
+            1 << 3 | 1 << 4
+        );
+    }
+
+    /// A NavCom naming the exit cell scatters the infantryman itself
+    /// (`0x0051BA4B..0x0051BA6F`). Its Scatter runs the Walk Process at once
+    /// (`0x0051D478`), which reads no tube (`+0x684`): only
+    /// `InfantryClass::AI` runs TubeMovement (`0x0051BAC2`), so the exit
+    /// places the infantryman once and marks one spot.
+    #[test]
+    fn the_self_scatter_does_not_run_the_exit_again() {
+        let (mut sim, rules) = infantry_at_tube_end();
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .navigation
+            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 2, ry: 0 }));
+
+        let turn = sim
+            .tube_object_turn(1, Some(&rules), None, FrameEffects::default())
+            .expect("tube turn");
+        assert!(turn.per_cell_ran);
+        let infantry = sim.substrate.entities.get(1).unwrap();
+        assert!(infantry.low_bridge_tube_state.is_none());
+        assert_ne!(
+            infantry.navigation.nav_com(),
+            Some(NavTargetRef::Cell { rx: 2, ry: 0 }),
+            "the Scatter gave it a new destination"
+        );
+        let listed: Vec<u16> = (0..=3)
+            .filter(|&x| sim.substrate.occupancy.contains_entity(x, 0, 1))
+            .collect();
+        assert_eq!(listed, [2]);
+        assert_eq!(
+            sim.substrate.raw_cell_occupation.bits_at(
+                crate::sim::occupancy::RawCellKey::Real(2, 0),
+                MovementLayer::Ground
+            ),
+            1 << 3,
+            "the exit marked the spot PlaceInfantryInCell picked, once"
+        );
+    }
+
+    /// The exit does not test PlaceInfantryInCell's answer. An infantryman
+    /// entering a vehicle that stands on the exit passes its `+0x1AC` (its
+    /// direct target), but the vehicle's raw bit refuses every spot
+    /// (`0x0048126B..0x0048128A`). The zeroed coordinate at `0x0089E778`
+    /// then puts it at the floor at (0, 0), where Mark(DOWN) lists it.
+    #[test]
+    fn an_exit_without_a_spot_goes_to_the_map_origin() {
+        let (mut sim, rules) = infantry_at_tube_end();
+        let owner = sim.interner.intern("Americans");
+        let kind = sim.interner.intern("APC");
+        let mut vehicle = unit(3);
+        vehicle.set_owner_for_test(owner);
+        vehicle.set_type_ref_for_test(kind);
+        vehicle.lifecycle.set_cell_marked(false);
+        vehicle.position.put_location(DriveCoord::cell(2, 0, 0));
+        sim.substrate.entities.insert(vehicle);
+        sim.add_entity_occupancy(3);
+        assert_ne!(
+            sim.substrate.raw_cell_occupation.bits_at(
+                crate::sim::occupancy::RawCellKey::Real(2, 0),
+                MovementLayer::Ground
+            ) & VEHICLE_OCCUPATION_BIT,
+            0
+        );
+        let infantry = sim.substrate.entities.get_mut(1).unwrap();
+        infantry.mission.set_current_for_test(
+            crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter),
+            0,
+        );
+        infantry
+            .navigation
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 3 }));
+
+        assert_eq!(
+            sim.infantry_tube_exit(1, Some(&rules), None, FrameEffects::default()),
+            Ok(false)
+        );
+        let infantry = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(
+            ground_pose::position_world_coord(&infantry.position),
+            DriveCoord { x: 0, y: 0, z: 0 }
+        );
+        assert!(infantry.low_bridge_tube_state.is_none());
+        assert!(sim.substrate.occupancy.contains_entity(0, 0, 1));
     }
 
     /// A step that reaches its target moves the unit through
@@ -1233,20 +1615,20 @@ mod tests {
         let mut entities = EntityStore::new();
         entities.insert(transport);
         entities.insert(rider);
-        assert!(tick_active_tube_object(
-            &mut entities,
-            1,
-            &terrain,
-            None,
-            &mut OccupancyGrid::new(),
-            &mut CellOccupationGrid::new(),
-            &mut RawCellOccupationGrid::new(),
-            Some(&rules),
-            &crate::sim::intern::test_interner(),
-            &mut SimRng::new(7),
-            21,
-            &mut ScatterRequests::default(),
-        ));
+        assert_eq!(
+            tick_active_tube_object(
+                &mut entities,
+                1,
+                &terrain,
+                &mut OccupancyGrid::new(),
+                &mut CellOccupationGrid::new(),
+                &mut RawCellOccupationGrid::new(),
+                Some(&rules),
+                &crate::sim::intern::test_interner(),
+                21,
+            ),
+            TubeTurn::Moved
+        );
         let [transport, rider] = [1, 2].map(|id| &entities.get(id).unwrap().position);
         let coord = |p: &Position| (ground_pose::position_world_xy(p), p.exact_z_leptons());
         // The leftover budget then steps on towards the next target as well.

@@ -61,9 +61,7 @@ impl Simulation {
         if entity.death.is_dying() || !entity.lifecycle.object_alive() {
             return false;
         }
-        if entity.low_bridge_tube_state.is_some()
-            || super::track_head::active_track_family(entity).is_some()
-        {
+        if super::track_head::active_track_family(entity).is_some() {
             return true;
         }
         if !entity

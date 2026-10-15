@@ -354,10 +354,12 @@ pub(crate) fn place_infantry_in_native_cell(
 impl crate::sim::world::Simulation {
     /// `MapClass::GetCellAt @ 0x00565730` for `point`, then
     /// [`place_infantry_in_native_cell`] on that cell's ground plane without
-    /// priority: the spot, or `None` where it answers the empty coordinate
-    /// (`0x00A8F200`). AircraftClass::Drop_Payload (`0x00415D9B..0x00415DD1`)
-    /// and InfantryClass::ReceiveDamage's InfDeath 9 arm
-    /// (`0x0051897C..0x00518A0D`) ask it so.
+    /// priority: the spot, or `None` where it answers the zeroed coordinate
+    /// at `0x0089E778` (`0x004812EC`, `0x004813CC`).
+    /// AircraftClass::Drop_Payload (`0x00415D9B..0x00415DD1`),
+    /// InfantryClass::ReceiveDamage's InfDeath 9 arm
+    /// (`0x0051897C..0x00518A0D`) and the Infantry tube exit (`0x0051B967`)
+    /// ask it so.
     pub(crate) fn place_infantry_in_ground_cell(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,
@@ -433,54 +435,6 @@ impl crate::sim::world::Simulation {
             &mut self.scenario_rng,
         )
     }
-}
-
-/// The older cell-list approximation of [`place_infantry_in_cell`], still
-/// used by the tube exit.
-///
-/// RESIDUAL: unlike `CellClass::PlaceInfantryInCell @ 0x00481180` it refuses
-/// a building occupant (native ignores bit 0x80) and returns before the
-/// centre-row `RandomRanged(0, 3)` draw on a cell already holding three
-/// infantry (native draws first). Trigger: infantry leaving a tube into a
-/// crowded cell. Effect: one Scenario draw fewer per such placement. Moving
-/// the tube caller to the native byte read needs the movement pass's raw
-/// occupation to be current at the crossing, which the movement ledger owns.
-pub fn allocate_sub_cell_with_preference(
-    occ: Option<&CellOccupancy>,
-    layer: MovementLayer,
-    reserved: Option<&[u8]>,
-    sub_x: SimFixed,
-    sub_y: SimFixed,
-    rng: &mut SimRng,
-) -> Option<u8> {
-    // Vehicle/structure blocks all infantry.
-    if let Some(o) = occ
-        && o.has_blockers_on(layer)
-    {
-        return None;
-    }
-    let infantry: Vec<(u64, u8)> = occ.map_or_else(Vec::new, |o| o.infantry(layer).collect());
-    let stale_count: usize = infantry.len();
-    let reserved_count: usize = reserved.map_or(0, |v| v.len());
-    if stale_count + reserved_count >= MAX_INFANTRY_PER_CELL {
-        return None;
-    }
-
-    let quadrant: u8 = get_subcell_quadrant(sub_x, sub_y);
-    let occupied_mask = infantry
-        .iter()
-        .fold(0u8, |mask, &(_, spot)| mask | (1 << spot))
-        | reserved
-            .into_iter()
-            .flatten()
-            .fold(0u8, |mask, &spot| mask | (1 << spot));
-    // `CellClass::PlaceInfantryInCell` @ `0x00481180` — reached from
-    // `WalkLocomotionClass::FindSubCellDest` @ `0x0075C240` — draws its
-    // `Random__RandomRanged(0, 3)` row rotation only on the centre/NW path.
-    // There is no `CellClass::FindInfantrySubposition` in this program; the name
-    // this comment used to carry was invented.
-    let random_row = (quadrant == 0).then(|| rng.next_range_u32(4) as u8);
-    cell_kernel::select_infantry_subcell(quadrant, occupied_mask, false, random_row)
 }
 
 /// Sub-cell placement for a mover whose mission carries placement priority.
@@ -1690,42 +1644,6 @@ mod tests {
         assert_eq!(deck_request(|raw| raw.mark_ground(5, 5, 0x40)), None);
         assert_eq!(deck_request(|raw| raw.mark_deck(5, 5, 0x20)), None);
         assert_eq!(deck_request(|raw| raw.mark_ground(5, 5, 0x20)), Some(2));
-    }
-
-    #[test]
-    fn test_preference_all_occupied() {
-        let grid = make_occ(&[
-            (5, 5, 1, MovementLayer::Ground, Some(2)),
-            (5, 5, 2, MovementLayer::Ground, Some(3)),
-            (5, 5, 3, MovementLayer::Ground, Some(4)),
-        ]);
-        let occ = grid.get(5, 5).unwrap();
-        let mut rng = SimRng::new(42);
-        let result = allocate_sub_cell_with_preference(
-            Some(occ),
-            MovementLayer::Ground,
-            None,
-            SimFixed::from_num(200),
-            SimFixed::from_num(40),
-            &mut rng,
-        );
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_preference_vehicle_blocks() {
-        let grid = make_occ(&[(5, 5, 99, MovementLayer::Ground, None)]);
-        let occ = grid.get(5, 5).unwrap();
-        let mut rng = SimRng::new(42);
-        let result = allocate_sub_cell_with_preference(
-            Some(occ),
-            MovementLayer::Ground,
-            None,
-            SimFixed::from_num(200),
-            SimFixed::from_num(40),
-            &mut rng,
-        );
-        assert_eq!(result, None);
     }
 
     // -- emit_crush_kill_sounds tests --

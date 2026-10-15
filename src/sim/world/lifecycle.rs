@@ -3794,6 +3794,12 @@ impl Simulation {
             }
         }
         listener.radio_contacts.iter_live().for_each(&mut name);
+        listener
+            .tesla_charge
+            .chargers()
+            .iter()
+            .copied()
+            .for_each(&mut name);
         if let Some(cargo) = listener.passenger_role.cargo() {
             cargo.passengers().iter().copied().for_each(&mut name);
         }
@@ -4346,6 +4352,9 @@ impl Simulation {
         // MegaTarget becomes a MegaDestination at its GetCoords cell, and its
         // MegaDestination is dropped.
         let expire_mega_pointer = listener.mega_mission.references(expired_id);
+        // Building44EA77 removes a charger for either control, irrespective
+        // of the base target exemptions. Only later AI changes the weapon latch.
+        let clear_tesla_charger = listener.tesla_charge.chargers().contains(&expired_id);
         if !(clear_suspended_target
             || clear_damage_smoke
             || clear_archive_target
@@ -4357,7 +4366,8 @@ impl Simulation {
             || clear_airfield
             || clear_passenger_role
             || clear_c4_source
-            || expire_mega_pointer)
+            || expire_mega_pointer
+            || clear_tesla_charger)
         {
             return;
         }
@@ -4409,6 +4419,9 @@ impl Simulation {
             listener
                 .mega_mission
                 .pointer_expired(expired_id, expired_get_coords_cell);
+        }
+        if clear_tesla_charger {
+            listener.tesla_charge.pointer_expired(expired_id);
         }
     }
 

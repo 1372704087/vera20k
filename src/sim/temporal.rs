@@ -101,8 +101,8 @@
 //!   - `HouseClass::CanBuild`'s upgrade-prerequisite scan
 //!     (`0x004F7DE6..0x004F7E4E`: an upgrade prerequisite counts only on an
 //!     online, unsold host; plain prerequisites use the house counters),
-//!     CheckDockArrayOccupancy (`0x0044E855`) and PowerCheck_Upgrade
-//!     (`0x00450605`). Effect: an option enabled by a warped upgrade host
+//!     CheckDockArrayOccupancy (`0x0044E855`). Effect: an option enabled by a
+//!     warped upgrade host
 //!     stays available.
 //!   - The player-only BuildingClass virtual `+0x4E0` (`0x004456D0`,
 //!     UpdateConstructionOptions: it adds the sidebar cameos of what the

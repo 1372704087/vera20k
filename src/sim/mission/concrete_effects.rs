@@ -368,6 +368,17 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
         {
             self.apply_destination(sim, prepared, Some(NavTargetRef::object(building)));
         }
+        if infantry {
+            // Infantry51B310/51B33F: even a same-target assignment clears
+            // automatic charging intent, after the infiltration tail. The
+            // Doing27..30 refusal above never reaches this write.
+            sim.substrate
+                .entities
+                .get_mut(prepared.receiver)
+                .unwrap()
+                .tesla_charger
+                .clear();
+        }
     }
 
     fn apply_destination(

@@ -1877,8 +1877,8 @@ enum SpecialArmTarget {
 
 /// The special arm of `BulletClass::DetonateAtCoord @ 0x004690B0`
 /// (`0x0046920B..0x00469A3D`) the warhead's flags selected, for both
-/// deliveries: a visible bullet's detonation, and VERA's immediate `Inviso=`
-/// shot, which natively is the same bullet detonating through the same chain.
+/// deliveries: a visible bullet's detonation, and an `Inviso=` bullet's first
+/// AI visit, which detonates through the same chain.
 ///
 /// Whatever the arm does, it claims the impact: every arm, its internal
 /// refusals included, leaves by `JMP 0x00469AA4`, and `Apply_area_damage`
@@ -1886,8 +1886,8 @@ enum SpecialArmTarget {
 /// at `0x00469A3F`. So the caller runs neither, and runs the shared tail below
 /// `LAB_00469AA4` after this returns. `owner` is the bullet's `+0xB0`.
 ///
-/// RESIDUAL: the ElectricAssault (`0x0046937A`), Airstrike (`0x00469705`)
-/// and DirectRocker (`0x0046978E`) bodies are not ported; those arms claim
+/// RESIDUAL: the Airstrike (`0x00469705`) and DirectRocker (`0x0046978E`)
+/// bodies are not ported; those arms claim
 /// the impact and do nothing else (see `SpecialDetonationAction`).
 fn run_special_detonation_arm(
     world: &mut Simulation,
@@ -1984,9 +1984,10 @@ fn run_special_detonation_arm(
                 effects,
             );
         }
-        SpecialDetonationAction::ElectricAssault
-        | SpecialDetonationAction::Airstrike
-        | SpecialDetonationAction::DirectRocker => {
+        SpecialDetonationAction::ElectricAssault => {
+            world.electric_assault_detonation(owner, object);
+        }
+        SpecialDetonationAction::Airstrike | SpecialDetonationAction::DirectRocker => {
             log::debug!(
                 "special detonation {action:?} from {owner} claimed with its body unported; \
                  shrapnel and area damage suppressed, the shared tail still runs"

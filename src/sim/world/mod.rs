@@ -7422,3 +7422,6 @@ mod drop_as_bomb_integration_tests;
 mod radiation_timing_tests;
 
 mod airstrike_aircraft;
+
+#[cfg(test)]
+mod radiation_overlap_tests;

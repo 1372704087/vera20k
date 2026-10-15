@@ -47,22 +47,27 @@ owner changes the Rust test's former 6-damage result to 5. The old expected
 value and its arithmetic-only comment were therefore incorrect. The bridge
 HE landing corpus and its hashes are unchanged.
 
-There is a **required separate radiation precision chain**: current Rust spread
-uses host arithmetic and stores300 at this adjacent cell, then emits base60;
-original PC53/chop spread stores the value above and emits59. Original
+The generator-era Rust spread used host arithmetic and stored300 at this
+adjacent cell, then emitted base60; original PC53/chop spread stores the value
+above and emits59. The shared radiation owner now preserves those native
+operation/store boundaries. The additional
+[stock overlap comparison](radiation_overlap.md) consumes field, merge and
+decay outputs, including a DOG survival boundary; this six-row historical
+corpus and its original coverage remain unchanged. Original
 RadLevelFactor ReadDouble stores widened binary32 bits `3fc99999a0000000`;
 the shared `ini_value::parse_read_double` now reproduces that conversion and
 `RadiationRules` uses it. The sidecar's direct-binary64 parser limitation
 describes the generator-era Rust implementation, not the current reader.
 Both selected paths reach the same final5 damage with corrected heavy Verses,
-so this regression checks that bounded outcome without asserting matching
-intermediates. Other armors, factors, cell distances, heights and overlapping
-sites can expose different integer damage or later death/occupation timing.
-That conditional trigger, its frequency across irradiated cells, and its
-bridge height/geometry consumers remain in the whole-bridge audit; this small
-regression correction does not complete their migration.
+so this regression alone checks that bounded outcome. Neither corpus proves
+all armors, factors, cell distances, heights, overlapping sites, bridge geometry
+or complete radiation lifecycle behavior.
 
 The Rust regression runs through the production frame and each Foot's own
 radiation visit. Separate retail DESO tests cover field creation relative to
 earlier/later Logic visits, pre-movement sampling and fatal receiver ordering.
 Those tests do not extend this native corpus's numeric coverage.
+
+The additive [overlap comparison](radiation_overlap.md) now supplies stock
+three-site, merge, decay, exceptional-field and populated DOG receiver controls.
+The default six-row corpus and its historical payload hash are preserved.

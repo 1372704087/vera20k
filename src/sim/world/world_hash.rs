@@ -1476,17 +1476,18 @@ impl Simulation {
     }
 
     /// Hash the radiation field (cell levels as raw f64 bits — the levels are
-    /// products of deterministic IEEE ops, so the bits are lockstep-stable)
-    /// and the site registry. Both maps iterate in sorted key order.
+    /// products of deterministic numeric operations) and the site registry.
+    /// Site order controls future rounded subtractions and belongs in the hash.
     fn hash_radiation(&self, hasher: &mut impl Hasher) {
         for (&(rx, ry), level) in self.radiation.iter_cells() {
             rx.hash(hasher);
             ry.hash(hasher);
             level.to_bits().hash(hasher);
         }
-        for site in self.radiation.sites() {
+        for site in self.radiation.sites_in_update_order() {
             site.center.hash(hasher);
             site.spread.hash(hasher);
+            site.radius_leptons.hash(hasher);
             site.level.hash(hasher);
             site.level_steps.hash(hasher);
             site.duration.hash(hasher);

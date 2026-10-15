@@ -31,8 +31,13 @@ pub(crate) const OPEN_PLAYFIELD: crate::sim::cell_rect::PlayfieldBounds =
 /// computer house of the skirmish IQ (`[IQ] MaxIQLevels`), and `Americans`, a
 /// human house.
 pub(crate) fn rival_arena(rules: &RuleSet, seed: u64) -> Simulation {
+    rival_arena_with_size(rules, seed, 32)
+}
+
+/// The same two-house arena with enough room for a mechanism's footprint.
+pub(crate) fn rival_arena_with_size(rules: &RuleSet, seed: u64, size: u16) -> Simulation {
     let mut sim = Simulation::with_seed(seed);
-    flat_ground(&mut sim, rules);
+    flat_ground_with_size(&mut sim, rules, size);
     for (name, human) in [("Russians", false), ("Americans", true)] {
         let id = sim.interner.intern(name);
         let mut house = crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10);
@@ -58,10 +63,13 @@ pub(crate) fn flat_arena(sim: &mut Simulation, rules: &RuleSet) -> PathGrid {
 /// Install the arena's ground, playfield and navigation on `sim` and return
 /// its path grid.
 pub(crate) fn flat_ground(sim: &mut Simulation, rules: &RuleSet) -> PathGrid {
-    const SIZE: u16 = 32;
-    sim.session.map_width = SIZE;
-    sim.session.map_height = SIZE;
-    sim.install_resolved_terrain_for_new_map(clear_ground(SIZE));
+    flat_ground_with_size(sim, rules, 32)
+}
+
+fn flat_ground_with_size(sim: &mut Simulation, rules: &RuleSet, size: u16) -> PathGrid {
+    sim.session.map_width = size;
+    sim.session.map_height = size;
+    sim.install_resolved_terrain_for_new_map(clear_ground(size));
     sim.playfield_bounds = Some(OPEN_PLAYFIELD);
     sim.playfield_size_height = Some(20);
     assert!(sim.rebuild_dynamic_navigation(rules));

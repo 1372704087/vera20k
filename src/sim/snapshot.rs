@@ -1042,7 +1042,9 @@ use crate::sim::world::Simulation;
 // sidebar entry flash deadlines and redraw scheduling survive saves.
 // 363 -> 364: Bullet constructor type/Bright and the independently nullable
 // installed WeaponType replace the conflated payload weapon identity.
-const SNAPSHOT_VERSION: u32 = 364;
+// 364 -> 365: RadSite creation order survives saves; native updates reverse
+// creation order, which affects rounded field subtraction and later damage.
+const SNAPSHOT_VERSION: u32 = 365;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1231,6 +1233,8 @@ pub enum SnapshotError {
 /// Structural failures found before a deserialized simulation is admitted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SnapshotRestoreError {
+    #[error("invalid radiation site order: {0}")]
+    InvalidRadiationSiteOrder(&'static str),
     #[error("entity {object_id} has invalid Tesla charging state: {reason}")]
     InvalidTeslaChargingState {
         object_id: u64,
@@ -2518,6 +2522,9 @@ impl Simulation {
     /// weak/derived identities, and reconstructs skipped indexes in dependency
     /// order.
     pub(crate) fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
+        self.radiation
+            .validate_site_order()
+            .map_err(SnapshotRestoreError::InvalidRadiationSiteOrder)?;
         if let Some(owner) = self.session.current_house
             && (!self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner))
         {
@@ -4506,7 +4513,8 @@ mod tests {
         // 361 -> 362: Terrain Bullet target identity and reference validation.
         // 362 -> 363: retained Scenario countdown and sidebar cameo flash deadlines.
         // 363 -> 364: independent Bullet constructor and installed-weapon fields.
-        assert_eq!(super::SNAPSHOT_VERSION, 364);
+        // 364 -> 365: retained RadSite creation/update order.
+        assert_eq!(super::SNAPSHOT_VERSION, 365);
     }
 
     #[test]

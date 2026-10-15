@@ -8,7 +8,6 @@
 //! and class suffix effects are compared separately from real Bullet effects
 //! and RNG. Direct Bullet delivery has its own combat regression coverage.
 
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use serde_json::{Value, json};
@@ -214,26 +213,18 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     terrain.write_native_cell_flags(current, input["cell_flags"].as_u64().unwrap() as u32);
     sim.resolved_terrain = Some(terrain);
     if input["site"].is_object() {
-        let mut sites = BTreeMap::new();
-        sites.insert(
-            (10u16, 10u16),
-            RadSite {
-                center: (10, 10),
-                spread: 0,
-                radius_leptons: 128,
-                level: signed(&input["site"]["level"]),
-                level_steps: 0,
-                duration: signed(&input["site"]["duration"]),
-                remaining: signed(&input["site"]["remaining"]),
-                level_timer: CdTimer::default(),
-            },
-        );
-        // Supplied retained site words, transported with the owner's existing
-        // serialization. No detonation/activation producer is certified here.
-        let cells = BTreeMap::<(u16, u16), f64>::new();
-        sim.radiation =
-            bincode::deserialize::<RadiationState>(&bincode::serialize(&(cells, sites)).unwrap())
-                .unwrap();
+        // Supplied retained site words; no detonation/activation producer is
+        // certified by this component fixture. Its owner maintains membership.
+        sim.radiation = RadiationState::from_retained_site_for_test(RadSite {
+            center: (10, 10),
+            spread: 0,
+            radius_leptons: 128,
+            level: signed(&input["site"]["level"]),
+            level_steps: 0,
+            duration: signed(&input["site"]["duration"]),
+            remaining: signed(&input["site"]["remaining"]),
+            level_timer: CdTimer::default(),
+        });
     }
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor.health.set_for_test(100);

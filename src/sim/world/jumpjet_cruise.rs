@@ -452,6 +452,16 @@ impl JumpjetFlightHost for CruiseHost<'_> {
                 sim.assign_null_destination(id, rules, registry, frame_effects);
             });
         }
+        // 0x0054C905..0x0054C95B: a live Foot neither in limbo nor falling
+        // releases its sight and takes it again where it landed, before the
+        // air slot and tracker leave it.
+        if self.sim.substrate.entities.get(id).is_some_and(|owner| {
+            owner.lifecycle.object_alive()
+                && !owner.lifecycle.in_limbo()
+                && !owner.is_falling_down()
+        }) {
+            self.sim.refresh_object_sight(id, rules);
+        }
         let location = self.location();
         let here = self.cell_of([location[0], location[1]]);
         if self.holds_air_slot_at(here) {

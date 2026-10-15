@@ -452,24 +452,10 @@ impl Simulation {
         if layer == Some(DisplayLayer::GROUND) {
             self.clear_fly_foot_destination(id, rules, frame_effects);
             radio::broadcast(self, id, RadioMessage::Tether, rules, frame_effects);
-            if let Some(entity) = self.substrate.entities.get(id) {
-                let config = self.sight_reveal_config(rules);
-                let heights = self.sight_height_grid(&config);
-                let ability =
-                    crate::sim::vision::entity_has_sight_ability(entity, &self.interner, rules);
-                crate::sim::vision::force_refresh_entity_vision(
-                    &mut self.fog,
-                    entity,
-                    &config,
-                    heights.as_deref(),
-                    self.resolved_terrain.as_ref(),
-                    ability,
-                    &self.interner,
-                );
-                //567DA0 updates client fog edges/redraw requests. VERA's
-                // ShroudBuffer rebuilds from this owner when its generation
-                // changes; there is no second simulation fog-edge authority.
-            }
+            self.refresh_object_sight(id, rules);
+            //567DA0 updates client fog edges/redraw requests. VERA's
+            // ShroudBuffer rebuilds from this owner when its generation
+            // changes; there is no second simulation fog-edge authority.
         } else {
             radio::broadcast(self, id, RadioMessage::Untether, rules, frame_effects);
             if self.substrate.entities.get(id).is_some_and(|e| {

@@ -15,6 +15,10 @@ mod tests;
 mod reveal_to_all_tests;
 
 #[cfg(test)]
+#[path = "sight_cadence_tests.rs"]
+mod sight_cadence_tests;
+
+#[cfg(test)]
 #[derive(Default)]
 struct RevealCalls {
     walks: Vec<Vec<(u16, u16)>>,
@@ -636,6 +640,38 @@ impl Simulation {
             self.map_size_diamond(),
             self.playfield_bounds.is_some(),
         )
+    }
+
+    /// `TechnoClass::ReReveal(0, 0, 0, 0)` (`0x0070B1D0`) then
+    /// `UpdateReveal(0, 0, 0, 0, 0)` (`0x0070AF50`): the object's sight
+    /// leaves the footprint its last reveal stored (`+0x254`, `+0x260`) and
+    /// opens where it stands ([`vision::force_refresh_entity_vision`]), for
+    /// an object that holds sight ([`vision::holds_sight`]). Callers: the Unit
+    /// and Infantry cell arrivals (`0x0073AC5F`/`0x0073AC74`,
+    /// `0x0051A8D7`/`0x0051A8EB`), the Jumpjet descent
+    /// (`0x0054C93C`/`0x0054C95B`) and Fly's landing transition
+    /// (`0x004CD43F`/`0x004CD454`).
+    pub(crate) fn refresh_object_sight(&mut self, stable_id: u64, rules: Option<&RuleSet>) {
+        let config = self.sight_reveal_config(rules);
+        let Some(entity) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .filter(|entity| vision::holds_sight(entity, &config))
+        else {
+            return;
+        };
+        let height_grid = self.sight_height_grid(&config);
+        let ability = vision::entity_has_sight_ability(entity, &self.interner, rules);
+        vision::force_refresh_entity_vision(
+            &mut self.fog,
+            entity,
+            &config,
+            height_grid.as_deref(),
+            self.resolved_terrain.as_ref(),
+            ability,
+            &self.interner,
+        );
     }
 
     /// The ground levels a reveal under `config` tests its cells' line of

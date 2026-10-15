@@ -8270,11 +8270,20 @@ fn test_fog_revealed_persists_after_unit_moves_away() {
     assert!(sim.fog.is_cell_revealed(americans, 1, 1));
 
     let _ = (sx, sy); // suppress unused warning
-    // Far enough that (1,1) leaves a Sight=1 reveal disc entirely.
+    // Far enough that (1,1) leaves a Sight=1 reveal disc entirely. Sight
+    // moves at the cell arrival a real move ends with, not at the write.
     if let Some(e) = sim.substrate.entities.get_mut(1) {
         e.position.set_rx_for_test(6);
         e.position.set_ry_for_test(1);
     }
+    sim.per_cell_process(
+        1,
+        crate::sim::movement::PerCellReason::Arrival,
+        None,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     let _ = sim.advance_tick(&[], None, Some(&grid), None, 33);
     assert!(!sim.fog.is_cell_visible(americans, 1, 1));
     assert!(sim.fog.is_cell_revealed(americans, 1, 1));

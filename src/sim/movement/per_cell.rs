@@ -190,6 +190,11 @@ impl Simulation {
             }
             self.unit_per_cell_factory_clearance(id, rules, registry, effects);
         }
+        // 0x0073AC52..0x0073AC74: ReReveal then UpdateReveal, after the
+        // clearance arms and before Ready/Commence.
+        if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
+            self.refresh_object_sight(id, rules);
+        }
         // Unit PerCell2 739EC0: after MCV retry, +6D1==0 admits
         // Ready(+200)73ACC2 -> Commence(+1EC)73ACD1, BEFORE full-cell
         // crush73B089 and Foot sensor/playfield tail73B0A0. The existing
@@ -703,6 +708,11 @@ impl Simulation {
                     rules,
                     effects,
                 );
+            }
+            // 0x0051A8CB..0x0051A8EB: ReReveal then UpdateReveal, before the
+            // water and rock check.
+            if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
+                self.refresh_object_sight(id, rules);
             }
             if self.per_cell_owner_alive(id) {
                 self.foot_per_cell_process(id, reason, rules, registry, effects);

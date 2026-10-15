@@ -50,8 +50,10 @@ HE landing corpus and its hashes are unchanged.
 There is a **required separate radiation precision chain**: current Rust spread
 uses host arithmetic and stores300 at this adjacent cell, then emits base60;
 original PC53/chop spread stores the value above and emits59. Original
-RadLevelFactor ReadDouble also stores widened binary32 bits
-`3fc99999a0000000`, whereas `RadiationRules` currently parses a direct binary64.
+RadLevelFactor ReadDouble stores widened binary32 bits `3fc99999a0000000`;
+the shared `ini_value::parse_read_double` now reproduces that conversion and
+`RadiationRules` uses it. The sidecar's direct-binary64 parser limitation
+describes the generator-era Rust implementation, not the current reader.
 Both selected paths reach the same final5 damage with corrected heavy Verses,
 so this regression checks that bounded outcome without asserting matching
 intermediates. Other armors, factors, cell distances, heights and overlapping
@@ -60,6 +62,7 @@ That conditional trigger, its frequency across irradiated cells, and its
 bridge height/geometry consumers remain in the whole-bridge audit; this small
 regression correction does not complete their migration.
 
-The native generator passed `--write` followed by `--check`. The Rust regression
-requires the owner’s focused validation on this corrected candidate; no Cargo
-run was performed by the evidence author after this change.
+The Rust regression runs through the production frame and each Foot's own
+radiation visit. Separate retail DESO tests cover field creation relative to
+earlier/later Logic visits, pre-movement sampling and fatal receiver ordering.
+Those tests do not extend this native corpus's numeric coverage.

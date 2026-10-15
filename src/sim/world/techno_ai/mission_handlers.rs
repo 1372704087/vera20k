@@ -3066,6 +3066,10 @@ mod guard_rearm_tests {
             let mut sim = Simulation::with_seed(1);
             sim.session.binary_frame = field("frame") as u32;
             let mut entity = GameEntity::test_default(1, "TEST", "Americans", 5, 5);
+            // Guard now reaches the native GetWeapon(1) query before its
+            // timer tail. Keep the fixture's null weapon, with valid identities.
+            entity.set_type_ref_for_test(sim.interner.intern("TEST"));
+            entity.set_owner_for_test(sim.interner.intern("Americans"));
             entity
                 .rearm_timer
                 .set_for_test(crate::sim::timer::CdTimer::from_raw(

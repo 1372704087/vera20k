@@ -336,6 +336,8 @@ mod tests {
     use crate::sim::intern::InternedId;
     use crate::sim::particles::ParticleSystem;
     use crate::sim::projectile::{ProjectileCoord, ProjectilePayload, ProjectileTarget};
+    use crate::sim::spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState};
+    use crate::sim::timer::CdTimer;
     use crate::sim::wave::Wave;
 
     /// Every listener store.
@@ -416,22 +418,25 @@ mod tests {
         entities.insert(attacker(1, 3));
         let mut controller = GameEntity::test_default(2, "YURI", "Russians", 12, 12);
         controller.capture_manager =
-            Some(CaptureManagerState::with_victims_for_test(3, false, &[]));
+            Some(CaptureManagerState::with_victims_for_test(3, false, &[3]));
         entities.insert(controller);
         entities.insert(GameEntity::test_default(3, "HTNK", "Russians", 14, 14));
         let mut docked = attacker(4, 3);
         docked.mark_live_contact_with(3);
         entities.insert(docked);
+        let mut infested = GameEntity::test_default(6, "HTNK", "Russians", 16, 16);
+        infested.parasite.set_eater_for_test(Some(8));
+        entities.insert(infested);
         let mut stores = Stores {
             entities,
             ..Stores::default()
         };
         let mut index = ExpiryListeners::default();
 
-        // Itself, the entities naming it once or twice, and the one that any
-        // expiry reaches.
-        assert_eq!(reach(&mut index, &mut stores, 3), [1, 2, 3, 4]);
-        assert_eq!(reach(&mut index, &mut stores, 9), [2]);
+        // Itself, the entities naming it once or twice (one through its
+        // CaptureManager), and the one that any expiry reaches.
+        assert_eq!(reach(&mut index, &mut stores, 3), [1, 2, 3, 4, 6]);
+        assert_eq!(reach(&mut index, &mut stores, 9), [6]);
         // A retarget is read back on the next expiry.
         stores
             .entities
@@ -439,21 +444,61 @@ mod tests {
             .unwrap()
             .attack_target
             .set_for_test(Some(TargetKind::Entity(4)));
-        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 4]);
-        assert_eq!(reach(&mut index, &mut stores, 4), [1, 2, 4]);
+        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 4, 6]);
+        assert_eq!(reach(&mut index, &mut stores, 4), [1, 4, 6]);
         // An entity inserted after the index was built.
         stores.entities.insert(attacker(5, 3));
-        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 4, 5]);
+        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 4, 5, 6]);
         // A removed entity reaches nothing and is no listener itself.
         stores.entities.remove(4);
-        assert_eq!(reach(&mut index, &mut stores, 4), [1, 2]);
-        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 5]);
+        assert_eq!(reach(&mut index, &mut stores, 4), [1, 6]);
+        assert_eq!(reach(&mut index, &mut stores, 3), [2, 3, 5, 6]);
         // A walk over every entity makes it re-read them all.
         for entity in stores.entities.values_mut() {
             entity.capture_manager = None;
+            entity.parasite.set_eater_for_test(None);
         }
         assert_eq!(reach(&mut index, &mut stores, 3), [3, 5]);
         assert_eq!(reach(&mut index, &mut stores, 4), [1]);
+    }
+
+    #[test]
+    fn a_spawn_manager_reaches_its_owner_by_its_targets_and_children() {
+        let mut launcher = GameEntity::test_default(1, "V3", "Russians", 10, 10);
+        let mut manager = SpawnManagerState::for_test(
+            InternedId::from_index(0),
+            vec![SpawnSlot::for_test(
+                Some(5),
+                SpawnSlotState::InFlight,
+                CdTimer::default(),
+                true,
+            )],
+        );
+        manager.set_current_target_for_test(Some(TargetKind::Entity(6)));
+        manager.set_queued_target_for_test(Some(TargetKind::Cell(3, 3)));
+        launcher.spawn_manager = Some(manager);
+        let mut entities = EntityStore::new();
+        entities.insert(launcher);
+        let mut stores = Stores {
+            entities,
+            ..Stores::default()
+        };
+        let mut index = ExpiryListeners::default();
+
+        assert_eq!(reach(&mut index, &mut stores, 1), [1]);
+        assert_eq!(reach(&mut index, &mut stores, 5), [1]);
+        assert_eq!(reach(&mut index, &mut stores, 6), [1]);
+        assert!(reach(&mut index, &mut stores, 7).is_empty());
+        // A queued entity target is read back on the next expiry.
+        stores
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .spawn_manager
+            .as_mut()
+            .unwrap()
+            .set_queued_target_for_test(Some(TargetKind::Entity(7)));
+        assert_eq!(reach(&mut index, &mut stores, 7), [1]);
     }
 
     #[test]

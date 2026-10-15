@@ -3866,14 +3866,13 @@ impl Simulation {
     }
 
     /// What `listener` holds that its pointer-expiry forwards can change:
-    /// `name` gets each id a field [`Self::notify_entity_pointer_expired`]
-    /// compares (repeats possible), and the result says whether it holds an
-    /// object a forward reaches whatever expires (SpawnManager,
-    /// CaptureManager, TemporalClass, its parasite). A superset of each
-    /// forward's own test, so passing over a listener that is not the
-    /// expiring object, names nothing expiring and returns false matches
-    /// visiting it. A field or forward added to the broadcast must be added
-    /// here too.
+    /// `name` gets each id a field [`Self::notify_entity_pointer_expired`] or
+    /// a forward compares (repeats possible), and the result says whether it
+    /// holds an object a forward reaches whatever expires (an airstrike
+    /// manager, its parasite). A superset of each forward's own test, so
+    /// passing over a listener that is not the expiring object, names nothing
+    /// expiring and returns false matches visiting it. A field or forward
+    /// added to the broadcast must be added here too.
     /// VERA-only: feeds the expiry-listener index (`ExpiryListeners`) so the
     /// `0x007258D0` broadcast skips entities; the listener's fields are the truth.
     pub(super) fn entity_expiry_holds(listener: &GameEntity, mut name: impl FnMut(u64)) -> bool {
@@ -3925,11 +3924,20 @@ impl Simulation {
         .for_each(&mut name);
         listener.mega_mission.referenced_ids().for_each(&mut name);
         listener.distributed_fire_references().for_each(&mut name);
-        listener.airstrike.owns_manager()
-            || listener.spawn_manager.is_some()
-            || listener.capture_manager.is_some()
-            || listener.temporal.has_link()
-            || listener.parasite.eater().is_some()
+        // The SpawnManager, CaptureManager and TemporalClass forwards act on
+        // the listener's own expiry and on the ids they hold.
+        if let Some(manager) = &listener.spawn_manager {
+            manager.expiry_names().for_each(&mut name);
+        }
+        if let Some(manager) = &listener.capture_manager {
+            manager.victims().for_each(&mut name);
+        }
+        listener
+            .temporal
+            .warp_target()
+            .into_iter()
+            .for_each(&mut name);
+        listener.airstrike.owns_manager() || listener.parasite.eater().is_some()
     }
 
     /// Whether the pointer-expiry forwards an entity listener receives can
@@ -5032,13 +5040,15 @@ impl Simulation {
                 // The CaptureManager forward — `0x00707B14 CALL 0x00471F90` —
                 // sits inside the `if (control != 0)` block opened at
                 // `0x00707AE7`, so a dive leaves mind-control links alone while
-                // a death drops them.
+                // a death drops them. It changes nothing unless a node names
+                // the expiring object, so only then is the listener handed out.
                 if control == PointerExpiryControl::Uninit
                     && self
                         .substrate
                         .entities
                         .get(listener_id)
-                        .is_some_and(|entity| entity.capture_manager.is_some())
+                        .and_then(|entity| entity.capture_manager.as_ref())
+                        .is_some_and(|manager| manager.victims().any(|victim| victim == expired_id))
                     && let Some(manager) = self
                         .substrate
                         .entities

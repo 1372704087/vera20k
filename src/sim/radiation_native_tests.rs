@@ -200,3 +200,40 @@ fn equal_current_fields_with_different_update_order_hash_differently() {
         "equal current levels must not hide a different future subtraction order"
     );
 }
+
+#[test]
+fn serialized_radius_that_changes_future_decay_is_hash_relevant() {
+    let mut original = crate::sim::world::Simulation::new();
+    original.radiation.apply_detonation(
+        RadDetonation {
+            rx: 17,
+            ry: 24,
+            rad_level: 500,
+            spread: 10,
+        },
+        0,
+        &RadiationRules::default(),
+        None,
+        &mut Vec::new(),
+    );
+    let mut restored = crate::sim::world::Simulation::new();
+    restored.radiation =
+        bincode::deserialize(&bincode::serialize(&original.radiation).unwrap()).unwrap();
+    restored
+        .radiation
+        .sites
+        .get_mut(&(17, 24))
+        .unwrap()
+        .radius_leptons += 1;
+    assert_eq!(original.restore_after_snapshot_load(), Ok(()));
+    assert_eq!(restored.restore_after_snapshot_load(), Ok(()));
+    assert_eq!(
+        original.radiation.cell_level((24, 24)).to_bits(),
+        restored.radiation.cell_level((24, 24)).to_bits()
+    );
+    assert_ne!(
+        original.state_hash(),
+        restored.state_hash(),
+        "admitted saved radii control future decay even with equal current cells"
+    );
+}

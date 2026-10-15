@@ -687,21 +687,15 @@ impl crate::sim::world::Simulation {
                     }
                 });
                 let cells = NativeCellQuery::canonical(self.resolved_terrain.as_ref().unwrap());
-                let packed = cells.coord(cell);
-                let ground_raw = self
-                    .substrate
-                    .raw_cell_occupation
-                    .bits_at(key, MovementLayer::Ground);
-                let selected_raw = self.substrate.raw_cell_occupation.bits_at(key, layer);
-                let gate_open = selected_raw & 0x20 == 0
-                    && ground_raw & 0x40 != 0
-                    && super::bump_crush::ground_gate_is_open(
-                        &self.substrate.occupancy,
-                        &self.substrate.entities,
-                        Some(rules),
-                        &self.interner,
-                        (packed.0 as u16, packed.1 as u16),
-                    );
+                let gate_open = super::bump_crush::native_ground_gate_open(
+                    &self.substrate.raw_cell_occupation,
+                    &self.substrate.occupancy,
+                    &self.substrate.entities,
+                    Some(rules),
+                    &self.interner,
+                    key,
+                    layer,
+                );
                 let slot = super::bump_crush::place_infantry_in_native_cell(
                     &self.substrate.raw_cell_occupation,
                     key,

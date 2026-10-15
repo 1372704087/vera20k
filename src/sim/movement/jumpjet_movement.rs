@@ -401,7 +401,8 @@ impl JumpjetRuntime {
     }
 }
 
-/// 54D6D0's Infantry (RTTI15) receiver: 4ACA10 selects the actual raw
+/// 54D6D0's Infantry (RTTI15) receiver: 4ACA10
+/// ([`super::bump_crush::pick_infantry_sublocation`]) selects the actual raw
 /// subcell, then ground height is sampled AGAIN at the returned XY. The
 /// second sample matters on slopes. No raw reservation is written here.
 pub(crate) fn infantry_destination_coordinate(
@@ -414,31 +415,15 @@ pub(crate) fn infantry_destination_coordinate(
     interner: &crate::sim::intern::StringInterner,
     rng: &mut crate::sim::rng::SimRng,
 ) -> Option<DriveCoord> {
-    use super::locomotor::MovementLayer;
-    use crate::sim::{cell_kernel, occupancy::RawCellKey};
-    let cell = terrain.native_cell_identity(((input.x / 256) as i16, (input.y / 256) as i16));
-    let level = match cell {
-        crate::map::cell_index::NativeCellIdentity::Real(index) => terrain.cells()[index].level,
-        crate::map::cell_index::NativeCellIdentity::Dummy => {
-            terrain.shared_cell_dummy().snapshot().level as u8
-        }
-    };
-    let bridge = cell_kernel::selects_infantry_bridge_layer(
-        terrain.native_cell_flags(cell) & 0x100 != 0,
-        level,
-        input.z,
-    );
-    let key = RawCellKey::from_native(terrain, cell);
-    let layer = if bridge {
-        MovementLayer::Bridge
-    } else {
-        MovementLayer::Ground
-    };
-    let gate_open = super::bump_crush::native_ground_gate_open(
-        raw, occupancy, entities, rules, interner, key, layer,
-    );
-    let slot = super::bump_crush::place_infantry_in_native_cell(
-        raw, key, layer, input, false, gate_open, rng,
+    let (slot, bridge) = super::bump_crush::pick_infantry_sublocation(
+        Some(terrain),
+        raw,
+        occupancy,
+        entities,
+        rules,
+        interner,
+        rng,
+        input,
     )?;
     let first_ground =
         super::ground_pose::ground_surface_z_at([input.x, input.y], false, Some(terrain), None)?;

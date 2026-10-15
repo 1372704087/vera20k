@@ -739,4 +739,41 @@ mod tests {
             MissionTimer::armed(0, 180)
         );
     }
+
+    /// PlaceInfantryInCell refuses a ground object bit unless its building
+    /// is an open Gate (`0x00481298..0x00481313`). `0x004ACA10`, which places
+    /// unloaded passengers, deployed slaves and Jumpjet infantry, reads the
+    /// live Gate.
+    #[test]
+    fn an_open_gates_cell_admits_an_infantry_sublocation() {
+        let (mut sim, rules) = fixture();
+        sim.substrate.raw_cell_occupation.mark_ground(
+            10,
+            10,
+            crate::sim::cell_kernel::INFANTRY_OCCUPATION_OBJECT_BIT,
+        );
+        let pick = |sim: &mut Simulation| {
+            crate::sim::movement::bump_crush::pick_infantry_sublocation(
+                sim.resolved_terrain.as_ref(),
+                &sim.substrate.raw_cell_occupation,
+                &sim.substrate.occupancy,
+                &sim.substrate.entities,
+                Some(&rules),
+                &sim.interner,
+                &mut sim.scenario_rng,
+                crate::sim::components::DriveCoord {
+                    x: 10 * 256 + 200,
+                    y: 10 * 256 + 40,
+                    z: 0,
+                },
+            )
+        };
+        assert_eq!(pick(&mut sim), None, "a closed Gate's cell refuses");
+        request_gate_open_for_cell(&mut sim, (10, 10), 1, &rules);
+        let gate = sim.substrate.entities.get_mut(100).unwrap();
+        gate.open_door(0, 0);
+        gate.advance_door(0);
+        assert!(sim.substrate.entities.get(100).unwrap().is_open_gate());
+        assert_eq!(pick(&mut sim), Some((2, false)));
+    }
 }

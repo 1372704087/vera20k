@@ -113,7 +113,6 @@ use crate::sim::miner::{CargoBale, MinerConfig, ResourceType};
 use crate::sim::mission::authority::queue_entity_mission_deferred;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::bump_crush;
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{
@@ -1283,7 +1282,7 @@ impl Simulation {
     }
 
     /// DeploySlaves (`0x006B04C0`): every node in state 0, last first. The
-    /// drop cell's centre asks for an infantry spot (`0x004ACA10`, the
+    /// drop cell's GetCoords asks for an infantry spot (`0x004ACA10`, the
     /// CellClass::PlaceInfantryInCell `RandomRanged(0, 3)` row draw); a spot
     /// becomes the Unlimbo coordinate at facing 0, and a slave that lands
     /// scatters away from the owner's centre (`Scatter(coord, 1, 1)`) and
@@ -1315,17 +1314,25 @@ impl Simulation {
             if drop == (0, 0) {
                 continue;
             }
-            // A drop cell inside a foundation is never a bridge deck, so
-            // 0x004ACA10's bridge flag is clear.
-            let centre = crate::util::fixed_math::SimFixed::from_num(128);
-            let Some(spot) = bump_crush::place_infantry_in_cell(
-                &self.substrate.raw_cell_occupation,
+            // `0x006B05B9..0x006B05EF`: 0x004ACA10 at the drop cell's
+            // GetCoords, whose floor Z never stands on a deck.
+            let coords = crate::sim::movement::target_cell_coord(
                 drop.0,
                 drop.1,
-                MovementLayer::Ground,
-                centre,
-                centre,
+                self.resolved_terrain
+                    .as_ref()
+                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+                    .as_ref(),
+            );
+            let Some((spot, _)) = bump_crush::pick_infantry_sublocation(
+                self.resolved_terrain.as_ref(),
+                &self.substrate.raw_cell_occupation,
+                &self.substrate.occupancy,
+                &self.substrate.entities,
+                Some(rules),
+                &self.interner,
                 &mut self.scenario_rng,
+                coords,
             ) else {
                 continue;
             };

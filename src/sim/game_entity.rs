@@ -1174,6 +1174,9 @@ impl GameEntity {
         self.techno_ctor_random_word = word;
     }
 
+    /// Before insertion only: a stored entity changes owner through
+    /// [`EntityStore::change_owner`](crate::sim::entity_store::EntityStore::change_owner),
+    /// which keeps the store's owner column.
     pub(crate) fn set_owner_for_test(&mut self, owner: InternedId) {
         self.owner = owner;
     }

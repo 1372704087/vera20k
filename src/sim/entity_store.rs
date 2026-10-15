@@ -21,6 +21,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::sim::game_entity::GameEntity;
+use crate::sim::intern::InternedId;
 use crate::sim::touch_log::{TouchLog, Touched};
 use crate::util::lookup_hash::LookupMap;
 
@@ -48,6 +49,13 @@ pub struct EntityStore {
     /// stable_id -> slot, for every slot that holds an entity. Only looked
     /// up, never iterated, so its order cannot reach a result.
     slot_of: LookupMap<u64, u32>,
+    /// VERA-only: each slot's owner, beside the boxed entities for walks that
+    /// ask only whose an object is ([`Self::owner_of`]). The entity's own
+    /// owner is the source of truth: [`Self::insert`] copies it and
+    /// [`Self::change_owner`], its one live writer, writes both. A removed
+    /// slot keeps a stale owner until [`Self::compact`] drops the slot.
+    /// Rebuilt on load, never saved or hashed.
+    owners: Vec<InternedId>,
     /// Derived InfantryClass registry, in monotonic construction-ID order.
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).
@@ -130,6 +138,7 @@ impl Clone for EntityStore {
             ids: self.ids.clone(),
             entities: self.entities.clone(),
             slot_of: self.slot_of.clone(),
+            owners: self.owners.clone(),
             infantry_registry: self.infantry_registry.clone(),
             techno_registry: self.techno_registry.clone(),
             touched: TouchLogs::everything(),
@@ -155,6 +164,7 @@ impl EntityStore {
             ids: Vec::new(),
             entities: Vec::new(),
             slot_of: HashMap::default(),
+            owners: Vec::new(),
             infantry_registry: Vec::new(),
             techno_registry: Vec::new(),
             touched: TouchLogs::everything(),
@@ -167,22 +177,27 @@ impl EntityStore {
         let id = entity.stable_id();
         self.touched.note(id, self.len());
         let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
+        let owner = entity.owner();
         let entity = Some(Box::new(entity));
         if let Some(&slot) = self.slot_of.get(&id) {
             self.entities[slot as usize] = entity;
+            self.owners[slot as usize] = owner;
         } else if self.ids.last().is_none_or(|&last| last < id) {
             self.slot_of.insert(id, self.ids.len() as u32);
             self.ids.push(id);
             self.entities.push(entity);
+            self.owners.push(owner);
         } else {
             // An id below the newest: a fixture's, or a removed id stored again.
             let slot = self.ids.partition_point(|&stored| stored < id);
             if self.ids[slot] == id {
                 self.entities[slot] = entity;
+                self.owners[slot] = owner;
                 self.slot_of.insert(id, slot as u32);
             } else {
                 self.ids.insert(slot, id);
                 self.entities.insert(slot, entity);
+                self.owners.insert(slot, owner);
                 self.reindex_from(slot);
             }
         }
@@ -224,11 +239,13 @@ impl EntityStore {
             if self.entities[slot].is_some() {
                 self.ids.swap(kept, slot);
                 self.entities.swap(kept, slot);
+                self.owners.swap(kept, slot);
                 kept += 1;
             }
         }
         self.ids.truncate(kept);
         self.entities.truncate(kept);
+        self.owners.truncate(kept);
         self.reindex_from(0);
     }
 
@@ -276,6 +293,19 @@ impl EntityStore {
     pub fn get(&self, stable_id: u64) -> Option<&GameEntity> {
         let slot = *self.slot_of.get(&stable_id)?;
         self.entities[slot as usize].as_deref()
+    }
+
+    /// `stable_id`'s owner, read from the owner column without touching the
+    /// entity. Debug builds check it against the entity (the live-read check).
+    pub(crate) fn owner_of(&self, stable_id: u64) -> Option<InternedId> {
+        let slot = *self.slot_of.get(&stable_id)? as usize;
+        let owner = self.owners[slot];
+        debug_assert!(
+            !crate::sim::touch_log::live_read_check_enabled()
+                || self.entities[slot].as_deref().map(GameEntity::owner) == Some(owner),
+            "the owner column disagrees with entity {stable_id}"
+        );
+        Some(owner)
     }
 
     /// `stable_id`'s entity and the slot it is stored in. Slots stay put
@@ -421,6 +451,7 @@ impl EntityStore {
             && e.owner() != new_owner
         {
             e.set_owner_from_store(new_owner, OwnerChangeAuthority(()));
+            self.owners[slot as usize] = new_owner;
         }
     }
 
@@ -505,6 +536,7 @@ impl<'de> serde::Deserialize<'de> for EntityStore {
         for (id, entity) in entities {
             store.slot_of.insert(id, store.ids.len() as u32);
             store.ids.push(id);
+            store.owners.push(entity.owner());
             store.entities.push(Some(entity));
         }
         store.rebuild_infantry_registry();
@@ -566,11 +598,15 @@ mod tests {
     }
 
     /// Insert, remove and lookup answer as the former `BTreeMap` storage did,
-    /// across compactions, re-stored ids and ids below the newest.
+    /// across compactions, re-stored ids and ids below the newest, and the
+    /// owner column follows every entity's owner through them and through
+    /// `change_owner`.
     #[test]
     fn storage_answers_as_an_ordered_map_through_compactions() {
         let mut store = EntityStore::new();
         let mut model: BTreeMap<u64, u16> = BTreeMap::new();
+        let houses = ["Americans", "Russians", "YuriCountry"].map(crate::sim::intern::test_intern);
+        let mut owners: BTreeMap<u64, InternedId> = BTreeMap::new();
         let mut seed = 0x2545_f491_4f6c_dd1d_u64;
         let mut next = |bound: u64| {
             seed ^= seed << 13;
@@ -593,16 +629,20 @@ mod tests {
                     newest += 1 + next(3);
                     let mut entity = make_entity(newest);
                     entity.position.set_rx_for_test(step as u16);
+                    entity.set_owner_for_test(houses[step % 3]);
                     store.insert(entity);
                     model.insert(newest, step as u16);
+                    owners.insert(newest, houses[step % 3]);
                 }
                 // A fixture's id below the newest, or a removed id stored again.
                 5 => {
                     let id = next(newest + 1);
                     let mut entity = make_entity(id);
                     entity.position.set_rx_for_test(step as u16);
+                    entity.set_owner_for_test(houses[step % 3]);
                     store.insert(entity);
                     model.insert(id, step as u16);
+                    owners.insert(id, houses[step % 3]);
                 }
                 0..=8 => {
                     // While removing, pick a stored id most of the time.
@@ -612,6 +652,7 @@ mod tests {
                         next(newest + 1)
                     };
                     assert_eq!(store.remove(id).map(|e| e.position.rx()), model.remove(&id));
+                    owners.remove(&id);
                 }
                 _ => {
                     let id = next(newest + 1);
@@ -620,6 +661,10 @@ mod tests {
                     }
                     if let Some(rx) = model.get_mut(&id) {
                         *rx = step as u16;
+                    }
+                    store.change_owner(id, houses[step % 3]);
+                    if let Some(owner) = owners.get_mut(&id) {
+                        *owner = houses[step % 3];
                     }
                 }
             }
@@ -633,7 +678,14 @@ mod tests {
                 store.get(probe).map(|e| e.position.rx()),
                 model.get(&probe).copied()
             );
+            assert_eq!(store.owner_of(probe), owners.get(&probe).copied());
             if step % 97 == 0 {
+                assert!(
+                    owners
+                        .iter()
+                        .all(|(&id, &owner)| store.owner_of(id) == Some(owner)
+                            && store.get(id).map(GameEntity::owner) == Some(owner))
+                );
                 assert_eq!(store.len(), model.len());
                 assert_eq!(
                     store.keys_sorted(),
@@ -673,6 +725,7 @@ mod tests {
             store.insert(make_entity(id));
         }
         store.remove(9);
+        store.change_owner(7, crate::sim::intern::test_intern("Russians"));
         let map: BTreeMap<u64, Box<GameEntity>> = [2, 4, 7]
             .into_iter()
             .map(|id| (id, Box::new(store.get(id).unwrap().clone())))
@@ -682,6 +735,9 @@ mod tests {
         let restored: EntityStore = bincode::deserialize(&saved).unwrap();
         assert_eq!(restored.keys_sorted(), [2, 4, 7]);
         assert_eq!(restored.techno_registry, [2, 4, 7]);
+        for id in [2, 4, 7] {
+            assert_eq!(restored.owner_of(id), Some(store.get(id).unwrap().owner()));
+        }
         assert_eq!(bincode::serialize(&restored).unwrap(), saved);
     }
 

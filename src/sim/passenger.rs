@@ -3331,8 +3331,8 @@ ConditionYellow=50%
         // Supplied first-board ownership precedes the native AddOccupant's
         // threat-refresh tail. The building helper already constructs the
         // Structure mission receiver; direct-cargo fixtures keep that class.
+        sim.substrate.entities.change_owner(building_id, owner_id);
         if let Some(bldg) = sim.substrate.entities.get_mut(building_id) {
-            bldg.set_owner_for_test(owner_id);
             bldg.set_category_for_test(crate::map::entities::EntityCategory::Structure);
         }
         sim.refresh_spatial_threat(building_id, rules, None);

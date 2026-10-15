@@ -1102,9 +1102,9 @@ fn factory_per_cell_fixture(
         ai_counter: 11,
         dispatch_timer: MissionDispatchTimer::from_raw(3, 90),
     };
+    sim.substrate.entities.change_owner(1, owner);
     let unit = sim.substrate.entities.get_mut(1).unwrap();
     unit.set_type_ref_for_test(type_ref);
-    unit.set_owner_for_test(owner);
     unit.mission.apply_test_fixture(guard);
     assert!(unit.locomotor.as_mut().unwrap().store_track_head(
         crate::sim::movement::track_process::TrackFamily::Drive,

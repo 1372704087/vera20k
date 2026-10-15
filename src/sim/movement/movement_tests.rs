@@ -101,7 +101,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .turn_index
+            .turn_index()
             >= 0
     );
 
@@ -127,7 +127,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
                     .and_then(|r| r.retained())
                     .unwrap()
                     .track()
-                    .turn_index,
+                    .turn_index(),
                 -1
             );
             assert_eq!((entity.position.rx(), entity.position.ry()), (1, 0));
@@ -271,11 +271,12 @@ fn test_drive_arrival_clears_navcom_same_tick() {
                     .with_head_to_for_test(Some(crate::sim::components::DriveCoord::cell(0, 0, 0)))
                     .with_track_valid_for_test(true)
                     .with_target_speed_fraction_for_test(one_lepton)
-                    .with_track_for_test(crate::sim::components::TrackProgress {
-                        turn_index: 0,
-                        cursor: drive_track::raw_track_points(1).len() as i32,
-                        residual: 7,
-                        ..Default::default()
+                    .with_track_for_test({
+                        let mut value = crate::sim::components::TrackProgress::default();
+                        value.set_turn_index(0);
+                        value.set_cursor(drive_track::raw_track_points(1).len() as i32);
+                        value.set_residual(7);
+                        value
                     })
             ))
     );
@@ -298,8 +299,8 @@ fn test_drive_arrival_clears_navcom_same_tick() {
         .expect("drive state");
     assert_eq!(drive.head_to(), None);
     assert!(!drive.track_valid());
-    assert_eq!(drive.track().turn_index, -1);
-    assert_eq!(drive.track().cursor, 0);
+    assert_eq!(drive.track().turn_index(), -1);
+    assert_eq!(drive.track().cursor(), 0);
     assert_eq!(drive.destination(), None);
 }
 
@@ -935,12 +936,11 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
             .as_mut()
             .unwrap()
             .install_drive_state_for_test(Some(
-                crate::sim::movement::DriveLocomotionRuntime::default().with_track_for_test(
-                    crate::sim::components::TrackProgress {
-                        residual: 5,
-                        ..Default::default()
-                    }
-                )
+                crate::sim::movement::DriveLocomotionRuntime::default().with_track_for_test({
+                    let mut value = crate::sim::components::TrackProgress::default();
+                    value.set_residual(5);
+                    value
+                })
             ))
     );
     sim.substrate.entities.insert(entity);
@@ -987,9 +987,9 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
         .unwrap();
     assert_eq!(drive.destination(), Some(head));
     assert_eq!(drive.head_to(), Some(head));
-    assert_eq!(drive.track().turn_index, 0x47);
-    assert_eq!(drive.track().cursor, 0);
-    assert_eq!(drive.track().residual, 5);
+    assert_eq!(drive.track().turn_index(), 0x47);
+    assert_eq!(drive.track().cursor(), 0);
+    assert_eq!(drive.track().residual(), 5);
     assert!(drive.track_valid());
     assert!(sim.substrate.occupancy.contains_entity(13, 11, 1));
     assert!(!sim.substrate.occupancy.contains_entity(13, 12, 1));
@@ -1050,8 +1050,8 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
     assert_eq!(drive.head_to(), None);
     assert_eq!(drive.occupation_head_to(), None);
     assert!(!drive.track_valid());
-    assert_eq!(drive.track().turn_index, -1);
-    assert_eq!(drive.track().cursor, 0);
+    assert_eq!(drive.track().turn_index(), -1);
+    assert_eq!(drive.track().cursor(), 0);
     assert_eq!(
         sim.substrate
             .cell_occupation
@@ -1465,7 +1465,7 @@ fn sharp_turn_preserves_path_node_count() {
     );
     let drive = drive_locomotion.as_ref().expect("substitute curve");
     assert_eq!(
-        drive_track::turn_track_at(drive.track().turn_index as usize)
+        drive_track::turn_track_at(drive.track().turn_index() as usize)
             .unwrap()
             .normal_track,
         1,

@@ -325,7 +325,7 @@ fn supplied_world(
             .jumpjet_runtime_mut()
             .unwrap();
         let mut flight = runtime.flight();
-        flight.facing.snap(
+        flight.facing_mut().snap(
             signed(&state["loco_facing"]["destination_word"]) as u16,
             sim.session.binary_frame,
         );
@@ -518,22 +518,22 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
     );
     let flight = runtime.flight();
     assert_eq!(
-        format!("{:016x}", flight.current_speed_bits),
+        format!("{:016x}", flight.current_speed_bits()),
         state["current_speed_bits"].as_str().unwrap(),
         "{label}: current speed"
     );
     assert_eq!(
-        format!("{:016x}", flight.target_speed_bits),
+        format!("{:016x}", flight.target_speed_bits()),
         state["target_speed_bits"].as_str().unwrap(),
         "{label}: target speed"
     );
     assert_eq!(
-        flight.target_height,
+        flight.target_height(),
         signed(&state["target_height"]),
         "{label}: target height"
     );
     assert_eq!(
-        format!("{:016x}", flight.bob_phase_bits),
+        format!("{:016x}", flight.bob_phase_bits()),
         state["bob_phase_bits"].as_str().unwrap(),
         "{label}: bob phase"
     );
@@ -543,7 +543,7 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
         "{label}: body facing"
     );
     assert_eq!(
-        facing_fields(flight.facing),
+        facing_fields(*flight.facing()),
         state["loco_facing"],
         "{label}: locomotor facing"
     );
@@ -794,7 +794,7 @@ fn execute_step(
                 .jumpjet_runtime_mut()
                 .unwrap();
             let mut flight = runtime.flight();
-            flight.target_height = signed(&inputs["target_height"]);
+            flight.set_target_height(signed(&inputs["target_height"]));
             *runtime = runtime
                 .clone()
                 .with_phase_for_test(signed(&inputs["phase"]))

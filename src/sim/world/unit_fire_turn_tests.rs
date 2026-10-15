@@ -92,12 +92,7 @@ fn install_paid_track(sim: &mut Simulation, id: u64) {
                     .with_head_to_for_test(Some(DriveCoord::cell(x, y - 1, 0)))
                     .with_track_valid_for_test(true)
                     .with_target_speed_fraction_for_test(SimFixed::from_num(1))
-                    .with_track_for_test(TrackProgress {
-                        turn_index: 0,
-                        cursor: 0,
-                        reversed: false,
-                        residual: 0,
-                    })
+                    .with_track_for_test(TrackProgress::for_test(0, 0, false, 0))
             ))
     );
     // The accepted head (x, y-1) was the route's last cell, so Foot+5E0

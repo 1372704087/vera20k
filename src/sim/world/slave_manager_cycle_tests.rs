@@ -59,7 +59,7 @@ fn node_states(s: &SlaveScene) -> Vec<SlaveState> {
         .unwrap()
         .nodes()
         .iter()
-        .map(|node| node.state)
+        .map(|node| node.state())
         .collect()
 }
 
@@ -626,15 +626,15 @@ fn a_dead_slave_is_regrown_after_the_regen_rate_and_goes_out_again() {
             .nodes()[0]
     };
     let lost = node(&s);
-    assert_eq!((lost.slave, lost.state), (None, SlaveState::Dead));
+    assert_eq!((lost.slave(), lost.state()), (None, SlaveState::Dead));
     assert_eq!(
-        (lost.timer.start_frame(), lost.timer.duration()),
+        (lost.timer().start_frame(), lost.timer().duration()),
         (died_at, 500)
     );
     let mut regrown = None;
     for _ in 0..560 {
         frame(&mut s);
-        if let Some(id) = node(&s).slave {
+        if let Some(id) = node(&s).slave() {
             regrown.get_or_insert(id);
         }
     }
@@ -652,9 +652,9 @@ fn a_dead_slave_is_regrown_after_the_regen_rate_and_goes_out_again() {
         Some(s.master)
     );
     assert!(
-        matches!(node(&s).state, SlaveState::Scanning | SlaveState::Moving),
+        matches!(node(&s).state(), SlaveState::Scanning | SlaveState::Moving),
         "let out again: {:?}",
-        node(&s).state
+        node(&s).state()
     );
 }
 

@@ -1105,7 +1105,7 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
             );
             let timer = actor.infantry.unwrap().idle_action_timer();
             assert_eq!(
-                [timer.start_frame as i32, timer.duration as i32],
+                [timer.start_frame() as i32, timer.duration() as i32],
                 [
                     signed(&row["after"]["idle_timer"][0]),
                     signed(&row["after"]["idle_timer"][2])
@@ -1115,8 +1115,8 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
         }
         assert_eq!(
             [
-                actor.passive_scan.timer().start_frame as i32,
-                actor.passive_scan.timer().duration as i32
+                actor.passive_scan.timer().start_frame() as i32,
+                actor.passive_scan.timer().duration() as i32
             ],
             [
                 signed(&row["after"]["targeting_timer"][0]),
@@ -1465,8 +1465,8 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
     );
     assert_eq!(
         [
-            actor.passive_scan.timer().start_frame as i32,
-            actor.passive_scan.timer().duration as i32
+            actor.passive_scan.timer().start_frame() as i32,
+            actor.passive_scan.timer().duration() as i32
         ],
         [
             signed(&expected["targeting_timer"][0]),
@@ -1494,7 +1494,7 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
         assert_eq!(leaf.doing(), signed(&expected["doing"]), "{name}: Doing");
         let timer = actor.infantry.as_ref().unwrap().idle_action_timer();
         assert_eq!(
-            [timer.start_frame as i32, timer.duration as i32],
+            [timer.start_frame() as i32, timer.duration() as i32],
             [
                 signed(&expected["idle_timer"][0]),
                 signed(&expected["idle_timer"][2])

@@ -819,8 +819,8 @@ mod tests {
             let mut track = loco
                 .track_progress(super::super::track_process::TrackFamily::Drive)
                 .unwrap();
-            track.turn_index = input["turn_index"].as_i64().unwrap_or(-1) as i32;
-            track.cursor = input["cursor"].as_i64().unwrap_or(0) as i32;
+            track.set_turn_index(input["turn_index"].as_i64().unwrap_or(-1) as i32);
+            track.set_cursor(input["cursor"].as_i64().unwrap_or(0) as i32);
             loco.store_track_progress(super::super::track_process::TrackFamily::Drive, track);
             loco.store_track_head(super::super::track_process::TrackFamily::Drive, Some(head));
         } else {
@@ -1050,8 +1050,8 @@ mod tests {
         let mut track = loco
             .track_progress(super::super::track_process::TrackFamily::Drive)
             .unwrap();
-        track.turn_index = 1;
-        track.cursor = 12;
+        track.set_turn_index(1);
+        track.set_cursor(12);
         loco.store_track_progress(super::super::track_process::TrackFamily::Drive, track);
         peer.navigation.path_replay.set_reference_cell(Some((5, 4)));
         peer.navigation

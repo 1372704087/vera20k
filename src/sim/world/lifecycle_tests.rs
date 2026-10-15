@@ -2319,7 +2319,7 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         .unwrap()
         .fly_runtime_mut()
         .unwrap()
-        .current_speed = SimFixed::from_num(1);
+        .set_current_speed(SimFixed::from_num(1));
     sim.tick_air_movement_with_cell_lists_one(
         20,
         None,
@@ -3832,8 +3832,8 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(listener.passive_scan.timer().start_frame, 105);
-    assert_eq!(listener.passive_scan.timer().duration, delay);
+    assert_eq!(listener.passive_scan.timer().start_frame(), 105);
+    assert_eq!(listener.passive_scan.timer().duration(), delay);
     assert_eq!(
         listener.mission.current(),
         MissionId::from_known(MissionType::Guard)
@@ -8820,8 +8820,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         loco.set_fly_target_height(600);
 
         let fly = loco.fly_runtime_mut().unwrap();
-        fly.current_speed = SIM_ONE;
-        fly.target_speed = SIM_ONE;
+        fly.set_current_speed(SIM_ONE);
+        fly.set_target_speed(SIM_ONE);
         let cells = sim
             .resolved_terrain
             .as_ref()
@@ -8852,8 +8852,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         // Fly lands there (`0x004CE3C0`'s Begin_Landing).
         let loco = entity.locomotor.as_mut().unwrap();
         let fly = loco.fly_runtime_mut().unwrap();
-        fly.current_speed = SIM_ZERO;
-        fly.target_speed = SIM_ZERO;
+        fly.set_current_speed(SIM_ZERO);
+        fly.set_target_speed(SIM_ZERO);
         loco.begin_fly_landing();
         loco.set_fly_target_height(0);
 

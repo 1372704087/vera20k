@@ -154,7 +154,7 @@ pub(crate) fn begin_path_tube_step(
         && locomotor
             .as_ref()
             .and_then(|loco| loco.track_progress(TrackFamily::Drive))
-            .is_some_and(|track| track.turn_index != -1)
+            .is_some_and(|track| track.turn_index() != -1)
     {
         return Err(TubeBeginError::MissingTerrain);
     }
@@ -194,7 +194,7 @@ pub(crate) fn begin_path_tube_step(
             }),
         );
         loco.store_track_valid(TrackFamily::Drive, true); // Original4B1480.
-        progress.turn_index = -1; // Original4B1484; cursor is untouched.
+        progress.set_turn_index(-1); // Original4B1484; cursor is untouched.
         loco.store_track_progress(TrackFamily::Drive, progress);
     }
     super::path_markers::consume_path_replay(path_replay, 1);
@@ -996,12 +996,7 @@ mod tests {
             y: -17,
             z: 731,
         };
-        let retained = crate::sim::components::TrackProgress {
-            turn_index: -1,
-            cursor: -1,
-            reversed: true,
-            residual: 6,
-        };
+        let retained = crate::sim::components::TrackProgress::for_test(-1, -1, true, 6);
         let loco = entity.locomotor.as_mut().unwrap();
         loco.store_track_destination(TrackFamily::Drive, Some(destination));
         loco.store_track_head(

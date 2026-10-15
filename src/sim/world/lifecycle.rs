@@ -2559,7 +2559,7 @@ impl Simulation {
                     .unwrap()
                     .fly_runtime_mut()
                     .unwrap()
-                    .target_speed = crate::util::fixed_math::SIM_ONE;
+                    .set_target_speed(crate::util::fixed_math::SIM_ONE);
             }
         }
     }

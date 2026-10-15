@@ -153,8 +153,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     entity.body_facing = facing;
     let loco = entity.locomotor.as_mut().unwrap();
     loco.set_fly_target_height(int(input, "target_height", 1500) as i32);
-    loco.fly_runtime_mut().unwrap().current_speed =
-        SimFixed::from_bits(int(input, "speed_bits", 65536) as i32);
+    loco.fly_runtime_mut()
+        .unwrap()
+        .set_current_speed(SimFixed::from_bits(int(input, "speed_bits", 65536) as i32));
     if int(input, "moving", 1) != 0 {
         let destination = input["destination"].as_array().map_or(
             DriveCoord {
@@ -871,8 +872,8 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
-        flight.facing.snap(0x4000, 1000);
-        flight.target_height = 500;
+        flight.facing_mut().snap(0x4000, 1000);
+        flight.set_target_height(500);
         *runtime = runtime
             .clone()
             .with_phase_for_test(crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_HOLD)
@@ -1285,7 +1286,7 @@ fn a_jumpjet_shot_down_touching_down_still_crashes() {
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
-        flight.target_height = 0;
+        flight.set_target_height(0);
         *runtime = runtime
             .clone()
             .with_phase_for_test(
@@ -1307,7 +1308,7 @@ fn a_jumpjet_shot_down_touching_down_still_crashes() {
         runtime.phase(),
         crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_ASCEND
     );
-    assert_eq!(runtime.flight().target_height, 500);
+    assert_eq!(runtime.flight().target_height(), 500);
     assert!(runtime.moving() && !runtime.landing_latched());
 
     let fall = fall_to_the_impact(&mut sim, &rules);

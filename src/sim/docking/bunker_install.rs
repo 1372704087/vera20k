@@ -582,7 +582,7 @@ mod tests {
                 .retained()
                 .unwrap();
             assert_eq!(
-                drive.track().turn_index,
+                drive.track().turn_index(),
                 integer(&expected["selector"]),
                 "{name}"
             );

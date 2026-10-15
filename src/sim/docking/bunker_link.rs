@@ -881,7 +881,7 @@ mod tests {
                 .and_then(|runtime| runtime.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             0x47
         );
         // Release queues Move (the host's Ready→Commence promotes it next pass).
@@ -915,7 +915,7 @@ mod tests {
                 .and_then(|runtime| runtime.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             0x47
         );
         assert_eq!(
@@ -1083,7 +1083,7 @@ mod tests {
                 .and_then(|runtime| runtime.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             0x47
         );
         assert_eq!(down_sounds(&sim), 0, "sell is silent (UndockUnit)");

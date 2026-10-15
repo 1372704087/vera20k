@@ -65,12 +65,7 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
                 DriveLocomotionRuntime::default()
                     .with_head_to_for_test(Some(head))
                     .with_track_valid_for_test(true)
-                    .with_track_for_test(TrackProgress {
-                        turn_index: 1,
-                        cursor: 37,
-                        reversed: false,
-                        residual: 0,
-                    })
+                    .with_track_for_test(TrackProgress::for_test(1, 37, false, 0))
             ))
     );
     mover.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
@@ -137,13 +132,13 @@ fn assert_old_chain_continues(sim: &Simulation) {
         .and_then(|l| l.selected_drive_runtime())
         .and_then(|r| r.retained())
         .unwrap();
-    assert_eq!(drive.track().turn_index, 1);
+    assert_eq!(drive.track().turn_index(), 1);
     assert_eq!(
-        drive.track().cursor,
+        drive.track().cursor(),
         38,
         "a refused chain still completes its paid point"
     );
-    assert_eq!(drive.track().residual, 1);
+    assert_eq!(drive.track().residual(), 1);
     assert_eq!(drive.head_to(), Some(DriveCoord::cell(10, 9, 0)));
     assert_eq!(mover.navigation.path_replay.cursor(), 0);
 }
@@ -264,9 +259,9 @@ fn production_chain_clear_and_code2_share_admission_and_never_scatter_or_repath(
                     .unwrap();
                 let selected =
                     super::super::drive_track::select_drive_track(32, 64, false).unwrap();
-                assert_eq!(drive.track().turn_index, selected.turn_track_index as i32);
-                assert_eq!(drive.track().cursor, i32::from(selected.entry_index));
-                assert_eq!(drive.track().residual, 1);
+                assert_eq!(drive.track().turn_index(), selected.turn_track_index as i32);
+                assert_eq!(drive.track().cursor(), i32::from(selected.entry_index));
+                assert_eq!(drive.track().residual(), 1);
                 assert_eq!(
                     drive.head_to(),
                     Some(DriveCoord::cell(CANDIDATE.0, CANDIDATE.1, 0))
@@ -401,7 +396,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
         Some(DriveCoord::cell(CANDIDATE.0, CANDIDATE.1, 0))
     );
     assert_eq!(
-        drive.track().residual,
+        drive.track().residual(),
         1,
         "the same paid call resumes after both removals"
     );

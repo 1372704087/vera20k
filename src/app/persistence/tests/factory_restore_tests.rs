@@ -614,7 +614,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .as_mut()
                     .unwrap();
                 let mut nodes = manager.nodes().to_vec();
-                nodes[0].slave = Some(parent);
+                nodes[0].set_slave_for_test(Some(parent));
                 let (state, frame, timer) = (manager.state(), manager.frame(), manager.ai_timer());
                 manager.set_for_test(state, frame, nodes, timer);
             }

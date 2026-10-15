@@ -943,12 +943,7 @@ mod tests {
                 .sample_process_entry(5, 200);
             let destination = Some(DriveCoord::cell(9, 8, 416));
             let head = Some(DriveCoord::cell(8, 8, 416));
-            let progress = TrackProgress {
-                turn_index: 3,
-                cursor: 7,
-                reversed: true,
-                residual: -11,
-            };
+            let progress = TrackProgress::for_test(3, 7, true, -11);
             let mark = DriveOccupationFootprint {
                 rx: 8,
                 ry: 8,

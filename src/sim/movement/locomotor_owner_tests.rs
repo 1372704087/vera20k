@@ -69,11 +69,12 @@ fn supply_drive_state(entity: &mut GameEntity) {
                     // Is_Moving compares exact XY only. Retained Z deliberately differs
                     // from the owner's height, so retirement cannot depend on full XYZ.
                     .with_head_to_for_test(Some(DriveCoord::cell(8, 8, 731)))
-                    .with_track_for_test(crate::sim::components::TrackProgress {
-                        turn_index: 1,
-                        cursor: 3,
-                        residual: 971,
-                        ..Default::default()
+                    .with_track_for_test({
+                        let mut value = crate::sim::components::TrackProgress::default();
+                        value.set_turn_index(1);
+                        value.set_cursor(3);
+                        value.set_residual(971);
+                        value
                     })
             ))
     );
@@ -229,7 +230,7 @@ fn out_of_contact_destination_installs_fresh_drive_without_previous_instance_sta
     activate_drive(entity);
     let loco = entity.locomotor.as_mut().unwrap();
     let mut track = loco.track_progress(TrackFamily::Drive).unwrap();
-    track.turn_index = 0x47;
+    track.set_turn_index(0x47);
     loco.store_track_progress(TrackFamily::Drive, track);
     assert!(sim.try_end_piggyback(1, None));
 
@@ -244,7 +245,7 @@ fn out_of_contact_destination_installs_fresh_drive_without_previous_instance_sta
         locomotor
             .track_progress(TrackFamily::Drive)
             .unwrap()
-            .residual,
+            .residual(),
         0
     );
     assert_eq!(entity.foot_speed.applied_fraction(), SimFixed::lit("0.5"));
@@ -378,7 +379,7 @@ fn stop_command_retires_only_the_drive_admitted_by_its_existing_gate() {
                     .unwrap()
                     .track_progress(TrackFamily::Drive)
                     .unwrap()
-                    .residual,
+                    .residual(),
                 971
             );
         } else {

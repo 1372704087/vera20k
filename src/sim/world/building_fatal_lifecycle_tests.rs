@@ -706,8 +706,8 @@ impl Fixture {
         );
         assert_eq!(
             [
-                attacker.passive_scan.timer().start_frame as i32,
-                attacker.passive_scan.timer().duration as i32
+                attacker.passive_scan.timer().start_frame() as i32,
+                attacker.passive_scan.timer().duration() as i32
             ],
             [
                 int(&expected["passive_scan_timer"][0]),

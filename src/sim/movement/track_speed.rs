@@ -71,7 +71,7 @@ fn publish_target_fraction(entity: &mut GameEntity, requested: SimFixed) {
     let Some(progress) = loco.track_progress(family) else {
         return;
     };
-    let selector = progress.turn_index;
+    let selector = progress.turn_index();
     if selector < 64 {
         loco.store_track_target_fraction(family, requested);
     } else if entity.foot_speed.applied_fraction() != requested {
@@ -152,7 +152,7 @@ pub(super) fn advance(
     );
     let family = TrackFamily::from_kind(kind).unwrap();
     let destination = loco.track_destination(family);
-    let selector = loco.track_progress(family).map_or(-1, |p| p.turn_index);
+    let selector = loco.track_progress(family).map_or(-1, |p| p.turn_index());
     let retained_target = loco.track_target_fraction(family);
     let prefix = super::drive_locomotion::TrackSpeedPrefix {
         accelerates: entity.mover_facts.drive_accelerates(),
@@ -203,7 +203,7 @@ mod tests {
         let loco = entity.locomotor.as_mut().unwrap();
         loco.ensure_installed_track_state();
         let mut progress = loco.track_progress(family).unwrap();
-        progress.turn_index = selector;
+        progress.set_turn_index(selector);
         loco.store_track_progress(family, progress);
         loco.store_track_valid(family, true);
         loco.store_track_target_fraction(family, target);

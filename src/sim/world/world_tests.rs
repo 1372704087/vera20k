@@ -1100,7 +1100,7 @@ fn a_flying_aircraft_starts_its_move_sound_on_its_speed() {
         locomotor
             .fly_runtime_mut()
             .expect("Fly runtime")
-            .current_speed = speed;
+            .set_current_speed(speed);
         entity.locomotor = Some(locomotor);
         sim.substrate.entities.insert(entity);
         let unchanged = sim
@@ -6856,7 +6856,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         .and_then(|r| r.retained())
         .unwrap()
         .track();
-    assert!(committed_track.turn_index >= 0);
+    assert!(committed_track.turn_index() >= 0);
     let committed_head = sim
         .substrate
         .entities
@@ -6924,7 +6924,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         .and_then(|r| r.retained())
         .unwrap()
         .track()
-        .cursor;
+        .cursor();
     let mut cursor_advanced = false;
     for _ in 0..32 {
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
@@ -6937,7 +6937,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
             .as_ref()
             .and_then(|l| l.selected_drive_runtime())
             .and_then(|r| r.retained())
-            .is_some_and(|drive| drive.track().cursor > initial_point_index);
+            .is_some_and(|drive| drive.track().cursor() > initial_point_index);
         if cursor_advanced {
             break;
         }
@@ -6981,7 +6981,10 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         .and_then(|l| l.selected_drive_runtime())
         .and_then(|r| r.retained())
         .unwrap();
-    assert_eq!((drive.track().turn_index, drive.track().cursor), (-1, 0));
+    assert_eq!(
+        (drive.track().turn_index(), drive.track().cursor()),
+        (-1, 0)
+    );
     assert_eq!(drive.head_to(), None);
     assert_eq!(drive.occupation_head_to(), None);
     assert!(
@@ -7100,7 +7103,7 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
         assert!(
             ship.track_progress(crate::sim::movement::track_process::TrackFamily::Ship)
                 .unwrap()
-                .turn_index
+                .turn_index()
                 >= 0
         );
         assert!(ship.store_track_target_fraction(

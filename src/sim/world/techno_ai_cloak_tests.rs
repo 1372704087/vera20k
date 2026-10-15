@@ -891,9 +891,10 @@ fn start_cloaking_drops_every_targeter_whose_house_cannot_sense_the_cell() {
         "the same-owner exemption also skips the re-arm"
     );
     assert_ne!(timers_after[1], timers_before[1]);
-    assert_eq!(timers_after[1].start_frame, sim.session.binary_frame);
+    assert_eq!(timers_after[1].start_frame(), sim.session.binary_frame);
     assert_eq!(
-        timers_after[1].duration, drawn,
+        timers_after[1].duration(),
+        drawn,
         "the re-armed delay is the RandomRanged(4, 8) result"
     );
 }

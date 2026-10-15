@@ -479,12 +479,12 @@ fn ground_command_fixture(
                         &drive["destination"]
                     ))
                     .with_head_to_for_test(ground_command_optional_coordinate(&drive["head"]))
-                    .with_track_for_test(TrackProgress {
-                        turn_index: drive["selector"].as_i64().unwrap() as i32,
-                        cursor: drive["cursor"].as_i64().unwrap() as i32,
-                        reversed: drive["reversed"] != 0,
-                        residual: drive["word_4c"].as_u64().unwrap() as i32
-                    })
+                    .with_track_for_test(TrackProgress::for_test(
+                        drive["selector"].as_i64().unwrap() as i32,
+                        drive["cursor"].as_i64().unwrap() as i32,
+                        drive["reversed"] != 0,
+                        drive["word_4c"].as_u64().unwrap() as i32
+                    ))
                     .with_track_valid_for_test(drive["valid"] != 0)
                     .with_turn_latched_for_test(drive["latch"] != 0)
                     .with_end_permitted_for_test(drive["flag_65"] != 0)
@@ -759,12 +759,12 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
         );
         assert_eq!(
             walk.track_progress(TrackFamily::Drive),
-            Some(TrackProgress {
-                turn_index: drive["selector"].as_i64().unwrap() as i32,
-                cursor: drive["cursor"].as_i64().unwrap() as i32,
-                reversed: drive["reversed"] != 0,
-                residual: drive["word_4c"].as_u64().unwrap() as i32
-            }),
+            Some(TrackProgress::for_test(
+                drive["selector"].as_i64().unwrap() as i32,
+                drive["cursor"].as_i64().unwrap() as i32,
+                drive["reversed"] != 0,
+                drive["word_4c"].as_u64().unwrap() as i32
+            )),
             "{context}: retained track progress"
         );
         assert_eq!(

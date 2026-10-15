@@ -209,8 +209,10 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         "airport_bound": flag(input, "airport_bound", false),
     }))
     .unwrap();
-    fly.target_speed = SimFixed::from_num(input["target_speed"].as_f64().unwrap_or(1.0));
-    fly.current_speed = SimFixed::from_num(input["speed"].as_f64().unwrap_or(1.0));
+    fly.set_target_speed(SimFixed::from_num(
+        input["target_speed"].as_f64().unwrap_or(1.0),
+    ));
+    fly.set_current_speed(SimFixed::from_num(input["speed"].as_f64().unwrap_or(1.0)));
     sim.aircraft_tracker_add(AIRCRAFT);
     sim.add_entity_occupancy(AIRCRAFT);
     sim.submit_entity_display(AIRCRAFT, Some(&rules), None);
@@ -435,8 +437,8 @@ fn frame_mismatch(
     // to a target, which with the start value's rounding keeps the current
     // speed within 4.5 quanta. The coordinates above compare exactly.
     for (key, value) in [
-        ("target_speed", fly.target_speed),
-        ("speed", fly.current_speed),
+        ("target_speed", fly.target_speed()),
+        ("speed", fly.current_speed()),
     ] {
         let native = expected[key].as_f64()?;
         if (value.to_num::<f64>() - native).abs() > 4.5 / 65536.0 {

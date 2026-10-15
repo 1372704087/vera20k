@@ -108,12 +108,7 @@ fn native_track_fixture(kind: LocomotorKind, budget: i32) -> (Simulation, TrackI
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked(true);
     let head = DriveCoord::cell(10, 9, 0);
-    let track = TrackProgress {
-        turn_index: 0,
-        cursor: 0,
-        reversed: false,
-        residual: 0,
-    };
+    let track = TrackProgress::for_test(0, 0, false, 0);
     if kind == LocomotorKind::Drive {
         assert!(
             entity
@@ -194,13 +189,12 @@ fn fresh_retry_terminal_retains_raw_head_for_both_track_families() {
         entity.position.set_sub_x(SimFixed::from_num(85));
         entity.position.set_sub_y(SimFixed::from_num(154));
         entity.position.set_exact_z_leptons(Some(104));
-        let track = TrackProgress {
-            turn_index: 0,
-            // The zero-XY sentinel is paid separately after all real points.
-            cursor: drive_track::raw_track_points(1).len() as i32,
-            reversed: false,
-            residual: 8,
-        };
+        let track = TrackProgress::for_test(
+            0, // The zero-XY sentinel is paid separately after all real points.
+            drive_track::raw_track_points(1).len() as i32,
+            false,
+            8,
+        );
         if kind == LocomotorKind::Drive {
             let state = entity.locomotor.as_mut().unwrap();
             assert!(state.store_track_head(
@@ -230,8 +224,8 @@ fn fresh_retry_terminal_retains_raw_head_for_both_track_families() {
             super::super::ground_pose::position_world_coord(&entity.position),
             DriveCoord { z: 0, ..head }
         );
-        assert_eq!(retained_track(entity, kind).turn_index, -1);
-        assert_eq!(retained_track(entity, kind).cursor, 0);
+        assert_eq!(retained_track(entity, kind).turn_index(), -1);
+        assert_eq!(retained_track(entity, kind).cursor(), 0);
         assert_eq!(super::super::track_head::committed_track_head(entity), None);
         assert_eq!(
             entity
@@ -263,8 +257,8 @@ fn drive_track_first_native_frame_uses_native_frame_budget() {
     let (mut sim, invocation, budget) = native_track_fixture(LocomotorKind::Drive, budget);
     assert_eq!(sim.run_track_points(invocation, budget, None, None), 1);
     let track = retained_track(sim.substrate.entities.get(1).unwrap(), LocomotorKind::Drive);
-    assert_eq!(track.cursor, 1);
-    assert_eq!(track.residual, 4);
+    assert_eq!(track.cursor(), 1);
+    assert_eq!(track.residual(), 4);
 }
 
 #[test]
@@ -305,10 +299,10 @@ fn drive_track_each_call_consumes_fresh_native_frame_budget() {
     let (mut sim, invocation, budget) = native_track_fixture(LocomotorKind::Drive, 11);
     sim.run_track_points(invocation, budget, None, None);
     let first = retained_track(sim.substrate.entities.get(1).unwrap(), LocomotorKind::Drive);
-    assert_eq!((first.cursor, first.residual), (1, 4));
+    assert_eq!((first.cursor(), first.residual()), (1, 4));
     sim.run_track_points(invocation, budget, None, None);
     let second = retained_track(sim.substrate.entities.get(1).unwrap(), LocomotorKind::Drive);
-    assert_eq!((second.cursor, second.residual), (3, 1));
+    assert_eq!((second.cursor(), second.residual()), (3, 1));
 }
 
 #[test]
@@ -323,20 +317,21 @@ fn fresh_track_pays_point_zero_and_terminal_through_the_production_host() {
         );
         let entity = sim.substrate.entities.get(1).unwrap();
         let progress = retained_track(entity, LocomotorKind::Drive);
-        assert_eq!(progress.cursor, expected_cursor);
-        assert_eq!(progress.residual, expected_residual);
+        assert_eq!(progress.cursor(), expected_cursor);
+        assert_eq!(progress.residual(), expected_residual);
         if budget == 168 {
             assert_eq!(
-                progress.turn_index, 0,
+                progress.turn_index(),
+                0,
                 "exactly seven cannot pay the sentinel"
             );
         } else {
-            assert_eq!(progress.turn_index, -1);
+            assert_eq!(progress.turn_index(), -1);
             assert_eq!(
                 super::super::ground_pose::position_world_xy(&entity.position),
                 [10 * 256 + 128, 9 * 256 + 128]
             );
-            assert_eq!(budget - progress.residual, 163);
+            assert_eq!(budget - progress.residual(), 163);
         }
     }
 }

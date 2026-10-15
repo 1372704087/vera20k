@@ -55,7 +55,7 @@ fn compare_foot(scene: &Scene, expected: &Value) {
             "blocked_timer": [path.blocked_timer().start_frame(), path.blocked_timer().duration()],
             "retries_left": path.retries_left(), "path_blocked": path.path_blocked(),
             "nav_queue_count": actor.navigation.nav_queue().len(), "path": words,
-            "head": [head.x, head.y, head.z], "selector": drive.track().turn_index,
+            "head": [head.x, head.y, head.z], "selector": drive.track().turn_index(),
             "valid": u8::from(drive.track_valid()), "in_playfield": actor.in_playfield(),
             "mission_only": actor.is_mission_only()
         }),

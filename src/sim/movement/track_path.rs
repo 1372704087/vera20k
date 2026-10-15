@@ -419,7 +419,7 @@ impl Simulation {
             && let Some(family) = super::track_process::TrackFamily::from_kind(loco.active_kind())
             && let Some(mut progress) = loco.track_progress(family)
         {
-            progress.turn_index = -1;
+            progress.set_turn_index(-1);
             loco.store_track_progress(family, progress);
         }
         Ok(FootPathOutcome::Returned)

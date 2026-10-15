@@ -115,7 +115,7 @@ fn idle_walk_scold_tails_match_original_through_ordinary_process() {
             actor.locomotor.as_mut().unwrap().runtime_payload_mut()
         {
             // Supplied retained byte at the native tail boundary.
-            state.animation_moving = true;
+            state.set_animation_moving(true);
         }
         actor.foot_speed.set_speed_fraction(initial_speed);
         actor

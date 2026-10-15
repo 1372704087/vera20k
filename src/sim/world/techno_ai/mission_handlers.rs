@@ -1626,7 +1626,8 @@ fn evaluate_foot_rescue(
             .entities
             .get_mut(id)
             .expect("Rescue receiver")
-            .clear_rescue_retarget_latch();
+            .foot_retarget_after_stop
+            .clear_for_rescue();
         let archive = sim
             .substrate
             .entities

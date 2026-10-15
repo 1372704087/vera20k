@@ -910,7 +910,7 @@ impl Simulation {
         let Some(owner) = self.substrate.entities.get_mut(master) else {
             return;
         };
-        owner.suppress_next_deploy_voice();
+        owner.suppress_deploy_voice.suppress();
         let (x, y) = owner_cell(owner);
         owner.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(
             x as u16, y as u16,

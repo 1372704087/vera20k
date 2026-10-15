@@ -209,7 +209,7 @@ pub(in crate::sim) fn exit_produced_object(
         return BuildingExit::Failed;
     };
     // Exit443C81 sets Techno+3D5 before RTTI, admission or Unlimbo.
-    entity.set_in_playfield(true);
+    entity.in_playfield.enter();
     let owner_id = entity.owner();
     let product_type_id = entity.type_ref();
     let Some(product_type) = sim.object_type(product_type_id, rules) else {

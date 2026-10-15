@@ -318,7 +318,7 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
         ) && let Some(entity) = self.substrate.entities.get_mut(id)
         {
-            entity.set_in_playfield(false);
+            entity.in_playfield.leave();
         }
     }
 

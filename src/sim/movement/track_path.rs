@@ -383,7 +383,7 @@ impl Simulation {
             return;
         }
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            actor.mark_stopped_cannot_fire();
+            actor.foot_retarget_after_stop.mark_stopped_cannot_fire();
         }
         if let Some((team_id, _)) = self.team_script_vm.team_for_member(id) {
             self.team_scan_limit(team_id, rules, registry, frame_effects);
@@ -892,11 +892,10 @@ impl Simulation {
                         })
                         .unwrap_or(false);
                     if damaged {
-                        crate::sim::docking::building_dock::set_pending_entry(
-                            self,
-                            id,
-                            Some(depot),
-                        );
+                        // `0x00741D9F`.
+                        if let Some(unit) = self.substrate.entities.get_mut(id) {
+                            unit.pending_entry.install(depot);
+                        }
                     } else {
                         crate::sim::radio::transmit_to_contact(
                             self,

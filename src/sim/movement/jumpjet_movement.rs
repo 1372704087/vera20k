@@ -697,7 +697,7 @@ impl Simulation {
             self.substrate
                 .entities
                 .get_mut(id)?
-                .set_landing_for_deploy(false);
+                .clear_landing_for_deploy();
             self.jumpjet_lift_ends_unload(id, rules);
         }
         Some(outcome)
@@ -764,7 +764,7 @@ impl Simulation {
             Some(StopOutcome::Retargeted(moved)) => {
                 if moved.lifted {
                     if let Some(entity) = self.substrate.entities.get_mut(id) {
-                        entity.set_landing_for_deploy(false);
+                        entity.clear_landing_for_deploy();
                     }
                     self.jumpjet_lift_ends_unload(id, rules);
                 }

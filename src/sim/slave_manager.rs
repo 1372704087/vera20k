@@ -75,12 +75,6 @@
 //!   refinery (or Construction Yard). Effect: no move order. Frequency:
 //!   occasional. Downstream: VERA's rally click archives a cell only on
 //!   rally-line factories, so a refinery never holds a player's archive.
-//! - The factory-exit hunt start runs at production: VERA hands a produced
-//!   unit its rally point there rather than at the factory exit
-//!   (`production_queue.rs`), so the Slave Miner's hunt begins a few frames
-//!   before native's, whose exit drive precedes it. Trigger: every Slave
-//!   Miner built. Effect: the first scan comes a few frames early.
-//!   Frequency: every build. Downstream: none beyond timing.
 //! - Two recall sites have no VERA anchor: FootClass::Mission_Hunt's reset
 //!   when it picks a destination (`0x004D553D..0x004D5547`; VERA's Hunt port
 //!   has no destination step) and FootClass::Mission_AreaGuard's hunt start
@@ -1014,36 +1008,6 @@ impl Simulation {
             .is_some();
         }
         false
-    }
-
-    /// `UnitClass::PerCellProcess @ 0x0073A98C..0x0073A9D9`: a unit leaving
-    /// its war factory (radio 8 answered 0x17) without a destination of its
-    /// own, neither a Harvester= nor a Weeder= type, that holds a slave
-    /// manager starts the hunt (`0x006B0CC0`) where another unit takes the
-    /// rally point or its computer house's base defence (`0x0073A9DE..`).
-    /// VERA hands a produced unit its rally point at production rather than
-    /// at the factory exit, so production asks this there. Answers whether
-    /// the rally move is skipped.
-    pub(crate) fn slave_master_leaves_factory(
-        &mut self,
-        id: u64,
-        rules: &RuleSet,
-        frame_effects: FrameEffects<'_>,
-    ) -> bool {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return false;
-        };
-        if entity.slave_manager.is_none() {
-            return false;
-        }
-        if self
-            .object_type(entity.type_ref(), rules)
-            .is_none_or(|object| object.harvester || object.weeder)
-        {
-            return false;
-        }
-        self.begin_slave_hunt(id, rules, frame_effects);
-        true
     }
 
     /// `0x006B0CC0`: an idle manager (state 0) starts its owner's hunt for a

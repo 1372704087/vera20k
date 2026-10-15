@@ -424,9 +424,9 @@ impl Simulation {
             return;
         }
         if unit.slave_manager.is_some() {
-            // RESIDUAL:73A9D4 invokes the existing SlaveManager6B0CC0 owner.
-            // The current delivery adapter starts its hunt earlier; its exact
-            // arrival integration remains a manager-lifecycle dependency.
+            //73A9CA..73A9D9: a Slave Miner's manager (+2D8) starts its hunt
+            // (6B0CC0) in place of the rally or post.
+            self.begin_slave_hunt(id, rules, effects);
             return;
         }
         let producer = contact
@@ -475,6 +475,9 @@ impl Simulation {
         // can be ported; SuspendedNavCom(+5A8) is not that vector. The composed
         // fresh human control publishes NavCom in the first Scatter and skips
         // this second call, so no invented count or factory marker is needed.
+        // The Slave Miner (73A9D9) and harvester (73AAF5) arms jump here too:
+        // with a null NavCom on a ground Building they would Scatter
+        // natively. VERA returns from both arms first.
     }
 
     /// `InfantryClass::Per_Cell_Process @ 0x00519630`: for reason 2 its

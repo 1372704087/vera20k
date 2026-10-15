@@ -2055,6 +2055,23 @@ fn published_completions_dispatch_multiple_categories_for_one_owner() {
     assert_eq!(vehicles, 1);
 }
 
+/// MapClass Size for the 32x32 exit fixtures below: In_Bounds
+/// (`0x00568300`) admits the cells around a factory at (10, 10), so their
+/// dock Cells fail only on the class entry test. Their `manager_rules`
+/// GAWEAP has no `WeaponsFactory=`, so its products take the generic arm,
+/// whose GetDock refuses water; the refund and promotion these tests pin
+/// follow any arm's refusal alike.
+fn install_exit_map_size(sim: &mut Simulation) {
+    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+        base: 16,
+        off_fc: -64,
+        off_100: -64,
+        off_104: 128,
+        off_108: 128,
+    });
+    sim.playfield_size_height = Some(32);
+}
+
 #[test]
 fn blocked_vehicle_delivery_refunds_disposes_and_promotes_next_item() {
     let mut sim = Simulation::new();
@@ -2062,6 +2079,7 @@ fn blocked_vehicle_delivery_refunds_disposes_and_promotes_next_item() {
     let terrain = water_terrain(32, 32);
     let grid = PathGrid::from_resolved_terrain(&terrain);
     sim.install_fixture_path_grid(Some(&grid));
+    install_exit_map_size(&mut sim);
     sim.resolved_terrain = Some(terrain);
 
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 10, 10);
@@ -2155,13 +2173,7 @@ fn failed_vehicle_exit_promotes_a_fresh_identity_that_can_deliver_after_cells_cl
     let mut terrain = water_terrain(32, 32);
     let blocked_grid = PathGrid::from_resolved_terrain(&terrain);
     sim.install_fixture_path_grid(Some(&blocked_grid));
-    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
-        base: 0,
-        off_fc: -32,
-        off_100: -1,
-        off_104: 64,
-        off_108: 33,
-    });
+    install_exit_map_size(&mut sim);
     sim.resolved_terrain = Some(terrain.clone());
 
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 10, 10);
@@ -2613,4 +2625,113 @@ fn a_produce_past_the_queue_cap_is_refused_with_a_scold() {
         .view(owner, ProductionCategory::Vehicle)
         .unwrap();
     assert_eq!(factory.queue.len(), 2);
+}
+
+/// ExitObject's generic arm (`0x00444638..0x00444984`), here for retail
+/// GAWEAP without its `WeaponsFactory=` key. The object leaves inside the
+/// producer at its dock Cell, queues Move and takes that Cell as its
+/// destination. The arm never reads the producer's rally (`+0x218`) and
+/// makes no radio contact. A computer owner also queues Area_Guard, and its
+/// House500200 post draws Scenario RNG and becomes the archive.
+#[test]
+fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
+    use super::production_spawn::{ExitArm, exit_arm};
+    use crate::sim::combat::TargetKind;
+    use crate::sim::components::NavTargetRef;
+    use crate::sim::mission::MissionType;
+
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let ini = ini.without_entry_for_test("GAWEAP", "WeaponsFactory");
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let gaweap = rules.object("GAWEAP").unwrap();
+    assert_eq!(exit_arm(gaweap), ExitArm::Generic);
+    let (width, height) = crate::rules::foundation::foundation_dimensions(&gaweap.foundation);
+    for human in [true, false] {
+        let mut sim = Simulation::with_seed(0x4446_3800);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.intern("Americans");
+        let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 50_000, 10);
+        house.base_center = Some((20, 20));
+        sim.houses.insert(owner, house);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 12, 12);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_archive_target(Some(TargetKind::Cell(24, 24)));
+        arm_build_via(
+            &mut sim,
+            &rules,
+            "Americans",
+            "MTNK",
+            ProductionCategory::Vehicle,
+            70,
+        );
+        assert!(
+            sim.production
+                .factories
+                .test_arm_ready(owner, ProductionCategory::Vehicle)
+        );
+        let product =
+            super::factory_lifecycle::active_entity_id(&sim, owner, ProductionCategory::Vehicle)
+                .unwrap();
+        let dock = crate::sim::docking::building_dock::building_dock_cell(
+            &sim,
+            1,
+            product,
+            (0, 0),
+            &rules,
+            None,
+        )
+        .expect("a free dock Cell");
+        let rng = sim.rng_state();
+        assert_eq!(
+            super::production_queue::exit_produced_object(
+                &mut sim,
+                &rules,
+                1,
+                product,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            ),
+            crate::sim::ai_base_building::BuildingExit::Placed,
+            "human {human}"
+        );
+        let unit = sim.substrate.entities.get(product).unwrap();
+        assert!(!unit.lifecycle.in_limbo());
+        let at = (unit.position.rx(), unit.position.ry());
+        assert!(
+            (12..12 + width).contains(&at.0) && (12..12 + height).contains(&at.1),
+            "{at:?} lies inside the producer"
+        );
+        assert_eq!(
+            unit.navigation.nav_com(),
+            Some(NavTargetRef::cell(dock.0, dock.1))
+        );
+        assert!(!unit.has_live_contact_with(1));
+        assert_eq!(unit.tether.partner(), None);
+        if human {
+            assert_eq!(unit.mission.queued().known(), Some(MissionType::Move));
+            assert_eq!(unit.archive_target(), None);
+            assert_eq!(sim.rng_state(), rng);
+        } else {
+            assert_eq!(unit.mission.queued().known(), Some(MissionType::AreaGuard));
+            assert!(
+                matches!(unit.archive_target(), Some(TargetKind::Cell(..))),
+                "{:?}",
+                unit.archive_target()
+            );
+            assert_ne!(
+                unit.archive_target(),
+                Some(TargetKind::Cell(24, 24)),
+                "the post, not the producer's rally"
+            );
+            assert_ne!(sim.rng_state(), rng, "House500200 draws its post");
+        }
+    }
 }

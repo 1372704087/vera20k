@@ -1497,6 +1497,41 @@ fn per_cell_factory_clearance_keeps_reason_mission_rtti_and_ground_building_gate
     }
 }
 
+/// 73A9CA..73A9D9: a Unit holding a SlaveManager (+2D8) starts its hunt
+/// (6B0CC0) at the factory clearance, where another Unit takes its archive
+/// as its destination.
+#[test]
+fn per_cell_factory_clearance_starts_a_slave_miners_hunt() {
+    use crate::sim::combat::TargetKind;
+    use crate::sim::slave_manager::{ManagerState, SlaveManager};
+
+    let (mut sim, rules) = factory_per_cell_fixture(true, false, "");
+    let slave_type = sim.intern("SLAV");
+    let unit = sim.substrate.entities.get_mut(1).unwrap();
+    unit.set_archive_target(Some(TargetKind::Cell(12, 10)));
+    unit.slave_manager = Some(SlaveManager::new(slave_type, [None; 0], 0, 0, 0));
+    sim.per_cell_process(
+        1,
+        super::super::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::sim::radio::take_transmit_log()
+            .first()
+            .map(|send| send.msg),
+        Some(8)
+    );
+    let unit = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        unit.slave_manager.as_ref().unwrap().state(),
+        ManagerState::Scanning
+    );
+    assert_eq!(unit.navigation.nav_com(), None, "no archive destination");
+}
+
 #[test]
 fn per_cell_factory_clearance_reads_unit_archive_through_the_shared_setter() {
     use crate::sim::combat::TargetKind;

@@ -1029,7 +1029,9 @@ use crate::sim::world::Simulation;
 // take both frames from Foot+0x538. Version 356 records carry them.
 // 357 -> 358: the process-resident BuildingType retains TargetCoordOffset.
 // Its three signed dwords change the saved type-registry layout.
-const SNAPSHOT_VERSION: u32 = 358;
+// 358 -> 359: ordered Tesla charger pointers, the separate Building weapon
+// latch and Foot's automatic charging-target flag survive saves.
+const SNAPSHOT_VERSION: u32 = 359;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1203,6 +1205,11 @@ pub enum SnapshotError {
 /// Structural failures found before a deserialized simulation is admitted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SnapshotRestoreError {
+    #[error("entity {object_id} has invalid Tesla charging state: {reason}")]
+    InvalidTeslaChargingState {
+        object_id: u64,
+        reason: &'static str,
+    },
     #[error("non-Building entity {owner_id} retains animation slot {slot}")]
     InvalidBuildingAnimSlotOwner { owner_id: u64, slot: u8 },
     #[error("Building {owner_id} slot {slot} references missing AnimStore object {anim_id}")]
@@ -1924,6 +1931,49 @@ fn restore_object_references(
     // complete modeled pointer graph before mutating even weak references or
     // derived caches, so a failed restore remains an atomic rejection.
     for (entity_id, entity) in sim.substrate.entities.iter_sorted() {
+        if entity.tesla_charger.is_active()
+            && !matches!(
+                entity.category(),
+                crate::map::entities::EntityCategory::Unit
+                    | crate::map::entities::EntityCategory::Infantry
+                    | crate::map::entities::EntityCategory::Aircraft
+            )
+        {
+            return Err(SnapshotRestoreError::InvalidTeslaChargingState {
+                object_id: entity_id,
+                reason: "charging intent belongs to a Foot",
+            });
+        }
+        if !entity.tesla_charge.is_default()
+            && entity.category() != crate::map::entities::EntityCategory::Structure
+        {
+            return Err(SnapshotRestoreError::InvalidTeslaChargingState {
+                object_id: entity_id,
+                reason: "charger list and weapon latch belong to a Building",
+            });
+        }
+        let mut seen_chargers = BTreeSet::new();
+        for &charger in entity.tesla_charge.chargers() {
+            require_resolved_reference(
+                entity_ids.contains(&charger),
+                "EntityStore",
+                entity_id,
+                "tesla_charge.chargers",
+                "EntityStore",
+                charger,
+            )?;
+            if !seen_chargers.insert(charger)
+                || sim.substrate.entities.get(charger).unwrap().category()
+                    != crate::map::entities::EntityCategory::Infantry
+            {
+                return Err(SnapshotRestoreError::InvalidTeslaChargingState {
+                    object_id: entity_id,
+                    reason: "chargers must be distinct Infantry identities",
+                });
+            }
+        }
+        // Do not require a current reciprocal TarCom or recompute +661:
+        // native saves can lie between retarget/expiry and Building AI.
         for contact_id in entity.radio_contacts.iter_live() {
             require_resolved_reference(
                 entity_ids.contains(&contact_id),
@@ -4391,7 +4441,8 @@ mod tests {
         // 355 -> 356: the Foot navigation list and its loop flag.
         // 356 -> 357: no voxel HVA or OREGATH frame clock.
         // 357 -> 358: retained BuildingType TargetCoordOffset.
-        assert_eq!(super::SNAPSHOT_VERSION, 358);
+        // 358 -> 359: Tesla charger list, weapon latch and Foot intent.
+        assert_eq!(super::SNAPSHOT_VERSION, 359);
     }
 
     #[test]

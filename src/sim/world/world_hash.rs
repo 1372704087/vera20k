@@ -1758,6 +1758,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.barrel_elevation().hash(hasher);
     }
     entity.body_frame_counter.get().hash(hasher);
+    if !entity.tesla_charge.is_default() {
+        b"building-tesla-charge-v1".hash(hasher);
+        entity.tesla_charge.hash(hasher);
+    }
+    if entity.tesla_charger.is_active() {
+        b"foot-tesla-charger-v1".hash(hasher);
+    }
     // Building+6E6 is retained transition state, independent of HP.
     if entity.building_art.damage_state_active() {
         b"building-damage-state-v1".hash(hasher);

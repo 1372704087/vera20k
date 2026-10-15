@@ -473,6 +473,13 @@ pub struct GameEntity {
     /// the Grand_Opening guard. `sim::building_art` owns it.
     #[serde(default)]
     pub(crate) building_art: crate::sim::building_art::BuildingArt,
+    /// Building+66C charger pointers and +661 weapon latch, owned by
+    /// `sim::tesla_charging` independently of House power accounting.
+    #[serde(default)]
+    pub(crate) tesla_charge: crate::sim::tesla_charging::BuildingCharge,
+    /// Foot+68E automatic charging-target intent, owned by `sim::tesla_charging`.
+    #[serde(default)]
+    pub(crate) tesla_charger: crate::sim::tesla_charging::TeslaCharger,
     /// The last operational sample (`BuildingClass+0x6C8`), a
     /// [`LastOperational`] that `world::gap_generator` owns.
     ///
@@ -1422,6 +1429,8 @@ impl GameEntity {
             building_sale: None,
             ai_placement_timer: Default::default(),
             building_art: Default::default(),
+            tesla_charge: Default::default(),
+            tesla_charger: Default::default(),
             building_last_operational: Default::default(),
             building_powered_center: Default::default(),
             building_has_engineer: Default::default(),

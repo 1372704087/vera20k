@@ -700,29 +700,26 @@ pub fn projectile_shrapnel_count(
 ///
 /// Both deliveries dispatch the chain through one owner,
 /// `combat::world_receiver::run_special_detonation_arm`: a visible bullet at
-/// its detonation, and VERA's immediate `Inviso=` shot, which natively is the
-/// same bullet detonating (every stock special weapon but the dog's and the
+/// its detonation, and an `Inviso=` bullet's first AI visit (every stock
+/// special weapon but the dog's and the
 /// Terror Drone's jump is Inviso).
 ///
-/// RESIDUAL — **three special effect bodies are not implemented in VERA.**
+/// RESIDUAL — **two special effect bodies are not implemented in VERA.**
 /// MindControl (`capture_manager`), IvanBomb and BombDisarm (`bomb`), Parasite
 /// (`combat/parasite.rs`; the Giant Squid's grapple is its own residual there),
 /// Temporal (`temporal`) and MakesDisguise (`cloak_disguise`, whose Unit body
 /// is its own residual there) run their bodies, NukeMaker
 /// (`combat::world_receiver`) drops the nuclear warhead and Locomotor
-/// (`locomotor_lift`) lifts the vehicle. ElectricAssault, Airstrike and
-/// DirectRocker claim the detonation, suppress damage and shrapnel exactly as
-/// native does, and then run the shared tail without performing their effect.
-/// - Trigger: a stock weapon whose warhead carries one of those flags: the
-///   Tesla Trooper's `[AssaultBolt]` at its own coil and Boris's `[Flare]`
-///   (DirectRocker has no live stock line).
+/// (`locomotor_lift`) lifts the vehicle. ElectricAssault (`tesla_charging`)
+/// refreshes the building's charger list. Airstrike and DirectRocker claim
+/// the detonation, suppress damage and shrapnel exactly as native does, and
+/// then run the shared tail without performing their effect.
+/// - Trigger: Boris's stock `[Flare]` (DirectRocker has no live stock line).
 /// - Player effect: the shot lands, plays its animation and leaves its crater,
-///   but no coil is charged and no airstrike called, and the target takes no
-///   damage from that shot.
-/// - Frequency: every game with Boris or Tesla Troopers.
-/// - Downstream risk: each port adds snapshotted, hashed state (the charger
-///   vector, the AirstrikeClass manager) with its own `SNAPSHOT_VERSION`
-///   bump.
+///   but no airstrike is called, and the target takes no damage from that shot.
+/// - Frequency: every game with Boris.
+/// - Downstream risk: the AirstrikeClass manager needs snapshotted, hashed
+///   state and its own `SNAPSHOT_VERSION` bump.
 ///
 /// The ordinary-arm AreaDamage return2 means near-center Iron Curtain
 /// isolation (489968/489B3B), covered by ifv_area_receipt.json. The shared
@@ -742,7 +739,7 @@ pub enum SpecialDetonationAction {
     IvanBomb,
     /// `ElectricAssault=` (`+0x158`), test `0x0046937a`: a Building target
     /// hit by an Infantry owner -> the Tesla-Coil charger-vector move-to-back
-    /// at `0x00452820`. UNIMPLEMENTED.
+    /// at `0x00452820`, owned by `tesla_charging`.
     ElectricAssault,
     /// `Parasite=` (`+0x159`), test `0x004693d3` ->
     /// `ParasiteClass::AttachTo @ 0x0062a980`, ported in `combat/parasite.rs`

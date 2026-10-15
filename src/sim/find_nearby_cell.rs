@@ -1873,4 +1873,66 @@ mod tests {
             "missing bounds must not approximate MapClass with a rectangle"
         );
     }
+
+    /// Every cell but `open` blocks a Track mover.
+    fn track_blocked_but(width: u16, height: u16, open: &[(u16, u16)]) -> ResolvedTerrainGrid {
+        let mut terrain = flat_terrain(width, height);
+        for cell in &mut terrain.cells {
+            cell.ground_walk_blocked = true;
+            cell.base_ground_walk_blocked = true;
+            cell.speed_costs.track = Some(0);
+            cell.base_speed_costs.track = Some(0);
+        }
+        for &(x, y) in open {
+            let cell = terrain.cell_mut(x, y).expect("open cell");
+            cell.ground_walk_blocked = false;
+            cell.base_ground_walk_blocked = false;
+            cell.speed_costs.track = Some(100);
+            cell.base_speed_costs.track = Some(100);
+        }
+        terrain
+    }
+
+    /// The radius cap bounds the rings searched: a MapClass Size sum of 40
+    /// caps at 32 and reaches ring 12; a cap of 12 scans rings 0 to 11 only;
+    /// a nonpositive Size sum searches no ring.
+    #[test]
+    fn find_nearby_radius_cap_bounds_the_rings_searched() {
+        let terrain = track_blocked_but(40, 40, &[(8, 8)]);
+        let path_grid = PathGrid::from_resolved_terrain(&terrain);
+        let mut q = base_query(&terrain, &path_grid);
+        for (size, found) in [((20, 20), Some((8, 8))), ((6, 6), None), ((-10, 10), None)] {
+            q.radius_cap = map_owned_radius_cap(size.0, size.1);
+            assert_eq!(
+                find_nearby_passable_cell((20, 20), &q, 0),
+                found,
+                "{size:?}"
+            );
+        }
+    }
+
+    /// Each candidate's own playfield gate drops a passable cell inside the
+    /// terrain rectangle but off the diamond, here the ring-two cell that
+    /// ring order visits first, so frame 0 picks the other one.
+    #[test]
+    fn find_nearby_anchor_gate_skips_an_earlier_off_diamond_candidate() {
+        // Diamond: pass iff 12 < x+y <= 26, x−y < 14, y−x < 6.
+        let terrain = track_blocked_but(40, 40, &[(7, 2), (7, 6)]);
+        let path_grid = PathGrid::from_resolved_terrain(&terrain);
+        let mut q = base_query(&terrain, &path_grid);
+        q.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+            base: 10,
+            off_fc: 2,
+            off_100: 1,
+            off_104: 10,
+            off_108: 6,
+        });
+        assert_eq!(find_nearby_passable_cell((9, 4), &q, 0), Some((7, 6)));
+        q.playfield_bounds = Some(covering_bounds());
+        assert_eq!(
+            find_nearby_passable_cell((9, 4), &q, 0),
+            Some((7, 2)),
+            "without the gate, ring order puts (7,2) first"
+        );
+    }
 }

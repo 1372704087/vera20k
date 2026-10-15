@@ -1,6 +1,5 @@
 //! The player's build options and production checks, asked of the one
-//! CanBuild owner ([`super::can_build`]), and factory matching and spawn
-//! cell logic.
+//! CanBuild owner ([`super::can_build`]), and factory matching.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::foundation::foundation_dimensions;

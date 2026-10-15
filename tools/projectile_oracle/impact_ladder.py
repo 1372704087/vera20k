@@ -27,6 +27,7 @@ type's Width/Height (0x0045ECA0 / 0x0045EC90) as stubs.
 Rust consumer: src/sim/projectile.rs (resolve_impact_coord).
 """
 import struct
+import argparse
 from pathlib import Path
 
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
@@ -87,7 +88,10 @@ def execute(case):
     uc.mem_write(TARGET, u32(TARGET_VT))
     for slot, name in ((0x48, "coords_48"), (0x54, "in_air"), (0x58, "coords_58"),
                        (0x78, "layer"), (0xA4, "coords_a4"), (0x2C, "what_am_i")):
-        uc.mem_write(TARGET_VT + slot, u32(STUBS[name]))
+        address = 0x4500A0 if slot == 0xA4 and case.get("native_coords_a4") else STUBS[name]
+        if slot == 0x58 and case.get("native_coords_a4"):
+            address = 0x410540
+        uc.mem_write(TARGET_VT + slot, u32(address))
     uc.mem_write(TARGET + 0x520, u32(BUILDING_TYPE))
     if target:
         uc.mem_write(BUILDING_TYPE + 0xEBC, struct.pack("<iii", *target["target_coord_offset"]))
@@ -106,6 +110,10 @@ def execute(case):
         ret(out, 4)
 
     def hook(_uc, address, _size, _data):
+        if address == 0x4500A0:
+            calls.append("native_coords_a4")
+        if address == 0x410540:
+            calls.append("native_coords_58")
         if address == WIDTH:
             calls.append("width")
             ret(target["foundation"][0], 4)
@@ -194,7 +202,50 @@ def generate():
     return [execute(case) for case in cases()]
 
 
+def shipyard_offsets():
+    """Real retail reader and Building+A4 through the original impact ladder.
+
+    Reuse the existing constructor/INI owner. The target's +48 is a supplied
+    centre and foundation dimensions are supplied; +58 and +A4 execute original code.
+    These are bounded handoff controls, not a complete retail combat scene.
+    """
+    from tools.spatial_oracle.building_prism import laser_type_inputs
+    rows, sources = [], {}
+    for name in ("GAYARD", "NAYARD", "YAYARD", "GAPOWR"):
+        reading = laser_type_inputs(name)
+        sources[name] = dict(physical_files=reading["physical_files"],
+                             constructor=reading["constructor"]["target_offset"],
+                             reader=next(r for r in reading["reader_slices"]
+                                         if r["name"] == "target_offset"))
+        foundation = (4, 4) if name != "GAPOWR" else (2, 2)
+        target = dict(GROUND, what_am_i=6, foundation=list(foundation),
+                      target_coord_offset=reading["result"]["target_offset"])
+        for label, delta, inaccurate in (("near", (0, 0, 0), 0),
+                                         ("inaccurate", (0, 0, 0), 1),
+                                         ("far", (700, 0, 0), 0)):
+            case = dict(BASE_FLAGS, name=f"{name}_{label}", type_id=name,
+                        native_coords_a4=True, target_kind="building", target=target,
+                        location=shifted(TARGET_XYZ, delta), inaccurate=inaccurate)
+            rows.append(execute(case))
+    return dict(centre=list(TARGET_XYZ), sources=sources, rows=rows)
+
+
 if __name__ == "__main__":
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--shipyard-offsets", action="store_true")
+    selected, remaining = selector.parse_known_args()
+    if selected.shipyard_offsets:
+        finish_vectors(shipyard_offsets, Path(__file__).with_name("shipyard_offsets.json"),
+            argv=remaining, provenance=lambda: provenance(
+                scope="Retail BuildingType TargetCoordOffset reader, Building4500A0 and Bullet468D80 handoff",
+                assumptions=["Physical ini/rulesmd.ini and ini/artmd.ini through the existing type reader.",
+                             "Supplied target centre (5000,6000,416) and 4x4/2x2 foundation dimensions; x87 PC53 chop."],
+                substitutions=["Target+48 and type Width/Height are supplied as in the existing ladder fixture.",
+                               "Target+58 executes Object410540; +A4 executes Building4500A0 with the original reader's offset.",
+                               "DetonateAtCoord4690B0 is the stop boundary; no damage body is substituted as a golden."],
+                entry_points={"ladder": LADDER, "building_target": 0x4500A0, "offset_read": 0x460F50},
+            ))
+        raise SystemExit(0)
     finish_vectors(generate, Path(__file__).with_suffix(".json"), provenance=lambda: provenance(
         scope=("BulletClass impact resolution 0x00468D80 to its first DetonateAtCoord over "
                "target kind (none, ground unit, cell, air unit, in-air on the ground layer, "
@@ -216,4 +267,4 @@ if __name__ == "__main__":
             "DetonateAtCoord 0x004690B0 is the stop boundary; its coordinate argument is recorded",
         ],
         entry_points={"ladder": LADDER, "detonate_at": DETONATE_AT},
-    ))
+    ), argv=remaining)

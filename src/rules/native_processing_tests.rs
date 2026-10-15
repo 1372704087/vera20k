@@ -2,6 +2,106 @@
 
 use super::*;
 
+/// Instruction-derived reader regression: Building460F87 keeps the current
+/// triple on missing/blank keys; only a reached Building body can read it.
+#[test]
+fn target_coord_offset_retains_only_reached_building_rules_passes() {
+    use crate::rules::ruleset::RuleSet;
+    let art = IniFile::from_str("[HUT]\nTargetCoordOffset=900,900,900\n");
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[BuildingTypes]\n0=HUT\n[HUT]\nTargetCoordOffset=9,12,15\n\
+         [VehicleTypes]\n0=TANK\n[TANK]\nTargetCoordOffset=100,100,100\n\
+         [LATE]\nTargetCoordOffset=800,800,800\n",
+    ));
+    let get = |processed: &ProcessedRulesLayers, name: &str| {
+        RuleSet::from_processed_rules(processed)
+            .unwrap()
+            .object(name)
+            .unwrap()
+            .target_coord_offset()
+    };
+    assert_eq!(
+        get(&layers.process_with_fixed_art(&art).unwrap(), "HUT"),
+        [9, 12, 15]
+    );
+    assert_eq!(
+        get(&layers.process_with_fixed_art(&art).unwrap(), "TANK"),
+        [0; 3]
+    );
+    for (kind, text, expected) in [
+        (
+            RulesLayerKind::LangRule,
+            "[HUT]\ntargetcoordoffset=1,1,1\n",
+            [9, 12, 15],
+        ),
+        (
+            RulesLayerKind::GameMode,
+            "[HUT]\nTargetCoordOffset=-7,20,4\n",
+            [-7, 20, 4],
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[BuildingTypes]\n0=LATE\n[HUT]\nTargetCoordOffset=\n",
+            [-7, 20, 4],
+        ),
+    ] {
+        layers.push(kind, IniFile::from_str(text));
+        assert_eq!(
+            get(&layers.process_with_fixed_art(&art).unwrap(), "HUT"),
+            expected
+        );
+    }
+    let processed = layers.process_with_fixed_art(&art).unwrap();
+    assert_eq!(
+        get(&processed, "LATE"),
+        [0; 3],
+        "not allocated at the earlier body"
+    );
+    let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+    let state = trace.into_registry_state_discarding_events();
+    let restored = bincode::deserialize(&bincode::serialize(&state).unwrap()).unwrap();
+    let tail = RulesLayerStack::new(IniFile::from_str(
+        "[BuildingTypes]\n0=HUT\n[HUT]\nStrength=123\n",
+    ));
+    let retained = tail
+        .process_with_fixed_art_and_registry_state(&art, restored)
+        .unwrap();
+    assert_eq!(get(&retained, "HUT"), [-7, 20, 4]);
+
+    let reset = tail
+        .process_with_fixed_art_and_registry_state(&art, state.destructive_reset())
+        .unwrap();
+    assert_eq!(get(&reset, "HUT"), [0; 3]);
+}
+
+#[test]
+fn target_coord_offset_hashes_effective_retained_value() {
+    use crate::rules::ruleset::RuleSet;
+    let tail = RulesLayerStack::new(IniFile::from_str("[HUT]\nStrength=123\n"));
+    let continued = |offset: &str| {
+        let prior = RulesLayerStack::new(IniFile::from_str(&format!(
+            "[BuildingTypes]\n0=HUT\n[HUT]\nTargetCoordOffset={offset}\n"
+        )))
+        .process()
+        .unwrap();
+        let (_, trace) = prior.into_ini_and_native_type_construction_trace();
+        let processed = tail
+            .process_with_fixed_art_and_registry_state(
+                &IniFile::empty(),
+                trace.into_registry_state_discarding_events(),
+            )
+            .unwrap();
+        RuleSet::from_processed_rules(&processed).unwrap()
+    };
+    let first = continued("10,20,30");
+    let second = continued("10,20,31");
+    assert_eq!(first.source_ini_hash(), second.source_ini_hash());
+    assert_ne!(
+        first.simulation_config_hash(),
+        second.simulation_config_hash()
+    );
+}
+
 /// Rules constructor +7AC=-1 and ReadGeneral66F2AF..66F2CF's prior-value
 /// ReadInt. Reset clears type registries, not this scalar. The original
 /// constructor is consumed from the Smoke corpus; the remaining assertions

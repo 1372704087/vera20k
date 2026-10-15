@@ -3406,6 +3406,41 @@ fn a_sonic_wave_aims_at_a_buildings_foundation_centre() {
 }
 
 #[test]
+fn target_coord_offset_moves_initial_wave_endpoint_but_not_tracking() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = fixture.rules;
+    let mut sim = Simulation::new();
+    let dolphin = sim
+        .spawn_object("DLPH", "Americans", 2, 2, 0, &rules)
+        .unwrap();
+    let yard = sim
+        .spawn_object("GAYARD", "Russians", 10, 10, 0, &rules)
+        .unwrap();
+    let centre = crate::sim::movement::ground_pose::object_get_coords(
+        sim.substrate.entities.get(yard).unwrap(),
+        None,
+    );
+    let event = sonic_fire_event(&mut sim, dolphin, yard);
+    let wave = sim
+        .prepare_fired_wave(&rules, &event, &sim.substrate.entities, &sim.interner, None)
+        .unwrap();
+    assert_eq!(
+        wave.target,
+        crate::sim::projectile::ProjectileCoord::new(centre.x + 300, centre.y + 200, centre.z,)
+    );
+    admit_test_wave(&mut sim, &rules, &event);
+    let id = sim.active_wave_links[&dolphin];
+    assert_eq!(
+        sim.wave_update_context(id).target_position,
+        Some(crate::sim::projectile::ProjectileCoord::new(
+            centre.x, centre.y, centre.z
+        ))
+    );
+}
+
+#[test]
 fn sonic_constructor_at_240_registers_then_runs_at_same_pass_tail() {
     let rules = sonic_wave_test_rules(6);
     let mut sim = Simulation::new();

@@ -457,6 +457,22 @@ impl ProcessedRulesLayers {
             .map(|member| (member.native_stored_id.as_str(), member.building_foundation))
     }
 
+    /// BuildingType+EBC after each reached Rules body. Fixed ART never reads it.
+    pub(crate) fn building_target_coord_offsets(&self) -> impl Iterator<Item = (&str, [i32; 3])> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Building)
+            .into_iter()
+            .flatten()
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    member.building_target_coord_offset,
+                )
+            })
+    }
+
     /// Unit747620's retained frame fields after the last reached Rules body.
     /// Missing Rules sections skip ART; the fixed ART itself is never layered.
     pub(crate) fn unit_shp_read_states(
@@ -1203,6 +1219,8 @@ struct ProcessedType {
     /// BuildingType45DF13 initializes +EF0 to zero; ReadINI461225..46125D
     /// updates it from fixed ART after ObjectType5F933B reads effective Image.
     building_foundation: u8,
+    /// Constructor45DEBC..45DEC8 clears BuildingType+EBC/EC0/EC4.
+    building_target_coord_offset: [i32; 3],
     /// Unit ctor747167..7471B2 and reached fixed-ART reader7477C1..747AAE.
     unit_shp: crate::rules::shp_vehicle_sequence::UnitShpReadState,
     /// TechnoType ctor71136F/711781, generic flag read71287E and FV pair
@@ -1238,6 +1256,7 @@ impl ProcessedType {
             side_country_members: Vec::new(),
             anim_art_read: false,
             building_foundation: 0,
+            building_target_coord_offset: [0; 3],
             unit_shp: Default::default(),
             gunner_turrets: GunnerTurrets::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
@@ -2116,6 +2135,10 @@ impl RulesPassProcessor {
                         // ART Image redirect is local to visual asset loading.
                         let image = effective.read_string("Image", &native_stored_id, 0x19);
                         let member = &mut self.families.get_mut(&family).unwrap()[index];
+                        // ReadINI460F50..460F9C: exact Rules key, ReadCoord529CA0,
+                        // current value as default, no clamp or conversion.
+                        member.building_target_coord_offset = raw
+                            .read_coord3("TargetCoordOffset", member.building_target_coord_offset);
                         member.building_foundation =
                             crate::rules::foundation::read_building_foundation(
                                 member.building_foundation,

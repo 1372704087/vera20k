@@ -46,19 +46,20 @@ pub(crate) struct FireCoordinate {
 }
 
 /// The target virtual shared by SpawnLaser6FD210 and CreateElectricBolt6FD460.
-/// Techno+A4 and Object+58 coincide for ordinary ground targets. A building's
-/// coordinate is its foundation centre, not raw Location. Nonzero shipyard
-/// TargetCoordOffset remains the existing separate getter residual.
+/// Object+A4 is GetCoords; Building4500A0 adds TargetCoordOffset to its
+/// foundation centre. Cell+58 keeps its separate structural-bridge query.
 pub(crate) fn effect_target_coordinate(
     world: &Simulation,
+    rules: &RuleSet,
     target: TargetKind,
 ) -> Option<ProjectileCoord> {
     match target {
         TargetKind::Entity(id) => {
             let target = world.substrate.entities.get(id)?;
-            let point = crate::sim::movement::ground_pose::object_get_coords(
+            let point = crate::sim::movement::ground_pose::object_target_coords(
                 target,
                 world.resolved_terrain.as_ref(),
+                rules.object(world.interner.resolve(target.type_ref())),
             );
             Some(ProjectileCoord::new(point.x, point.y, point.z))
         }

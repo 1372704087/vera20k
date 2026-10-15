@@ -8,6 +8,110 @@ use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::projectile::{ProjectileCoord, launch::fireat_launch_distance};
 use crate::sim::world::Simulation;
 
+/// Original BuildingType constructor45DEBC and reader460F87, replayed via
+/// tools.spatial_oracle.building_prism.laser_type_inputs on each retail yard:
+/// GAYARD/YAYARD [300,200,0], NAYARD [256,256,0]. Building4500A0 adds this
+/// to GetCoords; FireAt, laser and bolt endpoints use that virtual.
+#[test]
+fn retail_shipyard_target_offset_reaches_effect_coordinate() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = fixture.rules;
+    for (name, offset) in [
+        ("GAYARD", [300, 200, 0]),
+        ("NAYARD", [256, 256, 0]),
+        ("YAYARD", [300, 200, 0]),
+        ("GAPOWR", [0, 0, 0]),
+    ] {
+        let mut sim = Simulation::new();
+        let id = sim
+            .spawn_object(name, "Russians", 10, 20, 0, &rules)
+            .unwrap();
+        let target = sim.substrate.entities.get(id).unwrap();
+        let centre = crate::sim::movement::ground_pose::object_get_coords(target, None);
+        assert_eq!(
+            super::fire_coord::effect_target_coordinate(
+                &sim,
+                &rules,
+                super::TargetKind::Entity(id)
+            ),
+            Some(ProjectileCoord::new(
+                centre.x + offset[0],
+                centre.y + offset[1],
+                centre.z + offset[2]
+            )),
+            "{name} target point"
+        );
+    }
+}
+
+/// FireAt6FE1EE uses+A4 for GetSpeed's distance; Bullet::Fire468707 and
+/// lead70BCB0 use+58. Changing a yard's offset must change the launch speed,
+/// while the frozen target and heading still point at the same centre.
+#[test]
+fn target_coord_offset_changes_fireat_speed_without_moving_bullet_reference() {
+    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        return;
+    };
+    let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
+        return;
+    };
+    let mut shots = Vec::new();
+    for value in ["0,0,0", "300,200,0"] {
+        let Some(mut duel) = Duel::new() else {
+            return;
+        };
+        let mut source = ini.clone();
+        source.merge(&crate::rules::ini_parser::IniFile::from_str(&format!(
+            "[GAYARD]\nTargetCoordOffset={value}\n"
+        )));
+        duel.rules = RuleSet::from_ini_with_fixed_art_for_test(&source, &art).unwrap();
+        duel.rules
+            .install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        let grizzly = duel.spawn("MTNK", "Americans", 18, 18, 64);
+        // Admit the fixture's yard without the arena's all-land placement
+        // preflight. This test starts with live actors and exercises FireAt.
+        let terrain = duel.sim.resolved_terrain.take();
+        let yard = duel.spawn("GAYARD", "Russians", 20, 16, 0);
+        duel.sim.resolved_terrain = terrain;
+        duel.sim.resolve_type_handles(&duel.rules);
+        let centre = crate::sim::movement::ground_pose::object_get_coords(
+            duel.sim.substrate.entities.get(yard).unwrap(),
+            duel.sim.resolved_terrain.as_ref(),
+        );
+        duel.order(
+            "Americans",
+            Command::Attack {
+                attacker_id: grizzly,
+                target_id: yard,
+            },
+        );
+        for _ in 0..150 {
+            duel.tick();
+            if let Some(shot) = duel.launched_by(grizzly) {
+                assert_eq!(
+                    shot.launch_target,
+                    ProjectileCoord::new(centre.x, centre.y, centre.z)
+                );
+                shots.push((
+                    shot.speed_leptons_per_frame,
+                    shot.launch_origin,
+                    shot.launch_target,
+                ));
+                break;
+            }
+        }
+    }
+    assert_eq!(shots.len(), 2, "both Grizzlies fire at the yard");
+    assert_eq!(shots[0].1, shots[1].1, "same muzzle");
+    assert_eq!(shots[0].2, shots[1].2, "same frozen+58 coordinate");
+    assert!(
+        shots[1].0 > shots[0].0,
+        "the farther+A4 point raises ballistic speed: {shots:?}"
+    );
+}
+
 fn attack_aim_corpus() -> serde_json::Value {
     serde_json::from_str(crate::test_fixture::text(
         "tools/procedural_drawing_oracle/action_lines_attack_prerequisites.json",

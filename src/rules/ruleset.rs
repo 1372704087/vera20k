@@ -3953,6 +3953,15 @@ impl RuleSet {
                     .then_some(rules.ai_base_spacing);
             }
         }
+        for (name, offset) in processed.building_target_coord_offsets() {
+            if let Some(building) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == ObjectCategory::Building && object.id == name)
+            {
+                building.set_target_coord_offset(offset);
+            }
+        }
         // The registry processor owns native read timing and retained values;
         // the runtime definition receives that result, not another ART read.
         for (name, art) in processed.projectile_art_states() {
@@ -5020,6 +5029,14 @@ impl RuleSet {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         b"rules-simulation-config-v16".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
+        // A continued Rules process can retain a different BuildingType+EBC
+        // for the same current source stack. Hash the effective projection.
+        self.object_list
+            .iter()
+            .filter(|object| object.category == ObjectCategory::Building)
+            .map(|object| (object.id.to_ascii_uppercase(), object.target_coord_offset()))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
         // Process-resident Gravity and Weapon postpass results can differ for
         // identical current source stacks because earlier passes retained them.
         self.general.gravity.hash(&mut hasher);

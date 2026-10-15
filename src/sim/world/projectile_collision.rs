@@ -171,10 +171,6 @@ impl ProjectileCollisionWorld<'_> {
 
     /// The Target and warhead facts `0x00468D80` reads, with the bullet at
     /// `location`.
-    /// RESIDUAL: a Building's vt+0xA4 (`0x004500A0`, TargetCoordOffset
-    /// `+0xEBC`) is its centre: `TargetCoordOffset=` is unparsed (the
-    /// shipyards). Trigger: a shell landing near a naval yard. Effect: it
-    /// detonates at the centre instead of the offset point.
     fn impact_ladder(
         &self,
         projectile: &Projectile,
@@ -188,10 +184,22 @@ impl ProjectileCollisionWorld<'_> {
         let target = match projectile.target {
             ProjectileTarget::Entity(id) => self.entities.get(id).map(|target| {
                 let coords = self.location(target);
+                let object_type = self
+                    .rules
+                    .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())));
+                let offset_coords = crate::sim::movement::ground_pose::object_target_coords(
+                    target,
+                    self.terrain,
+                    object_type,
+                );
                 ImpactLadderTarget {
                     coords,
                     aim: coords,
-                    offset_coords: coords,
+                    offset_coords: ProjectileCoord::new(
+                        offset_coords.x,
+                        offset_coords.y,
+                        offset_coords.z,
+                    ),
                     in_air: self.high_flying(target),
                     ground_layer: super::display_registry::entity_layer(
                         target,
@@ -199,7 +207,8 @@ impl ProjectileCollisionWorld<'_> {
                         self.rules.map(|rules| (rules, self.interner)),
                     ) == super::display_layers::DisplayLayer::GROUND,
                     distance: self.target_distance(location, target),
-                    building_offset: false,
+                    building_offset: target.category() == EntityCategory::Structure
+                        && object_type.is_some_and(|kind| kind.target_coord_offset() != [0; 3]),
                 }
             }),
             cell @ (ProjectileTarget::Cell { .. } | ProjectileTarget::DummyCell) => {
@@ -684,6 +693,76 @@ mod tests {
             overlay_registry: None,
             rules: None,
             map_size: Some((2, 3)),
+        }
+    }
+
+    #[test]
+    fn target_coord_offset_reaches_the_retail_bullet_impact_ladder() {
+        let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = fixture.rules;
+        let native: Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/projectile_oracle/shipyard_offsets.json",
+        ))
+        .unwrap();
+        for row in native["rows"].as_array().unwrap() {
+            let input = &row["input"];
+            let name = input["type_id"].as_str().unwrap();
+            let mut sim = Simulation::new();
+            let target = sim
+                .spawn_object(name, "Russians", 10, 20, 0, &rules)
+                .unwrap();
+            let mut collision = world(&sim);
+            collision.rules = Some(&rules);
+            let centre = collision.location(sim.substrate.entities.get(target).unwrap());
+            let translate = |point: &Value| {
+                ProjectileCoord::new(
+                    centre.x + point[0].as_i64().unwrap() as i32
+                        - native["centre"][0].as_i64().unwrap() as i32,
+                    centre.y + point[1].as_i64().unwrap() as i32
+                        - native["centre"][1].as_i64().unwrap() as i32,
+                    centre.z + point[2].as_i64().unwrap() as i32
+                        - native["centre"][2].as_i64().unwrap() as i32,
+                )
+            };
+            let location = translate(&input["location"]);
+            let mut store = crate::sim::projectile::ProjectileStore::new();
+            let mut spawn = gsi_05_02_projectile(0, None);
+            spawn.target = ProjectileTarget::Entity(target);
+            spawn.origin = location;
+            spawn.initial_target_position = centre;
+            store.spawn(99, spawn);
+            let bullet = store.get(99).unwrap();
+            let Some(ProjectileCollisionResponse::ImpactLadder(facts)) =
+                collision.collide(bullet, location, ProjectileCollisionPhase::ImpactLadder)
+            else {
+                panic!("impact facts");
+            };
+            let resolved = crate::sim::projectile::resolve_impact_coord(
+                &crate::sim::projectile::ImpactLadderBullet {
+                    location,
+                    reference: centre,
+                    impact_flag: true,
+                    inaccurate: input["inaccurate"] == 1,
+                    airburst: false,
+                    arcing: true,
+                    homing: false,
+                },
+                &facts,
+            );
+            assert_eq!(resolved, translate(&row["detonation"]), "{}", input["name"]);
+            let offset: [i32; 3] = std::array::from_fn(|i| {
+                native["sources"][name]["reader"]["after"]["target_offset"][i]
+                    .as_i64()
+                    .unwrap() as i32
+            });
+            assert_eq!(rules.object(name).unwrap().target_coord_offset(), offset);
+            // Fire and homing ask +58, never Building's offset+A4.
+            assert_eq!(
+                collision.target_aim(ProjectileTarget::Entity(target)),
+                Some(centre)
+            );
         }
     }
 

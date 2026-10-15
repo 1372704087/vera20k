@@ -248,6 +248,10 @@ pub struct ObjectType {
     pub id: String,
     /// Which type registry this object belongs to.
     pub category: ObjectCategory,
+    /// BuildingType+EBC, world leptons added by Building4500A0 to GetCoords.
+    /// Constructor45DEBC..45DEC8 clears it; ReadINI460F87 uses ReadCoord529CA0
+    /// with the current triple as default. Other type classes do not read it.
+    target_coord_offset: [i32; 3],
     /// Display name (CSF string table key or raw text). None if not specified.
     pub name: Option<String>,
     /// Localized display-name CSF key from `UIName=` (e.g. "Name:MTNK").
@@ -1912,6 +1916,16 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub(crate) fn target_coord_offset(&self) -> [i32; 3] {
+        self.target_coord_offset
+    }
+
+    /// Publish the value retained by the native type-processing owner.
+    pub(crate) fn set_target_coord_offset(&mut self, offset: [i32; 3]) {
+        debug_assert_eq!(self.category, ObjectCategory::Building);
+        self.target_coord_offset = offset;
+    }
+
     pub fn voice_harvest(&self) -> Option<&str> {
         self.voice_harvest.as_deref()
     }
@@ -2307,6 +2321,9 @@ impl ObjectType {
         Self {
             id: id.to_string(),
             category,
+            // The process-resident Building reader publishes this below the
+            // projection; merged text must not perform a second coordinate read.
+            target_coord_offset: [0; 3],
             name: section.read_name("Name", 0x31).map(str::to_owned),
             ui_name: section.read_name("UIName", 0x20).map(str::to_owned),
             cost: section.read_int("Cost", 0),

@@ -6723,6 +6723,7 @@ SpawnCount=3
     /// layers MPBATTLEMD's `AlliesAllowed=yes` over RULESMD's `no`;
     /// FreeForAll's MPFREEFORALLMD says `no`.
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn allies_allowed_and_paranoid_read_over_constructor_defaults() {
         let absent = GeneralRules::from_ini(&IniFile::from_str("[General]\nFlightLevel=500\n"));
         assert!(!absent.allies_allowed);

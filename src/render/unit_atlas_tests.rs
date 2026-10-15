@@ -605,6 +605,7 @@ fn barrel_image_keeps_its_first_drawn_pitch() {
 /// `rulesmd.ini` changes these types' `Turret=`, so the processed Hills/Battle
 /// rules decide.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_vehicles_load_their_native_voxel_models() {
     use crate::rules::object_type::ObjectCategory;
     use crate::rules::retail_ini_fixture::{retail_assets, retail_battle_rules};

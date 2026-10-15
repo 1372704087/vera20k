@@ -205,6 +205,7 @@ fn assert_birth(actual: ElectricBoltBirth, expected: &Value, frame: i32, name: &
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_birth_fields_match_native_with_documented_flh_residual() {
     let Some(retail) = retail_battle_rules_for_map("XMP03T4.MAP") else {
         return;

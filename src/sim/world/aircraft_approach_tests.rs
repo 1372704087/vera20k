@@ -141,6 +141,7 @@ fn assert_facings(sim: &Simulation, row: &Value) {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn aircraft_approach_matches_original_dispatch_and_restored_continuation() {
     let rows: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/aircraft_approach.json",

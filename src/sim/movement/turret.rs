@@ -356,6 +356,8 @@ pub(crate) fn desired_turret_facing(
 /// Calls `FacingClass::set`, which is a no-op when the desired facing equals the
 /// current destination — so this function is idempotent. `None` from
 /// [`desired_turret_facing`] means "native calls no `Set` this frame".
+/// VERA-only: sets a turreted Infantry's `barrel_facing` from its target, else its
+/// body facing; no InfantryClass code addresses `+0x3A0` (a LEA/ADD census).
 pub fn tick_turret_rotation(
     entities: &mut EntityStore,
     rules: &RuleSet,

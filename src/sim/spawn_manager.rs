@@ -507,6 +507,9 @@ enum SpawnDestination {
 
 /// What the manager's bodies reach outside the manager: its owner, its
 /// children and the kamikaze tracker. Queries do not change the world.
+/// It supplies the reads of the `SpawnManagerClass` bodies: AI (`0x006B7230`), the
+/// constructor (`0x006B6C90`), PointerExpired (`0x006B7C60`), ClearAllTargets
+/// (`0x006B7BB0`) and Kill_All_Spawns (`0x006B7100`).
 trait SpawnHost {
     /// The frame counter (`0x00A8ED84`).
     fn frame(&self) -> i32;

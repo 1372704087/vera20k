@@ -2403,6 +2403,8 @@ fn infantry_deployed_attack_reacquire(
     None
 }
 
+/// VERA-only: a TarCom (`+0x2B4`) naming a dying or Health-0 object counts as the NULL
+/// the native detach leaves; the `TerminalLifetime` mark and Health are the truth.
 fn attack_target_is_stale(sim: &Simulation, id: u64) -> bool {
     let Some(attacker) = sim.substrate.entities.get(id) else {
         return false;

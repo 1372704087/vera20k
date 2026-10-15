@@ -46,6 +46,10 @@ use crate::sim::occupancy::{CellOccupationGrid, OccupancyGrid};
 /// Build a read-only snapshot of the mover's properties before entering the
 /// inner movement loop. This avoids repeated `entities.get()` calls and keeps
 /// the data available across the mutable/immutable borrow boundary.
+///
+/// VERA-only: a per-visit copy of the mover's class, locomotor, SpeedType,
+/// MovementZone, crusher flags and bridge and playfield facts. Nothing writes
+/// it back; the entity's records stay the source of truth.
 pub(super) fn snapshot_mover(
     entities: &EntityStore,
     entity_id: u64,
@@ -149,8 +153,9 @@ pub(crate) struct FootPathRequest {
 }
 
 /// The retained no-queue request of a live Walk Foot with no paid head, whose
-/// Foot+5E0 head is empty (native -1). Drive/Ship requests are made inside
-/// their Process_Movement (`track_fresh`).
+/// Foot+5E0 head is empty (native -1): `WalkLocomotionClass::ProcessMovement`
+/// (`0x0075AEC0`), whose request is the call at `0x0075AFC5`. Drive/Ship
+/// requests are made inside their Process_Movement (`track_fresh`).
 fn no_queue_path_request(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<crate::sim::components::DriveCoord> {
@@ -298,7 +303,9 @@ struct MovementPassEffects {
     track_movement: Option<(u64, super::track_process::TrackFamily)>,
 }
 
-/// A Drive/Ship Unit: its Process_Movement is `track_fresh`.
+/// A Drive/Ship Unit: its Process_Movement is `track_fresh`. The active
+/// locomotor's Process decides it (`DriveLocomotionClass::Process`
+/// `0x004B0500`, `ShipLocomotionClass::Process` `0x0069FC10`).
 fn native_track_route(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<super::track_process::TrackFamily> {

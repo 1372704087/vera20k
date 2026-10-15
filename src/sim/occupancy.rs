@@ -1268,6 +1268,8 @@ impl OccupancyGrid {
     /// Rebuild occupancy from scratch by scanning all entities.
     /// Legacy construction/fixture adapter only. Snapshot restoration preserves
     /// the serialized lists and never calls this lossy phase-based projection.
+    /// VERA-only: projects the CellClass lists from each entity's Mark state
+    /// (`lifecycle.cell_marked`) and transport role; live play's lists come from Mark.
     pub fn rebuild(entities: &crate::sim::entity_store::EntityStore) -> Self {
         let mut grid = Self::new();
         let mut ordered: Vec<&GameEntity> = entities.values().collect();

@@ -348,6 +348,8 @@ pub(super) fn consume_walk_path_replay(queue: &mut FootPathQueue) {
     }
 }
 
+/// The peer path `PathfinderClass::UpdateBridgePassability` (`0x0042ACF0`) replays:
+/// Foot `+0x558` (`0x0042AE33`) and the directions at `+0x5E0` (`0x0042AE88`).
 fn remaining_path_from_entity(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> ((i16, i16), Vec<u8>) {

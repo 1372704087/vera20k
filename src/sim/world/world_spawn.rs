@@ -1070,6 +1070,8 @@ impl Simulation {
 
     /// Retain the caller's exact native coordinate until admission succeeds.
     /// Both coordinate and height-level callers use the same Unlimbo body.
+    /// `ObjectClass::Unlimbo @ 0x005F4EC0`'s coordinate, put over Location `+0x9C` as the
+    /// request its SetLocation (vt+0x1B4 at `0x005F4FA8`) stores.
     pub(crate) fn reveal_constructed_object_at_coord_with_overlay_context(
         &mut self,
         stable_id: u64,
@@ -1849,6 +1851,8 @@ impl Simulation {
     /// Materialize constructor-owned Technos in native manager order. The
     /// parent has already consumed its own constructor word; every child uses
     /// the same FreshScenario funnel and remains a stable limbo identity.
+    /// `TechnoClass::Init_Managers @ 0x006F3F40` stores SpawnManager `+0x2D0` (`0x006F3FFD`),
+    /// then SlaveManager `+0x2D8` (`0x006F4077`), and never reads `+0x2D8` first.
     fn commit_constructor_owned_techno_children(
         &mut self,
         parent_id: u64,
@@ -1856,15 +1860,6 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) {
         crate::sim::spawn_manager::commit_spawn_manager_pool(self, parent_id, rules, frame_effects);
-
-        if self
-            .substrate
-            .entities
-            .get(parent_id)
-            .is_some_and(|parent| parent.slave_manager.is_some())
-        {
-            return;
-        }
         self.create_slave_manager(parent_id, rules, frame_effects);
     }
 
@@ -1911,6 +1906,8 @@ impl Simulation {
     ///
     /// Called after the unit atlas is built, since frame counts are only known after
     /// loading HVA files.
+    /// VERA-only: sets each VoxelAnimation clock's frame count from the atlas's HVA counts, its
+    /// source of truth; `UnitClass::DrawVoxelBody @ 0x0073B470` reads the HVA count instead.
     pub fn update_voxel_anim_frame_counts(
         &mut self,
         frame_counts: &std::collections::BTreeMap<

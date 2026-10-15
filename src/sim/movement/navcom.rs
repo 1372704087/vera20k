@@ -306,6 +306,7 @@ pub(crate) fn set_walk_destination_coord(
     loco.set_walk_destination(Some(coord));
 }
 
+/// The Foot's Locomotor (`+0x674`) is a `DriveLocomotionClass` (Move_To `0x004AFD40`).
 fn is_drive_locomotor(entity: &GameEntity) -> bool {
     entity
         .locomotor
@@ -313,6 +314,7 @@ fn is_drive_locomotor(entity: &GameEntity) -> bool {
         .is_some_and(|loco| matches!(loco.active_kind(), LocomotorKind::Drive))
 }
 
+/// The Foot's Locomotor (`+0x674`) is a `ShipLocomotionClass` (Move_To `0x0069F450`).
 fn is_ship_locomotor(entity: &GameEntity) -> bool {
     entity
         .locomotor

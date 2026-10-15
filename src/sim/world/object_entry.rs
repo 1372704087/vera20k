@@ -506,6 +506,8 @@ impl<T: Copy> InternedCache<T> {
 }
 
 impl<'a> EntryMover<'a> {
+    /// `UnitClass::Can_Enter_Cell @ 0x0073F0A0`'s rank reads: GetWeapon(0) (vt+0x3F8,
+    /// `0x0073F49B`), and `Crusher=` (`+0xD28`) or `HasWeaponAbility(0x11)` (`0x0073FC6C`).
     fn new(live: &EntryReadContext<'a>, id: u64, e: &'a GameEntity, obj: &'a ObjectType) -> Self {
         let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), 0)
             .and_then(|(name, _)| live.rules.weapon(name));

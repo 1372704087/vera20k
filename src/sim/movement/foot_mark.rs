@@ -310,7 +310,8 @@ impl Simulation {
     }
 
     /// Mark(DOWN). `receive` runs after the list link, where AddContent's
-    /// discovery sits.
+    /// discovery sits. `ObjectClass::Mark` (`0x005F5850`) refuses a Limbo
+    /// (`+0x81`) or marked (`+0x74`) object, then stores `+0x74` (`0x005F58F7`).
     pub(super) fn foot_mark_put_observed(
         &mut self,
         id: u64,

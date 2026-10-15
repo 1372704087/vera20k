@@ -2268,6 +2268,7 @@ impl Simulation {
     /// Walk one Wave damage request in recorded-cell and current Cell-list
     /// order. Each receiver commits before the next occupant is selected, so
     /// fatal UnInit and nested effects are visible to the remaining walk.
+    /// This is the receiver walk of `WaveClass::DamageArea` (`0x0075F330`).
     fn commit_logic_wave_damage_request(
         &mut self,
         rules: &RuleSet,
@@ -2290,6 +2291,8 @@ impl Simulation {
 
         use crate::sim::occupancy::CellObjectMember as CellObject;
 
+        /// The cell's object list `WaveClass::DamageArea @ 0x0075F330` walks (the
+        /// bridge layer's when its height test picks it), in its current order.
         fn current_order(
             occupancy: &crate::sim::occupancy::OccupancyGrid,
             terrain_cells: &BTreeMap<(u16, u16), u64>,
@@ -3665,6 +3668,7 @@ impl Simulation {
 
     /// The object's coordinate for its sounds. Sound owners hold no terrain,
     /// so an object without an exact coordinate uses its stored level.
+    /// The object's Location (`Object+0x9C`), where its sounds play.
     pub(crate) fn movement_sound_world(
         entity: &crate::sim::game_entity::GameEntity,
     ) -> crate::sim::anim_class::AnimWorldCoord {
@@ -6056,6 +6060,8 @@ impl Simulation {
         }
     }
 
+    /// VERA-only: the per-frame fog recompute from the store; its position reads
+    /// feed only the first tick's diagnostic log of each owner's cell span.
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: Option<&RuleSet>) {
         // Recompute visibility in place: end last frame's sight (preserving
         // FLAG_REVEALED) and reconcile each source's sight with its position.
@@ -7083,7 +7089,7 @@ pub(crate) fn wake_anchor_for(
     {
         return None;
     }
-    if entity.is_on_bridge_layer() {
+    if entity.on_bridge() {
         return None;
     }
     let cell = terrain?.cell(entity.position.rx(), entity.position.ry())?;

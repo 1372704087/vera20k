@@ -523,16 +523,16 @@ fn eject_head_passenger(
 
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
                 passenger.set_sub_cell(sub_cell);
-                // `TechnoClass::Unlimbo` snaps the body to the drop direction
-                // (`+0x388` Set_Current, `0x006F6DAA`).
-                passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(loco) = passenger.locomotor.as_mut() {
                     loco.set_layer(MovementLayer::Ground);
                 }
             }
             let z = cell_level_or(sim, place_cell, transport_z);
             // Mission_Unload raises A8E7AC around this Unlimbo
-            // (`0x0073DA48..0x0073DB79`), so it runs no class +1AC query.
+            // (`0x0073DA48..0x0073DB79`), so it runs no class +1AC query. It
+            // passes the exit direction (`0x0073DB45..0x0073DB5B`), which a
+            // successful Unlimbo gives the body (`0x006F6DAA`) and a Unit's
+            // turret (`0x00737BBE..0x00737BD2`).
             let position = exit_cell_position(sim, pax_id, place_cell.0, place_cell.1, z);
             reveal_unloaded_passenger(
                 sim,
@@ -541,7 +541,7 @@ fn eject_head_passenger(
                 pax_id,
                 position,
                 PlacementEvidence::MarkSucceeded,
-                None,
+                Some((octant as u8) << 5),
                 effects,
             )?;
 
@@ -776,7 +776,6 @@ pub(crate) fn building_mission_unload_absorber(
             let destination = strict_beyond.unwrap_or(adjacent);
             if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
                 passenger.set_sub_cell(Some(sub_cell));
-                passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(locomotor) = passenger.locomotor.as_mut() {
                     locomotor.set_layer(MovementLayer::Ground);
                 }
@@ -1166,8 +1165,8 @@ const AIRCRAFT_EXIT_SCAN: [usize; 9] = [4, 5, 3, 7, 1, 0, 6, 2, 4];
 /// popped from the hold (`0x00415511`) and in limbo for good, and the next
 /// dispatch ejects the next passenger. VERA-internal bounded escape instead
 /// (trigger: three infantry already standing in the aircraft cell, or a cell
-/// the passenger's class refuses, rare;
-/// DRIFT — native loses the unit): the passenger goes back to the cargo head
+/// the passenger's class refuses; dormant on retail data, where no
+/// `[AircraftTypes]` entry carries passengers; DRIFT — native loses the unit): the passenger goes back to the cargo head
 /// (cargo departure restoration), this returns `false`, and the caller leaves Unload for
 /// Guard through the empty-hold exit, so nothing retries and no further
 /// epilogue draws happen. Returns `true` when the passenger left the hold. On
@@ -1222,7 +1221,7 @@ fn eject_from_aircraft(
 
             // No A8E7AC is raised here: the class Unlimbo places an
             // infantryman from the aircraft's coordinate, and Object's class
-            // +1AC query admits every passenger.
+            // +1AC query judges every passenger.
             let Some((position, placement)) = sim.unlimbo_class_entry(
                 pax_id,
                 location,

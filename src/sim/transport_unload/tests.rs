@@ -1072,6 +1072,54 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     );
 }
 
+/// Mission_Unload hands its Unlimbo the exit direction (`0x0073DB45..0x0073DB5B`).
+/// After Foot success, UnitClass::Unlimbo snaps the turret (`+0x3A0`) to it
+/// (`0x00737BBE..0x00737BD2`), and TechnoClass::Unlimbo the body (`0x006F6DAA`).
+/// Same exit as `relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell`:
+/// octant 6, direction 0xC0.
+#[test]
+fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
+    let ring_two = |x: u16, y: u16| (i32::from(x) - 20).abs().max((i32::from(y) - 20).abs()) == 2;
+    let mut fx = Fixture::new(ring_two);
+    fx.rules = rules_with_patch("[BGGY]\nTurret=yes\n");
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let bggy = fx.spawn("BGGY", 24, 24, 0);
+    assert_eq!(
+        fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
+        ConcealOutcome::Concealed
+    );
+    let boarded = fx
+        .sim
+        .substrate
+        .entities
+        .get_mut(bfrt)
+        .and_then(|t| t.passenger_role.cargo_mut())
+        .is_some_and(|cargo| cargo.board(bggy, 1));
+    assert!(boarded, "cargo accepts the vehicle");
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(bggy)
+        .expect("passenger")
+        .passenger_role = PassengerRole::inside_for_test(bfrt, true);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&[bggy], 200);
+    assert_eq!(order.len(), 1, "the vehicle left: {order:?}");
+    assert_eq!(fx.cell(bggy), (19, 20));
+    assert_eq!(fx.facing(bggy), 0xC0, "octant 6 * 32");
+    let frame = fx.sim.session.binary_frame;
+    let turret = fx
+        .sim
+        .substrate
+        .entities
+        .get(bggy)
+        .and_then(|bggy| bggy.barrel_facing.as_ref())
+        .expect("a Turret= unit has a turret facing")
+        .current(frame);
+    assert_eq!(turret, 0xC000, "the turret faces the exit too");
+}
+
 /// The vehicle passenger's Find_Nearby_Passable_Cell (`0x0073DA96..0x0073DADD`)
 /// runs the playfield anchor gate with no height gate. The strict pass takes
 /// octant 5, exit (19, 21), which lies outside this playfield diamond

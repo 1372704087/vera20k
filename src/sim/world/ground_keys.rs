@@ -12,9 +12,8 @@
 //!
 //! Derived: never saved, compared or hashed. A restored display keeps nothing.
 
-use std::collections::HashMap;
-
 use crate::sim::touch_log::{Touched, live_read_check_enabled};
+use crate::util::lookup_hash::LookupMap;
 
 /// What a Ground member's last read left valid until the member is forgotten.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,18 +51,26 @@ impl<F: Fn(u64) -> i32> GroundSortKeys for F {
 
 /// The kept reads. Members reach theirs through `slots`, which moves in
 /// lockstep with the Ground vector, so forgetting one member is O(1) however
-/// the members insert, leave and swap.
+/// the members insert, leave and swap. A member whose kept read is a plain
+/// key also has it in `key_at`, beside its slot, so a scan reads keys in
+/// member order; `plain` says which slots' keys those are.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct GroundKeys {
     /// Aligned with the Ground members: each member's index into `kept`.
     slots: Vec<u32>,
+    /// Aligned with the Ground members: the member's key while its slot is
+    /// `plain`, else stale.
+    key_at: Vec<i32>,
     kept: Vec<KeptSortKey>,
+    /// One bit per slot, set while the slot keeps [`KeptSortKey::Key`] and
+    /// `key_at` holds that key at the member's index.
+    plain: Vec<u64>,
     /// Slots of departed members, for reuse.
     free: Vec<u32>,
     /// Ground member -> its slot.
-    slot_of: HashMap<u64, u32>,
+    slot_of: LookupMap<u64, u32>,
     /// Owner -> its term, for attached members.
-    owner_terms: HashMap<u64, i32>,
+    owner_terms: LookupMap<u64, i32>,
     /// What every kept read was read under (see [`Self::forget_changed`]).
     context: Option<ReadContext>,
 }
@@ -82,14 +89,16 @@ impl GroundKeys {
     pub(crate) fn unknown(members: &[u64]) -> Self {
         Self {
             slots: (0..members.len() as u32).collect(),
+            key_at: vec![0; members.len()],
             kept: vec![KeptSortKey::Unknown; members.len()],
+            plain: vec![0; members.len().div_ceil(64)],
             free: Vec::new(),
             slot_of: members
                 .iter()
                 .enumerate()
                 .map(|(slot, &id)| (id, slot as u32))
                 .collect(),
-            owner_terms: HashMap::new(),
+            owner_terms: LookupMap::default(),
             context: None,
         }
     }
@@ -97,6 +106,14 @@ impl GroundKeys {
     /// The key of member `id`, which sits at `index`.
     pub(crate) fn key(&mut self, index: usize, id: u64, keys: &impl GroundSortKeys) -> i32 {
         let slot = self.slots[index] as usize;
+        if self.is_plain(slot) {
+            let key = self.key_at[index];
+            debug_assert!(
+                !live_read_check_enabled() || key == keys.read(id).0,
+                "the kept Ground key of {id} diverged from a live read"
+            );
+            return key;
+        }
         let key = match self.kept[slot] {
             KeptSortKey::Key(key) => key,
             KeptSortKey::Attached { own, owner } => {
@@ -112,7 +129,7 @@ impl GroundKeys {
             }
             KeptSortKey::Unknown => {
                 let (key, kept) = keys.read(id);
-                self.keep(slot, key, kept);
+                self.keep(index, slot, key, kept);
                 return key;
             }
         };
@@ -123,10 +140,38 @@ impl GroundKeys {
         key
     }
 
-    /// Store what a live read of `key` may keep; an attached read's owner
-    /// term is its key less its own term.
-    fn keep(&mut self, slot: usize, key: i32, kept: KeptSortKey) {
+    /// The first index whose member's key is greater than `key`, else the
+    /// member count: a Ground submit's insertion point.
+    pub(crate) fn first_greater(
+        &mut self,
+        members: &[u64],
+        key: i32,
+        keys: &impl GroundSortKeys,
+    ) -> usize {
+        (0..members.len())
+            .find(|&index| self.key(index, members[index], keys) > key)
+            .unwrap_or(members.len())
+    }
+
+    fn is_plain(&self, slot: usize) -> bool {
+        self.plain[slot / 64] & (1 << (slot % 64)) != 0
+    }
+
+    fn set_plain(&mut self, slot: usize, plain: bool) {
+        let bit = 1 << (slot % 64);
+        if plain {
+            self.plain[slot / 64] |= bit;
+        } else {
+            self.plain[slot / 64] &= !bit;
+        }
+    }
+
+    /// Store what a live read of `key` at `index` may keep; an attached
+    /// read's owner term is its key less its own term.
+    fn keep(&mut self, index: usize, slot: usize, key: i32, kept: KeptSortKey) {
         self.kept[slot] = kept;
+        self.key_at[index] = key;
+        self.set_plain(slot, matches!(kept, KeptSortKey::Key(_)));
         if let KeptSortKey::Attached { own, owner } = kept {
             self.owner_terms.insert(owner, key.wrapping_sub(own));
         }
@@ -136,22 +181,26 @@ impl GroundKeys {
     pub(crate) fn insert(&mut self, index: usize, id: u64, key: i32, kept: KeptSortKey) {
         let slot = self.free.pop().unwrap_or_else(|| {
             self.kept.push(KeptSortKey::Unknown);
+            self.plain.resize(self.kept.len().div_ceil(64), 0);
             (self.kept.len() - 1) as u32
         });
-        self.keep(slot as usize, key, kept);
         self.slots.insert(index, slot);
+        self.key_at.insert(index, key);
+        self.keep(index, slot as usize, key, kept);
         self.slot_of.insert(id, slot);
     }
 
     /// Member `id`, which sits at `index`, leaves.
     pub(crate) fn remove(&mut self, index: usize, id: u64) {
         let slot = self.slots.remove(index);
+        self.key_at.remove(index);
         debug_assert_eq!(
             self.slot_of.get(&id),
             Some(&slot),
             "Ground member {id} left through another member's slot"
         );
         self.kept[slot as usize] = KeptSortKey::Unknown;
+        self.set_plain(slot as usize, false);
         self.free.push(slot);
         self.slot_of.remove(&id);
     }
@@ -159,6 +208,7 @@ impl GroundKeys {
     /// The members at `a` and `b` trade places.
     pub(crate) fn swap(&mut self, a: usize, b: usize) {
         self.slots.swap(a, b);
+        self.key_at.swap(a, b);
     }
 
     /// Forget every read whose inputs may have changed since the last call:
@@ -181,6 +231,7 @@ impl GroundKeys {
                     for id in ids {
                         if let Some(&slot) = self.slot_of.get(&id) {
                             self.kept[slot as usize] = KeptSortKey::Unknown;
+                            self.set_plain(slot as usize, false);
                         }
                         self.owner_terms.remove(&id);
                     }
@@ -191,6 +242,7 @@ impl GroundKeys {
 
     fn forget_all(&mut self) {
         self.kept.fill(KeptSortKey::Unknown);
+        self.plain.fill(0);
         self.owner_terms.clear();
     }
 
@@ -203,6 +255,7 @@ impl GroundKeys {
     #[cfg(test)]
     pub(crate) fn aligned_with(&self, members: &[u64]) -> bool {
         self.slots.len() == members.len()
+            && self.key_at.len() == members.len()
             && self.slot_of.len() == members.len()
             && members
                 .iter()
@@ -215,6 +268,7 @@ impl GroundKeys {
 mod tests {
     use super::*;
     use crate::sim::world::display_layers::{DisplayLayer, DisplayLayers};
+    use std::collections::HashMap;
 
     /// Objects with an own term; some are attached to an owner whose term the
     /// key adds.

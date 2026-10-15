@@ -1045,7 +1045,8 @@ use crate::sim::world::Simulation;
 // 364 -> 365: RadSite creation order survives saves; native updates reverse
 // creation order, which affects rounded field subtraction and later damage.
 // 365 -> 366: process scalable Bullet order and retained type cadence values.
-const SNAPSHOT_VERSION: u32 = 366;
+// 366 -> 367: authoritative PlanMgr nodes/tokens and local planning input mode.
+const SNAPSHOT_VERSION: u32 = 367;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1243,6 +1244,8 @@ pub enum SnapshotRestoreError {
         object_id: u64,
         reason: &'static str,
     },
+    #[error("invalid saved planning graph: {reason}")]
+    InvalidPlanningReferences { reason: &'static str },
     #[error("non-Building entity {owner_id} retains animation slot {slot}")]
     InvalidBuildingAnimSlotOwner { owner_id: u64, slot: u8 },
     #[error("Building {owner_id} slot {slot} references missing AnimStore object {anim_id}")]
@@ -2531,6 +2534,8 @@ impl Simulation {
         self.radiation
             .validate_site_order()
             .map_err(SnapshotRestoreError::InvalidRadiationSiteOrder)?;
+        self.validate_planning_references()
+            .map_err(|reason| SnapshotRestoreError::InvalidPlanningReferences { reason })?;
         if let Some(owner) = self.session.current_house
             && (!self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner))
         {
@@ -4522,7 +4527,8 @@ mod tests {
         // 363 -> 364: independent Bullet constructor and installed-weapon fields.
         // 364 -> 365: retained RadSite creation/update order.
         // 365 -> 366: process scalable Bullet order and type cadence.
-        assert_eq!(super::SNAPSHOT_VERSION, 366);
+        // 366 -> 367: synchronized planning nodes, paths and local input mode.
+        assert_eq!(super::SNAPSHOT_VERSION, 367);
     }
 
     #[test]

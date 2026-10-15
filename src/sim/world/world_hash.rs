@@ -4125,6 +4125,7 @@ mod infantry_hash_tests {
             .entities
             .get_mut(1)
             .unwrap()
+            .foot_retarget_after_stop
             .mark_stopped_cannot_fire();
         let retained_hash = sim.state_hash();
         assert_ne!(retained_hash, clear_hash);
@@ -4135,10 +4136,16 @@ mod infantry_hash_tests {
         assert_eq!(loaded.state_hash(), retained_hash);
         let actor = loaded.substrate.entities.get_mut(1).unwrap();
         assert!(actor.foot_retarget_after_stop());
-        assert_eq!(actor.coerce_foot_threat_mask(input_mask), effective_mask);
-        actor.finish_foot_threat_scan(false);
+        assert_eq!(
+            actor.foot_retarget_after_stop.coerce_mask(input_mask),
+            effective_mask
+        );
+        actor.foot_retarget_after_stop.finish_scan(false);
         assert!(!actor.foot_retarget_after_stop());
-        assert_eq!(actor.coerce_foot_threat_mask(input_mask), input_mask);
+        assert_eq!(
+            actor.foot_retarget_after_stop.coerce_mask(input_mask),
+            input_mask
+        );
         assert_eq!(loaded.state_hash(), clear_hash);
     }
 

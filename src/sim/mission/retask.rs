@@ -69,7 +69,7 @@ impl Simulation {
                 entity.tether.release();
             }
             // `0x004C7353`.
-            entity.set_pending_entry(None);
+            entity.pending_entry.clear();
         }
         // Native4C735D..4C7380: Foot membership removal without an idle
         // order, except Unload. The existing Team owner checks membership.

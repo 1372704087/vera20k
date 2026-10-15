@@ -869,7 +869,9 @@ impl Simulation {
         if result.foot_wrapper_entered()
             && let Some(entity) = self.substrate.entities.get_mut(id)
         {
-            entity.finish_foot_threat_scan(result.target().is_some());
+            entity
+                .foot_retarget_after_stop
+                .finish_scan(result.target().is_some());
         }
         result.target()
     }

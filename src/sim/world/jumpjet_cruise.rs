@@ -467,7 +467,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         owner.drop_credit.land();
         owner.crash.lower();
         if deploy_to_land {
-            owner.set_landing_for_deploy(false);
+            owner.clear_landing_for_deploy();
         }
     }
     fn crashing(&self) -> bool {

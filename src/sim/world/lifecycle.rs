@@ -3562,7 +3562,8 @@ impl Simulation {
                     effects,
                 );
                 if let Some(unit) = self.substrate.entities.get_mut(contact) {
-                    crate::sim::docking::building_dock::clear_pending_entry(unit);
+                    // `0x004425AA`, after RUN_AWAY returns.
+                    unit.pending_entry.clear();
                 }
             }
         }
@@ -4417,7 +4418,8 @@ impl Simulation {
                 .retain_nav_queue(|target| !Self::nav_ref_targets_expired(target, expired_id));
         }
         if clear_dock {
-            crate::sim::docking::building_dock::expire_reference(listener, expired_id);
+            // `0x00707AF5`.
+            listener.pending_entry.expire(expired_id);
         }
         if clear_airfield && let Some(ammo) = listener.aircraft_ammo.as_mut() {
             ammo.set_dock(None);

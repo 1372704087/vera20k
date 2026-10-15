@@ -13,6 +13,35 @@ use crate::sim::intern::InternedId;
 use crate::sim::mission::MissionType;
 use crate::sim::movement::locomotor::MovementLayer;
 
+/// Techno `+0x338`: the native InfantryType index of the infantryman that
+/// captured this object. The Techno constructor stores -1 (`0x006F2EC8`). An
+/// engineer's capture stores its type after the owner change
+/// (`InfantryClass::PerCellProcess`, `0x00519A42` and `0x00519F94`, one per
+/// capture arm; [`Self::record`]). A vehicle thief's store
+/// (`InfantryClass::TryThiefVehicleCapture`, `0x00520465`) belongs to the
+/// Unit hijacker mechanism, which is separate. Its Building consumers are
+/// diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct CapturedInfantryType(i32);
+
+impl CapturedInfantryType {
+    /// The Techno constructor's -1.
+    pub(crate) const fn constructed() -> Self {
+        Self(-1)
+    }
+
+    /// The captor's native InfantryType index, or -1.
+    pub(crate) const fn get(self) -> i32 {
+        self.0
+    }
+
+    /// The engineer capture's store of its native InfantryType index.
+    pub(crate) fn record(&mut self, native_index: i32) {
+        self.0 = native_index;
+    }
+}
+
 /// Interior PerCell519948..519B58 result, before Engineer/hut type checks.
 /// The one-cell Undeploy target enters a separate conversion receiver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -709,7 +738,9 @@ impl Simulation {
                 self.change_owner_with_rules(building_id, owner, rules, registry, frame_effects);
                 if let Some(building) = self.substrate.entities.get_mut(building_id) {
                     // Techno+0x338 (`0x00519F94`).
-                    building.record_infantry_capture_type(native_type_index);
+                    building
+                        .capture_infantry_type_index
+                        .record(native_type_index);
                 }
                 changed =
                     self.scatter_building_infantry(building_id, rules, registry, frame_effects)?;

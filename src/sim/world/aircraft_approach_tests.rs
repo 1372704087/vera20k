@@ -10,6 +10,30 @@ use serde_json::{Value, json};
 
 fn fixture(input: &Value) -> (Simulation, RuleSet) {
     let (mut sim, mut rules) = reengagement_fixture(input);
+    // The native fixture supplies an external AirstrikeClass behind +0x294.
+    // Keep that borrowed relationship valid through snapshot restoration.
+    let manager_rules = RuleSet::from_ini(&IniFile::from_str(
+        "[AircraftTypes]\n0=TEST\n[TEST]\nAirstrikeTeam=1\n",
+    ))
+    .unwrap();
+    let aircraft = sim.substrate.entities.get(1).unwrap();
+    let manager = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
+        999,
+        0,
+        0,
+        0,
+        0,
+        aircraft.owner(),
+        crate::sim::combat::Health::new(100),
+        aircraft.type_ref(),
+        EntityCategory::Aircraft,
+        0,
+        5,
+        true,
+    );
+    sim.substrate.entities.insert(manager);
+    sim.substrate.next_stable_object_id = 1000;
+    sim.initialize_airstrike(999, &manager_rules);
     let flh = input.get("flh").cloned().unwrap_or(json!([0, 0, 0]));
     let elite = input.get("elite_flh").unwrap_or(&flh);
     rules.install_art_data(ArtRegistry::from_ini(&IniFile::from_str(&format!(

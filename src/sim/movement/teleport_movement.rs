@@ -807,7 +807,8 @@ pub(crate) fn teleport_stop_moving(entity: &mut crate::sim::game_entity::GameEnt
 /// Whether the owner's Teleport Process runs this frame: Teleport is its
 /// active locomotor. A Teleport stashed under a Drive piggyback runs nothing,
 /// so a warp Teleport the Unit setter's Drive suspended waits for
-/// End_Piggyback.
+/// End_Piggyback. The Foot's Locomotor (`+0x674`) is then the
+/// `TeleportLocomotionClass` whose Process is `0x007192F0`.
 pub(crate) fn teleport_process_active(entity: &crate::sim::game_entity::GameEntity) -> bool {
     entity
         .locomotor

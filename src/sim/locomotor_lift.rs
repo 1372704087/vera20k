@@ -856,7 +856,8 @@ impl Simulation {
         }
     }
 
-    /// The Infantry walk of [`Self::dropped_impact`] from `first`.
+    /// The Infantry walk of [`Self::dropped_impact`] from `first`:
+    /// `JumpjetLocomotionClass::State5_Crash` (`0x0054CA90`), `0x0054CCDE..0x0054CD78`.
     fn dropped_crush(
         &mut self,
         id: u64,
@@ -909,7 +910,8 @@ impl Simulation {
     }
 
     /// The `vt+0x16C` arm of [`Self::dropped_impact`]. Returns whether it
-    /// changed a bridge.
+    /// changed a bridge. `JumpjetLocomotionClass::State5_Crash` (`0x0054CA90`)
+    /// passes the target's own Health (`+0x6C`, `0x0054CDB5`) as the damage.
     fn dropped_crush_damage(
         &mut self,
         id: u64,

@@ -941,6 +941,8 @@ impl GameEntity {
     /// absent from the generic sequence vocabulary. Presentation never advances
     /// this clock or owns a writable copy of its progress. Doing-1 is retained;
     /// the frame-selector caller owns its native default-action selection.
+    /// Serves the Infantry draw-frame selector `0x00518D80`: Doing `+0x6C4`, and
+    /// the Stage value `+0xF8` it takes modulo the count (`0x00518E08..0x00518E21`).
     pub fn infantry_sprite_pose(&self) -> Option<(i32, i32)> {
         if !crate::sim::movement::infantry_action::doing_owns_sequence(self) {
             return None;
@@ -1010,6 +1012,8 @@ impl GameEntity {
     }
 
     /// The spot an infantryman holds in its cell; see the field.
+    /// VERA-only: the `InfantrySpot` placement cache; natively the coordinate's
+    /// in-cell offset carries the spot (`0x00481180`).
     pub(crate) fn sub_cell(&self) -> Option<u8> {
         self.sub_cell.get()
     }
@@ -1214,6 +1218,7 @@ impl GameEntity {
     /// `((raw >> 7) + 1) >> 1`: the conversion gamemd applies when it passes
     /// `Current()` on as a direction argument (an Unlimbo's, a Do_Turn
     /// comparison's), wrapping 0xFF80.. to 0.
+    /// `+0x388` (PrimaryFacing) through `FacingClass::Current @ 0x004C93D0`.
     pub(crate) fn body_facing_dir(&self, frame: u32) -> u8 {
         (((u32::from(self.body_facing.current(frame)) >> 7) + 1) >> 1) as u8
     }
@@ -1662,17 +1667,20 @@ impl GameEntity {
     ///
     /// First-null slot insert: idempotent, and full slots deny without evicting
     /// (the receiver dock idiom). Slot order is hash-relevant and deterministic.
+    /// `RadioClass+0xE4`/`+0xE8`, the contact slots; see the field.
     pub fn mark_live_contact_with(&mut self, other_stable_id: u64) {
         self.radio_contacts.insert(other_stable_id);
     }
 
     /// Whether this entity has a live RadioClass-style contact with another entity.
+    /// `RadioClass+0xE4`/`+0xE8`, the contact slots; see the field.
     pub fn has_live_contact_with(&self, other_stable_id: u64) -> bool {
         self.radio_contacts.contains(other_stable_id)
     }
 
     /// Clear a live RadioClass-style contact with another entity (BREAK: nulls
     /// the slot in place, no compaction).
+    /// `RadioClass+0xE4`/`+0xE8`, the contact slots; see the field.
     pub fn clear_live_contact_with(&mut self, other_stable_id: u64) {
         self.radio_contacts.remove(other_stable_id);
     }
@@ -1681,16 +1689,13 @@ impl GameEntity {
     ///
     /// This is not the object-list selector, which is
     /// `occupancy::cell_list_layer_for_entity`.
+    /// VERA-only: the layer cached on the locomotor, where gamemd asks the
+    /// locomotor's `In_Which_Layer`; placements store it with OnBridge.
     pub fn movement_layer_or_ground(&self) -> crate::sim::movement::locomotor::MovementLayer {
         self.locomotor.as_ref().map_or(
             crate::sim::movement::locomotor::MovementLayer::Ground,
             |l| l.layer(),
         )
-    }
-
-    /// Whether this entity is currently on a bridge deck.
-    pub fn is_on_bridge_layer(&self) -> bool {
-        self.on_bridge.get()
     }
 
     /// Create a minimal entity for testing. Fills sensible defaults for most fields.
@@ -1729,12 +1734,14 @@ impl GameEntity {
     }
 
     /// Whether this entity is alive (health > 0).
+    /// `Object+0x6C`, Health, above 0.
     pub fn is_alive(&self) -> bool {
         self.health.current() > 0
     }
 
     /// Whether ObjectClass native-alive state is set. This is intentionally
     /// independent from health and the Rust death-sequence state.
+    /// `Object+0x90`, IsAlive; see the field.
     pub fn is_object_alive(&self) -> bool {
         self.lifecycle.object_alive()
     }
@@ -1743,6 +1750,8 @@ impl GameEntity {
     /// migrates. Distinct from both health-based `is_alive()` and native-alive
     /// `is_object_alive()`; death-sequence state still suppresses current raw-store
     /// consumers even while ObjectClass native-alive remains set.
+    /// VERA-only: checks IsAlive (`Object+0x90`) and the `TerminalLifetime`
+    /// dying mark, which native lacks; those records are its source of truth.
     pub fn is_active(&self) -> bool {
         self.lifecycle.object_alive() && !self.death.is_dying()
     }
@@ -1852,6 +1861,8 @@ impl GameEntity {
         }
     }
 
+    /// VERA-only: folds Techno `+0x338`, the captor's InfantryType index, into
+    /// the state hash.
     pub(crate) fn hash_capture_infantry_type(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         self.capture_infantry_type_index.get().hash(hasher);

@@ -939,6 +939,8 @@ impl Simulation {
         Some(input_z.max(ground_z))
     }
 
+    /// The object's own Location (`Object+0x9C`), the coordinate a Reveal at the
+    /// current position passes on.
     fn current_reveal_position(&self, stable_id: u64) -> Option<RevealPosition> {
         self.substrate
             .entities
@@ -1757,6 +1759,8 @@ impl Simulation {
 
     /// Refresh the owning house's navigation edge from a live, map-committed
     /// structure. Launch base-center authority remains the assigned start cell.
+    /// Serves `HouseClass::DetermineEdge @ 0x0050DB00`'s building arm, which the
+    /// primary-factory selection calls (`0x00448070`, `0x00448160`).
     pub(crate) fn refresh_waypoint_edge_from_committed_structure(&mut self, stable_id: u64) {
         let Some(bounds) = self.playfield_bounds else {
             return;
@@ -2021,6 +2025,8 @@ impl Simulation {
         });
     }
 
+    /// The rectangle of the base-reservation writer `0x00455F10`: Location's cell
+    /// less `AIBaseSpacing=`, the foundation plus twice the spacing.
     fn base_reservation_writer(&self, stable_id: u64) -> Option<(InternedId, CellRect)> {
         let entity = self.substrate.entities.get(stable_id)?;
         let spacing = entity.type_facts.base_reservation_spacing()?;
@@ -2043,6 +2049,8 @@ impl Simulation {
         })
     }
 
+    /// The base-reservation clear and neighbor repair `0x004561F0` that Building
+    /// Limbo calls (`0x00445A9A`), over the same rectangle from Location's cell.
     fn clear_building_base_reservation_and_repair(
         &mut self,
         stable_id: u64,
@@ -2608,6 +2616,7 @@ impl Simulation {
     /// Read the per-object `in_logic_vector` membership flag for a classified
     /// object. The flag lives on the object in its own store; this is the
     /// single dispatch the registration/removal contract reads through.
+    /// For a Techno, `Object+0x98`: RegisterObject sets it (`0x0055BAC6`).
     fn logic_membership_flag(&self, stable_id: u64, kind: ObjectKind) -> bool {
         match kind {
             ObjectKind::Smudge => false,
@@ -3395,6 +3404,8 @@ impl Simulation {
     /// UnInit, Limbo, record the destruction, or enqueue physical deletion.
     /// The kill callback ([`crate::sim::combat::record_kill::record_the_kill`])
     /// has already booked its House statistics before these Destroy callbacks.
+    /// `ObjectClass::ReceiveDamage @ 0x005F5390`'s arm for Health (`+0x6C`) exactly 0
+    /// (`0x005F5765..0x005F57AF`).
     pub(crate) fn postmortem_exact_zero_callbacks(
         &mut self,
         stable_id: u64,
@@ -3776,6 +3787,8 @@ impl Simulation {
     /// expiring object, names nothing expiring and returns false matches
     /// visiting it. A field or forward added to the broadcast must be added
     /// here too.
+    /// VERA-only: feeds the expiry-listener index (`ExpiryListeners`) so the
+    /// `0x007258D0` broadcast skips entities; the listener's fields are the truth.
     pub(super) fn entity_expiry_holds(listener: &GameEntity, mut name: impl FnMut(u64)) -> bool {
         for target in [
             listener.attack_target.target(),
@@ -4019,6 +4032,7 @@ impl Simulation {
     }
 
     /// Match the retained target identity, preserving Cell/Techno distinction.
+    /// The detach sweep `0x0070D4A0`'s TarCom test `CMP [ESI+0x2B4]` (`0x0070D539`).
     fn listener_targets(&self, listener_id: u64, target: TargetKind) -> bool {
         self.substrate
             .entities

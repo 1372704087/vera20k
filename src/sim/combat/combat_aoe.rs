@@ -378,6 +378,8 @@ pub(crate) fn apply_aoe_damage_with_terrain<O: Into<AoEDamageOrigin>>(
     )
 }
 
+/// `Apply_area_damage` (`0x00489280`): collects its receiver records. Without an
+/// occupancy grid, every unlimboed, living object stands in for the cell lists.
 pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin>>(
     entities: &mut EntityStore,
     impact_rx: u16,
@@ -924,6 +926,8 @@ fn push_airborne_aoe_damage(
     ));
 }
 
+/// Collects one ground/deck-list receiver record for `Apply_area_damage`
+/// (`0x00489280`).
 fn push_entity_aoe_damage(
     result: &mut AoEDamageResult,
     entities: &EntityStore,

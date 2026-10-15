@@ -1932,6 +1932,8 @@ impl Simulation {
     /// new members run through `ObjectClass::Select`. This distinction matters
     /// for an already-selected Chrono unit in warp-out: warp blocks a fresh
     /// selection, but does not retroactively remove an existing one.
+    /// VERA-only: applies the local `Command::Select` snapshot, its source of truth, to
+    /// IsSelected `Object+0x83` through `Deselect @ 0x005F44A0` and `Select @ 0x005F4520`.
     fn apply_selection_snapshot(&mut self, stable_ids: &[u64], rules: Option<&RuleSet>) -> bool {
         let requested: BTreeSet<u64> = stable_ids.iter().copied().collect();
         // Deselect only omitted old members. Requested old members remain set,
@@ -2100,6 +2102,8 @@ impl Simulation {
     /// is what keeps an attacker on its previous order when the unit it was
     /// clicked onto dies in the same tick, instead of retasking it onto a
     /// corpse that is still resolvable in the store.
+    /// `EventClass::Execute @ 0x004C6CB0`'s MEGAMISSION token tests of `+0x90`, `+0x6C` != 0
+    /// and `+0x81` (target `0x004C7225..0x004C725D`, destination `0x004C7263..0x004C7299`).
     pub(crate) fn order_object_token_admits(&self, stable_id: u64) -> bool {
         self.substrate.entities.get(stable_id).is_some_and(|e| {
             e.lifecycle.object_alive() && e.health.current() != 0 && !e.lifecycle.in_limbo()
@@ -2117,6 +2121,8 @@ impl Simulation {
     ///
     /// Structures never take this branch (it is gated on the Foot bit), and the
     /// link tested is contact slot 0, the same slot the original reads.
+    /// `EventClass::Execute @ 0x004C6CB0`, MEGAMISSION `0x004C729F..0x004C72E2`: an Enter event,
+    /// `+0xAC` Enter, the Foot bit, a Building, and contact slot 0 (`+0xE4`, `0x0065AD30`).
     pub(crate) fn duplicate_enter_is_noop(&self, receiver_id: u64, destination_id: u64) -> bool {
         let Some(receiver) = self.substrate.entities.get(receiver_id) else {
             return false;
@@ -2141,6 +2147,8 @@ impl Simulation {
     }
 
     /// Validate an explicit refinery selected by a player miner-return order.
+    /// VERA-only: re-checks at execution the refinery that `UnitClass::What_Action`'s CAN_LOAD
+    /// (`0x0F`, Enter at `0x0073FD50`) admitted at click, from the store and `Refinery=`/`Dock=`.
     fn valid_explicit_miner_refinery(
         &self,
         command_owner: &str,

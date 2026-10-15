@@ -2019,6 +2019,8 @@ const PASSIVE_TARGET_CLEAR_MISSIONS: [MissionType; 12] = [
 /// The off-mission clear, which runs before the AI counter: a passively
 /// acquired target is dropped the moment the object takes a job that should not
 /// be shooting (see [`PASSIVE_TARGET_CLEAR_MISSIONS`]).
+/// `TechnoClass::AI_Update @ 0x006F9E50` at `0x006FA5E8..0x006FA63B`: TarCom `+0x2B4`,
+/// the mark `+0x50C`, then the mission `+0xAC`.
 fn clear_passive_target_off_mission(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     let drop = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.attack_target.target().is_some()

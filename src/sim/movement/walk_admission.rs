@@ -610,8 +610,8 @@ fn walk_code2_gate(
     Some(runtime.code2_urgency(frame))
 }
 
-/// Whether the Walk owner's vt+0x548 changes `actor`; see
-/// [`Simulation::walk_owner_clear_doing`].
+/// Whether the Walk owner's vt+0x548 changes `actor` (Infantry `0x00521B20`,
+/// Unit `0x004DBA30`); see [`Simulation::walk_owner_clear_doing`].
 pub(super) fn walk_doing_to_clear(actor: &crate::sim::game_entity::GameEntity) -> bool {
     actor.category() == EntityCategory::Infantry
         && actor
@@ -620,8 +620,8 @@ pub(super) fn walk_doing_to_clear(actor: &crate::sim::game_entity::GameEntity) -
             .is_some_and(|leaf| matches!(leaf.doing(), 3 | 6 | 17))
 }
 
-/// The Walk owner's vt+0x548 on `actor`; see
-/// [`Simulation::walk_owner_clear_doing`].
+/// The Walk owner's vt+0x548 on `actor` (Infantry `0x00521B20`, Unit
+/// `0x004DBA30`); see [`Simulation::walk_owner_clear_doing`].
 pub(super) fn clear_walk_doing(actor: &mut crate::sim::game_entity::GameEntity) {
     if walk_doing_to_clear(actor) {
         actor

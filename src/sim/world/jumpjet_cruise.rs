@@ -109,12 +109,14 @@ impl JumpjetFlightHost for CruiseHost<'_> {
     fn is_object_alive(&self) -> bool {
         self.owner().is_object_alive()
     }
+    /// `Object+0x74`, Marked.
     fn marked(&self) -> bool {
         self.owner().lifecycle.cell_marked()
     }
     fn replace_marked_byte(&mut self, marked: bool) -> bool {
         self.sim.replace_foot_marked_byte(self.stable_id, marked)
     }
+    /// `Object+0x9C`, Location.
     fn location(&self) -> [i32; 3] {
         let xy = position_world_xy(&self.owner().position);
         let z =
@@ -223,12 +225,15 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             }
         })
     }
+    /// `TechnoTypeClass+0xD6A`, `BalloonHover=`, as the locomotor caches it.
     fn balloon_hover(&self) -> bool {
         self.owner().locomotor.as_ref().unwrap().balloon_hover()
     }
+    /// `Techno+0x2B4`, TarCom, is set.
     fn has_target(&self) -> bool {
         self.owner().attack_target.target().is_some()
     }
+    /// `Foot+0x6AD`: a Magnetron lifted the owner.
     fn piggyback_active(&self) -> bool {
         self.owner().lift.swap_active()
     }
@@ -252,6 +257,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.object_type()
             .is_some_and(|object| object.deploy_to_land)
     }
+    /// `FootClass::SetSpeedFraction @ 0x004D3710` (vt+0x544).
     fn set_speed_fraction(&mut self, fraction_bits: u64) {
         self.sim
             .substrate
@@ -262,6 +268,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .set_speed_fraction_native_bits(fraction_bits);
     }
     fn arrival_notify(&mut self) {}
+    /// `FacingClass::UpdateFacing @ 0x004C9300` on the body facing (`+0x388`).
     fn snap_body_facing(&mut self, facing: u16) {
         self.sim
             .substrate
@@ -524,6 +531,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .map_or(0, |(_, _, z)| z as i32);
         [x, y, z]
     }
+    /// Owner `+0x427`: a Magnetron dropped it.
     fn dropped(&self) -> bool {
         self.owner().drop_credit.being_manipulated()
     }
@@ -593,6 +601,8 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             sim.assign_null_destination(id, rules, registry, frame_effects);
         });
     }
+    /// The Jumpjet crash state `0x0054CA90`'s clear of `+0x428`/`+0x42C`
+    /// (`0x0054CFEE..0x0054CFF7`).
     fn clear_drop_credit(&mut self) {
         let owner = self.sim.substrate.entities.get_mut(self.stable_id).unwrap();
         owner.drop_credit.forget();

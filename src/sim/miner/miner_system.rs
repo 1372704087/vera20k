@@ -506,9 +506,11 @@ fn sync_harvest_visuals(entity: &mut crate::sim::game_entity::GameEntity) {
     }
 }
 
-/// Whether the unit's mission is Harvest.
+/// Whether the unit's mission is Harvest, as `UnitClass::AI` asks it at
+/// `0x007365CD`: `MissionClass::Get_Mission` (`0x005B3040`), the current
+/// mission, else the queued one.
 pub(crate) fn native_mission_is_harvest(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity.mission.current().known() == Some(MissionType::Harvest)
+    entity.mission.effective().known() == Some(MissionType::Harvest)
 }
 
 /// `UnitClass::AI` once `FootClass::AI` returns (`0x007365BB..0x007365D8`):

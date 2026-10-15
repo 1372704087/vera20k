@@ -1773,6 +1773,8 @@ fn radio_hello(sim: &mut Simulation, receiver: u64, sender: Option<u64>) -> Radi
 
 /// A tank bunker is any structure seeded with a `bunker_runtime` (Bunker=yes at
 /// spawn). Routing on this lets the bus stay rules-free (it has no `RuleSet`).
+/// It stands in for the Type's `Bunker=` byte (`+0x16AB`) that
+/// `BuildingClass::Receive_Radio` tests at `0x0043C506` and `0x0043C75A`.
 fn is_bunker_building(sim: &Simulation, sid: u64) -> bool {
     sim.substrate
         .entities
@@ -1782,6 +1784,8 @@ fn is_bunker_building(sim: &Simulation, sid: u64) -> bool {
 
 /// Tank-bunker inbound admission + commit. Mirrors the refinery handshake shape:
 /// CAN_ENTER is the eligibility query; DOCK_NOW commits the install machine.
+/// Native: `BuildingClass::Receive_Radio` (`0x0043C2D0`)'s Bunker arms, CanEnterBunker
+/// (`0x0043C512`) and the DOCK_NOW queue (`0x0043C75A..0x0043C773`).
 fn bunker_receive(
     sim: &mut Simulation,
     bld: u64,

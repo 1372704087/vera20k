@@ -930,7 +930,8 @@ fn depot_rally_cell(
 }
 
 /// BREAK the unit↔depot link over the bus (both slots cleared). No-op when the
-/// unit holds no contact with the depot.
+/// unit holds no contact with the depot. This is the refusal BREAK of
+/// `FootClass::TryEnterTransport` (`0x0070D7E0`, `0x0070D85E..0x0070D889`).
 fn break_depot_contact(
     sim: &mut Simulation,
     unit_id: u64,

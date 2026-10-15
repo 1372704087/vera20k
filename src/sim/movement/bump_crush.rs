@@ -154,6 +154,8 @@ impl BlockerPlaneSource {
 }
 
 /// The one rule for what an entity adds to the blocker plane.
+/// A building's is the CellClass `+0x122` ring of `BuildingClass::Unlimbo`
+/// (`0x00440CD9..0x00440CEA`), which `BuildingClass::Limbo` undoes (`0x00445D11..0x00445D22`).
 pub(crate) fn blocker_plane_source(
     entity: &GameEntity,
     terrain: Option<&ResolvedTerrainGrid>,
@@ -485,6 +487,8 @@ pub fn within_crush_distance_sq(crusher: (i32, i32), victim: (i32, i32)) -> bool
     dx * dx + dy * dy <= CRUSH_DISTANCE_SQ_LIMIT
 }
 
+/// The victim's GetCoords XY (vt+0x48, `0x007417FB`) `TechnoClass::DistanceSquaredTo`
+/// (`0x005F6560`) measures in `UnitClass::Crush_Or_Prescatter_Cell` (`0x007416A0`).
 fn entity_crush_coord(entity: &GameEntity) -> (i32, i32) {
     (
         i32::from(entity.position.rx()) * 256 + entity.position.sub_x().to_num::<i32>(),

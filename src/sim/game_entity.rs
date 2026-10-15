@@ -278,26 +278,17 @@ pub struct GameEntity {
     /// [`ObjectLifecycle`] that `world::lifecycle` owns.
     #[serde(default)]
     pub(crate) lifecycle: ObjectLifecycle,
-    /// Canonical TechnoClass playfield-membership byte (`TechnoClass+0x3D5`).
+    /// The playfield membership (`TechnoClass+0x3D5`), a
+    /// [`PlayfieldMembership`] that `world::playfield_membership` owns.
     ///
-    /// gamemd-derived: the constructor clears it at `0x006F2F5B`, Unlimbo
-    /// establishes an exact mode-one result at `0x006F6CFE`, ordinary cell
-    /// movement promotes false to true without normally demoting it at
-    /// `0x006F511A..0x006F5139` (the Teleport warp's PerCell(2) included), the
-    /// Chronosphere warp's arrival state clears it outside the playfield at
-    /// `0x00719A99` (`movement::teleport_chrono`), and
-    /// `MapClass::Set_Clipped_LocalSize @ 0x00567230` recomputes every
-    /// Techno exactly after a LocalSize writer. Consumers must read this stored
-    /// fact; a fresh bounds query would erase the native movement hysteresis.
+    /// [`PlayfieldMembership`]: crate::sim::world::PlayfieldMembership
     #[serde(default)]
-    in_playfield: bool,
-    /// Retained Techno+3D4 (VERA name; historical native name unconfirmed).
-    /// Constructor6F2F55 clears it; special Aircraft Unlimbo4143EB and
-    /// reinforcement65E6BE promote it. Never infer it from current type,
-    /// mission, cargo or +3D5. Ordinary click action692766 reads this history;
-    /// forced ObjectSelect5F4578 has a separate virtual+A0 prerequisite.
+    pub(crate) in_playfield: crate::sim::world::PlayfieldMembership,
+    /// Techno `+0x3D4`, a [`MissionOnly`] that `sim::aircraft` owns.
+    ///
+    /// [`MissionOnly`]: crate::sim::aircraft::MissionOnly
     #[serde(default)]
-    mission_only: bool,
+    pub(crate) mission_only: crate::sim::aircraft::MissionOnly,
     /// The type facts the removal paths read (Limbo's dirty-rect branch and
     /// `Occupier=`), a [`RemovalFacts`] that `world::lifecycle` owns.
     ///
@@ -379,15 +370,12 @@ pub struct GameEntity {
     /// [`PrismSupport`]: crate::sim::world::PrismSupport
     #[serde(default)]
     pub(crate) prism_support_count: crate::sim::world::PrismSupport,
-    /// Techno+138, constructor6F2B99..6F2BCA=0; SetGunnerWeapon70DC70 owns writes.
-    /// Combat selection and turret facing read the same signed weapon number.
-    current_weapon_number: i32,
-    /// Techno+124, constructor6F2B99..6F2BCA=-1. SetGunnerWeapon70DC70 and
-    /// charge AI6FA4FB own writes; indexed voxel drawing is its consumer.
-    current_turret_index: i32,
-    /// Techno+2F8, constructor6F2E98=0. FireAt saves the final rearm duration
-    /// independently of later timer writers; charge AI reads it for drawing.
-    charge_turret_delay: i32,
+    /// The current weapon and turret (`TechnoClass+0x138`, `+0x124`) and the
+    /// charge turret's saved rearm (`+0x2F8`), a [`TurretSelection`] that
+    /// `game_entity::gunner` owns.
+    ///
+    /// [`TurretSelection`]: gunner::TurretSelection
+    turret_selection: gunner::TurretSelection,
     /// RadioClass-style live contacts for this entity, stored as stable IDs.
     /// Used by runtime building-entry/pathing exceptions such as contacted
     /// war factory exits and refinery dock entry. Kept per mover; a building
@@ -435,13 +423,12 @@ pub struct GameEntity {
     /// [`TurretRotateLatch`]: crate::sim::world::TurretRotateLatch
     #[serde(default)]
     pub(crate) turret_rotate_latch: crate::sim::world::TurretRotateLatch,
-    /// Techno+4F8: one ordinary VoiceDeploy attempt is suppressed after a
-    /// SlaveManager relocation (6B01C4). Constructor6F30FA starts false.
-    /// The Building resource-Archive voice459C20 bypasses both the test and
-    /// clear; common VoiceDeploy708E00 clears it even when the slot is absent.
-    /// This retained control history is distinct from the audio pending line.
+    /// Techno `+0x4F8`, a [`DeployVoiceSuppression`] that
+    /// `world::selection_voice` owns.
+    ///
+    /// [`DeployVoiceSuppression`]: crate::sim::world::DeployVoiceSuppression
     #[serde(default)]
-    suppress_deploy_voice: bool,
+    pub(crate) suppress_deploy_voice: crate::sim::world::DeployVoiceSuppression,
     /// The rearm countdown (`TechnoClass+0x2EC`), a [`RearmTimer`] whose
     /// writers `combat::rof` documents.
     ///
@@ -467,12 +454,11 @@ pub struct GameEntity {
     /// Sole native Building+534/+538 body state; construction/sale use the
     /// existing private StageClass and MissionLeaf ready byte.
     building_body: Option<crate::sim::building_construction::BuildingBody>,
-    /// Building+544: actual health sampled by440042..440074. Constructor
-    /// 43B78F and successful ordinary Unlimbo440D2D reset it to zero.
-    /// A repair changes actual health without invalidating its House. The
-    /// next sample does invalidate it; any other native dirty writer can
-    /// expose that live health through an earlier House assessment.
-    building_power_health_sample: i32,
+    /// Building `+0x544`, a [`PowerHealthSample`] that `sim::power_system`
+    /// owns; a Building's alone is live.
+    ///
+    /// [`PowerHealthSample`]: crate::sim::power_system::PowerHealthSample
+    building_power_health_sample: crate::sim::power_system::PowerHealthSample,
     /// Sale route metadata, never a second mission, ready byte or timer.
     building_sale: Option<crate::sim::building_construction::BuildingDown>,
     /// The wait before the building's computer factory tries its finished
@@ -618,9 +604,11 @@ pub struct GameEntity {
     /// [`BerserkState`]: crate::sim::combat::BerserkState
     #[serde(default)]
     pub(crate) berserk: crate::sim::combat::BerserkState,
-    /// Native Foot/Unit+500 entry target, independent of Radio contacts.
-    /// Unit741D9F installs it; Foot70D84F/70D889 and expiry clear it.
-    pending_entry: Option<u64>,
+    /// The pending entry (`Unit+0x500`), a [`PendingEntry`] that
+    /// `docking::building_dock` owns.
+    ///
+    /// [`PendingEntry`]: crate::sim::docking::building_dock::PendingEntry
+    pub(crate) pending_entry: crate::sim::docking::building_dock::PendingEntry,
     /// Foot `+0x68F..+0x691`, cleared by the Foot constructor
     /// (`0x004D33D2..0x004D33DE`) and written only by `sim::building_entry`.
     #[serde(default)]
@@ -639,11 +627,11 @@ pub struct GameEntity {
     ///
     /// [`CrushableFacts`]: crate::sim::world::CrushableFacts
     pub(crate) crushable_facts: crate::sim::world::CrushableFacts,
-    /// Techno+2A4, cleared by construction and retained independently of
-    /// Doing. Infantry520B4E/520BAD update it after their Do_Action request
-    /// even when the requested Deployed/Ready sequence refuses.
+    /// Techno `+0x2A4`, a [`CrushImmunity`] that `sim::deploy` owns.
+    ///
+    /// [`CrushImmunity`]: crate::sim::deploy::CrushImmunity
     #[serde(default)]
-    native_crush_immunity: u8,
+    pub(crate) native_crush_immunity: crate::sim::deploy::CrushImmunity,
     /// `OmniCrusher=`, `Crusher=`, `Accelerates=`, `OmniCrushResistant=` and
     /// `ImmuneToRadiation=`, a [`MoverFacts`] that construction stamps.
     ///
@@ -680,10 +668,11 @@ pub struct GameEntity {
     ///
     /// [`UnloadImage`]: crate::sim::miner::UnloadImage
     pub(crate) display_type_override: crate::sim::miner::UnloadImage,
-    /// Techno+338, constructor6F2EC8=-1. Infantry capture519F94 stores its
-    /// native InfantryType array index. Building consumers are diagnostics;
-    /// the Unit hijacker lifecycle is a separate mechanism.
-    capture_infantry_type_index: i32,
+    /// Techno `+0x338`, a [`CapturedInfantryType`] that `world::world_orders`
+    /// owns.
+    ///
+    /// [`CapturedInfantryType`]: crate::sim::world::CapturedInfantryType
+    pub(crate) capture_infantry_type_index: crate::sim::world::CapturedInfantryType,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -723,10 +712,12 @@ pub struct GameEntity {
     /// bunker. Drives entry admission → install.
     #[serde(default)]
     pub(crate) bunker_runtime: Option<crate::sim::docking::bunker_install::BunkerRuntime>,
-    /// Techno+130/+134, both cleared by the Techno constructor. Animation ownership
-    /// and the Jumpjet landing request survive independently of Unit6E0..6E2.
-    deploy_anim: Option<crate::sim::anim_class::AnimId>,
-    landing_for_deploy: bool,
+    /// The deploy animation (`TechnoClass+0x130`) and Jumpjet landing request
+    /// (`+0x134`), a [`DeployAttachment`] that `game_entity::simple_deploy`
+    /// owns.
+    ///
+    /// [`DeployAttachment`]: simple_deploy::DeployAttachment
+    deploy_attachment: simple_deploy::DeployAttachment,
     /// Unit+0x68C: runtime Deploy continuation, not the type's DeployToFire;
     /// a [`DeployContinuation`] that `mcv_deploy` owns.
     ///
@@ -752,11 +743,12 @@ pub struct GameEntity {
     /// [`PassiveScan`]: crate::sim::world::PassiveScan
     #[serde(default)]
     pub(crate) passive_scan: crate::sim::world::PassiveScan,
-    /// Foot+688, initialized false at4D33A8. A stopped object unable to fire
-    /// narrows its next scans through Foot::Greatest_Threat4D9920. This is
-    /// independent of Techno's passive-target byte+50C.
+    /// Foot `+0x688`, a [`RetargetAfterStop`] that `combat::greatest_threat`
+    /// owns.
+    ///
+    /// [`RetargetAfterStop`]: crate::sim::combat::greatest_threat::RetargetAfterStop
     #[serde(default)]
-    foot_retarget_after_stop: bool,
+    pub(crate) foot_retarget_after_stop: crate::sim::combat::greatest_threat::RetargetAfterStop,
     /// Category-specific bytes read by Mission readiness and Aircraft policy.
     pub(crate) mission_leaf: MissionLeafState,
     /// SuspendedTarCom (`TechnoClass+0x2B8`), a [`SuspendedTarget`] that
@@ -800,12 +792,11 @@ pub struct GameEntity {
     /// Only allocated when debug inspector is active (X hotkey). Not included in state hashing.
     #[serde(skip)]
     debug_log: Option<DebugEventLog>,
-    /// Techno+508, the contribution last published to the House spatial maps.
-    /// Constructor6F310C..6F311E leaves this dword unwritten; None preserves
-    /// that domain until admitted alive Unlimbo6F6ED2 or Add70F689 writes it.
-    /// It is independent of current type/garrison threat and survives saves.
+    /// Techno `+0x508`, a [`SpatialThreat`] that `sim::house_threat` owns.
+    ///
+    /// [`SpatialThreat`]: crate::sim::house_threat::SpatialThreat
     #[serde(default)]
-    cached_spatial_threat: Option<i32>,
+    pub(crate) cached_spatial_threat: crate::sim::house_threat::SpatialThreat,
 }
 
 mod construction_stage;
@@ -920,21 +911,27 @@ impl GameEntity {
             && self.door_phase() == crate::sim::door::DoorPhase::OpenStable
     }
 
+    /// The pending entry (`Unit+0x500`); see [`PendingEntry`].
+    ///
+    /// [`PendingEntry`]: crate::sim::docking::building_dock::PendingEntry
     pub(crate) const fn pending_entry(&self) -> Option<u64> {
-        self.pending_entry
+        self.pending_entry.get()
     }
 
-    /// Native Unit741D9F / Foot70D84F / Techno707AE7 entry-pointer writer.
+    /// A fixture's pending entry.
+    #[cfg(test)]
     pub(crate) fn set_pending_entry(&mut self, target: Option<u64>) {
-        self.pending_entry = target;
+        match target {
+            Some(building) => self.pending_entry.install(building),
+            None => self.pending_entry.clear(),
+        }
     }
 
+    /// Techno `+0x508`; see [`SpatialThreat`].
+    ///
+    /// [`SpatialThreat`]: crate::sim::house_threat::SpatialThreat
     pub(crate) const fn cached_spatial_threat(&self) -> Option<i32> {
-        self.cached_spatial_threat
-    }
-
-    pub(crate) fn retain_spatial_threat(&mut self, value: i32) {
-        self.cached_spatial_threat = Some(value);
+        self.cached_spatial_threat.get()
     }
     pub(crate) fn native_stage(&self) -> &crate::sim::stage::StageClass {
         &self.stage
@@ -990,14 +987,15 @@ impl GameEntity {
         self.navigation.path_replay.clear_live_head();
     }
 
-    /// The stored in-playfield fact; see the field.
+    /// The stored playfield membership (`TechnoClass+0x3D5`).
     pub(crate) fn in_playfield(&self) -> bool {
-        self.in_playfield
+        self.in_playfield.get()
     }
 
-    /// Store the in-playfield fact.
+    /// A fixture's playfield membership.
+    #[cfg(test)]
     pub(crate) fn set_in_playfield(&mut self, in_playfield: bool) {
-        self.in_playfield = in_playfield;
+        self.in_playfield.store(in_playfield);
     }
 
     /// `Object+0x8C`, OnBridge; see the field.
@@ -1053,18 +1051,11 @@ impl GameEntity {
         self.base_defense_response.set_archive_target(target);
     }
 
+    /// Techno `+0x4F8`; see [`DeployVoiceSuppression`].
+    ///
+    /// [`DeployVoiceSuppression`]: crate::sim::world::DeployVoiceSuppression
     pub(crate) fn deploy_voice_suppressed(&self) -> bool {
-        self.suppress_deploy_voice
-    }
-
-    /// SlaveManager6B01C4's write, before it archives the refinery's own cell.
-    pub(crate) fn suppress_next_deploy_voice(&mut self) {
-        self.suppress_deploy_voice = true;
-    }
-
-    /// Common VoiceDeploy708E6A/708EA0 clears after its attempted request.
-    pub(crate) fn clear_deploy_voice_suppression(&mut self) {
-        self.suppress_deploy_voice = false;
+        self.suppress_deploy_voice.get()
     }
 
     /// A factory's rally point is its ArchiveTarget: `BuildingClass::
@@ -1080,13 +1071,11 @@ impl GameEntity {
         }
     }
 
+    /// Techno `+0x3D4`; see [`MissionOnly`].
+    ///
+    /// [`MissionOnly`]: crate::sim::aircraft::MissionOnly
     pub(crate) const fn is_mission_only(&self) -> bool {
-        self.mission_only
-    }
-
-    /// Native SET writers are monotonic for this object's lifetime.
-    pub(crate) fn mark_mission_only(&mut self) {
-        self.mission_only = true;
+        self.mission_only.get()
     }
 
     /// AircraftUnlimbo4143A8..4143F2, only after Foot placement succeeds.
@@ -1107,7 +1096,7 @@ impl GameEntity {
                 .and_then(|id| rules.weapon(id))
                 .is_some_and(|weapon| weapon.camera);
         if !object.selectable || !object.landable || camera {
-            self.mark_mission_only();
+            self.mission_only.mark();
         }
     }
 
@@ -1202,37 +1191,11 @@ impl GameEntity {
 }
 
 impl GameEntity {
+    /// Foot `+0x688`; see [`RetargetAfterStop`].
+    ///
+    /// [`RetargetAfterStop`]: crate::sim::combat::greatest_threat::RetargetAfterStop
     pub(crate) const fn foot_retarget_after_stop(&self) -> bool {
-        self.foot_retarget_after_stop
-    }
-
-    /// Drive4B2E9F / Ship6A24F2 / Hover51684D: the held target cannot
-    /// be fired at after stopping. Set before the team Scan_Limit/target clear;
-    /// Team6EC3BD also sets it after each member's class target clear.
-    pub(crate) fn mark_stopped_cannot_fire(&mut self) {
-        self.foot_retarget_after_stop = true;
-    }
-
-    /// FootGreatestThreat4D9951..55 clears only an empty completed base scan.
-    /// Class overrides which return before Foot leave the byte untouched.
-    pub(crate) fn finish_foot_threat_scan(&mut self, found: bool) {
-        if !found {
-            self.foot_retarget_after_stop = false;
-        }
-    }
-
-    /// Mission_Rescue4DE03E resets the latch before its direct mask0 scan.
-    pub(crate) fn clear_rescue_retarget_latch(&mut self) {
-        self.foot_retarget_after_stop = false;
-    }
-
-    /// Foot4D9931..33 changes AL only; all upper mask bits survive.
-    pub(crate) const fn coerce_foot_threat_mask(&self, mask: u32) -> u32 {
-        if self.foot_retarget_after_stop {
-            (mask & !2) | 1
-        } else {
-            mask
-        }
+        self.foot_retarget_after_stop.get()
     }
 
     /// The body heading at `frame`: `FacingClass::Current @ 0x004C93D0` on
@@ -1378,7 +1341,7 @@ impl GameEntity {
             )
         };
         Self {
-            cached_spatial_threat: None,
+            cached_spatial_threat: Default::default(),
             tracking_facts: Default::default(),
             house_tracking_latches: Default::default(),
             stable_id,
@@ -1393,7 +1356,7 @@ impl GameEntity {
             body_facing: crate::sim::movement::FacingClass::new(u16::from(facing) << 8, 0),
             // Unlimbo's type-derived initialization arms the turret loop latch.
             turret_rotate_latch: Default::default(),
-            suppress_deploy_voice: false,
+            suppress_deploy_voice: Default::default(),
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
             body_frame_counter: Default::default(),
             owner,
@@ -1418,8 +1381,8 @@ impl GameEntity {
             repairing: Default::default(),
             in_logic_vector: Default::default(),
             lifecycle: ObjectLifecycle::default(),
-            in_playfield: false,
-            mission_only: false,
+            in_playfield: Default::default(),
+            mission_only: Default::default(),
             removal_facts: Default::default(),
             kill_record: Default::default(),
             foot_air: foot_air::FootAirState::new(stable_id),
@@ -1436,9 +1399,7 @@ impl GameEntity {
             attack_target: TarCom::default(),
             pending_building_fire: Default::default(),
             prism_support_count: Default::default(),
-            current_weapon_number: 0,
-            current_turret_index: -1,
-            charge_turret_delay: 0,
+            turret_selection: gunner::TurretSelection::constructed(),
             radio_contacts: Contacts::default(),
             tether: crate::sim::radio::Tether::default(),
             ai_sell_repair: Default::default(),
@@ -1453,7 +1414,7 @@ impl GameEntity {
             voxel_recoil: None,
             weapon_burst: Default::default(),
             building_body: (category == EntityCategory::Structure).then(Default::default),
-            building_power_health_sample: 0,
+            building_power_health_sample: Default::default(),
             building_sale: None,
             ai_placement_timer: Default::default(),
             building_art: Default::default(),
@@ -1484,7 +1445,7 @@ impl GameEntity {
             temporal: Default::default(),
             bomb: None,
             berserk: Default::default(),
-            pending_entry: None,
+            pending_entry: Default::default(),
             building_entry: Default::default(),
             aircraft_ammo: None,
             // Infantry get sub-cell 2 (first distinct position) at spawn so
@@ -1497,7 +1458,7 @@ impl GameEntity {
                 },
             ),
             crushable_facts: Default::default(),
-            native_crush_immunity: 0,
+            native_crush_immunity: Default::default(),
             mover_facts: Default::default(),
             death: crate::sim::world::TerminalLifetime::default(),
             move_sound: crate::sim::world::MoveSoundState::default(),
@@ -1505,15 +1466,14 @@ impl GameEntity {
             sinking: crate::sim::world::SinkingState::default(),
             passenger_role: PassengerRole::default(),
             display_type_override: Default::default(),
-            capture_infantry_type_index: -1,
+            capture_infantry_type_index: crate::sim::world::CapturedInfantryType::constructed(),
             pending_c4_detonation: Default::default(),
             has_been_captured: Default::default(),
             bunker: Default::default(),
             building_gate: None,
             door: crate::sim::door::DoorClass::at_frame(construction_frame),
             bunker_runtime: None,
-            deploy_anim: None,
-            landing_for_deploy: false,
+            deploy_attachment: Default::default(),
             mcv_deploy_pending: Default::default(),
             infantry: if category == EntityCategory::Infantry {
                 Some(crate::sim::infantry::InfantryRuntime::new())
@@ -1523,7 +1483,7 @@ impl GameEntity {
             rocking: None,
             mission: MissionCom::at_frame(construction_frame),
             passive_scan: crate::sim::world::PassiveScan::new(construction_frame),
-            foot_retarget_after_stop: false,
+            foot_retarget_after_stop: Default::default(),
             mission_leaf: MissionLeafState::constructed(category, construction_frame as i32),
             suspended_attack_target: Default::default(),
             base_defense_response: BaseDefenseResponseState::default(),
@@ -1834,13 +1794,18 @@ impl GameEntity {
                 .is_some_and(|leaf| (27..=30).contains(&leaf.doing()))
     }
 
+    /// Techno `+0x2A4`; see [`CrushImmunity`].
+    ///
+    /// [`CrushImmunity`]: crate::sim::deploy::CrushImmunity
     pub(crate) const fn native_crush_immunity(&self) -> u8 {
-        self.native_crush_immunity
+        self.native_crush_immunity.get()
     }
 
+    /// A fixture infantryman's raw crush-immunity byte.
+    #[cfg(test)]
     pub(crate) fn set_infantry_deploy_crush_immunity(&mut self, raw: u8) {
         assert_eq!(self.category, EntityCategory::Infantry);
-        self.native_crush_immunity = raw;
+        self.native_crush_immunity = crate::sim::deploy::CrushImmunity::from_raw(raw);
     }
 
     /// Native Get_Mission(vt184) reads current, otherwise queued. The
@@ -1862,23 +1827,22 @@ impl GameEntity {
     /// Building440042..440074: compare actual health, publish the new sample
     /// and tell the host to invalidate the owning House's derived state.
     pub(crate) fn sample_building_health_for_power(&mut self) -> bool {
-        if self.category != EntityCategory::Structure
-            || self.building_power_health_sample == self.health.current()
-        {
-            return false;
-        }
-        self.building_power_health_sample = self.health.current();
-        true
+        self.category == EntityCategory::Structure
+            && self
+                .building_power_health_sample
+                .sample(self.health.current())
     }
 
+    /// A Building's reset at a successful ordinary Unlimbo (`0x00440D2D`).
     pub(crate) fn reset_building_health_sample_at_unlimbo(&mut self) {
         if self.category == EntityCategory::Structure {
-            self.building_power_health_sample = 0;
+            self.building_power_health_sample.reset();
         }
     }
 
     pub(crate) fn building_power_health_sample(&self) -> Option<i32> {
-        (self.category == EntityCategory::Structure).then_some(self.building_power_health_sample)
+        (self.category == EntityCategory::Structure)
+            .then_some(self.building_power_health_sample.get())
     }
 
     pub(crate) fn hash_building_health_sample(&self, hasher: &mut impl std::hash::Hasher) {
@@ -1888,13 +1852,9 @@ impl GameEntity {
         }
     }
 
-    pub(crate) fn record_infantry_capture_type(&mut self, native_index: i32) {
-        self.capture_infantry_type_index = native_index;
-    }
-
     pub(crate) fn hash_capture_infantry_type(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
-        self.capture_infantry_type_index.hash(hasher);
+        self.capture_infantry_type_index.get().hash(hasher);
     }
 }
 
@@ -1996,7 +1956,7 @@ mod tests {
         assert!(!e.mega_mission.is_attack_move());
         assert!(!e.on_bridge());
         assert!(
-            !e.in_playfield,
+            !e.in_playfield(),
             "TechnoClass ctor @ 0x006F2F5B initializes +0x3D5 false"
         );
     }

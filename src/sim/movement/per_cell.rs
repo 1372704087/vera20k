@@ -269,9 +269,10 @@ impl Simulation {
                         &mut self.sound_events,
                     );
                 }
-                if let Some(entity) = self.substrate.entities.get_mut(victim) {
-                    entity.health.set(0);
-                }
+                // `UnitClass::Crush_Or_Prescatter_Cell @ 0x007416A0`: the
+                // victim records its kill by the crusher (vtable `+0xE0`,
+                // `0x007418F0`) and is UnInit (vtable `+0xF8`, `0x00741910`),
+                // with no Health store.
                 self.record_the_kill(
                     victim,
                     crate::sim::combat::KillSource::Techno(Some(id)),

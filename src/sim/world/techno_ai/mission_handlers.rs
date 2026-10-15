@@ -159,7 +159,6 @@ pub(crate) fn dispatch_foot_mission(
         {
             MissionHandlerEvaluation {
                 delay: 1,
-                clear_stale_attack_target: false,
                 queue: Some(MissionType::Guard),
             }
         }
@@ -302,12 +301,7 @@ pub(crate) fn dispatch_foot_mission(
             // scenario-stream position for anything the scan itself consumes.
             let queue = infantry_deployed_attack_reacquire(sim, id, rules, input, ctx);
             let delay = jittered_mission_cadence(sim, rules, MissionType::Attack);
-            MissionHandlerEvaluation {
-                delay,
-                clear_stale_attack_target: input.has_attack_target
-                    && attack_target_is_stale(sim, id),
-                queue,
-            }
+            MissionHandlerEvaluation { delay, queue }
         }
         (EntityCategory::Unit | EntityCategory::Infantry, Some(MissionType::Attack)) => {
             // MissionAttack4D4E6A calls Approach before its Scenario cadence
@@ -345,12 +339,6 @@ pub(crate) fn dispatch_foot_mission(
             };
             MissionHandlerEvaluation {
                 delay,
-                // Stale entity IDs are an authoritative target-loss input, and
-                // clearing an invalid handle is not the native selector: the
-                // clear lands this dispatch, the idle exit reads the target as
-                // it stood at entry and fires on the next one.
-                clear_stale_attack_target: input.has_attack_target
-                    && attack_target_is_stale(sim, id),
                 queue: idle_queue,
             }
         }
@@ -515,12 +503,7 @@ pub(crate) fn dispatch_foot_mission(
             // an Area Guard man at `[Area Guard] Rate`.
             let delay =
                 jittered_mission_cadence(sim, rules, input.mission.unwrap_or(MissionType::Guard));
-            MissionHandlerEvaluation {
-                delay,
-                clear_stale_attack_target: input.has_attack_target
-                    && attack_target_is_stale(sim, id),
-                queue,
-            }
+            MissionHandlerEvaluation { delay, queue }
         }
         // Infantry51F6E0 precedes the FootUnload4DA2B0 fallback. The
         // existing class owner performs action/weapon/AssignGuard/NULLNav
@@ -703,7 +686,6 @@ pub(crate) fn dispatch_foot_mission(
             }
             MissionHandlerEvaluation {
                 delay: 1,
-                clear_stale_attack_target: input.has_attack_target,
                 queue: None,
             }
         }
@@ -772,12 +754,6 @@ pub(crate) fn dispatch_foot_mission(
         evaluation
     };
 
-    if evaluation.clear_stale_attack_target
-        && let Some(entity) = sim.substrate.entities.get_mut(id)
-    {
-        // A missing handle is expiry cleanup, not Assign_Target(NULL).
-        entity.attack_target.set(None);
-    }
     if let Some(queued_mission) = evaluation.queue {
         let _ = sim.mission_queue_exact(
             id,
@@ -849,23 +825,17 @@ pub(super) struct MissionHandlerInput {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MissionHandlerEvaluation {
     delay: i32,
-    clear_stale_attack_target: bool,
     queue: Option<MissionType>,
 }
 
 impl MissionHandlerEvaluation {
     const fn cadence(delay: i32) -> Self {
-        Self {
-            delay,
-            clear_stale_attack_target: false,
-            queue: None,
-        }
+        Self { delay, queue: None }
     }
 
     const fn queue(delay: i32, mission: MissionType) -> Self {
         Self {
             delay,
-            clear_stale_attack_target: false,
             queue: Some(mission),
         }
     }
@@ -1626,7 +1596,8 @@ fn evaluate_foot_rescue(
             .entities
             .get_mut(id)
             .expect("Rescue receiver")
-            .clear_rescue_retarget_latch();
+            .foot_retarget_after_stop
+            .clear_for_rescue();
         let archive = sim
             .substrate
             .entities

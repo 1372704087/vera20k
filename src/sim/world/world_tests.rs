@@ -2094,7 +2094,10 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
     );
     for id in [11, 31, 10] {
         let entity = fatal.substrate.entities.get(id).unwrap();
-        assert_eq!(entity.health.current(), 0);
+        // KillPassengers (`0x00707CB0`) stores no Health: the passenger
+        // keeps its own through RecordKill and UnInit.
+        let health = if id == 11 { 100 } else { 0 };
+        assert_eq!(entity.health.current(), health, "object {id}");
         assert!(!entity.lifecycle.object_alive());
         assert!(!entity.in_logic_vector.is_member());
     }

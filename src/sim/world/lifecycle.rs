@@ -3562,7 +3562,8 @@ impl Simulation {
                     effects,
                 );
                 if let Some(unit) = self.substrate.entities.get_mut(contact) {
-                    crate::sim::docking::building_dock::clear_pending_entry(unit);
+                    // `0x004425AA`, after RUN_AWAY returns.
+                    unit.pending_entry.clear();
                 }
             }
         }
@@ -3750,44 +3751,6 @@ impl Simulation {
         crate::sim::docking::bunker_link::break_links_on_despawn(self, stable_id);
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::UninitClassPre { stable_id });
-    }
-
-    fn uninit_carried_passengers(&mut self, carrier_id: u64, context: UninitContext<'_>) {
-        let passenger_ids = self
-            .substrate
-            .entities
-            .get_mut(carrier_id)
-            .and_then(|carrier| carrier.passenger_role.cargo_mut())
-            .map_or_else(Vec::new, |cargo| cargo.take_for_uninit());
-
-        for passenger_id in passenger_ids {
-            debug_assert_ne!(
-                passenger_id, carrier_id,
-                "transport {carrier_id} contains itself"
-            );
-            if passenger_id == carrier_id {
-                continue;
-            }
-            if let Some(passenger) = self.substrate.entities.get_mut(passenger_id) {
-                if passenger.passenger_role.inside_transport_id() == Some(carrier_id) {
-                    passenger.passenger_role.clear_carrier_relation();
-                }
-                passenger.health.set(0);
-            }
-            self.uninit_with_context(passenger_id, context);
-        }
-    }
-
-    /// TechnoClass fatal-receiver passenger rung. The native death helper
-    /// enters only after carried objects have completed their own authoritative
-    /// UnInit transactions; the carrier itself remains represented for its
-    /// DeathWeapon and category-specific UnInit that follows.
-    pub(crate) fn purge_carried_passengers_for_fatal(
-        &mut self,
-        carrier_id: u64,
-        context: UninitContext<'_>,
-    ) {
-        self.uninit_carried_passengers(carrier_id, context);
     }
 
     fn nav_ref_targets_expired(target: &NavTargetRef, expired_id: u64) -> bool {
@@ -4417,7 +4380,8 @@ impl Simulation {
                 .retain_nav_queue(|target| !Self::nav_ref_targets_expired(target, expired_id));
         }
         if clear_dock {
-            crate::sim::docking::building_dock::expire_reference(listener, expired_id);
+            // `0x00707AF5`.
+            listener.pending_entry.expire(expired_id);
         }
         if clear_airfield && let Some(ammo) = listener.aircraft_ammo.as_mut() {
             ammo.set_dock(None);
@@ -4988,7 +4952,9 @@ impl Simulation {
         }
 
         self.run_represented_uninit_pre_hook(stable_id);
-        self.uninit_carried_passengers(stable_id, context);
+        // `ObjectClass::UnInit` kills a Techno's passengers with no attacker
+        // (`0x005F660D`).
+        self.kill_passengers(stable_id, None, context);
 
         #[cfg(test)]
         {

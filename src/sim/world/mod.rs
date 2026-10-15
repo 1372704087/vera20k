@@ -72,6 +72,8 @@ mod move_sound;
 mod object_sound;
 mod turret_rotate_sound;
 pub(crate) use move_sound::MoveSoundState;
+pub(crate) use playfield_membership::PlayfieldMembership;
+pub(crate) use selection_voice::DeployVoiceSuppression;
 pub(crate) use turret_rotate_sound::TurretRotateLatch;
 #[cfg(test)]
 mod main_sound_identity_tests;
@@ -81,9 +83,11 @@ mod move_sound_tests;
 mod native_cell_input_test_fixture;
 mod navigation;
 mod object_turn;
+mod playfield_membership;
 mod rally_cell_input;
 mod rocket_flight;
 pub use frame_error::FrameAdvanceError;
+pub(crate) use world_orders::CapturedInfantryType;
 pub(crate) use world_orders::EngineerBuildingAction;
 pub(crate) use world_orders::UnitRepairAction;
 mod shroud_refresh;
@@ -1835,7 +1839,7 @@ impl Simulation {
             crate::sim::combat::FatalLifecycleStage::PostMortemExactZero { killer_owner } => {
                 self.postmortem_exact_zero_callbacks(stable_id, killer_owner, uninit_context);
             }
-            crate::sim::combat::FatalLifecycleStage::BeforeDeathEffects => {
+            crate::sim::combat::FatalLifecycleStage::BeforeDeathEffects { attacker } => {
                 // A building's occupants. A unit's passengers stay for its own
                 // arms: an exploding unit kills them before its death weapon
                 // (`world_receiver::handle_death`), and the rest leave or die
@@ -1878,8 +1882,9 @@ impl Simulation {
                     )
                 });
                 // An absorbing building's passengers leave through
-                // SpawnSurvivors' Phase A; its KillPassengers (`0x00441F27`)
-                // runs after that and finds the list empty.
+                // SpawnSurvivors' Phase A; its KillPassengers (`0x00441F27`,
+                // crediting the attacker) runs after that and finds the list
+                // empty.
                 let absorbs = self
                     .substrate
                     .entities
@@ -1897,7 +1902,7 @@ impl Simulation {
                         uninit_context,
                     );
                 } else if !absorbs {
-                    self.purge_carried_passengers_for_fatal(stable_id, uninit_context);
+                    self.kill_passengers(stable_id, attacker, uninit_context);
                 }
                 //44264C precedes the recursive destruction effects.
                 self.set_building_light_active(stable_id, false);
@@ -3946,9 +3951,10 @@ impl Simulation {
                 Some((stable_id, member, reveal))
             })
             .collect::<Vec<_>>();
+        // Set_Clipped_LocalSize's exact store (`0x0056730E`).
         for &(stable_id, member, _) in &membership_updates {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.set_in_playfield(member);
+                entity.in_playfield.store(member);
             }
         }
         // FUN_006E21E0's false->true callback is the Techno reveal/update
@@ -3991,44 +3997,6 @@ impl Simulation {
         true
     }
 
-    /// Exact mode-one query for the stored TechnoClass+0x3D5 writer family.
-    /// Absence means there is no live MapClass authority, not rectangular or
-    /// permissive fallback authority.
-    fn entity_playfield_membership_mode_one(
-        &self,
-        stable_id: u64,
-        terrain: Option<&ResolvedTerrainGrid>,
-    ) -> Option<bool> {
-        let bounds = self.playfield_bounds?;
-        let entity = self.substrate.entities.get(stable_id)?;
-        Some(crate::sim::cell_rect::cell_is_in_playfield_height_aware(
-            (
-                i32::from(entity.position.rx()),
-                i32::from(entity.position.ry()),
-            ),
-            Some(bounds),
-            terrain,
-        ))
-    }
-
-    /// Unlimbo's exact establishment writer (`TechnoClass::Unlimbo @
-    /// 0x006F6CFE`).
-    fn establish_entity_playfield_membership_on_unlimbo(
-        &mut self,
-        stable_id: u64,
-        context: UninitContext<'_>,
-    ) {
-        let Some(member) = self.entity_playfield_membership_mode_one(
-            stable_id,
-            context.terrain().or(self.resolved_terrain.as_ref()),
-        ) else {
-            return;
-        };
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.set_in_playfield(member);
-        }
-    }
-
     /// Acknowledge one completed radar-terrain presentation update.
     ///
     /// Active `RadarClass` dirty processing at `0x00655250` drains and clears
@@ -4044,26 +4012,6 @@ impl Simulation {
         }
         self.radar_terrain_dirty_cells.clear();
         true
-    }
-
-    /// Ordinary per-cell movement writer (`0x006F511A..0x006F5139`): only
-    /// promote 0 -> 1. A unit that walks back outside retains membership until
-    /// an exact writer (teleport or Set_Clipped_LocalSize) clears it.
-    pub(crate) fn promote_entity_playfield_membership_after_move(&mut self, stable_id: u64) {
-        if self
-            .substrate
-            .entities
-            .get(stable_id)
-            .is_none_or(|entity| entity.in_playfield())
-        {
-            return;
-        }
-        if self.entity_playfield_membership_mode_one(stable_id, self.resolved_terrain.as_ref())
-            == Some(true)
-            && let Some(entity) = self.substrate.entities.get_mut(stable_id)
-        {
-            entity.set_in_playfield(true);
-        }
     }
 
     fn poll_triggers_for_master_frame(

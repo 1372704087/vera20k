@@ -3144,7 +3144,7 @@ mod tests {
             .set_selected_for_test(false);
 
         let loaner = sim.entities_mut().get_mut(mcv).unwrap();
-        loaner.mark_mission_only();
+        loaner.mission_only.mark();
         loaner.discovery.set_owned_by_current_house_for_test(true);
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
 

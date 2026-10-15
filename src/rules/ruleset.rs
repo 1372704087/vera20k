@@ -2628,9 +2628,8 @@ pub struct RadiationRules {
     pub light_delay: i32,
     /// Damage per point of (clamped) cell level (`RadLevelFactor`).
     /// Carried as f64 — the damage step truncates `level × factor` toward
-    /// zero, and the original computes that product in doubles (the same
-    /// documented float exception as `combat::damage`). Parsed straight from
-    /// the INI string so the value is bit-identical to a double `atof`.
+    /// zero under the original PC53/chop arithmetic. The shared ReadDouble
+    /// reader scans binary32 and widens it to this stored double.
     pub level_factor: f64,
     /// Light intensity per level point (`RadLightFactor`). Render-only.
     pub light_factor: SimFixed,

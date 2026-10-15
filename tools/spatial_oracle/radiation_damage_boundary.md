@@ -47,7 +47,7 @@ owner changes the Rust test's former 6-damage result to 5. The old expected
 value and its arithmetic-only comment were therefore incorrect. The bridge
 HE landing corpus and its hashes are unchanged.
 
-There is a **required separate radiation precision chain**: current Rust spread
+The original capture identified a **separate radiation precision chain**: Rust spread then
 uses host arithmetic and stores300 at this adjacent cell, then emits base60;
 original PC53/chop spread stores the value above and emits59. Original
 RadLevelFactor ReadDouble stores widened binary32 bits `3fc99999a0000000`;
@@ -66,3 +66,7 @@ The Rust regression runs through the production frame and each Foot's own
 radiation visit. Separate retail DESO tests cover field creation relative to
 earlier/later Logic visits, pre-movement sampling and fatal receiver ordering.
 Those tests do not extend this native corpus's numeric coverage.
+
+The additive [overlap comparison](radiation_overlap.md) now supplies stock
+three-site, merge, decay, exceptional-field and populated DOG receiver controls.
+The default six-row corpus and its historical payload hash are preserved.

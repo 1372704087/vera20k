@@ -64,10 +64,15 @@ pub(crate) fn apply_foot_radiation(
     }
     let warhead = rules.warhead(&rules.radiation.site_warhead)?;
     let warhead_id = world.interner.intern(&warhead.id);
-    // Preserve the existing deterministic numeric owner. The native corpus
-    // documents its bounded final-health agreement and intermediate precision
-    // residual; relocating the call does not establish numeric equivalence.
-    let damage = (level as f64 * rules.radiation.level_factor) as i32;
+    // Foot4DA5FA..4DA60A multiplies the clamped integer by the stored double
+    // factor under PC53/chop, then calls Math::ftol before its direct receiver.
+    use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
+    let damage = X87::ftol_i32_low_masked(X87::mul(
+        X87::load_i32(level),
+        X87::load_f64(NativeF64Bits::from_bits(
+            rules.radiation.level_factor.to_bits(),
+        )),
+    ));
     let receiver = EntityDamageEvent::direct_receiver(
         stable_id,
         damage,

@@ -1145,21 +1145,13 @@ impl Simulation {
             .entities
             .get(stable_id)
             .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
-        let requested_position = if is_infantry {
-            self.infantry_unlimbo_position(requested_position, Some(rules))?
-        } else {
-            requested_position
-        };
-        let placement = if placement == PlacementEvidence::EvaluateMark {
-            self.constructor_unlimbo_placement(
-                stable_id,
-                requested_position,
-                rules,
-                overlay_registry,
-            )
-        } else {
-            placement
-        };
+        let (requested_position, placement) = self.unlimbo_class_entry(
+            stable_id,
+            requested_position,
+            placement,
+            Some(rules),
+            overlay_registry,
+        )?;
         if placement == PlacementEvidence::RejectedEarly {
             let _ = self.try_reveal_entity_with_context(
                 stable_id,
@@ -1177,10 +1169,6 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && is_infantry
         {
-            entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
-                requested_position.sub_x(),
-                requested_position.sub_y(),
-            )));
             entity.set_on_bridge(false);
         }
         let outcome = self.try_reveal_entity_with_context(
@@ -1662,36 +1650,23 @@ impl Simulation {
                 )
             });
         }
-        let infantry = self
-            .substrate
-            .entities
-            .get(stable_id)
-            .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
-        let position = if infantry {
-            let Some(position) = self.infantry_unlimbo_position(position, rules) else {
-                return (
-                    stable_id,
-                    RevealOutcome::Failed(super::lifecycle::RevealFailure::RejectedEarly),
-                );
-            };
-            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
-                    position.sub_x(),
-                    position.sub_y(),
-                )));
-            }
-            position
-        } else {
-            position
+        let Some((position, placement)) = self.unlimbo_class_entry(
+            stable_id,
+            position,
+            PlacementEvidence::EvaluateMark,
+            rules,
+            overlay_registry,
+        ) else {
+            return (
+                stable_id,
+                RevealOutcome::Failed(super::lifecycle::RevealFailure::RejectedEarly),
+            );
         };
         let facing = self
             .substrate
             .entities
             .get(stable_id)
             .map(|entity| entity.body_facing_dir(self.session.binary_frame));
-        let placement = rules.map_or(PlacementEvidence::EvaluateMark, |rules| {
-            self.constructor_unlimbo_placement(stable_id, position, rules, overlay_registry)
-        });
         let outcome = self.try_reveal_entity_with_context(
             stable_id,
             RevealRequest {
@@ -1753,6 +1728,49 @@ impl Simulation {
             }
         }
         (stable_id, outcome)
+    }
+
+    /// The class half of an Unlimbo whose caller runs the class admission:
+    /// InfantryClass::Unlimbo's floor-gated PlaceInfantryInCell (`0x0051DFF0`
+    /// -> `0x00481180`), then, for `EvaluateMark`, ObjectClass::Unlimbo's
+    /// class +1AC query (`0x005F4F1B..0x005F4F49`). Other evidence passes
+    /// through. `None` when the placement finds no spot (`0x0051E0A8..0x0051E0C4`).
+    /// An infantryman the query does not reject takes the selected spot as
+    /// his sub-cell.
+    pub(crate) fn unlimbo_class_entry(
+        &mut self,
+        stable_id: u64,
+        requested: RevealPosition,
+        placement: PlacementEvidence,
+        rules: Option<&RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> Option<(RevealPosition, PlacementEvidence)> {
+        let infantry = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
+        let position = if infantry {
+            self.infantry_unlimbo_position(requested, rules)?
+        } else {
+            requested
+        };
+        let placement = match (placement, rules) {
+            (PlacementEvidence::EvaluateMark, Some(rules)) => {
+                self.constructor_unlimbo_placement(stable_id, position, rules, overlay_registry)
+            }
+            _ => placement,
+        };
+        if infantry
+            && placement != PlacementEvidence::RejectedEarly
+            && let Some(entity) = self.substrate.entities.get_mut(stable_id)
+        {
+            entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
+                position.sub_x(),
+                position.sub_y(),
+            )));
+        }
+        Some((position, placement))
     }
 
     /// Object5F4F1B..5F4F49 shares movement/search's native class receiver.

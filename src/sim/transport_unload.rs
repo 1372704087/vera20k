@@ -27,10 +27,11 @@ use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::bump_crush;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::passenger::{
-    DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
+    DepartureFailure, DepartureRoute, depart_cargo_head, exit_cell_position,
+    reveal_unloaded_passenger,
 };
 use crate::sim::pathfinding::passability::LandType;
-use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
+use crate::sim::world::{FrameEffects, PlacementEvidence, SimSoundEvent, Simulation};
 use crate::util::direction_tables::CELL_DELTAS;
 use crate::util::lepton::CELL_CENTER_LEPTON;
 
@@ -522,23 +523,25 @@ fn eject_head_passenger(
 
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
                 passenger.set_sub_cell(sub_cell);
-                // `TechnoClass::Unlimbo` snaps the body to the drop direction
-                // (`+0x388` Set_Current, `0x006F6DAA`).
-                passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(loco) = passenger.locomotor.as_mut() {
                     loco.set_layer(MovementLayer::Ground);
                 }
             }
             let z = cell_level_or(sim, place_cell, transport_z);
+            // Mission_Unload raises A8E7AC around this Unlimbo
+            // (`0x0073DA48..0x0073DB79`), so it runs no class +1AC query. It
+            // passes the exit direction (`0x0073DB45..0x0073DB5B`), which a
+            // successful Unlimbo gives the body (`0x006F6DAA`) and a Unit's
+            // turret (`0x00737BBE..0x00737BD2`).
+            let position = exit_cell_position(sim, pax_id, place_cell.0, place_cell.1, z);
             reveal_unloaded_passenger(
                 sim,
                 rules,
                 transport_id,
                 pax_id,
-                place_cell.0,
-                place_cell.1,
-                z,
-                None,
+                position,
+                PlacementEvidence::MarkSucceeded,
+                Some((octant as u8) << 5),
                 effects,
             )?;
 
@@ -773,7 +776,6 @@ pub(crate) fn building_mission_unload_absorber(
             let destination = strict_beyond.unwrap_or(adjacent);
             if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
                 passenger.set_sub_cell(Some(sub_cell));
-                passenger.body_facing.snap((octant as u16) << 13, now);
                 if let Some(locomotor) = passenger.locomotor.as_mut() {
                     locomotor.set_layer(MovementLayer::Ground);
                 }
@@ -784,14 +786,16 @@ pub(crate) fn building_mission_unload_absorber(
                 .get(id)
                 .map_or(0, |building| building.position.z());
             let z = cell_level_or(sim, adjacent, fallback_z);
+            // The absorber raises A8E7AC around this Unlimbo
+            // (`0x0044DA40..0x0044DB9D`), so it runs no class +1AC query.
+            let position = exit_cell_position(sim, passenger_id, adjacent.0, adjacent.1, z);
             reveal_unloaded_passenger(
                 sim,
                 rules,
                 id,
                 passenger_id,
-                adjacent.0,
-                adjacent.1,
-                z,
+                position,
+                PlacementEvidence::MarkSucceeded,
                 Some((octant as u8) << 5),
                 effects,
             )?;
@@ -1153,13 +1157,16 @@ const AIRCRAFT_EXIT_SCAN: [usize; 9] = [4, 5, 3, 7, 1, 0, 6, 2, 4];
 /// found. `InfantryClass::Unlimbo @ 0x0051DFF0` runs `PlaceInfantryInCell`
 /// from that coordinate (ground Z), so the centre-quadrant `RandomRanged(0,
 /// 3)` draw happens exactly when the aircraft sits within 0x3C leptons of its
-/// cell centre (`0x00481180`), and a full cell fails `Unlimbo`. The caller
+/// cell centre (`0x00481180`), and a full cell fails `Unlimbo`. No A8E7AC is
+/// raised, so Object's class +1AC query (`0x005F4F1B`) can refuse the
+/// passenger too ([`Simulation::unlimbo_class_entry`]). The caller
 /// (`0x0041553E`) tests that result only to clear `passenger+0x424`
 /// (`0x00415548`); nothing re-adds a failed passenger — natively it stays
 /// popped from the hold (`0x00415511`) and in limbo for good, and the next
 /// dispatch ejects the next passenger. VERA-internal bounded escape instead
-/// (trigger: three infantry already standing in the aircraft cell, rare;
-/// DRIFT — native loses the unit): the passenger goes back to the cargo head
+/// (trigger: three infantry already standing in the aircraft cell, or a cell
+/// the passenger's class refuses; dormant on retail data, where no
+/// `[AircraftTypes]` entry carries passengers; DRIFT — native loses the unit): the passenger goes back to the cargo head
 /// (cargo departure restoration), this returns `false`, and the caller leaves Unload for
 /// Guard through the empty-hold exit, so nothing retries and no further
 /// epilogue draws happen. Returns `true` when the passenger left the hold. On
@@ -1186,19 +1193,14 @@ fn eject_from_aircraft(
             // (`MapClass::Pick_Up`), taking its list entry and raw bit along.
             sim.foot_pick_up(aircraft_id, Some(rules), overlay_registry);
             picked_up = true;
-            let (cell, z, sub_x, sub_y) = match sim.substrate.entities.get(aircraft_id) {
-                Some(aircraft) => (
-                    (aircraft.position.rx(), aircraft.position.ry()),
-                    aircraft.position.z(),
-                    aircraft.position.sub_x(),
-                    aircraft.position.sub_y(),
-                ),
+            let location = match sim.substrate.entities.get(aircraft_id) {
+                Some(aircraft) => aircraft.position,
                 None => unreachable!("aircraft resolved before cargo departure"),
             };
-            let Some(passenger_snapshot) = sim.substrate.entities.get(pax_id) else {
+            let cell = (location.rx(), location.ry());
+            if sim.substrate.entities.get(pax_id).is_none() {
                 return Err(DepartureFailure::MissingPassenger);
-            };
-            let is_infantry = passenger_snapshot.category() == EntityCategory::Infantry;
+            }
 
             let mut index = 8usize;
             let mut scan_cell: Option<(u16, u16)> = None;
@@ -1215,43 +1217,33 @@ fn eject_from_aircraft(
                     break;
                 }
             }
-            let facing = ((AIRCRAFT_EXIT_SCAN[index] & 7) as u16) << 13;
+            let facing = ((AIRCRAFT_EXIT_SCAN[index] & 7) as u8) << 5;
 
-            let sub_cell = if is_infantry {
-                let occupancy = sim.substrate.occupancy.get(cell.0, cell.1);
-                let spot = bump_crush::allocate_sub_cell_with_preference(
-                    occupancy,
-                    MovementLayer::Ground,
-                    None,
-                    sub_x,
-                    sub_y,
-                    &mut sim.scenario_rng,
-                );
-                if spot.is_none() {
-                    return Err(DepartureFailure::Placement);
-                }
-                spot
-            } else {
-                None
+            // No A8E7AC is raised here: the class Unlimbo places an
+            // infantryman from the aircraft's coordinate, and Object's class
+            // +1AC query judges every passenger.
+            let Some((position, placement)) = sim.unlimbo_class_entry(
+                pax_id,
+                location,
+                PlacementEvidence::EvaluateMark,
+                Some(rules),
+                overlay_registry,
+            ) else {
+                return Err(DepartureFailure::Placement);
             };
-            let now = sim.session.binary_frame;
-            if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
-                passenger.set_sub_cell(sub_cell);
-                // `Unlimbo`'s body snap (`0x006F6DAA`).
-                passenger.body_facing.snap(facing, now);
-                if let Some(loco) = passenger.locomotor.as_mut() {
-                    loco.set_layer(MovementLayer::Ground);
-                }
+            if let Some(passenger) = sim.substrate.entities.get_mut(pax_id)
+                && let Some(loco) = passenger.locomotor.as_mut()
+            {
+                loco.set_layer(MovementLayer::Ground);
             }
             reveal_unloaded_passenger(
                 sim,
                 rules,
                 aircraft_id,
                 pax_id,
-                cell.0,
-                cell.1,
-                z,
-                None,
+                position,
+                placement,
+                Some(facing),
                 effects,
             )?;
             // KickOutUnit leaves the passenger's target alone

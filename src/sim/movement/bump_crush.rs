@@ -436,19 +436,15 @@ impl crate::sim::world::Simulation {
 }
 
 /// The older cell-list approximation of [`place_infantry_in_cell`], still
-/// used by the tube exit and the landed-aircraft unload.
+/// used by the tube exit.
 ///
 /// RESIDUAL: unlike `CellClass::PlaceInfantryInCell @ 0x00481180` it refuses
 /// a building occupant (native ignores bit 0x80) and returns before the
 /// centre-row `RandomRanged(0, 3)` draw on a cell already holding three
-/// infantry (native draws first). Trigger: infantry leaving a tube or
-/// unloading into a crowded cell. Effect: one Scenario draw fewer per such
-/// placement. Moving the tube caller to the native byte read needs the
-/// movement pass's raw occupation to be current at the crossing, which the
-/// movement ledger owns. The landed-aircraft unload (`0x00415B10`) reaches
-/// PlaceInfantryInCell through `InfantryClass::Unlimbo @ 0x0051DFF0`, whose
-/// Z gate (`0x0051E01B`) skips placement for a coordinate above the floor, so
-/// it moves with the aircraft unload port, not here.
+/// infantry (native draws first). Trigger: infantry leaving a tube into a
+/// crowded cell. Effect: one Scenario draw fewer per such placement. Moving
+/// the tube caller to the native byte read needs the movement pass's raw
+/// occupation to be current at the crossing, which the movement ledger owns.
 pub fn allocate_sub_cell_with_preference(
     occ: Option<&CellOccupancy>,
     layer: MovementLayer,

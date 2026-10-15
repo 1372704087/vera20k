@@ -7,8 +7,8 @@
 //! removal control starts its stale selection through the shared selector.
 
 use super::{
-    DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
-    tick_passenger_system,
+    DepartureFailure, DepartureRoute, depart_cargo_head, exit_cell_position,
+    reveal_unloaded_passenger, tick_passenger_system,
 };
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::combat_weapon::current_weapon;
@@ -134,14 +134,14 @@ fn unload_at_clear_exit(sim: &mut Simulation, rules: &RuleSet, ifv: u64, passeng
                 // FootClass::RemoveFirstPassenger 4DE710 resets the gunner before
                 // UnitClass::Mission_Unload attempts the passenger's Unlimbo.
                 assert_selection(sim, ifv, (0, 0));
+                let position = exit_cell_position(sim, departing, exit.0, exit.1, 0);
                 reveal_unloaded_passenger(
                     sim,
                     rules,
                     ifv,
                     departing,
-                    exit.0,
-                    exit.1,
-                    0,
+                    position,
+                    crate::sim::world::PlacementEvidence::MarkSucceeded,
                     None,
                     crate::sim::world::FrameEffects::default(),
                 )
@@ -429,14 +429,14 @@ fn retail_loaded_ifv_survives_transport_snapshot_unload_and_reentry() {
             DepartureRoute::Vehicle,
             |sim, departing| {
                 assert_eq!(departing, ifv);
+                let position = exit_cell_position(sim, departing, 16, 20, 0);
                 reveal_unloaded_passenger(
                     sim,
                     rules,
                     boat,
                     departing,
-                    16,
-                    20,
-                    0,
+                    position,
+                    crate::sim::world::PlacementEvidence::MarkSucceeded,
                     None,
                     crate::sim::world::FrameEffects::default(),
                 )

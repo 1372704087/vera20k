@@ -480,7 +480,9 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
     );
     let (mut sim, ifv, tank) = repair_ifv(rules);
     let command = repair_click(&sim, rules, ifv, tank);
-    use crate::sim::passenger::{DepartureRoute, depart_cargo_head, reveal_unloaded_passenger};
+    use crate::sim::passenger::{
+        DepartureRoute, depart_cargo_head, exit_cell_position, reveal_unloaded_passenger,
+    };
     depart_cargo_head(
         &mut sim,
         rules,
@@ -488,14 +490,14 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
         ifv,
         DepartureRoute::Vehicle,
         |sim, passenger| {
+            let position = exit_cell_position(sim, passenger, 16, 15, 0);
             reveal_unloaded_passenger(
                 sim,
                 rules,
                 ifv,
                 passenger,
-                16,
-                15,
-                0,
+                position,
+                crate::sim::world::PlacementEvidence::MarkSucceeded,
                 None,
                 FrameEffects::default(),
             )

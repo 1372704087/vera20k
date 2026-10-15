@@ -1072,6 +1072,54 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     );
 }
 
+/// Mission_Unload hands its Unlimbo the exit direction (`0x0073DB45..0x0073DB5B`).
+/// After Foot success, UnitClass::Unlimbo snaps the turret (`+0x3A0`) to it
+/// (`0x00737BBE..0x00737BD2`), and TechnoClass::Unlimbo the body (`0x006F6DAA`).
+/// Same exit as `relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell`:
+/// octant 6, direction 0xC0.
+#[test]
+fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
+    let ring_two = |x: u16, y: u16| (i32::from(x) - 20).abs().max((i32::from(y) - 20).abs()) == 2;
+    let mut fx = Fixture::new(ring_two);
+    fx.rules = rules_with_patch("[BGGY]\nTurret=yes\n");
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let bggy = fx.spawn("BGGY", 24, 24, 0);
+    assert_eq!(
+        fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
+        ConcealOutcome::Concealed
+    );
+    let boarded = fx
+        .sim
+        .substrate
+        .entities
+        .get_mut(bfrt)
+        .and_then(|t| t.passenger_role.cargo_mut())
+        .is_some_and(|cargo| cargo.board(bggy, 1));
+    assert!(boarded, "cargo accepts the vehicle");
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(bggy)
+        .expect("passenger")
+        .passenger_role = PassengerRole::inside_for_test(bfrt, true);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&[bggy], 200);
+    assert_eq!(order.len(), 1, "the vehicle left: {order:?}");
+    assert_eq!(fx.cell(bggy), (19, 20));
+    assert_eq!(fx.facing(bggy), 0xC0, "octant 6 * 32");
+    let frame = fx.sim.session.binary_frame;
+    let turret = fx
+        .sim
+        .substrate
+        .entities
+        .get(bggy)
+        .and_then(|bggy| bggy.barrel_facing.as_ref())
+        .expect("a Turret= unit has a turret facing")
+        .current(frame);
+    assert_eq!(turret, 0xC000, "the turret faces the exit too");
+}
+
 /// The vehicle passenger's Find_Nearby_Passable_Cell (`0x0073DA96..0x0073DADD`)
 /// runs the playfield anchor gate with no height gate. The strict pass takes
 /// octant 5, exit (19, 21), which lies outside this playfield diamond
@@ -1476,6 +1524,54 @@ fn nighthawk_failed_ejection_keeps_cargo_and_leaves_for_guard() {
         "no further Unload draws"
     );
     assert_eq!(fx.cargo_ids(shad), held, "cargo still retained");
+}
+
+/// KickOutUnit raises no A8E7AC (`0x00415B10..0x00415C50`), so the
+/// passenger's Unlimbo runs Object's class +1AC query (`0x005F4F1B`) after
+/// PlaceInfantryInCell found him a free spot: an enemy infantryman standing
+/// in the landed aircraft's cell refuses him. The refusal takes the bounded
+/// escape above.
+#[test]
+fn nighthawk_passenger_is_refused_by_an_enemy_in_the_aircraft_cell() {
+    use crate::sim::house_state::HouseState;
+
+    let mut fx = Fixture::new(|_, _| false);
+    let owners: Vec<_> = [OWNER, "Russians"]
+        .into_iter()
+        .map(|name| {
+            let owner = fx.sim.interner.intern(name);
+            fx.sim
+                .houses
+                .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+            owner
+        })
+        .collect();
+    fx.sim.session.house_order = owners;
+    fx.sim.session.game_mode_nonzero = true;
+    let enemy = fx
+        .sim
+        .spawn_object("E1", "Russians", 20, 20, 0, &fx.rules)
+        .expect("enemy conscript");
+    assert!(fx.revealed(enemy));
+    let shad = fx.spawn("SHAD", 20, 20, 0);
+    let pax = fx.board(shad, 1);
+    set_altitude(&mut fx, shad, 0);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
+
+    for _ in 0..40 {
+        fx.sim.session.binary_frame += 1;
+        crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
+        if fx.mission(shad) == MissionId::from_known(MissionType::Guard) {
+            break;
+        }
+    }
+    assert_eq!(
+        fx.mission(shad),
+        MissionId::from_known(MissionType::Guard),
+        "the refused ejection leaves for Guard"
+    );
+    assert_eq!(fx.cargo_ids(shad), pax, "the passenger stays in the hold");
+    assert!(!fx.revealed(pax[0]));
 }
 
 #[test]

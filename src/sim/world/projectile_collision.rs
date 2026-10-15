@@ -15,6 +15,8 @@ pub(super) struct ProjectileCollisionWorld<'a> {
     pub dummy: &'a SharedCellDummy,
     pub occupancy: &'a OccupancyGrid,
     pub entities: &'a EntityStore,
+    pub terrain_objects:
+        &'a std::collections::BTreeMap<u64, crate::sim::terrain_object::TerrainObjectState>,
     pub interner: &'a crate::sim::intern::StringInterner,
     pub alliances: &'a HouseAllianceMap,
     pub overlays: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
@@ -193,15 +195,34 @@ impl ProjectileCollisionWorld<'_> {
                         offset_coords.y,
                         offset_coords.z,
                     ),
-                    in_air: self.high_flying(target),
+                    in_air: self.high_flying(projectile.target),
                     ground_layer: super::display_registry::entity_layer(
                         target,
                         self.terrain,
                         self.rules.map(|rules| (rules, self.interner)),
                     ) == super::display_layers::DisplayLayer::GROUND,
-                    distance: self.target_distance(location, target),
+                    distance: self
+                        .target_distance(location, projectile.target)
+                        .expect("represented impact target"),
                     building_offset: target.category() == EntityCategory::Structure
                         && object_type.is_some_and(|kind| kind.target_coord_offset() != [0; 3]),
+                }
+            }),
+            // Terrain is Object RTTI36, not a Techno or Building. Its +48,
+            // +58 (410540) and +A4 (41BDD0) all use the retained Location.
+            ProjectileTarget::Terrain(id) => self.terrain_objects.get(&id).map(|target| {
+                let coords = target.world_coord();
+                ImpactLadderTarget {
+                    coords,
+                    aim: coords,
+                    offset_coords: coords,
+                    in_air: self.high_flying(projectile.target),
+                    ground_layer: target.display_layer(self.terrain, self.rules)
+                        == super::display_layers::DisplayLayer::GROUND,
+                    distance: self
+                        .target_distance(location, projectile.target)
+                        .expect("represented impact target"),
+                    building_offset: false,
                 }
             }),
             cell @ (ProjectileTarget::Cell { .. } | ProjectileTarget::DummyCell) => {
@@ -498,38 +519,41 @@ impl ProjectileCollisionWorld<'_> {
             }
         }
         if projectile.collision.anti_air
-            && let ProjectileTarget::Entity(id) = projectile.target
-            && let Some(target) = self.entities.get(id)
-            && self.high_flying(target)
-            && self.target_distance(candidate, target) < 128
+            && self.high_flying(projectile.target)
+            && self
+                .target_distance(candidate, projectile.target)
+                .is_some_and(|distance| distance < 128)
         {
             return true;
         }
         false
     }
 
-    fn target_distance(
-        &self,
-        candidate: ProjectileCoord,
-        target: &crate::sim::game_entity::GameEntity,
-    ) -> i32 {
+    fn target_distance(&self, candidate: ProjectileCoord, target: ProjectileTarget) -> Option<i32> {
         // ObjectClass::Distance 5F6360 between the virtual +48 positions,
         // with a building target's foundation term.
-        let building = self
-            .rules
-            .filter(|_| target.category() == EntityCategory::Structure)
-            .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())))
-            .map(|kind| {
-                let (width, height) =
-                    crate::rules::foundation::foundation_dimensions(&kind.foundation);
-                (i32::from(width), i32::from(height))
-            });
-        let location = self.location(target);
-        crate::util::native_x87::object_distance(
+        let (location, building) = match target {
+            ProjectileTarget::Entity(id) => {
+                let target = self.entities.get(id)?;
+                let building = self
+                    .rules
+                    .filter(|_| target.category() == EntityCategory::Structure)
+                    .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())))
+                    .map(|kind| {
+                        let (width, height) =
+                            crate::rules::foundation::foundation_dimensions(&kind.foundation);
+                        (i32::from(width), i32::from(height))
+                    });
+                (self.location(target), building)
+            }
+            ProjectileTarget::Terrain(id) => (self.terrain_objects.get(&id)?.world_coord(), None),
+            _ => return None,
+        };
+        Some(crate::util::native_x87::object_distance(
             [candidate.x, candidate.y, candidate.z],
             [location.x, location.y, location.z],
             building,
-        )
+        ))
     }
 
     fn cell_location(cell: &CellRef<'_>) -> ProjectileCoord {
@@ -664,6 +688,11 @@ impl ProjectileCollisionWorld<'_> {
                     Some(self.location(target))
                 }
             }
+            // All three Terrain virtuals preserve construction height.
+            ProjectileTarget::Terrain(id) => self
+                .terrain_objects
+                .get(&id)
+                .map(crate::sim::terrain_object::TerrainObjectState::world_coord),
             ProjectileTarget::Cell { rx, ry } => {
                 Some(if query == ProjectileTargetQuery::GetCoords {
                     crate::sim::projectile::cell_ground_coord(self.terrain, rx, ry)
@@ -681,12 +710,21 @@ impl ProjectileCollisionWorld<'_> {
     }
 
     /// The target's vt+0x54, IsInAir.
-    fn high_flying(&self, target: &crate::sim::game_entity::GameEntity) -> bool {
-        crate::sim::movement::air_movement::is_high_flying(
-            target,
-            self.terrain,
-            self.rules.map(|rules| (rules, self.interner)),
-        )
+    fn high_flying(&self, target: ProjectileTarget) -> bool {
+        match target {
+            ProjectileTarget::Entity(id) => self.entities.get(id).is_some_and(|target| {
+                crate::sim::movement::air_movement::is_high_flying(
+                    target,
+                    self.terrain,
+                    self.rules.map(|rules| (rules, self.interner)),
+                )
+            }),
+            ProjectileTarget::Terrain(id) => self
+                .terrain_objects
+                .get(&id)
+                .is_some_and(|target| target.is_in_air(self.terrain)),
+            _ => false,
+        }
     }
 }
 
@@ -706,6 +744,7 @@ mod tests {
             dummy: &sim.shared_cell_dummy,
             occupancy: &sim.substrate.occupancy,
             entities: &sim.substrate.entities,
+            terrain_objects: &sim.production.terrain_objects,
             interner: &sim.interner,
             alliances: &sim.house_alliances,
             overlays: sim.overlay_grid.as_ref(),
@@ -713,6 +752,73 @@ mod tests {
             rules: None,
             map_size: Some((2, 3)),
         }
+    }
+
+    #[test]
+    fn terrain_target_queries_and_impact_keep_the_retained_object_coordinate() {
+        let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = fixture.rules;
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 1);
+        sim.resolved_terrain
+            .as_mut()
+            .unwrap()
+            .cell_mut(10, 20)
+            .unwrap()
+            .level = 6;
+        crate::sim::terrain_spawn::construct_terrain_objects(
+            &mut sim,
+            &[crate::map::overlay::TerrainObject {
+                rx: 10,
+                ry: 20,
+                name: "TREE01".into(),
+            }],
+            &rules,
+            false,
+        );
+        let id = sim.production.terrain_object_cells[&(10, 20)];
+        let coord = sim.production.terrain_objects[&id].world_coord();
+        assert_eq!(coord.z, 624);
+        sim.resolved_terrain
+            .as_mut()
+            .unwrap()
+            .cell_mut(10, 20)
+            .unwrap()
+            .level = 0;
+        let mut collision = world(&sim);
+        collision.rules = Some(&rules);
+        let target = ProjectileTarget::Terrain(id);
+        for query in [
+            ProjectileTargetQuery::GetCoords,
+            ProjectileTargetQuery::TargetAim,
+            ProjectileTargetQuery::GuidanceAim,
+        ] {
+            assert_eq!(collision.target_coordinate(target, query), Some(coord));
+        }
+        let mut store = crate::sim::projectile::ProjectileStore::new();
+        let mut spawn = gsi_05_02_projectile(0, None);
+        spawn.origin = coord;
+        spawn.target = target;
+        spawn.initial_target_position = coord;
+        spawn.collision.anti_air = true;
+        store.spawn(99, spawn);
+        let bullet = store.get(99).unwrap();
+        let facts = collision.impact_ladder(bullet, coord);
+        let facts = facts.target.unwrap();
+        assert_eq!(
+            (facts.coords, facts.aim, facts.offset_coords),
+            (coord, coord, coord)
+        );
+        assert_eq!(facts.distance, 0);
+        assert!(!facts.building_offset);
+        // Object+54/78 use current height but never mutate its saved Location.
+        assert!(facts.in_air);
+        assert!(!facts.ground_layer);
+        assert!(
+            collision.shared(bullet, coord),
+            "the common AA probe also dispatches Terrain +54"
+        );
     }
 
     #[test]
@@ -1333,7 +1439,12 @@ mod tests {
             runtime.resources.overlay_registry =
                 crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, Some(&art));
             let _ = runtime
-                .advance_frame(&[], 16, crate::sim::world::TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    crate::sim::world::TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             let detonate = !source_present || shared_wall;
             assert_eq!(
@@ -1419,7 +1530,12 @@ mod tests {
             runtime.resources.overlay_registry =
                 crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, Some(&art));
             let _ = runtime
-                .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             let saved = runtime.simulation.projectiles.get(id).unwrap().clone();
             assert_eq!(saved.arm_timer.start_frame(), 100);
@@ -1485,10 +1601,20 @@ mod tests {
             resumed.resources.overlay_registry =
                 crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, Some(&art));
             let _ = runtime
-                .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             let _ = resumed
-                .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             assert!(
                 runtime.simulation.projectiles.get(id).is_some(),
@@ -1612,7 +1738,12 @@ mod tests {
                 let mut runtime = SimRuntime::from_simulation(sim);
                 runtime.resources.rules = RuleSet::from_ini(&ini).unwrap();
                 let output = runtime
-                    .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                    .advance_frame(
+                        &[],
+                        16,
+                        TickLane::Ordinary,
+                        crate::sim::world::FrameEffects::default(),
+                    )
                     .expect("fixture frame must complete");
                 assert_eq!(
                     runtime.simulation.projectiles.len(),
@@ -1721,7 +1852,12 @@ mod tests {
             assert_eq!(projectile.acceleration, inputs["acceleration"]);
             assert_eq!(rules.general.gravity, inputs["gravity"]);
             let output = runtime
-                .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             assert_eq!(
                 runtime.simulation.projectiles.len(),
@@ -1825,7 +1961,12 @@ mod tests {
                         runtime.resources.rules.general.gravity =
                             row["gravity_sequence"][frame].as_i64().unwrap() as i32;
                         let _ = runtime
-                            .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                            .advance_frame(
+                                &[],
+                                16,
+                                TickLane::Ordinary,
+                                crate::sim::world::FrameEffects::default(),
+                            )
                             .expect("fixture frame must complete");
                     }
                 }
@@ -1909,7 +2050,12 @@ mod tests {
             .unwrap();
         for expected in row["frames"].as_array().unwrap().iter().take(3) {
             let _ = runtime
-                .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    16,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete");
             let projectile = runtime
                 .simulation
@@ -1983,7 +2129,12 @@ mod tests {
         runtime.resources.overlay_registry =
             crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, Some(&art));
         let _ = runtime
-            .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+            .advance_frame(
+                &[],
+                16,
+                TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         assert!(runtime.simulation.projectiles.get(100).is_none());
         let overlays = runtime.simulation.overlay_grid.as_ref().unwrap();
@@ -2037,7 +2188,12 @@ mod tests {
         // admission and Z=0 selection. Exact reflected stores have their own
         // original-byte comparisons; this checks the real AI-to-damage delivery.
         let _ = runtime
-            .advance_frame(&[], 16, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+            .advance_frame(
+                &[],
+                16,
+                TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         assert!(runtime.simulation.projectiles.get(100).is_none());
         assert_eq!(

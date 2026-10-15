@@ -477,6 +477,14 @@ pub(crate) fn commit_terrain(
         return (effects, under_attack_events);
     };
 
+    // ObjectReceiveDamage5F57AF calls DetachAll before returning lethal4
+    // to Terrain71B920. Its observers run before Terrain's nested C4 and
+    // the three later DetachAll/UnInit/Limbo announcements.
+    world.notify_pointer_expired(
+        lethal.stable_id,
+        crate::sim::world::UninitContext::new(Some(rules), overlay_registry),
+    );
+
     if lethal.spawns_tiberium
         && let Some(c4_warhead) = rules.warhead(&rules.bridge_warheads.c4_name).cloned()
     {
@@ -498,23 +506,12 @@ pub(crate) fn commit_terrain(
         under_attack_events.append(&mut pings);
     }
 
-    let finalized = crate::sim::terrain_object::finalize_terrain_lethal(
-        crate::sim::terrain_object::production_authority_parts(
-            &mut world.production,
-            &mut world.substrate.raw_cell_occupation,
-        ),
+    world.terrain_lethal_uninit(
+        lethal,
         &mut run.finalizing_terrain,
         &mut run.navigation_changed_cells,
-        lethal,
-        world.resolved_terrain.as_mut(),
+        crate::sim::world::UninitContext::new(Some(rules), overlay_registry),
     );
-    if finalized {
-        // Terrain's common tail 0x71BB2C -> ObjectUnInit 0x5F65F0 retires Logic membership before
-        // returning to the current receiver walk; physical deletion is deferred.
-        // Native executable comparison: terrain_debris_receiver.json.
-        let retired = world.retire_non_entity_object(lethal.stable_id);
-        debug_assert!(retired);
-    }
     (effects, under_attack_events)
 }
 
@@ -1897,7 +1894,9 @@ fn run_special_detonation_arm(
 ) {
     let owner = detonation.source_id;
     let target = match detonation.target {
-        ProjectileTarget::Entity(id) => SpecialArmTarget::Object(id),
+        ProjectileTarget::Entity(id) | ProjectileTarget::Terrain(id) => {
+            SpecialArmTarget::Object(id)
+        }
         ProjectileTarget::Cell { .. } | ProjectileTarget::DummyCell => SpecialArmTarget::Cell,
         ProjectileTarget::None => SpecialArmTarget::None,
     };
@@ -2018,6 +2017,11 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
     let terrain = world.resolved_terrain.as_ref();
     let target_coords = match detonation.target {
         ProjectileTarget::Entity(id) => object_get_coords(world, id),
+        ProjectileTarget::Terrain(id) => world
+            .production
+            .terrain_objects
+            .get(&id)
+            .map(|tree| tree.world_coord()),
         ProjectileTarget::Cell { rx, ry } => {
             Some(crate::sim::projectile::cell_ground_coord(terrain, rx, ry))
         }
@@ -2185,6 +2189,7 @@ fn emit_detonation_receivers(
                 .get(id)
                 .is_some_and(|entity| entity.category() == EntityCategory::Unit),
             ProjectileTarget::Cell { .. }
+            | ProjectileTarget::Terrain(_)
             | ProjectileTarget::None
             | ProjectileTarget::DummyCell => false,
         },

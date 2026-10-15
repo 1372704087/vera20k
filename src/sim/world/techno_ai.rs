@@ -421,6 +421,7 @@ impl Simulation {
                 dummy: &shared_cell_dummy,
                 occupancy,
                 entities,
+                terrain_objects: &self.production.terrain_objects,
                 interner,
                 alliances: house_alliances,
                 overlays: overlay_grid,
@@ -440,12 +441,7 @@ impl Simulation {
                 .advance_after_head(
                     head,
                     binary_frame,
-                    |target_id, query| {
-                        collision_world.target_coordinate(
-                            crate::sim::projectile::ProjectileTarget::Entity(target_id),
-                            query,
-                        )
-                    },
+                    |target, query| collision_world.target_coordinate(target, query),
                     terrain,
                     &shared_cell_dummy,
                     rules.map_or_else(

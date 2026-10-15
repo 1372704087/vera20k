@@ -301,31 +301,42 @@ def shrapnel_chain(case):
     layout = [('source', (15, 20), 0), ('victim', (16, 20), 1),
               ('ally', (16, 19), 0), ('hidden_enemy', (16, 19), 1),
               ('enemy_a', (17, 20), 1), ('enemy_b', (16, 21), 1)]
+    if case.get('terrain'):
+        layout += [('tree', (17, 19), None)]
     if case.get('all_selected'):
         layout += [('enemy_c', (17, 19), 1), ('enemy_d', (17, 21), 1),
                    ('enemy_e', (15, 21), 1)]
     for name, cell, house in layout:
         actor = m.alloc(0x1000)
         location = [cell[0] * 256 + 128, cell[1] * 256 + 128, 624]
-        u.mem_write(actor, dwords(0x7F5C70))  # actual Unit vtable
+        if name == 'tree':
+            location[2] = case.get('retained_z', 624)
+        u.mem_write(actor, dwords(0x7F522C if name == 'tree' else 0x7F5C70))
         u.mem_write(actor + 0x14, dwords(2))
         u.mem_write(actor + 0x9C, dwords(*location))
-        u.mem_write(actor + 0x21C, dwords(houses[house]))
+        if house is not None:
+            u.mem_write(actor + 0x21C, dwords(houses[house]))
         actors[name], identities[actor] = actor, name
         actor_inputs.append(dict(name=name, cell=list(cell), house=house, location=location,
-                                 head=name != 'hidden_enemy', native_class='Unit',
+                                 head=name != 'hidden_enemy',
+                                 native_class='Terrain' if name == 'tree' else 'Unit',
                                  next_object='hidden_enemy' if name == 'ally' else None))
         if name == 'hidden_enemy':
             u.mem_write(actors['ally'] + 0x30, dwords(actor))
         else:
             u.mem_write(cells[cell] + 0xE4, dwords(actor))
+    if case.get('lower_tree_ground'):
+        # Preserve the Terrain object's retained location while its cell drops.
+        u.mem_write(cells[17, 19] + 0x11B, b'\0')
     if case.get('refused'):
         u.mem_write(cells[16, 20] + 0xE4, dwords(0))
     b = m.alloc(0x180)
     m.invoke(0x466380, b)
     m.invoke(0x4664C0, b, (p, actors['victim'], actors['source'], m.read32(w + 0xA4),
                           m.read32(w + 0xAC), m.read32(w + 0xA8), 0))
-    origin = [4224, 5248, 624]
+    if 'count' in case:
+        u.mem_write(p + 0x2B8, dwords(case['count']))
+    origin = xyz(u, actors['tree'] + 0x9C) if case.get('tree_center') else [4224, 5248, 624]
     u.mem_write(b + 0x9C, dwords(*origin))
     u.mem_write(b + 0x130, dwords(w))
     if case.get('detached'):
@@ -344,7 +355,8 @@ def shrapnel_chain(case):
         if ptr == 0:
             return None
         if ptr in identities:
-            return dict(kind='entity', name=identities[ptr])
+            return dict(kind='terrain' if identities[ptr] == 'tree' else 'entity',
+                        name=identities[ptr])
         if ptr in by_cell:
             return dict(kind='cell', cell=by_cell[ptr])
         raise AssertionError(('unrecognized native target', hex(ptr)))
@@ -370,6 +382,8 @@ def shrapnel_chain(case):
                        rng_after_fire=rng.states(),
                        arm=[i32(u, child + 0xC4), i32(u, child + 0xCC)],
                        weapon_is_null=m.read32(child + 0x130) == 0)
+            if case.get('terrain'):
+                row['retained_target'] = identity(m.read32(child + 0x10C))
             events.append(dict(kind='fire_return', child=row['order']))
         if (pc, sp) in pending_laser:
             index = pending_laser.pop((pc, sp))
@@ -473,6 +487,40 @@ def shrapnel_chain_metadata():
         ], entry_points=dict(gravity_reader=0x66B3C4, weapon_postpass=0x7729F0,
                              spawn_shrapnel=0x46A310, construct=0x4664C0,
                              fire=0x468670, laser=0x6FD210, laser_ctor=0x54FE60))
+
+
+def terrain_shrapnel_generate():
+    rows = [shrapnel_chain(case) for case in (
+        dict(name='normal_tree', parent_weapon='Comet', seed=31, terrain=True),
+        dict(name='elite_tree_retained_ground', parent_weapon='SuperComet', seed=31,
+             terrain=True, lower_tree_ground=True),
+        dict(name='tree_detached', parent_weapon='Comet', seed=31, terrain=True, detached=True),
+        dict(name='tree_count_zero', parent_weapon='Comet', seed=31, terrain=True, count=0),
+        dict(name='elite_tree_child_center', parent_weapon='SuperCometFragment', seed=31,
+             terrain=True, tree_center=True),
+    )]
+    layers = rows[0]['layers']
+    for row in rows:
+        assert row.pop('layers') == layers
+    return dict(layers=layers, cases=rows)
+
+
+def terrain_shrapnel_metadata():
+    result = shrapnel_chain_metadata()
+    result['scope'] = ('Original SpawnShrapnel target/RNG/child/effect order with a real Terrain '
+                       'vtable head, no-firer and count0 controls, and a prepared elite '
+                       'second-generation parent centered on the tree; no child AI execution')
+    result['assumptions'][1] = (
+        'Existing flat level6 map, supplied Unit and Terrain object states. Terrain7F522C '
+        'has retained Location, Object flag2, null house and WhatAmI36; retained-ground '
+        'row lowers only tree cell17,19 from level6 to0 after supplying LocationZ624. Original virtual '
+        '+48/+58/+A4 and alliance gate run. Terrain construction/ground admission excluded.')
+    result['assumptions'][4] = (
+        'Count0 is an explicit synthetic override after physical reads. Other counts and '
+        'weapons are native-reader outputs. Elite child-center row supplies an already '
+        'detonating SuperSmallCometP at the retained tree location; it does not execute '
+        'the preceding child AI/damage or certify complete recursive lifetime.')
+    return result
 
 
 def direction(case):
@@ -628,6 +676,11 @@ def generate():
 
 if __name__ == "__main__":
     import sys
+    if '--terrain-shrapnel' in sys.argv:
+        args = [arg for arg in sys.argv[1:] if arg != '--terrain-shrapnel']
+        finish_vectors(terrain_shrapnel_generate, Path(__file__).with_name('terrain_shrapnel.json'),
+                       provenance=terrain_shrapnel_metadata, argv=args)
+        raise SystemExit(0)
     if '--shrapnel-chain' in sys.argv:
         args = [arg for arg in sys.argv[1:] if arg != '--shrapnel-chain']
         finish_vectors(shrapnel_chain_generate, Path(__file__).with_name('shrapnel_chain.json'),

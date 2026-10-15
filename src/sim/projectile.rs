@@ -298,6 +298,20 @@ pub enum ProjectileTarget {
     /// The enum stores the pointer kind, not a coordinate snapshot; Simulation
     /// owns the live identity and BulletClass AI resolves it every visit.
     DummyCell,
+    /// TerrainClass is an Object target with its own retained coordinate and
+    /// lifetime, not a Techno or a cell. SpawnShrapnel46A59B retains this pointer.
+    Terrain(u64),
+}
+
+impl ProjectileTarget {
+    /// Stable identity of a represented Object pointer. IDs are unique across
+    /// stores; retaining the enum kind still controls coordinate dispatch.
+    pub(crate) fn object_id(self) -> Option<u64> {
+        match self {
+            Self::Entity(id) | Self::Terrain(id) => Some(id),
+            Self::Cell { .. } | Self::None | Self::DummyCell => None,
+        }
+    }
 }
 
 /// What to do when an entity target no longer exists.
@@ -1329,7 +1343,7 @@ impl ProjectileStore {
     /// shared with PointerExpired468517..46859C; neither resets flight state.
     pub(crate) fn lose_targets(&mut self, target_id: u64, replacement: ProjectileTarget) {
         for projectile in self.projectiles.values_mut().rev() {
-            if projectile.target == ProjectileTarget::Entity(target_id) {
+            if projectile.target.object_id() == Some(target_id) {
                 projectile.target = replacement;
             }
         }
@@ -1352,7 +1366,7 @@ impl ProjectileStore {
         if projectile.source_id == expired_id {
             projectile.source_id = crate::sim::combat::RAD_NO_ATTACKER;
         }
-        if projectile.target == ProjectileTarget::Entity(expired_id) {
+        if projectile.target.object_id() == Some(expired_id) {
             projectile.target = replacement_target;
         }
         true
@@ -1596,7 +1610,7 @@ impl ProjectileStore {
         self.advance_after_head(
             head,
             binary_frame,
-            |id, _query| target_position(id),
+            |target, _query| target.object_id().and_then(&mut target_position),
             terrain,
             shared_cell_dummy,
             rules_gravity,
@@ -1612,7 +1626,10 @@ impl ProjectileStore {
         &mut self,
         head: ProjectileAiHead,
         binary_frame: u32,
-        mut resolve_target_position: impl FnMut(u64, ProjectileTargetQuery) -> Option<ProjectileCoord>,
+        mut resolve_target_position: impl FnMut(
+            ProjectileTarget,
+            ProjectileTargetQuery,
+        ) -> Option<ProjectileCoord>,
         terrain: Option<&ResolvedTerrainGrid>,
         shared_cell_dummy: &SharedCellDummy,
         rules_gravity: i32,
@@ -1653,40 +1670,42 @@ impl ProjectileStore {
             ProjectileTarget::DummyCell => dummy_cell_target_coord(shared_cell_dummy),
             // AI466B5D..466BAB feeds+A4 to guided steering. Fire's frozen
             // reference and the later +48 fuse snap remain separate queries.
-            ProjectileTarget::Entity(target_id) => match resolve_target_position(
-                target_id,
-                if projectile.tracks_target {
-                    ProjectileTargetQuery::GuidanceAim
-                } else {
-                    ProjectileTargetQuery::TargetAim
-                },
-            ) {
-                Some(position) => {
+            target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                match resolve_target_position(
+                    target,
                     if projectile.tracks_target {
-                        projectile.last_target_position = position;
+                        ProjectileTargetQuery::GuidanceAim
+                    } else {
+                        ProjectileTargetQuery::TargetAim
+                    },
+                ) {
+                    Some(position) => {
+                        if projectile.tracks_target {
+                            projectile.last_target_position = position;
+                        }
+                        projectile.last_target_position
                     }
-                    projectile.last_target_position
+                    None => match projectile.target_expiry {
+                        TargetExpiryPolicy::Expire => {
+                            result.expired.push(id);
+                            return Some(result);
+                        }
+                        // `Arm=` is NOT consulted here. The detonation
+                        // admission at `BulletClass::AI 0x00467C70` tests only
+                        // the impact flag and the proximity-fuse result; the
+                        // Arm counter lives inside `ProximityDetector::Check`
+                        // and gates that one result alone.
+                        TargetExpiryPolicy::DetonateAtLastKnown => {
+                            result.detonations.push(detonation(
+                                projectile,
+                                projectile.last_target_position,
+                                ProjectileDetonationReason::TargetExpired,
+                            ));
+                            return Some(result);
+                        }
+                    },
                 }
-                None => match projectile.target_expiry {
-                    TargetExpiryPolicy::Expire => {
-                        result.expired.push(id);
-                        return Some(result);
-                    }
-                    // `Arm=` is NOT consulted here. The detonation
-                    // admission at `BulletClass::AI 0x00467C70` tests only
-                    // the impact flag and the proximity-fuse result; the
-                    // Arm counter lives inside `ProximityDetector::Check`
-                    // and gates that one result alone.
-                    TargetExpiryPolicy::DetonateAtLastKnown => {
-                        result.detonations.push(detonation(
-                            projectile,
-                            projectile.last_target_position,
-                            ProjectileDetonationReason::TargetExpired,
-                        ));
-                        return Some(result);
-                    }
-                },
-            },
+            }
         };
 
         if let Some(fuse) = projectile.fuse_frames_remaining.as_mut() {
@@ -1918,8 +1937,8 @@ impl ProjectileStore {
             {
                 // +58 is fetched even in the unconditional mode-one arm.
                 let aim = match projectile.target {
-                    ProjectileTarget::Entity(id) => {
-                        resolve_target_position(id, ProjectileTargetQuery::TargetAim)
+                    target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                        resolve_target_position(target, ProjectileTargetQuery::TargetAim)
                     }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_target_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_target_coord(shared_cell_dummy)),
@@ -1936,8 +1955,8 @@ impl ProjectileStore {
                 });
                 let location = match projectile.target {
                     _ if !snap => None,
-                    ProjectileTarget::Entity(id) => {
-                        resolve_target_position(id, ProjectileTargetQuery::GetCoords)
+                    target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                        resolve_target_position(target, ProjectileTargetQuery::GetCoords)
                     }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_ground_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_ground_coord(shared_cell_dummy)),
@@ -2603,7 +2622,9 @@ mod tests {
             origin: ProjectileCoord::new(0, 0, 0),
             target,
             initial_target_position: match target {
-                ProjectileTarget::Entity(_) => ProjectileCoord::new(128, 0, 0),
+                ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_) => {
+                    ProjectileCoord::new(128, 0, 0)
+                }
                 ProjectileTarget::Cell { rx, ry } => cell_target_coord(None, rx, ry),
                 ProjectileTarget::None => ProjectileCoord::new(0, 0, 0),
                 ProjectileTarget::DummyCell => ProjectileCoord::new(0, 0, 0),

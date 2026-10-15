@@ -2564,8 +2564,9 @@ impl Simulation {
                 let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                     let powered = entity.category()
                         == crate::map::entities::EntityCategory::Structure
-                        && rules
-                            .object(self.interner.resolve(entity.type_ref()))
+                        && self
+                            .interner
+                            .object_type(entity.type_ref(), rules)
                             .is_some_and(|object| object.powered || object.powered_special);
                     entity.owner() == owner && powered == powered_pass
                 });

@@ -343,7 +343,7 @@ pub(crate) fn all_to_hunt(
             continue;
         }
         let dominated_strength = (techno.mind_control.permanent() && !human)
-            .then(|| rules.object(sim.interner.resolve(techno.type_ref())))
+            .then(|| sim.interner.object_type(techno.type_ref(), rules))
             .flatten()
             .filter(|object| object.insignificant)
             .map(|object| object.strength);

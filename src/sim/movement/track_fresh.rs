@@ -968,8 +968,8 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Drive/Ship owner")?;
-        rules
-            .object(self.interner.resolve(actor.type_ref()))
+        self.interner
+            .object_type(actor.type_ref(), rules)
             .ok_or_else(|| "Drive/Ship owner without ObjectType".into())
     }
 
@@ -1013,7 +1013,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .and_then(|actor| rules.object(self.interner.resolve(actor.type_ref())))
+            .and_then(|actor| self.interner.object_type(actor.type_ref(), rules))
             .map(|object| object.strength)
         else {
             return;
@@ -1242,7 +1242,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(call.id) else {
             return Ok(());
         };
-        let Some(object) = call.rules.object(self.interner.resolve(actor.type_ref())) else {
+        let Some(object) = self.interner.object_type(actor.type_ref(), call.rules) else {
             return Ok(());
         };
         //Type+D28, or HasWeaponAbility(0x11) by rank (0x70D0D0).

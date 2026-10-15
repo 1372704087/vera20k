@@ -433,7 +433,7 @@ fn advance_ordinary_mover(
                 return None;
             }
             let rules = rules?;
-            let obj = rules.object(interner.resolve(entity.type_ref()))?;
+            let obj = interner.object_type(entity.type_ref(), rules)?;
             Some(obj.crawls)
         });
         OrdinaryMoverVisit {
@@ -522,7 +522,7 @@ fn advance_ordinary_mover(
         *walk_per_cell = Some((entity_id, head));
         return;
     }
-    let object = rules.and_then(|r| r.object(interner.resolve(entity.type_ref())));
+    let object = rules.and_then(|r| interner.object_type(entity.type_ref(), r));
     let adjusted_speed = super::foot_speed::adjusted_speed(
         entity,
         object,

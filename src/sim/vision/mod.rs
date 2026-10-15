@@ -1709,7 +1709,7 @@ fn entity_has_sight_ability(
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> bool {
     rules
-        .and_then(|rules| rules.object(interner.resolve(entity.type_ref())))
+        .and_then(|rules| interner.object_type(entity.type_ref(), rules))
         .is_some_and(|object| {
             crate::sim::combat::veterancy::has_weapon_ability(
                 entity.veterancy.rank_kind(),

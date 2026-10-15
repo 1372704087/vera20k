@@ -75,13 +75,11 @@ pub(crate) struct GroundKeys {
     context: Option<ReadContext>,
 }
 
-/// The inputs every read shares: the rules and the type handle table a
-/// Building's key resolves its type through.
+/// The input every read shares: the rules a Building's key resolves its type
+/// in, by [`RuleSet::serial`](crate::rules::ruleset::RuleSet::serial).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReadContext {
-    /// By address, never dereferenced.
-    pub(crate) rules: Option<usize>,
-    pub(crate) type_handles: u64,
+    pub(crate) rules: Option<u64>,
 }
 
 impl GroundKeys {
@@ -307,10 +305,7 @@ mod tests {
         }
     }
 
-    const CONTEXT: ReadContext = ReadContext {
-        rules: None,
-        type_handles: 0,
-    };
+    const CONTEXT: ReadContext = ReadContext { rules: None };
 
     /// A deterministic sequence of submits, departures, adjacent passes, own
     /// moves and owner moves gives the same layers whether the reads are kept
@@ -386,13 +381,7 @@ mod tests {
         scene.owner_of.insert(6, 50);
         scene.owner_terms.insert(50, 0);
         for forget in [
-            (
-                ReadContext {
-                    rules: Some(8),
-                    type_handles: 0,
-                },
-                Touched::Ids(Vec::new()),
-            ),
+            (ReadContext { rules: Some(8) }, Touched::Ids(Vec::new())),
             (CONTEXT, Touched::All),
         ] {
             let mut display = DisplayLayers::default();

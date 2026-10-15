@@ -3639,6 +3639,9 @@ pub struct RuleSet {
     /// Uppercase type ID → handle. Uppercase keys give O(1) case-insensitive
     /// resolution, matching the engine's case-insensitive find-or-allocate.
     object_index: LookupMap<String, TypeHandle>,
+    /// Distinct for every `RuleSet` the process builds, so a cache of this
+    /// set's handles can tell it from another set ([`Self::serial`]).
+    serial: u64,
     /// Per-native-registry identity authority. Unlike the broad lookup above,
     /// this retains distinct types when malformed/custom rules list the same
     /// ID in more than one category.
@@ -4698,9 +4701,11 @@ impl RuleSet {
             check_unique_ci("super_weapons", super_weapons.keys().collect());
         }
 
+        static SERIALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut rules = RuleSet {
             object_list,
             object_index,
+            serial: SERIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
             object_category_index,
             type_array_indices,
             weapons,
@@ -4849,6 +4854,13 @@ impl RuleSet {
         } else {
             self.object_index.get(id).copied()
         }
+    }
+
+    /// This set's identity: nonzero and distinct from every other `RuleSet`
+    /// built in the process. It reaches no result; caches of handles compare
+    /// it to know whose handles they hold.
+    pub fn serial(&self) -> u64 {
+        self.serial
     }
 
     /// Dereference a handle to its object. Handles only originate from this

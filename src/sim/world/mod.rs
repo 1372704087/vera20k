@@ -1024,11 +1024,6 @@ where
 pub struct Simulation {
     /// String interner for owner/type_ref — zero-cost ID clones instead of heap Strings.
     pub interner: crate::sim::intern::StringInterner,
-    /// Derived cache: interned-id -> object handle for one-hop type resolution.
-    /// Built at init by `resolve_type_handles`; empty after deserialize (then
-    /// `object_type` uses the name-path fallback). NOT serialized, NOT hashed.
-    #[serde(skip)]
-    pub(crate) type_handles: crate::sim::type_handle_table::TypeHandleTable,
     /// Pre-resolved `[CombatDamage]` warhead handles (F04). Built by
     /// `resolve_type_handles` beside the type table; rebuilt from rules on
     /// load. NOT serialized, NOT hashed. `None` until resolved.
@@ -1915,7 +1910,7 @@ impl Simulation {
                     return;
                 }
                 let garrison = self.substrate.entities.get(stable_id).and_then(|entity| {
-                    let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+                    let object = self.interner.object_type(entity.type_ref(), rules)?;
                     let passenger_ids = entity
                         .passenger_role
                         .cargo()
@@ -1948,8 +1943,8 @@ impl Simulation {
                     .entities
                     .get(stable_id)
                     .is_some_and(|entity| {
-                        rules
-                            .object(self.interner.resolve(entity.type_ref()))
+                        self.interner
+                            .object_type(entity.type_ref(), rules)
                             .is_some_and(|object| object.infantry_absorb || object.unit_absorb)
                     });
                 if let Some(event) = garrison {
@@ -2211,7 +2206,7 @@ impl Simulation {
                 let coords = crate::sim::movement::ground_pose::object_target_coords(
                     entity,
                     terrain,
-                    rules.object(interner.resolve(entity.type_ref())),
+                    interner.object_type(entity.type_ref(), rules),
                 );
                 ProjectileCoord::new(coords.x, coords.y, coords.z)
             }
@@ -2383,8 +2378,7 @@ impl Simulation {
                 let Some(firer) = self.substrate.entities.get(request.firer_id) else {
                     break;
                 };
-                let Some(object_type) = rules.object(self.interner.resolve(firer.type_ref()))
-                else {
+                let Some(object_type) = self.interner.object_type(firer.type_ref(), rules) else {
                     break;
                 };
                 let Some(weapon_name) = crate::sim::combat::combat_weapon::primary_for_tier(
@@ -3252,14 +3246,15 @@ impl Simulation {
         Self::with_seed(DEFAULT_SIM_SEED)
     }
 
-    /// Build the interned-id -> type-handle table and the pre-resolved rule
-    /// handles beside it. Call once at sim init AFTER `intern_rule_type_ids`,
-    /// and again after load once the RuleSet is available. Idempotent: the
-    /// warhead names are already interned on every re-resolution path, so
-    /// serialized interner state cannot grow or reorder.
+    /// Bind the interner's type handles ([`StringInterner::bind_types`]) and
+    /// build the pre-resolved rule handles beside them. Call once at sim init
+    /// AFTER `intern_rule_type_ids`, and again after load once the RuleSet is
+    /// available. Idempotent: the warhead names are already interned on every
+    /// re-resolution path, so serialized interner state cannot grow or reorder.
+    ///
+    /// [`StringInterner::bind_types`]: crate::sim::intern::StringInterner::bind_types
     pub fn resolve_type_handles(&mut self, rules: &RuleSet) {
-        self.type_handles =
-            crate::sim::type_handle_table::TypeHandleTable::build(rules, &self.interner);
+        self.interner.bind_types(rules);
         self.rule_handles = Some(crate::sim::type_handle_table::ResolvedRuleHandles::resolve(
             rules,
             &mut self.interner,
@@ -3316,17 +3311,16 @@ impl Simulation {
         )
     }
 
-    /// Resolve an entity's type to its `ObjectType` in one precomputed hop
-    /// (two array indexes, no string allocation). Falls back to the name path
-    /// when the table is unbuilt (test setups that skip `resolve_type_handles`),
-    /// so no caller observes a stale empty table.
+    /// Resolve an entity's type to its `ObjectType` through the interner's
+    /// bound handles (`StringInterner::object_type`): two array indexes, no
+    /// hashing, and the name path wherever the handles do not apply.
     #[inline]
     pub fn object_type<'r>(
         &self,
         type_ref: InternedId,
         rules: &'r RuleSet,
     ) -> Option<&'r ObjectType> {
-        self.type_handles.object(&self.interner, type_ref, rules)
+        self.interner.object_type(type_ref, rules)
     }
 
     /// Create a new empty simulation with an explicit deterministic seed.
@@ -3360,7 +3354,6 @@ impl Simulation {
             expiry_listeners: Default::default(),
             path_batch: None,
             interner: crate::sim::intern::StringInterner::new(),
-            type_handles: crate::sim::type_handle_table::TypeHandleTable::default(),
             rule_handles: None,
             production: ProductionState::default(),
             session,
@@ -5055,8 +5048,9 @@ impl Simulation {
         if category == EntityCategory::Structure
             && let Some(rules) = rules
             && let Some(entity) = self.substrate.entities.get(stable_id)
-            && !rules
-                .object(self.interner.resolve(entity.type_ref()))
+            && !self
+                .interner
+                .object_type(entity.type_ref(), rules)
                 .is_some_and(|object| object.can_be_occupied)
         {
             self.bomb_defuse(stable_id);
@@ -6443,8 +6437,9 @@ impl Simulation {
         else {
             return;
         };
-        let Some(section) = rules
-            .object(self.interner.resolve(type_ref))
+        let Some(section) = self
+            .interner
+            .object_type(type_ref, rules)
             .and_then(|obj| obj.super_weapon.clone())
         else {
             return;
@@ -6700,7 +6695,6 @@ impl Simulation {
         let rules_context = Some(crate::sim::movement::SpeedRules::new(
             rules,
             &self.interner,
-            &self.type_handles,
             &self.houses,
         ));
         let wake_positions: Vec<(u16, u16, SimFixed, SimFixed, u8)> = self

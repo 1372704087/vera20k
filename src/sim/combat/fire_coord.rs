@@ -59,7 +59,7 @@ pub(crate) fn effect_target_coordinate(
             let point = crate::sim::movement::ground_pose::object_target_coords(
                 target,
                 world.resolved_terrain.as_ref(),
-                rules.object(world.interner.resolve(target.type_ref())),
+                world.interner.object_type(target.type_ref(), rules),
             );
             Some(ProjectileCoord::new(point.x, point.y, point.z))
         }
@@ -195,7 +195,7 @@ pub(crate) fn turret_pivot_coordinate(
     rules: &RuleSet,
     entity: &GameEntity,
 ) -> Option<ProjectileCoord> {
-    let obj = rules.object(world.interner.resolve(entity.type_ref()))?;
+    let obj = world.interner.object_type(entity.type_ref(), rules)?;
     let source = FireSource::of_entity(entity);
     let base = fire_coordinate_base(world, rules, &source, obj);
     let offset = base.art.map_or(0, |art| art.turret_offset);
@@ -616,7 +616,7 @@ fn open_topped_port_coordinate(
         .passengers()
         .iter()
         .position(|&id| id == snap.stable_id)?;
-    let transport_obj = rules.object(world.interner.resolve(transport.type_ref()))?;
+    let transport_obj = world.interner.object_type(transport.type_ref(), rules)?;
     let source = FireSource::of_entity(transport);
     let base = fire_coordinate_base(world, rules, &source, transport_obj);
     let flh = base.art.map_or_else(Default::default, |art| {
@@ -631,7 +631,7 @@ fn open_topped_port_coordinate(
         world,
         rules,
         snap,
-        rules.object(world.interner.resolve(rider.type_ref()))?,
+        world.interner.object_type(rider.type_ref(), rules)?,
     )
     .facings
     .aim;

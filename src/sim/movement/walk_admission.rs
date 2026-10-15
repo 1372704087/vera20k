@@ -29,9 +29,11 @@ use crate::util::fixed_math::SIM_ZERO;
 use crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
 
 impl Simulation {
-    /// Resume the same Process at75B59C after releasing its mutable entity
-    /// borrow. A retry returns the same visit for75AEC0(false)'s Find_Path;
-    /// every other answer completes this fresh-head Process invocation.
+    /// Resume the same Process at75B302 after releasing its mutable entity
+    /// borrow: a tube word ends it ([`Self::walk_tube_head`]); otherwise the
+    /// admission at75B59C. A retry returns the same visit for75AEC0(false)'s
+    /// Find_Path; every other answer completes this fresh-head Process
+    /// invocation.
     pub(crate) fn run_walk_admission_request(
         &mut self,
         request: WalkAdmissionRequest,
@@ -41,6 +43,9 @@ impl Simulation {
     ) -> Result<Option<FootPathRequest>, String> {
         let rules = rules.ok_or("Walk admission requires rules")?;
         let id = request.entity_id;
+        if self.walk_tube_head(id, rules, registry, frame_effects)? {
+            return Ok(None);
+        }
         #[cfg(test)]
         self.export_bridge_engineer_entry_inputs(id, rules, "walk-prehead");
         let actor = self

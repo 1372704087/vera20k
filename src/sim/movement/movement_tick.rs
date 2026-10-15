@@ -38,9 +38,10 @@ use super::bump_crush;
 use super::locomotor::MovementLayer;
 use super::movement_path::supports_layered_bridge_pathing;
 use super::movement_step;
-use super::tube_movement;
 use super::{MovementTickStats, MoverSnapshot, PathfindingContext};
-use crate::sim::occupancy::{CellOccupationGrid, OccupancyGrid, RawCellOccupationGrid};
+#[cfg(test)]
+use crate::sim::occupancy::RawCellOccupationGrid;
+use crate::sim::occupancy::{CellOccupationGrid, OccupancyGrid};
 
 /// Build a read-only snapshot of the mover's properties before entering the
 /// inner movement loop. This avoids repeated `entities.get()` calls and keeps
@@ -87,9 +88,10 @@ struct OrdinaryMoverVisit {
     walk_retry_allowed: bool,
 }
 
-/// Synchronous Walk75B690 request. The pending pass releases the mutable
-/// mover before its live Foot+1AC query and the class-specific response.
-/// A clear answer finishes fresh-head selection in that same Process; a
+/// Synchronous Walk fresh-head request: the tube word (75B302) and then
+/// Can_Enter_Cell (75B690). The pending pass releases the mutable mover
+/// before either, since both need the whole live Foot. A tube word or a
+/// clear answer finishes fresh-head selection in that same Process; a
 /// recursive refusal reuses the retained visit through FootPathRequest.
 pub(crate) struct WalkAdmissionRequest {
     pub(crate) entity_id: u64,
@@ -331,9 +333,6 @@ fn advance_ordinary_mover(
     entities: &mut EntityStore,
     entity_id: u64,
     grids: PassGrids<'_>,
-    occupancy: &mut OccupancyGrid,
-    cell_occupation: &mut CellOccupationGrid,
-    raw_cell_occupation: &mut RawCellOccupationGrid,
     native_frame: u32,
     interner: &mut crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -484,41 +483,10 @@ fn advance_ordinary_mover(
         .as_ref()
         .is_some_and(|l| l.step_head().is_none())
     {
-        if let Some(tube_id) = tube_movement::pending_path_tube_id(
-            &entity.navigation.path_replay,
-            &entity.position,
-            entity.movement_layer_or_ground(),
-            resolved_terrain,
-        ) {
-            let terrain = resolved_terrain.expect("tube admission resolved terrain");
-            let category = entity.category();
-            let mut foot_occupation_enabled = entity.foot_occupation_enabled();
-            let mut cell_marked = entity.lifecycle.cell_marked();
-            let begun = tube_movement::begin_path_tube_step(
-                &mut foot_occupation_enabled,
-                &mut entity.navigation.path_replay,
-                entity_id,
-                category,
-                &mut entity.position,
-                &mut entity.locomotor,
-                &mut entity.low_bridge_tube_state,
-                &mut cell_marked,
-                tube_id,
-                terrain,
-                occupancy,
-                cell_occupation,
-                raw_cell_occupation,
-            );
-            entity.set_foot_occupation_enabled(foot_occupation_enabled);
-            entity.lifecycle.set_cell_marked(cell_marked);
-            if begun.is_ok() {
-                return;
-            }
-        }
-        //75B690 requires the whole live Foot owner. Suspending here
-        //releases this entity's mutable borrow before any admission
-        //query. Canonical Clear goes straight to75C240, never through
-        //the grid/cliff/occupancy adapters below.
+        //75B302 (the tube word) and 75B690 (Can_Enter_Cell) require the
+        //whole live Foot owner. Suspending here releases this entity's
+        //mutable borrow before either. Canonical Clear goes straight to
+        //75C240, never through the grid/cliff/occupancy adapters below.
         debug_assert!(walk_admission_request.is_none());
         *walk_admission_request = Some(WalkAdmissionRequest {
             entity_id,
@@ -933,9 +901,6 @@ impl PendingMovementPass {
             &mut sim.substrate.entities,
             entity_id,
             grids,
-            &mut sim.substrate.occupancy,
-            &mut sim.substrate.cell_occupation,
-            &mut sim.substrate.raw_cell_occupation,
             sim.session.binary_frame,
             &mut sim.interner,
             rules,
@@ -970,9 +935,8 @@ pub(crate) fn begin_movement(
     entities: &mut EntityStore,
     entity_id: u64,
     path_grid: Option<&PathGrid>,
-    occupancy: &mut OccupancyGrid,
+    occupancy: &OccupancyGrid,
     cell_occupation: &mut CellOccupationGrid,
-    raw_cell_occupation: &mut RawCellOccupationGrid,
     native_frame: u32,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     playfield_bounds: Option<PlayfieldBounds>,
@@ -995,9 +959,6 @@ pub(crate) fn begin_movement(
             entities,
             entity_id,
             grids,
-            occupancy,
-            cell_occupation,
-            raw_cell_occupation,
             native_frame,
             interner,
             rules,

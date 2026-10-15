@@ -1031,7 +1031,10 @@ use crate::sim::world::Simulation;
 // Its three signed dwords change the saved type-registry layout.
 // 358 -> 359: ordered Tesla charger pointers, the separate Building weapon
 // latch and Foot's automatic charging-target flag survive saves.
-const SNAPSHOT_VERSION: u32 = 359;
+// 359 -> 360: Airstrike manager state/links, tint clocks and sampled building
+// animation light; retained per-pass type settings and type-based aircraft gate.
+// The unused MissionLeaf airstrike boolean is removed.
+const SNAPSHOT_VERSION: u32 = 360;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2003,6 +2006,29 @@ fn restore_object_references(
         // for the common post-load swizzle pass. Rust keeps stable IDs in those
         // fields, so admission requires the same references to resolve before
         // any cleanup mutates the restored graph.
+        if let Some(owner) = entity.airstrike_link() {
+            require_resolved_reference(
+                sim.substrate
+                    .entities
+                    .get(owner)
+                    .is_some_and(|owner| owner.airstrike.owns_manager()),
+                "EntityStore",
+                entity_id,
+                "airstrike.link",
+                "AirstrikeManager",
+                owner,
+            )?;
+        }
+        for referenced_id in entity.airstrike.referenced_ids() {
+            require_resolved_reference(
+                entity_ids.contains(&referenced_id),
+                "EntityStore",
+                entity_id,
+                "airstrike.reference",
+                "EntityStore",
+                referenced_id,
+            )?;
+        }
         if let Some(manager) = entity.spawn_manager.as_ref() {
             for slot in manager.slots() {
                 if let Some(spawn_id) = slot.spawn() {
@@ -4442,7 +4468,7 @@ mod tests {
         // 356 -> 357: no voxel HVA or OREGATH frame clock.
         // 357 -> 358: retained BuildingType TargetCoordOffset.
         // 358 -> 359: Tesla charger list, weapon latch and Foot intent.
-        assert_eq!(super::SNAPSHOT_VERSION, 359);
+        assert_eq!(super::SNAPSHOT_VERSION, 360);
     }
 
     #[test]
@@ -8350,7 +8376,7 @@ mod tests {
         let mut leaves = [
             MissionLeafState::unit_raw_for_test(1, 2, 3, 4),
             MissionLeafState::infantry_raw_for_test(5, 41),
-            MissionLeafState::aircraft_raw_for_test(6, 7, true),
+            MissionLeafState::aircraft_raw_for_test(6, 7),
             MissionLeafState::building_raw_for_test(8),
             MissionLeafState::unit_raw_for_test(9, 10, 11, 12),
             MissionLeafState::infantry_raw_for_test(13, -1),

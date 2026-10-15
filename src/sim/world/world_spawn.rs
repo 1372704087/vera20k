@@ -1861,6 +1861,7 @@ impl Simulation {
     ) {
         crate::sim::spawn_manager::commit_spawn_manager_pool(self, parent_id, rules, frame_effects);
         self.create_slave_manager(parent_id, rules, frame_effects);
+        self.initialize_airstrike(parent_id, rules);
     }
 
     /// Unit/Infantry constructor cloak ability plus UnitClass::Unlimbo's
@@ -2536,16 +2537,14 @@ impl Simulation {
             }
         }
         let target = Some(TargetKind::Entity(new_sid));
-        let commits = crate::sim::mission::concrete_effects::assign_target_commits(
-            &self.substrate.entities,
-            target,
-        );
         for targeter in targeters {
-            if let Some(entity) = self.substrate.entities.get_mut(targeter) {
-                crate::sim::mission::concrete_effects::represented_assign_target_admitted(
-                    entity, target, commits,
-                );
-            }
+            let _ = self.assign_target_represented(
+                targeter,
+                target,
+                Some(rules),
+                overlay_registry,
+                frame_effects,
+            );
         }
         self.uninit_with_context(
             sid,

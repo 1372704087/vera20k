@@ -704,22 +704,10 @@ pub fn projectile_shrapnel_count(
 /// special weapon but the dog's and the
 /// Terror Drone's jump is Inviso).
 ///
-/// RESIDUAL — **two special effect bodies are not implemented in VERA.**
-/// MindControl (`capture_manager`), IvanBomb and BombDisarm (`bomb`), Parasite
-/// (`combat/parasite.rs`; the Giant Squid's grapple is its own residual there),
-/// Temporal (`temporal`) and MakesDisguise (`cloak_disguise`, whose Unit body
-/// is its own residual there) run their bodies, NukeMaker
-/// (`combat::world_receiver`) drops the nuclear warhead and Locomotor
-/// (`locomotor_lift`) lifts the vehicle. ElectricAssault (`tesla_charging`)
-/// refreshes the building's charger list. Airstrike and DirectRocker claim
-/// the detonation, suppress damage and shrapnel exactly as native does, and
-/// then run the shared tail without performing their effect.
-/// - Trigger: Boris's stock `[Flare]` (DirectRocker has no live stock line).
-/// - Player effect: the shot lands, plays its animation and leaves its crater,
-///   but no airstrike is called, and the target takes no damage from that shot.
-/// - Frequency: every game with Boris.
-/// - Downstream risk: the AirstrikeClass manager needs snapshotted, hashed
-///   state and its own `SNAPSHOT_VERSION` bump.
+/// Special effects dispatch through their shared state owners, including
+/// Airstrike (`airstrike`): a flare starts or retargets its firer's aircraft.
+/// DirectRocker remains unimplemented; no stock weapon reaches that body.
+/// Its admitted arm still claims the impact and runs the shared tail.
 ///
 /// The ordinary-arm AreaDamage return2 means near-center Iron Curtain
 /// isolation (489968/489B3B), covered by ifv_area_receipt.json. The shared
@@ -754,7 +742,7 @@ pub enum SpecialDetonationAction {
     /// `Locomotor=` CLSID (`sim::locomotor_lift`).
     Locomotor,
     /// `Airstrike=` (`+0x16c`), test `0x00469705` ->
-    /// `AirstrikeClass::SetTarget @ 0x0041d830`. UNIMPLEMENTED.
+    /// `AirstrikeClass::SetTarget @ 0x0041d830`, owned by `airstrike`.
     ///
     /// The decompile shows this arm as conditional; the disassembly does not.
     /// `0x0046970d JZ 0x0046978e` is its only fall-through and fires on the

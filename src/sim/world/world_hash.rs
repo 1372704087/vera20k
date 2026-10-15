@@ -464,7 +464,6 @@ fn hash_mission_leaf(leaf: &crate::sim::mission::MissionLeafState, hasher: &mut 
         2u8.hash(hasher);
         aircraft.action_latch().hash(hasher);
         aircraft.transition_ready_latch().hash(hasher);
-        aircraft.airstrike_manager_present().hash(hasher);
         // Ctor 0x00413D74 starts +0x6D3 at 5, which adds no bytes; Overfly
         // reads it to come round again.
         if aircraft.paradrop_passes() != 5 {
@@ -2228,6 +2227,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // conditional field has it too. It is not reachable here — a live
     // pool always folds a tag plus its spawn type and mode — but the
     // invariant is "no known aliasing", not "aliasing is impossible".
+    entity.airstrike.hash_state(hasher);
+    entity.airstrike_tint.hash_state(hasher);
+    if entity.type_facts.spawned_non_missile_aircraft() {
+        b"spawned-non-missile-aircraft".hash(hasher);
+    }
     if let Some(ref manager) = entity.spawn_manager {
         1u8.hash(hasher);
         manager.hash(hasher);
@@ -2930,20 +2934,16 @@ mod mission_authority_hash_tests {
 
     #[test]
     fn every_aircraft_mission_leaf_field_changes_state_hash() {
-        let base = MissionLeafState::aircraft_raw_for_test(9, 10, false);
+        let base = MissionLeafState::aircraft_raw_for_test(9, 10);
         let base_hash = hash_leaf(base);
         for (field, variant) in [
             (
                 "action latch",
-                MissionLeafState::aircraft_raw_for_test(10, 10, false),
+                MissionLeafState::aircraft_raw_for_test(10, 10),
             ),
             (
                 "transition ready latch",
-                MissionLeafState::aircraft_raw_for_test(9, 11, false),
-            ),
-            (
-                "airstrike manager presence",
-                MissionLeafState::aircraft_raw_for_test(9, 10, true),
+                MissionLeafState::aircraft_raw_for_test(9, 11),
             ),
         ] {
             assert_ne!(

@@ -7361,3 +7361,5 @@ mod ore_spread_oracle_tests;
 
 #[cfg(test)]
 mod drop_as_bomb_integration_tests;
+
+mod airstrike_aircraft;

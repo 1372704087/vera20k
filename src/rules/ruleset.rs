@@ -842,6 +842,13 @@ pub struct GeneralRules {
     /// value, constructor 0 (`0x006678C1`). A Force Shielded building's draws
     /// OR its colour into their pixels (`app/presentation/lighting.rs`).
     pub force_shield_color: i32,
+    /// AudioVisual LaserTargetColor (Rules+18A4), constructor6678AA=0;
+    /// ReadInt66B818..66B832 retains the current ColorAdd table index.
+    pub laser_target_color: i32,
+    /// AudioVisual66A046..66A07C / 66A088..66A0B5 use ReadString128 then
+    /// VocFindIndex7514D0, retaining the current index on a miss (ctor -1).
+    pub airstrike_abort_sound: Option<String>,
+    pub airstrike_attack_voice: Option<String>,
     /// `ConditionRedSparkingProbability=` ([General]) — per-tick probability that
     /// the `AI_Update` damage-Spark particle system spawns while health is below
     /// ConditionRed. Default **0.02** (verified `RulesClass__Constructor`; stock INI
@@ -2194,6 +2201,9 @@ impl Default for GeneralRules {
             elite_flash_timer: 0,
             idle_action_frequency: f64::from_bits(0x3fb5_3f7c_ed91_6873),
             force_shield_color: 0,
+            laser_target_color: 0,
+            airstrike_abort_sound: None,
+            airstrike_attack_voice: None,
             condition_red_sparking_probability: 0.02,
             condition_yellow_sparking_probability: 0.01,
             condition_red_spark_threshold: damage_spark_spawn_threshold(0.02),
@@ -2794,6 +2804,8 @@ impl GeneralRules {
         // ReadAudioVisual too (`0x0066B877..0x0066B891`).
         let force_shield_color =
             audio_visual.read_int("ForceShieldColor", defaults.force_shield_color);
+        let laser_target_color =
+            audio_visual.read_int("LaserTargetColor", defaults.laser_target_color);
         let ally_reveal = audio_visual.read_bool("AllyReveal", defaults.ally_reveal);
         let psychic_reveal_activate_sound = audio_visual
             .read_name("PsychicRevealActivateSound", 0x80)
@@ -2841,6 +2853,7 @@ impl GeneralRules {
                 bomb_ticking_sound,
                 bomb_attach_sound,
                 force_shield_color,
+                laser_target_color,
                 ally_reveal,
                 allies_allowed,
                 paranoid,
@@ -3190,6 +3203,9 @@ impl GeneralRules {
             idle_action_frequency: audio_visual
                 .read_double("IdleActionFrequency", defaults.idle_action_frequency),
             force_shield_color,
+            laser_target_color,
+            airstrike_abort_sound: None,
+            airstrike_attack_voice: None,
             building_garrisoned_sound: audio_visual
                 .read_name("BuildingGarrisonedSound", 0x80)
                 .map(str::to_owned),
@@ -3898,6 +3914,15 @@ impl RuleSet {
                 weapon.projectile = projectile.map(str::to_owned);
             }
         }
+        for (category, name, airstrike) in processed.airstrike_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.airstrike = airstrike.clone();
+            }
+        }
         for (category, name, recoil) in processed.recoil_states() {
             if let Some(object) = rules
                 .object_list
@@ -3986,6 +4011,12 @@ impl RuleSet {
         ini: &IniFile,
         sounds: &crate::rules::sound_ini::SoundRegistry,
     ) {
+        self.general.airstrike_abort_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "AirstrikeAbortSound"));
+        self.general.airstrike_attack_voice = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "AirstrikeAttackVoice"));
         self.general.leave_bio_reactor_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "LeaveBioReactorSound"));
@@ -5200,6 +5231,22 @@ impl RuleSet {
                 (
                     object.id.to_ascii_uppercase(),
                     self.building_launch_height(object),
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        // Elite Airstrike fallbacks depend on reached pass boundaries, not
+        // merely merged text; managers copy these values into gameplay state.
+        b"airstrike-settings-v1".hash(&mut hasher);
+        self.general.airstrike_abort_sound.hash(&mut hasher);
+        self.general.airstrike_attack_voice.hash(&mut hasher);
+        self.general.laser_target_color.hash(&mut hasher);
+        self.object_list
+            .iter()
+            .map(|object| {
+                (
+                    (object.category, object.id.to_ascii_uppercase()),
+                    &object.airstrike,
                 )
             })
             .collect::<BTreeMap<_, _>>()

@@ -407,7 +407,16 @@ fn admit_attacker_fire<'r>(
         //5208FE may refuse unchanged/noninterruptible/absent actions.520912
         // raises+68D regardless of AL; the retained Doing/Stage still decides
         // when this attempt can discharge.
-        if let Err(cause) =
+        // Infantry520866..520884: an Airstrike owner firing secondary
+        // restarts only +F8, even when its existing action is noninterruptible.
+        if actor.airstrike_link().is_some() && matches!(requested, 40 | 41) {
+            world
+                .substrate
+                .entities
+                .get_mut(snap.stable_id)
+                .unwrap()
+                .set_native_stage_value(0);
+        } else if let Err(cause) =
             world.infantry_do_action(snap.stable_id, requested, false, rules, effects)
         {
             log::debug!("infantry {} firing Do_Action: {cause}", snap.stable_id);
@@ -2464,9 +2473,13 @@ pub(crate) fn tick_combat(
     remove_attack.sort_unstable();
     remove_attack.dedup();
     for &attacker_id in &remove_attack {
-        if let Some(entity) = world.substrate.entities.get_mut(attacker_id) {
-            crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
-        }
+        let _ = world.assign_target_represented(
+            attacker_id,
+            None,
+            Some(rules),
+            overlay_registry,
+            FrameEffects::default(),
+        );
     }
 
     // Push the synchronously selected death sounds to the presentation sink.

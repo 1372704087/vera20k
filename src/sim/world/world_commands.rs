@@ -1557,11 +1557,7 @@ impl Simulation {
                 if let Some(rules) = rules {
                     self.reset_slave_manager(*entity_id, rules, frame_effects);
                 }
-                // `0x004C7448`, `0x004C7453`.
-                if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    e.set_archive_target(None);
-                    e.navigation.clear_nav_list();
-                }
+                self.megamission_foot_clears(*entity_id, MissionType::Harvest);
                 // The setter's unchanged-NavCom return leaves a miner already
                 // driving to this cell alone.
                 if let Some(rules) = rules {

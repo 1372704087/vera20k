@@ -2739,10 +2739,17 @@ fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
 /// ExitObject's Infantry tail posts a computer barracks' infantryman
 /// (`0x00444D11..0x00444DB7`): Area_Guard queued, then House500200's post
 /// on the producer's House archived and queued on its navigation list
-/// (`0x00444DAC`). The list's idle tail (`0x004DA1A6`) sends the guarding
-/// infantryman there at once: Unlimbo's Enter_Idle_Mode latched the Foot
-/// base, so Handle_Navigation_List takes the post off the list and the
-/// selector queues Move over Area_Guard. A human barracks posts nothing.
+/// (`0x00444DAC`). What follows depends on the mission Unlimbo's
+/// Enter_Idle_Mode picked (`0x0051CCD2..0x0051CD3C`):
+/// - below `[IQ] GuardArea=` it was Guard, so the list's idle tail
+///   (`0x004DA1A6`) sends him there at once: Unlimbo latched the Foot base,
+///   so Handle_Navigation_List takes the post off the list and the selector
+///   queues Move over Area_Guard;
+/// - at a skirmish House's IQ it was Area Guard, so the post stays listed
+///   until Mission_Area_Guard's head (`0x004D6B23..0x004D6B8D`) sends him
+///   on his first dispatch.
+///
+/// A human barracks posts nothing.
 #[test]
 fn a_computer_barracks_sends_its_infantry_to_a_listed_post() {
     use super::production_spawn::{ExitArm, exit_arm};
@@ -2756,14 +2763,19 @@ fn a_computer_barracks_sends_its_infantry_to_a_listed_post() {
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
     assert_eq!(exit_arm(rules.object("GAPILE").unwrap()), ExitArm::Infantry);
+    let low_iq = rules.general.iq_guard_area - 1;
+    let skirmish_iq = rules.general.max_iq_levels;
+    assert!(skirmish_iq >= rules.general.iq_guard_area);
     let mut final_rng = Vec::new();
-    for human in [true, false] {
+    for (human, iq) in [(true, 0), (false, low_iq), (false, skirmish_iq)] {
+        let context = format!("human {human}, IQ {iq}");
         let mut sim = Simulation::with_seed(0x4444_D110);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         let owner = sim.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 50_000, 10);
         house.base_center = Some((20, 20));
+        house.current_iq = iq;
         sim.houses.insert(owner, house);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 12, 12);
@@ -2793,20 +2805,40 @@ fn a_computer_barracks_sends_its_infantry_to_a_listed_post() {
                 crate::sim::world::FrameEffects::default(),
             ),
             crate::sim::ai_base_building::BuildingExit::Placed,
-            "human {human}"
+            "{context}"
         );
+        final_rng.push(sim.rng_state());
         let e1 = sim.substrate.entities.get(product).unwrap();
-        assert_eq!(e1.navigation.nav_list(), [], "human {human}");
         if human {
-            assert_eq!(e1.navigation.nav_com(), None);
-            assert_eq!(e1.archive_target(), None);
-        } else {
+            assert_eq!(e1.navigation.nav_list(), [], "{context}");
+            assert_eq!(e1.navigation.nav_com(), None, "{context}");
+            assert_eq!(e1.archive_target(), None, "{context}");
+        } else if iq == low_iq {
+            assert_eq!(e1.navigation.nav_list(), [], "{context}");
             let post = e1.navigation.nav_com().expect("sent to its post");
             assert!(matches!(post, NavTargetRef::Cell { .. }), "{post:?}");
             assert_eq!(e1.archive_target(), Some(TargetKind::from(post)));
             assert_eq!(e1.mission.queued().known(), Some(MissionType::Move));
+        } else {
+            let mission = e1.mission.current().known();
+            assert_eq!(mission, Some(MissionType::AreaGuard), "{context}");
+            assert_eq!(e1.navigation.nav_com(), None, "{context}");
+            let &[post] = e1.navigation.nav_list() else {
+                panic!("{context}: one post listed");
+            };
+            assert!(matches!(post, NavTargetRef::Cell { .. }), "{post:?}");
+            assert_eq!(e1.archive_target(), Some(TargetKind::from(post)));
+            crate::sim::world::dispatch_foot_mission(
+                &mut sim,
+                product,
+                &rules,
+                crate::sim::world::ObjectAiCtx::default(),
+            );
+            let e1 = sim.substrate.entities.get(product).unwrap();
+            assert_eq!(e1.navigation.nav_com(), Some(post), "{context}");
+            assert_eq!(e1.navigation.nav_list(), [], "{context}");
+            assert_eq!(e1.archive_target(), Some(TargetKind::from(post)));
         }
-        final_rng.push(sim.rng_state());
     }
     assert_ne!(final_rng[0], final_rng[1], "House500200 draws the post");
 }

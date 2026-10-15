@@ -50,7 +50,8 @@ pub struct NavigationState {
     /// `Foot+0x5AC` (count `+0x5BC`), the navigation list, oldest first: the
     /// posts Queue_Navigation_List (`0x004DA0E0`) appends, which
     /// Handle_Navigation_List (`0x004DA030`) and Mission_Area_Guard's head
-    /// (`0x004D6B23..0x004D6B8D`) send the Foot to one at a time.
+    /// (`0x004D6B23..0x004D6B8D`) send the Foot to one at a time. The shared
+    /// Ghidra database calls this field `NavQueue`.
     #[serde(default)]
     nav_list: Vec<NavTargetRef>,
     /// `Foot+0x6B1`: a sent list head is appended again, so the list loops.

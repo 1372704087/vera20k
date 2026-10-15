@@ -5267,9 +5267,8 @@ impl Simulation {
     ///     nothing while in radio contact (a miner docked at its refinery) or
     ///     while the Guard above is still only queued (a miner caught
     ///     mid-track);
-    ///   - any other Unit or Infantry takes VERA's Foot selector in place of
-    ///     the Unit `0x00738970` and Infantry `0x0051CBA0` leaves (residual
-    ///     below);
+    ///   - any other Unit or Infantry takes its class leaf, Unit
+    ///     `0x00738970` or Infantry `0x0051CBA0` (residual below);
     ///   - a Building (`0x0044D6A0` with `initial = 0`) calls `0x00447780(1)`
     ///     and `Queue_Mission(Guard, 0)`.
     ///
@@ -5287,13 +5286,11 @@ impl Simulation {
     /// CMIN and SMIN are `ImmuneToPsionics=yes`.
     ///
     /// RESIDUALS:
-    /// - The Foot leaves also pick AreaGuard (a human house with the
-    ///   GUARD_AREA option, or `DefaultToGuardArea=`; the AI IQ, Team and
-    ///   SlaveOwner arms), Harvest or Unload, and read TarCom first; VERA's
-    ///   selector returns Guard, Move or nothing. Trigger: a captured or
-    ///   released Foot of such a type. Effect: Guard instead of AreaGuard.
-    ///   Frequency: nil in stock (every `DefaultToGuardArea=` type is
-    ///   psionic-immune and no stock house sets GUARD_AREA).
+    /// - The Unit leaf's Area Guard pick and unarmed Unload arm are not
+    ///   ported (residuals in `Simulation::unit_enter_idle_mode` and
+    ///   [`techno_unlimbo_idle_mode`]). Trigger: a captured or released
+    ///   vehicle whose Guard above is still only queued. Effect: Guard
+    ///   instead of Area Guard or Unload.
     /// - No stock aircraft can be captured, so the Aircraft Enter_Idle_Mode
     ///   (`0x004176F0`) here is dormant; the trailing `+0x423`-gated
     ///   `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)` calls are

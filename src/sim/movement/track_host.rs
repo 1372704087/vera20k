@@ -1247,9 +1247,22 @@ impl Simulation {
         } else if miner {
             rules.and_then(|rules| harvester_idle_selection(self, id, rules, skip_human_land_check))
         } else if armed {
+            // RESIDUAL: the armed arm's Area Guard pick (`0x00738B67..
+            // 0x00738C98`: a House IQ at `[IQ] GuardArea=`, the veteran
+            // GUARD_AREA ability or `DefaultToGuardArea=`, then no team,
+            // slave link, slave manager or bunker) is not ported; the Unit
+            // takes Guard. Trigger: an idle armed vehicle that passes it.
+            // Effect: it holds its ground instead of covering an area.
+            // Frequency: not measured.
             rules.map_or(Some(MissionType::Guard), |rules| {
                 crate::sim::world::foot_enter_idle_mode_selection(
-                    rules, category, current, false, false, effective,
+                    rules,
+                    category,
+                    current,
+                    false,
+                    false,
+                    effective,
+                    MissionType::Guard,
                 )
                 .queued_mission()
             })

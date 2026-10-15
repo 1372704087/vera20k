@@ -109,6 +109,19 @@ fn cell_in_map(sim: &Simulation, cell: (u16, u16)) -> bool {
     true
 }
 
+/// Object `0x005F5F00` for `object`: its current cell's signed level, plus
+/// four on a bridge. Without map cells, 0.
+fn object_cell_height(sim: &Simulation, object: &GameEntity) -> i32 {
+    sim.resolved_terrain.as_ref().map_or(0, |terrain| {
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        crate::sim::movement::ground_pose::query_object_cell_height(
+            &cells,
+            crate::sim::movement::ground_pose::position_world_coord(&object.position),
+            object.on_bridge(),
+        )
+    })
+}
+
 /// Terrain level of a cell for the reveal Z, or the transport's own Z.
 fn cell_level_or(sim: &Simulation, cell: (u16, u16), fallback: u8) -> u8 {
     sim.terrain_cell_level(cell.0, cell.1).unwrap_or(fallback)
@@ -353,21 +366,7 @@ fn eject_head_passenger(
                 let obj = sim.object_type(transport.type_ref(), rules);
                 // The scan's `+0x1AC` height: the transport's Object
                 // `0x005F5F00` (`0x0073D97B`, `0x0073D9A9`).
-                let height = sim
-                    .resolved_terrain
-                    .as_ref()
-                    .map(|terrain| {
-                        let cells =
-                            crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-                        crate::sim::movement::ground_pose::query_object_cell_height(
-                            &cells,
-                            crate::sim::movement::ground_pose::position_world_coord(
-                                &transport.position,
-                            ),
-                            transport.on_bridge(),
-                        )
-                    })
-                    .unwrap_or(0);
+                let height = object_cell_height(sim, transport);
                 (
                     (transport.position.rx(), transport.position.ry()),
                     // `0x0073D8E0..D8F4`: the hull's `Current()`, full 16 bits.
@@ -418,15 +417,15 @@ fn eject_head_passenger(
                     }
                     continue;
                 }
-                let (exit, beyond) = (
-                    exit_cell.expect("accepted cell exists"),
-                    beyond_cell.expect("accepted cell exists"),
-                );
+                // The relaxed pass takes the exit on its own answer
+                // (`0x0073D9CC..0x0073D9DC`); only the strict pass needs the
+                // far cell.
+                let exit = exit_cell.expect("an accepted exit exists");
                 if cell_has_structural_bridge(sim, exit) {
                     i += 1;
                     continue;
                 }
-                placement = Some((exit, strict_pass.then_some(beyond), octant));
+                placement = Some((exit, beyond_cell.filter(|_| strict_pass), octant));
                 break;
             }
 
@@ -457,8 +456,11 @@ fn eject_head_passenger(
                 // `0x0073DA96..0x0073DADD`: the passenger type's SpeedType
                 // (`+0x67C`), zone -1, MovementZone Normal, seeded at the exit.
                 // Residual: native Unlimbos at the null cell's coordinate when
-                // nothing passes; VERA keeps the exit cell. That needs the exit
-                // outside the playfield with no admitted cell within 32 rings.
+                // nothing passes; VERA keeps the exit cell. That needs an exit
+                // outside the playfield, which the scan admits only for a
+                // passenger with `+0x3D5` clear or one Foot `+0x320` lets out
+                // (`foot_allows_outside_playfield`), and no admitted cell
+                // within 32 rings.
                 let cell = sim
                     .object_type(passenger.type_ref(), rules)
                     .and_then(|object| {
@@ -600,18 +602,7 @@ pub(crate) fn building_mission_unload_absorber(
             // outward from its Location cell. The sound tail separately uses
             // +0x48 GetCoords (the foundation center).
             let base = (building.position.rx(), building.position.ry());
-            let height = sim
-                .resolved_terrain
-                .as_ref()
-                .map(|terrain| {
-                    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-                    crate::sim::movement::ground_pose::query_object_cell_height(
-                        &cells,
-                        crate::sim::movement::ground_pose::position_world_coord(&building.position),
-                        building.on_bridge(),
-                    )
-                })
-                .unwrap_or(0);
+            let height = object_cell_height(sim, building);
             Some((
                 base,
                 building.body_facing_current(now),

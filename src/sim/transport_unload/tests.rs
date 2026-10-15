@@ -1139,6 +1139,45 @@ fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
     assert_eq!(turret, 0xC000, "the turret faces the exit too");
 }
 
+/// Both scan calls take the transport's height (`0x0073D97B`, `0x0073D9A9`),
+/// not the exit's level. From a ramp at level 0, octant 5's exit (19, 21) is a
+/// one-level step up the ramp admits. Its far cell (18, 22), also at level 1,
+/// is one level above the transport's height behind a flat exit, so the strict
+/// pass leaves octant 5 for octant 6's exit (19, 20).
+#[test]
+fn vehicle_unload_scan_judges_the_far_cell_from_the_transport_height() {
+    let mut fx = Fixture::new(|_, _| false);
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    terrain.cell_mut(20, 20).unwrap().slope_type = 1;
+    for (x, y) in [(19, 21), (18, 22)] {
+        terrain.cell_mut(x, y).unwrap().level = 1;
+    }
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let pax = fx.board(bfrt, 1);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&pax, 200);
+    assert_eq!(order.len(), 1, "the conscript left: {order:?}");
+    assert_eq!(fx.cell(pax[0]), (19, 20), "octant 6, not the step up");
+}
+
+/// The relaxed pass accepts an exit on its own answer (`0x0073D9CC..0x0073D9DC`),
+/// even when the cell two steps out has no coordinate. Water two cells from
+/// (1, 20) refuses every strict candidate, and the relaxed pass starts at
+/// octant 6, whose exit is (0, 20).
+#[test]
+fn relaxed_pass_takes_an_exit_whose_far_cell_is_off_the_map() {
+    let ring_two = |x: u16, y: u16| (i32::from(x) - 1).abs().max((i32::from(y) - 20).abs()) == 2;
+    let mut fx = Fixture::new(ring_two);
+    let bfrt = fx.spawn("BFRT", 1, 20, 0);
+    let pax = fx.board(bfrt, 1);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&pax, 200);
+    assert_eq!(order.len(), 1, "the conscript left: {order:?}");
+    assert_eq!(fx.cell(pax[0]), (0, 20));
+}
+
 /// A passenger that was in the playfield (`+0x3D5`) gets 7 from its
 /// `Can_Enter_Cell` for a cell outside it (`0x0073F34C`); Mission_Unload raises
 /// no `A8E7AC` until after the scan (`0x0073DA33`). In this playfield diamond

@@ -20,6 +20,7 @@ use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
 
 use super::display_layers::DisplayLayer;
+use super::expiry_listeners::{ExpiryListeners, ListenerStores};
 use super::substrate::{DeferredDeleteTicket, ObjectKind};
 use super::{FrameEffects, Simulation};
 
@@ -3952,6 +3953,9 @@ impl Simulation {
     /// gamemd-derived: active YR `ObjectClass` construction/destruction at
     /// `0x005F3900` / `0x005F3B80` maintains the listener roster in object
     /// construction order. Of the entities, it lists `entities` (ascending).
+    /// Test builds visit this roster; production builds visit the listeners
+    /// the expiry index finds, in the same order.
+    #[cfg(test)]
     fn removal_listener_order(&self, entities: Vec<u64>) -> Vec<(u64, ObjectKind)> {
         let mut listeners = Vec::with_capacity(
             self.substrate.entities.len()
@@ -4700,6 +4704,20 @@ impl Simulation {
         }
     }
 
+    /// The pointer-expiry listener index, with the stores it reads.
+    fn expiry_listener_index(&mut self) -> (&mut ExpiryListeners, ListenerStores<'_>) {
+        (
+            &mut self.expiry_listeners,
+            ListenerStores {
+                entities: &mut self.substrate.entities,
+                anims: &mut self.substrate.anims,
+                particle_systems: &mut self.substrate.particle_systems,
+                projectiles: &mut self.projectiles,
+                waves: &mut self.waves,
+            },
+        )
+    }
+
     fn broadcast_pointer_expired(
         &mut self,
         expired_id: u64,
@@ -4819,30 +4837,36 @@ impl Simulation {
         // one shared dummy at `0x00ABDC50`. Later `BulletClass::AI @ 0x004666E0`
         // dispatches that live pointer and observes its most recent coord stamp.
 
-        // Most entity listeners hold nothing this expiry changes, and the
-        // game passes over them (below). The ones that do are found up front
-        // in the expiry index. Production builds list only those. Test builds
-        // list every listener and check at each one's turn that no left-out
-        // listener has come to hold the expired object.
-        let acting = self
-            .expiry_listeners
-            .reached_by(&mut self.substrate.entities, expired_id);
-        debug_assert!(
-            !crate::sim::touch_log::live_read_check_enabled()
-                || acting
-                    == self.substrate.entities.par_select(|listener_id, listener| {
-                        Self::entity_expiry_listener_acts(listener, listener_id, expired_id)
-                    }),
-            "the expiry listeners of {expired_id} diverged from a live read"
-        );
+        // Most listeners hold nothing this expiry changes, and the game
+        // passes over them (below). The ones that do are found up front in
+        // the expiry index. Production builds list only those. Test builds
+        // list every listener, each with whether the index found it, and
+        // check at each one's turn that a listener it left out changes
+        // nothing.
+        let (index, stores) = self.expiry_listener_index();
+        let acting = index.reached_by(stores, expired_id);
+        if crate::sim::touch_log::live_read_check_enabled() {
+            let (_, stores) = self.expiry_listener_index();
+            assert_eq!(
+                acting,
+                ExpiryListeners::asked_of_every(&stores, expired_id),
+                "the expiry listeners of {expired_id} diverged from a live read"
+            );
+        }
         #[cfg(test)]
-        let acting_before: std::collections::BTreeSet<u64> = acting.iter().copied().collect();
-        let listeners = self.removal_listener_order(if cfg!(test) {
-            self.substrate.entities.keys_sorted()
-        } else {
-            acting
-        });
-        for (listener_id, kind) in listeners {
+        let listeners: Vec<(u64, ObjectKind, bool)> = {
+            let found: std::collections::BTreeSet<u64> = acting.iter().map(|&(id, _)| id).collect();
+            self.removal_listener_order(self.substrate.entities.keys_sorted())
+                .into_iter()
+                .map(|(id, kind)| (id, kind, found.contains(&id)))
+                .collect()
+        };
+        #[cfg(not(test))]
+        let listeners: Vec<(u64, ObjectKind, bool)> = acting
+            .into_iter()
+            .map(|(id, kind)| (id, kind, true))
+            .collect();
+        for (listener_id, kind, found) in listeners {
             // A callback may have removed a later listener; an ID never
             // moves to another store. An entity listener is read once, for
             // its presence and for whether it holds anything this expiry
@@ -4880,7 +4904,7 @@ impl Simulation {
             }
             #[cfg(test)]
             assert!(
-                !entity_acts || acting_before.contains(&listener_id),
+                !entity_acts || found,
                 "listener {listener_id} came to hold {expired_id} during its expiry broadcast; \
                  production builds leave it out"
             );
@@ -5021,11 +5045,22 @@ impl Simulation {
                     );
                 }
             } else if kind == ObjectKind::Anim {
-                self.anim_pointer_expired(listener_id, expired_id, context.rules());
+                let changed = self.anim_pointer_expired(listener_id, expired_id, context.rules());
+                debug_assert!(
+                    found || !changed,
+                    "the expiry of {expired_id} changed anim {listener_id}, which the expiry \
+                     index passes over"
+                );
             } else if kind == ObjectKind::ParticleSystem {
-                self.substrate
+                let changed = self
+                    .substrate
                     .particle_systems
                     .pointer_expired(listener_id, expired_id);
+                debug_assert!(
+                    found || !changed,
+                    "the expiry of {expired_id} changed particle system {listener_id}, which the \
+                     expiry index passes over"
+                );
             } else if kind == ObjectKind::Projectile {
                 let target_matches = self
                     .projectiles
@@ -5036,12 +5071,17 @@ impl Simulation {
                 } else {
                     ProjectileTarget::None
                 };
-                let present = self.projectiles.pointer_expired(
+                let changed = self.projectiles.pointer_expired(
                     listener_id,
                     expired_id,
                     projectile_replacement_target,
                 );
-                debug_assert!(present);
+                debug_assert!(changed.is_some());
+                debug_assert!(
+                    found || changed == Some(false),
+                    "the expiry of {expired_id} changed bullet {listener_id}, which the expiry \
+                     index passes over"
+                );
                 #[cfg(test)]
                 if let Some((source_id, target)) = self
                     .projectiles
@@ -5060,10 +5100,15 @@ impl Simulation {
                     );
                 }
             } else if kind == ObjectKind::Wave {
-                let (owner_cleared, _) = self
+                let (owner_cleared, target_cleared) = self
                     .waves
                     .pointer_expired(listener_id, expired_id)
                     .expect("Wave listener disappeared during expiry callback");
+                debug_assert!(
+                    found || !(owner_cleared || target_cleared),
+                    "the expiry of {expired_id} changed wave {listener_id}, which the expiry \
+                     index passes over"
+                );
                 if owner_cleared && self.active_wave_links.get(&expired_id) == Some(&listener_id) {
                     // TechnoClass keeps the Wave link through the dying/deferred
                     // interval. Once the exact owner pointer expires, retaining

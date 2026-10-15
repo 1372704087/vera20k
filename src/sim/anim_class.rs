@@ -61,7 +61,7 @@ use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{RawCellKey, RawCellOccupationGrid, infantry_raw_occupation_mask};
 use crate::sim::timer::CdTimer;
-use crate::sim::touch_log::{TouchLog, Touched};
+use crate::sim::touch_log::{TouchLogs, Touched};
 use crate::sim::world::{LifecycleOutput, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
@@ -511,6 +511,14 @@ impl AnimObject {
         self.attached_bullet
     }
 
+    /// The ids `Simulation::anim_pointer_expired` compares: the owner object
+    /// (`AnimClass+0xCC`) and the attached bullet (`+0x17C`). VERA-only: feeds
+    /// the pointer-expiry listener index (`ExpiryListeners`); a field that
+    /// callback compares must be named here too.
+    pub(crate) fn expiry_names(&self) -> [Option<u64>; 2] {
+        [self.owner_entity, self.attached_bullet]
+    }
+
     /// Preserve the former field order; the new damage-fire reverse index is
     /// derived from already-hashed Building slots and never enters this fold.
     pub(crate) fn hash_before_display(&self, hasher: &mut impl std::hash::Hasher) {
@@ -617,12 +625,26 @@ pub(crate) fn anim_world_coords(
 }
 
 /// Animation objects by id. Every `&mut AnimObject` goes through the store,
-/// which notes it in a touch log for the kept Ground display sort keys.
+/// which notes it in a touch log for each [`AnimTouchReader`].
 pub struct AnimStore {
     anims: BTreeMap<AnimId, AnimObject>,
-    /// Which anims may have changed since [`Self::take_touched`]. Transient:
-    /// never saved, compared or hashed.
-    touched: TouchLog,
+    /// Which anims may have changed since each reader last took its log
+    /// ([`Self::take_touched`]). Transient: never saved, compared or hashed.
+    touched: TouchLogs<{ AnimTouchReader::COUNT }>,
+}
+
+/// A product derived from the anims that re-derives from the touch log.
+/// Each reads its own log, so one reader's take leaves the others' intact.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AnimTouchReader {
+    /// The kept Ground display sort keys.
+    GroundKeys = 0,
+    /// The pointer-expiry broadcast's listener index.
+    ExpiryListeners = 1,
+}
+
+impl AnimTouchReader {
+    const COUNT: usize = 2;
 }
 
 impl AnimStore {
@@ -662,7 +684,7 @@ impl AnimStore {
     fn from_anims(anims: BTreeMap<AnimId, AnimObject>) -> Self {
         Self {
             anims,
-            touched: TouchLog::everything(),
+            touched: TouchLogs::everything(),
         }
     }
 
@@ -687,10 +709,9 @@ impl AnimStore {
         self.anims.keys().nth(index).copied()
     }
 
-    /// Take the touch log, leaving it empty. One reader: the kept Ground
-    /// display sort keys.
-    pub(crate) fn take_touched(&mut self) -> Touched {
-        self.touched.take()
+    /// Take `reader`'s touch log, leaving it empty.
+    pub(crate) fn take_touched(&mut self, reader: AnimTouchReader) -> Touched {
+        self.touched.take(reader as usize)
     }
 }
 
@@ -3991,16 +4012,22 @@ mod tests {
         assert_eq!(bincode::serialize(&restored).unwrap(), bytes);
 
         // Nothing has been derived from a fresh store yet.
-        assert_eq!(store.take_touched(), Touched::All);
+        let keys = AnimTouchReader::GroundKeys;
+        assert_eq!(store.take_touched(keys), Touched::All);
         assert!(store.get(id).is_some());
-        assert_eq!(store.take_touched(), Touched::Ids(Vec::new()));
+        assert_eq!(store.take_touched(keys), Touched::Ids(Vec::new()));
         store.get_mut(id).unwrap().z_adjust += 1;
         let removed = store.remove(id).unwrap();
         store.insert(removed);
-        assert_eq!(store.take_touched(), Touched::Ids(vec![id]));
-        assert_eq!(store.clone().take_touched(), Touched::All);
+        assert_eq!(store.take_touched(keys), Touched::Ids(vec![id]));
+        // Each reader takes its own log.
+        assert_eq!(
+            store.take_touched(AnimTouchReader::ExpiryListeners),
+            Touched::All
+        );
+        assert_eq!(store.clone().take_touched(keys), Touched::All);
         let _ = store.values_mut().count();
-        assert_eq!(store.take_touched(), Touched::All);
+        assert_eq!(store.take_touched(keys), Touched::All);
     }
 
     #[test]

@@ -181,6 +181,7 @@ impl SmudgeGrid {
         self.objects.get(&id)
     }
 
+    #[cfg(test)]
     pub(crate) fn object_count(&self) -> usize {
         self.objects.len()
     }

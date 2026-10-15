@@ -1232,8 +1232,8 @@ pub struct Simulation {
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
     pub(crate) movement_pass_cache: crate::sim::movement::movement_tick::MovementPassCache,
-    /// Which entities each pointer expiry reaches (`expiry_listeners`).
-    /// Derived from the entities; never serialized or hashed.
+    /// Which listeners each pointer expiry reaches (`expiry_listeners`).
+    /// Derived from the listener stores; never serialized or hashed.
     #[serde(skip)]
     expiry_listeners: expiry_listeners::ExpiryListeners,
     /// Batched path searches (`movement::path_batch`); `None`

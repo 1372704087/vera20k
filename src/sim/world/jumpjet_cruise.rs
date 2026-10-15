@@ -1107,6 +1107,45 @@ mod tests {
         );
     }
 
+    /// AircraftTracker Update (`0x004138C0`) runs only at the entry of State 1
+    /// and State 3, after `Process` (`0x0054AEC0`) has moved the owner. A
+    /// crashing Jumpjet still slides along its facing (`0x0054D55A..D607`)
+    /// while State 5 drops it, so it can cross into another cell while its
+    /// tracker cell (`+0x560`) stays where the fall began.
+    #[test]
+    fn a_falling_jumpjet_keeps_the_tracker_cell_it_crashed_in() {
+        let mut sim = hovering_jumpjet(0x40);
+        {
+            let jumpjet = sim.substrate.entities.get_mut(1).expect("jumpjet");
+            jumpjet.lifecycle.set_in_limbo_for_test(false);
+            jumpjet.lifecycle.set_cell_marked(true);
+            jumpjet.position.set_sub_x_for_test(SimFixed::from_num(250));
+            let runtime = jumpjet
+                .locomotor
+                .as_mut()
+                .and_then(|locomotor| locomotor.jumpjet_runtime_mut())
+                .expect("runtime");
+            let mut flight = runtime.flight();
+            flight.set_current_speed_bits_for_test(14.0f64.to_bits());
+            *runtime = runtime
+                .clone()
+                .with_phase_for_test(jumpjet_flight::STATE_CRASH)
+                .with_flight_for_test(flight);
+        }
+        sim.aircraft_tracker_add(1);
+        sim.session.binary_frame = 1001;
+        let stats = sim.tick_air_movement_with_cell_lists_one(
+            1,
+            None,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        assert!(!stats.impact);
+        let jumpjet = sim.substrate.entities.get(1).expect("jumpjet");
+        assert_eq!((jumpjet.position.rx(), jumpjet.position.ry()), (11, 10));
+        assert_eq!(jumpjet.air_tracker_cell(), (10, 10));
+    }
+
     /// Production parity for the native `east_cruise` row, owner already facing
     /// east.
     #[test]

@@ -327,8 +327,9 @@ pub(super) fn accept_path_replay(
     consume_path_replay(queue, consumed_directions);
 }
 
-/// Accepted chain4B1DF7/6A143A and Walk's tube entry 75B3E0..75B3EB pop the
-/// queue without rewriting Foot+558.
+/// Accepted chain4B1DF7/6A143A and the tube entries (Walk 75B3E0..75B3EB,
+/// Drive 4B135D..4B1373, Ship 6A0A25..6A0A3B) pop the queue without rewriting
+/// Foot+558.
 pub(super) fn consume_path_replay(queue: &mut FootPathQueue, consumed_directions: usize) {
     let cursor = usize::from(queue.cursor())
         .saturating_add(consumed_directions)

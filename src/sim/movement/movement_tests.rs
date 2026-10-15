@@ -18,8 +18,10 @@ use crate::util::fixed_math::{SIM_ONE, SIM_ZERO, SimFixed};
 // --- Facing calculation tests ---
 // Computed deltas use the high byte of the active-retail 65,534-scale word.
 
+/// A Drive route through a tube: the track to the entrance ends, and the
+/// same Process's Process_Track(1) takes the tube word
+/// ([`Simulation::track_tube_head`], `0x004B1297..0x004B148E`).
 #[test]
-#[ignore = "native Drive tube-word receiver (track_fresh 4B3298) not ported; only the removed lane entered tubes"]
 fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
     use crate::map::resolved_terrain::YR_CELL_LAND_TUNNEL;
     use crate::map::tube_facts::{TubeFact, TubeId};

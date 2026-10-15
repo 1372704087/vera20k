@@ -242,6 +242,17 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
             current_grid,
         );
+        // Drive4B1297 / Ship6A095F: a tube word with no selected track enters
+        // the tube instead of the paid loop.
+        if self.track_tube_head(
+            invocation.entity_id,
+            invocation.family,
+            rules,
+            registry,
+            effects,
+        )? {
+            return Ok(TrackPass::default());
+        }
         self.try_run_track_points_observed(
             invocation,
             fresh_budget,

@@ -133,10 +133,49 @@ pub(crate) fn native_cell_own_coords(
     cell: NativeCellIdentity,
     cells: &NativeCellQuery<'_>,
 ) -> Option<(i64, i64, i64)> {
-    let [x, y] = native_cell_own_xy(cell, cells);
+    let (x, y) = cells.coord(cell);
     let (level, slope) = cells.ground_fields(cell);
-    let z = ground_height_leptons(level, slope, x, y).ok()?;
-    Some((i64::from(x), i64::from(y), i64::from(z)))
+    let coord = cell_own_coords(i32::from(x), i32::from(y), level, slope)?;
+    Some((i64::from(coord.x), i64::from(coord.y), i64::from(coord.z)))
+}
+
+/// The same Cell486840 coordinate owner for an already retained real/Dummy
+/// pointer. Read the Dummy now, rather than caching its mutable coordinates.
+pub(crate) fn cell_ref_own_coords(
+    cell: &crate::sim::cell_rect::CellRef<'_>,
+) -> Option<crate::sim::components::DriveCoord> {
+    let (x, y, level, slope) = match cell {
+        crate::sim::cell_rect::CellRef::Real(cell) => (
+            i32::from(cell.rx as i16),
+            i32::from(cell.ry as i16),
+            cell.level,
+            cell.slope_type,
+        ),
+        crate::sim::cell_rect::CellRef::Dummy { cell } => {
+            let value = cell.snapshot();
+            (
+                value.coord.0,
+                value.coord.1,
+                value.level as u8,
+                value.slope_type,
+            )
+        }
+    };
+    cell_own_coords(x, y, level, slope)
+}
+
+fn cell_own_coords(
+    x: i32,
+    y: i32,
+    level: u8,
+    slope: u8,
+) -> Option<crate::sim::components::DriveCoord> {
+    let point = cell_center(CellCoordinate { x, y }, 0);
+    Some(crate::sim::components::DriveCoord {
+        x: point.x,
+        y: point.y,
+        z: ground_height_leptons(level, slope, point.x, point.y).ok()?,
+    })
 }
 
 /// The XY of [`native_cell_own_coords`]: the centre of the cell's current

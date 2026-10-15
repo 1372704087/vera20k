@@ -380,7 +380,6 @@ fn compute_range_target(
     cells: &NativeCellQuery<'_>,
     los: &LineOfFireInputs<'_>,
 ) -> bool {
-    let terrain = cells.terrain();
     let weapon_range_lep: i64 = i64::from(weapon.range_leptons);
 
     // Sentinel — always-in-range short-circuit (`CMP EDI,0xFFFFFE00` at
@@ -491,11 +490,11 @@ fn compute_range_target(
         return line_of_fire_clear(
             attacker,
             src,
-            (tx, ty),
+            (tx, ty, tz),
             weapon,
             rules,
             interner,
-            terrain,
+            cells,
             los,
         );
     }
@@ -530,11 +529,11 @@ fn compute_range_target(
     line_of_fire_clear(
         attacker,
         src,
-        (tx, ty),
+        (tx, ty, tz),
         weapon,
         rules,
         interner,
-        terrain,
+        cells,
         los,
     )
 }
@@ -545,25 +544,20 @@ fn compute_range_target(
 fn line_of_fire_clear(
     attacker: &GameEntity,
     src: (i64, i64, i64),
-    target_xy: (i64, i64),
+    target_xyz: (i64, i64, i64),
     weapon: &WeaponType,
     rules: &RuleSet,
     interner: &StringInterner,
-    terrain: &ResolvedTerrainGrid,
+    cells: &NativeCellQuery<'_>,
     los: &LineOfFireInputs<'_>,
 ) -> bool {
     line_of_fire::line_of_fire_blocking_cell(
-        (src.0, src.1),
-        target_xy,
+        src,
+        target_xyz,
         weapon,
-        // `try_resolve` rather than `resolve`: the house name is read only by
-        // the `[WallModel] AlliedWallTransparency` arm at 0x004CC458, which
-        // stock rules leave off, and a fixture interner that never saw this
-        // owner must not panic the range gate. An unresolvable owner matches
-        // no alliance, which is the same verdict the stock rule gives.
-        interner.try_resolve(attacker.owner()).unwrap_or_default(),
+        Some(attacker.owner()),
         rules,
-        terrain,
+        cells,
         interner,
         los,
     )
@@ -2851,5 +2845,54 @@ mod tests {
             ),
             "a target sitting exactly at the deck top must be refused"
         );
+    }
+    /// InRange6F7314..736F resolves target+48/+50 once;6F7642 hands that
+    /// exact XYZ to the line walk on both the arcing and direct branches.
+    #[test]
+    fn in_range_preserves_resolved_target_z_and_isolated_line_domain() {
+        for arcing in [false, true] {
+            let rules = rules_with_weapon(
+                &format!(
+                    "Damage=1\nROF=20\nRange=8\nWarhead=WH\nProjectile=SHELL\n\n[SHELL]\nSubjectToCliffs=yes\nArcing={arcing}"
+                ),
+                "",
+                "",
+            );
+            let weapon = rules.weapon("GUN").unwrap();
+            let attacker = ground_attacker(2, 2, 0, "ATKR");
+            let target = ground_target(6, 2, 0, "TGT");
+            let mut entities = EntityStore::new();
+            entities.insert(target);
+            let interner = test_interner();
+            let mut terrain = flat_terrain(16, 16);
+            terrain.cell_mut(6, 2).unwrap().bridge_facts.raw_flags |= 0x100;
+            let cells = NativeCellQuery::isolated(&terrain);
+            let resolved = resolve_target_coords_3d(
+                &TargetKind::Entity(200),
+                &entities,
+                &rules,
+                &interner,
+                &cells,
+            )
+            .unwrap();
+            assert_eq!(resolved.2, 416);
+            let source = (640, 640, 416);
+            let (allowed, samples) = line_of_fire::trace_line_samples(|| {
+                compute_in_range_in_query(
+                    &attacker,
+                    source,
+                    &TargetKind::Entity(200),
+                    weapon,
+                    &rules,
+                    &interner,
+                    &entities,
+                    &cells,
+                    &LineOfFireInputs::terrain_only(),
+                )
+            });
+            assert!(allowed);
+            assert_eq!(samples.len(), 4);
+            assert!(samples.iter().all(|point| i64::from(point.z) == resolved.2));
+        }
     }
 }

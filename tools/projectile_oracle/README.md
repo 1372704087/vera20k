@@ -135,10 +135,14 @@ before publication, including under `python -O`.
 | Module (`python -m tools.projectile_oracle.<module> --check`) | Preserved rows |
 | --- | --- |
 | `ordinary_collision` | 134 admissions, 21 matrices, 189 reflections, 115 geometry, 180 final handoffs, 7 nearest selections |
-| `shared_collision` | 130 original post-commit probes |
+| `shared_collision` | 136 original post-commit probes (130 prior controls plus six retained OnBridge boundaries) |
+| `shared_collision --line-walk` | 12 original signed XYZ line walks |
 | `homing_impact` | 288 admissions, 72 clamp/handoff observations, 12 source modes |
 
-All 1,148 rows reproduce the previous goldens without changing their file bytes.
+The prior 1,148 observations are preserved. The shared collision corpus appends
+six retained Bullet OnBridge controls; a separate 12-row line-walk corpus covers
+the signed XYZ stepping dependency. See [shared collision boundaries](shared_collision.md)
+for commands, supplied inputs and coverage limits.
 The checked `.meta.json` sidecars record executable identity, emulator version,
 canonical payload hash, boundaries, supplied state and substituted receivers.
 Ordinary admission/reflection and homing use live FPCW `0x0E7F` without changing

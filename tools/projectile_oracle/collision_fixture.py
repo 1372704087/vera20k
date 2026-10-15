@@ -9,7 +9,7 @@ import struct
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
 from unicorn.x86_const import (
     UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX,
-    UC_X86_REG_EIP, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_FPCW,
+    UC_X86_REG_EDX, UC_X86_REG_EIP, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_FPCW,
 )
 from tools.native_oracle import NATIVE_FPCW, load_image, run_checked
 
@@ -185,6 +185,7 @@ def prepare_shared(case):
     i32(uc, SOURCE + 0x21C, HOUSE)
     i32(uc, BULLET, 0x7E46E4)
     i32(uc, BULLET + 0xAC, TYPE)
+    uc.mem_write(BULLET + 0x8C, bytes([case.get('on_bridge', False)]))
     i32(uc, BULLET + 0xB0, SOURCE if case.get('source', True) else 0)
     candidate = case.get('candidate', [640, 640, 500])
     uc.mem_write(BULLET + 0x9C, struct.pack('<iii', *candidate))
@@ -239,6 +240,31 @@ def shared_probe(case):
     return dict(**case, admitted=bool(uc.reg_read(UC_X86_REG_EAX) & 255), result=coords(uc, RAW_COORD),
         dummy_coord=list(struct.unpack('<hh', uc.mem_read(DUMMY + 0x24, 4))),
         foundation_dimensions=foundation, queries=queries, receivers=trace)
+
+
+def line_walk(case):
+    """Original 4CC100 and reached 4CC360 bodies; hooks only observe samples."""
+    uc, queries, trace, _ = prepare_shared(case)
+    source, target = RAW_COORD, RAW_COORD + 0x10
+    uc.mem_write(source, struct.pack('<iii', *case['source_coord']))
+    uc.mem_write(target, struct.pack('<iii', *case['target_coord']))
+    uc.mem_write(SP, struct.pack('<III', STOP, TYPE, HOUSE))
+    uc.reg_write(UC_X86_REG_ESP, SP)
+    uc.reg_write(UC_X86_REG_ECX, source)
+    uc.reg_write(UC_X86_REG_EDX, target)
+    samples = []
+
+    def observe_sample(uc, address, size, user):
+        if address == 0x4CC360:
+            samples.append(coords(uc, uc.reg_read(UC_X86_REG_ESP) + 8))
+
+    uc.hook_add(UC_HOOK_CODE, observe_sample)
+    run_checked(uc, 0x4CC100, STOP, count=100000)
+    result = uc.reg_read(UC_X86_REG_EAX)
+    blocking_cell = list(struct.unpack('<hh', uc.mem_read(result + 0x24, 4))) if result else None
+    return dict(**case, samples=samples, blocking_cell=blocking_cell,
+        dummy_coord=list(struct.unpack('<hh', uc.mem_read(DUMMY + 0x24, 4))),
+        queries=queries, receivers=trace)
 
 
 def admission(case):

@@ -60,6 +60,12 @@ impl CellBridgeView {
         Self::from_fields(cells.ground_fields(cell).0, cells.flags(cell))
     }
 
+    /// Read a retained Cell pointer at this receiver boundary. In particular,
+    /// an aliased Dummy may have changed since the lookup that returned it.
+    pub(crate) fn from_cell_ref(cell: &crate::sim::cell_rect::CellRef<'_>) -> Self {
+        Self::from_fields(cell.signed_level() as u8, cell.bridge_flags_0x1180())
+    }
+
     /// The `u8 -> i8` cast on `level` is deliberate: it reproduces gamemd's
     /// signed reinterpretation of that byte (a raw level of `0xFE` is height
     /// `-2`, not `254`). This is the only place the cast lives.

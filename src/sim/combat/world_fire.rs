@@ -663,6 +663,7 @@ pub(super) fn retaliation_reaches(
     rules: &RuleSet,
     victim_id: u64,
     source_id: u64,
+    overlay_registry: Option<&OverlayTypeRegistry>,
 ) -> bool {
     let entities = &world.substrate.entities;
     let (Some(victim), Some(source)) = (entities.get(victim_id), entities.get(source_id)) else {
@@ -674,10 +675,12 @@ pub(super) fn retaliation_reaches(
     ) else {
         return false;
     };
+    // Original702A69 asks CanFireAt(vt+3A8), including the shared wall
+    // query, before the human Sight fallback at702A7D..702B2C.
     let in_range = super::fire_error_world::FireSubject {
         world,
         rules,
-        overlay_registry: None,
+        overlay_registry,
         fog: Some(&world.fog),
         firer: victim,
         obj: victim_type,

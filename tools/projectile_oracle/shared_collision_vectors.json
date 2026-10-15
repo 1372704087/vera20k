@@ -6954,6 +6954,240 @@
       "receivers": [
         "004CC360"
       ]
+    },
+    {
+      "admitted": true,
+      "candidate": [
+        640,
+        640,
+        0
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "foundation_dimensions": null,
+      "on_bridge": true,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [],
+      "result": [
+        640,
+        640,
+        0
+      ]
+    },
+    {
+      "admitted": false,
+      "candidate": [
+        640,
+        640,
+        1
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "foundation_dimensions": null,
+      "on_bridge": true,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [],
+      "result": [
+        640,
+        640,
+        1
+      ]
+    },
+    {
+      "admitted": true,
+      "candidate": [
+        640,
+        640,
+        415
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "flak": true,
+      "foundation_dimensions": null,
+      "on_bridge": true,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [
+        "00410540"
+      ],
+      "result": [
+        640,
+        640,
+        415
+      ],
+      "target": {
+        "coord": [
+          640,
+          640,
+          500
+        ]
+      }
+    },
+    {
+      "admitted": false,
+      "candidate": [
+        640,
+        640,
+        416
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "flak": true,
+      "foundation_dimensions": null,
+      "on_bridge": true,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [
+        "00410540"
+      ],
+      "result": [
+        640,
+        640,
+        416
+      ],
+      "target": {
+        "coord": [
+          640,
+          640,
+          500
+        ]
+      }
+    },
+    {
+      "admitted": false,
+      "candidate": [
+        640,
+        640,
+        415
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "flak": true,
+      "foundation_dimensions": null,
+      "on_bridge": true,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [
+        "00410540"
+      ],
+      "result": [
+        640,
+        640,
+        415
+      ],
+      "target": {
+        "coord": [
+          640,
+          640,
+          415
+        ]
+      }
+    },
+    {
+      "admitted": false,
+      "candidate": [
+        640,
+        640,
+        0
+      ],
+      "dummy_coord": [
+        0,
+        0
+      ],
+      "foundation_dimensions": null,
+      "queries": [
+        [
+          "00565730",
+          640,
+          640
+        ],
+        [
+          "00578080",
+          640,
+          640
+        ]
+      ],
+      "receivers": [],
+      "result": [
+        640,
+        640,
+        0
+      ],
+      "target": {
+        "on_bridge": true
+      }
     }
   ]
 }

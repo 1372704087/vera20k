@@ -86,7 +86,7 @@
 //! ## Dependency rules
 //! - Part of sim/; sim/ never depends on render/, ui/, audio/, net/.
 
-use super::target_scan::{can_fire_at, fire_error_with_overlay, select_weapon, weapon_at_index};
+use super::target_scan::{can_fire_at, fire_error_at, select_weapon, weapon_at_index};
 use super::{ObjectAiCtx, mission_handlers_run};
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
@@ -810,9 +810,25 @@ fn mission_attack(
     let Some((target, weapon)) = attack_prelude(sim, id, rules) else {
         return 1;
     };
-    let mut code = fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry);
+    let mut code = fire_error_at(
+        sim,
+        rules,
+        id,
+        Some(target),
+        weapon,
+        true,
+        ctx.overlay_registry,
+    );
     if code == FireError::Facing && voxel_turret_snaps(sim, id, rules, target) {
-        code = fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry);
+        code = fire_error_at(
+            sim,
+            rules,
+            id,
+            Some(target),
+            weapon,
+            true,
+            ctx.overlay_registry,
+        );
     }
     attack_arm(
         sim,
@@ -1339,8 +1355,15 @@ pub(super) fn process_delayed_fire(
                 WeaponSlot::Primary => 0,
                 WeaponSlot::Secondary => 1,
             };
-            if fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry)
-                == FireError::Ok
+            if fire_error_at(
+                sim,
+                rules,
+                id,
+                Some(target),
+                weapon,
+                true,
+                ctx.overlay_registry,
+            ) == FireError::Ok
             {
                 *bridge_state_changed |= sim
                     .commit_fire_visit(

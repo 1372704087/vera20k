@@ -4470,7 +4470,9 @@ mod tests {
         // 356 -> 357: no voxel HVA or OREGATH frame clock.
         // 357 -> 358: retained BuildingType TargetCoordOffset.
         // 358 -> 359: Tesla charger list, weapon latch and Foot intent.
-        assert_eq!(super::SNAPSHOT_VERSION, 360);
+        // 359 -> 360: retained airstrike managers and aircraft relationships.
+        // 360 -> 361: retained radial launch settings and firing index.
+        assert_eq!(super::SNAPSHOT_VERSION, 361);
     }
 
     #[test]

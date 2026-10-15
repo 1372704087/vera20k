@@ -501,6 +501,44 @@ fn selling_the_refinery_mid_unload_hands_the_miner_to_harvest() {
     assert_eq!(after.ore, 40);
 }
 
+/// A refinery captured under an unloading miner: `BuildingClass::ChangeOwner`
+/// takes along only contacts at their dock coordinate
+/// (`0x00448559..0x004486C8`), and a refinery's is the cell beside the pad
+/// the miner stands on. So the miner keeps its owner, RUN_AWAY drops its
+/// unload latch and OVER_OUT releases it.
+#[test]
+fn capturing_the_refinery_mid_unload_sends_the_miner_off() {
+    let mut s = returning_scene();
+    run_until_unloading(&mut s);
+    let owner = s.sim.substrate.entities.get(s.miner).unwrap().owner();
+    let russians = s.sim.interner.intern("Russians");
+    s.sim.houses.insert(
+        russians,
+        crate::sim::house_state::HouseState::new(russians, 1, None, false, 0, 10),
+    );
+    s.sim.session.house_order.push(russians);
+    s.sim.change_owner_with_rules(
+        s.refinery,
+        russians,
+        &s.rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let refinery = s.sim.substrate.entities.get(s.refinery).unwrap();
+    assert_eq!(refinery.owner(), russians);
+    assert!(refinery.radio_contacts.is_empty());
+    assert_eq!(refinery.tether.partner(), None);
+    let after = sample(&s, s.miner);
+    assert_eq!(
+        s.sim.substrate.entities.get(s.miner).unwrap().owner(),
+        owner
+    );
+    assert!(!after.unloading, "RUN_AWAY dropped the latch");
+    assert!(!after.tethered, "OVER_OUT released the miner");
+    assert_eq!(after.contact, None);
+    assert_eq!(after.ore, 40, "nothing was dumped");
+}
+
 /// A refinery destroyed under an unloading miner: the NowDead contact loop
 /// (`0x00442511`) sends it RUN_AWAY, so it leaves Unload for Harvest with its
 /// cargo instead of waiting on the rubble. The original Building wrapper

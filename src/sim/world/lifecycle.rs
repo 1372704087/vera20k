@@ -3781,74 +3781,90 @@ impl Simulation {
     }
 
     fn nav_ref_targets_expired(target: &NavTargetRef, expired_id: u64) -> bool {
-        matches!(
-            target,
+        Self::nav_ref_object(target) == Some(expired_id)
+    }
+
+    /// The object a navigation entry names, if it names one.
+    fn nav_ref_object(target: &NavTargetRef) -> Option<u64> {
+        match *target {
             NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id }
-                if *id == expired_id
-        )
+            | NavTargetRef::Object { id }
+            | NavTargetRef::Building { id } => Some(id),
+            NavTargetRef::Cell { .. } => None,
+        }
+    }
+
+    /// What `listener` holds that its pointer-expiry forwards can change:
+    /// `name` gets each id a field [`Self::notify_entity_pointer_expired`]
+    /// compares (repeats possible), and the result says whether it holds an
+    /// object a forward reaches whatever expires (SpawnManager,
+    /// CaptureManager, TemporalClass, its parasite). A superset of each
+    /// forward's own test, so passing over a listener that is not the
+    /// expiring object, names nothing expiring and returns false matches
+    /// visiting it. A field or forward added to the broadcast must be added
+    /// here too.
+    pub(super) fn entity_expiry_holds(listener: &GameEntity, mut name: impl FnMut(u64)) -> bool {
+        for target in [
+            listener.attack_target.target(),
+            listener.suspended_attack_target.target(),
+            listener.archive_target(),
+        ] {
+            if let Some(TargetKind::Entity(id)) = target {
+                name(id);
+            }
+        }
+        listener.radio_contacts.iter_live().for_each(&mut name);
+        if let Some(cargo) = listener.passenger_role.cargo() {
+            cargo.passengers().iter().copied().for_each(&mut name);
+        }
+        let navigation = &listener.navigation;
+        navigation
+            .suspended_nav_com()
+            .iter()
+            .chain(navigation.nav_com().iter())
+            .chain(navigation.nav_queue().iter())
+            .filter_map(Self::nav_ref_object)
+            .for_each(&mut name);
+        [
+            listener.passenger_role.boarding_transport_id(),
+            listener.passenger_role.inside_transport_id(),
+            listener.pending_entry(),
+            listener.spawn_owner_id.owner(),
+            listener.damage_smoke_system_id.system(),
+            listener.aircraft_ammo.as_ref().and_then(|ammo| ammo.dock()),
+            listener
+                .miner
+                .as_ref()
+                .and_then(|miner| miner.reserved_refinery()),
+            listener
+                .pending_c4_detonation
+                .pending()
+                .and_then(|pending| pending.source_entity_id()),
+            listener.lift.target(),
+            listener.lift.source(),
+            listener.drop_credit.manipulated_by(),
+        ]
+        .into_iter()
+        .flatten()
+        .for_each(&mut name);
+        listener.mega_mission.referenced_ids().for_each(&mut name);
+        listener.spawn_manager.is_some()
+            || listener.capture_manager.is_some()
+            || listener.temporal.has_link()
+            || listener.parasite.eater().is_some()
     }
 
     /// Whether the pointer-expiry forwards an entity listener receives can
     /// change anything for `expired_id`: the listener is the expiring object,
-    /// a field [`Self::notify_entity_pointer_expired`] compares names it, or
-    /// it holds an object a forward reaches (SpawnManager, CaptureManager,
-    /// TemporalClass, its parasite, the Magnetron links). A superset of each
-    /// forward's own test, so passing over a listener without any of these
-    /// matches visiting it. A field or forward added to the broadcast must be
-    /// added here too.
-    fn entity_expiry_listener_acts(
+    /// or [`Self::entity_expiry_holds`] names `expired_id` or says it acts on
+    /// every expiry.
+    pub(super) fn entity_expiry_listener_acts(
         listener: &GameEntity,
         listener_id: u64,
         expired_id: u64,
     ) -> bool {
-        let names = |target: Option<TargetKind>| target == Some(TargetKind::Entity(expired_id));
-        let nav_names = |target: Option<&NavTargetRef>| {
-            target.is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id))
-        };
-        listener_id == expired_id
-            || names(listener.attack_target.target())
-            || names(listener.suspended_attack_target.target())
-            || names(listener.archive_target())
-            || listener.has_live_contact_with(expired_id)
-            || listener
-                .passenger_role
-                .cargo()
-                .is_some_and(|cargo| cargo.passengers().contains(&expired_id))
-            || listener.passenger_role.boarding_transport_id() == Some(expired_id)
-            || listener.passenger_role.inside_transport_id() == Some(expired_id)
-            || nav_names(listener.navigation.suspended_nav_com().as_ref())
-            || nav_names(listener.navigation.nav_com().as_ref())
-            || listener
-                .navigation
-                .nav_queue()
-                .iter()
-                .any(|target| Self::nav_ref_targets_expired(target, expired_id))
-            || listener.pending_entry() == Some(expired_id)
-            || listener.spawn_owner_id.owner() == Some(expired_id)
-            || listener.damage_smoke_system_id.system() == Some(expired_id)
-            || listener
-                .aircraft_ammo
-                .as_ref()
-                .is_some_and(|ammo| ammo.dock() == Some(expired_id))
-            || listener
-                .miner
-                .as_ref()
-                .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id))
-            || listener
-                .pending_c4_detonation
-                .pending()
-                .as_ref()
-                .is_some_and(|pending| pending.source_entity_id() == Some(expired_id))
-            || listener.spawn_manager.is_some()
-            || listener.capture_manager.is_some()
-            || listener.temporal.has_link()
-            || listener.parasite.eater().is_some()
-            || listener.lift.target() == Some(expired_id)
-            || listener.lift.source() == Some(expired_id)
-            || listener.drop_credit.manipulated_by() == Some(expired_id)
-            || listener.mega_mission.references(expired_id)
+        let mut names = listener_id == expired_id;
+        Self::entity_expiry_holds(listener, |id| names |= id == expired_id) || names
     }
 
     /// Each RNG stream's cursor, which every draw moves.
@@ -4129,7 +4145,9 @@ impl Simulation {
 
     /// The broadcast passes over listeners that
     /// [`Self::entity_expiry_listener_acts`] rejects, so a field compared here
-    /// must be tested there too.
+    /// must be named or flagged by [`Self::entity_expiry_holds`] too. That
+    /// enumeration may read only the listener: the expiry index re-reads an
+    /// entity only when the store hands that entity out mutably.
     pub(super) fn notify_entity_pointer_expired(
         &mut self,
         listener_id: u64,
@@ -4621,13 +4639,20 @@ impl Simulation {
 
         // Most entity listeners hold nothing this expiry changes, and the
         // game passes over them (below). The ones that do are found up front
-        // on worker threads: the check only reads its listener. Production
-        // builds list only those. Test builds list every listener and check
-        // at each one's turn that no left-out listener has come to hold the
-        // expired object.
-        let acting = self.substrate.entities.par_select(|listener_id, listener| {
-            Self::entity_expiry_listener_acts(listener, listener_id, expired_id)
-        });
+        // in the expiry index. Production builds list only those. Test builds
+        // list every listener and check at each one's turn that no left-out
+        // listener has come to hold the expired object.
+        let acting = self
+            .expiry_listeners
+            .reached_by(&mut self.substrate.entities, expired_id);
+        debug_assert!(
+            !crate::sim::touch_log::live_read_check_enabled()
+                || acting
+                    == self.substrate.entities.par_select(|listener_id, listener| {
+                        Self::entity_expiry_listener_acts(listener, listener_id, expired_id)
+                    }),
+            "the expiry listeners of {expired_id} diverged from a live read"
+        );
         #[cfg(test)]
         let acting_before: std::collections::BTreeSet<u64> = acting.iter().copied().collect();
         let listeners = self.removal_listener_order(if cfg!(test) {

@@ -172,9 +172,51 @@ pub(crate) enum SlaveState {
 /// A `SlaveControl` node (0x14 bytes): the slave, its state and its timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SlaveNode {
-    pub(crate) slave: Option<u64>,
-    pub(crate) state: SlaveState,
-    pub(crate) timer: CdTimer,
+    slave: Option<u64>,
+    state: SlaveState,
+    timer: CdTimer,
+}
+
+impl SlaveNode {
+    /// A fixture's node.
+    #[cfg(test)]
+    pub(crate) const fn for_test(slave: Option<u64>, state: SlaveState, timer: CdTimer) -> Self {
+        Self {
+            slave,
+            state,
+            timer,
+        }
+    }
+
+    /// See the field.
+    #[cfg(test)]
+    pub(crate) const fn slave(&self) -> Option<u64> {
+        self.slave
+    }
+
+    /// A fixture's value.
+    #[cfg(test)]
+    pub(crate) fn set_slave_for_test(&mut self, slave: Option<u64>) {
+        self.slave = slave;
+    }
+
+    /// See the field.
+    #[cfg(test)]
+    pub(crate) const fn state(&self) -> SlaveState {
+        self.state
+    }
+
+    /// A fixture's value.
+    #[cfg(test)]
+    pub(crate) fn set_state_for_test(&mut self, state: SlaveState) {
+        self.state = state;
+    }
+
+    /// See the field.
+    #[cfg(test)]
+    pub(crate) fn timer(&self) -> &CdTimer {
+        &self.timer
+    }
 }
 
 /// `SlaveManagerClass`, held by its master (Techno+0x2D8). Its owner (`+0x24`)

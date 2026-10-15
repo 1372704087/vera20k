@@ -299,12 +299,12 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     );
     // The supplied Walk has a retained destination with moving=0. Calling
     // MoveTo would invent a transition and overwrite that native premise.
-    loco.set_runtime_payload_for_test(LocomotorRuntimePayload::Walk(WalkRuntime {
-        head: nonnull_coordinate(&before["head"]),
-        destination: nonnull_coordinate(&before["destination"]),
-        moving: before["moving"] != 0,
-        animation_moving: before["motion"] != 0,
-    }));
+    loco.set_runtime_payload_for_test(LocomotorRuntimePayload::Walk(WalkRuntime::for_test(
+        nonnull_coordinate(&before["head"]),
+        nonnull_coordinate(&before["destination"]),
+        before["moving"] != 0,
+        before["motion"] != 0,
+    )));
     actor.locomotor = Some(loco);
     actor
         .foot_speed
@@ -346,7 +346,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "prone": u8::from(actor.infantry.as_ref().unwrap().is_prone()),
         "crush": actor.native_crush_immunity(), "frame": stage.value(), "changed": raw["changed"],
         "stage": [stage.timer().start_frame(), stage.timer().duration(), stage.rate(), signed(&raw["increment"])],
-        "reload": [actor.passive_scan.timer().start_frame as i32, actor.passive_scan.timer().duration as i32],
+        "reload": [actor.passive_scan.timer().start_frame() as i32, actor.passive_scan.timer().duration() as i32],
         "mission": actor.mission.current().raw(), "suspended": actor.mission.suspended().raw(),
         "queued": actor.mission.queued().raw(), "handler_state": actor.mission.handler_state(),
         "mission_start": actor.mission.mission_start_frame(),

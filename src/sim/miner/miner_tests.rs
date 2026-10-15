@@ -35,7 +35,7 @@ fn has_bunker_release_track(entity: &GameEntity) -> bool {
             .as_ref()
             .and_then(|l| l.selected_drive_runtime())
             .and_then(|r| r.retained())
-            .is_some_and(|drive| drive.track().turn_index == 0x47 && drive.head_to().is_some())
+            .is_some_and(|drive| drive.track().turn_index() == 0x47 && drive.head_to().is_some())
 }
 
 /// Minimal rules that know about HARV, CMIN, and GAREFN.

@@ -783,13 +783,71 @@ impl FootSpeedState {
 /// Native evidence: tools/spatial_oracle/locomotor_track_cursor.json.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TrackProgress {
-    pub turn_index: i32,
+    turn_index: i32,
     /// Next-to-consume cursor. Drive constructor4AF5A6/4AF5A9 and Ship
     /// constructor69ECB6/69ECB9 initialize selector/cursor to -1;
     /// fresh/forced acceptance and completion retirement instead store zero.
-    pub cursor: i32,
-    pub reversed: bool,
-    pub residual: i32,
+    cursor: i32,
+    reversed: bool,
+    residual: i32,
+}
+
+impl TrackProgress {
+    /// A fixture's progress.
+    #[cfg(test)]
+    pub(crate) const fn for_test(
+        turn_index: i32,
+        cursor: i32,
+        reversed: bool,
+        residual: i32,
+    ) -> Self {
+        Self {
+            turn_index,
+            cursor,
+            reversed,
+            residual,
+        }
+    }
+
+    /// See the field.
+    pub(crate) const fn turn_index(&self) -> i32 {
+        self.turn_index
+    }
+
+    /// Store the field.
+    pub(crate) fn set_turn_index(&mut self, turn_index: i32) {
+        self.turn_index = turn_index;
+    }
+
+    /// See the field.
+    pub(crate) const fn cursor(&self) -> i32 {
+        self.cursor
+    }
+
+    /// Store the field.
+    pub(crate) fn set_cursor(&mut self, cursor: i32) {
+        self.cursor = cursor;
+    }
+
+    /// See the field.
+    pub(crate) const fn reversed(&self) -> bool {
+        self.reversed
+    }
+
+    /// Store the field.
+    pub(crate) fn set_reversed(&mut self, reversed: bool) {
+        self.reversed = reversed;
+    }
+
+    /// See the field.
+    pub(crate) const fn residual(&self) -> i32 {
+        self.residual
+    }
+
+    /// Store the field.
+    pub(crate) fn set_residual(&mut self, residual: i32) {
+        self.residual = residual;
+    }
 }
 
 impl Default for TrackProgress {

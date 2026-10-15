@@ -894,10 +894,10 @@ fn rocketeer_crash_fixture(
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
-        flight.facing.snap(0x4000, 1000);
+        flight.facing_mut().snap(0x4000, 1000);
         // The oracle's locomotor holds `JumpjetHeight=` as its target height
         // whatever the row's height (`jumpjet_infantry_actions` ROCKETEER).
-        flight.target_height = 500;
+        flight.set_target_height(500);
         *runtime = runtime
             .clone()
             .with_phase_for_test(input["owner"]["phase"].as_i64().unwrap() as i32)

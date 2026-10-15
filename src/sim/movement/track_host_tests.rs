@@ -22,12 +22,7 @@ fn fixture(family: TrackFamily, budget: i32) -> (Simulation, TrackInvocation, i3
         y: 9 * 256 + 128,
         z: 0,
     };
-    let track = TrackProgress {
-        turn_index: 0,
-        cursor: 0,
-        reversed: false,
-        residual: 0,
-    };
+    let track = TrackProgress::for_test(0, 0, false, 0);
     match family {
         TrackFamily::Drive => {
             assert!(
@@ -196,7 +191,7 @@ fn building_navigation_reaches_drive_and_ship_terminal_callbacks() {
             }
             let loco = mover.locomotor.as_mut().unwrap();
             let mut state = loco.track_progress(family).unwrap();
-            state.cursor = super::super::drive_track::raw_track_points(1).len() as i32;
+            state.set_cursor(super::super::drive_track::raw_track_points(1).len() as i32);
             assert!(loco.store_track_progress(family, state));
             let mut callbacks = 0;
             sim.run_track_points_observed(
@@ -280,7 +275,7 @@ fn terminal_queries_retained_target_after_clearing_own_head_before_per_cell() {
         }
         let loco = mover.locomotor.as_mut().unwrap();
         let mut state = loco.track_progress(family).unwrap();
-        state.cursor = super::super::drive_track::raw_track_points(1).len() as i32;
+        state.set_cursor(super::super::drive_track::raw_track_points(1).len() as i32);
         assert!(loco.store_track_progress(family, state));
         let mut target = GameEntity::test_default(2, "E1", "Americans", 20, 20);
         target.set_category_for_test(EntityCategory::Infantry);
@@ -349,7 +344,7 @@ fn production_host_keeps_budget_and_live_cursor_across_world_coordinate_effect()
                             .as_mut()
                             .unwrap();
                         let mut state = loco.track_progress(family).unwrap();
-                        state.cursor = 2;
+                        state.set_cursor(2);
                         assert!(loco.store_track_progress(family, state));
                     }
                 }
@@ -357,10 +352,11 @@ fn production_host_keeps_budget_and_live_cursor_across_world_coordinate_effect()
         let state = progress(sim.substrate.entities.get(1).unwrap(), family).unwrap();
         assert_eq!(moved, 3);
         assert_eq!(
-            state.cursor, 5,
+            state.cursor(),
+            5,
             "finish the same paid point with the live cursor"
         );
-        assert_eq!(state.residual, 1);
+        assert_eq!(state.residual(), 1);
         assert!(callbacks >= 3);
     }
 }
@@ -379,7 +375,7 @@ fn production_host_lifecycle_exit_does_not_store_call_local_residual() {
             .unwrap()
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.residual = 4;
+        progress.set_residual(4);
         assert!(
             sim.substrate
                 .entities
@@ -405,8 +401,8 @@ fn production_host_lifecycle_exit_does_not_store_call_local_residual() {
         }
     });
     let state = progress(sim.substrate.entities.get(1).unwrap(), TrackFamily::Drive).unwrap();
-    assert_eq!(state.residual, 4);
-    assert_eq!(state.cursor, 0);
+    assert_eq!(state.residual(), 4);
+    assert_eq!(state.cursor(), 0);
 }
 
 #[test]
@@ -472,7 +468,7 @@ fn crossing_mark_state_and_open_topped_cargo_are_visible_before_paid_continuatio
     assert_eq!(
         progress(sim.substrate.entities.get(1).unwrap(), TrackFamily::Drive)
             .unwrap()
-            .cursor,
+            .cursor(),
         1
     );
 }
@@ -490,10 +486,11 @@ fn nonterminal_limbo_and_falling_do_not_add_an_early_survival_gate() {
         });
         let state = progress(sim.substrate.entities.get(1).unwrap(), family).unwrap();
         assert_eq!(
-            state.cursor, 2,
+            state.cursor(),
+            2,
             "4B1A77 tests alive only before common cursor increment"
         );
-        assert_eq!(state.residual, 1);
+        assert_eq!(state.residual(), 1);
     }
 }
 
@@ -523,8 +520,8 @@ fn terminal_per_cell_limbo_keeps_retained_residual_and_navcom() {
         }
         let loco = entity.locomotor.as_mut().unwrap();
         let mut state = loco.track_progress(family).unwrap();
-        state.cursor = super::super::drive_track::raw_track_points(1).len() as i32;
-        state.residual = 4;
+        state.set_cursor(super::super::drive_track::raw_track_points(1).len() as i32);
+        state.set_residual(4);
         assert!(loco.store_track_progress(family, state));
         let mut calls = 0;
         sim.run_track_points_observed(invocation, budget, None, None, &mut |sim, id, event| {
@@ -539,7 +536,7 @@ fn terminal_per_cell_limbo_keeps_retained_residual_and_navcom() {
         });
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(calls, 1);
-        assert_eq!(progress(entity, family).unwrap().residual, 4);
+        assert_eq!(progress(entity, family).unwrap().residual(), 4);
         assert!(
             entity.navigation.nav_com().is_some(),
             "limbo returns before saved-reached FootStop"
@@ -564,7 +561,7 @@ fn terminal_saved_reached_clears_callback_navcom_and_only_live_queue_head() {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.cursor = super::super::drive_track::raw_track_points(1).len() as i32;
+        progress.set_cursor(super::super::drive_track::raw_track_points(1).len() as i32);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -651,15 +648,13 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
             loco.set_movement_zone_for_test(crate::rules::locomotor_type::MovementZone::Water);
             loco.set_speed_type_for_test(crate::rules::locomotor_type::SpeedType::Float);
         }
-        assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
-            family,
-            TrackProgress {
-                turn_index: 1,
-                cursor: 37,
-                reversed: false,
-                residual: 0,
-            }
-        ));
+        assert!(
+            entity
+                .locomotor
+                .as_mut()
+                .unwrap()
+                .store_track_progress(family, TrackProgress::for_test(1, 37, false, 0))
+        );
         entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
         let saved_fraction = entity.foot_speed.applied_fraction();
         let mut callbacks = 0;
@@ -674,9 +669,9 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                     let entity = sim.substrate.entities.get_mut(id).unwrap();
                     let loco = entity.locomotor.as_mut().unwrap();
                     let mut state = loco.track_progress(family).unwrap();
-                    assert_eq!(state.turn_index, selected.turn_track_index as i32);
-                    assert_eq!(state.cursor, i32::from(selected.entry_index) - 1);
-                    state.cursor += 1;
+                    assert_eq!(state.turn_index(), selected.turn_track_index as i32);
+                    assert_eq!(state.cursor(), i32::from(selected.entry_index) - 1);
+                    state.set_cursor(state.cursor() + 1);
                     assert!(loco.store_track_progress(family, state));
                     assert_eq!(head(entity, family), DriveCoord { x: 0, y: 0, z: 0 });
                     assert!(valid(entity, family));
@@ -713,8 +708,8 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
         }
         assert_eq!(head(entity, family), DriveCoord::cell(11, 9, 0));
         assert!(valid(entity, family));
-        assert!(progress(entity, family).unwrap().cursor > i32::from(selected.entry_index));
-        assert_eq!(progress(entity, family).unwrap().residual, 1);
+        assert!(progress(entity, family).unwrap().cursor() > i32::from(selected.entry_index));
+        assert_eq!(progress(entity, family).unwrap().residual(), 1);
         assert_eq!(entity.navigation.path_replay.cursor(), 1);
         assert_eq!(
             entity.navigation.path_replay.remaining_directions(),
@@ -730,15 +725,13 @@ fn apply_one_marks_handoff_and_full_head_without_foot_enable() {
         let (mut sim, _, _) = fixture(family, 0);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.set_foot_occupation_enabled(false);
-        assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
-            family,
-            TrackProgress {
-                turn_index: 1,
-                cursor: 0,
-                reversed: false,
-                residual: 0,
-            }
-        ));
+        assert!(
+            entity
+                .locomotor
+                .as_mut()
+                .unwrap()
+                .store_track_progress(family, TrackProgress::for_test(1, 0, false, 0))
+        );
         sim.track_apply_occupation(1, family, true);
         // Drive/Ship Apply1 invokes raw marks directly regardless of +6B6.
         assert_eq!(
@@ -827,7 +820,7 @@ fn ordinary_foot_limbo_releases_live_head_and_handoff_for_both_families() {
             .as_mut()
             .unwrap();
         let mut state = loco.track_progress(family).unwrap();
-        state.turn_index = 1;
+        state.set_turn_index(1);
         assert!(loco.store_track_progress(family, state));
         sim.track_apply_occupation(1, family, true);
         let entity = sim.substrate.entities.get(1).unwrap();
@@ -898,7 +891,7 @@ fn raw_clear_retires_aliasing_roles_before_reconciliation() {
             .as_mut()
             .unwrap();
         let mut state = loco.track_progress(family).unwrap();
-        state.turn_index = 1;
+        state.set_turn_index(1);
         assert!(loco.store_track_progress(family, state));
         sim.track_apply_occupation(1, family, true);
         let entity = sim.substrate.entities.get(1).unwrap();
@@ -948,7 +941,7 @@ fn repeated_foot_limbo_does_not_clear_a_new_raw_head_claim() {
             .as_mut()
             .unwrap();
         let mut state = loco.track_progress(family).unwrap();
-        state.turn_index = 1;
+        state.set_turn_index(1);
         assert!(loco.store_track_progress(family, state));
         let supplied = head(sim.substrate.entities.get(1).unwrap(), family);
         sim.track_apply_occupation(1, family, true);
@@ -990,7 +983,7 @@ fn terminal_retires_the_head_before_callback_and_keeps_a_new_order() {
                 .unwrap()
                 .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
                 .unwrap();
-            progress.cursor = super::super::drive_track::raw_track_points(1).len() as i32;
+            progress.set_cursor(super::super::drive_track::raw_track_points(1).len() as i32);
             assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
                 crate::sim::movement::track_process::TrackFamily::Drive,
                 progress
@@ -2014,12 +2007,12 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
                             (destination != DriveCoord { x: 0, y: 0, z: 0 }).then_some(destination)
                         )
                         .with_head_to_for_test(terminal.then_some(coordinate))
-                        .with_track_for_test(TrackProgress {
-                            turn_index: integer(&row["supplied_before"]["track_selector"]),
-                            cursor: integer(&row["supplied_before"]["track_cursor"]),
-                            reversed: false,
-                            residual: 0,
-                        })
+                        .with_track_for_test(TrackProgress::for_test(
+                            integer(&row["supplied_before"]["track_selector"]),
+                            integer(&row["supplied_before"]["track_cursor"]),
+                            false,
+                            0
+                        ))
                         .with_track_valid_for_test(terminal)
                 ))
         );

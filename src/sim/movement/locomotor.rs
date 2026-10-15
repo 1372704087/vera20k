@@ -315,7 +315,7 @@ impl LocomotorState {
     /// receivers75CA80/517210, tools/spatial_oracle/locomotor_at_coord.
     pub(crate) fn step_head(&self) -> Option<crate::sim::components::DriveCoord> {
         match (self.kind, &self.runtime_payload) {
-            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => state.head,
+            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => state.head(),
             (LocomotorKind::Hover, LocomotorRuntimePayload::Hover(runtime)) => runtime.head(),
             _ => None,
         }
@@ -326,7 +326,7 @@ impl LocomotorState {
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
         {
-            state.head = head;
+            state.set_head(head);
         }
     }
 
@@ -424,7 +424,7 @@ impl LocomotorState {
 
     pub(crate) fn walk_destination(&self) -> Option<crate::sim::components::DriveCoord> {
         match (self.kind, &self.runtime_payload) {
-            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => state.destination,
+            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => state.destination(),
             _ => None,
         }
     }
@@ -447,7 +447,7 @@ impl LocomotorState {
 
     pub(crate) fn walk_is_moving(&self) -> Option<bool> {
         match (self.kind, &self.runtime_payload) {
-            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => Some(state.moving),
+            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => Some(state.moving()),
             _ => None,
         }
     }
@@ -461,11 +461,11 @@ impl LocomotorState {
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
         {
-            state.destination = coord.filter(|c| c.x != 0 || c.y != 0 || c.z != 0);
-            if state.destination.is_some() {
-                state.moving = true;
-            } else if state.head.is_none() {
-                state.moving = false;
+            state.set_destination(coord.filter(|c| c.x != 0 || c.y != 0 || c.z != 0));
+            if state.destination().is_some() {
+                state.set_moving(true);
+            } else if state.head().is_none() {
+                state.set_moving(false);
             }
         }
     }
@@ -475,7 +475,7 @@ impl LocomotorState {
     pub(crate) fn walk_animation_moving(&self) -> Option<bool> {
         match (self.kind, &self.runtime_payload) {
             (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => {
-                Some(state.animation_moving)
+                Some(state.animation_moving())
             }
             _ => None,
         }
@@ -487,9 +487,9 @@ impl LocomotorState {
     pub(crate) fn begin_walk_motion(&mut self) {
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
-            && state.head.is_some()
+            && state.head().is_some()
         {
-            state.animation_moving = true;
+            state.set_animation_moving(true);
         }
     }
 
@@ -502,7 +502,7 @@ impl LocomotorState {
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
         {
-            state.animation_moving = false;
+            state.set_animation_moving(false);
         }
     }
 
@@ -513,9 +513,9 @@ impl LocomotorState {
         self.set_walk_destination(None);
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
-            && state.head.is_none()
+            && state.head().is_none()
         {
-            state.animation_moving = false;
+            state.set_animation_moving(false);
             return true;
         }
         false
@@ -529,8 +529,8 @@ impl LocomotorState {
         if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
             (self.kind, &mut self.runtime_payload)
         {
-            state.destination = None;
-            state.head = None;
+            state.set_destination(None);
+            state.set_head(None);
         }
     }
 

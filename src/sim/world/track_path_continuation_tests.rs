@@ -146,7 +146,7 @@ fn compare(sim: &Simulation, id: u64, row: &Value, outcome: Option<FootPathOutco
             .and_then(|l| l.selected_drive_runtime())
             .and_then(|r| r.retained())
             .unwrap();
-        (d.destination(), d.head_to(), d.track().turn_index)
+        (d.destination(), d.head_to(), d.track().turn_index())
     } else {
         let s = e
             .locomotor
@@ -154,7 +154,7 @@ fn compare(sim: &Simulation, id: u64, row: &Value, outcome: Option<FootPathOutco
             .and_then(|l| l.selected_ship_runtime())
             .and_then(|r| r.retained())
             .unwrap();
-        (s.destination(), s.head_to(), s.track().turn_index)
+        (s.destination(), s.head_to(), s.track().turn_index())
     };
     let p = &e.navigation.path_runtime;
     let nav = e.navigation.nav_com().map(|n| match n {
@@ -1127,7 +1127,7 @@ fn after_active_rows_gate_the_same_call_continuation() {
                     let mut progress = d
                         .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
                         .unwrap();
-                    progress.turn_index = selector;
+                    progress.set_turn_index(selector);
                     assert!(d.store_track_progress(
                         crate::sim::movement::track_process::TrackFamily::Drive,
                         progress
@@ -1149,7 +1149,7 @@ fn after_active_rows_gate_the_same_call_continuation() {
                     let mut progress = s
                         .track_progress(crate::sim::movement::track_process::TrackFamily::Ship)
                         .unwrap();
-                    progress.turn_index = selector;
+                    progress.set_turn_index(selector);
                     assert!(s.store_track_progress(
                         crate::sim::movement::track_process::TrackFamily::Ship,
                         progress
@@ -1514,7 +1514,7 @@ fn track_end_frame_spends_one_speed_budget() {
                     .and_then(|r| r.retained())
                     .unwrap()
                     .track()
-                    .residual
+                    .residual()
             } else {
                 e.locomotor
                     .as_ref()
@@ -1522,7 +1522,7 @@ fn track_end_frame_spends_one_speed_budget() {
                     .and_then(|r| r.retained())
                     .unwrap()
                     .track()
-                    .residual
+                    .residual()
             };
             (
                 committed_track_head(e),

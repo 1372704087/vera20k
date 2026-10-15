@@ -75,10 +75,12 @@ pub(crate) enum TouchReader {
     BlockerPlane = 0,
     /// The kept Ground display sort keys.
     GroundKeys = 1,
+    /// The pointer-expiry broadcast's listener index.
+    ExpiryListeners = 2,
 }
 
 impl TouchReader {
-    const COUNT: usize = 2;
+    const COUNT: usize = 3;
 }
 
 #[derive(Debug, Clone)]

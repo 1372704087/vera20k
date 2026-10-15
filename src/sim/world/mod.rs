@@ -57,6 +57,7 @@ mod building_working_sound;
 pub(crate) mod damage_consequences;
 pub(crate) mod display_layers;
 mod display_registry;
+mod expiry_listeners;
 mod fly_landing;
 mod fly_orders;
 mod fly_process;
@@ -1193,6 +1194,10 @@ pub struct Simulation {
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
     pub(crate) movement_pass_cache: crate::sim::movement::movement_tick::MovementPassCache,
+    /// Which entities each pointer expiry reaches (`expiry_listeners`).
+    /// Derived from the entities; never serialized or hashed.
+    #[serde(skip)]
+    expiry_listeners: expiry_listeners::ExpiryListeners,
     /// Batched path searches (`movement::path_batch`); `None`
     /// searches in native order. Its registrations wait across a save.
     pub(crate) path_batch: Option<crate::sim::movement::path_batch::PathBatch>,
@@ -3288,6 +3293,7 @@ impl Simulation {
         let seed = session.seed;
         let mut out = Self {
             movement_pass_cache: Default::default(),
+            expiry_listeners: Default::default(),
             path_batch: None,
             interner: crate::sim::intern::StringInterner::new(),
             type_handles: crate::sim::type_handle_table::TypeHandleTable::default(),

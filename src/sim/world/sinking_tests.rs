@@ -499,12 +499,7 @@ fn retained_ship_skips_process_but_keeps_its_head_and_runs_sinking_ai() {
                     .with_head_to_for_test(Some(head))
                     .with_track_valid_for_test(true)
                     .with_target_speed_fraction_for_test(SimFixed::from_num(1))
-                    .with_track_for_test(TrackProgress {
-                        turn_index: 0,
-                        cursor: 0,
-                        reversed: false,
-                        residual: 0,
-                    })
+                    .with_track_for_test(TrackProgress::for_test(0, 0, false, 0))
             ))
     );
     slope_transition::snap_after_successful_unlimbo(hull, 5, 0);
@@ -531,7 +526,7 @@ fn retained_ship_skips_process_but_keeps_its_head_and_runs_sinking_ai() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .cursor,
+            .cursor(),
         0
     );
     assert_eq!(

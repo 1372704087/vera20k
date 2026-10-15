@@ -73,10 +73,11 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
     entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
     if input["locomotor_present"].as_bool().unwrap() {
         entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-        let track = crate::sim::components::TrackProgress {
-            turn_index: input["turn_index"].as_i64().unwrap_or(-1) as i32,
-            cursor: input["cursor"].as_i64().unwrap_or(0) as i32,
-            ..Default::default()
+        let track = {
+            let mut value = crate::sim::components::TrackProgress::default();
+            value.set_turn_index(input["turn_index"].as_i64().unwrap_or(-1) as i32);
+            value.set_cursor(input["cursor"].as_i64().unwrap_or(0) as i32);
+            value
         };
         match kind {
             LocomotorKind::Drive => {

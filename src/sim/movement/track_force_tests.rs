@@ -90,10 +90,10 @@ fn mirrored_state(entity: &GameEntity) -> Value {
             }
         };
     json!({
-        "turn": track.turn_index,
-        "cursor": track.cursor,
-        "reversed": u8::from(track.reversed),
-        "residual": track.residual,
+        "turn": track.turn_index(),
+        "cursor": track.cursor(),
+        "reversed": u8::from(track.reversed()),
+        "residual": track.residual(),
         "head": coord_array(head),
         "destination": coord_array(destination),
         "track_valid": u8::from(valid),
@@ -170,12 +170,12 @@ fn fixture(case: &Value) -> Simulation {
             z: 312,
         },
     );
-    let track = TrackProgress {
-        turn_index: integer(&before["turn"]),
-        cursor: integer(&before["cursor"]),
-        reversed: integer(&before["reversed"]) != 0,
-        residual: integer(&before["residual"]),
-    };
+    let track = TrackProgress::for_test(
+        integer(&before["turn"]),
+        integer(&before["cursor"]),
+        integer(&before["reversed"]) != 0,
+        integer(&before["residual"]),
+    );
     let locomotor = entity.locomotor.as_mut().unwrap();
     assert!(if is_ship(case) {
         locomotor.install_ship_state_for_test(Some(

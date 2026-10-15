@@ -450,10 +450,10 @@ impl Simulation {
             let Some((live, live_head, actual)) = self.track_state(id, family) else {
                 return Ok(TrackPass::paid(moved));
             };
-            let previous = if live.cursor == 0 {
+            let previous = if live.cursor() == 0 {
                 cell(actual)
             } else {
-                call.previous_sample(live.cursor)
+                call.previous_sample(live.cursor())
                     .and_then(|point| point.transform(family, &live, live_head))
                     .map(|(xy, _)| {
                         cell(DriveCoord {
@@ -470,7 +470,7 @@ impl Simulation {
                 return Ok(TrackPass::paid(moved));
             };
             let paid_facing = call
-                .live_facing_sample(live.cursor)
+                .live_facing_sample(live.cursor())
                 .and_then(|point| point.transform(family, &live, live_head))
                 .map(|(_, facing)| facing);
             self.track_place(
@@ -591,7 +591,7 @@ impl Simulation {
             let chosen = step.choose(
                 matches(step.interpolated, step.current),
                 matches(step.interpolated, step.full),
-                live.residual,
+                live.residual(),
             );
             self.track_place(
                 id,
@@ -788,9 +788,9 @@ impl Simulation {
         if supplied == (DriveCoord { x: 0, y: 0, z: 0 }) {
             return;
         }
-        let handoff = (!state.reversed && state.turn_index != -1)
+        let handoff = (!state.reversed() && state.turn_index() != -1)
             .then(|| {
-                let index = usize::try_from(state.turn_index).ok()?;
+                let index = usize::try_from(state.turn_index()).ok()?;
                 if family == TrackFamily::Ship && index >= 64 {
                     return None;
                 }
@@ -800,7 +800,7 @@ impl Simulation {
                 }
                 let raw = super::drive_track::raw_track_meta(turn.normal_track)?;
                 if raw.occupation_handoff_point_index < 0
-                    || state.cursor >= i32::from(raw.occupation_handoff_point_index)
+                    || state.cursor() >= i32::from(raw.occupation_handoff_point_index)
                 {
                     return None;
                 }

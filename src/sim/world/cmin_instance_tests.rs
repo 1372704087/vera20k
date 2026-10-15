@@ -121,12 +121,12 @@ fn retained(native: &Value) -> DriveLocomotionRuntime {
     DriveLocomotionRuntime::default()
         .with_destination_for_test(nonnull_coord(&native["destination"]))
         .with_head_to_for_test(nonnull_coord(&native["head"]))
-        .with_track_for_test(TrackProgress {
-            turn_index: integer(&native["selector"]),
-            cursor: integer(&native["cursor"]),
-            reversed: byte(&native["flags_60_67"][0]) != 0,
-            residual: integer(&native["residual"]),
-        })
+        .with_track_for_test(TrackProgress::for_test(
+            integer(&native["selector"]),
+            integer(&native["cursor"]),
+            byte(&native["flags_60_67"][0]) != 0,
+            integer(&native["residual"]),
+        ))
         .with_track_valid_for_test(byte(&native["flags_60_67"][3]) != 0)
         .with_turn_latched_for_test(byte(&native["flags_60_67"][2]) != 0)
         .with_end_permitted_for_test(byte(&native["flags_60_67"][5]) != 0)

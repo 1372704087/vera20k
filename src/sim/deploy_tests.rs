@@ -1281,12 +1281,12 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     // MoveTo would invent a transition instead of transporting the fixture.
     loco.set_runtime_payload_for_test(
         crate::sim::movement::locomotion::piggyback::LocomotorRuntimePayload::Walk(
-            crate::sim::movement::locomotion::piggyback::WalkRuntime {
-                head: native_coord(&before["head"]),
-                destination: native_coord(&before["destination"]),
-                moving: before["moving"] != 0,
-                animation_moving: before["motion"] != 0,
-            },
+            crate::sim::movement::locomotion::piggyback::WalkRuntime::for_test(
+                native_coord(&before["head"]),
+                native_coord(&before["destination"]),
+                before["moving"] != 0,
+                before["motion"] != 0,
+            ),
         ),
     );
     actor.locomotor = Some(loco);
@@ -1348,7 +1348,7 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
     if expected["idle_timer"].is_array() {
         let timer = actor.infantry.as_ref().unwrap().idle_action_timer();
         assert_eq!(
-            serde_json::json!([timer.start_frame as i32, timer.duration as i32]),
+            serde_json::json!([timer.start_frame() as i32, timer.duration() as i32]),
             expected["idle_timer"],
             "{name}: IdleActionTimer168/170"
         );
@@ -1375,8 +1375,8 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
     );
     assert_eq!(
         serde_json::json!([
-            actor.passive_scan.timer().start_frame as i32,
-            actor.passive_scan.timer().duration as i32
+            actor.passive_scan.timer().start_frame() as i32,
+            actor.passive_scan.timer().duration() as i32
         ]),
         expected["reload"],
         "{name}: passive targeting timer180/188",

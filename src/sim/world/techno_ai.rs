@@ -3593,9 +3593,9 @@ mod tests {
         passive_acquire_step(&mut sim, 1, Some(&rules), ObjectAiCtx::default());
 
         let timer = sim.substrate.entities.get(1).unwrap().passive_scan.timer();
-        assert_eq!(timer.start_frame, sim.session.binary_frame);
+        assert_eq!(timer.start_frame(), sim.session.binary_frame);
         assert_eq!(
-            timer.duration,
+            timer.duration(),
             rules.general.normal_targeting_delay as u32 + expected_jitter,
             "re-armed duration must be the INI delay plus this scan's jitter draw"
         );
@@ -6712,9 +6712,9 @@ mod tests {
                 let family = crate::sim::movement::track_process::TrackFamily::Drive;
                 loco.store_track_head(family, Some(head));
                 let mut track = loco.track_progress(family).unwrap();
-                track.turn_index = 0;
-                track.cursor = 12;
-                track.residual = 5;
+                track.set_turn_index(0);
+                track.set_cursor(12);
+                track.set_residual(5);
                 loco.store_track_progress(family, track);
             }
             let before = sim

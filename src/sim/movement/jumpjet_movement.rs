@@ -351,7 +351,7 @@ impl JumpjetRuntime {
         let lifted = self.phase == STATE_DESCEND;
         if lifted {
             self.phase = STATE_ASCEND;
-            self.flight.target_height = self.params.height;
+            self.flight.set_target_height(self.params.height());
         }
         MoveToOutcome { lifted }
     }

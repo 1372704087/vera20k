@@ -123,10 +123,7 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
         entity.locomotor = Some(LocomotorState::from_object_type(obj, 0));
         entity
             .passive_scan
-            .set_passive_scan_timer_for_test(MissionTimer {
-                start_frame: 0,
-                duration: 0,
-            });
+            .set_passive_scan_timer_for_test(MissionTimer::armed(0, 0));
         entity.passive_scan.set_last_target_scan_frame_for_test(0);
         entity.position.set_exact_z_leptons(Some(624));
         sim.substrate.entities.insert(entity);
@@ -230,10 +227,10 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
     if let Some(timer) = input["timer"].as_array() {
         source
             .passive_scan
-            .set_passive_scan_timer_for_test(MissionTimer {
-                start_frame: timer[0].as_i64().unwrap() as u32,
-                duration: timer[2].as_i64().unwrap() as u32,
-            });
+            .set_passive_scan_timer_for_test(MissionTimer::armed(
+                timer[0].as_i64().unwrap() as u32,
+                timer[2].as_i64().unwrap() as u32,
+            ));
     }
     if let Some(health) = input["health"].as_i64() {
         sim.substrate
@@ -267,12 +264,12 @@ fn assert_state(sim: &Simulation, state: &Value, label: &str) {
         "{label}: last_scan"
     );
     assert_eq!(
-        json!(source.passive_scan.timer().start_frame as i32),
+        json!(source.passive_scan.timer().start_frame() as i32),
         state["timer"][0],
         "{label}: timer anchor"
     );
     assert_eq!(
-        json!(source.passive_scan.timer().duration as i32),
+        json!(source.passive_scan.timer().duration() as i32),
         state["timer"][2],
         "{label}: timer duration"
     );

@@ -2317,8 +2317,8 @@ fn hash_locomotor_payload(
             state.landing_effect_latched().hash(hasher);
             state.airport_bound().hash(hasher);
             state.fall_counter().hash(hasher);
-            state.target_speed.to_bits().hash(hasher);
-            state.current_speed.to_bits().hash(hasher);
+            state.target_speed().to_bits().hash(hasher);
+            state.current_speed().to_bits().hash(hasher);
         }
         LocomotorRuntimePayload::Jumpjet(state) => {
             10u8.hash(hasher);
@@ -2903,10 +2903,11 @@ mod track_authority_hash_tests {
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
         let track = if active {
-            TrackProgress {
-                turn_index: 0,
-                cursor: 0,
-                ..Default::default()
+            {
+                let mut value = TrackProgress::default();
+                value.set_turn_index(0);
+                value.set_cursor(0);
+                value
             }
         } else {
             TrackProgress::default()
@@ -2962,10 +2963,10 @@ mod track_authority_hash_tests {
                 } else {
                     let mut track = loco.track_progress(family).unwrap();
                     match field {
-                        0 => track.turn_index = 1,
-                        1 => track.cursor = 1,
-                        2 => track.reversed = true,
-                        3 => track.residual = 1,
+                        0 => track.set_turn_index(1),
+                        1 => track.set_cursor(1),
+                        2 => track.set_reversed(true),
+                        3 => track.set_residual(1),
                         _ => unreachable!(),
                     }
                     loco.store_track_progress(family, track);
@@ -3106,7 +3107,7 @@ mod state_hash_field_tests {
         loco.ensure_installed_track_state();
         loco.store_track_destination(TrackFamily::Drive, Some(DriveCoord::cell(45, 40, 0)));
         let mut progress = loco.track_progress(TrackFamily::Drive).unwrap();
-        progress.residual = 3;
+        progress.set_residual(3);
         loco.store_track_progress(TrackFamily::Drive, progress);
         sim_a.substrate.entities.insert(entity_a);
         sim_b.substrate.entities.insert(entity_b);
@@ -4625,10 +4626,10 @@ mod bridge161_hash_projection_tests {
         };
         match payload {
             LocomotorRuntimePayload::Walk(state) => match field {
-                0 => state.head = Some(coord),
-                1 => state.destination = Some(coord),
-                2 => state.moving = true,
-                3 => state.animation_moving = true,
+                0 => state.set_head(Some(coord)),
+                1 => state.set_destination(Some(coord)),
+                2 => state.set_moving(true),
+                3 => state.set_animation_moving(true),
                 _ => unreachable!(),
             },
             LocomotorRuntimePayload::Hover(state) => state.set_head(Some(coord)),
@@ -4639,17 +4640,17 @@ mod bridge161_hash_projection_tests {
                     2 => state.clone().with_phase_for_test(2),
                     3 => {
                         let mut flight = state.flight();
-                        flight.target_height = 7;
+                        flight.set_target_height(7);
                         state.clone().with_flight_for_test(flight)
                     }
                     4 => {
                         let mut flight = state.flight();
-                        flight.current_speed_bits = 1.0f64.to_bits();
+                        flight.set_current_speed_bits_for_test(1.0f64.to_bits());
                         state.clone().with_flight_for_test(flight)
                     }
                     5 => {
                         let mut params = state.params();
-                        params.speed = 99;
+                        params.set_speed_for_test(99);
                         state.clone().with_params_for_test(params)
                     }
                     6 => state.clone().with_landing_latched_for_test(true),

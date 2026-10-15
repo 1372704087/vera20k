@@ -83,7 +83,7 @@ fn release_fixture() -> Simulation {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.residual = 971;
+        progress.set_residual(971);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -93,7 +93,7 @@ fn release_fixture() -> Simulation {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.reversed = true;
+        progress.set_reversed(true);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -156,13 +156,13 @@ fn sell_release_uses_building_center_preserves_pose_and_orders_links_after_speed
         .unwrap();
     assert_eq!(
         (
-            drive.track().turn_index,
-            drive.track().cursor,
-            drive.track().residual
+            drive.track().turn_index(),
+            drive.track().cursor(),
+            drive.track().residual()
         ),
         (0x47, 0, 971)
     );
-    assert!(drive.track().reversed);
+    assert!(drive.track().reversed());
     assert!(!unit.lifecycle.in_limbo() && unit.in_logic_vector.is_member());
     assert!(!unit.radio_contacts.contains(2));
     assert!(
@@ -266,7 +266,7 @@ fn force_limbo_early_return_does_not_skip_caller_speed_links_or_break() {
         .unwrap();
     assert_eq!(drive.head_to(), None);
     assert!(!drive.track_valid());
-    assert_eq!(drive.track().turn_index, 0x47);
+    assert_eq!(drive.track().turn_index(), 0x47);
     assert_eq!(drive.destination(), Some(DriveCoord::cell(7, 8, 417)));
     assert_eq!(
         sim.substrate.entities.get(2).unwrap().bunker.occupant(),

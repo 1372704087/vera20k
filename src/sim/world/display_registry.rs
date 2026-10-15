@@ -74,7 +74,7 @@ pub(crate) fn entity_layer(
             .and_then(|l| l.jumpjet_runtime())
             .expect("active Jumpjet owns its runtime")
             .params()
-            .height
+            .height()
     } else {
         // Object5F4260 uses Rules+420, not FlightLevel or a type's height.
         rules.map_or(400, |(rules, _)| rules.general.display_cruise_height)
@@ -403,7 +403,7 @@ mod tests {
                 .and_then(|l| l.jumpjet_runtime_mut())
             {
                 let mut params = runtime.params();
-                params.height = input["linked_height"].as_i64().unwrap_or(500) as i32;
+                params.set_height_for_test(input["linked_height"].as_i64().unwrap_or(500) as i32);
                 *runtime = runtime.clone().with_params_for_test(params);
             }
             let mut cell = super::super::common_raw_test_terrain_cell(

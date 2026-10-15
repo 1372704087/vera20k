@@ -3,7 +3,7 @@
 //! Foot path wrapper distinguishes six. Keep those answers in one owner.
 
 use crate::map::cell_index::NativeCellIdentity as Cell;
-use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
+use crate::map::resolved_terrain::NativeCellQuery;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InfantryEntryClass {
@@ -55,20 +55,38 @@ pub(crate) enum EntryQueryMode {
     CheckLocomotor,
 }
 
-fn level_slope(terrain: &ResolvedTerrainGrid, cell: Cell) -> (i32, u8) {
-    match cell {
-        Cell::Real(index) => {
-            let cell = &terrain.cells()[index];
-            (i32::from(cell.level as i8), cell.slope_type)
-        }
-        Cell::Dummy => {
-            let state = terrain.shared_cell_dummy().snapshot();
-            (i32::from(state.level), state.slope_type)
-        }
+/// The cell fields the Foot4D9C60 prelude and its backstep read. A lookup off
+/// the map stamps the shared Dummy, whose fields are read at each use; a real
+/// cell's do not change while Can_Enter_Cell runs, so a caller may read them
+/// from an earlier copy.
+pub(crate) trait PreludeCells {
+    fn coord(&self, cell: Cell) -> (i16, i16);
+    fn lookup(&self, coord: (i16, i16)) -> Cell;
+    /// The signed level and the slope.
+    fn level_slope(&self, cell: Cell) -> (i32, u8);
+    fn flags(&self, cell: Cell) -> u32;
+}
+
+impl PreludeCells for NativeCellQuery<'_> {
+    fn coord(&self, cell: Cell) -> (i16, i16) {
+        NativeCellQuery::coord(self, cell)
+    }
+
+    fn lookup(&self, coord: (i16, i16)) -> Cell {
+        NativeCellQuery::lookup(self, coord)
+    }
+
+    fn level_slope(&self, cell: Cell) -> (i32, u8) {
+        let (level, slope) = self.ground_fields(cell);
+        (i32::from(level as i8), slope)
+    }
+
+    fn flags(&self, cell: Cell) -> u32 {
+        NativeCellQuery::flags(self, cell)
     }
 }
 
-pub(crate) fn backstep_cell(cells: &NativeCellQuery<'_>, target: Cell, direction: i32) -> Cell {
+pub(crate) fn backstep_cell(cells: &impl PreludeCells, target: Cell, direction: i32) -> Cell {
     let coord = cells.coord(target);
     let (dx, dy) = crate::util::direction::DIRECTION_DELTAS[((direction - 4) & 7) as usize];
     cells.lookup((
@@ -81,23 +99,22 @@ pub(crate) fn backstep_cell(cells: &NativeCellQuery<'_>, target: Cell, direction
 /// GetTube query. A NULL previous Cell performs this second lookup, preserving
 /// retained Dummy aliases and the exact mutable height/object-list outputs.
 pub(crate) fn adjust_height_and_list(
-    terrain: &ResolvedTerrainGrid,
+    cells: &impl PreludeCells,
     target: Cell,
     direction: i32,
     previous: Option<Cell>,
     height: &mut i32,
     list_bridge: &mut bool,
 ) -> bool {
-    let cells = NativeCellQuery::canonical(terrain);
-    let source = previous.unwrap_or_else(|| backstep_cell(&cells, target, direction));
-    let target_level = level_slope(terrain, target).0;
+    let source = previous.unwrap_or_else(|| backstep_cell(cells, target, direction));
+    let target_level = cells.level_slope(target).0;
     if direction == -1 {
         if *height == -1 && cells.flags(target) & 0x100 != 0 {
             *height = target_level + crate::util::lepton::BRIDGE_DECK_HEIGHT_LEVELS;
         }
         return true;
     }
-    let (source_level, source_slope) = level_slope(terrain, source);
+    let (source_level, source_slope) = cells.level_slope(source);
     if *height == -1 && cells.flags(source) & 0x100 != 0 {
         *height = source_level + crate::util::lepton::BRIDGE_DECK_HEIGHT_LEVELS;
         if cells.flags(target) & 0x200 == 0 {
@@ -118,7 +135,7 @@ pub(crate) fn adjust_height_and_list(
         }
         1 => {
             if difference > 0 {
-                level_slope(terrain, target).1 != 0
+                cells.level_slope(target).1 != 0
             } else {
                 source_slope != 0
             }
@@ -164,7 +181,7 @@ mod tests {
         );
         let (mut height, mut list_bridge) = (height, false);
         let admitted = adjust_height_and_list(
-            &terrain,
+            &NativeCellQuery::canonical(&terrain),
             target,
             2,
             Some(source),

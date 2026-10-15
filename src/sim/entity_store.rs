@@ -278,6 +278,19 @@ impl EntityStore {
         self.entities[slot as usize].as_deref()
     }
 
+    /// `stable_id`'s entity and the slot it is stored in. Slots stay put
+    /// while the store is borrowed, so tables built under one borrow may
+    /// index by them; every slot is below [`Self::slot_count`].
+    pub(crate) fn get_in_slot(&self, stable_id: u64) -> Option<(usize, &GameEntity)> {
+        let slot = *self.slot_of.get(&stable_id)? as usize;
+        Some((slot, self.entities[slot].as_deref()?))
+    }
+
+    /// One more than the highest slot.
+    pub(crate) fn slot_count(&self) -> usize {
+        self.entities.len()
+    }
+
     /// Mutate ordinary entity payload. Indexed identity is read through accessors;
     /// live ownership changes use the world lifecycle and `change_owner` below.
     /// Replacing a stored entity wholesale is unsupported: remove/insert through

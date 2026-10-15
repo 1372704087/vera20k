@@ -76,7 +76,7 @@ impl TouchLog {
 
 /// Whether debug builds compare each read of a kept product (the movement
 /// pass's derived inputs, the kept Ground sort keys, the pointer-expiry
-/// listeners) with a fresh derivation.
+/// listeners, a path batch's entry facts) with a fresh derivation.
 /// Never in release. On in debug unless `VERA20K_SKIP_LIVE_READ_CHECK` is set,
 /// which scale instruments use to time without the rebuilds the checks cost.
 /// It only removes assertions, so it cannot change a result.

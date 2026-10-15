@@ -165,11 +165,17 @@ fn escape_counter_matches_native_cell_list_and_raw_owner_gates() {
             .as_ref()
             .unwrap()
             .native_cell_identity((11, 10));
+        // Asked from the world and again through a path batch's kept facts.
         let probe = |sim: &mut Simulation| {
-            sim.foot_entry_receiver(90, &rules, None)
-                .unwrap()
-                .can_enter(cell, InfantryEntryArgs::REPAIR)
-                .unwrap()
+            let kept = EntryFacts::fitted(sim);
+            let [world, batched] = [None, Some(&kept)].map(|facts| {
+                sim.foot_entry_receiver(90, &rules, None, facts)
+                    .unwrap()
+                    .can_enter(cell, InfantryEntryArgs::REPAIR)
+                    .unwrap()
+            });
+            assert_eq!(world, batched, "kept facts answer as the world does");
+            world
         };
         for (name, rng) in [
             ("scenario", sim.scenario_rng.native_state_hex()),

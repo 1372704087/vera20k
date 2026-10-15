@@ -69,7 +69,9 @@
 //! blocker plane needs an overlay grid, through which movers reach it by
 //! their Foot+55C counters, which Mark0 leaves alone. Lookups off the map
 //! stamp the shared Dummy, so each search detaches it
-//! (`SharedCellDummy::detached`).
+//! (`SharedCellDummy::detached`). The searches share each real cell's and
+//! blocker's Can_Enter_Cell facts, read once a batch
+//! ([`crate::sim::world::EntryFacts`]); the Dummy is read at each use.
 //!
 //! Residuals: batched searches don't stamp the shared Dummy's coordinate, so
 //! a later read that doesn't stamp first sees the last serial stamp. Mark0's
@@ -95,7 +97,7 @@ use crate::sim::mission::MissionId;
 use crate::sim::pathfinding::zone_search::PathSearchFailure;
 use crate::sim::pathfinding::{BlockerNeighborCounts, PathGrid};
 use crate::sim::radio::Contacts;
-use crate::sim::world::Simulation;
+use crate::sim::world::{EntryFacts, Simulation};
 
 /// The most registrations one live object pass answers; see the module docs.
 /// Ordinary battles stay under it, and a pass of this many searches leaves
@@ -116,6 +118,10 @@ pub(crate) struct PathBatch {
     /// in between.
     #[serde(skip)]
     ready: BTreeMap<u64, ReadySlot>,
+    /// The last pass's kept cell and blocker entry facts, emptied before
+    /// each pass's searches.
+    #[serde(skip)]
+    entry_facts: EntryFacts,
     /// Answers Find_Path used, by [`WaitingRequest`].
     #[cfg(test)]
     #[serde(skip)]
@@ -377,8 +383,23 @@ impl Simulation {
             &self.interner,
             Some(rules),
         );
+        // Every search reads the same world, so a cell's or blocker's entry
+        // facts are read once a batch and shared.
+        let cells = self
+            .resolved_terrain
+            .as_ref()
+            .expect("checked by the caller")
+            .cells()
+            .len();
+        let slots = self.substrate.entities.slot_count();
+        self.path_batch
+            .as_mut()
+            .expect("batching is on")
+            .entry_facts
+            .reset(cells, slots);
         let sim = &*self;
         let counts = sim.movement_pass_cache.current_blocker_plane();
+        let facts = &sim.path_batch.as_ref().expect("batching is on").entry_facts;
         let dummy = sim
             .resolved_terrain
             .as_ref()
@@ -389,7 +410,9 @@ impl Simulation {
         #[cfg(test)]
         let rng = sim.rng_state();
         let answers = crate::sim::parallel::map(pending, |&(id, request)| {
-            dummy.detached(|| sim.batched_search(id, request, rules, registry, grid, counts))
+            dummy.detached(|| {
+                sim.batched_search(id, request, rules, registry, grid, counts, Some(facts))
+            })
         });
         #[cfg(test)]
         assert_eq!(rng, sim.rng_state(), "batched searches draw no RNG");
@@ -397,7 +420,8 @@ impl Simulation {
     }
 
     /// `id`'s search as its `request`'s Find_Path would run it now, without
-    /// effects; `None` when it has nothing to answer.
+    /// effects, reading the batch's kept entry `facts`; `None` when it has
+    /// nothing to answer.
     fn batched_search(
         &self,
         id: u64,
@@ -406,6 +430,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         grid: &PathGrid,
         counts: &BlockerNeighborCounts,
+        facts: Option<&EntryFacts>,
     ) -> Option<BatchedSearch> {
         let waiting = request;
         let request = match waiting {
@@ -431,6 +456,7 @@ impl Simulation {
             grid,
             counts,
             MoverLift::Emulated,
+            facts,
         );
         if read_own_cell
             || matches!(

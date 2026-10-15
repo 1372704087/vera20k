@@ -173,7 +173,7 @@ pub mod trigger_runtime;
 
 // --- AI, replay, selection, debug ---
 pub(crate) mod ai_build_need;
-pub(crate) mod ai_buildable;
+pub mod ai_buildable;
 pub(crate) mod ai_team_creation;
 pub(crate) mod ai_unit_choice;
 pub mod debug_event_log;

@@ -58,6 +58,8 @@ struct FootSearchEntry<'a> {
     /// about that cell, so asking one marks the search.
     own_cell: Option<(i16, i16)>,
     read_own_cell: std::cell::Cell<bool>,
+    /// A Unit whose type is `Passive=`.
+    passive_unit: bool,
 }
 
 /// Whether Mark0 has lifted the searching mover off its cell.
@@ -130,6 +132,9 @@ impl crate::sim::pathfinding::SearchFootEntry for FootSearchEntry<'_> {
         &self,
     ) -> Option<std::cell::Ref<'_, crate::sim::pathfinding::SearchMarkerOverlay>> {
         self.markers.prepared()
+    }
+    fn is_passive_unit(&self) -> bool {
+        self.passive_unit
     }
     fn finishing_threat_coefficient(
         &self,
@@ -710,6 +715,10 @@ impl Simulation {
             unlisted,
             own_cell: unlisted.map(|_| (own_cell.0 as i16, own_cell.1 as i16)),
             read_own_cell: std::cell::Cell::new(false),
+            passive_unit: actor.category() == EntityCategory::Unit
+                && rules
+                    .object(self.interner.resolve(actor.type_ref()))
+                    .is_some_and(|object| object.passive),
         };
         let searched = request.search(
             goal,

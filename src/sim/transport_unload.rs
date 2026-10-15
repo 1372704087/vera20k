@@ -17,14 +17,12 @@
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_rect::{
-    IsClearToMoveResult, LiveCellPassabilityQuery, evaluate_live_cell_passability,
-};
 use crate::sim::find_nearby_cell::PassabilityArgs;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::bump_crush;
+use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::passenger::{
     DepartureFailure, DepartureRoute, depart_cargo_head, exit_cell_position,
@@ -116,8 +114,10 @@ fn cell_level_or(sim: &Simulation, cell: (u16, u16), fallback: u8) -> u8 {
     sim.terrain_cell_level(cell.0, cell.1).unwrap_or(fallback)
 }
 
-/// The FNPC `allow_bridge_cells == 0` reject and the placement skip at
-/// `0x0073D9EB` (`CellClass+0x140 & 0x100`, the structural bridge flag).
+/// The scans' skip of an accepted exit cell (Mission_Unload `0x0073D9EB`,
+/// `CellClass+0x140 & 0x100`, the structural bridge flag). VERA also asks
+/// the PathGrid, whose flag adds decks without that bit
+/// (`project_terrain_path_cell`).
 fn cell_has_structural_bridge(sim: &Simulation, cell: (u16, u16)) -> bool {
     sim.path_grid()
         .and_then(|grid| grid.cell(cell.0, cell.1))
@@ -243,90 +243,34 @@ fn hull_turn_finished(entity: &GameEntity, now: u32) -> bool {
     !entity.body_facing.is_rotating(now)
 }
 
-/// `ObjectClass::IsCellOccupied` (vtable `+0x1AC`) for the ejected passenger at
-/// one cell, as called at `0x0073D994` / `0x0073D9C2` with
-/// `(cell, octant, level, NULL, alt=1)`. A zero return is "may enter".
+/// The passenger's own `Can_Enter_Cell` (vtable `+0x1AC`,
+/// [`Simulation::foot_can_enter`]) at one exit-scan cell, called with no
+/// previous cell and mode 1; zero is "may enter". Mode 1 changes no answer
+/// ([`EntryQueryMode`](crate::sim::movement::infantry_entry::EntryQueryMode)).
+/// The scans pass:
+/// - vehicle Mission_Unload (`0x0073D994` two cells out, then `0x0073D9C2`
+///   the exit cell): the octant and the transport's Object `0x005F5F00`
+///   height;
+/// - the Bio Reactor's `Mission_Unload @ 0x0044D880` (`0x0044D988`): the
+///   octant and the building's height;
+/// - the landed aircraft (`0x00415B8F`): direction and height -1.
+///
+/// Without map cells no cell is open.
 fn passenger_can_enter(
-    sim: &Simulation,
-    rules: &RuleSet,
-    passenger: &GameEntity,
-    cell: (u16, u16),
-) -> bool {
-    let path_grid = sim.path_grid();
-    if !cell_in_map(sim, cell) {
-        return false;
-    }
-    let obj = sim.object_type(passenger.type_ref(), rules);
-    let speed_type = passenger
-        .locomotor
-        .as_ref()
-        .map(|loco| loco.speed_type())
-        .or_else(|| obj.map(|o| o.speed_type))
-        .unwrap_or(SpeedType::Foot);
-    let movement_zone = obj.map_or(MovementZone::Normal, |o| o.movement_zone);
-    let land_passable = land_passable_for(sim, cell, speed_type);
-    if path_grid.is_none() && sim.resolved_terrain.is_none() {
-        // Headless fixtures have no Cell substrate: only the occupancy verdict
-        // is available.
-        let occupancy = sim.substrate.occupancy.get(cell.0, cell.1);
-        return if passenger.category() == EntityCategory::Infantry {
-            bump_crush::cell_passable_for_infantry(occupancy, MovementLayer::Ground)
-        } else {
-            occupancy.is_none_or(|occ| occ.is_empty_on(MovementLayer::Ground))
-        };
-    }
-    matches!(
-        evaluate_live_cell_passability(LiveCellPassabilityQuery {
-            target: cell,
-            speed_type,
-            movement_zone,
-            requested_zone: None,
-            actual_zone: 0,
-            requested_layer: None,
-            ignore_infantry: false,
-            ignore_vehicles: false,
-            land_passable,
-            path_grid,
-            resolved_terrain: sim.resolved_terrain.as_ref(),
-            raw_occupation: Some(&sim.substrate.raw_cell_occupation),
-        }),
-        IsClearToMoveResult::Clear { .. } | IsClearToMoveResult::ClearWinged
-    )
-}
-
-/// The Bio Reactor's `Mission_Unload @ 0x0044D880` calls the passenger's
-/// `+0x1AC` twice for each strict candidate and once for each relaxed
-/// candidate. Infantry dispatches to `InfantryClass::Can_Enter_Cell
-/// @ 0x0051BF90`; `0x44D988` supplies the building's `5F5F00` height,
-/// octant, NULL previous cell, and mode 1. The shared `foot_can_enter` owner
-/// models that active receiver (the mode is a side-effect-free locomotor
-/// query); zero is the native acceptance result.
-fn absorber_passenger_can_enter(
     sim: &Simulation,
     rules: &RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     passenger_id: u64,
     cell: (u16, u16),
-    octant: usize,
-    height: i32,
+    args: InfantryEntryArgs,
 ) -> bool {
     let Some(terrain) = sim.resolved_terrain.as_ref() else {
         return false;
     };
     let cell = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain)
         .lookup((cell.0 as i16, cell.1 as i16));
-    sim.foot_can_enter(
-        passenger_id,
-        cell,
-        crate::sim::movement::infantry_entry::InfantryEntryArgs {
-            direction: octant as i32,
-            height,
-            previous_cell: None,
-        },
-        rules,
-        registry,
-    )
-    .is_ok_and(|code| code == 0)
+    sim.foot_can_enter(passenger_id, cell, args, rules, registry)
+        .is_ok_and(|code| code == 0)
 }
 
 fn queue_guard(sim: &mut Simulation, id: u64) {
@@ -400,18 +344,36 @@ fn eject_head_passenger(
         DepartureRoute::Vehicle,
         |sim, pax_id| {
             let now = sim.session.binary_frame;
-            let (base, facing16, transport_z, leave_sound) = {
+            let (base, facing16, transport_z, height, leave_sound) = {
                 let transport = sim
                     .substrate
                     .entities
                     .get(transport_id)
                     .expect("transport resolved before the head pop");
                 let obj = sim.object_type(transport.type_ref(), rules);
+                // The scan's `+0x1AC` height: the transport's Object
+                // `0x005F5F00` (`0x0073D97B`, `0x0073D9A9`).
+                let height = sim
+                    .resolved_terrain
+                    .as_ref()
+                    .map(|terrain| {
+                        let cells =
+                            crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+                        crate::sim::movement::ground_pose::query_object_cell_height(
+                            &cells,
+                            crate::sim::movement::ground_pose::position_world_coord(
+                                &transport.position,
+                            ),
+                            transport.on_bridge(),
+                        )
+                    })
+                    .unwrap_or(0);
                 (
                     (transport.position.rx(), transport.position.ry()),
                     // `0x0073D8E0..D8F4`: the hull's `Current()`, full 16 bits.
                     transport.body_facing_current(now),
                     transport.position.z(),
+                    height,
                     obj.and_then(|o| o.leave_transport_sound.clone()),
                 )
             };
@@ -433,20 +395,19 @@ fn eject_head_passenger(
                 let octant = (start + i) & 7;
                 let exit_cell = cell_from(base, CELL_DELTAS[octant]);
                 let beyond_cell = exit_cell.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
-                let (adjacent_ok, beyond_ok) = match (exit_cell, beyond_cell) {
-                    (Some(exit), Some(beyond)) => {
-                        let passenger = sim
-                            .substrate
-                            .entities
-                            .get(pax_id)
-                            .expect("passenger resolved above");
-                        (
-                            passenger_can_enter(sim, rules, passenger, exit),
-                            passenger_can_enter(sim, rules, passenger, beyond),
-                        )
-                    }
-                    _ => (false, false),
+                // Both passes ask the cell two steps out first, then the exit
+                // cell (`0x0073D994`, `0x0073D9C2`).
+                let args = InfantryEntryArgs {
+                    direction: octant as i32,
+                    height,
+                    previous_cell: None,
                 };
+                let beyond_ok = beyond_cell.is_some_and(|cell| {
+                    passenger_can_enter(sim, rules, overlay_registry, pax_id, cell, args)
+                });
+                let adjacent_ok = exit_cell.is_some_and(|cell| {
+                    passenger_can_enter(sim, rules, overlay_registry, pax_id, cell, args)
+                });
                 let accept = adjacent_ok && (beyond_ok || !strict_pass);
                 if !accept {
                     if strict_pass && i == 7 {
@@ -695,43 +656,31 @@ pub(crate) fn building_mission_unload_absorber(
                 let octant = (start + index) & 7;
                 let adjacent = cell_from(base, CELL_DELTAS[octant]);
                 let beyond = adjacent.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
+                let args = InfantryEntryArgs {
+                    direction: octant as i32,
+                    height,
+                    previous_cell: None,
+                };
                 let accepts = if strict_pass {
                     // Native tests the cell two steps away before the adjacent
                     // cell. The relaxed pass calls only the adjacent cell.
                     let beyond_open = beyond.is_some_and(|cell| {
-                        absorber_passenger_can_enter(
-                            sim,
-                            rules,
-                            overlay_registry,
-                            passenger_id,
-                            cell,
-                            octant,
-                            height,
-                        )
+                        passenger_can_enter(sim, rules, overlay_registry, passenger_id, cell, args)
                     });
                     beyond_open
                         && adjacent.is_some_and(|cell| {
-                            absorber_passenger_can_enter(
+                            passenger_can_enter(
                                 sim,
                                 rules,
                                 overlay_registry,
                                 passenger_id,
                                 cell,
-                                octant,
-                                height,
+                                args,
                             )
                         })
                 } else {
                     adjacent.is_some_and(|cell| {
-                        absorber_passenger_can_enter(
-                            sim,
-                            rules,
-                            overlay_registry,
-                            passenger_id,
-                            cell,
-                            octant,
-                            height,
-                        )
+                        passenger_can_enter(sim, rules, overlay_registry, passenger_id, cell, args)
                     })
                 };
                 if !accepts {
@@ -1148,7 +1097,7 @@ const AIRCRAFT_EXIT_SCAN: [usize; 9] = [4, 5, 3, 7, 1, 0, 6, 2, 4];
 ///
 /// `0x00415B32`..`0x00415BAB`: for each table octant, the candidate cell is
 /// the aircraft cell plus `g_DirectionOffsets[octant & 7]`, kept in
-/// `[ESP+0x10]`, and the passenger's `IsCellOccupied(cell, -1, -1, 0, 1)`
+/// `[ESP+0x10]`, and the passenger's `Can_Enter_Cell(cell, -1, -1, 0, 1)`
 /// (vtable `+0x1AC`, `0x00415B8F`) ends the scan on the first zero return.
 /// When every neighbour refuses, the counter stops at 8: the facing index
 /// reads past the table (octant 4, S) and the destination stays the last
@@ -1204,15 +1153,18 @@ fn eject_from_aircraft(
 
             let mut index = 8usize;
             let mut scan_cell: Option<(u16, u16)> = None;
+            // `0x00415B47..0x00415B65`: no direction and no height.
+            let args = InfantryEntryArgs {
+                direction: -1,
+                height: -1,
+                previous_cell: None,
+            };
             for (i, &octant) in AIRCRAFT_EXIT_SCAN[..8].iter().enumerate() {
                 let candidate = cell_from(cell, CELL_DELTAS[octant & 7]);
                 scan_cell = candidate;
-                let passenger = sim
-                    .substrate
-                    .entities
-                    .get(pax_id)
-                    .expect("passenger resolved above");
-                if candidate.is_some_and(|c| passenger_can_enter(sim, rules, passenger, c)) {
+                if candidate.is_some_and(|cell| {
+                    passenger_can_enter(sim, rules, overlay_registry, pax_id, cell, args)
+                }) {
                     index = i;
                     break;
                 }

@@ -868,7 +868,7 @@ fn nighthawk_unloads_only_when_landed() {
 /// `0x00415B10`: five conscripts leave a landed Nighthawk one per `[Unload]`
 /// dispatch, each `Unlimbo`ed at the aircraft's own cell and sent on a Move
 /// to the first table-order neighbour (`DAT_00817A58`: S, SW, SE, NW, NE, N,
-/// W, E) its `IsCellOccupied` accepted; the aircraft ends up in Guard.
+/// W, E) its `Can_Enter_Cell` accepted; the aircraft ends up in Guard.
 /// Native gives no distinctness guarantee across passengers — the scan
 /// restarts at S every time — so the assertion is membership in the eight
 /// neighbours plus the table's first entry for the first passenger.
@@ -1072,6 +1072,25 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     );
 }
 
+/// Mission_Unload's scan asks the passenger's own `Can_Enter_Cell` at the
+/// transport's height (`0x0073D994`, `0x0073D9C2`). Its height prelude
+/// (`0x004D9C60`) refuses a cell two levels above the transport, so the strict
+/// pass leaves octant 5's exit (19, 21) for octant 6's (19, 20).
+#[test]
+fn vehicle_unload_scan_refuses_an_exit_two_levels_up() {
+    let mut fx = Fixture::new(|_, _| false);
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    terrain.cell_mut(19, 21).unwrap().level = 2;
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let pax = fx.board(bfrt, 1);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&pax, 200);
+    assert_eq!(order.len(), 1, "the conscript left: {order:?}");
+    assert_eq!(fx.facing(bfrt), 0x20, "state 0 still backs onto octant 5");
+    assert_eq!(fx.cell(pax[0]), (19, 20), "octant 6, not the raised exit");
+}
+
 /// Mission_Unload hands its Unlimbo the exit direction (`0x0073DB45..0x0073DB5B`).
 /// After Foot success, UnitClass::Unlimbo snaps the turret (`+0x3A0`) to it
 /// (`0x00737BBE..0x00737BD2`), and TechnoClass::Unlimbo the body (`0x006F6DAA`).
@@ -1120,10 +1139,42 @@ fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
     assert_eq!(turret, 0xC000, "the turret faces the exit too");
 }
 
+/// A passenger that was in the playfield (`+0x3D5`) gets 7 from its
+/// `Can_Enter_Cell` for a cell outside it (`0x0073F34C`); Mission_Unload raises
+/// no `A8E7AC` until after the scan (`0x0073DA33`). In this playfield diamond
+/// (`y - x < 2`) octant 5's exit (19, 21) and octant 6's far cell (18, 20) lie
+/// outside, so the strict pass takes octant 7.
+#[test]
+fn vehicle_unload_scan_refuses_exits_outside_the_playfield() {
+    let mut fx = Fixture::new(|_, _| false);
+    fx.sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+        base: 0,
+        off_fc: -1,
+        off_100: -100,
+        off_104: 100,
+        off_108: 200,
+    });
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let pax = fx.board(bfrt, 1);
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(pax[0])
+        .expect("passenger")
+        .set_in_playfield(true);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed(&pax, 200);
+    assert_eq!(order.len(), 1, "the conscript left: {order:?}");
+    assert_eq!(fx.cell(pax[0]), (19, 19), "octant 7's exit");
+}
+
 /// The vehicle passenger's Find_Nearby_Passable_Cell (`0x0073DA96..0x0073DADD`)
-/// runs the playfield anchor gate with no height gate. The strict pass takes
-/// octant 5, exit (19, 21), which lies outside this playfield diamond
-/// (`y - x < 2`), so ring 0 fails and ring 1 answers. Its only in-diamond
+/// runs the playfield anchor gate with no height gate. The passenger never
+/// entered the playfield (`+0x3D5` clear, as a reinforcement's cargo), so its
+/// `Can_Enter_Cell` does not refuse cells outside it (`0x0073F34C`), and the
+/// strict pass takes octant 5, exit (19, 21), which lies outside this playfield
+/// diamond (`y - x < 2`). Ring 0 fails and ring 1 answers. Its only in-diamond
 /// cells besides the transport's own are (19, 20) and (20, 21), raised two
 /// levels.
 #[test]
@@ -1160,6 +1211,12 @@ fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground(
         .get_mut(bggy)
         .expect("passenger")
         .passenger_role = PassengerRole::inside_for_test(bfrt, true);
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(bggy)
+        .expect("passenger")
+        .set_in_playfield(false);
     assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
 
     let order = fx.run_until_revealed_with_missions(&[bggy], 200);

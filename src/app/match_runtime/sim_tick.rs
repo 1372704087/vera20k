@@ -1103,6 +1103,20 @@ fn advance_one_simulation_frame(
                 update_building_placement_preview(state);
             }
             match output {
+                LifecycleOutput::PlanningNodeDeleted {
+                    owner,
+                    node_id,
+                    next_node,
+                } => {
+                    state.match_state.input.planning.node_deleted(
+                        node_id,
+                        if Some(owner) == local_house {
+                            next_node
+                        } else {
+                            None
+                        },
+                    );
+                }
                 LifecycleOutput::ProductionFactoryLinked { .. }
                 | LifecycleOutput::ProductionFactoryAbandoning { .. }
                 | LifecycleOutput::ProductionFactoryUnlinked { .. }
@@ -1277,6 +1291,10 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
     let mut refresh_sidebar = false;
     for effect in effects {
         match effect {
+            TriggerEffect::MusicTheme { request } => {
+                let wall_ms = monotonic_frame_pacer_ms(state, Instant::now());
+                state.audio.queue_theme(request, wall_ms);
+            }
             TriggerEffect::ChronoScreen { command } => {
                 crate::app::chrono_screen::apply(state, *command);
             }

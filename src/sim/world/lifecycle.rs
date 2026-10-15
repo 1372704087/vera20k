@@ -584,6 +584,13 @@ pub(crate) enum ConcealOutcome {
 /// but the stream preserves the verified native relative ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LifecycleOutput {
+    /// NodeDelete6380A6 captures its FIRST member successor before removal;
+    ///6380EE updates only the local house retained presentation highlight.
+    PlanningNodeDeleted {
+        owner: InternedId,
+        node_id: u64,
+        next_node: Option<u64>,
+    },
     /// Local HouseBegin4FA6AA→Sidebar6A6140 links the reached cameo to this
     /// live Factory. Product expiry and a later rearm do not erase the link.
     ProductionFactoryLinked {
@@ -2890,7 +2897,11 @@ impl Simulation {
     ///
     /// gamemd-derived: active YR `DrainDeferredFinalizationQueue @ 0x00725C70`
     /// performs scalar destruction/freeing only after the frame commit.
-    pub(crate) fn retire_non_entity_object(&mut self, stable_id: u64) -> bool {
+    pub(crate) fn retire_non_entity_object(
+        &mut self,
+        stable_id: u64,
+        context: UninitContext<'_>,
+    ) -> bool {
         let represented = matches!(
             self.classify_object(stable_id),
             Some(ObjectKind::Terrain | ObjectKind::Projectile | ObjectKind::Wave)
@@ -2902,10 +2913,10 @@ impl Simulation {
             // `ObjectClass::UnInit @ 0x005F65F0` broadcasts the bullet's
             // expiry before it leaves Logic; an anim riding it ends
             // (`AnimClass::PointerExpired @ 0x00425150`, `+0x17C`).
-            self.notify_pointer_expired(stable_id, UninitContext::default());
+            self.notify_pointer_expired(stable_id, context);
             // ObjectLimbo5F4D61 repeats DetachAll before removing the fired
             // Bullet's membership. The later scalar destructor repeats once.
-            self.notify_pointer_expired(stable_id, UninitContext::default());
+            self.notify_pointer_expired(stable_id, context);
         }
         // The same UnInit's Limbo (vt+0xD4) detaches a dying tree's custom
         // sound (`object_sound`).
@@ -2943,7 +2954,7 @@ impl Simulation {
             self.resolved_terrain.as_mut(),
         );
         if finalized {
-            let retired = self.retire_non_entity_object(lethal.stable_id);
+            let retired = self.retire_non_entity_object(lethal.stable_id, context);
             debug_assert!(retired);
         }
         finalized
@@ -4853,6 +4864,24 @@ impl Simulation {
                 "the expiry listeners of {expired_id} diverged from a live read"
             );
         }
+        // Original4685CC gates the Bullet callback's scalable-list arm on
+        // control!=0, expired RTTI8 and its current retained type. Read once,
+        // before any listener runs: RuleSet/type remain immutable through this
+        // broadcast, the expiring Bullet stays stored until dtor466581 (its
+        // own registered subscriber is one of the Bullets), and Unit741439
+        // only enrolls a fresh returned Bullet, never this old expired
+        // identity. With the arm on and the Bullet enrolled, every present
+        // Bullet subscriber removes one enrolled duplicate, so production
+        // builds then visit every Bullet, not only those the index finds.
+        // Then retain the proven lack of further matches.
+        let mut scalable_expiry_pending = control == PointerExpiryControl::Uninit
+            && self
+                .projectiles
+                .get(expired_id)
+                .and_then(|bullet| bullet.payload.projectile_type())
+                .and_then(|type_id| context.rules()?.projectile(self.interner.resolve(type_id)))
+                .is_some_and(|kind| kind.scalable)
+            && self.projectiles.scalable_enrolled(expired_id);
         #[cfg(test)]
         let listeners: Vec<(u64, ObjectKind, bool)> = {
             let found: std::collections::BTreeSet<u64> = acting.iter().map(|&(id, _)| id).collect();
@@ -4862,10 +4891,23 @@ impl Simulation {
                 .collect()
         };
         #[cfg(not(test))]
-        let listeners: Vec<(u64, ObjectKind, bool)> = acting
-            .into_iter()
-            .map(|(id, kind)| (id, kind, true))
-            .collect();
+        let listeners: Vec<(u64, ObjectKind, bool)> = {
+            let mut listeners: Vec<(u64, ObjectKind, bool)> = acting
+                .into_iter()
+                .map(|(id, kind)| (id, kind, true))
+                .collect();
+            if scalable_expiry_pending {
+                listeners.extend(
+                    self.projectiles
+                        .iter()
+                        .map(|(&id, _)| (id, ObjectKind::Projectile, false)),
+                );
+                // Stable: a Bullet the index found keeps its first entry.
+                listeners.sort_by_key(|&(id, ..)| id);
+                listeners.dedup_by_key(|&mut (id, ..)| id);
+            }
+            listeners
+        };
         for (listener_id, kind, found) in listeners {
             // A callback may have removed a later listener; an ID never
             // moves to another store. An entity listener is read once, for
@@ -5071,14 +5113,18 @@ impl Simulation {
                 } else {
                     ProjectileTarget::None
                 };
-                let changed = self.projectiles.pointer_expired(
-                    listener_id,
-                    expired_id,
-                    projectile_replacement_target,
-                );
-                debug_assert!(changed.is_some());
+                let (changed, remaining) = self
+                    .projectiles
+                    .pointer_expired(
+                        listener_id,
+                        expired_id,
+                        projectile_replacement_target,
+                        scalable_expiry_pending,
+                    )
+                    .expect("present Bullet subscriber");
+                scalable_expiry_pending = remaining;
                 debug_assert!(
-                    found || changed == Some(false),
+                    found || !changed,
                     "the expiry of {expired_id} changed bullet {listener_id}, which the expiry \
                      index passes over"
                 );
@@ -5146,6 +5192,7 @@ impl Simulation {
     }
 
     pub(crate) fn uninit_with_context(&mut self, stable_id: u64, context: UninitContext<'_>) {
+        self.planning_detach_actor(stable_id);
         if self
             .smudge_grid
             .as_ref()

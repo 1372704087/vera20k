@@ -31,6 +31,7 @@ mod object_entry;
 mod sinking;
 mod sound_boundary;
 mod time_warp;
+mod trigger_chrono;
 pub(crate) use sound_boundary::{FrameEffects, SoundBoundary};
 #[cfg(test)]
 mod unit_unlimbo_tests;
@@ -4937,16 +4938,17 @@ impl Simulation {
     }
 
     /// Original House510F60 -> Scenario510ED0, otherwise502D30. Only the
-    /// literal Player@A..H selectors4507..4514 use the start-slot mapping.
+    /// literal Player@A..H selectors0x117B..0x1182 use the start-slot mapping.
+    /// Executed Steam3e81a617..08600 controls: trigger_all_change_house.json.
     pub(crate) fn house_by_trigger_selector(
         &self,
         selector: i32,
         rules: &RuleSet,
     ) -> Option<InternedId> {
-        if (4507..=4514).contains(&selector) {
+        if (0x117B..=0x1182).contains(&selector) {
             self.session
                 .start_slot_houses
-                .get(&((selector - 4507) as u32))
+                .get(&((selector - 0x117B) as u32))
                 .copied()
         } else {
             let country = u16::try_from(selector).ok()?;
@@ -6891,8 +6893,9 @@ impl Simulation {
 
         // Logic55B29A/55B2AD: consume prior pending conceal at the signed
         // pre-increment native frame boundary, before ore, Teams and live objects.
-        self.fog
-            .flush_pending_gap_conceal(self.session.binary_frame as i32);
+        self.tick_pending_shroud_conceal(
+            UninitContext::new(rules, overlay_registry).with_effects(effects),
+        );
 
         // Interleaved object-AI pass: each object's mission precedes its own
         // locomotion. Unit/Infantry firing and their class-specific tails run

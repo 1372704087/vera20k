@@ -181,6 +181,7 @@ fn unload_dumping(
         if let Some((value, bales)) = drained {
             pay_refinery_owner(sim, rules, building, value, bales);
             if let Some(entity) = sim.substrate.entities.get_mut(id) {
+                // `Unit+0xF8 = 0` (`0x0073E493`).
                 entity.set_native_stage_value(0);
             }
             sim.bale_events.push(BaleDepositEvent {
@@ -390,6 +391,8 @@ fn commence_if_ready(sim: &mut Simulation, rules: &RuleSet, id: u64) {
     sim.mission_host_promote(id, sim.session.binary_frame, rules);
 }
 
+/// Mission+0xBC: the harvester branch stores 3 at `0x0073E093` and 4 at
+/// `0x0073E51C` and `0x0073E594`.
 fn set_status(sim: &mut Simulation, id: u64, status: u32) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.mission.set_handler_state(status);

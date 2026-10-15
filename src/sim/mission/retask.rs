@@ -68,6 +68,7 @@ impl Simulation {
                 // `0x004C7342`.
                 entity.tether.release();
             }
+            // `0x004C7353`.
             entity.set_pending_entry(None);
         }
         // Native4C735D..4C7380: Foot membership removal without an idle

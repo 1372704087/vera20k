@@ -84,6 +84,8 @@ fn live_shot<'r>(
 }
 
 /// One strike visit (states 4..9) for an aircraft whose dispatch asked for it.
+/// Its Mission+0xBC write is `AircraftClass::Mission_Attack`'s own
+/// (`0x00417FE0`, stores at `0x0041801B..0x00418D17`).
 pub(super) fn visit(
     world: &mut Simulation,
     run: &mut ReceiverRun,

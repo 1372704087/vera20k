@@ -708,6 +708,7 @@ impl Simulation {
                 self.announce_engineer_capture(building_id, owner, rules);
                 self.change_owner_with_rules(building_id, owner, rules, registry, frame_effects);
                 if let Some(building) = self.substrate.entities.get_mut(building_id) {
+                    // Techno+0x338 (`0x00519F94`).
                     building.record_infantry_capture_type(native_type_index);
                 }
                 changed =

@@ -172,7 +172,9 @@ impl Simulation {
         dock
     }
 
-    /// Aircraft `+0x6CC`'s writers ([`AircraftAmmo::set_dock`]).
+    /// Aircraft `+0x6CC`'s writers ([`AircraftAmmo::set_dock`]): Mission_Enter
+    /// (`0x00419CE5`, `0x00419D57`), Find_Docking_Bay (`0x0041BBFF`,
+    /// `0x0041BC1C`) and the factory exit (`0x0044404D`).
     ///
     /// [`AircraftAmmo::set_dock`]: crate::sim::docking::aircraft_dock::AircraftAmmo::set_dock
     pub(crate) fn set_aircraft_dock(&mut self, id: u64, dock: Option<u64>) {

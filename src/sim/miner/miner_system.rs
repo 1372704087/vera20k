@@ -474,8 +474,9 @@ pub(super) fn build_miner_snapshot(sim: &Simulation, id: u64) -> Option<MinerSna
 }
 
 /// Commit one dispatched snapshot back to the entity: miner mutations, the
-/// FSM cursor of record (`MissionCom::handler_state`), buffered debug events,
-/// and the render-side
+/// FSM cursor of record (`MissionCom::handler_state`, which
+/// `UnitClass::Mission_Harvest @ 0x0073E5E0` stores at
+/// `0x0073E714..0x0073EE68`), buffered debug events, and the render-side
 /// harvest-visual flags (the former global-tick Phases 3/4/4b for one object).
 pub(super) fn commit_miner_snapshot(sim: &mut Simulation, snap: &MinerSnapshot) {
     let Some(entity) = sim.substrate.entities.get_mut(snap.entity_id) else {

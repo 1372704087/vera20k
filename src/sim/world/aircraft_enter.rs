@@ -164,6 +164,8 @@ impl EnterHost for WorldEnter<'_> {
         self.entity().mission.handler_state()
     }
 
+    /// Mission+0xBC, Mission_Enter's own stores (`0x00419DC3`, `0x00419E4C`,
+    /// `0x00419EF0`).
     fn set_state(&mut self, state: u32) {
         let entity = self.sim.substrate.entities.get_mut(self.id).unwrap();
         entity.mission.set_handler_state(state);

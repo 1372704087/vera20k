@@ -11655,3 +11655,45 @@ fn radar_terrain_dirty_marks_deduplicate_across_other_writers_and_clears() {
     sim.mark_radar_terrain_dirty_cells([(1, 1)]);
     assert_eq!(sim.radar_terrain_dirty_cells, [(1, 1)]);
 }
+
+/// `BuildingClass::ChangeOwner` takes along a `WeaponsFactory=` building's
+/// Foot in radio contact that answers NEED_TO_MOVE with ROGER, wherever it
+/// stands (`0x00448559..0x004486C8`). After its own swap the building sends
+/// it HELLO and restores the tether on both ends (`0x00449289..0x004492D7`).
+#[test]
+fn a_captured_war_factory_takes_its_contact_along() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[BuildingTypes]\n0=WEAP\n[VehicleTypes]\n0=TANK\n\
+         [WEAP]\nStrength=1000\nWeaponsFactory=yes\nFactory=UnitType\n\
+         [TANK]\nStrength=300\nSpeed=6\nLocomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n",
+    ))
+    .expect("war factory rules");
+    let mut sim = Simulation::new();
+    for (name, side) in [("Americans", 0), ("Russians", 1)] {
+        let id = sim.interner.intern(name);
+        sim.houses.insert(
+            id,
+            crate::sim::house_state::HouseState::new(id, side, None, false, 0, 10),
+        );
+        sim.session.house_order.push(id);
+    }
+    let factory = sim
+        .spawn_object_at_height("WEAP", "Americans", 10, 10, 0, 0, &rules)
+        .expect("factory");
+    let tank = sim
+        .spawn_object_at_height("TANK", "Americans", 20, 20, 0, 0, &rules)
+        .expect("tank");
+    for (id, partner) in [(factory, tank), (tank, factory)] {
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.radio_contacts.insert(partner);
+        entity.tether.attach(partner);
+    }
+    let russians = sim.interner.intern("Russians");
+    sim.change_owner_with_rules(factory, russians, &rules, None, FrameEffects::default());
+    for (id, partner) in [(factory, tank), (tank, factory)] {
+        let entity = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(entity.owner(), russians, "{id}");
+        assert!(entity.radio_contacts.contains(partner), "{id}");
+        assert_eq!(entity.tether.partner(), Some(partner), "{id}");
+    }
+}

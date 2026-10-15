@@ -4986,6 +4986,14 @@ impl Simulation {
         }
         // Building4484AF precedes the delegated Techno owner transfer.
         self.enable_building_after_owner_change(stable_id, rules);
+        // `0x00448559..0x004486C8`: the objects docked at a building go along
+        // with it or are sent off. A rules-less transfer (tests only) cannot
+        // read the type and keeps every link.
+        let taken_along = match rules {
+            Some(rules) if category == EntityCategory::Structure => self
+                .take_docked_along_on_owner_change(stable_id, new_owner, rules, registry, effects),
+            _ => Vec::new(),
+        };
         // `0x004486DF..0x00448701`: the building's own factory is abandoned
         // for its old owner.
         if category == EntityCategory::Structure {
@@ -5233,10 +5241,181 @@ impl Simulation {
         if let Some(rules) = rules {
             self.reapply_building_gap_after_owner_change(stable_id, rules);
         }
+        if let Some(rules) = rules {
+            self.relink_docked_after_owner_change(stable_id, &taken_along, rules, effects);
+        }
+        // RESIDUAL: the computer's sale of a captured building
+        // (`0x004492D7..0x0044936E`) is unported, since VERA keeps no
+        // InitialOwner. Outside campaign (GameMode != 0), a new owner no human
+        // controls sells a building whose InitialOwner is another house that
+        // is not `MultiplayPassive`: each upgrade is refunded in full to it
+        // (`GetRefund`, type vt+0xB8) and removed (`RemoveLastUpgrade`), then
+        // `Sell_Back(1)` (vt+0x1A0). Trigger: an AI engineer captures another
+        // side's building in skirmish. Effect: the AI keeps the building.
+        // Frequency: each such capture. Risk: the AI gains its factory, power
+        // or prerequisites.
         //44936E/449379: both houses' retained1FC asks their next House tail.
         if category == EntityCategory::Structure {
             self.request_house_tech_tree_recheck(old_owner);
             self.request_house_tech_tree_recheck(new_owner);
+        }
+    }
+
+    /// `BuildingClass::ChangeOwner @ 0x00448260`'s docked objects
+    /// (`0x00448559..0x004486C8`), before the building's own owner swap. Each
+    /// radio slot is read afresh, since the transmits on the way change them.
+    ///
+    /// A Foot (`AbstractFlags & 4`, `0x004485A2`) that answers NEED_TO_MOVE
+    /// (`0x13`) with ROGER changes owner first (vt+0x3D4, `0x00448663`) when
+    /// the building is a `WeaponsFactory=` or the Foot is at its dock
+    /// ([`Self::docked_at_dock_coord`]). Its tether (`+0x418`) is kept for
+    /// [`Self::relink_docked_after_owner_change`].
+    ///
+    /// Any other contact gets RUN_AWAY (`0x17`), then OVER_OUT (`3`). A
+    /// contact that is not a Foot is sent both as a null target
+    /// (`0x004485A8`), which the transmit resolves to the building's first
+    /// contact on each send.
+    ///
+    /// A refinery's dock coordinate is the cell beside its pad
+    /// ([`crate::sim::movement::navcom::building_dock_cell`]), so a miner
+    /// unloading on the pad is sent off.
+    fn take_docked_along_on_owner_change(
+        &mut self,
+        building: u64,
+        new_owner: InternedId,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Vec<(u64, bool)> {
+        use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
+        let mut taken = Vec::new();
+        let Some((capacity, weapons_factory)) =
+            self.substrate.entities.get(building).map(|entity| {
+                (
+                    entity.radio_contacts.capacity(),
+                    self.object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| object.weapons_factory),
+                )
+            })
+        else {
+            return taken;
+        };
+        for slot in 0..capacity {
+            let Some(contact) = self
+                .substrate
+                .entities
+                .get(building)
+                .and_then(|entity| entity.radio_contacts.slot(slot))
+            else {
+                continue;
+            };
+            let Some(foot) = self
+                .substrate
+                .entities
+                .get(contact)
+                .map(|entity| entity.category() != EntityCategory::Structure)
+            else {
+                continue;
+            };
+            if !foot {
+                for message in [RadioMessage::RunAway, RadioMessage::Break] {
+                    crate::sim::radio::transmit_to_contact(
+                        self,
+                        building,
+                        message,
+                        Some(rules),
+                        effects,
+                    );
+                }
+                continue;
+            }
+            let roger = transmit(
+                self,
+                building,
+                contact,
+                RadioMessage::NeedToMove,
+                RadioPayload::default(),
+                Some(rules),
+                effects,
+            ) == RadioResponse::Roger;
+            if roger && (weapons_factory || self.docked_at_dock_coord(building, contact, rules)) {
+                let tethered = self
+                    .substrate
+                    .entities
+                    .get(contact)
+                    .is_some_and(|entity| entity.tether.partner().is_some());
+                self.change_owner_impl(contact, new_owner, Some(rules), registry, effects);
+                taken.push((contact, tethered));
+            } else {
+                for message in [RadioMessage::RunAway, RadioMessage::Break] {
+                    transmit(
+                        self,
+                        building,
+                        contact,
+                        message,
+                        RadioPayload::default(),
+                        Some(rules),
+                        effects,
+                    );
+                }
+            }
+        }
+        taken
+    }
+
+    /// Whether `contact`'s coordinate (vt+0x48, `0x00448606`) lies within
+    /// `0x3F` leptons (Distance3D, `0x00448644`) of `building`'s dock
+    /// coordinate for it (GetDockCoord vt+0xA8, `0x004485F5`).
+    fn docked_at_dock_coord(&self, building: u64, contact: u64, rules: &RuleSet) -> bool {
+        let terrain = self.resolved_terrain.as_ref();
+        let Some(dock) = crate::sim::movement::navcom::building_dock_coordinate(
+            &self.substrate.entities,
+            building,
+            Some(contact),
+            terrain,
+            rules,
+            &self.interner,
+        ) else {
+            return false;
+        };
+        self.substrate.entities.get(contact).is_some_and(|entity| {
+            let at = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
+            crate::util::native_x87::distance_3d_leptons(
+                [at.x, at.y, at.z],
+                [dock.x, dock.y, dock.z],
+            ) <= 0x3F
+        })
+    }
+
+    /// `BuildingClass::ChangeOwner`'s re-link (`0x00449289..0x004492D7`),
+    /// after the owner swap: HELLO (`2`) to each object taken along, then,
+    /// when that object was tethered, the tether set on the building
+    /// (`0x004492B7`) and on the object (`0x004492C3`).
+    fn relink_docked_after_owner_change(
+        &mut self,
+        building: u64,
+        taken: &[(u64, bool)],
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        for &(contact, tethered) in taken {
+            crate::sim::radio::transmit(
+                self,
+                building,
+                contact,
+                crate::sim::radio::RadioMessage::Hello,
+                crate::sim::radio::RadioPayload::default(),
+                Some(rules),
+                effects,
+            );
+            if tethered {
+                if let Some(entity) = self.substrate.entities.get_mut(building) {
+                    entity.tether.attach(contact);
+                }
+                if let Some(entity) = self.substrate.entities.get_mut(contact) {
+                    entity.tether.attach(building);
+                }
+            }
         }
     }
 

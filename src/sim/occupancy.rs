@@ -276,26 +276,25 @@ impl RawCellOccupationGrid {
     }
 
     pub(crate) fn bits_at(&self, key: RawCellKey, layer: MovementLayer) -> u8 {
+        self.occupant_at(key, layer).0
+    }
+
+    /// The receiver's raw byte on `layer` and the infantry owner retained
+    /// beside it, from one lookup.
+    pub(crate) fn occupant_at(
+        &self,
+        key: RawCellKey,
+        layer: MovementLayer,
+    ) -> (u8, Option<InternedId>) {
         let cell = match key {
             RawCellKey::Real(x, y) => self.cells.get(&(x, y)),
             RawCellKey::Dummy => Some(&self.dummy),
         };
-        cell.map_or(0, |cell| match layer {
-            MovementLayer::Ground => cell.ground,
-            MovementLayer::Bridge => cell.deck,
-            _ => 0,
+        cell.map_or((0, None), |cell| match layer {
+            MovementLayer::Ground => (cell.ground, cell.ground_infantry_owner),
+            MovementLayer::Bridge => (cell.deck, cell.deck_infantry_owner),
+            MovementLayer::Air | MovementLayer::Underground => (0, None),
         })
-    }
-
-    pub(crate) fn owner_at(&self, key: RawCellKey, layer: MovementLayer) -> Option<InternedId> {
-        match key {
-            RawCellKey::Real(x, y) => self.infantry_owner(x, y, layer),
-            RawCellKey::Dummy => match layer {
-                MovementLayer::Ground => self.dummy.ground_infantry_owner,
-                MovementLayer::Bridge => self.dummy.deck_infantry_owner,
-                _ => None,
-            },
-        }
     }
 
     /// An object's Mark/Clear on the raw byte and owner index of the receiver
@@ -402,21 +401,6 @@ impl RawCellOccupationGrid {
 
     pub(crate) fn deck_bits(&self, rx: u16, ry: u16) -> u8 {
         self.cells.get(&(rx, ry)).map_or(0, |cell| cell.deck)
-    }
-
-    /// Infantry owner identity paired with the selected native occupation byte.
-    /// Ground (`+0x124`) and deck (`+0x128`) are independent planes.
-    pub(crate) fn infantry_owner(
-        &self,
-        rx: u16,
-        ry: u16,
-        layer: MovementLayer,
-    ) -> Option<InternedId> {
-        self.cells.get(&(rx, ry)).and_then(|cell| match layer {
-            MovementLayer::Ground => cell.ground_infantry_owner,
-            MovementLayer::Bridge => cell.deck_infantry_owner,
-            MovementLayer::Air | MovementLayer::Underground => None,
-        })
     }
 
     #[cfg(test)]

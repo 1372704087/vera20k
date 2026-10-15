@@ -26,6 +26,17 @@ pub(crate) fn factory_exit_track_coordinate(
     }
 }
 
+/// A war factory's exit Cell: the Cell of its Location (`+0x9C`, signed
+/// truncation) plus (4, 1). Mission_Unload sends a non-Drive product there
+/// (`0x0044DF1C`), and Unit Assign_Destination's WeaponsFactory arm lets only
+/// that destination through (`0x00742D98..0x00742DFD`).
+pub(crate) fn war_factory_exit_cell(location: DriveCoord) -> (u16, u16) {
+    (
+        ((location.x / 256) as i16).wrapping_add(4) as u16,
+        ((location.y / 256) as i16).wrapping_add(1) as u16,
+    )
+}
+
 /// Read the destination's type, physical coordinate, center and sparse contact
 /// slots at the call boundary. The requester coordinate is read only for Bunker;
 /// ordinary targets and uncontacted docks do not need an approach direction.

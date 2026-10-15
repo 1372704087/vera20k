@@ -301,11 +301,12 @@ impl Simulation {
         }
     }
 
-    /// Unit739EC0's tethered arrival chapter73A7D2..73AADB, before its
+    /// Unit739EC0's tethered arrival chapter73A7D2..73ABD0, before its
     /// Ready/Commence checkpoint. A computer House's unit from a war factory
     /// takes its post ([`Self::unit_factory_post`]); the other continuation
     /// calls the existing archive destination, FootStop4DF0D0 and
-    /// UnitScatter743A50 owners.
+    /// UnitScatter743A50 owners. Every arm ends in the building Scatter tail
+    /// ([`Self::unit_per_cell_building_scatter`]).
     /// Source: anytown_damage/unit_unlimbo radio receipt and original Unit
     /// listing; the composed factory-Unload control binds the null-NavCom arm.
     fn unit_per_cell_factory_clearance(
@@ -366,11 +367,7 @@ impl Simulation {
         // radio8 owner can clear the live slot and both tether bytes inside it.
         let contact = unit.radio_contacts.slot(0);
         if !at_destination
-            && contact
-                .and_then(|contact| self.substrate.entities.get(contact))
-                .filter(|contact| contact.category() == EntityCategory::Structure)
-                .and_then(|contact| self.object_type(contact.type_ref(), rules))
-                .is_some_and(|object| object.weapons_factory)
+            && contact.is_some_and(|contact| self.is_weapons_factory(contact, rules))
             && self.substrate.occupancy.first_building_on_layer(
                 cell.0,
                 cell.1,
@@ -387,9 +384,21 @@ impl Simulation {
             effects,
         );
         if reply != crate::sim::radio::RadioResponse::Queued {
-            // RESIDUAL:73AAF7..73AB66's non23 replies include harvester
-            // archive/Harvest and Scatter work. Refinery/service departure is
-            // a separate lifecycle; no factory-specific substitute runs here.
+            // RESIDUAL: `0x0073AAF7..0x0073AB66` is not ported. These are the
+            // replies other than Queued (0x17) from a tethered dock (a
+            // refinery, service depot or bunker; a war factory answers 0x17).
+            // - A Harvester or Weeder with an archive queues Harvest (0) and is
+            //   sent to the archive, which then clears. Without an archive and
+            //   NavCom it Scatters (NULL, 1, 0).
+            // - Reply 0xA and every other Unit go straight to the building
+            //   Scatter tail (`Self::unit_per_cell_building_scatter`), which
+            //   every one of these arms reaches.
+            // VERA returns here, leaving the departure to the dock owners.
+            // Trigger: a tethered Unit's arrival in a Cell away from its dock.
+            // Effect: none of this arm's Harvest, archive send or Scatter.
+            // Frequency: harvester and service-depot departures; not measured.
+            // Risk: a Unit left standing on a building with no orders stays
+            // put where native would scatter it.
             return;
         }
         let Some(unit) = self.substrate.entities.get(id) else {
@@ -423,64 +432,92 @@ impl Simulation {
                 self.session.binary_frame,
                 &LiveReadyInputProvider { rules },
             );
-            return;
-        }
-        if unit.slave_manager.is_some() {
+        } else if unit.slave_manager.is_some() {
             //73A9CA..73A9D9: a Slave Miner's manager (+2D8) starts its hunt
             // (6B0CC0) in place of the rally or post.
             self.begin_slave_hunt(id, rules, effects);
-            return;
+        } else {
+            // A missing House cannot stand in for Human50B730.
+            let Some(human) = self
+                .houses
+                .get(&unit.owner())
+                .map(|house| house.is_controlled_by_human(self.session.game_mode_nonzero))
+            else {
+                return;
+            };
+            if !human && contact.is_some_and(|contact| self.is_weapons_factory(contact, rules)) {
+                self.unit_factory_post(id, unit.owner(), rules, effects);
+            } else if let Some(archive) = unit.archive_target().filter(|archive| {
+                Some(*archive) != nav_com.map(crate::sim::combat::TargetKind::from)
+            }) {
+                self.set_unit_destination(id, NavTargetRef::from(archive), rules, true, effects);
+            } else {
+                if let Some(unit) = self.substrate.entities.get_mut(id) {
+                    super::navcom::foot_stop_moving(unit);
+                }
+                //73AAC8..73AADB: no QueueMission, Process or EnterIdle. Unit's
+                // null Scatter receiver cannot produce the Infantry error path.
+                let _ = self.scatter(
+                    id,
+                    None,
+                    super::scatter::ScatterFlags::new(true, false),
+                    rules,
+                    registry,
+                    effects,
+                );
+            }
         }
-        let producer = contact
-            .and_then(|contact| self.substrate.entities.get(contact))
-            .filter(|contact| contact.category() == EntityCategory::Structure);
-        // A missing House cannot stand in for Human50B730.
-        let Some(human) = self
-            .houses
-            .get(&unit.owner())
-            .map(|house| house.is_controlled_by_human(self.session.game_mode_nonzero))
-        else {
+        self.unit_per_cell_building_scatter(id, rules, registry, effects);
+    }
+
+    /// `0x0073AB6C..0x0073ABD0`, where every arm of the clearance above
+    /// ends: a Unit still on a Building (Map565730 -> Cell47C520, the first
+    /// ground Building of its Location's Cell) with no NavCom, an empty
+    /// navigation list (`+0x5BC`) and an empty NavQueue (`+0x598`) scatters
+    /// (vt+0x174(NULL, 1, 1)).
+    ///
+    /// A war factory clears its product on its own foundation (location
+    /// +(4,1), where the exit track ends) with a null NavCom. So a harvester
+    /// or Slave Miner leaving it scatters here, and so does a computer
+    /// product whose post is the zero Cell. A post or a rally sets a NavCom,
+    /// and an order given during the exit is listed
+    /// ([`Self::unit_factory_exit_arm`]); either skips this call. A human
+    /// product without a rally has already scattered (NULL, 1, 0), so this
+    /// call, with no-kidding set, only retries when that one set no NavCom.
+    fn unit_per_cell_building_scatter(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some(unit) = self.substrate.entities.get(id) else {
             return;
         };
-        if !human
-            && producer
-                .and_then(|producer| self.object_type(producer.type_ref(), rules))
-                .is_some_and(|object| object.weapons_factory)
+        let position = position_world_coord(&unit.position);
+        let cell = (
+            (position.x / 256) as i16 as u16,
+            (position.y / 256) as i16 as u16,
+        );
+        let on_building = self
+            .substrate
+            .occupancy
+            .first_building_on_layer(cell.0, cell.1, MovementLayer::Ground)
+            .is_some();
+        if on_building
+            && unit.navigation.nav_com().is_none()
+            && unit.navigation.nav_list().is_empty()
+            && unit.navigation.nav_queue().is_empty()
         {
-            self.unit_factory_post(id, unit.owner(), rules, effects);
-            return;
-        }
-        let archive = unit.archive_target();
-        if let Some(archive) = archive
-            .filter(|archive| Some(*archive) != nav_com.map(crate::sim::combat::TargetKind::from))
-        {
-            self.set_unit_destination(id, NavTargetRef::from(archive), rules, true, effects);
-        } else {
-            if let Some(unit) = self.substrate.entities.get_mut(id) {
-                super::navcom::foot_stop_moving(unit);
-            }
-            //73AAC8..73AADB: no QueueMission, Process or EnterIdle. Unit's
-            // null Scatter receiver cannot produce the Infantry error path.
             let _ = self.scatter(
                 id,
                 None,
-                super::scatter::ScatterFlags::new(true, false),
+                super::scatter::ScatterFlags::new(true, true),
                 rules,
                 registry,
                 effects,
             );
         }
-        // RESIDUAL:73AB6C..73ABD0 rereads the first ground Building, NavCom,
-        // and the navigation list and NavQueue counts (+5BC, +598) before
-        // Scatter(NULL,1,1); it is not ported. The composed fresh human
-        // control publishes NavCom in the first Scatter and skips this second
-        // call, so no invented count or factory marker is needed.
-        // The Slave Miner (73A9D9), harvester (73AAF5) and computer post
-        // (73AA9C, 73AB4C) arms jump here too. VERA returns from them first.
-        // A war factory clears its product on its own foundation (location
-        // +(4,1), where the exit track ends) with a null NavCom, so natively
-        // every harvester and Slave Miner from a war factory Scatters here, as
-        // does a product without a post. After a post the NavCom is set.
     }
 
     /// `0x0073AA0D..0x0073AA9C`: a computer House's unit cleared by its war

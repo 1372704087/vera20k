@@ -9321,12 +9321,13 @@ fn found_route(e: &GameEntity, start: (u16, u16)) -> Vec<(u16, u16)> {
 /// when `0x00458A00` answers false (`0x0073F57C..5A2`): retail GAWEAP
 /// (Foundation=5x3, Bib=yes, NumberImpassableRows=1) then opens every column
 /// east of its first. Without contact the allied building answers 7, so the
-/// goal is refused and the route stays off the factory (only the east Bib
-/// column is ever open).
+/// route stays off the factory's inner columns (only the east Bib column is
+/// ever open). The goal is the factory's exit Cell, the one destination its
+/// WeaponsFactory arm lets a contacted Unit take (`0x00742D98..0x00742DFD`).
 #[test]
 fn unit_search_enters_a_contacted_factory_east_of_its_impassable_rows() {
     let origin = (10, 6);
-    let goal = (12, 7);
+    let goal = (14, 7);
     let on_factory = |&(x, y): &(u16, u16)| (10..=13).contains(&x) && (6..=8).contains(&y);
     let Some(apart) = unit_route_beside_building("GAWEAP", origin, goal, false) else {
         return;
@@ -9339,7 +9340,11 @@ fn unit_search_enters_a_contacted_factory_east_of_its_impassable_rows() {
     assert_eq!(
         contacted.last(),
         Some(&goal),
-        "contact: the route reaches the goal inside the factory: {contacted:?}"
+        "contact: the route reaches the exit Cell: {contacted:?}"
+    );
+    assert!(
+        contacted.iter().any(on_factory),
+        "contact: the route crosses the factory: {contacted:?}"
     );
     assert!(
         !contacted

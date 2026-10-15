@@ -5483,7 +5483,7 @@ impl Simulation {
     ///     while the Guard above is still only queued (a miner caught
     ///     mid-track);
     ///   - any other Unit or Infantry takes its class leaf, Unit
-    ///     `0x00738970` or Infantry `0x0051CBA0` (residual below);
+    ///     `0x00738970` or Infantry `0x0051CBA0`;
     ///   - a Building (`0x0044D6A0` with `initial = 0`) calls `0x00447780(1)`
     ///     and `Queue_Mission(Guard, 0)`.
     ///
@@ -5500,16 +5500,10 @@ impl Simulation {
     /// CaptureUnit and FreeUnit. No stock miner is ever mind-controlled: HARV,
     /// CMIN and SMIN are `ImmuneToPsionics=yes`.
     ///
-    /// RESIDUALS:
-    /// - The Unit leaf's Area Guard pick and unarmed Unload arm are not
-    ///   ported (residuals in `Simulation::unit_enter_idle_mode` and
-    ///   [`techno_unlimbo_idle_mode`]). Trigger: a captured or released
-    ///   vehicle whose Guard above is still only queued. Effect: Guard
-    ///   instead of Area Guard or Unload.
-    /// - No stock aircraft can be captured, so the Aircraft Enter_Idle_Mode
-    ///   (`0x004176F0`) here is dormant; the trailing `+0x423`-gated
-    ///   `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)` calls are
-    ///   unidentified.
+    /// RESIDUAL: no stock aircraft can be captured, so the Aircraft
+    /// Enter_Idle_Mode (`0x004176F0`) here is dormant; the trailing
+    /// `+0x423`-gated `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)`
+    /// calls are unidentified.
     ///
     /// `+0x484` census (`search_instructions CALL [+0x484]`), the sites a
     /// miner can reach besides Move arrival, this owner change and the depot
@@ -5522,7 +5516,8 @@ impl Simulation {
     ///   `0x004DA1A6` when NavCom == 0, Get_Mission == Guard and contact 0 is
     ///   not a WeaponsFactory building ([`Simulation::queue_navigation_list`]).
     ///   Its callers are ExitObject's Infantry post (`0x00444DAC`) and the
-    ///   Unit WeaponsFactory destination arm (`0x00742E28`, not ported).
+    ///   Unit setter's WeaponsFactory arm (`0x00742E28`,
+    ///   `Simulation::unit_factory_exit_arm`).
     /// - `FootClass::Check_Destination_Is_UnitRepair_Dock @ 0x004DBA15` →
     ///   `+0x484(0, !depot-contact)` when NavCom == 0 && TarCom == 0
     ///   (virtual slot; miner reachability unestablished; VERA's

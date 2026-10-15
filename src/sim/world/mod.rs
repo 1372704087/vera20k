@@ -120,6 +120,8 @@ pub(crate) use techno_ai::techno_unlimbo_idle_mode;
 pub(crate) use techno_ai::{BuildingDelayedFire, DelayedFire};
 pub(crate) use techno_ai::{can_fire_at, weapon_at_index};
 mod command_schedule;
+mod planning;
+pub(crate) use planning::{PlanningBadgeKind, PlanningDrawSegment};
 mod selection_voice;
 pub(crate) mod techno_ai_cloak;
 pub(crate) mod unit_post;
@@ -400,6 +402,8 @@ pub(crate) enum HouseAiActivationOrderTestEvent {
 /// Pure data — no audio library dependency. Drained by the app layer each frame.
 #[derive(Debug, Clone)]
 pub enum SimSoundEvent {
+    /// PlanMgr638593 accepted an editing order; audio gates the local issuer.
+    PlanningNodeAdded { owner: InternedId },
     /// TAction21 Execute6DD8B0 calls VoxQueueVoice752480 with its literal
     /// signed DialogList index, type2 and priority-1. The process audio
     /// catalog owns ordinal resolution; no cue-name guess enters simulation.
@@ -1234,8 +1238,8 @@ pub struct Simulation {
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
     pub(crate) movement_pass_cache: crate::sim::movement::movement_tick::MovementPassCache,
-    /// Which entities each pointer expiry reaches (`expiry_listeners`).
-    /// Derived from the entities; never serialized or hashed.
+    /// Which listeners each pointer expiry reaches (`expiry_listeners`).
+    /// Derived from the listener stores; never serialized or hashed.
     #[serde(skip)]
     expiry_listeners: expiry_listeners::ExpiryListeners,
     /// Batched path searches (`movement::path_batch`); `None`
@@ -1410,6 +1414,8 @@ pub struct Simulation {
     /// Admitted through `queue_command(s)` and drained each tick when
     /// `cmd.execute_tick <= current_tick + 1`.
     pending_commands: Vec<CommandEnvelope>,
+    /// PlanMgr is the sole owner of shared nodes and per-actor plan tokens.
+    planning: planning::PlanningState,
     /// Diagnostic playback supplies a batch already containing generated
     /// events. Transient admission context, not gameplay or saved state.
     #[cfg(test)]
@@ -3443,6 +3449,7 @@ impl Simulation {
             frame_sync_checksum: None,
             state_hash_interval: every_frame(),
             pending_commands: Vec::new(),
+            planning: planning::PlanningState::default(),
             #[cfg(test)]
             replaying_recorded_commands: false,
             trigger_runtime: TriggerRuntime::default(),
@@ -5160,6 +5167,9 @@ impl Simulation {
                 UninitContext::new(rules, registry).with_effects(effects),
             );
         }
+        // Techno701585 -> Planning638840 removes this actor's path before
+        // the house swap. Already generated command events remain queued.
+        self.planning_detach_actor(stable_id);
         // Techno70158A..7015E6: Removed_From_Game on the old house (not in
         // limbo), then Remove_Tracking from it and Add_Tracking to the new.
         let on_map = self

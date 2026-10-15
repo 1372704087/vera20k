@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
-use crate::sim::touch_log::{TouchLog, Touched};
+use crate::sim::touch_log::{TouchLogs, Touched};
 use crate::util::lookup_hash::LookupMap;
 
 /// Only this module can authorize a live indexed-owner write.
@@ -89,7 +89,7 @@ pub struct EntityStore {
     /// Which entities may have changed since each reader last took its log
     /// ([`Self::take_touched`]). Every route to a `&mut GameEntity` goes
     /// through the store, so an entity missing from a log has not changed.
-    touched: TouchLogs,
+    touched: TouchLogs<{ TouchReader::COUNT }>,
 }
 
 /// A product derived from the entities that re-derives from the touch log.
@@ -106,45 +106,6 @@ pub(crate) enum TouchReader {
 
 impl TouchReader {
     const COUNT: usize = 3;
-}
-
-#[derive(Debug, Clone)]
-struct TouchLogs {
-    logs: [TouchLog; TouchReader::COUNT],
-    /// Every hand-out so far, for test checks that a pass handed nothing out
-    /// ([`EntityStore::hand_outs`]).
-    #[cfg(test)]
-    hand_outs: u64,
-}
-
-impl TouchLogs {
-    fn everything() -> Self {
-        Self {
-            logs: std::array::from_fn(|_| TouchLog::everything()),
-            #[cfg(test)]
-            hand_outs: 0,
-        }
-    }
-
-    fn note(&mut self, id: u64, stored: usize) {
-        #[cfg(test)]
-        {
-            self.hand_outs += 1;
-        }
-        for log in &mut self.logs {
-            log.note(id, stored);
-        }
-    }
-
-    fn note_all(&mut self) {
-        #[cfg(test)]
-        {
-            self.hand_outs += 1;
-        }
-        for log in &mut self.logs {
-            log.note_all();
-        }
-    }
 }
 
 impl Clone for EntityStore {
@@ -168,13 +129,13 @@ impl Clone for EntityStore {
 impl EntityStore {
     /// Take `reader`'s touch log, leaving it empty.
     pub(crate) fn take_touched(&mut self, reader: TouchReader) -> Touched {
-        self.touched.logs[reader as usize].take()
+        self.touched.take(reader as usize)
     }
 
     /// How many mutable hand-outs the store has made (test builds only).
     #[cfg(test)]
     pub(crate) fn hand_outs(&self) -> u64 {
-        self.touched.hand_outs
+        self.touched.hand_outs()
     }
 
     /// Create an empty store.

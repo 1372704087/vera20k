@@ -206,7 +206,10 @@ impl Simulation {
             .substrate
             .entities
             .take_touched(crate::sim::entity_store::TouchReader::GroundKeys);
-        let anims = self.substrate.anims.take_touched();
+        let anims = self
+            .substrate
+            .anims
+            .take_touched(crate::sim::anim_class::AnimTouchReader::GroundKeys);
         self.substrate
             .display
             .forget_changed_ground_keys(context, [entities, anims]);

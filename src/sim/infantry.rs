@@ -914,7 +914,9 @@ mod tests {
         }
         actor.locomotor = Some(loco);
         if input["nav"].as_bool().unwrap_or(false) {
-            actor.navigation.set_nav_com(Some(NavTargetRef::cell(4, 4)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::cell(4, 4)));
         }
         actor.install_native_stage_fixture(StageClass::from_native_fixture(
             before["stage"].as_i64().unwrap() as i32,
@@ -1328,7 +1330,7 @@ mod tests {
             if before["nav"] != "0x0" {
                 actor
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::cell(12, 10)));
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(12, 10)));
             }
             let target_before = actor.attack_target.target();
             let nav_before = actor.navigation.nav_com();

@@ -4401,11 +4401,10 @@ impl Simulation {
             listener.set_archive_target(None);
         }
         if clear_suspended_nav_com {
-            listener.navigation.set_suspended_nav_com(None);
+            listener.navigation.clear_suspended_nav_com();
         }
         if clear_nav_com {
-            listener.navigation.set_nav_com_aux(None);
-            listener.navigation.set_nav_com(None);
+            listener.navigation.expire_nav_com();
         }
         if prune_nav_queue {
             listener

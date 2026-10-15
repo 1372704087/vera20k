@@ -258,7 +258,8 @@ fn test_drive_arrival_clears_navcom_same_tick() {
         crate::sim::movement::owner_current_speed(&e, None, 1.0, &Default::default()),
         1
     );
-    e.navigation.set_nav_com(Some(NavTargetRef::cell(0, 0)));
+    e.navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(0, 0)));
     assert!(
         e.locomotor
             .as_mut()

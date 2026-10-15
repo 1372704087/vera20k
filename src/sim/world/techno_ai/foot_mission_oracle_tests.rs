@@ -706,11 +706,11 @@ impl SuppliedFootFixture {
                 // nonnull NavCom therefore does not arm Walk's moving byte.
                 entity
                     .navigation
-                    .set_nav_com(target(&before["nav"]).map(NavTargetRef::from));
+                    .set_nav_com_for_test(target(&before["nav"]).map(NavTargetRef::from));
                 if input["navigation_control"].is_object() {
                     entity
                         .navigation
-                        .set_nav_com_aux(target(&before["aux"]).map(NavTargetRef::from));
+                        .set_nav_com_aux_for_test(target(&before["aux"]).map(NavTargetRef::from));
                     entity.navigation.set_nav_queue_for_test(
                         before["nav_queue"]["entries"]
                             .as_array()

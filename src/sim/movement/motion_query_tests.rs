@@ -59,7 +59,7 @@ fn air_motion_matches_original_queries_independently_of_orders_and_restore() {
             for powered in [false, true] {
                 entity
                     .navigation
-                    .set_nav_com(has_order.then(|| NavTargetRef::cell(15, 15)));
+                    .set_nav_com_for_test(has_order.then(|| NavTargetRef::cell(15, 15)));
                 entity
                     .locomotor
                     .as_mut()

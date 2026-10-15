@@ -410,7 +410,7 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
     let entity = fx.sim.substrate.entities.get_mut(passenger).unwrap();
     entity
         .navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::object(
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::object(
             transport,
         )));
     entity

@@ -288,6 +288,9 @@ fn direction_from_step(from: (i16, i16), to: (u16, u16)) -> u8 {
     crate::util::direction::direction_from_delta(dx, dy).unwrap_or(TUBE_STEP_DIRECTION)
 }
 
+/// The queue `FootClass::Find_Path @ 0x004D3920` installs from a found route
+/// (`0x004D393A..0x004D4003`): the directions from `reference` through `path`
+/// from `first_destination` on, unconsumed.
 pub(super) fn install_path_replay(
     queue: &mut FootPathQueue,
     reference: (u16, u16),

@@ -94,7 +94,8 @@ fn terminal_horizontal_gate_uses_installed_owner_and_retires_with_class() {
     use crate::sim::components::NavTargetRef;
     let (mut sim, _, _) = fixture(TrackFamily::Drive, 0);
     let e = sim.substrate.entities.get_mut(1).unwrap();
-    e.navigation.set_nav_com(Some(NavTargetRef::cell(20, 20)));
+    e.navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(20, 20)));
     assert!(
         e.locomotor
             .as_mut()
@@ -116,7 +117,7 @@ fn terminal_horizontal_gate_uses_installed_owner_and_retires_with_class() {
         .get_mut(1)
         .unwrap()
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 10)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 10)));
     assert!(
         sim.track_reached_destination(1, TrackFamily::Drive, None)
             .unwrap()
@@ -134,7 +135,7 @@ fn terminal_horizontal_gate_uses_installed_owner_and_retires_with_class() {
         .get_mut(1)
         .unwrap()
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(20, 20)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(20, 20)));
     assert!(
         !sim.track_reached_destination(1, TrackFamily::Drive, None)
             .unwrap()
@@ -174,7 +175,7 @@ fn building_navigation_reaches_drive_and_ship_terminal_callbacks() {
             let destination = head(mover, family);
             mover
                 .navigation
-                .set_nav_com(Some(NavTargetRef::Building { id: 2 }));
+                .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
             match family {
                 TrackFamily::Drive => {
                     assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
@@ -258,7 +259,7 @@ fn terminal_queries_retained_target_after_clearing_own_head_before_per_cell() {
         let destination = head(mover, family);
         mover
             .navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: 2 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
         match family {
             TrackFamily::Drive => {
                 assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
@@ -503,7 +504,7 @@ fn terminal_per_cell_limbo_keeps_retained_residual_and_navcom() {
         let target = head(entity, family);
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(10, 9)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(10, 9)));
         match family {
             TrackFamily::Drive => {
                 assert!(entity.locomotor.as_mut().unwrap().store_track_destination(
@@ -551,7 +552,7 @@ fn terminal_saved_reached_clears_callback_navcom_and_only_live_queue_head() {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 9)));
     let drive = entity.locomotor.as_mut().unwrap();
     assert!(drive.store_track_destination(
         crate::sim::movement::track_process::TrackFamily::Drive,
@@ -583,7 +584,7 @@ fn terminal_saved_reached_clears_callback_navcom_and_only_live_queue_head() {
             );
             entity
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(25, 25)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(25, 25)));
             entity.navigation.path_replay = FootPathQueue::for_test(vec![1, 2, 3], 1, Some((7, 8)));
         }
     });
@@ -998,7 +999,7 @@ fn terminal_retires_the_head_before_callback_and_keeps_a_new_order() {
                 if retarget {
                     entity
                         .navigation
-                        .set_nav_com(Some(NavTargetRef::cell(12, 9)));
+                        .set_nav_com_for_test(Some(NavTargetRef::cell(12, 9)));
                     // The callback's new route: Foot+5E0 words from (10,9).
                     entity.navigation.path_replay =
                         crate::sim::movement::fixture_path_replay(&[(10, 9), (11, 9), (12, 9)]);
@@ -1182,9 +1183,9 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
     let (mut sim, rules) = factory_per_cell_fixture(true, false, "");
     let unit = sim.substrate.entities.get_mut(1).unwrap();
     unit.navigation
-        .set_nav_com_aux(Some(NavTargetRef::cell(11, 10)));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::cell(11, 10)));
     unit.navigation
-        .set_suspended_nav_com(Some(NavTargetRef::cell(12, 10)));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(12, 10)));
     unit.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Guard),
         suspended: MissionId::NONE,
@@ -1390,7 +1391,7 @@ fn per_cell_factory_clearance_keeps_reason_mission_rtti_and_ground_building_gate
     for (name, reason, tethered, deck, current, queued, nav_com, sends_clearance) in cases {
         let (mut sim, rules) = factory_per_cell_fixture(tethered, deck, "");
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.navigation.set_nav_com(nav_com);
+        unit.navigation.set_nav_com_for_test(nav_com);
         unit.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(current),
             suspended: MissionId::NONE,
@@ -1473,7 +1474,7 @@ fn per_cell_factory_clearance_keeps_reason_mission_rtti_and_ground_building_gate
         sim.substrate.entities.insert(target);
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: 3 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 3 }));
         unit.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(7),
             suspended: MissionId::NONE,
@@ -1575,7 +1576,7 @@ fn per_cell_factory_harvester_queue_uses_live_readiness_and_preserves_miner_stat
             let unit = sim.substrate.entities.get_mut(1).unwrap();
             unit.miner = Some(Miner::new(MinerKind::War, &MinerConfig::default(), 0));
             unit.navigation
-                .set_nav_com_aux(Some(NavTargetRef::cell(13, 10)));
+                .set_nav_com_aux_for_test(Some(NavTargetRef::cell(13, 10)));
             unit.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_known(MissionType::Guard),
                 suspended: MissionId::NONE,
@@ -1656,7 +1657,7 @@ fn idle_receiver_cancels_burst_through_the_shared_target_setter() {
             entity.weapon_burst.complete_shot(2);
             entity
                 .navigation
-                .set_nav_com(has_destination.then(|| NavTargetRef::cell(12, 10)));
+                .set_nav_com_for_test(has_destination.then(|| NavTargetRef::cell(12, 10)));
             sim.unit_enter_idle_mode(1, None, false, crate::sim::world::FrameEffects::default());
             let entity = sim.substrate.entities.get(1).unwrap();
             assert_eq!(entity.weapon_burst.index(), i32::from(has_destination));
@@ -1980,12 +1981,12 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             .set_exact_z_leptons_for_test(Some(coordinate.z));
         unit.health.set_for_test(integer(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(integer(&before["estimate"]));
-        unit.navigation.set_nav_com(
+        unit.navigation.set_nav_com_for_test(
             before["unit_nav"]
                 .is_string()
                 .then_some(NavTargetRef::Building { id: depot }),
         );
-        unit.navigation.set_nav_com_aux(None);
+        unit.navigation.set_nav_com_aux_for_test(None);
         unit.attack_target
             .set_for_test(other.map(TargetKind::Entity));
         let destination = &before["locomotor_destination"];

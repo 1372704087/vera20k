@@ -202,10 +202,10 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     let aux = before["actor"]["aux"].as_u64().unwrap();
     actor
         .navigation
-        .set_nav_com_aux((aux != 0).then_some(NavTargetRef::Object { id: aux }));
+        .set_nav_com_aux_for_test((aux != 0).then_some(NavTargetRef::Object { id: aux }));
     actor
         .navigation
-        .set_nav_com((!before["actor"]["navcell"].is_null()).then(|| {
+        .set_nav_com_for_test((!before["actor"]["navcell"].is_null()).then(|| {
             let (rx, ry) = pair(&before["actor"]["navcell"]);
             NavTargetRef::cell(rx, ry)
         }));
@@ -298,7 +298,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             .get_mut(id)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::object(target)));
+            .set_nav_com_for_test(Some(NavTargetRef::object(target)));
         if input.get("chrono_timer").and_then(Value::as_bool) == Some(true) {
             // The native TimerCheck fixture supplies a nonnull TarCom+2B4,
             // deliberately excluding passive-acquisition/idle callbacks.
@@ -1128,8 +1128,9 @@ fn a_deferred_restore_keeps_a_cleg_object_navcom() {
         .expect("E1 spawns");
     let target = NavTargetRef::object(object);
     let cleg = sim.substrate.entities.get_mut(id).unwrap();
-    cleg.navigation.set_nav_com(Some(target));
-    cleg.navigation.set_pending_destination_setter(true);
+    cleg.navigation.set_nav_com_for_test(Some(target));
+    cleg.navigation
+        .set_pending_destination_setter_for_test(true);
     sim.complete_pending_order(
         id,
         Some(&rules),

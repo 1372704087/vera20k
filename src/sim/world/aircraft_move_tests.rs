@@ -186,7 +186,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
             .get_mut(id)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(rx, ry)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(rx, ry)));
     }
     for cell in input["occupied"].as_array().into_iter().flatten() {
         let (x, y) = cell_of(cell);
@@ -332,7 +332,7 @@ fn mission_move_matches_original_states() {
         let label = input["name"].as_str().unwrap();
         let (mut sim, rules) = fixture(input);
         let owner = sim.substrate.entities.get_mut(OWNER).unwrap();
-        owner.navigation.set_nav_com(param(input));
+        owner.navigation.set_nav_com_for_test(param(input));
         owner
             .mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {

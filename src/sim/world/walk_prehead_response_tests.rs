@@ -183,8 +183,8 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     loco.set_step_head(None);
     e.foot_speed.set_speed_fraction(SIM_ZERO);
     e.navigation
-        .set_nav_com(Some(NavTargetRef::Cell { rx: 10, ry: 10 }));
-    e.navigation.set_suspended_nav_com(None);
+        .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 10, ry: 10 }));
+    e.navigation.set_suspended_nav_com_for_test(None);
     e.attack_target
         .set_for_test((input["attack_target"] == true).then_some(TargetKind::Cell(11, 10)));
     e.suspended_attack_target.set_for_test(None);

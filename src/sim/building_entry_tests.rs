@@ -2324,7 +2324,7 @@ fn nearest_occupiable_production_matches_native_controls() {
             .get_mut(foot)
             .unwrap()
             .navigation
-            .set_nav_com(nav.map(NavTargetRef::object));
+            .set_nav_com_for_test(nav.map(NavTargetRef::object));
         set_should_enter_nearest_occupiable_for_test(
             sim.substrate.entities.get_mut(foot).unwrap(),
             row["latch"] == true,

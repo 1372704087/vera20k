@@ -215,7 +215,7 @@ fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
             .get_mut(blocker)
             .unwrap()
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(10, 5)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(10, 5)));
         let tank = spawn(&mut sim, &rules, "TANK", (9, 10));
         let request = FootPathRequest::track(
             &sim.substrate.entities,

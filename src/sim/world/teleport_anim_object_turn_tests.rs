@@ -409,7 +409,9 @@ fn a_restored_destination_warps_at_the_teleport_process_entry() {
     let mover = sim.substrate.entities.get_mut(1).unwrap();
     mover.install_teleport_state_for_test(None);
     represented_assign_destination(mover, Some(NavTargetRef::cell(8, 9)));
-    mover.navigation.set_pending_destination_setter(true);
+    mover
+        .navigation
+        .set_pending_destination_setter_for_test(true);
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
@@ -457,8 +459,12 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    mover.navigation.set_nav_com(Some(NavTargetRef::cell(8, 9)));
-    mover.navigation.set_suspended_nav_com(Some(destination));
+    mover
+        .navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(8, 9)));
+    mover
+        .navigation
+        .set_suspended_nav_com_for_test(Some(destination));
     // In OverlayGrid, which owns a real cell's overlay.
     let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
     overlays.place_overlay(12, 7, overlay, 0);

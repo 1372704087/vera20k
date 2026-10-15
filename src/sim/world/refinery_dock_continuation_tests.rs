@@ -208,7 +208,7 @@ fn fixture(row: &Value) -> Scene {
     {
         let e = s.sim.substrate.entities.get_mut(s.miner).unwrap();
         e.health.set_for_test(int(&before["health"]));
-        e.navigation.set_nav_com(raw_nav);
+        e.navigation.set_nav_com_for_test(raw_nav);
         e.set_archive_target(archive);
         e.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(int(&before["miner_mission"])),

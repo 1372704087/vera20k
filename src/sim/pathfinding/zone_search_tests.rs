@@ -1363,8 +1363,12 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
             .unwrap()
             .install_drive_state_for_test(Some(Default::default()))
     );
-    mover.navigation.set_nav_com(Some(NavTargetRef::cell(3, 0)));
-    mover.navigation.set_pending_destination_setter(true);
+    mover
+        .navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(3, 0)));
+    mover
+        .navigation
+        .set_pending_destination_setter_for_test(true);
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     // The pending pass on the production Simulation host, with the fixture's

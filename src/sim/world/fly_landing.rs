@@ -688,7 +688,8 @@ mod tests {
             e.position.set_sub_y_for_test(SimFixed::from_num(128));
             e.position.set_exact_z_leptons_for_test(Some(0));
             if input["reserved"].as_bool().unwrap_or(false) {
-                e.navigation.set_nav_com(Some(NavTargetRef::cell(64, 64)));
+                e.navigation
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(64, 64)));
             } else {
                 sim.add_entity_occupancy(id);
             }
@@ -975,7 +976,7 @@ mod tests {
                     .get_mut(id)
                     .unwrap()
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::cell(
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(
                         reserved[0].as_u64().unwrap() as u16,
                         reserved[1].as_u64().unwrap() as u16,
                     )));

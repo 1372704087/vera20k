@@ -1807,7 +1807,7 @@ ConditionYellow=50%
         // This component fixture starts after that lifecycle, not before it.
         let ge = sim.substrate.entities.get_mut(stable_id).unwrap();
         ge.navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::object(
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::object(
                 transport_id,
             )));
         ge.mission.set_current_for_test(
@@ -1946,7 +1946,7 @@ ConditionYellow=50%
         let entity = sim.substrate.entities.get_mut(rider).unwrap();
         entity
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::object(hull)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::object(hull)));
         entity
             .mission
             .set_current_for_test(MissionId::from_known(MissionType::Enter), 0);

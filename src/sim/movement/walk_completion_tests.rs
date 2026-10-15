@@ -58,7 +58,7 @@ fn completed_path_head_speed_matches_original_pre_percell_gate() {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         actor
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(10, 10)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(10, 10)));
         actor.navigation.path_replay = FootPathQueue::for_test(
             if path_head == -1 {
                 vec![2]
@@ -125,7 +125,9 @@ fn completed_corner_keeps_heading_until_next_head_is_accepted() {
     actor.position.set_sub_x_for_test(SimFixed::from_num(184));
     actor.position.set_sub_y_for_test(SimFixed::from_num(64));
     actor.body_facing = body;
-    actor.navigation.set_nav_com(Some(NavTargetRef::cell(6, 6)));
+    actor
+        .navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(6, 6)));
     actor.navigation.path_replay = FootPathQueue::for_test(vec![2, 4], 0, Some((5, 5)));
     let loco = actor.locomotor.as_mut().unwrap();
     loco.set_walk_destination(Some(DriveCoord::cell(6, 6, 0)));
@@ -270,10 +272,10 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
         }
         actor
             .navigation
-            .set_nav_com(Some(NavTargetRef::Entity { id: 2 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
         actor
             .navigation
-            .set_nav_com_aux(Some(NavTargetRef::Entity { id: 123 }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Entity { id: 123 }));
         actor
             .navigation
             .set_nav_queue_for_test(vec![NavTargetRef::cell(20, 15), NavTargetRef::cell(21, 15)]);

@@ -1078,7 +1078,7 @@ fn gsi_08_04_moving_turretless_vehicle_does_not_turn_to_fire() {
             .set_for_test(Some(TargetKind::Entity(2)));
         attacker
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(5, 1)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(5, 1)));
     }
 
     let facing_before = sim.substrate.entities.get(1).unwrap().body_facing;
@@ -1223,7 +1223,7 @@ fn facing_update_turretless_arm_asks_navcom_and_the_locomotor() {
     assert_eq!(
         hull(&|unit| unit
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(5, 1)))),
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(5, 1)))),
         None,
         "a NavCom"
     );
@@ -1303,7 +1303,7 @@ fn gsi_08_14_idle_turret_leads_toward_the_move_destination() {
         .get_mut(1)
         .unwrap()
         .navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 5)));
 
     let result = run_combat_direct(&mut sim, &rules);
     let desired = result

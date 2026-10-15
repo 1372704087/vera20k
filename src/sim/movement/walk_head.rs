@@ -693,7 +693,7 @@ mod tests {
             if input["nav"].as_bool().unwrap_or(true) {
                 entity
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::Cell { rx: 10, ry: 10 }));
+                    .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 10, ry: 10 }));
             }
             let current = super::super::ground_pose::position_world_coord(&entity.position);
             let mut raw = RawCellOccupationGrid::default();

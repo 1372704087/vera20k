@@ -350,7 +350,7 @@ impl Simulation {
             .get_mut(entity_id)
             .is_some_and(|entity| {
                 entity.mission.clear_suspended();
-                entity.navigation.set_suspended_nav_com(None);
+                entity.navigation.clear_suspended_nav_com();
                 entity.suspended_attack_target.clear();
                 entity.lifecycle.object_alive()
                     && !entity.crash.is_crashing()

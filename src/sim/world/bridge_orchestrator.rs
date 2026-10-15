@@ -1078,7 +1078,7 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .navigation
-            .set_nav_com(order);
+            .set_nav_com_for_test(order);
         sim.substrate.occupancy.add(
             5,
             5,

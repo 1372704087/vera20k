@@ -289,7 +289,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         .set_for_test(target(&before["target"], row));
     actor
         .navigation
-        .set_nav_com(target(&before["nav"], row).map(|target| match target {
+        .set_nav_com_for_test(target(&before["nav"], row).map(|target| match target {
             TargetKind::Cell(x, y) => NavTargetRef::cell(x, y),
             TargetKind::Entity(_) => unreachable!(),
         }));

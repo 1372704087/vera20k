@@ -3679,12 +3679,9 @@ mod tests {
             update_mission_test_fixture(&mut entity.mission, |fixture| {
                 fixture.current = MissionId::from_known(MissionType::Move);
             });
-            entity
-                .navigation
-                .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
-                    rx: 30,
-                    ry: 30,
-                }));
+            entity.navigation.set_nav_com_for_test(Some(
+                crate::sim::components::NavTargetRef::Cell { rx: 30, ry: 30 },
+            ));
         };
 
         // Guard passes without OpportunityFire.
@@ -4322,7 +4319,7 @@ mod tests {
             .ensure_installed_track_state();
         entity
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(8, 8)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(8, 8)));
         update_mission_test_fixture(&mut entity.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::Move);
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
@@ -4496,7 +4493,7 @@ mod tests {
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .expect("fixture entity")
             .navigation
-            .set_nav_com(None);
+            .set_nav_com_for_test(None);
         let before_rng = sim.scenario_rng.logical_state();
 
         sim.object_ai_visit_one(ORDINARY_DRIVE_HOST_ID, Some(&rules), ObjectAiCtx::default());
@@ -4609,12 +4606,9 @@ mod tests {
         let rules = representative_foot_handler_rules();
         let mut infantry = entity_of(1, EntityCategory::Infantry);
         infantry.attack_target.set_for_test(None);
-        infantry
-            .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
-                rx: 20,
-                ry: 21,
-            }));
+        infantry.navigation.set_nav_com_for_test(Some(
+            crate::sim::components::NavTargetRef::Cell { rx: 20, ry: 21 },
+        ));
         update_mission_test_fixture(&mut infantry.mission, |fixture| {
             fixture.current = MissionId::from_known(MissionType::Attack);
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
@@ -6425,7 +6419,7 @@ mod tests {
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
             .navigation
-            .set_nav_com(None);
+            .set_nav_com_for_test(None);
         let moving_trace =
             ordinary_drive_host_trace_ok(&null_moving, 50, HostTraceGates::ordinary());
         assert_eq!(moving_trace.is_moving_calls, 1);
@@ -6444,7 +6438,7 @@ mod tests {
                 .entities
                 .get_mut(ORDINARY_DRIVE_HOST_ID)
                 .unwrap();
-            entity.navigation.set_nav_com(None);
+            entity.navigation.set_nav_com_for_test(None);
             update_mission_test_fixture(&mut entity.mission, |fixture| {
                 fixture.queued = MissionId::from_known(MissionType::Guard);
             });
@@ -6468,7 +6462,7 @@ mod tests {
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
             .navigation
-            .set_nav_com(None);
+            .set_nav_com_for_test(None);
         let arrived_trace = ordinary_drive_host_trace_ok(&null_stopped, 50, stopped);
         assert_eq!(arrived_trace.is_moving_calls, 1);
         assert_eq!(arrived_trace.move_random_ranged_calls, 0);
@@ -6493,7 +6487,7 @@ mod tests {
                 .entities
                 .get_mut(ORDINARY_DRIVE_HOST_ID)
                 .unwrap();
-            entity.navigation.set_nav_com(None);
+            entity.navigation.set_nav_com_for_test(None);
             entity
                 .locomotor
                 .as_mut()

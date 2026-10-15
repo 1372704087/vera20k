@@ -600,7 +600,7 @@ fn foot_stop_preserves_queue() {
     activate_drive(entity);
     entity
         .navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(12, 8)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(12, 8)));
     super::super::navcom::foot_stop_moving(entity);
     assert_eq!(entity.navigation.path_replay, replay_fixture());
 }

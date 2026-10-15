@@ -103,7 +103,7 @@ fn set_nav_com(sim: &mut Simulation, actor: u64, nav: NavTargetRef) {
         .get_mut(actor)
         .unwrap()
         .navigation
-        .set_nav_com(Some(nav));
+        .set_nav_com_for_test(Some(nav));
 }
 
 /// A computer's Rhino takes a GI a cell away as its destination; a human's

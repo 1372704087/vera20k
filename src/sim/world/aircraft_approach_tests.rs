@@ -33,7 +33,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         crate::sim::mission::MissionLeafState::aircraft_raw_for_test(1, state, true);
     entity
         .navigation
-        .set_nav_com(input["nav"].as_array().map(|xy| {
+        .set_nav_com_for_test(input["nav"].as_array().map(|xy| {
             NavTargetRef::cell(
                 xy[0].as_u64().unwrap() as u16,
                 xy[1].as_u64().unwrap() as u16,

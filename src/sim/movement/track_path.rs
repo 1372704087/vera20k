@@ -673,10 +673,9 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if !actor.navigation.pending_destination_setter() {
+        if !actor.navigation.take_destination_setter() {
             return;
         }
-        actor.navigation.set_pending_destination_setter(false);
         // A NavCom cleared after the restore (a Stop) leaves nothing owed.
         let Some(requested) = actor.navigation.nav_com() else {
             return;

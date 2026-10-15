@@ -133,7 +133,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
             actor.set_archive_target(target(&before["archive"], targets));
             actor
                 .navigation
-                .set_nav_com(target(&before["destination"], targets).map(|value| {
+                .set_nav_com_for_test(target(&before["destination"], targets).map(|value| {
                     let TargetKind::Entity(id) = value else {
                         unreachable!()
                     };

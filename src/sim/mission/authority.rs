@@ -106,7 +106,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     if category != EntityCategory::Structure {
         represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
-            entity.navigation.set_pending_destination_setter(true);
+            entity.navigation.owe_destination_setter();
         }
     }
     true
@@ -1011,9 +1011,7 @@ impl Simulation {
                 .get_mut(receiver)
                 .expect("preflight cannot remove receiver");
             if entity.category() != EntityCategory::Structure {
-                entity
-                    .navigation
-                    .set_suspended_nav_com(entity.navigation.nav_com());
+                entity.navigation.suspend_nav_com();
             }
             entity
                 .suspended_attack_target
@@ -1087,7 +1085,7 @@ impl Simulation {
                 // restored object holds its order and never moves toward it,
                 // which is exactly the state a blocked-step Override leaves it
                 // in.
-                entity.navigation.set_pending_destination_setter(true);
+                entity.navigation.owe_destination_setter();
             }
         }
         Ok(true)
@@ -1559,7 +1557,7 @@ mod tests {
                     .set_for_test(prior_target.map(|_| TargetKind::Entity(2)));
                 actor
                     .navigation
-                    .set_nav_com(Some(NavTargetRef::cell(12, 10)));
+                    .set_nav_com_for_test(Some(NavTargetRef::cell(12, 10)));
                 actor.navigation.path_replay.set_directions_for_test(vec![
                     before["path_field"].as_u64().unwrap() as u8,
                     2,
@@ -1767,8 +1765,10 @@ mod tests {
             .set_for_test(crate::sim::timer::CdTimer::started(0, 17));
         unit.weapon_burst.complete_shot(4);
         unit.attack_target.set_for_test(Some(active_target));
-        unit.navigation.set_nav_com(Some(NavTargetRef::cell(1, 2)));
-        unit.navigation.set_pending_destination_setter(true);
+        unit.navigation
+            .set_nav_com_for_test(Some(NavTargetRef::cell(1, 2)));
+        unit.navigation
+            .set_pending_destination_setter_for_test(true);
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1852,7 +1852,7 @@ mod tests {
                 .set_for_test(Some(TargetKind::Entity(7)));
             receiver
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(1, 2)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(1, 2)));
             let mut sim = sim_with(receiver);
             let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1916,7 +1916,8 @@ mod tests {
         let deliberate = MissionId::from_raw(28);
         let mut unit = entity(EntityCategory::Unit, deliberate);
         unit.attack_target.set_for_test(Some(TargetKind::Entity(7)));
-        unit.navigation.set_nav_com(Some(NavTargetRef::cell(1, 2)));
+        unit.navigation
+            .set_nav_com_for_test(Some(NavTargetRef::cell(1, 2)));
         let before_mission = unit.mission;
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
@@ -1967,7 +1968,7 @@ mod tests {
             .set_for_test(Some(TargetKind::Entity(7)));
         aircraft
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(1, 2)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(1, 2)));
         let before = bincode::serialize(&aircraft).expect("serialize blocked Aircraft");
         let mut sim = sim_with(aircraft);
         let mut effects = RecordingConcreteMissionEffects::available();
@@ -2034,7 +2035,7 @@ mod tests {
         unit.suspended_attack_target
             .set_for_test(Some(TargetKind::Entity(7)));
         unit.navigation
-            .set_suspended_nav_com(Some(NavTargetRef::cell(8, 9)));
+            .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(8, 9)));
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 

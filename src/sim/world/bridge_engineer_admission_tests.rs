@@ -61,7 +61,7 @@ fn fixture(input: &Value, other_flags: &str) -> (Simulation, RuleSet) {
     });
     infantry
         .navigation
-        .set_nav_com(identity(&input["nav_com"]).map(NavTargetRef::building));
+        .set_nav_com_for_test(identity(&input["nav_com"]).map(NavTargetRef::building));
     infantry
         .attack_target
         .set_for_test(identity(&input["attack_target"]).map(|id| TargetKind::Entity(id)));

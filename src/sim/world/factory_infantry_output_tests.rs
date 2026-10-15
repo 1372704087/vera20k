@@ -429,7 +429,7 @@ fn ground_command_fixture(
     ));
     actor
         .navigation
-        .set_nav_com(ground_command_nav_target(state));
+        .set_nav_com_for_test(ground_command_nav_target(state));
     actor.set_archive_target(ground_command_archive_target(state));
     actor.navigation.path_replay.set_directions_for_test(
         state["path"]

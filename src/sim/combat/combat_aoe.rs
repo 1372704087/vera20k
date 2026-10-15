@@ -3352,7 +3352,7 @@ mod tests {
             if nav {
                 victim
                     .navigation
-                    .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(8, 8)));
+                    .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(8, 8)));
             }
             victim.locomotor = Some(
                 crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -3386,9 +3386,9 @@ mod tests {
                     .as_mut()
                     .unwrap()
                     .set_cell_entry_blocked_for_test(true);
-                victim
-                    .navigation
-                    .set_nav_com_aux(Some(crate::sim::components::NavTargetRef::cell(1, 1)));
+                victim.navigation.set_nav_com_aux_for_test(Some(
+                    crate::sim::components::NavTargetRef::cell(1, 1),
+                ));
                 victim.navigation.path_replay =
                     FootPathQueue::for_test(vec![2, 3, 4, 5], 0, Some((9, 8)));
                 let path = &mut victim.navigation.path_runtime;

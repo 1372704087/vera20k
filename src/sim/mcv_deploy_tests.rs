@@ -390,7 +390,7 @@ fn continuation_result_and_rotation_edge_match_original_blocks() {
             .set_dying_for_test(row["alive"].as_u64().unwrap() == 0);
         e.mcv_deploy_pending
             .set_for_test(row["flag"].as_u64().unwrap() != 0);
-        e.navigation.set_nav_com(
+        e.navigation.set_nav_com_for_test(
             (row["nav"].as_u64().unwrap() != 0)
                 .then_some(crate::sim::components::NavTargetRef::cell(30, 30)),
         );
@@ -526,7 +526,7 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
         false
     ));
     e.navigation
-        .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(20, 22)));
+        .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(20, 22)));
     sim.process_ground_locomotor_for_test(id, Some(&rules), None, None)
         .unwrap();
     assert!(
@@ -543,7 +543,7 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
     );
     assert_eq!(yards(&sim), 0);
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.navigation.set_nav_com(None);
+    e.navigation.set_nav_com_for_test(None);
     // A retained selector alone cannot override the cleared +63 authority.
     assert_eq!(
         e.locomotor

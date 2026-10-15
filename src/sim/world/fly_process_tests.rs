@@ -171,13 +171,15 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             .attack_target
             .set_for_test(Some(TargetKind::Entity(TARGET)));
     }
-    entity.navigation.set_nav_com(match &input["nav_com"] {
-        serde_json::Value::String(kind) if kind == "dock" => {
-            Some(NavTargetRef::Building { id: DOCK })
-        }
-        serde_json::Value::Bool(true) => Some(NavTargetRef::cell(80, 64)),
-        _ => None,
-    });
+    entity
+        .navigation
+        .set_nav_com_for_test(match &input["nav_com"] {
+            serde_json::Value::String(kind) if kind == "dock" => {
+                Some(NavTargetRef::Building { id: DOCK })
+            }
+            serde_json::Value::Bool(true) => Some(NavTargetRef::cell(80, 64)),
+            _ => None,
+        });
     if flag(input, "loaner", false) {
         entity.mark_mission_only();
     }

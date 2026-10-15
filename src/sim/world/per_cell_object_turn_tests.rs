@@ -41,7 +41,7 @@ fn output_arrival_fixture() -> (Simulation, RuleSet) {
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
             entity
                 .navigation
-                .set_nav_com(Some(NavTargetRef::cell(15, 16)));
+                .set_nav_com_for_test(Some(NavTargetRef::cell(15, 16)));
             entity.set_in_playfield(false);
         }
         sim.substrate.entities.insert(entity);
@@ -268,10 +268,10 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
     entity.position.set_exact_z_leptons_for_test(Some(0));
     entity
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(10, 10)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 10)));
     entity
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::cell(11, 10)));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::cell(11, 10)));
     entity
         .navigation
         .set_nav_queue_for_test(vec![NavTargetRef::cell(12, 10)]);

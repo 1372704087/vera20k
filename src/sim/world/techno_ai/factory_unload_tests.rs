@@ -499,7 +499,7 @@ fn fixture_input(fixture: &mut Fixture, rules: &RuleSet, native: &Value) {
     );
     unit.foot_speed
         .set_speed_fraction_native_bits(bits(&drive["applied_fraction_bits"]));
-    unit.navigation.set_nav_com(native_nav(native));
+    unit.navigation.set_nav_com_for_test(native_nav(native));
     assert_eq!(native["producer_archive"], "0x0");
     sim.substrate.occupancy =
         crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -912,7 +912,7 @@ fn unit_move_deployment_guard_preserves_door_navigation_and_rng() {
             .unwrap();
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             entity.set_unit_simple_deploy_for_test(flags.0, flags.1, flags.2);
-            entity.navigation.set_nav_com(navigation);
+            entity.navigation.set_nav_com_for_test(navigation);
             entity.open_door(40, 190);
             let door_before = (entity.door_phase(), entity.door_timer_fields());
             let rng_before = sim.rng_state();
@@ -990,7 +990,9 @@ fn original_unit_move_deployment_guards_match_mission_dispatch() {
         });
         let flags = &row["input"]["flags"];
         entity.set_unit_simple_deploy_for_test(flags[0] != 0, flags[1] != 0, flags[2] != 0);
-        entity.navigation.set_nav_com(nav(&before["navcell"]));
+        entity
+            .navigation
+            .set_nav_com_for_test(nav(&before["navcell"]));
         let door = bytes(before["door"].as_str().unwrap());
         // The original reader/4A51F0 setup supplies these inputs. This pins
         // the dispatch decision; the separate19 controls compare Door math.

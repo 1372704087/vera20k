@@ -426,8 +426,9 @@ fn deferred_restore_completes_toward_navcom_over_a_stale_destination() {
     let (mut sim, rules, _registry, id) = unit(&json!({"family": "drive"}));
     order(&mut sim, &rules, id, (13, 10));
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.navigation.set_nav_com(Some(NavTargetRef::cell(10, 13)));
-    e.navigation.set_pending_destination_setter(true);
+    e.navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(10, 13)));
+    e.navigation.set_pending_destination_setter_for_test(true);
     sim.session.binary_frame = 101;
     sim.complete_pending_order(
         id,
@@ -1184,7 +1185,8 @@ fn after_active_rows_gate_the_same_call_continuation() {
             miner.set_unload_active_for_test(true);
             e.miner = Some(miner);
         }
-        e.navigation.set_nav_com(navcom.map(|(target, _)| target));
+        e.navigation
+            .set_nav_com_for_test(navcom.map(|(target, _)| target));
         let aborted = int(input, "active_return", 0) & 0xFF != 0;
         let continued = !aborted
             && sim
@@ -1393,7 +1395,8 @@ fn a_still_drive_is_reaimed_at_its_navcom_by_the_outer_process_unless_guarding()
         let (mut sim, rules, registry, id) = unit(&json!({"family": "drive", "mission": mission}));
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.navigation.path_replay = FootPathQueue::default();
-        e.navigation.set_nav_com(Some(NavTargetRef::cell(14, 10)));
+        e.navigation
+            .set_nav_com_for_test(Some(NavTargetRef::cell(14, 10)));
         visit(&mut sim, &rules, &registry, id, 101);
         let e = sim.substrate.entities.get(id).unwrap();
         let destination = e
@@ -1731,7 +1734,7 @@ fn owed_restore_setter_moves_walk_and_hover_objects_to_the_saved_order() {
             e,
             Some(NavTargetRef::cell(14, 12)),
         );
-        e.navigation.set_pending_destination_setter(true);
+        e.navigation.set_pending_destination_setter_for_test(true);
         e.navigation
             .set_nav_queue_for_test(vec![NavTargetRef::cell(16, 12)]);
         sim.advance_tick(&[], Some(&rules), None, Some(&registry), 67);

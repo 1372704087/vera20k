@@ -110,7 +110,7 @@ fn add_blocker(sim: &mut Simulation, moving: bool) {
         // retains Foot+6B6 while moving.
         blocker
             .navigation
-            .set_nav_com(Some(NavTargetRef::cell(20, 9)));
+            .set_nav_com_for_test(Some(NavTargetRef::cell(20, 9)));
         assert!(
             blocker
                 .locomotor

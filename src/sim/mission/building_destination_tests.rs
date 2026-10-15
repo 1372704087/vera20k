@@ -95,14 +95,16 @@ fn fixture(input: &Value, shape: u8) -> Simulation {
     // The native Building body never touches them, regardless of admission.
     actor
         .navigation
-        .set_nav_com(Some(NavTargetRef::cell(70, 71)));
+        .set_nav_com_for_test(Some(NavTargetRef::cell(70, 71)));
     actor
         .navigation
-        .set_nav_com_aux(Some(NavTargetRef::cell(72, 73)));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::cell(72, 73)));
     actor
         .navigation
         .set_nav_queue_for_test(vec![NavTargetRef::cell(74, 75)]);
-    actor.navigation.set_pending_destination_setter(true);
+    actor
+        .navigation
+        .set_pending_destination_setter_for_test(true);
     actor.navigation.path_runtime.start_movement(40, 30);
     sim.substrate.entities.insert(actor);
     sim.mission_assign_exact(

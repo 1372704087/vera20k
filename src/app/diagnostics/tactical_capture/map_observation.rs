@@ -4993,7 +4993,7 @@ mod tests {
             .set_for_test(Some(TargetKind::Cell(7, 8)));
         entity
             .navigation
-            .set_suspended_nav_com(Some(NavTargetRef::object(42)));
+            .set_suspended_nav_com_for_test(Some(NavTargetRef::object(42)));
         assert_eq!(
             retask_observation(&entity),
             json!({
@@ -5005,7 +5005,7 @@ mod tests {
             .set_for_test(Some(TargetKind::Entity(43)));
         entity
             .navigation
-            .set_suspended_nav_com(Some(NavTargetRef::cell(9, 10)));
+            .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(9, 10)));
         assert_eq!(
             retask_observation(&entity),
             json!({
@@ -5013,7 +5013,7 @@ mod tests {
             })
         );
         entity.suspended_attack_target.set_for_test(None);
-        entity.navigation.set_suspended_nav_com(None);
+        entity.navigation.set_suspended_nav_com_for_test(None);
         assert_eq!(
             retask_observation(&entity),
             json!({"suspended_target":null,"suspended_nav":null})

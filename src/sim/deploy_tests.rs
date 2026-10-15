@@ -1293,7 +1293,7 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     if before["nav"].as_i64().unwrap_or(0) != 0 {
         actor
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(11, 10)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(11, 10)));
     }
     if before["target"].as_i64().unwrap_or(0) != 0 {
         actor

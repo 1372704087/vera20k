@@ -511,7 +511,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         unit.position
             .set_exact_z_leptons_for_test(Some(int(&at[2])));
         unit.navigation
-            .set_nav_com(if let Some(cell) = before["unit_nav"].as_array() {
+            .set_nav_com_for_test(if let Some(cell) = before["unit_nav"].as_array() {
                 Some(NavTargetRef::cell(
                     int(&cell[0]) as u16,
                     int(&cell[1]) as u16,
@@ -521,7 +521,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
                     .is_string()
                     .then_some(NavTargetRef::Building { id: depot })
             });
-        unit.navigation.set_nav_com_aux(
+        unit.navigation.set_nav_com_aux_for_test(
             (before["unit_nav_aux"] == "other")
                 .then(|| NavTargetRef::Building { id: other.unwrap() }),
         );

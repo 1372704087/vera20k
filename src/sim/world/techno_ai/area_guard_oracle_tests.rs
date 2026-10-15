@@ -152,9 +152,11 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         actor.set_archive_target(archive);
         actor.attack_target.set_for_test(target);
         actor.suspended_attack_target.set_for_test(suspended_target);
-        actor.navigation.set_suspended_nav_com(suspended_nav);
-        actor.navigation.set_nav_com(nav);
-        actor.navigation.set_nav_com_aux(aux);
+        actor
+            .navigation
+            .set_suspended_nav_com_for_test(suspended_nav);
+        actor.navigation.set_nav_com_for_test(nav);
+        actor.navigation.set_nav_com_aux_for_test(aux);
         assert_eq!(before["navigation"]["queue_count"], 0);
         actor.navigation.clear_nav_queue();
         actor.navigation.path_replay.set_directions_for_test(

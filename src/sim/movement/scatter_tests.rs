@@ -73,7 +73,9 @@ fn unit_refusals_match_native_and_leave_orders_and_rng_untouched() {
             flag("undeploying"),
         );
         if flag("nav") {
-            actor.navigation.set_nav_com(Some(NavTargetRef::cell(8, 8)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::cell(8, 8)));
         }
         let mut facing = FacingClass::new(0, input["rot"].as_i64().unwrap_or(5) as i32);
         if flag("turn") {
@@ -145,7 +147,8 @@ fn unit_flags_override_mission_scatter_and_nav_com() {
         100
     ));
     let mut nav = hunt.clone();
-    nav.navigation.set_nav_com(Some(NavTargetRef::cell(8, 8)));
+    nav.navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(8, 8)));
     assert!(!unit_scatter_admitted(
         &nav,
         ScatterFlags::new(true, false),
@@ -171,7 +174,9 @@ fn unit_checks_active_locomotor_and_body_rotation_not_stashed_slot_or_turret() {
     assert!(!unit_scatter_admitted(&actor, flags, &rules, 100));
     assert!(crate::sim::movement::locomotor_owner::begin_drive_for_teleporter(&mut actor, 100));
     actor.turret_rotation_latch.set_for_test(true);
-    actor.navigation.set_nav_com(Some(NavTargetRef::cell(8, 8)));
+    actor
+        .navigation
+        .set_nav_com_for_test(Some(NavTargetRef::cell(8, 8)));
     assert!(
         actor
             .locomotor
@@ -708,7 +713,9 @@ fn receive_damage_scatter_gates_match_original_execution() {
                 .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
         }
         if flag("nav") {
-            actor.navigation.set_nav_com(Some(NavTargetRef::cell(9, 9)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::cell(9, 9)));
         }
         let owner = actor.owner();
         let mut sim = Simulation::new();
@@ -828,7 +835,9 @@ fn unit_source_arm_matches_original_execution() {
         *sim.substrate.entities.get_mut(unit).unwrap() = actor;
         let actor = sim.substrate.entities.get_mut(unit).unwrap();
         if flag("nav") {
-            actor.navigation.set_nav_com(Some(NavTargetRef::cell(8, 8)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::cell(8, 8)));
         }
         if flag("target") {
             actor

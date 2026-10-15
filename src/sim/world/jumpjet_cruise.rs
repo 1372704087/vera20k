@@ -857,7 +857,7 @@ mod tests {
             .get_mut(1)
             .expect("jumpjet")
             .navigation
-            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(16, 10)));
+            .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(16, 10)));
         sim.jumpjet_move_to(1, request, None)
             .expect("Move_To on the fixture map");
     }

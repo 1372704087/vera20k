@@ -117,9 +117,6 @@ pub(crate) enum TrackFamily {
 pub(crate) struct TrackInvocation {
     pub entity_id: u64,
     pub family: TrackFamily,
-    /// Fresh ProcessMovement acceptance owes Apply1 before the paid loop.
-    /// This synchronous handoff never crosses a frame or snapshot boundary.
-    pub apply_fresh_occupation: bool,
     /// Called from the outer active-track gate (Drive 0x4B0576 / Ship
     /// 0x69FC86), whose false return may continue into Process_Movement in
     /// the same Process (`track_continuation`).
@@ -143,7 +140,6 @@ impl TrackInvocation {
         Self {
             entity_id,
             family,
-            apply_fresh_occupation: false,
             active_gate: false,
             retry: false,
         }

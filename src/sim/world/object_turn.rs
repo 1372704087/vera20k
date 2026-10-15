@@ -950,18 +950,12 @@ impl Simulation {
             }
         }
 
-        // A direction-8 producer also ends this object's ordinary turn as
-        // soon as it arms TubeMovement.  The leaf itself starts on the
-        // object's next visit; an entry-active leaf may have cleared the
-        // payload above, hence the captured half of this predicate.
-        let tube_owns_whole_turn = tube_active_at_entry
-            || sim.substrate.entities.get(stable_id).is_some_and(|entity| {
-                matches!(
-                    entity.category(),
-                    EntityCategory::Unit | EntityCategory::Infantry
-                ) && entity.low_bridge_tube_state.is_some()
-            });
-        if tube_owns_whole_turn {
+        // UnitClass::AI (`0x007363A4..0x007363C8`) and InfantryClass::AI
+        // (`0x0051BAB8..0x0051BAD9`) return after an entry-active
+        // TubeMovement. A tube the Process armed this turn ends nothing:
+        // neither AI reads `+0x684` after its FootClass::AI call, so the
+        // Foot and class tails run.
+        if tube_active_at_entry {
             outcome.tube_owned = true;
             return Ok(outcome);
         }

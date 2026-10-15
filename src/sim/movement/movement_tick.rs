@@ -378,7 +378,6 @@ fn advance_ordinary_mover(
                 } else {
                     super::track_process::TrackFamily::Drive
                 },
-                apply_fresh_occupation: false,
                 active_gate: true,
                 retry: false,
             });

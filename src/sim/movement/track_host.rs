@@ -216,9 +216,6 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> Result<TrackPass, String> {
-        if invocation.apply_fresh_occupation {
-            self.track_apply_occupation(invocation.entity_id, invocation.family, true);
-        }
         let object = self
             .substrate
             .entities
@@ -242,6 +239,17 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
             current_grid,
         );
+        // Drive4B1297 / Ship6A095F: a tube word with no selected track enters
+        // the tube instead of the paid loop.
+        if self.track_tube_head(
+            invocation.entity_id,
+            invocation.family,
+            rules,
+            registry,
+            effects,
+        )? {
+            return Ok(TrackPass::default());
+        }
         self.try_run_track_points_observed(
             invocation,
             fresh_budget,
@@ -262,9 +270,6 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
     ) -> u32 {
-        if invocation.apply_fresh_occupation {
-            self.track_apply_occupation(invocation.entity_id, invocation.family, true);
-        }
         self.run_track_points_observed(invocation, fresh_budget, rules, registry, &mut |_, _, _| {})
     }
 

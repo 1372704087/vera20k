@@ -1028,12 +1028,8 @@ impl GameEntity {
         self.foot_occupation_enabled.get()
     }
 
-    /// Resume or suspend the occupation enable, for fixtures and for the tube
-    /// entry and Unit exit in `movement_tick` and `tube_movement`, which the
-    /// movement change rewriting them moves to [`OccupationEnable`]'s
-    /// operations.
-    ///
-    /// [`OccupationEnable`]: crate::sim::movement::foot_mark::OccupationEnable
+    /// A fixture's occupation enable.
+    #[cfg(test)]
     pub(crate) fn set_foot_occupation_enabled(&mut self, enabled: bool) {
         if enabled {
             self.foot_occupation_enabled.resume();

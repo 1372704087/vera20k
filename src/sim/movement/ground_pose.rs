@@ -25,7 +25,8 @@ use crate::util::lepton::{
 /// module. Its writers are the gamemd Location writes: SetLocation
 /// ([`Self::put_location`], [`Self::put_world_xy`]), the in-cell offset
 /// ([`Self::put_cell_offset`]), the Z store ([`Self::put_z`]), SetHeight
-/// ([`Self::set_height`]), VERA's level cache ([`Self::store_level`]) and the
+/// ([`Self::set_height`]), VERA's level cache ([`Self::store_cell_level`],
+/// [`Self::put_location_with_level`], [`Self::copy_level_from`]) and the
 /// whole-Location copy ([`Self::copy_from`]).
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Position {
@@ -172,16 +173,6 @@ impl Position {
         if let Some(ground) = supported_ground(level, slope, world_xy) {
             self.put_z(z_at_height(ground, height, on_bridge));
         }
-    }
-
-    /// Store the level the object stands at (`z`), VERA's cache of its cell's
-    /// level plus the deck when OnBridge. gamemd keeps no such field. The
-    /// movers that enter a cell store it with [`Self::store_cell_level`], a
-    /// placement with [`Self::put_location_with_level`], and a spawn with
-    /// [`Self::copy_level_from`]; this raw store is left to the tube exit in
-    /// `tube_movement` until it moves to them.
-    pub(crate) fn store_level(&mut self, level: u8) {
-        self.z = level;
     }
 
     /// Store the level of the cell the object has entered, of terrain level

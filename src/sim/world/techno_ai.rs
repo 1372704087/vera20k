@@ -4841,28 +4841,6 @@ mod tests {
         assert!(!held("PUP", 16, true), "and dropped on CANT");
     }
 
-    #[test]
-    fn attack_handler_clears_only_an_authoritatively_stale_entity_target() {
-        let mut sim = Simulation::with_seed(0xA773);
-        let rules = representative_foot_handler_rules();
-        let mut unit = entity_of(1, EntityCategory::Unit);
-        unit.attack_target
-            .set_for_test(Some(TargetKind::Entity(99)));
-        unit.weapon_burst.complete_shot(2);
-        update_mission_test_fixture(&mut unit.mission, |fixture| {
-            fixture.current = MissionId::from_known(MissionType::Attack);
-            fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
-        });
-        register_entity(&mut sim, unit);
-
-        sim.object_ai_visit_one(1, Some(&rules), ObjectAiCtx::default());
-
-        let unit = sim.substrate.entities.get(1).unwrap();
-        assert!(unit.attack_target.target().is_none());
-        assert_eq!(unit.weapon_burst.index(), 1);
-        assert_eq!(unit.mission.queued(), MissionId::NONE);
-    }
-
     /// The heads of `FootClass::Mission_Guard` (`0x004D5076..0x004D50CD`)
     /// and `Mission_AreaGuard` (`0x004D6ACC`): with `+0x68F` set the Bio
     /// Reactor seek runs and the handler returns the flat `ftol(Rate × 900)`

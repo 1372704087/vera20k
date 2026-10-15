@@ -216,9 +216,6 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> Result<TrackPass, String> {
-        if invocation.apply_fresh_occupation {
-            self.track_apply_occupation(invocation.entity_id, invocation.family, true);
-        }
         let object = self
             .substrate
             .entities
@@ -273,9 +270,6 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
     ) -> u32 {
-        if invocation.apply_fresh_occupation {
-            self.track_apply_occupation(invocation.entity_id, invocation.family, true);
-        }
         self.run_track_points_observed(invocation, fresh_budget, rules, registry, &mut |_, _, _| {})
     }
 

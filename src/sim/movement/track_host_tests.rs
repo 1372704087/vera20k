@@ -62,7 +62,6 @@ fn fixture(family: TrackFamily, budget: i32) -> (Simulation, TrackInvocation, i3
         TrackInvocation {
             entity_id: 1,
             family,
-            apply_fresh_occupation: false,
             active_gate: false,
             retry: false,
         },
@@ -2103,7 +2102,6 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
                     TrackInvocation {
                         entity_id: tank,
                         family: TrackFamily::Drive,
-                        apply_fresh_occupation: false,
                         active_gate: false,
                         retry: false,
                     },

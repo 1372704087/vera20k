@@ -1012,6 +1012,13 @@ mod tests {
     }
 
     fn explicit_terrain(path: Vec<i32>) -> ResolvedTerrainGrid {
+        let exit = path.len() as u16;
+        tube_terrain(path, exit)
+    }
+
+    /// Four clear cells in a row. The tube enters at (0, 0), follows `path`
+    /// and records its exit at (`exit`, 0).
+    fn tube_terrain(path: Vec<i32>, exit: u16) -> ResolvedTerrainGrid {
         let mut cells = Vec::new();
         for x in 0..=3 {
             cells.push(flat_cell(x, 0, (x == 0).then_some(TubeId(0))));
@@ -1022,7 +1029,7 @@ mod tests {
             cells,
             vec![TubeFact {
                 entry: (0, 0),
-                exit: (path.len() as u16, 0),
+                exit: (exit, 0),
                 direction: 2,
                 path_steps: path,
                 source: TubeSource::ExplicitMap,
@@ -1079,10 +1086,12 @@ mod tests {
         assert_eq!(tube_word(&queue, &entity.position, &terrain), None);
     }
 
-    /// Supplied post-Tube state exercises the real finalizer's owner writes.
-    /// It does not emulate the preceding native PerCell callback or its timing.
+    /// The tube end writes the Foot's speed whatever the locomotor: 1 at the
+    /// exit (`0x0073604F`), 0 when the exit Cell's ground list blocks it
+    /// (`0x00735F6A`). A Teleport unit has no track state for either to read.
+    /// Rules-less, so the blocked arm's Scatter admits no one.
     #[test]
-    fn tube_finalizer_updates_live_owner_speed_without_drive_payload() {
+    fn the_tube_end_sets_the_speed_of_a_unit_without_a_track() {
         use crate::rules::locomotor_type::LocomotorKind;
         use crate::sim::movement::locomotor::LocomotorState;
         use crate::util::fixed_math::SimFixed;
@@ -1297,12 +1306,19 @@ mod tests {
     /// (`0x0051BA16`), Mark(DOWN) lists it (`0x0051BA22`), the raw receiver
     /// marks its spot (`0x0051BA45`), its speed becomes 1 (`0x0051BA81`),
     /// it latches `+0x68B` (`0x0051BA94`) and runs Per_Cell_Process(2)
-    /// (`0x0051BA9B`).
+    /// (`0x0051BA9B`), whose Techno tail promotes it into the playfield
+    /// (`0x006F511A`).
     /// The floor is native's: `tools/ramp_height_vectors.json`
     /// `ramp_1_sub_64_192` (level 0, ramp 1, sub-cell (64, 192)) is 26.
     #[test]
     fn infantry_leaves_a_tube_at_the_floor_of_its_spot() {
         let (mut sim, rules) = infantry_at_tube_end();
+        sim.playfield_bounds = Some(crate::sim::arena_fixture::OPEN_PLAYFIELD);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_in_playfield(false);
         sim.resolved_terrain
             .as_mut()
             .unwrap()
@@ -1340,6 +1356,7 @@ mod tests {
         );
         assert_eq!(owner.foot_speed.applied_fraction(), SIM_ONE);
         assert!(owner.runtime_bridge_transition.pending_mismatch());
+        assert!(owner.in_playfield());
     }
 
     /// The exit asks the infantryman's own `Can_Enter_Cell` (`0x0051B7D8`).
@@ -1797,11 +1814,16 @@ mod tests {
         ) & VEHICLE_OCCUPATION_BIT
     }
 
-    /// One Drive unit (id 1, `Americans` `APC`, mission Move) at the centre
-    /// of cell `(rx, 0)` of [`explicit_terrain`]'s two-step tube, listed
-    /// with its raw vehicle bit, no track selected and its last head still
-    /// set, driving east to cell (3, 0) with the path `[8, 2]`.
+    /// [`unit_driving_on`] the two-step tube of [`explicit_terrain`].
     fn unit_driving_into(rx: u16) -> (Simulation, RuleSet) {
+        unit_driving_on(rx, explicit_terrain(vec![2, 2]))
+    }
+
+    /// One Drive unit (id 1, `Americans` `APC`, mission Move) at the centre
+    /// of cell `(rx, 0)` of `terrain`, listed with its raw vehicle bit, no
+    /// track selected and its last head still set, driving east to cell
+    /// (3, 0) with the path `[8, 2]`.
+    fn unit_driving_on(rx: u16, terrain: ResolvedTerrainGrid) -> (Simulation, RuleSet) {
         use crate::rules::ini_parser::IniFile;
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[InfantryTypes]\n[VehicleTypes]\n0=APC\n[AircraftTypes]\n[BuildingTypes]\n\
@@ -1829,7 +1851,7 @@ mod tests {
         locomotor.store_track_head(TrackFamily::Drive, Some(DriveCoord::cell(rx, 0, 0)));
         locomotor.store_track_valid(TrackFamily::Drive, true);
         sim.substrate.entities.insert(vehicle);
-        sim.resolved_terrain = Some(explicit_terrain(vec![2, 2]));
+        sim.resolved_terrain = Some(terrain);
         crate::sim::arena_fixture::supply_native_map(&mut sim);
         sim.add_entity_occupancy(1);
         assert!(
@@ -1849,12 +1871,23 @@ mod tests {
     /// HeadTo becomes the exit Cell's centre at Z 0 with the valid byte set
     /// (`0x004B1352`, `0x004B1480`), the path shifts and keeps the reference
     /// cell (`0x004B1362`), the selector stays retired (`0x004B1484`), and
-    /// the first target is the next Cell's centre
-    /// (`0x004B1390..0x004B147A`). Nothing writes `+0x6B6`, the NavCom or the
-    /// destination.
+    /// the first target is the centre of the entry Cell's neighbour along
+    /// the path (`0x004B1390..0x004B147A`): the unit stands off its Cell's
+    /// centre, where Walk's target, its Location a cell on, would differ.
+    /// Nothing writes `+0x6B6`, the NavCom or the destination.
     #[test]
     fn a_tube_word_takes_a_drive_unit_into_the_tube() {
         let (mut sim, rules) = unit_driving_into(0);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .position
+            .put_location(DriveCoord {
+                x: 60,
+                y: 200,
+                z: 0,
+            });
         assert_eq!(
             sim.track_tube_head(
                 1,
@@ -1975,7 +2008,8 @@ mod tests {
     }
 
     /// The unit of [`unit_driving_into`] at the end of the tube: at the exit
-    /// Cell (2, 0)'s centre, unlisted, its cursor past the path.
+    /// Cell (2, 0)'s centre, unlisted, its cursor past the path, with HeadTo
+    /// at that centre as the entry stored it.
     fn unit_at_tube_end() -> (Simulation, RuleSet) {
         let (mut sim, rules) = unit_driving_into(2);
         sim.remove_entity_occupancy(1);
@@ -1995,11 +2029,17 @@ mod tests {
     /// The Unit exit (`0x00735FA1..0x007360AA`): SetLocation at the exit
     /// Cell's centre (`0x00735FEC`), Mark(DOWN) lists it with its raw
     /// vehicle bit (`0x00735FFF`; `+0x6B6` held), the `+0x68B` latch
-    /// (`0x00736038`), Per_Cell_Process(2) (`0x0073603F`) and speed 1
+    /// (`0x00736038`), Per_Cell_Process(2) (`0x0073603F`), whose Techno
+    /// tail promotes it into the playfield (`0x006F511A`), and speed 1
     /// (`0x0073604F`). Its NavCom names another cell, so it keeps it.
     #[test]
     fn a_unit_leaves_a_tube_through_mark() {
         let (mut sim, rules) = unit_at_tube_end();
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_in_playfield(false);
         let turn = sim
             .tube_object_turn(1, Some(&rules), None, FrameEffects::default())
             .expect("tube turn");
@@ -2014,11 +2054,52 @@ mod tests {
         assert!(sim.substrate.occupancy.contains_entity(2, 0, 1));
         assert_ne!(vehicle_bits(&sim, 2), 0);
         assert!(vehicle.runtime_bridge_transition.pending_mismatch());
+        assert!(vehicle.in_playfield());
         assert_eq!(vehicle.foot_speed.applied_fraction(), SIM_ONE);
         assert_eq!(
             vehicle.navigation.nav_com(),
             Some(NavTargetRef::Cell { rx: 3, ry: 0 })
         );
+    }
+
+    /// The exit's NavCom test reads the Cell that held the Location before
+    /// SetLocation (`EBX`, kept from `0x00735E64`), not the exit Cell. This
+    /// tube's one-step path stops at (1, 0) while its exit is (3, 0): a
+    /// NavCom naming (1, 0) scatters the unit from the exit, and one naming
+    /// the exit keeps it. HeadTo is the exit centre the entry stored
+    /// (`0x004B1352`), where the Scatter's search starts (`0x004DBDF0`).
+    #[test]
+    fn the_exit_scatter_tests_the_cell_the_unit_left() {
+        for (nav_x, scatters) in [(1, true), (3, false)] {
+            let (mut sim, rules) = unit_driving_on(1, tube_terrain(vec![2], 3));
+            sim.remove_entity_occupancy(1);
+            let ordered = NavTargetRef::Cell { rx: nav_x, ry: 0 };
+            let vehicle = sim.substrate.entities.get_mut(1).unwrap();
+            vehicle.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
+                tube_id: TubeId(0),
+                cursor: 1,
+                target: DriveCoord::cell(1, 0, 0),
+            });
+            vehicle
+                .locomotor
+                .as_mut()
+                .unwrap()
+                .store_track_head(TrackFamily::Drive, Some(DriveCoord::cell(3, 0, 0)));
+            vehicle.navigation.set_nav_com_for_test(Some(ordered));
+            sim.tube_object_turn(1, Some(&rules), None, FrameEffects::default())
+                .expect("tube turn");
+            let vehicle = sim.substrate.entities.get(1).unwrap();
+            assert_eq!(
+                ground_pose::position_world_coord(&vehicle.position),
+                DriveCoord::cell(3, 0, 0)
+            );
+            assert_eq!(
+                vehicle.navigation.nav_com() != Some(ordered),
+                scatters,
+                "NavCom {ordered:?} became {:?}",
+                vehicle.navigation.nav_com()
+            );
+        }
     }
 
     /// A NavCom naming the exit Cell scatters the unit itself

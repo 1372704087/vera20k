@@ -36,9 +36,12 @@
 //!   ID) relative to the objects after this one.
 //! - The vein tag (0x00486920) is not ported: the vein cell has no retail
 //!   user.
-//! - An explicit map tube word (direction 8, 0x0051503B..0x005152CE) is
-//!   answered as the invalid-tube arm: VERA's tube entry is bound to the Drive
-//!   route adapter. Trigger: a Hover route through a map `[Tubes]` tube.
+//! - Hover's own tube entry (0x0051503B..0x005152CE: Mark(UP) 0x0051508B, the
+//!   raw receiver 0x005150B9, the exit Cell's centre as head, the path shift)
+//!   is not ported, so an explicit map tube word (direction 8) takes the
+//!   invalid-tube arm. Walk, Drive and Ship enter tubes
+//!   (`Simulation::walk_tube_head`, `Simulation::track_tube_head`). Trigger: a
+//!   Hover route through a map `[Tubes]` tube.
 //!   Frequency: no retail YR map is known to author one.
 //! - Crates (0x00481A00 at 0x005153E9) run through `Simulation::pickup_crate_at`,
 //!   as in Drive; a host called without the OverlayType table answers as a

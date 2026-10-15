@@ -1034,7 +1034,9 @@ use crate::sim::world::Simulation;
 // 359 -> 360: Airstrike manager state/links, tint clocks and sampled building
 // animation light; retained per-pass type settings and type-based aircraft gate.
 // The unused MissionLeaf airstrike boolean is removed.
-const SNAPSHOT_VERSION: u32 = 360;
+// 360 -> 361: retained RadialFireSegments per-layer type state and the
+// independent per-firer radial launch counter (Techno+43C).
+const SNAPSHOT_VERSION: u32 = 361;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;

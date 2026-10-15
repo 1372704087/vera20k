@@ -56,6 +56,10 @@ mod building_abandoned_sound_tests;
 #[path = "building_damage_sound_tests.rs"]
 mod building_damage_sound_tests;
 
+#[cfg(test)]
+#[path = "radial_fire_segments_tests.rs"]
+mod radial_fire_segments_tests;
+
 /// Country-level fields needed by gameplay systems.
 #[derive(Debug, Clone)]
 pub struct CountryRules {
@@ -3932,6 +3936,15 @@ impl RuleSet {
                 object.recoil = recoil;
             }
         }
+        for (category, name, segments) in processed.radial_fire_segments_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.radial_fire_segments = segments;
+            }
+        }
         for (category, name, prerequisite, prerequisite_override) in processed.prerequisite_states()
         {
             if let Some(object) = rules
@@ -5247,6 +5260,19 @@ impl RuleSet {
                 (
                     (object.category, object.id.to_ascii_uppercase()),
                     &object.airstrike,
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        // Radial launch settings likewise survive earlier reached passes even
+        // when the current source stack omits their key.
+        b"radial-fire-segments-v1".hash(&mut hasher);
+        self.object_list
+            .iter()
+            .map(|object| {
+                (
+                    (object.category, object.id.to_ascii_uppercase()),
+                    object.radial_fire_segments,
                 )
             })
             .collect::<BTreeMap<_, _>>()

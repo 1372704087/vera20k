@@ -447,8 +447,8 @@ pub struct GameEntity {
     pub(crate) turret_anim_frame: crate::sim::combat::gattling::TurretAnimCounter,
     /// Optional presentation-only native recoil, owned by voxel_recoil.
     voxel_recoil: Option<Box<voxel_recoil::VoxelRecoil>>,
-    /// Techno+3B8, the burst index, owned by `combat::burst`; it survives
-    /// target replacement and mission changes.
+    /// Techno+3B8 burst and +43C radial launch indices, owned by
+    /// `combat::burst`. Only the burst index resets on a null target.
     #[serde(default)]
     pub(crate) weapon_burst: crate::sim::combat::burst::WeaponBurst,
     /// Sole native Building+534/+538 body state; construction/sale use the

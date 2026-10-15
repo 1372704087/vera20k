@@ -696,6 +696,10 @@ pub struct ObjectType {
     pub recoil: crate::rules::recoil::RecoilConfig,
     /// Six retained settings copied when this Techno creates an Airstrike manager.
     pub airstrike: crate::rules::airstrike::AirstrikeSettings,
+    /// TechnoType+6A4: constructor711134 sets zero; ReadINI7147B4..7147C8
+    /// uses exact `RadialFireSegments`, ReadInt5276D0 and the current value.
+    /// Signed and unclamped: FireAt distinguishes zero, negative and positive.
+    pub radial_fire_segments: i32,
     /// VXL turret model name for buildings (TurretAnim= in rules.ini, e.g., "SAM").
     /// The engine loads `{TurretAnim}.VXL` + `{TurretAnim}.HVA` as the turret model.
     pub turret_anim: Option<String>,
@@ -2556,6 +2560,7 @@ impl ObjectType {
             turret_rot: section.read_int("ROT", 0),
             recoil: crate::rules::recoil::RecoilConfig::from_ini_section(section),
             airstrike: crate::rules::airstrike::AirstrikeSettings::from_ini_section(section),
+            radial_fire_segments: section.read_int("RadialFireSegments", 0),
             turret_anim: section.read_name("TurretAnim", 0x10).map(str::to_uppercase),
             turret_anim_is_voxel: section.read_bool("TurretAnimIsVoxel", false),
             turret_anim_x: section.read_int("TurretAnimX", 0),

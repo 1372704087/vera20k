@@ -245,9 +245,9 @@ fn a_redirected_request_is_left_to_find_path() {
 }
 
 /// Each answer is its search's own, whatever thread ran it: the same
-/// searches one at a time on this thread agree, for no-queue requests and
-/// code-2 ladders. Movers along the map edge stamp the shared Dummy from
-/// their finishing passes.
+/// searches one at a time on this thread, reading every entry fact from the
+/// world, agree, for no-queue requests and code-2 ladders. Movers along the
+/// map edge stamp the shared Dummy from their finishing passes.
 #[test]
 fn batched_answers_do_not_depend_on_the_threads() {
     let rules = rules();
@@ -275,7 +275,8 @@ fn batched_answers_do_not_depend_on_the_threads() {
     let ready = &sim.path_batch.as_ref().unwrap().ready;
     let mut routes = 0;
     for &(id, request) in &movers {
-        let alone = dummy.detached(|| sim.batched_search(id, request, &rules, None, &grid, counts));
+        let alone =
+            dummy.detached(|| sim.batched_search(id, request, &rules, None, &grid, counts, None));
         routes += usize::from(alone.as_ref().is_some_and(|answer| answer.found.is_ok()));
         assert_eq!(ready[&id].answer, alone, "mover {id}");
     }

@@ -599,6 +599,7 @@ impl Simulation {
                         grid,
                         counts,
                         MoverLift::Marked,
+                        None,
                     )
                     .0
                 }
@@ -648,8 +649,9 @@ impl Simulation {
 
     /// The core search (AStar 0x0042C900 with its bridge markers and both
     /// finishing passes) for `request` toward `goal` on the current world,
-    /// reading the blocker counts `counts`. The flag says whether an
-    /// [`MoverLift::Emulated`] search asked about the mover's own cell.
+    /// reading the blocker counts `counts` and a path batch's kept entry
+    /// `facts`. The flag says whether an [`MoverLift::Emulated`] search asked
+    /// about the mover's own cell.
     pub(super) fn foot_core_search(
         &self,
         request: &FootPathRequest,
@@ -659,6 +661,7 @@ impl Simulation {
         grid: &crate::sim::pathfinding::PathGrid,
         counts: &crate::sim::pathfinding::BlockerNeighborCounts,
         lift: MoverLift,
+        facts: Option<&crate::sim::world::EntryFacts>,
     ) -> (
         Result<Vec<(u16, u16)>, super::movement_path::MovePathFailure>,
         bool,
@@ -710,7 +713,7 @@ impl Simulation {
         let entry = FootSearchEntry {
             sim: self,
             markers: marker_search,
-            receiver: self.foot_entry_receiver(id, rules, registry),
+            receiver: self.foot_entry_receiver(id, rules, registry, facts),
             threat_coefficient: self.foot_path_threat_coefficient(id),
             unlisted,
             own_cell: unlisted.map(|_| (own_cell.0 as i16, own_cell.1 as i16)),

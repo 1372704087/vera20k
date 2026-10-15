@@ -24,6 +24,11 @@ pub(crate) fn select_indices(len: usize, keep: impl Fn(usize) -> bool + Sync) ->
         .collect()
 }
 
+/// `work` on every item in place.
+pub(crate) fn for_each_mut<T: Send>(items: &mut [T], work: impl Fn(&mut T) + Sync) {
+    items.par_iter_mut().for_each(&work);
+}
+
 /// Whether `test` holds for any index below `len`.
 pub(crate) fn any_index(len: usize, test: impl Fn(usize) -> bool + Sync) -> bool {
     (0..len).into_par_iter().any(&test)
@@ -54,6 +59,12 @@ mod tests {
         assert_eq!(
             super::select_indices(1000, |index| index % 7 == 3),
             (0..1000).filter(|index| index % 7 == 3).collect::<Vec<_>>()
+        );
+        let mut doubled = items.clone();
+        super::for_each_mut(&mut doubled, |item| *item *= 2);
+        assert_eq!(
+            doubled,
+            items.iter().map(|item| item * 2).collect::<Vec<_>>()
         );
         assert!(super::any_index(1000, |index| index == 999));
         assert!(!super::any_index(1000, |index| index >= 1000));

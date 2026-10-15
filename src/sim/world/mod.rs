@@ -171,7 +171,7 @@ pub(crate) use lifecycle::{
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
 pub(crate) use load_object_lifecycle::{LoadObjectLifecycle, OverlayConstructionReceipt};
 pub(crate) use logic_vector::{LogicMembership, LogicVector};
-pub(crate) use object_entry::FootEntryReceiver;
+pub(crate) use object_entry::{EntryFacts, FootEntryReceiver};
 #[cfg(test)]
 pub(crate) use substrate::DeferredDeleteQueue;
 pub use substrate::EnterOrderCounter;

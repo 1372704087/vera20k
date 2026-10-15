@@ -137,6 +137,12 @@ fn hash_projectile_target(
         crate::sim::projectile::ProjectileTarget::DummyCell => {
             3u8.hash(hasher);
         }
+        crate::sim::projectile::ProjectileTarget::Terrain(id) => {
+            // Bullet+10C retains a distinct Object pointer kind. Keep all
+            // established tags stable and never alias Entity(id) to a tree.
+            4u8.hash(hasher);
+            id.hash(hasher);
+        }
     }
 }
 

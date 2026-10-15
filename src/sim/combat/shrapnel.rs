@@ -100,8 +100,7 @@ pub(super) fn emit_projectile_shrapnel(
     let center_rx = crate::util::lepton::lepton_to_cell(location.x);
     let center_ry = crate::util::lepton::lepton_to_cell(location.y);
     // 46A3D6..46A406: GetCell's first ground object must exist and must not
-    // be a Building. A tree can admit the parent, even though Terrain targets
-    // in later rings remain an explicit unrepresented path below.
+    // be a Building. Terrain can admit the parent and be a later ring target.
     let bullet_cell = match world.resolved_terrain.as_ref() {
         Some(terrain) => {
             let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
@@ -155,6 +154,14 @@ pub(super) fn emit_projectile_shrapnel(
                         world.resolved_terrain.as_ref(),
                     );
                     ProjectileCoord::new(coord.x, coord.y, coord.z)
+                }
+                // Terrain+48 is ObjectGetCoords5F65A0: retained Location,
+                // including construction Z, never a fresh ground sample.
+                ProjectileTarget::Terrain(id) => {
+                    let Some(terrain) = world.production.terrain_objects.get(&id) else {
+                        return;
+                    };
+                    terrain.world_coord()
                 }
                 ProjectileTarget::Cell { rx, ry } => crate::sim::projectile::cell_target_coord(
                     world.resolved_terrain.as_ref(),
@@ -290,29 +297,34 @@ pub(super) fn emit_projectile_shrapnel(
             }
             None => u16::try_from(rx).ok().zip(u16::try_from(ry).ok()),
         };
-        let target_id = match ground_head(world, cell) {
-            Some(crate::sim::occupancy::CellObjectMember::Entity(id)) => id,
-            // Native accepts a houseless Terrain head. ProjectileTarget has no
-            // Terrain reference yet; this remains an unresolved later chain.
-            Some(crate::sim::occupancy::CellObjectMember::Terrain(_)) | None => continue,
+        let target = match ground_head(world, cell) {
+            Some(crate::sim::occupancy::CellObjectMember::Entity(id)) => {
+                if id == detonation.source_id {
+                    continue;
+                }
+                let Some(target) = world.substrate.entities.get(id) else {
+                    continue;
+                };
+                if source_owner.is_some_and(|owner| {
+                    crate::map::houses::is_allied_with(
+                        &world.house_alliances,
+                        world.interner.resolve(owner),
+                        world.interner.resolve(target.owner()),
+                    )
+                }) {
+                    continue;
+                }
+                ProjectileTarget::Entity(id)
+            }
+            // 46A4D7 reads the literal head; Terrain's owner virtual4104A0
+            // returns null, so House4F9A90 rejects alliance, not the target.
+            // No Techno, LegalTarget or health filter belongs in this walk.
+            Some(crate::sim::occupancy::CellObjectMember::Terrain(id)) => {
+                ProjectileTarget::Terrain(id)
+            }
+            None => continue,
         };
-        if target_id == detonation.source_id {
-            continue;
-        }
-        let Some(target) = world.substrate.entities.get(target_id) else {
-            continue;
-        };
-        let allied = source_owner.is_some_and(|owner| {
-            crate::map::houses::is_allied_with(
-                &world.house_alliances,
-                world.interner.resolve(owner),
-                world.interner.resolve(target.owner()),
-            )
-        });
-        if allied {
-            continue;
-        }
-        construct(world, ProjectileTarget::Entity(target_id), None, None);
+        construct(world, target, None, None);
         emitted += 1;
         if emitted == count {
             break;

@@ -1245,11 +1245,8 @@ impl Simulation {
         let high_flight = self.foot_neighbors_after_unlimbo(stable_id, context.rules);
         // Foot4D72B2/+54 requires high flight, then Type ConsideredAircraft
         // (+D96) admits AirTrackerAdd4D72DB, whatever the locomotor. Mark
-        // itself never adds anything. RESIDUAL: a Reveal without rules
-        // (`try_reveal_entity`, `reveal`, spawn
-        // `unlimbo`) reads +D96 as its default, Aircraft only, so a
-        // high-flying ConsideredAircraft Unit revealed that way waits for the
-        // per-tick `sync_air_spatial_membership`.
+        // itself never adds anything. RESIDUAL: a Reveal without rules reads
+        // +D96 as its default, Aircraft only.
         if high_flight
             && self.substrate.entities.get(stable_id).is_some_and(|e| {
                 context
@@ -2321,8 +2318,10 @@ impl Simulation {
     }
 
     /// One air locomotor's Process visit: a Fly's (`0x004CCB40`,
-    /// [`Self::fly_process`]) or a Jumpjet's (`world::jumpjet_cruise`),
-    /// then the tracker membership of an object that left the map's lists.
+    /// [`Self::fly_process`]) or a Jumpjet's (`world::jumpjet_cruise`). Each
+    /// keeps its own AircraftTracker membership (Add `0x004134A0`, Remove
+    /// `0x004135D0`, Update `0x004138C0`), and `FootClass::Limbo` removes a
+    /// tracked object ([`Self::release_foot_air_tracker_before_limbo`]).
     pub(crate) fn tick_air_movement_with_cell_lists_one(
         &mut self,
         stable_id: u64,
@@ -2346,11 +2345,7 @@ impl Simulation {
                     })
             });
         if fly {
-            let stats = self.fly_process(stable_id, rules, registry, effects);
-            if !stats.impact {
-                self.sync_air_spatial_membership(stable_id);
-            }
-            return stats;
+            return self.fly_process(stable_id, rules, registry, effects);
         }
         let jumpjet_layer_before = self
             .substrate
@@ -2372,7 +2367,6 @@ impl Simulation {
             Some(stats) => stats,
             None => crate::sim::movement::air_movement::AirMovementTickStats::default(),
         };
-        self.sync_air_spatial_membership(stable_id);
         if let Some(before) = jumpjet_layer_before {
             self.complete_jumpjet_display_process(stable_id, before, rules);
         }

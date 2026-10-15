@@ -54,26 +54,6 @@ pub(crate) fn air_spatial_bucket_index(rx: u16, ry: u16, map_width: u16, map_hei
     bx + by * AIR_SPATIAL_BUCKET_SIDE
 }
 
-/// Whether the object belongs to the independent airborne spatial index.
-/// Native producers are the Fly/Jumpjet/rocket air-entry and movement paths;
-/// underground objects are deliberately not inferred to be airborne merely
-/// because they are absent from both CellClass object lists. An Aircraft's
-/// Fly counts while GetHeight is above zero.
-pub(crate) fn air_spatial_tracks_entity(
-    entity: &GameEntity,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-) -> bool {
-    use crate::rules::locomotor_type::LocomotorKind;
-
-    let Some(locomotor) = entity.locomotor.as_ref() else {
-        return false;
-    };
-    locomotor.layer() == MovementLayer::Air
-        || (entity.category() == EntityCategory::Aircraft
-            && locomotor.active_kind() == LocomotorKind::Fly
-            && crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0)
-}
-
 /// Exact bucket-copy order used by `FUN_00412B40` for the airborne phase of
 /// `Apply_area_damage`.
 ///

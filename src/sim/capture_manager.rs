@@ -192,7 +192,8 @@ impl CaptureManagerState {
     }
 
     /// `RemoveNode @ 0x00471F90`, the pointer-expiry listener: a dead
-    /// victim's node goes silently.
+    /// victim's node goes silently. It compares the [`Self::victims`], which
+    /// the pointer-expiry index reaches the owner by.
     pub(crate) fn pointer_expired(&mut self, stable_id: u64) {
         self.nodes.retain(|node| node.victim != stable_id);
     }

@@ -20,7 +20,12 @@
 //! that much later, and its movement timer (PathDelay) is armed that much
 //! later, which shifts its later requests too. A Foot that stops repeating
 //! its request does not search at all: a blocked Foot whose blocker moved on
-//! keeps its route; a no-queue request whose destination cleared is dropped. Two
+//! keeps its route; a no-queue request whose destination cleared is dropped; a
+//! Drive/Ship code-2 ladder whose destination its own Find_Path redirect
+//! stopped (a Chrono Miner bound for its refinery, #1672) waits, its request
+//! gets no answer and Process_Movement then returns on the null destination,
+//! so the NULL destination native sets in that call is not set, and the
+//! redirect's NavCom stays for the queued Enter mission. Two
 //! visible cases: Infantry Scatter's immediate Process (0x51D478) waits, so
 //! scattered infantry leave a frame later; a Drive/Ship Foot whose track
 //! ends with no path left loses that frame's movement where native's timer
@@ -230,18 +235,21 @@ struct FootSearchKey {
     radio_contacts: Contacts,
 }
 
-/// The destination a code-2 ladder searches toward: Walk's destination,
-/// zero without one, or Drive/Ship's track destination.
+/// The destination a code-2 ladder searches toward: Walk's destination or
+/// Drive/Ship's track destination, the null coordinate (0,0,0) without one.
+/// No ladder tests it (Walk `0x0075B8A9..`, Drive `0x004B39D3`, Ship
+/// `0x006A3022`), so a destination cleared earlier in the same call searches
+/// cell (0,0), which Find_Path's precheck refuses (#1672).
 pub(super) fn code2_ladder_destination(actor: &GameEntity) -> Option<DriveCoord> {
     let loco = actor.locomotor.as_ref()?;
     match loco.active_kind() {
-        LocomotorKind::Walk => {
-            Some(
-                loco.walk_destination()
-                    .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 }),
-            )
+        LocomotorKind::Walk => Some(
+            loco.walk_destination()
+                .unwrap_or(super::foot_coordinate::NULL_COORD),
+        ),
+        LocomotorKind::Drive | LocomotorKind::Ship => {
+            Some(super::track_path::track_destination_or_null(actor))
         }
-        LocomotorKind::Drive | LocomotorKind::Ship => super::track_path::track_destination(actor),
         _ => None,
     }
 }

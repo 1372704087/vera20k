@@ -66,7 +66,7 @@ use super::movement_tick::FootPathRequest;
 use super::track_fresh_dispatch::{
     FreshDispatch, FreshStage, coerce_entry_code, dispatch_entry, normalize_second_direction,
 };
-use super::track_path::{clear_track_head, track_destination};
+use super::track_path::{clear_track_head, track_destination, track_destination_or_null};
 use super::track_process::TrackFamily;
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::MovementZone;
@@ -560,7 +560,7 @@ impl Simulation {
         //blockage timer expired, else 1; Find_Path(cell(destination), 0, u).
         let urgency = runtime.code2_urgency(frame);
         let destination = super::path_batch::code2_ladder_destination(actor)
-            .ok_or("Drive/Ship code-2 ladder without destination")?;
+            .ok_or("Drive/Ship code-2 ladder without a track locomotor")?;
         // A batched re-path waits for the next frame's batch as if the timer
         // still ran (`path_batch`, a proposed deviation).
         if self.defer_path_search(id, super::path_batch::WaitingRequest::Code2Ladder) {
@@ -620,10 +620,13 @@ impl Simulation {
             .ok_or("retired Drive/Ship accept owner")?;
         let mut second = path_word(actor, 1).map_or(-1, i32::from);
         //4B3E6B..4B3F74: the last path word with the destination more than
-        //two cells out asks Find_Path for the next words.
+        //two cells out asks Find_Path for the next words. The +34 read
+        //(4B3E89, Ship 6A34D8) has no null test: a destination stopped
+        //earlier in this call (the Teleporter arm a Find_Path redirect
+        //reaches, 0x0074258C, #1672) is the null coordinate, so Find_Path
+        //asks for cell (0,0) and its precheck refuses.
         if second == -1 {
-            let destination =
-                track_destination(actor).ok_or("Drive/Ship accept arm without destination")?;
+            let destination = self.live_track_destination(id);
             let location = ground_pose::position_world_coord(&actor.position);
             let distance = native_xyz_distance(
                 location.x.wrapping_sub(destination.x),
@@ -1063,15 +1066,15 @@ impl Simulation {
         }
     }
 
-    /// The live Destination (+34) that 0x4B39D6 / 0x4B3E8F address and hand
-    /// to +2CC after Find_Path: Find_Path's core-failure receiver (+500 ->
-    /// locomotor Stop) nulls it, and a null reads as Cell (0,0).
+    /// The live Destination (+34) that 0x4B3E89 reads and 0x4B39D6 / 0x4B3E8F
+    /// address and hand to +2CC after Find_Path: Find_Path's core-failure
+    /// receiver (+500 -> locomotor Stop) and a redirect's Teleporter arm null
+    /// it, and a null reads as Cell (0,0).
     fn live_track_destination(&self, id: u64) -> DriveCoord {
-        self.substrate
-            .entities
-            .get(id)
-            .and_then(track_destination)
-            .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 })
+        self.substrate.entities.get(id).map_or(
+            super::foot_coordinate::NULL_COORD,
+            track_destination_or_null,
+        )
     }
 
     /// Foot+5E0 = -1 on the live path word.
@@ -1124,7 +1127,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Drive/Ship code-6 owner")?;
-        let destination = track_destination(actor).unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        let destination = track_destination_or_null(actor);
         let location = ground_pose::position_world_coord(&actor.position);
         let distance = native_xyz_distance(
             location.x.wrapping_sub(destination.x),

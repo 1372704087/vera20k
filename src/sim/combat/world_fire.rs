@@ -2167,8 +2167,6 @@ pub(crate) fn tick_combat(
     fire_requests: &super::FireRequests,
     projectile_detonations: &[ProjectileDetonation],
 ) -> CombatTickResult {
-    let radiation_enabled = radiation_enabled(world);
-
     let sound_enabled = sound_enabled(world);
 
     let binary_frame = world.session.binary_frame;
@@ -2376,13 +2374,12 @@ pub(crate) fn tick_combat(
             );
         }
     }
-    // Every projectile, missile, and live-order attack damage event emitted so
-    // far is already committed; periodic radiation follows in live-victim order.
-    let committed_damage_event_count = emit.damage_events.len();
+    // Every projectile, missile and live-order attack receiver has committed.
+    // Periodic radiation belongs to each Foot AI, before its locomotor.
     // Destructure back into the named locals for post-fire state updates.
     let CombatEmit {
         mut effects,
-        mut damage_events,
+        damage_events,
         mut remove_attack,
         fire_events,
         unit_facing,
@@ -2392,95 +2389,12 @@ pub(crate) fn tick_combat(
 
     // Phase 3: the burst step and rearm were written in each shot's FireAt
     // emission.
-    // Phase 3.5: fold radiation-emitting detonations into the field, then
-    // collect the periodic radiation damage. The original applies this damage
-    // inside each foot unit's own AI step, gated on the global frame counter;
-    // the phased engine collects it here so deaths route through the same
-    // death pipeline as weapon damage (death anim selection via the
-    // RadSiteWarhead, destruction bookkeeping, survivor ejection).
-    if let Some(rad) = radiation_enabled.then_some(&mut world.radiation) {
+    // Fixture-supplied detonations can still carry pending site creation.
+    // Production Bullet transactions install their sites synchronously through
+    // DamageConsequences. Neither path applies a second, global damage sweep.
+    if radiation_enabled(world) {
         for det in effects.rad_detonations.drain(..) {
-            rad.apply_detonation(
-                det,
-                binary_frame,
-                &rules.radiation,
-                world.resolved_terrain.as_ref(),
-                &mut Vec::new(),
-            );
-        }
-        if !rad.is_empty()
-            && binary_frame.is_multiple_of(rules.radiation.application_delay as u32)
-            && let Some(rad_warhead) = rules.warhead(&rules.radiation.site_warhead)
-        {
-            let wh_iid = world.interner.intern(&rad_warhead.id);
-            // Victims are walked in live-LOGIC order (the same order the
-            // per-object AI would have applied this damage), stable-id
-            // fallback for entities absent from the live order.
-            let mut victim_ids: Vec<u64> = keys.clone();
-            victim_ids.sort_by_key(|&id| (live_index.get(&id).copied().unwrap_or(usize::MAX), id));
-            for &id in &victim_ids {
-                let Some(entity) = world.substrate.entities.get(id) else {
-                    continue;
-                };
-                // Buildings never take radiation damage; corpses, limbo
-                // (transported) and objects in the air are exempt.
-                // FootClass::AI asks vt+0x54, IsInAir (`0x004DA588`).
-                if entity.category() == EntityCategory::Structure
-                    || entity.death.is_dying()
-                    || !entity.is_alive()
-                    || entity.mover_facts.immune_to_radiation()
-                    || entity.passenger_role.is_inside_transport()
-                    || crate::sim::movement::air_movement::is_high_flying(
-                        entity,
-                        world.resolved_terrain.as_ref(),
-                        Some((rules, &world.interner)),
-                    )
-                {
-                    continue;
-                }
-                let level = rad.damaging_level(
-                    (entity.position.rx(), entity.position.ry()),
-                    rules.radiation.level_max,
-                );
-                if level <= 0 {
-                    continue;
-                }
-                // FootClass::AI @ 0x004DA530 passes the signed two-stage
-                // ftol result directly to concrete ReceiveDamage at
-                // distance zero. Verses and live defender modifiers belong
-                // to that receiver, not this producer.
-                let base = (level as f64 * rules.radiation.level_factor) as i32;
-                damage_events.push(combat_aoe::AreaDamageReceiver::Entity(
-                    EntityDamageEvent::direct_receiver(
-                        id,
-                        base,
-                        0,
-                        RAD_NO_ATTACKER,
-                        None,
-                        wh_iid,
-                        ReceiverCallFlags {
-                            ignore_defenses: false,
-                            arg6: true,
-                        },
-                    ),
-                ));
-            }
-        }
-    }
-
-    // Periodic radiation is the only damage appended after the native-order
-    // projectile/missile/object windows above. Commit that late slice in its
-    // existing live-victim order and enter any fatal death helper immediately.
-    let (mut late_death, mut late_pings) = commit_area(
-        world,
-        run,
-        &damage_events[committed_damage_event_count..],
-        rules,
-        overlay_registry,
-    );
-    if let Some(rad) = radiation_enabled.then_some(&mut world.radiation) {
-        for det in late_death.rad_detonations.drain(..) {
-            rad.apply_detonation(
+            world.radiation.apply_detonation(
                 det,
                 binary_frame,
                 &rules.radiation,
@@ -2489,10 +2403,6 @@ pub(crate) fn tick_combat(
             );
         }
     }
-    // Earlier emission and recursive death already share this accumulator;
-    // append the late radiation slice without rebuilding parallel vectors.
-    effects.append(late_death);
-    under_attack_events.append(&mut late_pings);
 
     // Phase 5: clear finished attackers' targets.
     remove_attack.sort_unstable();

@@ -2,7 +2,7 @@
 //! linear-falloff level over a square of cells, step it back down on a
 //! per-site countdown, and self-delete when their lifetime expires. Foot
 //! units standing on irradiated cells take periodic damage through the
-//! `[Radiation] RadSiteWarhead=` warhead (applied by the combat tick, not
+//! `[Radiation] RadSiteWarhead=` warhead (applied during each Foot AI, not
 //! here — this module owns only the field state and its evolution).
 //!
 //! Depends on `rules/` ([Radiation] constants), `map/resolved_terrain`
@@ -84,7 +84,7 @@ pub struct RadiationState {
     sites: BTreeMap<(u16, u16), RadSite>,
 }
 
-/// A weapon detonation that emits radiation, recorded by the combat tick and
+/// A weapon detonation that emits radiation, recorded by the Bullet transaction and
 /// folded into `RadiationState` the same tick.
 #[derive(Debug, Clone, Copy)]
 pub struct RadDetonation {

@@ -2725,7 +2725,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         event: crate::sim::combat::EntityDamageEvent,
         frame_effects: FrameEffects<'_>,
-    ) {
+    ) -> damage_consequences::DamageCommitReceipt {
         let mut run =
             crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(frame_effects);
         let (effects, under_attack_events) = crate::sim::combat::world_receiver::commit_entities(
@@ -2744,7 +2744,7 @@ impl Simulation {
             under_attack_events,
             terrain_navigation_changed_cells,
             frame_effects,
-        );
+        )
     }
 
     /// `ReceiveDamage(&Health, 0, C4Warhead=, NULL, 1, 1, NULL)` (vt+0x16C):
@@ -7417,5 +7417,8 @@ mod ore_spread_oracle_tests;
 
 #[cfg(test)]
 mod drop_as_bomb_integration_tests;
+
+#[cfg(test)]
+mod radiation_timing_tests;
 
 mod airstrike_aircraft;

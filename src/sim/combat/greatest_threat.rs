@@ -86,10 +86,10 @@ use std::ops::ControlFlow;
 
 use super::combat_targeting::AttackerSnapshot;
 use super::combat_weapon::{
-    AttackerFacts, attacker_facts, controlled_transport_house, get_weapon, is_ally_by_object,
-    is_armed, is_armed_from_facts, is_occupied, occupied_reach_cells, passive_scan_class_bits,
-    primary_warhead_spares_medium_and_wood, resolve_selected_weapon, techno_target_facts,
-    weapon_damage_value,
+    AttackerFacts, SelectedWeapon, attacker_facts, controlled_transport_house, get_weapon,
+    is_ally_by_object, is_armed, is_armed_from_facts, is_occupied, occupied_reach_cells,
+    passive_scan_class_bits, primary_warhead_spares_medium_and_wood, resolve_selected_weapon,
+    techno_target_facts, weapon_damage_value,
 };
 use super::threat_mask::{self, InfantryScanner};
 use super::threat_range::{ScanRange, max_weapon_range, scan_range};
@@ -347,8 +347,80 @@ pub(crate) fn calculate_threat_score(
 ) -> Option<MaskedX87Value> {
     let scorer = entities.get(scorer_id)?;
     let candidate = entities.get(candidate_id)?;
-    let scorer_type = interner.object_type(scorer.type_ref(), rules)?;
-    let candidate_type = interner.object_type(candidate.type_ref(), rules)?;
+    let pair = ThreatPair {
+        scorer,
+        scorer_type: interner.object_type(scorer.type_ref(), rules)?,
+        candidate,
+        candidate_type: interner.object_type(candidate.type_ref(), rules)?,
+        candidate_allies_scorer: is_ally_by_object(
+            alliances,
+            interner,
+            candidate.owner(),
+            scorer.owner(),
+        ),
+    };
+    // A: the scorer's selected weapon against the candidate.
+    let candidate_as_target = techno_target_facts(
+        candidate,
+        pair.candidate_type,
+        terrain,
+        is_ally_by_object(alliances, interner, scorer.owner(), candidate.owner()),
+        rules,
+        interner,
+    );
+    let scorer_weapon = resolve_selected_weapon(
+        rules,
+        scorer,
+        pair.scorer_type,
+        &attacker_facts(scorer, pair.scorer_type),
+        Some(&candidate_as_target),
+        entities,
+        interner,
+    );
+    threat_score(
+        &pair,
+        scorer_weapon.as_ref(),
+        entities,
+        rules,
+        interner,
+        terrain,
+        coefficients,
+        reference,
+        scorer_enemy_house,
+    )
+}
+
+/// The two objects [`threat_score`] weighs, their types, and whether the
+/// candidate's house counts the scorer's as an ally (the B term's question).
+struct ThreatPair<'e, 'r> {
+    scorer: &'e GameEntity,
+    scorer_type: &'r ObjectType,
+    candidate: &'e GameEntity,
+    candidate_type: &'r ObjectType,
+    candidate_allies_scorer: bool,
+}
+
+/// [`calculate_threat_score`] with the scorer's selected weapon against the
+/// candidate (its A term) already chosen: a target scan has chosen it for the
+/// candidate's verses gate.
+fn threat_score(
+    pair: &ThreatPair<'_, '_>,
+    scorer_weapon: Option<&SelectedWeapon<'_>>,
+    entities: &EntityStore,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    terrain: Option<&ResolvedTerrainGrid>,
+    coefficients: ThreatCoefficients,
+    reference: ThreatReference,
+    scorer_enemy_house: Option<InternedId>,
+) -> Option<MaskedX87Value> {
+    let &ThreatPair {
+        scorer,
+        scorer_type,
+        candidate,
+        candidate_type,
+        candidate_allies_scorer,
+    } = pair;
     let coeff_a = load_threat_double(coefficients.my_effectiveness);
     let coeff_b = load_threat_double(coefficients.target_effectiveness);
     let coeff_c = load_threat_double(coefficients.target_special_threat);
@@ -363,7 +435,7 @@ pub(crate) fn calculate_threat_score(
         scorer,
         scorer_type,
         terrain,
-        is_ally_by_object(alliances, interner, candidate.owner(), scorer.owner()),
+        candidate_allies_scorer,
         rules,
         interner,
     );
@@ -397,26 +469,9 @@ pub(crate) fn calculate_threat_score(
             .then_some(rules.general.enemy_house_threat_bonus),
     );
 
-    // A: the scorer's selected weapon against the candidate. Retain the
-    // selected weapon for the native range term below.
-    let candidate_as_target = techno_target_facts(
-        candidate,
-        candidate_type,
-        terrain,
-        is_ally_by_object(alliances, interner, scorer.owner(), candidate.owner()),
-        rules,
-        interner,
-    );
-    let selected_scorer_weapon = resolve_selected_weapon(
-        rules,
-        scorer,
-        scorer_type,
-        &attacker_facts(scorer, scorer_type),
-        Some(&candidate_as_target),
-        entities,
-        interner,
-    );
-    if let Some(selected) = selected_scorer_weapon.as_ref() {
+    // A: the scorer's selected weapon against the candidate, retained for the
+    // native range term below.
+    if let Some(selected) = scorer_weapon {
         let verses =
             load_threat_double(selected.warhead.verses_f64[armor_index(&candidate_type.armor)]);
         score = spill_threat_double(ScoreX87::add(ScoreX87::mul(coeff_a, verses), score));
@@ -462,7 +517,7 @@ pub(crate) fn calculate_threat_score(
         // `JMP 0x0070D0A0 @ 0x0070D021` — the shift is on the other branch.
         distance_leptons
     };
-    let range_cells = selected_scorer_weapon.as_ref().map_or_else(
+    let range_cells = scorer_weapon.map_or_else(
         || {
             scorer_type
                 .guard_range
@@ -617,6 +672,13 @@ struct ScanContext<'a> {
     /// A scan changes no alliance, and its cell walk asks about the same few
     /// houses for each object it passes.
     allies: std::cell::RefCell<Vec<(InternedId, bool)>>,
+    /// VERA-only: [`Self::allies_scanner`]'s answers so far, by candidate owner.
+    allies_of_scanner: std::cell::RefCell<Vec<(InternedId, bool)>>,
+    /// VERA-only: the scanner's half of the G2b probe's facts, read at the
+    /// first probe. A scan changes nothing of the scanner.
+    probe_firer: std::cell::OnceCell<super::fire_error_world::FirerPart>,
+    /// The scanner's selection-ladder facts (`attacker_facts`), read once.
+    scanner_facts: AttackerFacts,
 }
 
 impl ScanContext<'_> {
@@ -654,6 +716,22 @@ impl ScanContext<'_> {
         }
         let ally = is_ally_by_object(self.alliances(), self.interner, self.attacker.owner, owner);
         self.allies.borrow_mut().push((owner, ally));
+        ally
+    }
+
+    /// Whether `owner`'s house counts the scanner's as an ally, the question
+    /// the threat score's B term asks.
+    fn allies_scanner(&self, owner: InternedId) -> bool {
+        if let Some(&(_, ally)) = self
+            .allies_of_scanner
+            .borrow()
+            .iter()
+            .find(|(asked, _)| *asked == owner)
+        {
+            return ally;
+        }
+        let ally = is_ally_by_object(self.alliances(), self.interner, owner, self.attacker.owner);
+        self.allies_of_scanner.borrow_mut().push((owner, ally));
         ally
     }
 
@@ -1175,6 +1253,9 @@ pub(crate) fn greatest_threat(
         controller_house,
         fire_world,
         allies: Default::default(),
+        allies_of_scanner: Default::default(),
+        probe_firer: Default::default(),
+        scanner_facts: facts,
     };
 
     if flat {
@@ -1696,7 +1777,7 @@ fn evaluate_candidate(
     // without the legacy partial fire-error filter; G2b below owns the full
     // native probe, including early REARM before later target-legality gates.
     let candidate_obj = ctx.interner.object_type(candidate.type_ref(), ctx.rules)?;
-    let scanner_facts = attacker_facts(ctx.scanner, ctx.attacker_obj);
+    let scanner_facts = &ctx.scanner_facts;
     let candidate_facts = techno_target_facts(
         candidate,
         candidate_obj,
@@ -1709,7 +1790,7 @@ fn evaluate_candidate(
         ctx.rules,
         ctx.scanner,
         ctx.attacker_obj,
-        &scanner_facts,
+        scanner_facts,
         Some(&candidate_facts),
         ctx.entities,
         ctx.interner,
@@ -2103,19 +2184,45 @@ fn evaluate_candidate(
     }
 
     // G28/P9 — truncate first, then Normal VHPScan, then the house and
-    // quarry terms, then final acceptance.
-    let score = calculate_threat_score(
+    // quarry terms, then final acceptance. The score's A term is G1's
+    // selection: the same scanner, candidate and ally answer.
+    let pair = ThreatPair {
+        scorer: ctx.scanner,
+        scorer_type: ctx.attacker_obj,
+        candidate,
+        candidate_type: candidate_obj,
+        candidate_allies_scorer: ctx.allies_scanner(candidate.owner()),
+    };
+    let score = threat_score(
+        &pair,
+        Some(&selected),
         ctx.entities,
-        ctx.attacker.stable_id,
-        candidate.stable_id(),
         ctx.rules,
         ctx.interner,
         ctx.terrain,
-        ctx.alliances(),
         ctx.coefficients,
         walk.reference,
         ctx.standing.enemy(),
-    )?;
+    );
+    debug_assert!(
+        !crate::sim::touch_log::live_read_check_enabled()
+            || score
+                == calculate_threat_score(
+                    ctx.entities,
+                    ctx.attacker.stable_id,
+                    candidate.stable_id(),
+                    ctx.rules,
+                    ctx.interner,
+                    ctx.terrain,
+                    ctx.alliances(),
+                    ctx.coefficients,
+                    walk.reference,
+                    ctx.standing.enemy(),
+                ),
+        "candidate {}: the scan's threat score diverged from a fresh one",
+        candidate.stable_id()
+    );
+    let score = score?;
     let score = truncate_score(score);
     let score = adjust_vhp_score(
         ctx.attacker_obj.vhp_scan,
@@ -2267,7 +2374,7 @@ fn probe_is_illegal(
     let Some(firer) = world.substrate.entities.get(ctx.attacker.stable_id) else {
         return false;
     };
-    super::fire_error_world::FireSubject {
+    let subject = super::fire_error_world::FireSubject {
         world,
         rules: ctx.rules,
         overlay_registry: ctx.los.overlay_registry,
@@ -2276,8 +2383,8 @@ fn probe_is_illegal(
         obj: ctx.attacker_obj,
         target: Some(super::TargetKind::Entity(candidate.stable_id())),
         weapon_index,
-    }
-    .fire_error(false)
+    };
+    subject.fire_error_with(ctx.probe_firer.get_or_init(|| subject.firer_part()), false)
         == super::fire_error::FireError::Illegal
 }
 

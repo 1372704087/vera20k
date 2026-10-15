@@ -6,8 +6,8 @@ use super::*;
 use crate::sim::cell_rect::{CellRef, get_cellclass_fallback, get_cellclass_fallback_leptons};
 use crate::sim::projectile::{
     ImpactLadderTarget, ImpactLadderWorld, ProjectileCollisionMotion, ProjectileCollisionPhase,
-    ProjectileTarget, ProjectileTrajectory, ProjectileVelocity, coord_distance,
-    projectile_ground_z,
+    ProjectileTarget, ProjectileTargetQuery, ProjectileTrajectory, ProjectileVelocity,
+    coord_distance, projectile_ground_z,
 };
 
 pub(super) struct ProjectileCollisionWorld<'a> {
@@ -154,13 +154,6 @@ impl ProjectileCollisionWorld<'_> {
             ProjectileCollisionPhase::Shared => self
                 .shared(projectile, candidate)
                 .then_some(ProjectileCollisionResponse::TargetZClamp(candidate)),
-            ProjectileCollisionPhase::TargetLocation => match projectile.target {
-                ProjectileTarget::Entity(id) => self
-                    .entities
-                    .get(id)
-                    .map(|target| ProjectileCollisionResponse::TargetZClamp(self.location(target))),
-                _ => None,
-            },
             ProjectileCollisionPhase::ImpactLadder => {
                 Some(ProjectileCollisionResponse::ImpactLadder(
                     self.impact_ladder(projectile, candidate),
@@ -225,19 +218,20 @@ impl ProjectileCollisionWorld<'_> {
                     }
                     _ => unreachable!("Cell impact target"),
                 };
-                self.target_aim(cell).map(|aim| ImpactLadderTarget {
-                    coords,
-                    aim,
-                    offset_coords: coords,
-                    in_air: false,
-                    ground_layer: true,
-                    distance: crate::util::native_x87::object_distance(
-                        [location.x, location.y, location.z],
-                        [coords.x, coords.y, coords.z],
-                        None,
-                    ),
-                    building_offset: false,
-                })
+                self.target_coordinate(cell, ProjectileTargetQuery::TargetAim)
+                    .map(|aim| ImpactLadderTarget {
+                        coords,
+                        aim,
+                        offset_coords: coords,
+                        in_air: false,
+                        ground_layer: true,
+                        distance: crate::util::native_x87::object_distance(
+                            [location.x, location.y, location.z],
+                            [coords.x, coords.y, coords.z],
+                            None,
+                        ),
+                        building_offset: false,
+                    })
             }
             ProjectileTarget::None => None,
         };
@@ -481,7 +475,7 @@ impl ProjectileCollisionWorld<'_> {
         }
         if projectile.collision.flak_scatter
             && self
-                .target_aim(projectile.target)
+                .target_coordinate(projectile.target, ProjectileTargetQuery::TargetAim)
                 .is_some_and(|target| candidate.z < target.z)
             && candidate.z.wrapping_sub(self.ground(candidate)) < 0
         {
@@ -644,19 +638,44 @@ impl ProjectileCollisionWorld<'_> {
         true
     }
 
-    pub(super) fn target_aim(&self, target: ProjectileTarget) -> Option<ProjectileCoord> {
+    /// Resolve each native virtual through its existing coordinate owner.
+    /// Bullet AI466B95 uses Object+A4 for guidance (Building4500A0), while
+    /// Fire468707, shared Flak and final snap467CA9..467E4D retain their own queries.
+    /// Native building inputs/getter evidence: tools/projectile_oracle/shipyard_offsets.json.
+    pub(super) fn target_coordinate(
+        &self,
+        target: ProjectileTarget,
+        query: ProjectileTargetQuery,
+    ) -> Option<ProjectileCoord> {
         match target {
             ProjectileTarget::Entity(id) => {
-                self.entities.get(id).map(|target| self.location(target))
+                let target = self.entities.get(id)?;
+                if query == ProjectileTargetQuery::GuidanceAim {
+                    let kind = self
+                        .rules
+                        .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())));
+                    let coord = crate::sim::movement::ground_pose::object_target_coords(
+                        target,
+                        self.terrain,
+                        kind,
+                    );
+                    Some(ProjectileCoord::new(coord.x, coord.y, coord.z))
+                } else {
+                    Some(self.location(target))
+                }
             }
-            ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(
-                self.terrain,
-                rx,
-                ry,
-            )),
-            ProjectileTarget::DummyCell => {
-                Some(crate::sim::projectile::dummy_cell_target_coord(self.dummy))
+            ProjectileTarget::Cell { rx, ry } => {
+                Some(if query == ProjectileTargetQuery::GetCoords {
+                    crate::sim::projectile::cell_ground_coord(self.terrain, rx, ry)
+                } else {
+                    crate::sim::projectile::cell_target_coord(self.terrain, rx, ry)
+                })
             }
+            ProjectileTarget::DummyCell => Some(if query == ProjectileTargetQuery::GetCoords {
+                crate::sim::projectile::dummy_cell_ground_coord(self.dummy)
+            } else {
+                crate::sim::projectile::dummy_cell_target_coord(self.dummy)
+            }),
             ProjectileTarget::None => None,
         }
     }
@@ -758,9 +777,12 @@ mod tests {
                     .unwrap() as i32
             });
             assert_eq!(rules.object(name).unwrap().target_coord_offset(), offset);
-            // Fire and homing ask +58, never Building's offset+A4.
+            // Fire asks+58; guided AI independently replaces this with+A4.
             assert_eq!(
-                collision.target_aim(ProjectileTarget::Entity(target)),
+                collision.target_coordinate(
+                    ProjectileTarget::Entity(target),
+                    ProjectileTargetQuery::TargetAim
+                ),
                 Some(centre)
             );
         }

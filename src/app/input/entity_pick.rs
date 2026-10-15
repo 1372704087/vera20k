@@ -2171,9 +2171,11 @@ mod tests {
             "must not retry the valid unit behind it"
         );
 
-        let nonlocal = entities.get_mut(2).unwrap();
-        nonlocal.set_type_ref_for_test(building_type);
-        nonlocal.set_owner_for_test(soviet);
+        entities
+            .get_mut(2)
+            .unwrap()
+            .set_type_ref_for_test(building_type);
+        entities.change_owner(2, soviet);
         let nonlocal_click = compute_click_selection_snapshot(
             &entities,
             &[2, 1],
@@ -2283,7 +2285,7 @@ mod tests {
         assert_eq!(added.select, [2]);
 
         // Flip the clicked object to an enemy: the same gesture now drains.
-        entities.get_mut(2).unwrap().set_owner_for_test(soviets);
+        entities.change_owner(2, soviets);
         let drained = compute_click_selection_snapshot(
             &entities,
             &[2, 1],

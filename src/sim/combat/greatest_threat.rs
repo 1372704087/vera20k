@@ -94,7 +94,7 @@ use super::combat_weapon::{
 use super::threat_mask::{self, InfantryScanner};
 use super::threat_range::{ScanRange, max_weapon_range, scan_range};
 use super::{armor_index, is_within_range_leptons, lepton_distance_sq_raw};
-use crate::map::cell_index::NativeCellIdentity;
+use crate::map::cell_index::{NativeCellIdentity, square_ring_cells};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
@@ -511,28 +511,6 @@ fn finish_score(score: i32) -> Option<i32> {
     Some(score.max(1))
 }
 
-/// The cells of one Chebyshev ring, in `Greatest_Threat`'s literal loop order:
-/// the north row west-to-east interleaved with the south row, then the west
-/// column north-to-south interleaved with the east column.
-///
-/// `r == 0` yields the centre twice, exactly as the native `do/while` does.
-fn ring_cells(cx: i32, cy: i32, r: i32) -> Vec<(i32, i32)> {
-    let mut cells = Vec::with_capacity((8 * r.max(1) + 2) as usize);
-    // Row pass: `for (dx = -r; dx <= r; dx++)`.
-    for dx in -r..=r {
-        cells.push((cx + dx, cy - r));
-        cells.push((cx + dx, cy + r));
-    }
-    // Column pass: `for (dy = 1 - r; dy < r; dy++)` — skipped entirely at r = 0.
-    let mut dy = 1 - r;
-    while dy < r {
-        cells.push((cx - r, cy + dy));
-        cells.push((cx + r, cy + dy));
-        dy += 1;
-    }
-    cells
-}
-
 /// The ring index at which the native walk returns early once it holds a
 /// candidate (`0x006F94D0..0x006F94F1`).
 fn is_early_return_ring(ring: i32, radius: i32) -> bool {
@@ -665,6 +643,10 @@ struct ScanContext<'a> {
     /// (`0x006F7CE8`). Every production caller supplies it; `None` only in
     /// unit tests of the walk and the score, which then skip the probe.
     fire_world: Option<&'a crate::sim::world::Simulation>,
+    /// VERA-only: [`Self::is_ally`]'s answers so far, by candidate owner.
+    /// A scan changes no alliance, and its cell walk asks about the same few
+    /// houses for each object it passes.
+    allies: std::cell::RefCell<Vec<(InternedId, bool)>>,
 }
 
 impl ScanContext<'_> {
@@ -687,12 +669,29 @@ impl ScanContext<'_> {
     /// (`0x006F7F22`; the walks read its `+0x21C` too, e.g. `0x006F8A76`,
     /// `0x006F9D4C`): the house itself or one its own mask names.
     fn is_ally(&self, candidate: &GameEntity) -> bool {
-        crate::sim::combat::combat_weapon::is_ally_by_object(
-            self.alliances(),
-            self.interner,
-            self.attacker.owner,
-            candidate.owner(),
-        )
+        self.is_ally_owner(candidate.owner())
+    }
+
+    /// [`Self::is_ally`] for any object `owner` owns.
+    fn is_ally_owner(&self, owner: InternedId) -> bool {
+        if let Some(&(_, ally)) = self
+            .allies
+            .borrow()
+            .iter()
+            .find(|(asked, _)| *asked == owner)
+        {
+            return ally;
+        }
+        let ally = is_ally_by_object(self.alliances(), self.interner, self.attacker.owner, owner);
+        self.allies.borrow_mut().push((owner, ally));
+        ally
+    }
+
+    /// Whether the cell walk stops at the first non-ally and offers it: a
+    /// scanner that neither heals, nor is an engineer, nor attacks allies
+    /// ([`Self::cell_walk_stops_at`], [`Self::offers`]).
+    fn offers_first_non_ally(&self) -> bool {
+        !self.healer && !self.engineer && !self.attacks_allies()
     }
 
     /// The walks' house gates: `OnlyTargetHouseEnemy` (arg3) admits only the
@@ -1198,6 +1197,7 @@ pub(crate) fn greatest_threat(
         berserk: scanner.berserk.is_active(),
         controller_house,
         fire_world,
+        allies: Default::default(),
     };
 
     if flat {
@@ -1269,7 +1269,7 @@ pub(crate) fn greatest_threat(
         ..walk
     };
     for ring in 0..if scan_air { radius } else { 0 } {
-        for (x, y) in ring_cells(cx, cy, ring) {
+        for (x, y) in square_ring_cells((cx, cy), ring) {
             let (Ok(rx), Ok(ry)) = (u16::try_from(x), u16::try_from(y)) else {
                 continue;
             };
@@ -1314,7 +1314,7 @@ pub(crate) fn greatest_threat(
     }
 
     for ring in 0..radius {
-        for (x, y) in ring_cells(cx, cy, ring) {
+        for (x, y) in square_ring_cells((cx, cy), ring) {
             // Native ring coordinates cross the packed CellStruct seam before
             // Map568300 tests Size's diamond. Loaded-world callers own Size;
             // mapless walk fixtures retain their rectangular coordinate domain.
@@ -1612,6 +1612,37 @@ fn scan_cell_for_target(
         (u16::try_from(coord.0).ok()?, u16::try_from(coord.1).ok()?)
     };
     let layer = ctx.cell_list(rx, ry)?;
+    if !ctx.offers_first_non_ally() {
+        return walk_cell_list(ctx, rx, ry, layer);
+    }
+    // VERA-only: an ordinary scanner's walk ends at the first non-ally and
+    // offers it, so it asks only whose each member is, from the owner column
+    // and not the members' records. A terrain member only drops what the walk
+    // holds, which is an ally it would not offer. Debug builds compare the
+    // answer with the full walk (the live-read check).
+    let offered = ctx
+        .cells
+        .cell_objects(rx, ry, layer, None)
+        .find_map(|member| match member {
+            CellObjectMember::Entity(id) if id != ctx.attacker.stable_id => ctx
+                .entities
+                .owner_of(id)
+                .filter(|&owner| !ctx.is_ally_owner(owner))
+                .map(|_| id),
+            _ => None,
+        });
+    debug_assert!(
+        !crate::sim::touch_log::live_read_check_enabled()
+            || offered == walk_cell_list(ctx, rx, ry, layer),
+        "the owner-column walk disagrees with the full walk at ({rx}, {ry})"
+    );
+    offered
+}
+
+/// The cell walk itself (`0x006F8A17..0x006F8BE0`) over `layer`'s list at
+/// (`rx`, `ry`), reading each member's record: what it holds when it stops or
+/// runs out, if [`ScanContext::offers`] passes it.
+fn walk_cell_list(ctx: &ScanContext<'_>, rx: u16, ry: u16, layer: MovementLayer) -> Option<u64> {
     let terrain = ctx.fire_world.and_then(|world| {
         world
             .production
@@ -1693,12 +1724,7 @@ fn evaluate_candidate(
         candidate,
         candidate_obj,
         ctx.terrain,
-        is_ally_by_object(
-            ctx.alliances(),
-            ctx.interner,
-            ctx.attacker.owner,
-            candidate.owner(),
-        ),
+        ctx.is_ally(candidate),
         ctx.rules,
         ctx.interner,
     );
@@ -2436,6 +2462,71 @@ mod tests {
         };
         assert_eq!(acquire(&occupancy), Some(2));
         assert_eq!(acquire(&OccupancyGrid::rebuild(&entities)), Some(3));
+    }
+
+    /// An ordinary scanner's cell walk passes the allies at the head of a
+    /// cell's list, and itself, and offers the first enemy behind them; a cell
+    /// of allies offers nothing. The walk reads owners from the store's owner
+    /// column, so an owner change shows at once.
+    #[test]
+    fn the_cell_walk_offers_the_first_enemy_behind_allied_list_heads() {
+        use crate::sim::occupancy::CellListInsertion;
+        let rules = scan_rules();
+        let mut entities = EntityStore::new();
+        for (id, type_id, owner, rx, ry) in [
+            (1, "GRIZZLY", "Americans", 6, 5),
+            (2, "SCOUT", "Soviet", 6, 5),
+            (3, "SCOUT", "Americans", 6, 5),
+            (4, "SCOUT", "Americans", 5, 6),
+        ] {
+            place(
+                &mut entities,
+                id,
+                type_id,
+                owner,
+                rx,
+                ry,
+                EntityCategory::Unit,
+            );
+        }
+        let mut occupancy = OccupancyGrid::new();
+        // (6, 5) lists the scanner and the ally 3 before the enemy 2; (5, 6)
+        // lists only the ally 4.
+        for (id, (rx, ry)) in [(2, (6, 5)), (3, (6, 5)), (1, (6, 5)), (4, (5, 6))] {
+            occupancy.add(
+                rx,
+                ry,
+                id,
+                MovementLayer::Ground,
+                None,
+                CellListInsertion::PrependNonBuilding,
+            );
+        }
+        let interner = test_interner();
+        let acquire = |entities: &EntityStore, occupancy: &OccupancyGrid| {
+            super::super::acquire_best_target_for_entity(
+                entities,
+                occupancy,
+                &rules,
+                &interner,
+                1,
+                None,
+                None,
+                false,
+                super::super::ScanMission::Guard,
+                None,
+                crate::sim::combat::line_of_fire::LineOfFireInputs::default(),
+                None,
+                None,
+            )
+            .target()
+        };
+        assert_eq!(acquire(&entities, &occupancy), Some(2));
+        entities.change_owner(3, crate::sim::intern::test_intern("Soviet"));
+        assert_eq!(acquire(&entities, &occupancy), Some(3));
+        occupancy.remove(6, 5, 3);
+        occupancy.remove(6, 5, 2);
+        assert_eq!(acquire(&entities, &occupancy), None);
     }
 
     #[test]
@@ -3900,14 +3991,17 @@ mod tests {
     /// duplicate is what the native `do/while` does.
     #[test]
     fn ring_zero_visits_the_centre_twice() {
-        assert_eq!(ring_cells(10, 10, 0), vec![(10, 10), (10, 10)]);
+        assert_eq!(
+            square_ring_cells((10, 10), 0).collect::<Vec<_>>(),
+            [(10, 10), (10, 10)]
+        );
     }
 
     #[test]
     fn ring_one_is_the_eight_neighbours_row_pass_first() {
         assert_eq!(
-            ring_cells(10, 10, 1),
-            vec![
+            square_ring_cells((10, 10), 1).collect::<Vec<_>>(),
+            [
                 // Row pass: north row and south row interleaved, west to east.
                 (9, 9),
                 (9, 11),
@@ -3924,7 +4018,7 @@ mod tests {
 
     #[test]
     fn ring_two_has_the_sixteen_perimeter_cells_once_each() {
-        let cells = ring_cells(10, 10, 2);
+        let cells: Vec<_> = square_ring_cells((10, 10), 2).collect();
         assert_eq!(cells.len(), 16);
         let mut sorted = cells.clone();
         sorted.sort_unstable();

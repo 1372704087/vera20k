@@ -339,6 +339,7 @@ fn original_dead_missing_cell_candidate_runs_fire_probe_before_health_rejection(
         berserk: false,
         controller_house: None,
         fire_world: Some(&world),
+        allies: Default::default(),
     };
     let walk = WalkArgs {
         flags: 0x8042,

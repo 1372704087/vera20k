@@ -1,7 +1,7 @@
 //! Nearby-passable-cell search (engine `Find_Nearby_Passable_Cell`).
 //!
 //! Square (Chebyshev) ring expansion around a seed cell — concentric perimeters,
-//! NOT a Manhattan diamond (see `ring_cells`); per-candidate passability (plus an
+//! NOT a Manhattan diamond (see [`square_ring_cells`]); per-candidate passability (plus an
 //! optional occupancy check that always SKIPS reservations); frame-counter
 //! selection when no target cell is given, nearest-distance selection when a
 //! target is given. It consumes no RNG stream. Exact CellClass projection misses
@@ -18,6 +18,7 @@
 //!   construction: two no-target calls on the same frame with the same candidate
 //!   count return the same index. Do NOT add any per-call perturbation.
 
+use crate::map::cell_index::square_ring_cells;
 use crate::map::resolved_terrain::{CellClassProjectionView, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::sim::cell_rect::{
@@ -299,7 +300,7 @@ fn nearest_to_target(
 /// derives its own cap from a map-rectangle sum capped at the same constant, and that
 /// sum exceeds it on any playable map, so the cap IS [`RADIUS_HARD_CAP`] there. It is
 /// NOT `Speed + Sight` — that reading is refuted. Ring shape and order match the
-/// engine exactly (see `ring_cells`).
+/// engine exactly (see [`square_ring_cells`]).
 ///
 /// Per-ring early-out: once ANY direct candidate has been accepted, the search
 /// finishes the *current* ring and then STOPS scanning further rings — biasing the
@@ -353,7 +354,7 @@ where
 
     let mut r = 0;
     while r < cap {
-        for (cx, cy) in ring_cells(seed, r) {
+        for (cx, cy) in square_ring_cells(seed, r) {
             if !candidate_passes(q, options, seed_level, cx, cy) {
                 continue;
             }
@@ -384,36 +385,6 @@ where
         r += 1;
     }
     out
-}
-
-/// Cells of square ring `r` (Chebyshev perimeter, `max(|dx|, |dy|) == r`) around
-/// the seed `(ox, oy)`, in the engine's fixed 4-segment order:
-///
-/// 1. for `d = -r ..= r`: North cell `(ox + d, oy - r)` then South cell `(ox + d, oy + r)`
-///    — the two full horizontal apex rows, scanned together W→E by `d`.
-/// 2. for `e = 1-r ..= r-1`: West cell `(ox - r, oy + e)` then East cell `(ox + r, oy + e)`
-///    — the two vertical side columns (interior rows only), scanned together N→S by `e`.
-///
-/// This is NOT a Manhattan diamond and NOT a continuous clockwise walk. At `r == 0`
-/// segment 1 runs once with `d == 0`: North and South coincide on the seed, so the
-/// engine emits the seed cell TWICE (segment 2's range `1..=-1` is empty). The
-/// duplicate is intentional — it is the engine's actual candidate stream, and it
-/// feeds the candidate count / frame-modulo index, so we reproduce it rather than
-/// dedup.
-fn ring_cells(seed: (i32, i32), r: i32) -> Vec<(i32, i32)> {
-    let (ox, oy) = seed;
-    let mut cells: Vec<(i32, i32)> = Vec::with_capacity((8 * r.max(1)) as usize);
-    // Segment 1: North row then South row, for d = -r..=r (N then S per d).
-    for d in -r..=r {
-        cells.push((ox + d, oy - r)); // North
-        cells.push((ox + d, oy + r)); // South (coincides with North at r == 0)
-    }
-    // Segment 2: West column then East column, interior rows e = 1-r..=r-1 (W then E per e).
-    for e in (1 - r)..=(r - 1) {
-        cells.push((ox - r, oy + e)); // West
-        cells.push((ox + r, oy + e)); // East
-    }
-    cells
 }
 
 /// Engine "direct" classification — exact `FUN_006D6410` returned-cell test.
@@ -1133,12 +1104,15 @@ mod tests {
         //   seg1: for d=-r..=r  -> North (ox+d, oy-r) then South (ox+d, oy+r)
         //   seg2: for e=1-r..=r-1 -> West (ox-r, oy+e) then East (ox+r, oy+e)
         // Ring 0 emits the seed TWICE (N and S coincide at r==0); seg2 range is empty.
-        assert_eq!(ring_cells((5, 5), 0), vec![(5, 5), (5, 5)]);
+        assert_eq!(
+            square_ring_cells((5, 5), 0).collect::<Vec<_>>(),
+            [(5, 5), (5, 5)]
+        );
         // Ring 1: seg1 d=-1,0,1 then seg2 e=0. Derived directly from the engine's
         // (ox+d, oy-r)/(ox+d, oy+r) and (ox-r, oy+e)/(ox+r, oy+e) sequence.
         assert_eq!(
-            ring_cells((5, 5), 1),
-            vec![
+            square_ring_cells((5, 5), 1).collect::<Vec<_>>(),
+            [
                 (4, 4), // d=-1 N
                 (4, 6), // d=-1 S
                 (5, 4), // d=0  N
@@ -1150,7 +1124,7 @@ mod tests {
             ]
         );
         // Ring 2 is the 16-cell square perimeter (10 from seg1, 6 from seg2).
-        assert_eq!(ring_cells((5, 5), 2).len(), 16);
+        assert_eq!(square_ring_cells((5, 5), 2).count(), 16);
     }
 
     #[test]
@@ -1508,8 +1482,7 @@ mod tests {
                 .all(|candidate| candidate.direct)
         );
 
-        let ring_one = ring_cells(seed, 1);
-        for (frame, expected) in ring_one.into_iter().enumerate() {
+        for (frame, expected) in square_ring_cells(seed, 1).enumerate() {
             assert_eq!(
                 find_nearby_passable_cell(seed, &projected_query, frame as u32),
                 cell_to_u16(expected),

@@ -2627,7 +2627,7 @@ mod tests {
 
             // Prove alliance resolution reads the detonation ABI snapshot, not
             // a later live-source owner value.
-            entities.get_mut(1).unwrap().set_owner_for_test(enemy_house);
+            entities.change_owner(1, enemy_house);
             let mut alliances = HouseAllianceMap::new();
             alliances
                 .entry("SOURCEHOUSE".to_string())

@@ -583,12 +583,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                 .get_mut(parent)
                 .unwrap()
                 .set_type_ref_for_test(other),
-            "wrong-owner" => saved
-                .substrate
-                .entities
-                .get_mut(parent)
-                .unwrap()
-                .set_owner_for_test(foreign),
+            "wrong-owner" => saved.substrate.entities.change_owner(parent, foreign),
             "concrete-category" => {
                 saved
                     .substrate

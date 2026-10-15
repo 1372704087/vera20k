@@ -589,6 +589,52 @@ pub(crate) struct GapGeneratorSource {
     pub radius: i32,
 }
 
+/// What a fire check (GetFireError and its range and line-of-fire questions)
+/// reads of a [`FogState`]: its alliance copy and its sensor counts, borrowed
+/// from a live fog ([`FogState::fire_view`]) or from a [`FireFogCopy`].
+#[derive(Clone, Copy)]
+pub(crate) struct FireFog<'a> {
+    pub(crate) alliances: &'a HouseAllianceMap,
+    sensors_by_house: &'a BTreeMap<InternedId, Vec<i16>>,
+    width: u16,
+    height: u16,
+}
+
+impl FireFog<'_> {
+    /// Whether `house` holds a sensor count on cell (`rx`, `ry`)
+    /// ([`FogState::has_sensor_for_house`]).
+    pub(crate) fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
+        if rx >= self.width || ry >= self.height {
+            return false;
+        }
+        let index = usize::from(ry) * usize::from(self.width) + usize::from(rx);
+        self.sensors_by_house
+            .get(&house)
+            .and_then(|counters| counters.get(index))
+            .is_some_and(|count| *count > 0)
+    }
+}
+
+/// A [`FireFog`]'s parts copied ([`FogState::fire_copy`]), for fire checks
+/// that ask the fog as a phase found it after the phase has changed it.
+pub(crate) struct FireFogCopy {
+    alliances: HouseAllianceMap,
+    sensors_by_house: BTreeMap<InternedId, Vec<i16>>,
+    width: u16,
+    height: u16,
+}
+
+impl FireFogCopy {
+    pub(crate) fn view(&self) -> FireFog<'_> {
+        FireFog {
+            alliances: &self.alliances,
+            sensors_by_house: &self.sensors_by_house,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
 /// Global fog/shroud state keyed by owner name.
 ///
 /// Stores per-viewer knowledge grids. Direct alliance admission happens at
@@ -1129,14 +1175,27 @@ impl FogState {
     }
 
     pub fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
-        if rx >= self.width || ry >= self.height {
-            return false;
+        self.fire_view().has_sensor_for_house(house, rx, ry)
+    }
+
+    /// What a fire check reads of this fog.
+    pub(crate) fn fire_view(&self) -> FireFog<'_> {
+        FireFog {
+            alliances: &self.alliances,
+            sensors_by_house: &self.sensors_by_house,
+            width: self.width,
+            height: self.height,
         }
-        let index = usize::from(ry) * usize::from(self.width) + usize::from(rx);
-        self.sensors_by_house
-            .get(&house)
-            .and_then(|counters| counters.get(index))
-            .is_some_and(|count| *count > 0)
+    }
+
+    /// A copy of what a fire check reads of this fog.
+    pub(crate) fn fire_copy(&self) -> FireFogCopy {
+        FireFogCopy {
+            alliances: self.alliances.clone(),
+            sensors_by_house: self.sensors_by_house.clone(),
+            width: self.width,
+            height: self.height,
+        }
     }
 
     fn disguise_detect_counter_mut(&mut self, house: InternedId, rx: u16, ry: u16) -> &mut i16 {

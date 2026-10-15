@@ -233,7 +233,7 @@ fn foot_bucket_transition_uses_old_history_then_refreshes_cached_live_threat() {
         .get_mut(id)
         .unwrap()
         .position
-        .set_rx(14);
+        .set_rx_for_test(14);
     sim.per_cell_process(
         id,
         crate::sim::movement::PerCellReason::Arrival,
@@ -272,7 +272,7 @@ fn foot_bucket_transition_uses_old_history_then_refreshes_cached_live_threat() {
         .get_mut(id)
         .unwrap()
         .position
-        .set_rx(16);
+        .set_rx_for_test(16);
     sim.per_cell_process(
         id,
         crate::sim::movement::PerCellReason::Arrival,

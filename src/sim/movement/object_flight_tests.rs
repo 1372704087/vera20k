@@ -50,9 +50,13 @@ fn native_object_flight_queries_use_live_ground_bridge_and_mark() {
         let [x, y, z] = row.input.xyz;
         let mut entity =
             GameEntity::test_default(1, "FV", "Americans", (x / 256) as u16, (y / 256) as u16);
-        entity.position.set_sub_x(SimFixed::from_num(x % 256));
-        entity.position.set_sub_y(SimFixed::from_num(y % 256));
-        entity.position.set_exact_z_leptons(Some(z));
+        entity
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(x % 256));
+        entity
+            .position
+            .set_sub_y_for_test(SimFixed::from_num(y % 256));
+        entity.position.set_exact_z_leptons_for_test(Some(z));
         entity.set_on_bridge(row.input.on_bridge != 0);
         entity.lifecycle.set_cell_marked(row.input.marked != 0);
         assert_eq!(
@@ -188,7 +192,7 @@ fn a_falling_paratrooper_is_marked_again_at_the_head_of_its_cell() {
         infantry.lifecycle.set_in_limbo_for_test(false);
         infantry.lifecycle.set_cell_marked(false);
         infantry.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
-        infantry.position.set_exact_z_leptons(Some(0));
+        infantry.position.set_exact_z_leptons_for_test(Some(0));
         sim.substrate.entities.insert(infantry);
         assert!(sim.foot_mark_put(id, None, None, crate::sim::world::FrameEffects::default()));
     }

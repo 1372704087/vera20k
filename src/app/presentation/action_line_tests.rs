@@ -102,10 +102,7 @@ fn fixture(row: &Value) -> (Simulation, TargetLineState, TacticalViewport) {
             .set_selected_for_test(actor_input["selected"].as_bool().unwrap_or(true));
         actor.set_on_bridge(actor_input["on_bridge"].as_bool().unwrap_or(false));
         let [x, y, z] = point(&actor_input["source"]);
-        crate::sim::movement::ground_pose::put_location(
-            &mut actor.position,
-            DriveCoord { x, y, z },
-        );
+        actor.position.put_location(DriveCoord { x, y, z });
         let [tx, ty] = point(&actor_input["target_cell"]);
         actor.navigation.set_nav_com(
             (!actor_input["nav_null"].as_bool().unwrap_or(false))
@@ -283,7 +280,7 @@ fn drawing_fixture(
     target.set_type_ref_for_test(type_ref);
     target.selection.set_selected_for_test(false);
     let [x, y, z] = point(&input["target_xyz"]);
-    crate::sim::movement::ground_pose::put_location(&mut target.position, DriveCoord { x, y, z });
+    target.position.put_location(DriveCoord { x, y, z });
     let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Drive);
     if input["target_moving"].as_bool().unwrap() {
         locomotor.ensure_installed_track_state();

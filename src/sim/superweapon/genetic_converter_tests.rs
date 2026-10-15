@@ -402,11 +402,8 @@ fn the_mutation_arm_matches_native() {
             .unwrap();
         {
             let entity = sim.substrate.entities.get_mut(victim).unwrap();
-            crate::sim::movement::ground_pose::put_location(
-                &mut entity.position,
-                DriveCoord { x, y, z },
-            );
-            entity.position.set_z(level);
+            entity.position.put_location(DriveCoord { x, y, z });
+            entity.position.set_z_for_test(level);
         }
         assert!(matches!(
             sim.reveal(victim),
@@ -889,14 +886,11 @@ fn an_infantryman_above_the_ground_is_not_mutated() {
     let raised = place(&mut sim, &rules, "E1", (41, 40), 0, false, false);
     {
         let entity = sim.substrate.entities.get_mut(raised).unwrap();
-        crate::sim::movement::ground_pose::put_location(
-            &mut entity.position,
-            DriveCoord {
-                x: 41 * 256 + 128,
-                y: 40 * 256 + 128,
-                z: 1,
-            },
-        );
+        entity.position.put_location(DriveCoord {
+            x: 41 * 256 + 128,
+            y: 40 * 256 + 128,
+            z: 1,
+        });
     }
     let sw_type = charge_super(&mut sim, owner, MUTATOR);
     assert!(launch(
@@ -981,7 +975,7 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
     };
     {
         let entity = sim.substrate.entities.get_mut(fourth).unwrap();
-        ground_pose::put_location(&mut entity.position, centre);
+        entity.position.put_location(centre);
         entity.set_sub_cell(Some(0));
     }
     assert!(sim.object_raw_receiver_at(fourth, centre, true));

@@ -188,14 +188,11 @@ fn damage_receiver_matches_original_packet_result_and_disguise_consequence() {
                 )
                 .unwrap(),
             ));
-        crate::sim::movement::ground_pose::put_location(
-            &mut target.position,
-            DriveCoord {
-                x: int(&before["xyz"][0]),
-                y: int(&before["xyz"][1]),
-                z: int(&before["xyz"][2]),
-            },
-        );
+        target.position.put_location(DriveCoord {
+            x: int(&before["xyz"][0]),
+            y: int(&before["xyz"][1]),
+            z: int(&before["xyz"][2]),
+        });
         target.disguise = Some(restore_disguise(before, &mut interner));
         assert_disguise(
             target.disguise.as_ref().unwrap(),

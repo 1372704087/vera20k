@@ -250,9 +250,13 @@ fn whole_unit_fixture(
             category == EntityCategory::Unit,
             frame,
         );
-        entity.position.set_sub_x(SimFixed::from_num(x % 256));
-        entity.position.set_sub_y(SimFixed::from_num(y % 256));
-        entity.position.set_exact_z_leptons(Some(z));
+        entity
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(x % 256));
+        entity
+            .position
+            .set_sub_y_for_test(SimFixed::from_num(y % 256));
+        entity.position.set_exact_z_leptons_for_test(Some(z));
         entity.lifecycle.set_in_limbo_for_test(before["limbo"] != 0);
         entity
             .lifecycle

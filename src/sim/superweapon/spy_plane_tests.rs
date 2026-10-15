@@ -461,11 +461,15 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
             let x = i32::from(PLANE_TARGET.0) * 256 + 128 + dx;
             let y = y + dy;
             let plane = sim.substrate.entities.get_mut(id).unwrap();
-            plane.position.set_rx((x / 256) as u16);
-            plane.position.set_ry((y / 256) as u16);
-            plane.position.set_sub_x(SimFixed::from_num(x % 256));
-            plane.position.set_sub_y(SimFixed::from_num(y % 256));
-            plane.position.set_exact_z_leptons(Some(1500));
+            plane.position.set_rx_for_test((x / 256) as u16);
+            plane.position.set_ry_for_test((y / 256) as u16);
+            plane
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(x % 256));
+            plane
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(y % 256));
+            plane.position.set_exact_z_leptons_for_test(Some(1500));
             let entities = &sim.substrate.entities;
             let plane = entities.get(id).unwrap();
             if crate::sim::combat::object_distance_to(plane, &target, entities) == Some(distance) {

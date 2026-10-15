@@ -373,8 +373,8 @@ fn vehicle_inside_its_war_factory_takes_no_hit() {
             Some(factory)
         );
         let entity = sim.substrate.entities.get_mut(rhino).unwrap();
-        entity.position.set_rx(inside.0);
-        entity.position.set_ry(inside.1);
+        entity.position.set_rx_for_test(inside.0);
+        entity.position.set_ry_for_test(inside.1);
         entity.radio_contacts.insert(factory).unwrap();
         let before = entity.health.current();
         hit_with(&mut sim, &rules, rhino, gi, 50, ignore_defenses);

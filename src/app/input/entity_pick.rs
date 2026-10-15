@@ -1990,9 +1990,13 @@ mod tests {
                 category,
                 false,
             );
-            entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
-            entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
-            entity.position.set_exact_z_leptons(Some(xyz[2]));
+            entity
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(xyz[0] % 256));
+            entity
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(xyz[1] % 256));
+            entity.position.set_exact_z_leptons_for_test(Some(xyz[2]));
             entity.set_in_playfield(true);
             sim.entities_mut().insert(entity);
         };

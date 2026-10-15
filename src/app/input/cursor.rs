@@ -2253,7 +2253,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         for id in [actor, target] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
             entity.lifecycle.set_cell_marked(true);
-            entity.position.set_exact_z_leptons(Some(900));
+            entity.position.set_exact_z_leptons_for_test(Some(900));
         }
         let mut retained = crate::map::resolved_terrain::test_flat_cell(0, 0);
         retained.bridge_facts.native_anchor =
@@ -2308,7 +2308,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         // native fallback Cell rather than bypassing the query as limbo objects.
         for id in [actor_id, target_id] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
-            entity.position.set_exact_z_leptons(Some(900));
+            entity.position.set_exact_z_leptons_for_test(Some(900));
             entity.lifecycle.set_cell_marked(true);
         }
         let mut retained_cell = crate::map::resolved_terrain::test_flat_cell(0, 0);
@@ -2582,7 +2582,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         // sit two cell indices away but the far one is closer in leptons.
         if let Some(e) = sim.entities_mut().get_mut(far) {
             e.position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(-120));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(-120));
         }
 
         let best = select_best_for_action(

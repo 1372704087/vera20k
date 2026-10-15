@@ -785,7 +785,7 @@ mod tests {
                 .unwrap();
         {
             let position = &mut entities.get_mut(2).unwrap().position;
-            position.set_rx(position.rx() + 1);
+            position.set_rx_for_test(position.rx() + 1);
         }
         let second =
             nav_target_coordinate(NavTargetRef::Entity { id: 2 }, None, &entities, None, None)

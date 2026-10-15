@@ -1902,10 +1902,10 @@ mod tests {
             }
             entity
                 .position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(128));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(128));
             entity
                 .position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(128));
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(128));
             sim.substrate.entities.insert(entity);
         }
         for (id, insertion) in [
@@ -2025,8 +2025,8 @@ mod tests {
         //(62,62). Attack-target identity is deliberately evaluated last.
         for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
             let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
-            position.set_rx(p.0);
-            position.set_ry(p.1);
+            position.set_rx_for_test(p.0);
+            position.set_ry_for_test(p.1);
         }
         assert_eq!(probe(&mut sim, 72), InfantryTargetAdmission::SkipCurrent);
         assert_eq!(
@@ -2053,13 +2053,13 @@ mod tests {
             .get_mut(hut)
             .unwrap()
             .position
-            .set_rx(60);
+            .set_rx_for_test(60);
         sim.substrate
             .entities
             .get_mut(hut)
             .unwrap()
             .position
-            .set_ry(60);
+            .set_ry_for_test(60);
         let probe = |sim: &mut Simulation| {
             let live = EntryReadContext {
                 sim,

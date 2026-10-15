@@ -1949,7 +1949,7 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
                 .expect("target should exist");
             rocketeer
                 .position
-                .set_exact_z_leptons(Some(altitude_leptons as i32));
+                .set_exact_z_leptons_for_test(Some(altitude_leptons as i32));
         }
 
         install_entity_attack_target_for_test(&mut sim.substrate.entities, attacker, target);
@@ -2754,7 +2754,7 @@ fn retaliates(case: RetaliationCase) -> bool {
     source.set_type_ref_for_test(interner.intern("SOURCE"));
     source
         .position
-        .set_sub_x(crate::util::fixed_math::SimFixed::from_num(
+        .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(
             case.source_sub_x,
         ));
     source.lifecycle.set_cell_marked(true);
@@ -5455,7 +5455,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.set_category_for_test(victim_category);
         victim.health = Health::new(100);
-        crate::sim::movement::ground_pose::put_location(&mut victim.position, coordinate);
+        victim.position.put_location(coordinate);
         victim.lifecycle.set_in_limbo_for_test(false);
         victim.set_in_playfield(true);
         entities.insert(victim);
@@ -8196,12 +8196,12 @@ fn gsi_04_11_persistent_projectile_keeps_exact_lepton_z() {
     );
     let mut entities = EntityStore::new();
     let mut shooter = make_entity(1, "SHOOTER", 5, 5, 300);
-    shooter.position.set_z(7);
-    shooter.position.set_exact_z_leptons(Some(733));
+    shooter.position.set_z_for_test(7);
+    shooter.position.set_exact_z_leptons_for_test(Some(733));
     entities.insert(shooter);
     let mut target = make_entity(2, "TARGET", 8, 5, 500);
-    target.position.set_z(11);
-    target.position.set_exact_z_leptons(Some(1_177));
+    target.position.set_z_for_test(11);
+    target.position.set_exact_z_leptons_for_test(Some(1_177));
     entities.insert(target);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut entities, 1, 2);
@@ -8439,7 +8439,9 @@ fn a_flak_burst_goes_off_where_fire_moved_it() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "SHOOTER", 5, 5, 300));
     let mut aircraft = make_entity(2, "TARGET", 8, 5, 500);
-    aircraft.position.set_exact_z_leptons(Some(altitude));
+    aircraft
+        .position
+        .set_exact_z_leptons_for_test(Some(altitude));
     store.insert(aircraft);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 1, 2);
@@ -9157,7 +9159,9 @@ fn radiation_skips_only_objects_in_the_air() {
     let hover = spawn("MTNK", 4);
     for (id, height) in [(high, 208), (low, 207)] {
         let paratrooper = sim.substrate.entities.get_mut(id).unwrap();
-        paratrooper.position.set_exact_z_leptons(Some(height));
+        paratrooper
+            .position
+            .set_exact_z_leptons_for_test(Some(height));
         paratrooper.set_falling_down_for_test(true);
         paratrooper.set_fall_rate_for_test(-3);
     }
@@ -11841,7 +11845,7 @@ fn gsi_08_08_kirov_vertical_bomb_falls_and_detonates() {
     );
     kirov
         .position
-        .set_exact_z_leptons(Some(locomotor.jumpjet_runtime().unwrap().params().height()));
+        .set_exact_z_leptons_for_test(Some(locomotor.jumpjet_runtime().unwrap().params().height()));
     kirov.locomotor = Some(locomotor);
     store.insert(kirov);
     let _ = test_intern("HTNK");

@@ -152,7 +152,7 @@ fn native_on_bridge_controls_the_cliff_gate_and_shp_surface() {
     // Exactly on the native bridge surface: GetHeight()==0 still reaches Foot,
     // even when the derived occupancy marker is absent.
     tank.position
-        .set_exact_z_leptons(Some(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS));
+        .set_exact_z_leptons_for_test(Some(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS));
     let foot = unit_z_adjust_in_runtime(Some(&runtime), &tank, true);
     assert_eq!(
         shp_z_adjust_in_runtime(Some(&runtime), &tank),
@@ -174,7 +174,7 @@ fn shp_uses_exact_height_and_category_while_raw_unit_depth_keeps_foot() {
 
     // An exact one-lepton height excludes Foot even though it rounds to no
     // screen lift and there is no air-layer locomotor.
-    tank.position.set_exact_z_leptons(Some(1));
+    tank.position.set_exact_z_leptons_for_test(Some(1));
     assert_eq!(shp_z_adjust_in_runtime(Some(&runtime), &tank), -2.0);
     assert_eq!(unit_z_adjust_in_runtime(Some(&runtime), &tank, true), 19);
 
@@ -183,16 +183,16 @@ fn shp_uses_exact_height_and_category_while_raw_unit_depth_keeps_foot() {
     locomotor.set_kind_for_test(LocomotorKind::Jumpjet);
     locomotor.set_layer(MovementLayer::Air);
     tank.locomotor = Some(locomotor);
-    tank.position.set_exact_z_leptons(None);
+    tank.position.set_exact_z_leptons_for_test(None);
     assert_eq!(
         shp_z_adjust_in_runtime(Some(&runtime), &tank),
         17.0,
         "air layer alone is not GetHeight"
     );
-    tank.position.set_exact_z_leptons(Some(104));
+    tank.position.set_exact_z_leptons_for_test(Some(104));
     assert_eq!(shp_z_adjust_in_runtime(Some(&runtime), &tank), -17.0);
     assert_eq!(unit_z_adjust_in_runtime(Some(&runtime), &tank, true), 4);
-    aircraft.position.set_exact_z_leptons(Some(104));
+    aircraft.position.set_exact_z_leptons_for_test(Some(104));
     assert_eq!(shp_z_adjust_in_runtime(Some(&runtime), &aircraft), -17.0);
     assert_eq!(
         unit_z_adjust_in_runtime(Some(&runtime), &aircraft, true),
@@ -209,8 +209,12 @@ fn shp_ramp_gate_preserves_coarse_grounded_poses_and_checks_exact_surface_height
 
     let mut runtime = runtime();
     let mut infantry = entity(&mut runtime, "INF", EntityCategory::Infantry);
-    infantry.position.set_sub_x(SimFixed::from_num(128));
-    infantry.position.set_sub_y(SimFixed::from_num(128));
+    infantry
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(128));
+    infantry
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(128));
     runtime
         .simulation
         .resolved_terrain
@@ -233,14 +237,18 @@ fn shp_ramp_gate_preserves_coarse_grounded_poses_and_checks_exact_surface_height
     assert_ne!(shp_z_adjust_in_runtime(Some(&runtime), &infantry), -2.0);
 
     // An exact coordinate instead permits the actual GetHeight subtraction.
-    infantry.position.set_exact_z_leptons(Some(0));
+    infantry.position.set_exact_z_leptons_for_test(Some(0));
     assert_eq!(shp_z_adjust_in_runtime(Some(&runtime), &infantry), -2.0);
-    infantry.position.set_exact_z_leptons(Some(surface));
+    infantry
+        .position
+        .set_exact_z_leptons_for_test(Some(surface));
     assert_eq!(
         shp_z_adjust_in_runtime(Some(&runtime), &infantry),
         (unit_z_adjust_in_runtime(Some(&runtime), &infantry, true) - 2) as f32
     );
-    infantry.position.set_exact_z_leptons(Some(surface + 1));
+    infantry
+        .position
+        .set_exact_z_leptons_for_test(Some(surface + 1));
     let airborne = shp_z_adjust_in_runtime(Some(&runtime), &infantry);
     assert_eq!(airborne, (-adjust_for_z_standard(surface + 1) - 2) as f32);
     assert_ne!(
@@ -309,8 +317,8 @@ fn fixed_slot_alias_and_missing_cells_leave_the_shared_simulation_dummy_unchange
     assert_eq!(missing.level, -7);
 
     for (rx, ry) in [(512, 1), (500, 500), (0, 0)] {
-        tank.position.set_rx(rx);
-        tank.position.set_ry(ry);
+        tank.position.set_rx_for_test(rx);
+        tank.position.set_ry_for_test(ry);
         let _ = unit_z_adjust_in_runtime(Some(&runtime), &tank, true);
         let _ = shp_z_adjust_in_runtime(Some(&runtime), &tank);
         assert_eq!(

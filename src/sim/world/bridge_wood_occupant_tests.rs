@@ -114,8 +114,8 @@ fn prime(scene: &mut HeadlessScenario, input: &Value, initial: &Value, rng: &Val
         sim.remove_entity_occupancy(primary);
         sim.remove_entity_occupancy(second);
         let entity = sim.substrate.entities.get_mut(second).unwrap();
-        entity.position.set_rx(current.0);
-        entity.position.set_ry(current.1);
+        entity.position.set_rx_for_test(current.0);
+        entity.position.set_ry_for_test(current.1);
         sim.add_entity_occupancy(second);
         sim.add_entity_occupancy(primary);
         actors.push(second);

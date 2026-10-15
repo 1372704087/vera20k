@@ -59,17 +59,19 @@ pub(crate) fn candidate(input: &Value, id: u64, type_name: &str) -> GameEntity {
         crate::sim::mission::MissionLeafState::for_entity_category(entity.category());
     entity
         .position
-        .set_rx((current.x / 256).clamp(0, i32::from(u16::MAX)) as u16);
+        .set_rx_for_test((current.x / 256).clamp(0, i32::from(u16::MAX)) as u16);
     entity
         .position
-        .set_ry((current.y / 256).clamp(0, i32::from(u16::MAX)) as u16);
-    entity.position.set_sub_x(SimFixed::from_num(
+        .set_ry_for_test((current.y / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    entity.position.set_sub_x_for_test(SimFixed::from_num(
         current.x - i32::from(entity.position.rx()) * 256,
     ));
-    entity.position.set_sub_y(SimFixed::from_num(
+    entity.position.set_sub_y_for_test(SimFixed::from_num(
         current.y - i32::from(entity.position.ry()) * 256,
     ));
-    entity.position.set_exact_z_leptons(Some(current.z));
+    entity
+        .position
+        .set_exact_z_leptons_for_test(Some(current.z));
     entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
     if input["locomotor_present"].as_bool().unwrap() {
         entity.locomotor = Some(LocomotorState::for_test_kind(kind));

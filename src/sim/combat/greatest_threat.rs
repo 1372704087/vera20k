@@ -3129,7 +3129,7 @@ mod tests {
                 11,
                 EntityCategory::Unit,
             );
-            entities.get_mut(2).unwrap().position.set_z(level);
+            entities.get_mut(2).unwrap().position.set_z_for_test(level);
             assert_eq!(
                 pick_with_mask(&entities, &rules, 1, super::super::ScanMission::AreaGuard),
                 expected,

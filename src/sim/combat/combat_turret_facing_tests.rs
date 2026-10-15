@@ -1988,10 +1988,14 @@ fn turret_cadence_matches_the_original() {
             (at(0), at(1))
         };
         let place = |entity: &mut GameEntity, (x, y): (i32, i32)| {
-            entity.position.set_rx((x / 256) as u16);
-            entity.position.set_ry((y / 256) as u16);
-            entity.position.set_sub_x(SimFixed::from_num(x % 256));
-            entity.position.set_sub_y(SimFixed::from_num(y % 256));
+            entity.position.set_rx_for_test((x / 256) as u16);
+            entity.position.set_ry_for_test((y / 256) as u16);
+            entity
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(x % 256));
+            entity
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(y % 256));
         };
         let mut sim = Simulation::new();
         let mut unit = GameEntity::test_default(1, "MTNK", "Americans", 0, 0);

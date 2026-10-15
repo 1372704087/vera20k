@@ -636,7 +636,7 @@ mod tests {
             .get_mut(30)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(0));
+            .set_exact_z_leptons_for_test(Some(0));
         assert!(
             !first_yard_distance_accepts(&sim, &distance_rules(0), &house, (10, 10), &elevated),
             "CellClass 104-lepton terrain Z makes this nonzero despite identical 2D coordinates"
@@ -646,7 +646,7 @@ mod tests {
             .get_mut(30)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(104));
+            .set_exact_z_leptons_for_test(Some(104));
         assert!(first_yard_distance_accepts(
             &sim,
             &distance_rules(0),

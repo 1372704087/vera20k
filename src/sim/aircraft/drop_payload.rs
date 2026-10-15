@@ -347,7 +347,7 @@ fn paradrop(
         .get(passenger)
         .map(|rider| rider.position)
         .ok_or(DepartureFailure::MissingPassenger)?;
-    ground_pose::set_position_world_xy(&mut position, [landing.x, landing.y]);
+    position.put_world_xy([landing.x, landing.y]);
     let (rx, ry) = (position.rx(), position.ry());
     let flags = sim.resolved_terrain.as_ref().map_or(0, |terrain| {
         terrain.native_cell_flags(
@@ -651,8 +651,8 @@ mod tests {
             blocker.set_sub_cell(Some(subcell));
             {
                 let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(subcell));
-                blocker.position.set_sub_x(sub_x);
-                blocker.position.set_sub_y(sub_y);
+                blocker.position.set_sub_x_for_test(sub_x);
+                blocker.position.set_sub_y_for_test(sub_y);
             }
             sim.substrate.entities.insert(blocker);
             assert!(matches!(sim.reveal(id), RevealOutcome::Revealed { .. }));
@@ -675,7 +675,7 @@ mod tests {
                 let mut sim = Simulation::new();
                 insert_loaded_paradrop_pair(&mut sim, 1, 2);
                 let plane = sim.substrate.entities.get_mut(1).unwrap();
-                ground_pose::set_position_world_xy(&mut plane.position, [12928, 5248]);
+                plane.position.put_world_xy([12928, 5248]);
                 plane
                     .body_facing
                     .snap(row["facing"].as_u64().unwrap() as u16, 0);
@@ -903,7 +903,7 @@ mod tests {
             .get_mut(aircraft_id)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(1500));
+            .set_exact_z_leptons_for_test(Some(1500));
         drop_payload(
             &mut sim,
             aircraft_id,
@@ -1013,7 +1013,7 @@ mod tests {
         // In flight 1500 leptons over its level-2 cell, as the Fly host keeps it.
         let plane_z = 2 * 104 + 1500;
         let plane = sim.substrate.entities.get_mut(aircraft_id).unwrap();
-        plane.position.set_exact_z_leptons(Some(plane_z));
+        plane.position.set_exact_z_leptons_for_test(Some(plane_z));
         plane.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
 
         drop_payload(
@@ -1116,7 +1116,9 @@ mod tests {
         let (plane, passenger) = (1, 2);
         insert_loaded_paradrop_pair(&mut sim, plane, passenger);
         let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
-        plane_entity.position.set_exact_z_leptons(Some(1500));
+        plane_entity
+            .position
+            .set_exact_z_leptons_for_test(Some(1500));
         plane_entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
         let effects = crate::sim::world::FrameEffects::default();
 
@@ -1127,10 +1129,9 @@ mod tests {
 
         // The plane flies on; its next drop is over plain ground at (51, 24).
         let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
-        ground_pose::set_position_world_xy(
-            &mut plane_entity.position,
-            [50 * 256 + 128, 24 * 256 + 128],
-        );
+        plane_entity
+            .position
+            .put_world_xy([50 * 256 + 128, 24 * 256 + 128]);
         drop_payload(&mut sim, plane, &rules, None, effects);
         let rider = sim.substrate.entities.get(passenger).unwrap();
         assert_eq!((rider.position.rx(), rider.position.ry()), (51, 24));

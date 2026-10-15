@@ -418,11 +418,11 @@ impl Fixture {
 fn place(sim: &mut Simulation, id: u64, offset: [i32; 3]) {
     let [x, y, z] = [0, 1, 2].map(|axis| ORIGIN[axis] + offset[axis]);
     let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
-    position.set_rx((x >> 8) as u16);
-    position.set_ry((y >> 8) as u16);
-    position.set_sub_x(SimFixed::from_num(x & 0xFF));
-    position.set_sub_y(SimFixed::from_num(y & 0xFF));
-    position.set_exact_z_leptons(Some(z));
+    position.set_rx_for_test((x >> 8) as u16);
+    position.set_ry_for_test((y >> 8) as u16);
+    position.set_sub_x_for_test(SimFixed::from_num(x & 0xFF));
+    position.set_sub_y_for_test(SimFixed::from_num(y & 0xFF));
+    position.set_exact_z_leptons_for_test(Some(z));
 }
 
 fn location(sim: &Simulation, id: u64) -> [i32; 3] {

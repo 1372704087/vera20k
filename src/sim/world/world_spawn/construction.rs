@@ -134,8 +134,7 @@ impl Simulation {
                 ComponentOrigin::Authored { sub_cell, .. } => {
                     ge.set_sub_cell(Some(sub_cell));
                     let (lx, ly) = crate::util::lepton::subcell_lepton_offset(ge.sub_cell());
-                    ge.position.set_sub_x(lx);
-                    ge.position.set_sub_y(ly);
+                    ge.position.put_cell_offset(lx, ly);
                 }
                 ComponentOrigin::Runtime => {
                     // Infantry51DFF0 chooses the spot only at Unlimbo, from

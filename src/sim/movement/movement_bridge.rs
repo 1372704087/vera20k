@@ -202,7 +202,7 @@ pub(super) fn resolve_cell_transition_bridge_state(
     // and therefore no value that can be absent, so this must not consult the A*
     // layer or any cell-side walkability permission — both are VERA inventions
     // that silently substituted ground level for the deck.
-    position.set_z(stored_level(dst_cell.ground_level, on_bridge_after));
+    position.store_level(stored_level(dst_cell.ground_level, on_bridge_after));
     // Raw Object Z has a separate setter cadence. Paid Drive/Ship points and
     // Walk commits refresh it; a residual crossing retains it (0x4B253F).
     update
@@ -547,8 +547,8 @@ mod tests {
             let update =
                 resolve_cell_transition_bridge_state(&mut pos, Some(grid), src, dst, on_bridge);
             on_bridge = projected_on_bridge(on_bridge, update);
-            pos.set_rx(dst.0);
-            pos.set_ry(dst.1);
+            pos.set_rx_for_test(dst.0);
+            pos.set_ry_for_test(dst.1);
             assert_native_height(grid, &pos, on_bridge, &format!("step {x}->{}", x + 1));
             trace.push((pos.z(), on_bridge));
         }

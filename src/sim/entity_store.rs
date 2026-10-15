@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(store.take_touched(TouchReader::GroundKeys), Touched::All);
         {
             let position = &mut store.get_mut(2).unwrap().position;
-            position.set_rx(position.rx() + 1);
+            position.set_rx_for_test(position.rx() + 1);
         }
         store.get_mut(3);
         assert_eq!(
@@ -579,7 +579,7 @@ mod tests {
                 0..=4 if !removing => {
                     newest += 1 + next(3);
                     let mut entity = make_entity(newest);
-                    entity.position.set_rx(step as u16);
+                    entity.position.set_rx_for_test(step as u16);
                     store.insert(entity);
                     model.insert(newest, step as u16);
                 }
@@ -587,7 +587,7 @@ mod tests {
                 5 => {
                     let id = next(newest + 1);
                     let mut entity = make_entity(id);
-                    entity.position.set_rx(step as u16);
+                    entity.position.set_rx_for_test(step as u16);
                     store.insert(entity);
                     model.insert(id, step as u16);
                 }
@@ -603,7 +603,7 @@ mod tests {
                 _ => {
                     let id = next(newest + 1);
                     if let Some(entity) = store.get_mut(id) {
-                        entity.position.set_rx(step as u16);
+                        entity.position.set_rx_for_test(step as u16);
                     }
                     if let Some(rx) = model.get_mut(&id) {
                         *rx = step as u16;
@@ -916,13 +916,13 @@ mod tests {
     fn test_cross_entity_read_pattern() {
         let mut store = EntityStore::new();
         let mut e1 = make_entity(1);
-        e1.position.set_rx(10);
-        e1.position.set_ry(20);
+        e1.position.set_rx_for_test(10);
+        e1.position.set_ry_for_test(20);
         store.insert(e1);
 
         let mut e2 = make_entity(2);
-        e2.position.set_rx(30);
-        e2.position.set_ry(40);
+        e2.position.set_rx_for_test(30);
+        e2.position.set_ry_for_test(40);
         store.insert(e2);
 
         // Read target position first (immutable borrow ends).

@@ -17,116 +17,7 @@ use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::fixed_math::SimFixed;
 
-/// World position in isometric cell coordinates plus sub-cell lepton offset.
-///
-/// RA2 uses leptons as its spatial unit (256 leptons = 1 cell). We store the
-/// cell coordinate (rx, ry) plus a sub-cell lepton offset (sub_x, sub_y) to
-/// get sub-cell precision without overflowing SimFixed on large maps.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub struct Position {
-    /// Isometric cell X coordinate.
-    rx: u16,
-    /// Isometric cell Y coordinate.
-    ry: u16,
-    /// Elevation level (0 = ground). Each level is 15px visual offset.
-    z: u8,
-    /// Exact native ObjectClass coordinate Z, in signed leptons.
-    ///
-    /// Ground movement retains ramp height at the native height-write points;
-    /// Drive/Ship residual XY interpolation can retain an earlier sampled Z.
-    /// TubeMovement also retains its signed interpolation remainder after exit.
-    /// Neither coordinate can be reconstructed from the coarse `z` level or
-    /// indiscriminately replaced with the current surface on idle ticks.
-    /// None is the legacy coarse/independent-altitude representation.
-    #[serde(default)]
-    exact_z_leptons: Option<i32>,
-    /// Sub-cell lepton offset X (0..256). 128 = cell center.
-    /// Provides sub-cell precision for smooth movement and accurate range checks.
-    sub_x: SimFixed,
-    /// Sub-cell lepton offset Y (0..256). 128 = cell center.
-    sub_y: SimFixed,
-}
-
-impl Position {
-    /// Cell (`rx`, `ry`) at level `z`, with the exact Z and the sub-cell offset.
-    pub(crate) const fn new(
-        rx: u16,
-        ry: u16,
-        z: u8,
-        exact_z_leptons: Option<i32>,
-        sub_x: SimFixed,
-        sub_y: SimFixed,
-    ) -> Self {
-        Self {
-            rx,
-            ry,
-            z,
-            exact_z_leptons,
-            sub_x,
-            sub_y,
-        }
-    }
-
-    /// Isometric cell X coordinate.
-    pub(crate) const fn rx(&self) -> u16 {
-        self.rx
-    }
-
-    /// Store the cell X coordinate.
-    pub(crate) fn set_rx(&mut self, rx: u16) {
-        self.rx = rx;
-    }
-
-    /// Isometric cell Y coordinate.
-    pub(crate) const fn ry(&self) -> u16 {
-        self.ry
-    }
-
-    /// Store the cell Y coordinate.
-    pub(crate) fn set_ry(&mut self, ry: u16) {
-        self.ry = ry;
-    }
-
-    /// Elevation level (0 = ground).
-    pub(crate) const fn z(&self) -> u8 {
-        self.z
-    }
-
-    /// Store the elevation level.
-    pub(crate) fn set_z(&mut self, z: u8) {
-        self.z = z;
-    }
-
-    /// Exact native ObjectClass coordinate Z, in signed leptons; see the field.
-    pub(crate) const fn exact_z_leptons(&self) -> Option<i32> {
-        self.exact_z_leptons
-    }
-
-    /// Store the exact Z.
-    pub(crate) fn set_exact_z_leptons(&mut self, exact_z_leptons: Option<i32>) {
-        self.exact_z_leptons = exact_z_leptons;
-    }
-
-    /// Sub-cell lepton offset X (0..256).
-    pub(crate) const fn sub_x(&self) -> SimFixed {
-        self.sub_x
-    }
-
-    /// Store the sub-cell offset X.
-    pub(crate) fn set_sub_x(&mut self, sub_x: SimFixed) {
-        self.sub_x = sub_x;
-    }
-
-    /// Sub-cell lepton offset Y (0..256).
-    pub(crate) const fn sub_y(&self) -> SimFixed {
-        self.sub_y
-    }
-
-    /// Store the sub-cell offset Y.
-    pub(crate) fn set_sub_y(&mut self, sub_y: SimFixed) {
-        self.sub_y = sub_y;
-    }
-}
+pub use crate::sim::movement::ground_pose::Position;
 
 // MissionCom, MissionLeaf and the private GameEntity body own retained
 // construction and sale state.
@@ -1017,8 +908,8 @@ mod tests {
             crate::util::lepton::CELL_CENTER_LEPTON,
             crate::util::lepton::CELL_CENTER_LEPTON,
         );
-        assert_eq!(pos.rx, 30);
-        assert_eq!(pos.ry, 40);
+        assert_eq!(pos.rx(), 30);
+        assert_eq!(pos.ry(), 40);
     }
 
     #[test]

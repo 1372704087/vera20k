@@ -138,8 +138,8 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
     );
     {
         let detector = sim.substrate.entities.get_mut(detector).unwrap();
-        detector.position.set_rx(cell.0);
-        detector.position.set_ry(cell.1);
+        detector.position.set_rx_for_test(cell.0);
+        detector.position.set_ry_for_test(cell.1);
     }
     sim.refresh_unit_sensor_at_per_cell(detector, &rules);
     // CORRECTION: this used to require the sensor deposit to force-cloak the
@@ -232,8 +232,8 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
     );
     {
         let detector = sim.substrate.entities.get_mut(detector).unwrap();
-        detector.position.set_rx(far_cell.0);
-        detector.position.set_ry(far_cell.1);
+        detector.position.set_rx_for_test(far_cell.0);
+        detector.position.set_ry_for_test(far_cell.1);
     }
     sim.refresh_unit_sensor_at_per_cell(detector, &rules);
     assert_eq!(sim.fog.sensors_by_house[&local][sensor_index], 1);
@@ -258,8 +258,8 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
     );
     {
         let detector = sim.substrate.entities.get_mut(second_detector).unwrap();
-        detector.position.set_rx(far_cell.0);
-        detector.position.set_ry(far_cell.1);
+        detector.position.set_rx_for_test(far_cell.0);
+        detector.position.set_ry_for_test(far_cell.1);
     }
     sim.refresh_unit_sensor_at_per_cell(second_detector, &rules);
     assert_eq!(sim.fog.sensors_by_house[&local][sensor_index], 0);

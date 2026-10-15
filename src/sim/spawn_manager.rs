@@ -1351,8 +1351,8 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         // Unlimbo snaps the body to the direction (`0x006F6DAA`). The coarse
         // level stays the owner's. The original ignores its answer.
         if let Some(child) = self.sim.substrate.entities.get_mut(child) {
-            crate::sim::movement::ground_pose::put_location(&mut child.position, launch);
-            child.position.set_z(owner_level);
+            child.position.put_location(launch);
+            child.position.store_level(owner_level);
             child.body_facing.snap(u16::from(launch_dir) << 8, frame);
         }
         let _ = self.sim.reveal_entity_with_rules(child, rules);

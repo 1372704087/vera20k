@@ -311,12 +311,14 @@ fn move_target_to_x_distance(sim: &mut Simulation, target_id: u64, distance_lept
         .entities
         .get_mut(target_id)
         .expect("target remains live before manager update");
-    target.position.set_rx(world_x.div_euclid(256) as u16);
-    target.position.set_ry(10);
     target
         .position
-        .set_sub_x(SimFixed::from_num(world_x.rem_euclid(256)));
-    target.position.set_sub_y(SimFixed::from_num(128));
+        .set_rx_for_test(world_x.div_euclid(256) as u16);
+    target.position.set_ry_for_test(10);
+    target
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(world_x.rem_euclid(256)));
+    target.position.set_sub_y_for_test(SimFixed::from_num(128));
 }
 
 #[test]
@@ -538,7 +540,7 @@ fn gsi_05_08_idle_legality_uses_effective_3d_distance() {
         .get_mut(target)
         .expect("target remains live")
         .position
-        .set_exact_z_leptons(Some(TARGET_Z_LEPTONS));
+        .set_exact_z_leptons_for_test(Some(TARGET_Z_LEPTONS));
     spawn_manager_ai(
         &mut sim,
         &rules,
@@ -1854,7 +1856,7 @@ fn a_dead_carriers_airborne_hornet_crashes() {
         .expect("a Hornet is off the deck");
     // Airborne over the flat level-0 map.
     let entity = sim.substrate.entities.get_mut(hornet).unwrap();
-    entity.position.set_exact_z_leptons(Some(600));
+    entity.position.set_exact_z_leptons_for_test(Some(600));
 
     sim.uninit_with_rules(carrier, &rules);
 
@@ -1942,7 +1944,7 @@ fn a_dead_carriers_hornets_crash_from_the_last_slot() {
     assert!(wing.len() >= 2, "two Hornets off the deck: {wing:?}");
     for &(_, hornet) in &wing {
         let entity = sim.substrate.entities.get_mut(hornet).unwrap();
-        entity.position.set_exact_z_leptons(Some(600));
+        entity.position.set_exact_z_leptons_for_test(Some(600));
     }
     // The three draws each crash takes, in the order they are taken.
     let mut rng = sim.scenario_rng.clone();
@@ -2045,7 +2047,7 @@ fn a_hornet_docks_by_its_z_above_the_carrier() {
         let deck = {
             let owner = sim.substrate.entities.get_mut(carrier).unwrap();
             let z = owner.position.exact_z_leptons().expect("revealed carrier") + 100;
-            owner.position.set_exact_z_leptons(Some(z));
+            owner.position.set_exact_z_leptons_for_test(Some(z));
             owner.position
         };
         {
@@ -2064,7 +2066,7 @@ fn a_hornet_docks_by_its_z_above_the_carrier() {
             child.position = deck;
             child
                 .position
-                .set_exact_z_leptons(deck.exact_z_leptons().map(|z| z + above_owner));
+                .set_exact_z_leptons_for_test(deck.exact_z_leptons().map(|z| z + above_owner));
         }
         tick(&mut sim);
 

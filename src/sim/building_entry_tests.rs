@@ -2281,11 +2281,8 @@ fn nearest_occupiable_production_matches_native_controls() {
         let coord = xyz(&row["foot"]);
         {
             let entity = sim.substrate.entities.get_mut(foot).unwrap();
-            crate::sim::movement::ground_pose::set_position_world_xy(
-                &mut entity.position,
-                [coord[0], coord[1]],
-            );
-            entity.position.set_exact_z_leptons(Some(coord[2]));
+            entity.position.put_world_xy([coord[0], coord[1]]);
+            entity.position.set_exact_z_leptons_for_test(Some(coord[2]));
         }
         let buildings: Vec<_> = row["bunkers"]
             .as_array()
@@ -2309,11 +2306,8 @@ fn nearest_occupiable_production_matches_native_controls() {
                 let entity = sim.substrate.entities.get_mut(building).unwrap();
                 //1x1 makes Location the native fixture's substituted GetCoords.
                 entity.type_facts.set_foundation_for_test("1x1".to_owned());
-                crate::sim::movement::ground_pose::set_position_world_xy(
-                    &mut entity.position,
-                    [coord[0], coord[1]],
-                );
-                entity.position.set_exact_z_leptons(Some(coord[2]));
+                entity.position.put_world_xy([coord[0], coord[1]]);
+                entity.position.set_exact_z_leptons_for_test(Some(coord[2]));
                 building
             })
             .collect();

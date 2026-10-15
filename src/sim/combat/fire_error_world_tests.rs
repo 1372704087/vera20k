@@ -608,7 +608,7 @@ fn a_tank_gun_cannot_shoot_an_aircraft_landing() {
         ),
     );
     target.lifecycle.set_cell_marked(true);
-    target.position.set_exact_z_leptons(Some(100));
+    target.position.set_exact_z_leptons_for_test(Some(100));
     assert_eq!(
         bridge_code(&sim, &rules, "TANK"),
         FireError::Illegal,
@@ -619,7 +619,7 @@ fn a_tank_gun_cannot_shoot_an_aircraft_landing() {
         .get_mut(2)
         .unwrap()
         .position
-        .set_exact_z_leptons(Some(0));
+        .set_exact_z_leptons_for_test(Some(0));
     assert_eq!(bridge_code(&sim, &rules, "TANK"), FireError::Ok, "landed");
 }
 

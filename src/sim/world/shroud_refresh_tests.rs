@@ -70,10 +70,10 @@ fn actor(
     );
     entity
         .position
-        .set_sub_x(crate::util::fixed_math::SimFixed::from_num(offset.0));
+        .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(offset.0));
     entity
         .position
-        .set_sub_y(crate::util::fixed_math::SimFixed::from_num(offset.1));
+        .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(offset.1));
     // The corpus executes original6F322F before the callback corridor.
     // This is its declared constructor prestate, not an alternative producer.
     entity

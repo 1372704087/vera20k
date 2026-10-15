@@ -551,9 +551,13 @@ mod tests {
             entity.set_type_ref_for_test(sim.interner.intern("TEST"));
             entity.set_owner_for_test(sim.interner.intern("A"));
             entity.health.set_for_test(40);
-            entity.position.set_sub_x(SimFixed::from_num(x & 255));
-            entity.position.set_sub_y(SimFixed::from_num(y & 255));
-            entity.position.set_exact_z_leptons(Some(z));
+            entity
+                .position
+                .set_sub_x_for_test(SimFixed::from_num(x & 255));
+            entity
+                .position
+                .set_sub_y_for_test(SimFixed::from_num(y & 255));
+            entity.position.set_exact_z_leptons_for_test(Some(z));
             entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
             let mut cell = test_flat_cell(entity.position.rx(), entity.position.ry());
             cell.level = input["level"].as_u64().unwrap() as u8;

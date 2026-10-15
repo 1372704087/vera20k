@@ -44,17 +44,17 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
             use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
             let x = xy[0].as_i64().unwrap() as i32;
             let y = xy[1].as_i64().unwrap() as i32;
-            entity.position.set_rx((x >> 8) as u16);
-            entity.position.set_ry((y >> 8) as u16);
+            entity.position.set_rx_for_test((x >> 8) as u16);
+            entity.position.set_ry_for_test((y >> 8) as u16);
             entity
                 .position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(x & 255));
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(x & 255));
             entity
                 .position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(y & 255));
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(y & 255));
             entity
                 .position
-                .set_exact_z_leptons(Some(input["z"].as_i64().unwrap() as i32));
+                .set_exact_z_leptons_for_test(Some(input["z"].as_i64().unwrap() as i32));
             entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
             let mut cell = test_flat_cell(entity.position.rx(), entity.position.ry());
             cell.level = input["level"].as_u64().unwrap() as u8;

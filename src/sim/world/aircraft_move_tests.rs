@@ -56,11 +56,11 @@ fn insert(sim: &mut Simulation, id: u64, name: &str, category: EntityCategory, p
     );
     entity
         .position
-        .set_sub_x(SimFixed::from_num(point[0] % 256));
+        .set_sub_x_for_test(SimFixed::from_num(point[0] % 256));
     entity
         .position
-        .set_sub_y(SimFixed::from_num(point[1] % 256));
-    entity.position.set_exact_z_leptons(Some(point[2]));
+        .set_sub_y_for_test(SimFixed::from_num(point[1] % 256));
+    entity.position.set_exact_z_leptons_for_test(Some(point[2]));
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
@@ -600,7 +600,7 @@ fn mission_move_idle_mode_on_the_ground_and_in_flight() {
                 0,
             ),
         );
-        plane.position.set_exact_z_leptons(Some(z));
+        plane.position.set_exact_z_leptons_for_test(Some(z));
         plane
             .mission
             .set_current_for_test(MissionId::from_known(MissionType::Move), 0);

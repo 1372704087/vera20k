@@ -1127,7 +1127,7 @@ mod tests {
         sim.resolved_terrain = Some(water_below_bridge_terrain(3));
         let id = spawn_deck_unit(&mut sim);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.position.set_exact_z_leptons(Some(1000));
+        entity.position.set_exact_z_leptons_for_test(Some(1000));
         entity.set_falling_down_for_test(true);
         sim.substrate.occupancy.add(
             5,

@@ -1608,7 +1608,7 @@ impl GameEntity {
 
     /// Paradrop5F5940 raises +84/+8D and resets +2C before placement.
     pub(crate) fn begin_parachute_fall(&mut self, z: i32) {
-        self.position.set_exact_z_leptons(Some(z));
+        self.position.put_z(z);
         self.fall.parachuted = true;
         self.fall.falling = true;
         self.fall.rate = 0;

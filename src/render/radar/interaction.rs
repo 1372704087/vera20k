@@ -583,10 +583,10 @@ mod tests {
             .set_foundation_for_test("4x3".to_string());
         building
             .position
-            .set_sub_x(crate::util::fixed_math::SimFixed::from_num(200));
+            .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(200));
         building
             .position
-            .set_sub_y(crate::util::fixed_math::SimFixed::from_num(33));
+            .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(33));
         entities.insert(building);
 
         let signed = tracker_object_signed_cell(&tracker, &entities, (40, 60));
@@ -602,8 +602,8 @@ mod tests {
         );
 
         let edge = entities.get_mut(2).unwrap();
-        edge.position.set_rx(u16::MAX);
-        edge.position.set_ry(u16::MAX);
+        edge.position.set_rx_for_test(u16::MAX);
+        edge.position.set_ry_for_test(u16::MAX);
         assert_eq!(
             tracker_object_signed_cell(&tracker, &entities, (40, 60)),
             Some((1, 0)),

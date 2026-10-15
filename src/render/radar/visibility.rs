@@ -506,10 +506,10 @@ mod tests {
             crate::sim::game_entity::GameEntity::test_default(1, "MTNK", "Enemy", 120, 30);
         entity
             .position
-            .set_sub_x(crate::util::fixed_math::SimFixed::from_num(0));
+            .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(0));
         entity
             .position
-            .set_sub_y(crate::util::fixed_math::SimFixed::from_num(0));
+            .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(0));
         let mut projection = visibility_projection();
         projection.native_surface = Some(surface);
         let update = build_radar_object_update(
@@ -830,8 +830,8 @@ mod tests {
             Some(&terrain),
         ));
         entity.set_in_playfield(true);
-        entity.position.set_rx(2);
-        entity.position.set_ry(2);
+        entity.position.set_rx_for_test(2);
+        entity.position.set_ry_for_test(2);
         assert!(!radar_fresh_mode_one_membership(
             &entity,
             Some(bounds),

@@ -633,12 +633,13 @@ mod tests {
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.lifecycle.set_object_alive_for_test(true);
         e.lifecycle.set_in_limbo_for_test(false);
-        e.position.set_rx(64);
-        e.position.set_ry(64);
-        e.position.set_sub_x(SimFixed::from_num(128));
-        e.position.set_sub_y(SimFixed::from_num(128));
-        e.position
-            .set_exact_z_leptons(Some(input["registration_z"].as_i64().unwrap_or(900) as i32));
+        e.position.set_rx_for_test(64);
+        e.position.set_ry_for_test(64);
+        e.position.set_sub_x_for_test(SimFixed::from_num(128));
+        e.position.set_sub_y_for_test(SimFixed::from_num(128));
+        e.position.set_exact_z_leptons_for_test(Some(
+            input["registration_z"].as_i64().unwrap_or(900) as i32,
+        ));
         e.health
             .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
         e.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
@@ -664,7 +665,7 @@ mod tests {
         sim.submit_entity_display(id, Some(&rules), None);
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.position
-            .set_exact_z_leptons(Some(before["coordinates"][2].as_i64().unwrap() as i32));
+            .set_exact_z_leptons_for_test(Some(before["coordinates"][2].as_i64().unwrap() as i32));
         if input["blocking_unit"].as_bool().unwrap_or(false)
             || input["reserved"].as_bool().unwrap_or(false)
         {
@@ -681,11 +682,11 @@ mod tests {
             let e = sim.substrate.entities.get_mut(id).unwrap();
             e.lifecycle.set_object_alive_for_test(true);
             e.lifecycle.set_in_limbo_for_test(false);
-            e.position.set_rx(64);
-            e.position.set_ry(64);
-            e.position.set_sub_x(SimFixed::from_num(128));
-            e.position.set_sub_y(SimFixed::from_num(128));
-            e.position.set_exact_z_leptons(Some(0));
+            e.position.set_rx_for_test(64);
+            e.position.set_ry_for_test(64);
+            e.position.set_sub_x_for_test(SimFixed::from_num(128));
+            e.position.set_sub_y_for_test(SimFixed::from_num(128));
+            e.position.set_exact_z_leptons_for_test(Some(0));
             if input["reserved"].as_bool().unwrap_or(false) {
                 e.navigation.set_nav_com(Some(NavTargetRef::cell(64, 64)));
             } else {
@@ -894,8 +895,10 @@ mod tests {
                 .cloned()
                 .unwrap_or(serde_json::json!([64, 64]));
             let e = sim.substrate.entities.get_mut(1).unwrap();
-            e.position.set_rx(query[0].as_u64().unwrap() as u16);
-            e.position.set_ry(query[1].as_u64().unwrap() as u16);
+            e.position
+                .set_rx_for_test(query[0].as_u64().unwrap() as u16);
+            e.position
+                .set_ry_for_test(query[1].as_u64().unwrap() as u16);
             let owner = e.owner();
             let occupant = input["occupant"].as_str();
             if occupant == Some("self") {
@@ -927,9 +930,9 @@ mod tests {
                 other
                     .lifecycle
                     .set_in_limbo_for_test(input["limbo"].as_bool().unwrap_or(false));
-                other.position.set_sub_x(SimFixed::from_num(128));
-                other.position.set_sub_y(SimFixed::from_num(128));
-                other.position.set_exact_z_leptons(Some(0));
+                other.position.set_sub_x_for_test(SimFixed::from_num(128));
+                other.position.set_sub_y_for_test(SimFixed::from_num(128));
+                other.position.set_exact_z_leptons_for_test(Some(0));
                 if input["spawn_manager"].as_bool().unwrap_or(false) {
                     other.spawn_manager = crate::sim::spawn_manager::init_spawn_manager(
                         rules.object("BLOCKER").unwrap(),

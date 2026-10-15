@@ -1843,7 +1843,7 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
             entity.tether.set_for_test(Some(999));
         }
         let [x, y, z] = actor.coord;
-        ground_pose::put_location(&mut entity.position, DriveCoord { x, y, z });
+        entity.position.put_location(DriveCoord { x, y, z });
         if actor.cell_building {
             let building_type = sim.interner.intern("DOCKBUILDING");
             let mut building = GameEntity::new_at_frame_zero_for_test(

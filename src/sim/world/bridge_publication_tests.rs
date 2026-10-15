@@ -90,14 +90,16 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
         )
         .unwrap();
     // The admitted scene supplies this pose after the held constructor.
-    crate::sim::movement::ground_pose::put_location(
-        &mut sim.substrate.entities.get_mut(attacker).unwrap().position,
-        crate::sim::components::DriveCoord {
+    sim.substrate
+        .entities
+        .get_mut(attacker)
+        .unwrap()
+        .position
+        .put_location(crate::sim::components::DriveCoord {
             x: 7 * 256 + 128,
             y: 7 * 256 + 128,
             z: 0,
-        },
-    );
+        });
     sim.reveal(attacker);
     sim.substrate
         .entities
@@ -335,14 +337,16 @@ fn bridge_publication_production_nonanchor_collapse_keeps_other_overlay_and_runs
         )
         .unwrap();
     // Ground fallout selects the scene's supplied Cell member, not ctor zero.
-    crate::sim::movement::ground_pose::put_location(
-        &mut sim.substrate.entities.get_mut(tank).unwrap().position,
-        crate::sim::components::DriveCoord {
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .position
+        .put_location(crate::sim::components::DriveCoord {
             x: 3 * 256 + 128,
             y: 4 * 256 + 128,
             z: 0,
-        },
-    );
+        });
     sim.reveal(tank);
     let hit = event(&mut sim, (3, 4));
     assert!(apply_bridge_damage_events_with_overlay_registry(

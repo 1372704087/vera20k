@@ -1083,12 +1083,16 @@ impl Simulation {
         // riders. Frequency: none known in retail. Effect: the riders keep
         // their old Location.
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.position.set_rx(position.rx());
-            entity.position.set_ry(position.ry());
-            entity.position.set_z(position.z());
-            entity.position.set_exact_z_leptons(exact_z);
-            entity.position.set_sub_x(position.sub_x());
-            entity.position.set_sub_y(position.sub_y());
+            entity
+                .position
+                .copy_from(crate::sim::components::Position::new(
+                    position.rx(),
+                    position.ry(),
+                    position.z(),
+                    exact_z,
+                    position.sub_x(),
+                    position.sub_y(),
+                ));
         }
         if let Some(rules) = context.rules {
             self.reposition_building_anim_slots(stable_id, rules);
@@ -2239,7 +2243,7 @@ impl Simulation {
             .get_mut(stable_id)
             .expect("member remains represented");
         entity.set_on_bridge(false);
-        entity.position.set_exact_z_leptons(Some(world_z));
+        entity.position.put_z(world_z);
         self.submit_entity_display(stable_id, rules, None);
         if foot {
             self.foot_mark_put(stable_id, rules, context.registry, context.effects);

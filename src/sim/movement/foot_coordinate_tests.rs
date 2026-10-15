@@ -24,16 +24,16 @@ fn entity(id: u64, kind: LocomotorKind, current: DriveCoord, head: DriveCoord) -
         EntityCategory::Unit
     });
     e.position
-        .set_rx((current.x / 256).clamp(0, i32::from(u16::MAX)) as u16);
+        .set_rx_for_test((current.x / 256).clamp(0, i32::from(u16::MAX)) as u16);
     e.position
-        .set_ry((current.y / 256).clamp(0, i32::from(u16::MAX)) as u16);
-    e.position.set_sub_x(SimFixed::from_num(
+        .set_ry_for_test((current.y / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    e.position.set_sub_x_for_test(SimFixed::from_num(
         current.x - i32::from(e.position.rx()) * 256,
     ));
-    e.position.set_sub_y(SimFixed::from_num(
+    e.position.set_sub_y_for_test(SimFixed::from_num(
         current.y - i32::from(e.position.ry()) * 256,
     ));
-    e.position.set_exact_z_leptons(Some(current.z));
+    e.position.set_exact_z_leptons_for_test(Some(current.z));
     e.locomotor = Some(LocomotorState::for_test_kind(kind));
     match kind {
         LocomotorKind::Drive => {
@@ -199,8 +199,8 @@ fn hover_reads_its_location_z_and_at_coord_ignores_tube_exit() {
     assert_eq!(navigation_coordinate(&e, None).unwrap().z, 37);
     // Exact Object Z already includes height; an object without one stands
     // on its coarse level.
-    e.position.set_exact_z_leptons(None);
-    e.position.set_z(1);
+    e.position.set_exact_z_leptons_for_test(None);
+    e.position.set_z_for_test(1);
     assert_eq!(navigation_coordinate(&e, None).unwrap().z, 104);
     e.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
         TubeId(0),

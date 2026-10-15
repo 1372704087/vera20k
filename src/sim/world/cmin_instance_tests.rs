@@ -175,7 +175,7 @@ fn prepare(row: &Value) -> Scene {
     scene.sim.session.binary_frame = u32::try_from(first["frame"].as_u64().unwrap()).unwrap();
     let entity = scene.sim.substrate.entities.get_mut(scene.miner).unwrap();
     // dress_cmin already owns list placement and XY. Publish the measured Z too.
-    ground_pose::put_location(&mut entity.position, coord(&native["physical"]));
+    entity.position.put_location(coord(&native["physical"]));
     entity.set_on_bridge(byte(&native["on_bridge"]) != 0);
     entity
         .foot_speed

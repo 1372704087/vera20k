@@ -479,7 +479,7 @@ pub(crate) fn update_fly_height(
             is_dropship: object.is_some_and(|o| o.is_dropship),
             flight_level,
         });
-    entity.position.set_exact_z_leptons(Some(output.world_z));
+    entity.position.put_z(output.world_z);
     entity.set_on_bridge(output.on_bridge);
     output
 }

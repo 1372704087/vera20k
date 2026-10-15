@@ -70,9 +70,9 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
                 .spawn_object("FV", "Americans", 10, 20, 0, &rules)
                 .unwrap();
             let target = world.substrate.entities.get_mut(id).unwrap();
-            target.position.set_sub_x(SimFixed::from_num(128));
-            target.position.set_sub_y(SimFixed::from_num(128));
-            target.position.set_exact_z_leptons(Some(624));
+            target.position.set_sub_x_for_test(SimFixed::from_num(128));
+            target.position.set_sub_y_for_test(SimFixed::from_num(128));
+            target.position.set_exact_z_leptons_for_test(Some(624));
             target
                 .health
                 .set_for_test(input["receiver_health"].as_i64().unwrap() as i32);
@@ -311,11 +311,11 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                 .spawn_object("FV", "Americans", 10, 20, 0, &rules)
                 .unwrap();
             let entity = world.substrate.entities.get_mut(id).unwrap();
-            entity.position.set_sub_x(SimFixed::from_num(
+            entity.position.set_sub_x_for_test(SimFixed::from_num(
                 128 + input["distance"].as_i64().unwrap() as i32,
             ));
-            entity.position.set_sub_y(SimFixed::from_num(128));
-            entity.position.set_exact_z_leptons(Some(624));
+            entity.position.set_sub_y_for_test(SimFixed::from_num(128));
+            entity.position.set_exact_z_leptons_for_test(Some(624));
             entity
                 .health
                 .set_for_test(input["health"].as_i64().unwrap() as i32);

@@ -158,12 +158,12 @@ mod gsi_04_03b_tests {
     fn too_far_threshold_follows_sqrt_approx_table_edge() {
         let mut sim = Simulation::new();
         let mut refinery = GameEntity::test_default(2, "GAREFN", "Allies", 0, 0);
-        refinery.position.set_sub_x(SimFixed::from_num(0));
-        refinery.position.set_sub_y(SimFixed::from_num(0));
+        refinery.position.set_sub_x_for_test(SimFixed::from_num(0));
+        refinery.position.set_sub_y_for_test(SimFixed::from_num(0));
         sim.substrate.entities.insert(refinery);
         let mut miner = GameEntity::test_default(1, "HARV", "Allies", 5, 0);
-        miner.position.set_sub_x(SimFixed::from_num(1));
-        miner.position.set_sub_y(SimFixed::from_num(0));
+        miner.position.set_sub_x_for_test(SimFixed::from_num(1));
+        miner.position.set_sub_y_for_test(SimFixed::from_num(0));
         sim.substrate.entities.insert(miner);
 
         assert_eq!(
@@ -176,7 +176,7 @@ mod gsi_04_03b_tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_sub_x(SimFixed::from_num(2));
+            .set_sub_x_for_test(SimFixed::from_num(2));
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 5),
             Some(true),
@@ -199,9 +199,11 @@ mod gsi_04_03b_tests {
     fn gsi_04_03b_miner_return_distance_uses_terrain_bridge_and_altitude_z() {
         let mut sim = Simulation::new();
         let mut miner = GameEntity::test_default(1, "CMIN", "Allies", 0, 0);
-        miner.position.set_sub_x(SimFixed::from_num(0));
+        miner.position.set_sub_x_for_test(SimFixed::from_num(0));
         let mut refinery = GameEntity::test_default(2, "GAOREP", "Allies", 0, 0);
-        refinery.position.set_sub_x(SimFixed::from_num(255));
+        refinery
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(255));
         sim.substrate.entities.insert(miner);
         sim.substrate.entities.insert(refinery);
         sim.resolved_terrain = Some(ResolvedTerrainGrid::from_cells(1, 1, vec![sloped_cell()]));
@@ -217,13 +219,13 @@ mod gsi_04_03b_tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_sub_x(SimFixed::from_num(0));
+            .set_sub_x_for_test(SimFixed::from_num(0));
         sim.substrate
             .entities
             .get_mut(2)
             .unwrap()
             .position
-            .set_sub_x(SimFixed::from_num(0));
+            .set_sub_x_for_test(SimFixed::from_num(0));
         assert_eq!(return_exceeds_too_far_threshold(&sim, 1, 2, 1), Some(false));
 
         sim.substrate
@@ -252,11 +254,13 @@ mod gsi_04_03b_tests {
     fn gsi_04_03b_miner_return_distance_falls_back_to_level_z_without_resolved_terrain() {
         let mut sim = Simulation::new();
         let mut miner = GameEntity::test_default(1, "CMIN", "Allies", 0, 0);
-        miner.position.set_sub_x(SimFixed::from_num(0));
-        miner.position.set_z(0);
+        miner.position.set_sub_x_for_test(SimFixed::from_num(0));
+        miner.position.set_z_for_test(0);
         let mut refinery = GameEntity::test_default(2, "GAOREP", "Allies", 0, 0);
-        refinery.position.set_sub_x(SimFixed::from_num(255));
-        refinery.position.set_z(0);
+        refinery
+            .position
+            .set_sub_x_for_test(SimFixed::from_num(255));
+        refinery.position.set_z_for_test(0);
         sim.substrate.entities.insert(miner);
         sim.substrate.entities.insert(refinery);
         assert!(sim.resolved_terrain.is_none());
@@ -267,7 +271,12 @@ mod gsi_04_03b_tests {
         // cell — and the decision is still made rather than refused.
         assert_eq!(return_exceeds_too_far_threshold(&sim, 1, 2, 1), Some(false));
 
-        sim.substrate.entities.get_mut(2).unwrap().position.set_z(3);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .position
+            .set_z_for_test(3);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 1),
             Some(true),

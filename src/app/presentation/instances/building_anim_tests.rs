@@ -247,7 +247,7 @@ fn bunker_migration_keeps_active_anim_offsets_start_and_independent_membership()
             .get_mut(building)
             .unwrap()
             .position
-            .set_rx(2);
+            .set_rx_for_test(2);
         let after = emit(&sim, &rules, building, &atlas, &order);
         assert_eq!(
             after[0].pieces[0].instance.position,

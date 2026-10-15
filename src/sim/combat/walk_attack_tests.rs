@@ -304,9 +304,9 @@ fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
     sim.remove_entity_occupancy(victim);
     {
         let e = sim.substrate.entities.get_mut(victim).unwrap();
-        e.position.set_rx((head.x / 256 + 2) as u16);
-        e.position.set_ry((head.y / 256) as u16);
-        e.position.set_exact_z_leptons(Some(0));
+        e.position.set_rx_for_test((head.x / 256 + 2) as u16);
+        e.position.set_ry_for_test((head.y / 256) as u16);
+        e.position.set_exact_z_leptons_for_test(Some(0));
     }
     sim.add_entity_occupancy(victim);
     assert!(sim.owns_foot_approach(actor, &rules));

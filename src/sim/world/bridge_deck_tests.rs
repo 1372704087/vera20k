@@ -5,8 +5,8 @@ use super::{
 };
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
 use crate::sim::{
-    bridge_state::BridgeRuntimeState, components::DriveCoord, movement::ground_pose,
-    movement::locomotor::MovementLayer, world::Simulation,
+    bridge_state::BridgeRuntimeState, components::DriveCoord, movement::locomotor::MovementLayer,
+    world::Simulation,
 };
 
 #[test]
@@ -137,17 +137,14 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             .unwrap();
         {
             let actor = sim.substrate.entities.get_mut(id).unwrap();
-            ground_pose::put_location(
-                &mut actor.position,
-                DriveCoord {
-                    x: i32::from(x) * 256 + 128,
-                    y: 1152,
-                    z: 416,
-                },
-            );
+            actor.position.put_location(DriveCoord {
+                x: i32::from(x) * 256 + 128,
+                y: 1152,
+                z: 416,
+            });
             // The unmarked twin retains the supplied legacy level as well as
             // exact Location; it deliberately never enters Unlimbo below.
-            actor.position.set_z(4);
+            actor.position.set_z_for_test(4);
             actor.set_on_bridge(true);
         }
         if marked {

@@ -1683,7 +1683,7 @@ fn a_captive_boarding_an_absorber_is_freed_first() {
     sim.sound_events.clear();
     // PerCellProcess boards from the absorber's own foundation cell.
     let gi_entity = sim.substrate.entities.get_mut(gi).unwrap();
-    gi_entity.position.set_rx(14);
+    gi_entity.position.set_rx_for_test(14);
     gi_entity.passenger_role = PassengerRole::boarding_for_test(reactor);
 
     crate::sim::passenger::tick_passenger_system(

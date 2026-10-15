@@ -783,7 +783,7 @@ pub(crate) fn commit_entities(
                 world.resolved_terrain.as_ref(),
             );
             let mut position = target.position;
-            crate::sim::movement::ground_pose::put_location(&mut position, coord);
+            position.put_location(coord);
             if sound_enabled {
                 world.sound_events.push(SimSoundEvent::voc_at(
                     object.voice_feedback[index].clone(),

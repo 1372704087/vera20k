@@ -862,11 +862,13 @@ mod tests {
         // This is an explicit nonretail physical input, not placement evidence.
         actor
             .position
-            .set_sub_x(SimFixed::from_num(current[0] - i32::from(rx) * 256));
+            .set_sub_x_for_test(SimFixed::from_num(current[0] - i32::from(rx) * 256));
         actor
             .position
-            .set_sub_y(SimFixed::from_num(current[1] - i32::from(ry) * 256));
-        actor.position.set_exact_z_leptons(Some(current[2]));
+            .set_sub_y_for_test(SimFixed::from_num(current[1] - i32::from(ry) * 256));
+        actor
+            .position
+            .set_exact_z_leptons_for_test(Some(current[2]));
         actor.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
         sim.substrate.entities.insert(actor);
         sim.scenario_rng = crate::sim::rng::SimRng::new(input["seed"].as_u64().unwrap());
@@ -1139,9 +1141,13 @@ mod tests {
                     false,
                 );
                 entity.lifecycle.set_in_limbo_for_test(limbo);
-                entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
-                entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
-                entity.position.set_exact_z_leptons(Some(xyz[2]));
+                entity
+                    .position
+                    .set_sub_x_for_test(SimFixed::from_num(xyz[0] % 256));
+                entity
+                    .position
+                    .set_sub_y_for_test(SimFixed::from_num(xyz[1] % 256));
+                entity.position.set_exact_z_leptons_for_test(Some(xyz[2]));
                 sim.substrate.entities.insert(entity);
                 ids.push(id);
             }

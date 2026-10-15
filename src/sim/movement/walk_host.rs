@@ -108,8 +108,7 @@ impl Simulation {
         );
         super::movement_bridge::apply_bridge_layer_state(&mut e.locomotor, &mut on_bridge, update);
         e.set_on_bridge(on_bridge);
-        ground_pose::set_height(
-            &mut e.position,
+        e.position.set_height(
             on_bridge,
             0,
             self.resolved_terrain.as_ref(),
@@ -167,8 +166,7 @@ impl Simulation {
         //Infantry+1CC=5F5FA0; marked is already false, so the SetHeight0
         //receiver samples current ground+OnBridge without nested Mark calls.
         let on_bridge = e.on_bridge();
-        ground_pose::set_height(
-            &mut e.position,
+        e.position.set_height(
             on_bridge,
             0,
             self.resolved_terrain.as_ref(),

@@ -523,7 +523,7 @@ fn drive_ship_slope_process_samples_stationary_retargets_and_keeps_rng() {
             .get_mut(1)
             .unwrap()
             .position
-            .set_rx(1);
+            .set_rx_for_test(1);
         drive_ship_slope_process_tick(&mut sim, &terrain, 12);
         assert_eq!(
             crate::sim::movement::slope_transition::state_for_entity(

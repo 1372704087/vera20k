@@ -271,7 +271,7 @@ mod tests {
                 .set_cell_marked(input["marked"].as_bool().unwrap_or(true));
             entity
                 .position
-                .set_exact_z_leptons(Some(input["z"].as_i64().unwrap_or(0) as i32));
+                .set_exact_z_leptons_for_test(Some(input["z"].as_i64().unwrap_or(0) as i32));
             entity.navigation.neighbor_state.cell = (
                 input["old"][0].as_i64().unwrap() as i16,
                 input["old"][1].as_i64().unwrap() as i16,
@@ -391,7 +391,7 @@ mod tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_rx(5);
+            .set_rx_for_test(5);
         let bytes = GameSnapshot::save(&sim, 0, 0, "neighbor-history", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
         assert_eq!(

@@ -515,7 +515,9 @@ mod tests {
     ) -> GameEntity {
         let mut entity = GameEntity::test_default(1, type_ref, "Americans", rx, ry);
         entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-        entity.position.set_exact_z_leptons(Some(altitude_leptons));
+        entity
+            .position
+            .set_exact_z_leptons_for_test(Some(altitude_leptons));
         entity
     }
 
@@ -776,12 +778,12 @@ mod tests {
             // construction; match it rather than testing Infantry's default slot.
             entity
                 .position
-                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(
+                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(
                     native["object_coords"][0].as_i64().unwrap().rem_euclid(256),
                 ));
             entity
                 .position
-                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(
+                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(
                     native["object_coords"][1].as_i64().unwrap().rem_euclid(256),
                 ));
             let coord = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
@@ -1060,7 +1062,7 @@ mod tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(900));
+            .set_exact_z_leptons_for_test(Some(900));
         sim.resubmit_entity_display_for_test(1);
         assert_eq!(sim.display_layers().layer_of(1), Some(DisplayLayer::TOP));
 
@@ -1072,7 +1074,7 @@ mod tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_exact_z_leptons(Some(0));
+            .set_exact_z_leptons_for_test(Some(0));
         assert_eq!(
             entity_draw_band(sim.display_layers(), 1),
             Some(EntityDrawBand::Top)

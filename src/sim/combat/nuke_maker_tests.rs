@@ -88,14 +88,16 @@ fn nuke_maker_matches_native() {
             entity.set_owner_for_test(owner);
             entity.set_type_ref_for_test(sim.interner.intern("CARRIER"));
             sim.substrate.entities.insert(entity);
-            crate::sim::movement::ground_pose::put_location(
-                &mut sim.substrate.entities.get_mut(id).unwrap().position,
-                DriveCoord {
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .position
+                .put_location(DriveCoord {
                     x: coords[0],
                     y: coords[1],
                     z: coords[2],
-                },
-            );
+                });
             ProjectileTarget::Entity(id)
         };
         let source_id = 77;

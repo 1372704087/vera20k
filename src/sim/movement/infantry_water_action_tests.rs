@@ -14,7 +14,6 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::process_owner::NativeRulesProcessOwner;
 use crate::rules::sound_ini::SoundRegistry;
 use crate::sim::components::DriveCoord;
-use crate::sim::movement::ground_pose;
 use crate::sim::rng::SimRng;
 use crate::sim::stage::StageClass;
 use crate::sim::timer::CdTimer;
@@ -203,9 +202,7 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
     actor.lifecycle.set_cell_marked(false);
     // These action controls supply Location after construction. Constructor
     // arguments do not place the fresh Object at this native cell/pose.
-    ground_pose::put_location(
-        &mut actor.position,
-        DriveCoord {
+    actor.position.put_location(DriveCoord {
             x: xyz[0],
             y: xyz[1],
             z: xyz[2],

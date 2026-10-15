@@ -408,8 +408,8 @@ fn walk_boundary_relinks_current_xyz_and_leaves_the_raw_bit_on_the_head() {
     };
     let (owner, queue) = {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.set_sub_x(SimFixed::from_num(192));
-        e.position.set_sub_y(SimFixed::from_num(64));
+        e.position.set_sub_x_for_test(SimFixed::from_num(192));
+        e.position.set_sub_y_for_test(SimFixed::from_num(64));
         e.locomotor.as_mut().unwrap().set_step_head(Some(head));
         (e.owner(), e.navigation.path_replay.clone())
     };
@@ -478,8 +478,8 @@ fn diagonal_walk_relinks_the_first_actual_side_cell_before_reaching_its_head() {
         .unwrap();
     {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.set_sub_x(SimFixed::from_num(192));
-        e.position.set_sub_y(SimFixed::from_num(64));
+        e.position.set_sub_x_for_test(SimFixed::from_num(192));
+        e.position.set_sub_y_for_test(SimFixed::from_num(64));
     }
     let grid = sim.path_grid_snapshot();
     assert!(sim.apply_command(
@@ -537,8 +537,8 @@ fn refused_fresh_walk_head_restores_the_current_raw_occupation() {
         .unwrap();
     let owner = {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.set_sub_x(SimFixed::from_num(192));
-        e.position.set_sub_y(SimFixed::from_num(64));
+        e.position.set_sub_x_for_test(SimFixed::from_num(192));
+        e.position.set_sub_y_for_test(SimFixed::from_num(64));
         e.owner()
     };
     sim.substrate
@@ -613,10 +613,10 @@ fn production_fresh_head_and_raw_history_match_original_walk_producer() {
         )));
         let owner = {
             let e = sim.substrate.entities.get_mut(id).unwrap();
-            e.position.set_sub_x(SimFixed::from_num(192));
-            e.position.set_sub_y(SimFixed::from_num(64));
-            e.position.set_z(2);
-            e.position.set_exact_z_leptons(Some(260));
+            e.position.set_sub_x_for_test(SimFixed::from_num(192));
+            e.position.set_sub_y_for_test(SimFixed::from_num(64));
+            e.position.set_z_for_test(2);
+            e.position.set_exact_z_leptons_for_test(Some(260));
             e.owner()
         };
         sim.substrate
@@ -1002,10 +1002,12 @@ fn hut_repair_scatters_a_jumpjet_occupant_through_its_air_destination_owner() {
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
-    crate::sim::movement::ground_pose::put_location(
-        &mut sim.substrate.entities.get_mut(rocketeer).unwrap().position,
-        DriveCoord::cell(16, 15, 0),
-    );
+    sim.substrate
+        .entities
+        .get_mut(rocketeer)
+        .unwrap()
+        .position
+        .put_location(DriveCoord::cell(16, 15, 0));
     assert!(matches!(
         sim.reveal_entity_with_rules(rocketeer, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }

@@ -66,12 +66,14 @@ fn first_process_publishes_raw_head_and_matching_progress_for_drive_and_ship() {
         entity.locomotor = Some(LocomotorState::for_test_kind(kind));
         entity
             .position
-            .set_sub_x(SimFixed::from_num(initial.x % 256));
+            .set_sub_x_for_test(SimFixed::from_num(initial.x % 256));
         entity
             .position
-            .set_sub_y(SimFixed::from_num(initial.y % 256));
-        entity.position.set_z(1); // Deliberately differs from the retained raw Z.
-        entity.position.set_exact_z_leptons(Some(initial.z));
+            .set_sub_y_for_test(SimFixed::from_num(initial.y % 256));
+        entity.position.set_z_for_test(1); // Deliberately differs from the retained raw Z.
+        entity
+            .position
+            .set_exact_z_leptons_for_test(Some(initial.z));
         entity.body_facing.snap(0x4000, 0);
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.set_cell_marked(true);

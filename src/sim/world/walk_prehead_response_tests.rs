@@ -145,11 +145,13 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
         z: 260,
     });
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.position.set_rx((current.x / 256) as u16);
-    e.position.set_ry((current.y / 256) as u16);
-    e.position.set_sub_x(SimFixed::from_num(current.x % 256));
-    e.position.set_sub_y(SimFixed::from_num(current.y % 256));
-    e.position.set_exact_z_leptons(Some(current.z));
+    e.position.set_rx_for_test((current.x / 256) as u16);
+    e.position.set_ry_for_test((current.y / 256) as u16);
+    e.position
+        .set_sub_x_for_test(SimFixed::from_num(current.x % 256));
+    e.position
+        .set_sub_y_for_test(SimFixed::from_num(current.y % 256));
+    e.position.set_exact_z_leptons_for_test(Some(current.z));
     e.set_on_bridge(false);
     e.set_in_playfield(input["in_playfield"].as_bool().unwrap_or(false));
     e.lifecycle.set_object_alive_for_test(true);
@@ -227,9 +229,11 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     );
     if let Some(other) = other {
         let e = sim.substrate.entities.get_mut(other).unwrap();
-        e.position.set_sub_x(SimFixed::from_num(current.x % 256));
-        e.position.set_sub_y(SimFixed::from_num(current.y % 256));
-        e.position.set_exact_z_leptons(Some(current.z));
+        e.position
+            .set_sub_x_for_test(SimFixed::from_num(current.x % 256));
+        e.position
+            .set_sub_y_for_test(SimFixed::from_num(current.y % 256));
+        e.position.set_exact_z_leptons_for_test(Some(current.z));
         e.lifecycle
             .set_object_alive_for_test(input["obstacle_alive"].as_bool().unwrap_or(true));
         e.lifecycle.set_cell_marked(true);

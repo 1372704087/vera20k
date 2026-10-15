@@ -1167,11 +1167,11 @@ fn supplied_world_position(
     use crate::util::fixed_math::SimFixed;
     let x = xyz[0].as_i64().unwrap() as i32;
     let y = xyz[1].as_i64().unwrap() as i32;
-    position.set_rx((x / 256).clamp(0, i32::from(u16::MAX)) as u16);
-    position.set_ry((y / 256).clamp(0, i32::from(u16::MAX)) as u16);
-    position.set_sub_x(SimFixed::from_num(x - i32::from(position.rx()) * 256));
-    position.set_sub_y(SimFixed::from_num(y - i32::from(position.ry()) * 256));
-    position.set_exact_z_leptons(Some(xyz[2].as_i64().unwrap() as i32));
+    position.set_rx_for_test((x / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    position.set_ry_for_test((y / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    position.set_sub_x_for_test(SimFixed::from_num(x - i32::from(position.rx()) * 256));
+    position.set_sub_y_for_test(SimFixed::from_num(y - i32::from(position.ry()) * 256));
+    position.set_exact_z_leptons_for_test(Some(xyz[2].as_i64().unwrap() as i32));
 }
 
 pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, RuleSet, u64) {
@@ -1221,9 +1221,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     actor
         .health
         .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
-    actor.position.set_sub_x(SimFixed::from_num(128));
-    actor.position.set_sub_y(SimFixed::from_num(128));
-    actor.position.set_exact_z_leptons(Some(0));
+    actor.position.set_sub_x_for_test(SimFixed::from_num(128));
+    actor.position.set_sub_y_for_test(SimFixed::from_num(128));
+    actor.position.set_exact_z_leptons_for_test(Some(0));
     if input["position"].is_array() {
         supplied_world_position(&mut actor.position, &input["position"]);
     }

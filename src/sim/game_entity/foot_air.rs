@@ -410,7 +410,7 @@ mod tests {
             .get_mut(1)
             .unwrap()
             .position
-            .set_rx(11);
+            .set_rx_for_test(11);
         sim.sync_air_spatial_membership(1);
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(actor.air_tracker_cell(), (11, 10));

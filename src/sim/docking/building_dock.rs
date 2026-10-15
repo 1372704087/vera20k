@@ -1751,13 +1751,13 @@ mod tests {
             .get_mut(DEPOT)
             .unwrap()
             .position
-            .set_rx(0);
+            .set_rx_for_test(0);
         sim.substrate
             .entities
             .get_mut(DEPOT)
             .unwrap()
             .position
-            .set_ry(0);
+            .set_ry_for_test(0);
         assert_eq!(
             building_dock_cell(&sim, DEPOT, 1, (0, 0), &rules, None),
             None

@@ -4362,7 +4362,7 @@ mod tests {
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
         });
         // 512 leptons from the target at (5, 5) — inside the 282..=768 band.
-        attacker.position.set_rx(7);
+        attacker.position.set_rx_for_test(7);
         attacker.set_owner_for_test(sim.interner.intern("Americans"));
         attacker.set_type_ref_for_test(sim.interner.intern(type_name));
         sim.substrate.entities.insert(attacker);
@@ -5261,10 +5261,10 @@ mod tests {
         // Target sits at (5, 5); 3 cells east is exactly 768 leptons, and the
         // 30-lepton north/south offset pushes d² past 768² without pushing the
         // truncated root past 768.
-        attacker.position.set_rx(8);
-        attacker
-            .position
-            .set_sub_y(attacker.position.sub_y() + crate::util::fixed_math::SimFixed::from_num(30));
+        attacker.position.set_rx_for_test(8);
+        attacker.position.set_sub_y_for_test(
+            attacker.position.sub_y() + crate::util::fixed_math::SimFixed::from_num(30),
+        );
         attacker.set_owner_for_test(sim.interner.intern("Americans"));
         attacker.set_type_ref_for_test(sim.interner.intern("SHORTVEH"));
         sim.substrate.entities.insert(attacker);

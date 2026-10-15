@@ -558,7 +558,7 @@ mod tests {
             .get_mut(second)
             .unwrap()
             .position
-            .set_rx(50);
+            .set_rx_for_test(50);
         sim.refresh_unit_sensor_at_per_cell(second, &rules);
         assert!(!sim.fog.has_sensor_for_house(americans, 33, 30));
         assert!(sim.fog.has_sensor_for_house(americans, 57, 30));
@@ -578,8 +578,8 @@ mod tests {
         {
             let entity = sim.substrate.entities.get_mut(second).unwrap();
             entity.set_owner_for_test(neutral);
-            entity.position.set_rx(5);
-            entity.position.set_ry(5);
+            entity.position.set_rx_for_test(5);
+            entity.position.set_ry_for_test(5);
         }
         sim.techno_limbo_with_rules(second, &rules, None);
         assert!(

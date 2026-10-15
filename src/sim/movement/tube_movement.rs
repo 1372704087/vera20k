@@ -236,7 +236,7 @@ fn initial_state(
         )
     };
     if position.exact_z_leptons().is_none() {
-        position.set_exact_z_leptons(Some(current_ground));
+        position.put_z(current_ground);
     }
     Ok(LowBridgeTubeMovementState {
         tube_id,
@@ -521,7 +521,7 @@ fn finalize_tube_object(
             }
             entity.set_sub_cell(Some(sub_cell));
             if floor_supported {
-                entity.position.set_z(
+                entity.position.store_level(
                     terrain
                         .cell(reached_cell.0, reached_cell.1)
                         .map_or(entity.position.z(), |cell| cell.level),
@@ -529,7 +529,7 @@ fn finalize_tube_object(
             }
         } else {
             if let Some(cell) = terrain.cell(tube.exit.0, tube.exit.1) {
-                entity.position.set_z(cell.level);
+                entity.position.store_level(cell.level);
             }
             if let Some(loco) = entity.locomotor.as_mut() {
                 loco.store_track_target_fraction(TrackFamily::Drive, SIM_ONE);
@@ -875,7 +875,7 @@ mod tests {
             entity.set_category_for_test(category);
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
             entity.lifecycle.set_cell_marked(false);
-            entity.position.set_rx(2);
+            entity.position.set_rx_for_test(2);
             entity.foot_speed.set_speed_fraction(SimFixed::lit("0.625"));
             let state = LowBridgeTubeMovementState {
                 tube_id: TubeId(0),
@@ -888,7 +888,7 @@ mod tests {
             let mut occupancy = OccupancyGrid::new();
             if blocked && category == EntityCategory::Unit {
                 let mut blocker = unit(2);
-                blocker.position.set_rx(2);
+                blocker.position.set_rx_for_test(2);
                 entities.insert(blocker);
                 occupancy.add(
                     2,
@@ -1108,7 +1108,7 @@ mod tests {
         let terrain = explicit_terrain(vec![2, 2]);
         let mut entities = EntityStore::new();
         let mut entity = unit(1);
-        entity.position.set_rx(2);
+        entity.position.set_rx_for_test(2);
         entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
             tube_id: TubeId(0),
             cursor: 2,
@@ -1136,14 +1136,14 @@ mod tests {
         let mut entity = unit(1);
         entity.set_category_for_test(EntityCategory::Infantry);
         entity.lifecycle.set_cell_marked(false);
-        entity.position.set_rx(2);
+        entity.position.set_rx_for_test(2);
         entity
             .position
-            .set_sub_x(crate::util::fixed_math::SimFixed::from_num(64));
+            .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(64));
         entity
             .position
-            .set_sub_y(crate::util::fixed_math::SimFixed::from_num(192));
-        entity.position.set_exact_z_leptons(Some(0));
+            .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(192));
+        entity.position.set_exact_z_leptons_for_test(Some(0));
         let mut walk = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Walk,
         );
@@ -1214,10 +1214,10 @@ mod tests {
         let terrain = explicit_terrain(vec![2, 2]);
         let mut transport = unit_of(1, "BFRT");
         // Ten leptons short of the first step's target, inside the budget.
-        transport.position.set_rx(1);
+        transport.position.set_rx_for_test(1);
         transport
             .position
-            .set_sub_x(crate::util::fixed_math::SimFixed::from_num(118));
+            .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(118));
         transport.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
             tube_id: TubeId(0),
             cursor: 0,
@@ -1228,7 +1228,7 @@ mod tests {
         transport.passenger_role = PassengerRole::transport(cargo);
         let mut rider = unit_of(2, "E1");
         rider.set_category_for_test(EntityCategory::Infantry);
-        rider.position.set_rx(3);
+        rider.position.set_rx_for_test(3);
         rider.passenger_role = PassengerRole::inside_for_test(1, true);
         let mut entities = EntityStore::new();
         entities.insert(transport);

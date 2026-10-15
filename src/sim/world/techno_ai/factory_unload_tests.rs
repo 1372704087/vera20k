@@ -406,10 +406,10 @@ fn fixture(rules: &RuleSet, ini: &IniFile) -> Fixture {
 }
 
 fn actor_input(actor: &mut GameEntity, native: &Value) {
-    ground_pose::put_location(&mut actor.position, coord(&native["position"]));
+    actor.position.put_location(coord(&native["position"]));
     actor
         .position
-        .set_z((int(&native["position"][2]) / 104) as u8);
+        .set_z_for_test((int(&native["position"][2]) / 104) as u8);
     actor
         .lifecycle
         .set_object_alive_for_test(native["alive"] == 1);

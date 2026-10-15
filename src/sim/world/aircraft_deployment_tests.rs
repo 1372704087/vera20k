@@ -229,14 +229,13 @@ fn aircraft_unlimbo_height_and_tail_match_original_runs() {
         if flag("mission_only") {
             entity.mark_mission_only();
         }
-        crate::sim::movement::ground_pose::put_location(
-            &mut entity.position,
-            crate::sim::components::DriveCoord {
+        entity
+            .position
+            .put_location(crate::sim::components::DriveCoord {
                 x: i32::from(cell.0) * 256 + 128,
                 y: i32::from(cell.1) * 256 + 128,
                 z: input["input"][2].as_i64().unwrap() as i32,
-            },
-        );
+            });
         let before = (*entity.native_stage(), entity.foot_speed.applied_fraction());
         let placement = if flag("success") {
             PlacementEvidence::MarkSucceeded

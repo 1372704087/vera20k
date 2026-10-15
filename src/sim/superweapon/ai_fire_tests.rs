@@ -976,7 +976,9 @@ fn the_psychic_dominator_target_matches_native() {
                     .get_mut(id)
                     .unwrap()
                     .position
-                    .set_exact_z_leptons(Some(4 * crate::util::lepton::LEPTONS_PER_LEVEL as i32));
+                    .set_exact_z_leptons_for_test(Some(
+                        4 * crate::util::lepton::LEPTONS_PER_LEVEL as i32,
+                    ));
             }
             let entity = sim.substrate.entities.get(id).unwrap();
             assert_eq!(
@@ -986,8 +988,8 @@ fn the_psychic_dominator_target_matches_native() {
             );
             if apart {
                 let entity = sim.substrate.entities.get_mut(id).unwrap();
-                entity.position.set_rx(x);
-                entity.position.set_ry(y);
+                entity.position.set_rx_for_test(x);
+                entity.position.set_ry_for_test(y);
                 sim.substrate.occupancy.remove(at.0, at.1, id);
                 rebuilt.push((x, y));
             }

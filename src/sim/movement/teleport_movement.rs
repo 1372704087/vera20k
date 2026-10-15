@@ -1031,10 +1031,7 @@ impl crate::sim::world::Simulation {
                 let destination = teleport
                     .destination
                     .expect("armed Teleport has destination XYZ");
-                super::ground_pose::set_position_world_xy(
-                    &mut entity.position,
-                    [destination.x, destination.y],
-                );
+                entity.position.put_world_xy([destination.x, destination.y]);
                 // Process719631..7196B2: SetCoords, resolve destination bridge,
                 // then Object+1CC/5F5FA0 SetHeight(0). An old split altitude
                 // must not reappear in the arrival XYZ.
@@ -1052,13 +1049,15 @@ impl crate::sim::world::Simulation {
                         (destination.y / 256) as i16,
                     ));
                     entity.set_on_bridge(terrain.native_cell_flags(cell) & 0x100 != 0);
-                    entity.position.set_z(super::movement_bridge::stored_level(
-                        terrain.native_cell_ground_fields(cell).0,
-                        entity.on_bridge(),
-                    ));
+                    entity
+                        .position
+                        .store_level(super::movement_bridge::stored_level(
+                            terrain.native_cell_ground_fields(cell).0,
+                            entity.on_bridge(),
+                        ));
                 }
                 let on_bridge = entity.on_bridge();
-                super::ground_pose::set_height(&mut entity.position, on_bridge, 0, terrain, None);
+                entity.position.set_height(on_bridge, 0, terrain, None);
                 // The path layer follows the destination's OnBridge. The cell
                 // lists move through the caller's Mark pair around this
                 // relocation (`0x007195D4` UP, `0x007196B8` DOWN).
@@ -1230,7 +1229,7 @@ mod tests {
     fn test_teleport_issues_and_completes() {
         let mut sim = crate::sim::world::Simulation::new();
         let mut e = teleport_owner(1, "CLEG", 5, 5);
-        e.position.set_z(0);
+        e.position.set_z_for_test(0);
         sim.substrate.entities.insert(e);
         let rules = default_rules();
 
@@ -1316,11 +1315,8 @@ mod tests {
             let [owner, destination] = [&row["owner"], &row["destination"]]
                 .map(|v| serde_json::from_value::<[i32; 3]>(v.clone()).unwrap());
             let mut entity = teleport_owner(1, "CLEG", 0, 0);
-            super::super::ground_pose::set_position_world_xy(
-                &mut entity.position,
-                [owner[0], owner[1]],
-            );
-            entity.position.set_exact_z_leptons(Some(owner[2]));
+            entity.position.put_world_xy([owner[0], owner[1]]);
+            entity.position.set_exact_z_leptons_for_test(Some(owner[2]));
             let [x, y, z] = destination;
             assert!(arm_teleport(
                 &mut entity,

@@ -933,7 +933,7 @@ mod tests {
         let id = world.allocate_stable_id();
         let mut gi =
             crate::sim::game_entity::GameEntity::test_default(id, "E1", "Americans", 10, 11);
-        gi.position.set_exact_z_leptons(Some(333));
+        gi.position.set_exact_z_leptons_for_test(Some(333));
         world.substrate.entities.insert(gi);
         let mut shooter = source(EntityCategory::Infantry);
         shooter.stable_id = id;

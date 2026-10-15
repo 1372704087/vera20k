@@ -61,8 +61,12 @@ fn place(sim: &mut Simulation, id: u64, kind: &str, category: EntityCategory, at
     entity.set_type_ref_for_test(sim.intern(kind));
     entity.set_owner_for_test(sim.intern("Americans"));
     entity.set_category_for_test(category);
-    entity.position.set_sub_x(SimFixed::from_num(x % 256));
-    entity.position.set_sub_y(SimFixed::from_num(y % 256));
+    entity
+        .position
+        .set_sub_x_for_test(SimFixed::from_num(x % 256));
+    entity
+        .position
+        .set_sub_y_for_test(SimFixed::from_num(y % 256));
     sim.substrate.entities.insert(entity);
 }
 

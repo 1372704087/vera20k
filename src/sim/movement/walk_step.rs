@@ -71,18 +71,16 @@ pub(super) fn advance(
     // FootClass::SetLocation at 0x0075C20F.
     // RESIDUAL: this direct write skips that call's OpenTopped rider tail.
     // Dormant: retail rulesmd.ini makes only the Drive BFRT OpenTopped=yes.
-    entity.position.set_sub_x(SimFixed::from_num(
-        proposed[0] - i32::from(entity.position.rx()) * 256,
-    ));
-    entity.position.set_sub_y(SimFixed::from_num(
-        proposed[1] - i32::from(entity.position.ry()) * 256,
-    ));
+    entity.position.put_cell_offset(
+        SimFixed::from_num(proposed[0] - i32::from(entity.position.rx()) * 256),
+        SimFixed::from_num(proposed[1] - i32::from(entity.position.ry()) * 256),
+    );
     if proposed[0] / 256 == i32::from(entity.position.rx())
         && proposed[1] / 256 == i32::from(entity.position.ry())
     {
         // Native clears +74 around this SetCoords/SetHeight pair (75C1FB..75C227).
         let on_bridge = entity.on_bridge();
-        super::ground_pose::set_height(&mut entity.position, on_bridge, 0, terrain, grid);
+        entity.position.set_height(on_bridge, 0, terrain, grid);
         //75C22F follows the same-cell SetCoords/SetHeight callbacks. A
         //boundary step retains the byte until its world placement completes.
         entity.navigation.path_runtime.clear_scold_latch();

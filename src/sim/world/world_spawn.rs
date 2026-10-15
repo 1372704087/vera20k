@@ -500,7 +500,7 @@ impl Simulation {
                     // LOW supplies Z0 (743408..743431); ObjectType747EB0 then
                     // clamps it to ground. Retain the legacy level projection
                     // separately from this exact caller coordinate.
-                    crate::sim::movement::ground_pose::put_location(&mut ge.position, requested);
+                    ge.position.put_location(requested);
                 }
                 ge.base_defense_response
                     .author_recruitable(map_ent.recruitable_a, map_ent.recruitable_b);
@@ -1081,8 +1081,8 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) -> Option<u64> {
         let mut position = self.substrate.entities.get(stable_id)?.position;
-        crate::sim::movement::ground_pose::put_location(&mut position, coord);
-        position.set_z((coord.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8);
+        position.put_location(coord);
+        position.store_level((coord.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8);
         self.reveal_constructed_object(
             stable_id,
             position,
@@ -1470,7 +1470,7 @@ impl Simulation {
         //Cell481180 removes each incoming XY low byte before adding the
         //selected slot, including negative positions and real-cell aliases.
         let selected = walk_head::selected_head(input, spot, requested_z, false);
-        ground_pose::set_position_world_xy(&mut position, [selected.x, selected.y]);
+        position.put_world_xy([selected.x, selected.y]);
         Some(position)
     }
 
@@ -1484,11 +1484,9 @@ impl Simulation {
         // constructor reaches it. Immediate placement saves its caller input
         // before this store; later placement or launch supplies its own pose.
         // Evidence: anytown_damage/unit_unlimbo.{json,meta.json,md}.
-        crate::sim::movement::ground_pose::put_location(
-            &mut ge.position,
-            crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 },
-        );
-        ge.position.set_z(0);
+        ge.position
+            .put_location(crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 });
+        ge.position.store_level(0);
 
         // This boundary receives newly constructed objects. Make those constructor
         // facts explicit so storage can never imply cell or logic presence.

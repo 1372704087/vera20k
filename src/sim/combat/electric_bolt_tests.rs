@@ -139,8 +139,8 @@ fn scene(rules: &RuleSet, input: &Value) -> (Simulation, u64, u64) {
             .spawn_object(kind, owner, (x / 256) as u16, (y / 256) as u16, 0, rules)
             .unwrap();
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        crate::sim::movement::ground_pose::set_position_world_xy(&mut entity.position, [x, y]);
-        entity.position.set_exact_z_leptons(Some(z));
+        entity.position.put_world_xy([x, y]);
+        entity.position.set_exact_z_leptons_for_test(Some(z));
         id
     };
     let source = place("TESLA", "Russians", &input["location"]);

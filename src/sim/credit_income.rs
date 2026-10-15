@@ -536,8 +536,8 @@ mod tests {
     fn move_disc(sim: &mut Simulation, disk: u64, rx: u16, ry: u16) {
         let entity = sim.substrate.entities.get_mut(disk).expect("disc present");
         let (old_rx, old_ry) = (entity.position.rx(), entity.position.ry());
-        entity.position.set_rx(rx);
-        entity.position.set_ry(ry);
+        entity.position.set_rx_for_test(rx);
+        entity.position.set_ry_for_test(ry);
         let layer = sim.substrate.occupancy.listed_layer(old_rx, old_ry, disk);
         if let Some(layer) = layer {
             sim.substrate.occupancy.move_entity(

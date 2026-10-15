@@ -2181,7 +2181,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .set_layer(MovementLayer::Air);
-        infantry.position.set_exact_z_leptons(Some(400));
+        infantry.position.set_exact_z_leptons_for_test(Some(400));
         entities.insert(infantry);
         let building = GameEntity::test_default_of_category(
             2,
@@ -2528,7 +2528,7 @@ mod tests {
             bits.mark_vehicle_on_layer(rx, 10, entity_id, layer);
         }
 
-        entity.position.set_rx(3);
+        entity.position.set_rx_for_test(3);
         lists.remove_on_layer(1, 1, 1, MovementLayer::Ground);
         lists.add(
             3,

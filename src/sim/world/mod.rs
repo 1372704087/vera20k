@@ -254,7 +254,9 @@ pub struct TickResult {
     /// Victory, defeat, quit, and connection-loss exits leave this false.
     pub frame_committed: bool,
     pub executed_commands: usize,
-    pub state_hash: u64,
+    /// The state hash after this frame, on the frames
+    /// [`Simulation::hash_state_every`] selects; `None` on the others.
+    pub state_hash: Option<u64>,
     /// This call latched the natural win/loss score snapshot before hashing.
     pub terminal_score_finalized: bool,
     pub spawned_entities: bool,
@@ -991,6 +993,10 @@ fn deserialized_main_rng_placeholder() -> MainRng {
     MainRng::new(0)
 }
 
+fn every_frame() -> std::num::NonZeroU64 {
+    std::num::NonZeroU64::MIN
+}
+
 fn deserialize_scenario_rng_reset<'de, D>(deserializer: D) -> Result<SimRng, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1390,6 +1396,12 @@ pub struct Simulation {
     /// frame output. Transient per frame.
     #[serde(skip)]
     frame_sync_checksum: Option<FrameSyncChecksum>,
+    /// VERA-only: which frames hash their state for the TickResult, by tick
+    /// number. Every frame unless the caller asks for fewer; normal play's
+    /// frame loop asks for every [`crate::sim::replay::PLAY_HASH_INTERVAL`]th.
+    /// Never saved or hashed.
+    #[serde(skip, default = "every_frame")]
+    state_hash_interval: std::num::NonZeroU64,
     /// Pending gameplay commands waiting for their scheduled execution tick.
     /// Admitted through `queue_command(s)` and drained each tick when
     /// `cmd.execute_tick <= current_tick + 1`.
@@ -3426,6 +3438,7 @@ impl Simulation {
             connection_lost: false,
             command_queue_route: CommandQueueRoute::SinglePlayer,
             frame_sync_checksum: None,
+            state_hash_interval: every_frame(),
             pending_commands: Vec::new(),
             #[cfg(test)]
             replaying_recorded_commands: false,
@@ -6734,6 +6747,13 @@ impl Simulation {
         self.command_queue_route = route;
     }
 
+    /// From the next frame on, hash the state for the TickResult only after
+    /// frames whose tick is a multiple of `frames` (1: every frame). A fixed
+    /// frame count, so the same commands always hash the same frames.
+    pub fn hash_state_every(&mut self, frames: std::num::NonZeroU64) {
+        self.state_hash_interval = frames;
+    }
+
     /// Install the sole audio owner's read-only pending-interest projection
     /// immediately before an admitted frame. No voice names/state live here.
     pub(crate) fn prepare_unit_voice_visits(&mut self, owners: std::collections::BTreeSet<u64>) {
@@ -7145,7 +7165,11 @@ impl Simulation {
         self.debug_assert_lifecycle_consistent();
         let terminal_score_finalized =
             self.natural_outcome_exit_ready() && self.finalize_terminal_score_snapshot();
-        let state_hash = self.state_hash();
+        let state_hash = self
+            .session
+            .tick
+            .is_multiple_of(self.state_hash_interval.get())
+            .then(|| self.state_hash());
         Ok(MasterFrameOutput {
             admitted_commands: commands,
             tick: TickResult {

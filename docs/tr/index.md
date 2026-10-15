@@ -39,4 +39,4 @@ Aynı durum, girdiler ve rastgele tohum her platformda ve her işlemcide aynı s
 - Üç rastgele sayı akışı, orijinaldeki üç üretece karşılık gelir. Yanlış akıştan yapılan bir çekiliş, sonraki tüm çekilişleri değiştirir.
 - Nesneler, orijinaldeki aktif nesne sırasına göre sırayla hareket eder.
 
-Her kare, lockstep çok oyunculu modun dayanacağı bir durum hash'iyle biter.
+Normal oyun, tanılama amaçlı tekrar kaydı için tüm durumun hash'ini 15 karede bir alır; testler ve kıyaslamalar bunu her karede alabilir. Lockstep çok oyunculu mod ise bunun yerine orijinalin her karede hesapladığı kendi eşitleme sağlama toplamına dayanacak.

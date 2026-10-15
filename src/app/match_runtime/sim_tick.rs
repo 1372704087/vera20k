@@ -828,6 +828,9 @@ fn advance_one_simulation_frame(
             let native_frame = sim.session.binary_frame;
             sim.prepare_unit_voice_visits(unit_voice_owners);
             sim.set_command_queue_route(command_queue_route);
+            // Normal play hashes its state once every PLAY_HASH_INTERVAL
+            // frames, for the replay log.
+            sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
             // Delay-zero AnimClass construction can emit StartSound during the
             // final map-load sweep. Keep it until this first tactical drain;
             // `drain(..)` below still consumes every event exactly once.
@@ -1912,7 +1915,7 @@ mod modal_pump_tests {
             tick: 10,
             frame_committed: false,
             executed_commands: 0,
-            state_hash: 123,
+            state_hash: Some(123),
             terminal_score_finalized: true,
             spawned_entities: false,
             destroyed_structure: false,

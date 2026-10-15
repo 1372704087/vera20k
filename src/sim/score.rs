@@ -377,7 +377,7 @@ mod tests {
 
         assert!(!first.frame_committed);
         assert!(first.terminal_score_finalized);
-        assert_eq!(first.state_hash, sim.state_hash());
+        assert_eq!(first.state_hash, Some(sim.state_hash()));
         let first_snapshot = sim
             .terminal_score_snapshot()
             .expect("natural terminal frame latches score")

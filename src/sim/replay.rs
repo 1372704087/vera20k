@@ -702,12 +702,21 @@ pub struct ReplayHeader {
     pub rules_hash: u64,
 }
 
+/// How often normal play's diagnostic log records the state hash: after every
+/// 15th frame, by tick number. A fixed frame count, never wall time, so any
+/// run of the same commands hashes the same frames. Tests, sim-bench and
+/// replay verification can hash every frame instead
+/// ([`Simulation::hash_state_every`](crate::sim::world::Simulation::hash_state_every)).
+pub const PLAY_HASH_INTERVAL: std::num::NonZeroU64 = std::num::NonZeroU64::new(15).unwrap();
+
 /// One tick in the Rust-only deterministic diagnostic log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayTick {
     pub tick: u64,
     pub commands: Vec<CommandEnvelope>,
-    pub state_hash: u64,
+    /// The state hash after this tick, on the ticks that hashed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_hash: Option<u64>,
 }
 
 /// Rich Rust-only command/hash log used by tests and diagnostics.
@@ -725,7 +734,12 @@ impl ReplayLog {
         }
     }
 
-    pub fn record_tick(&mut self, tick: u64, commands: Vec<CommandEnvelope>, state_hash: u64) {
+    pub fn record_tick(
+        &mut self,
+        tick: u64,
+        commands: Vec<CommandEnvelope>,
+        state_hash: Option<u64>,
+    ) {
         self.ticks.push(ReplayTick {
             tick,
             commands,
@@ -762,7 +776,7 @@ impl ReplayRunner {
         runtime: &mut crate::sim::runtime::SimRuntime,
         replay: &ReplayLog,
         tick_ms: u32,
-    ) -> Result<Vec<u64>> {
+    ) -> Result<Vec<Option<u64>>> {
         anyhow::ensure!(
             runtime.simulation.session.pixel_conversion_bounds
                 == replay.header.pixel_conversion_bounds,
@@ -780,7 +794,7 @@ impl ReplayRunner {
                 current
             );
         }
-        let mut hashes: Vec<u64> = Vec::with_capacity(replay.ticks.len());
+        let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = runtime
                 .simulation
@@ -805,7 +819,7 @@ impl ReplayRunner {
         rules: Option<&RuleSet>,
         path_grid: Option<&PathGrid>,
         tick_ms: u32,
-    ) -> Vec<u64> {
+    ) -> Vec<Option<u64>> {
         Self::run_fixture_with_overlay_registry(sim, replay, rules, path_grid, None, tick_ms)
     }
 
@@ -820,7 +834,7 @@ impl ReplayRunner {
         path_grid: Option<&PathGrid>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
-    ) -> Vec<u64> {
+    ) -> Vec<Option<u64>> {
         Self::run_fixture_master_frame(
             sim,
             replay,
@@ -845,7 +859,7 @@ impl ReplayRunner {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
         trigger_inputs: Option<TriggerInputs<'_>>,
-    ) -> Vec<u64> {
+    ) -> Vec<Option<u64>> {
         // The diagnostic playback must be constructed from the recorded seed.
         assert_eq!(
             sim.session.pixel_conversion_bounds, replay.header.pixel_conversion_bounds,
@@ -874,7 +888,7 @@ impl ReplayRunner {
             }
         }
         sim.install_fixture_path_grid(path_grid);
-        let mut hashes: Vec<u64> = Vec::with_capacity(replay.ticks.len());
+        let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = sim.take_due_replay_commands(entry.commands.iter().cloned());
             let result = sim
@@ -1355,14 +1369,18 @@ mod tests {
                     producer_ids: vec![1, 2],
                 },
             )],
-            999,
+            Some(999),
         );
+        // A tick that did not hash leaves its hash out.
+        log.record_tick(2, Vec::new(), None);
         let json = serde_json::to_string(&log).expect("serialize");
+        assert_eq!(json.matches("state_hash").count(), 1);
         let parsed: ReplayLog = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed.header.tick_hz, 30);
-        assert_eq!(parsed.ticks.len(), 1);
+        assert_eq!(parsed.ticks.len(), 2);
         assert_eq!(parsed.ticks[0].tick, 1);
-        assert_eq!(parsed.ticks[0].state_hash, 999);
+        assert_eq!(parsed.ticks[0].state_hash, Some(999));
+        assert_eq!(parsed.ticks[1].state_hash, None);
     }
 
     #[test]
@@ -1383,7 +1401,7 @@ mod tests {
                 4,
                 Command::SellWallAtCell { x: 0, y: 12 },
             )],
-            11,
+            Some(11),
         );
         let json = serde_json::to_string(&log).unwrap();
         let decoded: ReplayLog = serde_json::from_str(&json).unwrap();
@@ -1416,7 +1434,7 @@ mod tests {
         log.record_tick(
             4,
             vec![CommandEnvelope::new(owner, 4, Command::ExitMatch)],
-            11,
+            Some(11),
         );
 
         let json = serde_json::to_string(&log).unwrap();
@@ -1489,9 +1507,9 @@ mod tests {
                 9,
                 Command::Stop { entity_id: 41 },
             )],
-            0,
+            Some(0),
         );
-        log.record_tick(2, Vec::new(), 0);
+        log.record_tick(2, Vec::new(), Some(0));
 
         let hashes = ReplayRunner::run_fixture(&mut sim, &log, None, None, 33);
 
@@ -1526,7 +1544,7 @@ mod tests {
             map_name: "regenerated-command.map".to_string(),
             rules_hash: 0,
         });
-        log.record_tick(1, vec![regenerated.clone()], 0);
+        log.record_tick(1, vec![regenerated.clone()], Some(0));
 
         let hashes = ReplayRunner::run_fixture(&mut sim, &log, None, None, 33);
 

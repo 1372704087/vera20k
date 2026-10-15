@@ -39,4 +39,4 @@ Samma tillstånd, inmatning och slumpfrö måste ge samma resultat på varje pla
 - Tre slumptalsströmmar motsvarar originalets tre generatorer. En dragning från fel ström ändrar varje senare dragning.
 - Objekten turas om i originalets ordning för aktiva objekt.
 
-Varje bildruta avslutas med en tillståndshash som flerspelarläget med lockstep kommer att bygga på.
+Vanligt spel hashar hela tillståndet en gång var 15:e bildruta för sin diagnostiska replay-logg; tester och prestandamätningar kan hasha varje bildruta. Flerspelarläget med lockstep kommer i stället att bygga på originalets egen synkroniseringskontrollsumma, som beräknas varje bildruta.

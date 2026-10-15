@@ -1086,7 +1086,7 @@ mod tests {
             sim.spawn_from_map(&[entity], None);
             sim
         }
-        fn run_300(sim: &mut Simulation) -> Vec<u64> {
+        fn run_300(sim: &mut Simulation) -> Vec<Option<u64>> {
             let owner = sim.interner.get("Americans").expect("owner interned");
             (0..300u64)
                 .map(|t| {

@@ -1132,7 +1132,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
     // cursors can be pinned between chunks. ----
     let mut rep = Simulation::with_seed(HARNESS_SEED);
     seed_scenario(&mut rep, &rules, &overlays);
-    let mut replayed: Vec<u64> = Vec::with_capacity(log.ticks.len());
+    let mut replayed: Vec<Option<u64>> = Vec::with_capacity(log.ticks.len());
     let mut replayed_streams: Vec<(u64, u64, u64, u64)> = Vec::new();
     let mut chunk_start = 0usize;
     for &checkpoint in STREAM_CHECKPOINT_TICKS {
@@ -1189,7 +1189,10 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
 
     let (_, final_scen, final_main, final_mapgen) =
         *recorded_streams.last().expect("final checkpoint recorded");
-    let final_hash = *replayed.last().expect("at least one tick recorded");
+    let final_hash = replayed
+        .last()
+        .expect("at least one tick recorded")
+        .expect("every replayed frame hashes");
     print_replay_summary("global", &rep);
     assert_eq!(
         (final_scen, final_main, final_mapgen),

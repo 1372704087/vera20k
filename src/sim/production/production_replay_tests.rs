@@ -224,7 +224,7 @@ fn record(
     rules: &RuleSet,
     pending: Vec<CommandEnvelope>,
     ticks: u64,
-) -> (Vec<u64>, ReplayLog) {
+) -> (Vec<Option<u64>>, ReplayLog) {
     let mut log = ReplayLog::new(ReplayHeader {
         pixel_conversion_bounds: Default::default(),
         version: 1,
@@ -365,7 +365,7 @@ fn factory_flip_replay_is_bit_identical_across_runs_and_playback() {
     );
 
     // The gate must be exercising hashed state, not asserting on a no-op.
-    let distinct: std::collections::BTreeSet<u64> = timeline_live.iter().copied().collect();
+    let distinct: std::collections::BTreeSet<Option<u64>> = timeline_live.iter().copied().collect();
     assert!(
         distinct.len() > 1,
         "the command stream must actually move state_hash over the run (it did not)"

@@ -3803,6 +3803,7 @@ impl Simulation {
             .iter()
             .chain(navigation.nav_com().iter())
             .chain(navigation.nav_queue().iter())
+            .chain(navigation.nav_list().iter())
             .filter_map(Self::nav_ref_object)
             .for_each(&mut name);
         [
@@ -4305,6 +4306,13 @@ impl Simulation {
             .nav_queue()
             .iter()
             .any(|target| Self::nav_ref_targets_expired(target, expired_id));
+        // `0x004D9B43..0x004D9B95`: every navigation list entry naming the
+        // expiring object goes, before the NavQueue's.
+        let prune_nav_list = listener
+            .navigation
+            .nav_list()
+            .iter()
+            .any(|target| Self::nav_ref_targets_expired(target, expired_id));
 
         // Techno707AE7..707AF5 clears private pending+500 only on control1.
         // Non-destructive DetachAll(false) retains this independent entry;
@@ -4343,6 +4351,7 @@ impl Simulation {
             || clear_archive_target
             || clear_suspended_nav_com
             || clear_nav_com
+            || prune_nav_list
             || prune_nav_queue
             || clear_dock
             || clear_airfield
@@ -4372,6 +4381,11 @@ impl Simulation {
         }
         if clear_nav_com {
             listener.navigation.expire_nav_com();
+        }
+        if prune_nav_list {
+            listener
+                .navigation
+                .retain_nav_list(|target| !Self::nav_ref_targets_expired(target, expired_id));
         }
         if prune_nav_queue {
             listener

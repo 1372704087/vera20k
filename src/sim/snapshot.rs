@@ -1024,7 +1024,8 @@ use crate::sim::world::Simulation;
 // share this integrated bincode layout and are both refused. The one House
 // tech-tree recheck stays main's authority; EntityStore indexes remain derived.
 // 354 -> 355: the path batch keeps where its next capped pass starts.
-const SNAPSHOT_VERSION: u32 = 355;
+// 355 -> 356: the Foot navigation list (`+0x5AC`) and its loop flag (`+0x6B1`).
+const SNAPSHOT_VERSION: u32 = 356;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2065,6 +2066,15 @@ fn restore_object_references(
                 &entity_ids,
                 entity_id,
                 "navigation.nav_queue",
+            )?;
+        }
+        for target in entity.navigation.nav_list() {
+            validate_nav_reference(
+                target,
+                identities,
+                &entity_ids,
+                entity_id,
+                "navigation.nav_list",
             )?;
         }
 
@@ -4374,7 +4384,8 @@ mod tests {
         // 352 -> 353: each object's infantry house-tracking latches.
         // 353 -> 354: integrated ALL01 retained Tag/ChronoScreen/House/Team state.
         // 354 -> 355: the path batch's next capped turn.
-        assert_eq!(super::SNAPSHOT_VERSION, 355);
+        // 355 -> 356: the Foot navigation list and its loop flag.
+        assert_eq!(super::SNAPSHOT_VERSION, 356);
     }
 
     #[test]

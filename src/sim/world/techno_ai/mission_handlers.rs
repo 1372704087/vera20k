@@ -948,18 +948,67 @@ pub(super) fn foot_enter_idle_mode_queue(
         input.has_attack_target,
         input.has_destination,
         input.effective_mission,
+        MissionType::Guard,
     )
     .queued_mission()
+}
+
+/// `InfantryClass::Enter_Idle_Mode`'s guard pick (`0x0051CCB9..0x0051CD75`),
+/// reached with no NavCom or TarCom and a mission the early returns pass:
+/// - an owner a computer controls (`0x0050B730`) and no team (`+0x5D4`):
+///   Guard below `[IQ] GuardArea=` (owner `+0x24C`, `Rules+0x1440`) or as a
+///   slave (`+0x2DC`); otherwise Area Guard when armed (vt+0x2AC),
+///   `Engineer=` (`+0xEC3`) or `VehicleThief=` (`+0xEC6`), else Guard.
+/// - a human's, or a teamed infantryman: Area Guard outside a team with the
+///   veteran GUARD_AREA ability (`0x0070D0D0`, 0x10) or
+///   `DefaultToGuardArea=` (`+0xD39`), else Guard.
+///
+/// Both arms also test for a current Area Guard (`+0xAC`), whose final gate
+/// (`0x0051CD85`) queues nothing either way, so the pick omits it. A missing
+/// House counts as human.
+fn infantry_idle_guard_pick(sim: &Simulation, id: u64, rules: &RuleSet) -> MissionType {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return MissionType::Guard;
+    };
+    let house = sim.houses.get(&entity.owner());
+    let human =
+        house.is_none_or(|house| house.is_controlled_by_human(sim.session.game_mode_nonzero));
+    let teamed = sim.team_script_vm.team_for_member(id).is_some();
+    let object = sim.object_type(entity.type_ref(), rules);
+    let area_guard = if !human && !teamed {
+        house.is_some_and(|house| house.current_iq >= rules.general.iq_guard_area)
+            && entity.slave.owner().is_none()
+            && object.is_some_and(|object| {
+                crate::sim::combat::combat_weapon::is_armed(entity, object)
+                    || object.engineer
+                    || object.vehicle_thief
+            })
+    } else {
+        !teamed
+            && object.is_some_and(|object| {
+                crate::sim::combat::veterancy::has_weapon_ability(
+                    entity.veterancy.rank_kind(),
+                    object,
+                    crate::rules::object_type::Ability::GuardArea,
+                ) || object.default_to_guard_area
+            })
+    };
+    if area_guard {
+        MissionType::AreaGuard
+    } else {
+        MissionType::Guard
+    }
 }
 
 impl Simulation {
     /// Infantry EnterIdle51CBA0 after the sole Foot4D82B0 base.
     /// P2/P5 actual human E1 controls execute constructor-empty planning and
-    /// destination history, and stock-false DefaultToGuardArea/GUARD_AREA.
-    /// History4DA030 and specialized AI/slave AreaGuard selection remain
-    /// explicit sibling mechanisms, not defaults claimed to reproduce those
-    /// branches. A resumed attack-move (HaveMegaMission, vt+0x4AC at
-    /// `0x0051CBBC`) returns the base's answer before the selector.
+    /// stock-false DefaultToGuardArea/GUARD_AREA; the guard pick is
+    /// [`infantry_idle_guard_pick`]. A resumed attack-move
+    /// (HaveMegaMission, vt+0x4AC at `0x0051CBBC`) returns the base's answer
+    /// before the selector. Without a Wait mission or a TarCom, the
+    /// navigation list may send it on first (Handle_Navigation_List,
+    /// `0x0051CC21`), before the selector reads NavCom.
     pub(crate) fn infantry_enter_idle_mode(
         &mut self,
         id: u64,
@@ -974,6 +1023,14 @@ impl Simulation {
         if entity.mega_mission.is_attack_move() {
             return saved_base_return;
         }
+        if entity.mission.effective().known() != Some(MissionType::Deliberate)
+            && entity.attack_target.target().is_none()
+        {
+            self.handle_navigation_list(id, Some(rules), registry, effects);
+        }
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return saved_base_return;
+        };
         let selection = foot_enter_idle_mode_selection(
             rules,
             entity.category(),
@@ -981,6 +1038,7 @@ impl Simulation {
             entity.attack_target.target().is_some(),
             entity.navigation.nav_com().is_some(),
             entity.mission.effective().known(),
+            infantry_idle_guard_pick(self, id, rules),
         );
         match selection {
             FootIdleSelection::KeepBaseReturn => {}
@@ -1051,12 +1109,8 @@ pub(crate) fn enter_idle_mode(
 /// does.
 ///
 /// RESIDUALS, beside those on [`foot_enter_idle_mode_selection`]:
-/// - the Area Guard arm (a computer object outside a team, or with a slave
-///   link, whose house IQ reaches `[IQ] GuardArea=`, or a
-///   `DefaultToGuardArea=`/GUARD_AREA type) is committed as Guard: VERA's
-///   `Mission_AreaGuard` lacks the guard post, the leash and the approach.
-///   Trigger: every computer-built infantryman and vehicle, and every dog.
-///   Effect: they hold their ground instead of covering an area.
+/// - the Unit's Area Guard pick (`0x00738B67..0x00738C98`, residual in
+///   `Simulation::unit_enter_idle_mode`) is committed as Guard.
 /// - a Harvester or Weeder vehicle takes its own arm (`0x00738BD8`,
 ///   `Simulation::unit_enter_idle_mode`).
 /// - an unarmed vehicle's Unload arm (`0x00738A7C..0x00738AAF`: `+0x3D4`,
@@ -1095,7 +1149,8 @@ pub(crate) fn techno_unlimbo_idle_mode(
 
 /// One ordered selector shared by the live class receivers and scalar
 /// Mission fixtures. Native Infantry51CBCE..51CD9D; Unit's armed Guard
-/// branch uses the same mission-control/committed-selector policy.
+/// branch uses the same mission-control/committed-selector policy. Past
+/// the early returns, `guard_pick` is the class's pick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FootIdleSelection {
     KeepBaseReturn,
@@ -1119,6 +1174,7 @@ pub(crate) fn foot_enter_idle_mode_selection(
     has_attack_target: bool,
     has_destination: bool,
     effective_mission: Option<MissionType>,
+    guard_pick: MissionType,
 ) -> FootIdleSelection {
     let infantry = category == EntityCategory::Infantry;
     if effective_mission == Some(MissionType::Deliberate) {
@@ -1158,10 +1214,10 @@ pub(crate) fn foot_enter_idle_mode_selection(
                 FootIdleSelection::KeepBaseReturn
             };
         }
-        // Human E1's original stock data/constructor takes Guard. AI IQ,
-        // GUARD_AREA/DefaultToGuardArea and slave selection remain recorded
-        // sibling mechanisms; this branch does not certify those inputs.
-        MissionType::Guard
+        // The class's own guard pick: Infantry's [`infantry_idle_guard_pick`];
+        // the Unit's armed branch passes Guard (its Area Guard arm is a
+        // residual on `Simulation::unit_enter_idle_mode`).
+        guard_pick
     };
     let committed_blocks = matches!(mission, Some(MissionType::Patrol | MissionType::AreaGuard))
         || category == EntityCategory::Unit
@@ -1656,8 +1712,14 @@ fn evaluate_foot_rescue(
             .expect("Rescue receiver")
             .mission
             .set_handler_state(1);
+        let owner = sim
+            .substrate
+            .entities
+            .get(id)
+            .expect("Rescue receiver")
+            .owner();
         let destination = sim
-            .house_return_cell(id)
+            .house_return_cell(owner, id)
             .map(|(rx, ry)| crate::sim::components::NavTargetRef::cell(rx, ry));
         let _ = sim.assign_destination_represented(
             id,
@@ -1699,11 +1761,12 @@ const AREA_GUARD_CADENCE_JITTER_MAX: u32 = 5;
 /// work precedes the cadence draw. Native execution: foot_missions ordinary
 /// post/leash, scan-point and retail idle controls.
 ///
-/// The head (tank bunker, then [`foot_building_entry_head`]) precedes it.
-/// With a Target and a post it approaches through
+/// The heads (tank bunker, [`foot_building_entry_head`], then a computer
+/// Foot's navigation list, [`Simulation::area_guard_navigation_head`])
+/// precede it. With a Target and a post it approaches through
 /// [`Simulation::approach_target`] (`0x004D6F32`). Required larger chains:
 /// Tesla ElectricAssault adjacency4D6F44 (+68E, Overpowerable), the
-/// AI C4/Sabotage arm4D6DDA and the early waypoint/harvester arms.
+/// AI C4/Sabotage arm4D6DDA and the early harvester arm.
 /// They retain their existing boundaries; these controls do not certify them.
 pub(super) fn evaluate_foot_area_guard(
     sim: &mut Simulation,
@@ -1732,6 +1795,7 @@ pub(super) fn evaluate_foot_area_guard(
     if let Some(head) = foot_building_entry_head(sim, rules, id, MissionType::AreaGuard, ctx) {
         return head;
     }
+    sim.area_guard_navigation_head(id, rules, ctx.overlay_registry, ctx.effects);
     let needs_post = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.archive_target().is_none() && entity.mission.queued() == MissionId::NONE
     });
@@ -2758,6 +2822,99 @@ mod harvester_guard_override_tests {
         assert_eq!(queued(&sim), None);
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(entity.mission.current().known(), Some(MissionType::Guard));
+    }
+}
+
+#[cfg(test)]
+mod infantry_guard_pick_tests {
+    //! `InfantryClass::Enter_Idle_Mode`'s guard pick
+    //! (`0x0051CCB9..0x0051CD75`) through the production receiver on retail
+    //! rules, after a Move with no NavCom or TarCom.
+    use super::*;
+    use crate::sim::mission::MissionDispatchTimer;
+    use crate::sim::mission::state::MissionTestFixture;
+
+    /// What an idle `type_name` queues, owned by a House that a human
+    /// controls or not at house IQ `iq`, in a team or not, a slave or not.
+    fn idle_pick(
+        rules: &RuleSet,
+        type_name: &str,
+        human: bool,
+        iq: i32,
+        teamed: bool,
+        slave: bool,
+    ) -> Option<MissionType> {
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+        let owner = sim.intern("Americans");
+        let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10);
+        house.current_iq = iq;
+        sim.houses.insert(owner, house);
+        let id = sim
+            .spawn_object(type_name, "Americans", 10, 10, 0, rules)
+            .unwrap();
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.mission.apply_test_fixture(MissionTestFixture {
+            current: MissionId::from_known(MissionType::Move),
+            suspended: MissionId::NONE,
+            queued: MissionId::NONE,
+            movement_bypass_latch: 0,
+            handler_state: 0,
+            mission_start_frame: 0,
+            ai_counter: 0,
+            dispatch_timer: MissionDispatchTimer::at_frame(0),
+        });
+        if slave {
+            entity.slave = crate::sim::slave_manager::SlaveLink::for_test(Some(id + 1), vec![]);
+        }
+        if teamed {
+            crate::sim::team_script_vm::join_team_for_test(&mut sim, &[id], false, false);
+        }
+        sim.infantry_enter_idle_mode(id, rules, None, FrameEffects::default());
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .mission
+            .queued()
+            .known()
+    }
+
+    /// A human's `DefaultToGuardArea=` dog, and a computer's armed infantryman
+    /// or engineer at `[IQ] GuardArea=`, take Area Guard outside a team; a
+    /// team, a slave link, a lower IQ or an unarmed type keeps Guard.
+    #[test]
+    fn the_infantry_guard_pick_follows_owner_team_and_type() {
+        let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+            return;
+        };
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+        assert_eq!(rules.general.iq_guard_area, 2, "retail [IQ] GuardArea=");
+        assert!(rules.object("DOG").unwrap().default_to_guard_area);
+        assert!(!rules.object("E1").unwrap().default_to_guard_area);
+        let civilian = rules.object("CIV1").unwrap();
+        assert!(civilian.primary().is_none() && !civilian.engineer && !civilian.vehicle_thief);
+        assert!(rules.object("ENGINEER").unwrap().engineer);
+        let low = rules.general.iq_guard_area - 1;
+        let skirmish = rules.general.max_iq_levels;
+        let (guard, area_guard) = (Some(MissionType::Guard), Some(MissionType::AreaGuard));
+        for (type_name, human, iq, teamed, slave, expected) in [
+            ("E1", true, 0, false, false, guard),
+            ("DOG", true, 0, false, false, area_guard),
+            ("DOG", true, 0, true, false, guard),
+            ("E1", false, low, false, false, guard),
+            ("E1", false, skirmish, false, false, area_guard),
+            ("E1", false, skirmish, true, false, guard),
+            ("E1", false, skirmish, false, true, guard),
+            ("ENGINEER", false, skirmish, false, false, area_guard),
+            ("CIV1", false, skirmish, false, false, guard),
+        ] {
+            assert_eq!(
+                idle_pick(&rules, type_name, human, iq, teamed, slave),
+                expected,
+                "{type_name}: human {human}, IQ {iq}, teamed {teamed}, slave {slave}"
+            );
+        }
     }
 }
 

@@ -134,10 +134,11 @@ impl Simulation {
     /// a later Restore reinstates the old selector with a NULL target and NULL
     /// destination.
     /// After the Slave Manager reset, the ordinary Foot arm clears
-    /// ArchiveTarget through TechnoClass70C610 (`0x004C7448..0x004C7451`),
-    /// before the class target and destination setters. The executed GI
-    /// `archive_A_B` control in `walk_first_path.json` records that order.
-    /// Raw event mission 11 takes the earlier AreaGuard arm instead.
+    /// ArchiveTarget through TechnoClass70C610 (`0x004C7448..0x004C7451`)
+    /// and empties the navigation list (`0x004C7453`), before the class
+    /// target and destination setters. The executed GI `archive_A_B` control
+    /// in `walk_first_path.json` records that order. Raw event mission 11
+    /// takes the earlier AreaGuard arm instead, which clears neither.
     ///
     /// This is NOT the shared funnel's business, because not every player order
     /// is a MEGAMISSION. Stop is its own opcode — `StopCommandClass::Execute`
@@ -150,8 +151,8 @@ impl Simulation {
     /// store to `+0x2B8` or `+0x5A8`. Clearing there would leave a unit parked
     /// after a Stop where retail resumes its archived move on the next Restore.
     ///
-    /// HarvestCell uses the shared pre-queue prefix, but its legacy mission
-    /// path still bypasses the post-Queue archive clears here. EjectBunker
+    /// HarvestCell uses the shared pre-queue prefix and Foot clears, but its
+    /// legacy mission path still bypasses the Suspended clears here. EjectBunker
     /// and dormant aircraft passenger Unload also bypass the prefix. These
     /// pre-existing command routes can Restore a cancelled archive; their
     /// complete DTO/mission migration is separate from ordinary Unit depot
@@ -186,9 +187,16 @@ impl Simulation {
         {
             self.reset_slave_manager(id, rules, frame_effects);
         }
-        // Event4C7446 tests the Foot receiver; non-Foot actors skip this
-        // call. Raw mission11 (`0x004C73EF` reads the event's own byte) uses
-        // AreaGuard's separate Archive assignment at4C7430.
+        self.megamission_foot_clears(id, mission);
+    }
+
+    /// The MEGAMISSION event's Foot arm after its Slave Manager reset: the
+    /// ArchiveTarget clears through TechnoClass70C610 (`0x004C7448..
+    /// 0x004C7451`) and the navigation list empties (`0x004C7453`).
+    /// Event4C7446 tests the Foot receiver; non-Foot actors skip these
+    /// calls. Raw mission11 (`0x004C73EF` reads the event's own byte) uses
+    /// AreaGuard's separate Archive assignment at4C7430.
+    pub(crate) fn megamission_foot_clears(&mut self, id: u64, mission: MissionType) {
         if mission != MissionType::AreaGuard
             && let Some(entity) = self.substrate.entities.get_mut(id)
             && matches!(
@@ -199,6 +207,7 @@ impl Simulation {
             )
         {
             entity.set_archive_target(None);
+            entity.navigation.clear_nav_list();
         }
     }
 

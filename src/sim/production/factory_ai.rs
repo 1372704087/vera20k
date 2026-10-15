@@ -46,8 +46,7 @@
 //!   timer's middle field (`+0x554`, `0x004501F1`), which no reader uses.
 //! - Mobile products leave through [`exit_produced_object`], the same
 //!   `Exit_Object` arms a human's placement takes. Its residuals: the
-//!   refinery arm, the Infantry arm's post for a computer House (Area_Guard
-//!   and its `House500200` post) and its Cloning Vat copies.
+//!   refinery arm and the Infantry arm's Cloning Vat copies.
 
 use crate::rules::object_type::{FactoryType, ObjectCategory};
 use crate::rules::overlay_types::OverlayTypeRegistry;

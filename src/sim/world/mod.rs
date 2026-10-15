@@ -5446,9 +5446,8 @@ impl Simulation {
     ///     nothing while in radio contact (a miner docked at its refinery) or
     ///     while the Guard above is still only queued (a miner caught
     ///     mid-track);
-    ///   - any other Unit or Infantry takes VERA's Foot selector in place of
-    ///     the Unit `0x00738970` and Infantry `0x0051CBA0` leaves (residual
-    ///     below);
+    ///   - any other Unit or Infantry takes its class leaf, Unit
+    ///     `0x00738970` or Infantry `0x0051CBA0` (residual below);
     ///   - a Building (`0x0044D6A0` with `initial = 0`) calls `0x00447780(1)`
     ///     and `Queue_Mission(Guard, 0)`.
     ///
@@ -5466,13 +5465,11 @@ impl Simulation {
     /// CMIN and SMIN are `ImmuneToPsionics=yes`.
     ///
     /// RESIDUALS:
-    /// - The Foot leaves also pick AreaGuard (a human house with the
-    ///   GUARD_AREA option, or `DefaultToGuardArea=`; the AI IQ, Team and
-    ///   SlaveOwner arms), Harvest or Unload, and read TarCom first; VERA's
-    ///   selector returns Guard, Move or nothing. Trigger: a captured or
-    ///   released Foot of such a type. Effect: Guard instead of AreaGuard.
-    ///   Frequency: nil in stock (every `DefaultToGuardArea=` type is
-    ///   psionic-immune and no stock house sets GUARD_AREA).
+    /// - The Unit leaf's Area Guard pick and unarmed Unload arm are not
+    ///   ported (residuals in `Simulation::unit_enter_idle_mode` and
+    ///   [`techno_unlimbo_idle_mode`]). Trigger: a captured or released
+    ///   vehicle whose Guard above is still only queued. Effect: Guard
+    ///   instead of Area Guard or Unload.
     /// - No stock aircraft can be captured, so the Aircraft Enter_Idle_Mode
     ///   (`0x004176F0`) here is dormant; the trailing `+0x423`-gated
     ///   `vt+0x498`/`vt+0x494` and `vt+0x488(0, 0, 0, 0, 0)` calls are
@@ -5480,18 +5477,20 @@ impl Simulation {
     ///
     /// `+0x484` census (`search_instructions CALL [+0x484]`), the sites a
     /// miner can reach besides Move arrival, this owner change and the depot
-    /// exit, with their gates; none is run by VERA today:
+    /// exit, with their gates:
     /// - `DriveLocomotionClass::Stop_And_Scatter @ 0x004B48BE` → `+0x484(0,1)`
-    ///   after `Stop_Moving` when the NavQueue is non-empty. VERA scatter is
-    ///   UNCHECKED; natively a human-parked Guard miner scattered on ore
-    ///   would re-queue Harvest through this call.
-    /// - `FootClass::Enter_Destination @ 0x004DA1A6` (call at 0x004DA1C0;
-    ///   callers `EventClass::Execute` 0x004C7453/0x004C759C and
-    ///   `UnitClass::Receive_Radio` 0x00737546) → `+0x484(0,1)` when
-    ///   NavCom == 0, current == Guard and no WeaponsFactory contact.
+    ///   after `Stop_Moving` when the NavQueue is non-empty. Not run by VERA:
+    ///   VERA scatter is UNCHECKED; natively a human-parked Guard miner
+    ///   scattered on ore would re-queue Harvest through this call.
+    /// - `FootClass::Queue_Navigation_List @ 0x004DA0E0` → `+0x484(0,1)` at
+    ///   `0x004DA1A6` when NavCom == 0, Get_Mission == Guard and contact 0 is
+    ///   not a WeaponsFactory building ([`Simulation::queue_navigation_list`]).
+    ///   Its callers are ExitObject's Infantry post (`0x00444DAC`) and the
+    ///   Unit WeaponsFactory destination arm (`0x00742E28`, not ported).
     /// - `FootClass::Check_Destination_Is_UnitRepair_Dock @ 0x004DBA15` →
     ///   `+0x484(0, !depot-contact)` when NavCom == 0 && TarCom == 0
-    ///   (virtual slot; miner reachability unestablished).
+    ///   (virtual slot; miner reachability unestablished; VERA's
+    ///   `track_navigation_gate`).
     /// - `FootClass::ReceiveDamage @ 0x004D74C7`, gated on
     ///   `MissionControl[current].NoThreat && !Zombie` (retail `[Harmless]`)
     ///   for a teamless Foot hit by a source; the damage receiver

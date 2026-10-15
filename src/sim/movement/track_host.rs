@@ -1201,6 +1201,15 @@ impl Simulation {
         if entity.lift.target().is_some() {
             self.release_locomotor(id, true, rules, None, effects);
         }
+        // RESIDUAL: `0x007389C4..0x00738A27` is not ported: a Unit whose
+        // mission (vt+0x184) is Move, with no NavCom, standing exactly on its
+        // Cell's center at height 0, transmits OVER_OUT to radio contact 0
+        // (vt+0x274(3), `crate::sim::radio::transmit_to_contact`). Trigger:
+        // a Unit on Move at rest on a level-0 Cell center with a radio
+        // contact. Effect: VERA keeps the link native breaks. Frequency: not
+        // measured.
+        // `0x00738A2F`: the navigation list may send it on.
+        self.handle_navigation_list(id, rules, None, effects);
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return saved_base_return;
         };
@@ -1238,9 +1247,22 @@ impl Simulation {
         } else if miner {
             rules.and_then(|rules| harvester_idle_selection(self, id, rules, skip_human_land_check))
         } else if armed {
+            // RESIDUAL: the armed arm's Area Guard pick (`0x00738B67..
+            // 0x00738C98`: a House IQ at `[IQ] GuardArea=`, the veteran
+            // GUARD_AREA ability or `DefaultToGuardArea=`, then no team,
+            // slave link, slave manager or bunker) is not ported; the Unit
+            // takes Guard. Trigger: an idle armed vehicle that passes it.
+            // Effect: it holds its ground instead of covering an area.
+            // Frequency: not measured.
             rules.map_or(Some(MissionType::Guard), |rules| {
                 crate::sim::world::foot_enter_idle_mode_selection(
-                    rules, category, current, false, false, effective,
+                    rules,
+                    category,
+                    current,
+                    false,
+                    false,
+                    effective,
+                    MissionType::Guard,
                 )
                 .queued_mission()
             })

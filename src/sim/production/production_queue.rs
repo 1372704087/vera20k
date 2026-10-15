@@ -561,16 +561,23 @@ fn exit_at_dock(
         if let Some(entity) = sim.substrate.entities.get_mut(stable_id) {
             entity.set_archive_target(archive);
         }
-        // RESIDUAL: after GetDock, a `Factory=InfantryType` producer without
-        // `Cloning=` makes one more object of the product's type for its
-        // House's every Cloning Vat (House `+0xFC`, count `+0x108`) and
-        // exits it there (`0x004449D9..0x00444A53`). Not ported. Trigger:
-        // Infantry from a barracks while its owner has Cloning Vats. Effect:
-        // the vats make no copies.
     }
     let Some(exit) = dock_exit(sim, rules, producer_id, stable_id, overlay_registry) else {
         return BuildingExit::Failed;
     };
+    if arm == ExitArm::Infantry {
+        // The coordinate and facing `dock_exit` derived read only the
+        // producer and the dock Cell (`0x00444A53..0x00444C7C`), which the
+        // copies' exits leave unchanged.
+        exit_cloning_vat_copies(
+            sim,
+            rules,
+            producer_id,
+            product_type.id.as_str(),
+            overlay_registry,
+            effects,
+        );
+    }
     let placed = sim.with_object_placement_scope(|sim| {
         let spawned = sim.reveal_constructed_object_at_coord_with_overlay_context(
             stable_id,
@@ -609,6 +616,76 @@ fn exit_at_dock(
         BuildingExit::Placed
     } else {
         BuildingExit::Failed
+    }
+}
+
+/// The Infantry arm's Cloning Vat loop (`0x004449D9..0x00444A53`), between
+/// its GetDock (`0x004449AF`) and its Unlimbo (`0x00444C95`). A
+/// `Factory=InfantryType` producer without `Cloning=` (`+0xEB8`, `+0x16AC`)
+/// has the product's type make one object (Create_Object, vt+0x8C) for each
+/// Cloning Vat of the producer's House, owned by the vat's House, and hands it
+/// to that vat's ExitObject (vt+0x100) with the empty Cell. The return is
+/// ignored, so a copy the vat refuses stays in limbo.
+///
+/// The vats are House+0xFC (count +0x108). A vat joins it at Unlimbo
+/// (`0x004413F2..0x00441443`) and ChangeOwner (`0x0044903A`) and leaves it
+/// through `0x004FB9B0` (`0x004FBB6D`) and ChangeOwner (`0x00448939`), the
+/// same events that move a building through House+68, so House+68 filtered by
+/// `Cloning=` holds the same vats in the same order.
+fn exit_cloning_vat_copies(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    producer_id: u64,
+    product_type_name: &str,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) {
+    let Some(producer) = sim.substrate.entities.get(producer_id) else {
+        return;
+    };
+    let owner = producer.owner();
+    let clones = sim
+        .object_type(producer.type_ref(), rules)
+        .is_some_and(|producer_type| {
+            producer_type.factory == Some(crate::rules::object_type::FactoryType::InfantryType)
+                && !producer_type.cloning
+        });
+    if !clones {
+        return;
+    }
+    let vat_ids = sim
+        .houses
+        .get(&owner)
+        .map(|house| house.base_projection.buildings().to_vec())
+        .unwrap_or_default();
+    for vat_id in vat_ids {
+        let Some((vat_owner, is_cloning_vat)) =
+            sim.substrate.entities.get(vat_id).and_then(|vat| {
+                let object = sim.object_type(vat.type_ref(), rules)?;
+                Some((vat.owner(), object.cloning))
+            })
+        else {
+            continue;
+        };
+        if !is_cloning_vat {
+            continue;
+        }
+        let vat_owner_name = sim.interner.resolve(vat_owner).to_owned();
+        // Create_Object takes only the vat's House (`0x00444A24..0x00444A2B`);
+        // the new object waits in limbo for the vat's exit to place it.
+        let Some(clone_id) = sim.construct_object_limbo_at_height(
+            product_type_name,
+            &vat_owner_name,
+            0,
+            0,
+            0,
+            0,
+            rules,
+            effects,
+        ) else {
+            continue;
+        };
+        let _ = exit_produced_object(sim, rules, vat_id, clone_id, overlay_registry, effects);
     }
 }
 

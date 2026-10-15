@@ -100,6 +100,19 @@ pub fn screen_position(entity: &GameEntity) -> (f32, f32) {
     (sx, sy - height_lift_px(entity))
 }
 
+/// [`screen_position`] of `entity`'s coordinate moved `distance` leptons along
+/// `facing`, at the same Z: the full-direction step Walk and Fly take
+/// ([`crate::util::native_trig::facing_step_world_xy`]), then the same
+/// projection.
+pub fn facing_step_screen_position(entity: &GameEntity, facing: u16, distance: i32) -> (f32, f32) {
+    let location = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
+    let [x, y] = crate::util::native_trig::facing_step_world_xy(location, facing, distance);
+    let z = entity.position.exact_z_leptons().unwrap_or_else(|| {
+        i32::from(entity.position.z() as i8) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS
+    });
+    crate::util::lepton::absolute_leptons_to_screen(x, y, z)
+}
+
 /// The whole upward lift [`screen_position`] draws `entity` with, in pixels:
 /// `AdjustForZ` of its exact Location Z, or of its stored level. A draw that
 /// cancels its lift for depth or per-pixel Z
@@ -185,6 +198,22 @@ mod tests {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::movement::locomotor::LocomotorState;
     use crate::sim::movement::locomotor::MovementLayer;
+
+    /// A zero step projects the entity's own coordinate, so a point anchored
+    /// beside an entity shares its projection and Z.
+    #[test]
+    fn a_zero_facing_step_lands_on_the_screen_position() {
+        let mut entity = GameEntity::test_default(1, "HARV", "Americans", 10, 12);
+        assert_eq!(
+            facing_step_screen_position(&entity, 0x1234, 0),
+            screen_position(&entity)
+        );
+        entity.position.set_exact_z_leptons_for_test(Some(300));
+        assert_eq!(
+            facing_step_screen_position(&entity, 0x1234, 0),
+            screen_position(&entity)
+        );
+    }
 
     fn air_unit(kind: LocomotorKind, altitude: i32) -> GameEntity {
         let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 5, 5);

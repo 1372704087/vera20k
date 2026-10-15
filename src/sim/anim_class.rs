@@ -1224,6 +1224,7 @@ impl Simulation {
                 .anims
                 .get(id)
                 .is_some_and(|anim| anim.start_sound_active);
+            self.notify_anim_pointer_expired(id);
             self.clear_damage_fire_anim_reference(id);
             self.release_anim_owner_reference(id);
             if start_sound_active {
@@ -1713,12 +1714,14 @@ impl Simulation {
         // Object::UnInit5F6616 broadcasts the Anim's expiry before Limbo;
         // Building44EA1A..44EA4F clears its matching damage-fire slot or
         // runs the building-slot transition before this Anim leaves Logic.
+        self.notify_anim_pointer_expired(id);
         self.clear_damage_fire_anim_reference(id);
         self.building_anim_pointer_expired(id, rules);
         // Limbo5F4D30→DetachAll5F4D61 announces again. The first callback
         // normally removed the reverse index; preserve the second visit for
         // native dead-building gates that retained the matched slot. Both
         // notifications precede Display5F4D79 and Logic5F4DD3 removal.
+        self.notify_anim_pointer_expired(id);
         self.building_anim_pointer_expired(id, rules);
         self.conceal_anim(id);
         self.substrate.pending_delete.queue_object(id);
@@ -1732,6 +1735,7 @@ impl Simulation {
         // never reaches UnInit4255B0 or its StopSound playback. The slot was
         // cleared by the caller before these synchronous destructor effects.
         let sound_active = self.anim(id).is_some_and(|anim| anim.start_sound_active);
+        self.notify_anim_pointer_expired(id);
         self.clear_damage_fire_anim_reference(id);
         self.release_anim_owner_reference(id);
         self.clear_building_anim_reference(id);

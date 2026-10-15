@@ -4716,6 +4716,39 @@ impl Simulation {
         }
     }
 
+    /// Anim4's dedicated holder announcement725A16..725A4C, before Anim
+    /// conceal/removal (UnInit42561F, destructor422906). It does not enter
+    /// the generic Object/bomb/factory/team broadcast. This dispatches the
+    /// Bullet subset; Building receivers stay at their existing boundaries,
+    /// including their distinct ordinary-UnInit versus scalar slot handling.
+    pub(crate) fn notify_anim_pointer_expired(&mut self, expired_id: u64) {
+        if !self.substrate.anims.contains_key(expired_id) {
+            return;
+        }
+        let acting = self
+            .expiry_listeners
+            .projectiles_reached_by(&mut self.projectiles, expired_id);
+        if crate::sim::touch_log::live_read_check_enabled() {
+            let expected: Vec<u64> = self
+                .projectiles
+                .iter()
+                .filter(|(_, bullet)| bullet.expiry_names().contains(&Some(expired_id)))
+                .map(|(&id, _)| id)
+                .collect();
+            assert_eq!(
+                acting, expected,
+                "Anim expiry listeners diverged from a live read"
+            );
+        }
+        for id in acting {
+            // A held Anim cannot be a Techno/terrain target or firer. The
+            // expired RTTI is Anim4, so the Scalable Bullet arm stays off.
+            self.projectiles
+                .pointer_expired(id, expired_id, ProjectileTarget::None, false)
+                .expect("indexed Bullet remains stored during Anim expiry");
+        }
+    }
+
     /// The pointer-expiry listener index, with the stores it reads.
     fn expiry_listener_index(&mut self) -> (&mut ExpiryListeners, ListenerStores<'_>) {
         (
@@ -5610,6 +5643,7 @@ impl Simulation {
         }
         self.destroy_building_light(stable_id);
         if self.substrate.anims.contains_key(stable_id) {
+            self.notify_anim_pointer_expired(stable_id);
             self.clear_damage_fire_anim_reference(stable_id);
             self.conceal_anim(stable_id);
             self.release_anim_owner_reference(stable_id);

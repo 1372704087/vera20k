@@ -65,7 +65,7 @@ impl Holds {
 
     /// What an object whose callback compares `names` holds. No object but
     /// an entity holds something any expiry reaches.
-    fn of_names(names: [Option<u64>; 2]) -> Option<Self> {
+    fn of_names<const N: usize>(names: [Option<u64>; N]) -> Option<Self> {
         Self::new(names.into_iter().flatten().collect(), false)
     }
 }
@@ -125,7 +125,7 @@ impl ExpiryListeners {
             crate::sim::parallel::map(&ids, read)
         };
         self.entities.update(ids, now);
-        // The other listeners each hold two ids at most: reading them costs
+        // The other listeners hold only a few ids: reading them costs
         // less than handing them to the worker pool.
         let ids = self.anims.rereads(
             anims.take_touched(AnimTouchReader::ExpiryListeners),
@@ -155,20 +155,7 @@ impl ExpiryListeners {
             })
             .collect();
         self.particle_systems.update(ids, now);
-        let ids = self
-            .projectiles
-            .rereads(projectiles.take_touched(), projectiles.len(), || {
-                projectiles.iter().map(|(&id, _)| id).collect()
-            });
-        let now = ids
-            .iter()
-            .map(|&id| {
-                projectiles
-                    .get(id)
-                    .and_then(|bullet| Holds::of_names(bullet.expiry_names()))
-            })
-            .collect();
-        self.projectiles.update(ids, now);
+        self.refresh_projectiles(projectiles);
         let ids = self.waves.rereads(waves.take_touched(), waves.len(), || {
             waves.iter().map(|(&id, _)| id).collect()
         });
@@ -211,7 +198,7 @@ impl ExpiryListeners {
         stores: &ListenerStores<'_>,
         expired: u64,
     ) -> Vec<(u64, ObjectKind)> {
-        let names = |names: [Option<u64>; 2]| names.contains(&Some(expired));
+        let names = |names: &[Option<u64>]| names.contains(&Some(expired));
         let mut reached: Vec<(u64, ObjectKind)> = stores
             .entities
             .par_select(|id, entity| Simulation::entity_expiry_listener_acts(entity, id, expired))
@@ -222,32 +209,60 @@ impl ExpiryListeners {
             stores
                 .anims
                 .iter()
-                .filter(|(_, anim)| names(anim.expiry_names()))
+                .filter(|(_, anim)| names(&anim.expiry_names()))
                 .map(|(&id, _)| (id, ObjectKind::Anim)),
         );
         reached.extend(
             stores
                 .particle_systems
                 .iter()
-                .filter(|(_, system)| names(system.expiry_names()))
+                .filter(|(_, system)| names(&system.expiry_names()))
                 .map(|(&id, _)| (id, ObjectKind::ParticleSystem)),
         );
         reached.extend(
             stores
                 .projectiles
                 .iter()
-                .filter(|(_, bullet)| names(bullet.expiry_names()))
+                .filter(|(_, bullet)| names(&bullet.expiry_names()))
                 .map(|(&id, _)| (id, ObjectKind::Projectile)),
         );
         reached.extend(
             stores
                 .waves
                 .iter()
-                .filter(|(_, wave)| names(wave.expiry_names()))
+                .filter(|(_, wave)| names(&wave.expiry_names()))
                 .map(|(&id, _)| (id, ObjectKind::Wave)),
         );
         reached.sort_unstable_by_key(|&(id, _)| id);
         reached
+    }
+
+    /// The Bullet subset of the same index, for Anim4's dedicated holder
+    /// dispatch725A16..725A4C. No generic Object callbacks run on this route.
+    pub(crate) fn projectiles_reached_by(
+        &mut self,
+        projectiles: &mut ProjectileStore,
+        expired: u64,
+    ) -> Vec<u64> {
+        self.refresh_projectiles(projectiles);
+        self.projectiles.reaching(expired).collect()
+    }
+
+    fn refresh_projectiles(&mut self, projectiles: &mut ProjectileStore) {
+        let ids = self
+            .projectiles
+            .rereads(projectiles.take_touched(), projectiles.len(), || {
+                projectiles.iter().map(|(&id, _)| id).collect()
+            });
+        let now = ids
+            .iter()
+            .map(|&id| {
+                projectiles
+                    .get(id)
+                    .and_then(|bullet| Holds::of_names(bullet.expiry_names()))
+            })
+            .collect();
+        self.projectiles.update(ids, now);
     }
 }
 
@@ -551,5 +566,62 @@ mod tests {
         }
         assert_eq!(reach(&mut index, &mut stores, 3), [3]);
         assert_eq!(reach(&mut index, &mut stores, 6), [30, 31]);
+    }
+
+    #[test]
+    fn awaited_anim_names_share_the_existing_bullet_index_and_rebuilds() {
+        let mut stores = Stores::default();
+        // An awaited-only holder, and one with all three compared fields
+        // aliasing. Membership follows +154 independently of the wait flag.
+        bullet(&mut stores, 30, RAD_NO_ATTACKER, ProjectileTarget::None);
+        bullet(&mut stores, 31, 7, ProjectileTarget::Entity(7));
+        stores.projectiles.await_anim(30, Some(7));
+        stores.projectiles.await_anim(31, Some(7));
+        let mut index = ExpiryListeners::default();
+        assert_eq!(reach(&mut index, &mut stores, 7), [30, 31]);
+        assert_eq!(
+            index.projectiles_reached_by(&mut stores.projectiles, 7),
+            [30, 31]
+        );
+        assert!(
+            index
+                .projectiles_reached_by(&mut stores.projectiles, 8)
+                .is_empty()
+        );
+        // Replacement removes the old relation, and an awaited-only clear
+        // reports changed. The aliased holder occurs just once.
+        stores.projectiles.await_anim(30, Some(8));
+        assert_eq!(reach(&mut index, &mut stores, 7), [31]);
+        assert_eq!(reach(&mut index, &mut stores, 8), [30]);
+        assert_eq!(
+            stores
+                .projectiles
+                .pointer_expired(30, 8, ProjectileTarget::None, false),
+            Some((true, false))
+        );
+        assert!(reach(&mut index, &mut stores, 8).is_empty());
+        assert_eq!(
+            stores
+                .projectiles
+                .pointer_expired(31, 7, ProjectileTarget::None, false),
+            Some((true, false))
+        );
+        assert!(reach(&mut index, &mut stores, 7).is_empty());
+        stores.projectiles.await_anim(30, Some(9));
+        assert_eq!(reach(&mut index, &mut stores, 9), [30]);
+        stores.projectiles.remove(30);
+        assert!(reach(&mut index, &mut stores, 9).is_empty());
+        stores.projectiles.await_anim(31, Some(10));
+        let restored: ProjectileStore =
+            bincode::deserialize(&bincode::serialize(&stores.projectiles).unwrap()).unwrap();
+        stores.projectiles.await_anim(31, None);
+        assert!(reach(&mut index, &mut stores, 10).is_empty());
+        stores.projectiles = restored;
+        assert_eq!(reach(&mut index, &mut stores, 10), [31]);
+        let cloned = stores.projectiles.clone();
+        stores.projectiles.await_anim(31, None);
+        assert!(reach(&mut index, &mut stores, 10).is_empty());
+        stores.projectiles = cloned;
+        assert_eq!(reach(&mut index, &mut stores, 10), [31]);
     }
 }

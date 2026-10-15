@@ -4880,7 +4880,7 @@ mod tests {
             .as_mut()
             .unwrap();
         let mut nodes = manager.nodes().to_vec();
-        nodes[0].state = SlaveState::Scanning;
+        nodes[0].set_state_for_test(SlaveState::Scanning);
         let timer = manager.ai_timer();
         manager.set_for_test(ManagerState::Ready, 0, nodes, timer);
         assert_ne!(changed_node.state_hash(), source_hash);
@@ -5641,13 +5641,19 @@ mod tests {
         building.building_art.anim_effect_replay_mut_for_test()[16] = true;
         building.building_last_operational.set_for_test(true);
         building.building_art.set_stuff_enabled_for_test(false);
-        building.building_art.storage_mut_for_test().amounts = [
-            crate::util::native_x87::NativeF32Bits::from_bits(0x7fc01234),
-            crate::util::native_x87::NativeF32Bits::NEGATIVE_ZERO,
-            crate::util::native_x87::NativeF32Bits::ONE,
-            crate::util::native_x87::NativeF32Bits::from_bits(0xbf800000),
-        ];
-        building.building_art.storage_mut_for_test().refinery_tier = -17;
+        building
+            .building_art
+            .storage_mut_for_test()
+            .set_amounts_for_test([
+                crate::util::native_x87::NativeF32Bits::from_bits(0x7fc01234),
+                crate::util::native_x87::NativeF32Bits::NEGATIVE_ZERO,
+                crate::util::native_x87::NativeF32Bits::ONE,
+                crate::util::native_x87::NativeF32Bits::from_bits(0xbf800000),
+            ]);
+        building
+            .building_art
+            .storage_mut_for_test()
+            .set_refinery_tier_for_test(-17);
         assert_ne!(sim.scenario_rng.logical_state(), load_rng);
         let bytes = GameSnapshot::save(&sim, 1, 2, "building-anim.map", 0);
         // Native Scenario load consumes the saved RNG bytes, then reseeds zero.

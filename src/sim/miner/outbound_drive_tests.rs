@@ -452,12 +452,12 @@ fn assert_command_state(sim: &Simulation, entity_id: u64, target: (u16, u16)) {
     let expected_head = DriveCoord::cell(START.0, START.1 - 1, 0);
     assert_eq!(drive.head_to(), Some(expected_head));
     assert_eq!(
-        drive.track().turn_index,
+        drive.track().turn_index(),
         0,
         "accepted northbound straight track"
     );
-    assert!(drive.track().cursor >= 0);
-    assert!(!drive.track().reversed);
+    assert!(drive.track().cursor() >= 0);
+    assert!(!drive.track().reversed());
     assert!(!entity.navigation.path_replay.directions().is_empty());
     // The Harvest handler dispatches BEFORE Phase-1 ground movement (the
     // native handler→locomotion order), so by observation time the drive has

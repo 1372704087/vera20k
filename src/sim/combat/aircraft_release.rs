@@ -323,7 +323,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             .entity()
             .and_then(|entity| entity.locomotor.as_ref())
             .and_then(|locomotor| locomotor.fly_runtime())
-            .map_or(crate::util::fixed_math::SIM_ZERO, |fly| fly.current_speed);
+            .map_or(crate::util::fixed_math::SIM_ZERO, |fly| fly.current_speed());
         crate::sim::movement::air_movement::current_fly_speed(
             crate::util::fixed_math::ra2_speed_to_leptons_per_frame(self.strike.obj.speed),
             fraction,

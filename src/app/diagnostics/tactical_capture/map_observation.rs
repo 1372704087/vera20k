@@ -3029,8 +3029,8 @@ impl TacticalCaptureSession {
                                 .map(|coord| [coord.x, coord.y, coord.z]),
                             "head_leptons": loco.track_head(family)
                                 .map(|coord| [coord.x, coord.y, coord.z]),
-                            "selector": progress.turn_index,
-                            "cursor": progress.cursor,
+                            "selector": progress.turn_index(),
+                            "cursor": progress.cursor(),
                             "valid": valid,
                         }))
                     });

@@ -55,9 +55,9 @@ impl AtCoordQuery {
             current,
             head,
             AtCoordTrack {
-                turn_index: track.turn_index,
-                cursor: track.cursor,
-                reversed: track.reversed,
+                turn_index: track.turn_index(),
+                cursor: track.cursor(),
+                reversed: track.reversed(),
             },
         )
     }

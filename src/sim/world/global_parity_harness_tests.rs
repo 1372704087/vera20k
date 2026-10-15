@@ -1531,7 +1531,7 @@ fn fresh_drive_turn_publishes_on_request_frame_and_restores_before_admission() {
             .and_then(|r| r.retained())
             .unwrap();
         assert_eq!(
-            drive.track().turn_index,
+            drive.track().turn_index(),
             -1,
             "turn must return before admission"
         );

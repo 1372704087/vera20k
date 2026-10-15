@@ -480,12 +480,12 @@ fn fixture_input(fixture: &mut Fixture, rules: &RuleSet, native: &Value) {
             (drive["destination"] != json!([0, 0, 0])).then(|| coord(&drive["destination"])),
         )
         .with_head_to_for_test((drive["head"] != json!([0, 0, 0])).then(|| coord(&drive["head"])))
-        .with_track_for_test(TrackProgress {
-            turn_index: int(&drive["selector"]),
-            cursor: int(&drive["cursor"]),
-            reversed: drive["reversed"] == 1,
-            residual: int(&drive["residual"]),
-        })
+        .with_track_for_test(TrackProgress::for_test(
+            int(&drive["selector"]),
+            int(&drive["cursor"]),
+            drive["reversed"] == 1,
+            int(&drive["residual"]),
+        ))
         .with_track_valid_for_test(drive["valid"] == 1)
         .with_target_speed_fraction_for_test(SimFixed::from_num(f64::from_bits(bits(
             &drive["target_fraction_bits"],
@@ -663,13 +663,16 @@ fn assert_snapshot(fixture: &Fixture, native: &Value, name: &str) {
         .unwrap();
     let drive = &native["drive"];
     for (key, value) in [
-        ("selector", actual.track().turn_index),
-        ("cursor", actual.track().cursor),
-        ("residual", actual.track().residual),
+        ("selector", actual.track().turn_index()),
+        ("cursor", actual.track().cursor()),
+        ("residual", actual.track().residual()),
     ] {
         assert_eq!(json!(value), drive[key], "{name}: Drive {key}");
     }
-    assert_eq!(json!(u8::from(actual.track().reversed)), drive["reversed"]);
+    assert_eq!(
+        json!(u8::from(actual.track().reversed())),
+        drive["reversed"]
+    );
     assert_eq!(json!(u8::from(actual.track_valid())), drive["valid"]);
     let zero = DriveCoord { x: 0, y: 0, z: 0 };
     assert_eq!(

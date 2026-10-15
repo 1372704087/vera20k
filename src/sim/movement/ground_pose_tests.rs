@@ -93,12 +93,7 @@ fn set_track_budget(entity: &mut GameEntity, budget: i32) {
 }
 
 fn seed_track(entity: &mut GameEntity, kind: LocomotorKind, cursor: i32, head: DriveCoord) {
-    let track = crate::sim::components::TrackProgress {
-        turn_index: 0,
-        cursor,
-        reversed: false,
-        residual: 0,
-    };
+    let track = crate::sim::components::TrackProgress::for_test(0, cursor, false, 0);
     match kind {
         LocomotorKind::Drive => {
             let state = entity.locomotor.as_mut().unwrap();
@@ -256,13 +251,13 @@ fn drive_ship_paid_points_sample_before_residual_xy_and_no_paid_point_retains_ra
 
         tick(&mut sim, &terrain, &grid, 0); // budget4: residual only
         let entity = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(track(entity).cursor, 1, "{kind:?}");
+        assert_eq!(track(entity).cursor(), 1, "{kind:?}");
         assert_eq!(entity.position.sub_y().to_num::<i32>(), 111, "{kind:?}");
         assert_eq!(entity.position.exact_z_leptons(), Some(731), "{kind:?}");
 
         tick(&mut sim, &terrain, &grid, 1); // budget8: point1, residual1
         let entity = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(track(entity).cursor, 2, "{kind:?}");
+        assert_eq!(track(entity).cursor(), 2, "{kind:?}");
         assert_eq!(entity.position.sub_y().to_num::<i32>(), 105, "{kind:?}");
         let paid_z = crate::util::lepton::ground_height_leptons(0, 2, 896, 874).unwrap();
         let final_xy_z = crate::util::lepton::ground_height_leptons(0, 2, 896, 873).unwrap();
@@ -351,7 +346,7 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
             "the layer is the OnBridge projection written at the crossing"
         );
         assert_eq!(
-            track(entity).cursor,
+            track(entity).cursor(),
             11,
             "residual relinking does not pay a point"
         );
@@ -372,7 +367,7 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
         set_track_budget(sim.substrate.entities.get_mut(1).unwrap(), 7);
         tick(&mut sim, &terrain, &grid, 2);
         let entity = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(track(entity).cursor, 13);
+        assert_eq!(track(entity).cursor(), 13);
         assert_eq!(entity.position.exact_z_leptons(), Some(416));
     }
 }
@@ -458,8 +453,8 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
         );
         assert_eq!(
             (
-                track(entity).cursor,
-                track(entity).residual,
+                track(entity).cursor(),
+                track(entity).residual(),
                 ground_pose::position_world_xy(&entity.position)[1] / 256
             ),
             (11, 7, 2)
@@ -527,7 +522,7 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
                 "paid continuation {kind:?}, frame {frame}"
             );
             assert!(loaded.on_bridge());
-            assert_eq!(track(loaded).cursor, 11 + frame as i32);
+            assert_eq!(track(loaded).cursor(), 11 + frame as i32);
             assert_ne!(
                 loaded.position.exact_z_leptons(),
                 prior_paid_z,
@@ -1140,7 +1135,7 @@ fn admitted_tick_chain_uses_remaining_queue_and_retains_old_head_z() {
                     super::track_head::committed_track_head(entity),
                     Some(expected)
                 );
-                assert!(track(entity).cursor > 0);
+                assert!(track(entity).cursor() > 0);
                 assert_ne!(entity.position.exact_z_leptons(), Some(expected.z));
                 chained = true;
                 break;

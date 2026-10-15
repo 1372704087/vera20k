@@ -137,9 +137,9 @@ fn first_process_publishes_raw_head_and_matching_progress_for_drive_and_ship() {
             }
             _ => unreachable!(),
         };
-        assert_eq!(progress.turn_index, 18);
-        assert_eq!(progress.cursor, 0);
-        assert!(!progress.reversed);
+        assert_eq!(progress.turn_index(), 18);
+        assert_eq!(progress.cursor(), 0);
+        assert!(!progress.reversed());
     }
 }
 
@@ -230,9 +230,10 @@ fn committed_head_requires_active_family_head_and_selector_independently_of_driv
             .install_drive_state_for_test(Some(
                 DriveLocomotionRuntime::default()
                     .with_head_to_for_test(Some(head))
-                    .with_track_for_test(crate::sim::components::TrackProgress {
-                        turn_index: 18,
-                        ..Default::default()
+                    .with_track_for_test({
+                        let mut value = crate::sim::components::TrackProgress::default();
+                        value.set_turn_index(18);
+                        value
                     })
                     .with_track_valid_for_test(false)
             ))
@@ -254,7 +255,7 @@ fn committed_head_requires_active_family_head_and_selector_independently_of_driv
             .unwrap()
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.turn_index = -1;
+        progress.set_turn_index(-1);
         assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -268,7 +269,7 @@ fn committed_head_requires_active_family_head_and_selector_independently_of_driv
             .unwrap()
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.turn_index = 18;
+        progress.set_turn_index(18);
         assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -288,9 +289,10 @@ fn committed_head_requires_active_family_head_and_selector_independently_of_driv
             .install_ship_state_for_test(Some(
                 ShipLocomotionRuntime::default()
                     .with_head_to_for_test(Some(head))
-                    .with_track_for_test(crate::sim::components::TrackProgress {
-                        turn_index: 18,
-                        ..Default::default()
+                    .with_track_for_test({
+                        let mut value = crate::sim::components::TrackProgress::default();
+                        value.set_turn_index(18);
+                        value
                     })
             ))
     );
@@ -312,10 +314,11 @@ fn production_process_admission_uses_valid_selector_independently_of_head() {
                     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
                     entity.mover_facts.set_drive_accelerates_for_test(false);
                     entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));
-                    let track = TrackProgress {
-                        turn_index: selector,
-                        cursor: 0,
-                        ..Default::default()
+                    let track = {
+                        let mut value = TrackProgress::default();
+                        value.set_turn_index(selector);
+                        value.set_cursor(0);
+                        value
                     };
                     let head_to = nonnull_head.then_some(DriveCoord::cell(8, 7, 0));
                     if kind == LocomotorKind::Drive {
@@ -396,9 +399,10 @@ fn retained_admission_matches_native_entry_cases_without_tube_or_turn_latch() {
         }
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 8, 8);
         let valid = input["track_valid"].as_u64().unwrap() != 0;
-        let track = TrackProgress {
-            turn_index: input["selector"].as_i64().unwrap() as i32,
-            ..Default::default()
+        let track = {
+            let mut value = TrackProgress::default();
+            value.set_turn_index(input["selector"].as_i64().unwrap() as i32);
+            value
         };
         if input["family"] == "drive" {
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));

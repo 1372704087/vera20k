@@ -36,12 +36,7 @@ fn fixture() -> (Simulation, RuleSet) {
                     .with_head_to_for_test(Some(DriveCoord::cell(10, 9, 0)))
                     .with_track_valid_for_test(true)
                     .with_target_speed_fraction_for_test(SimFixed::from_num(1))
-                    .with_track_for_test(TrackProgress {
-                        turn_index: 0,
-                        cursor: 0,
-                        reversed: false,
-                        residual: 0,
-                    })
+                    .with_track_for_test(TrackProgress::for_test(0, 0, false, 0))
             ))
     );
     // The accepted head (10,9) was the route's last cell, so Foot+5E0 holds
@@ -195,7 +190,7 @@ fn post_ai_object_alive_gate_precedes_drive_ship_process_slope_sampling() {
                         .track(),
                     _ => unreachable!(),
                 };
-                assert_eq!(track.cursor, 0, "{kind:?}");
+                assert_eq!(track.cursor(), 0, "{kind:?}");
                 assert_eq!(entity.body_frame_counter.get(), 0, "{kind:?}");
             }
         }
@@ -218,7 +213,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .cursor
+            .cursor()
             >= 2
     );
     assert_eq!(
@@ -238,7 +233,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .turn_index,
+            .turn_index(),
         0,
         "paid points retain the active straight-track selector"
     );
@@ -382,7 +377,7 @@ fn active_drive_ship_track_preserves_target_across_changed_path_and_terrain_requ
         assert_eq!(retained, SIM_HALF, "{kind:?}");
         assert_eq!(entity.foot_speed.applied_fraction(), SIM_HALF, "{kind:?}");
         assert_eq!(sim.current_speed_for_test(1, &rules), 7, "{kind:?}");
-        assert_eq!((progress.cursor, progress.residual), (1, 7), "{kind:?}");
+        assert_eq!((progress.cursor(), progress.residual()), (1, 7), "{kind:?}");
         assert_eq!(head, Some(DriveCoord::cell(10, 9, 0)), "{kind:?}");
     }
 }
@@ -419,7 +414,7 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.cursor = drive_track::raw_track_points(1).len() as i32;
+        progress.set_cursor(drive_track::raw_track_points(1).len() as i32);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -479,12 +474,12 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
     entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
     assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
         crate::sim::movement::track_process::TrackFamily::Drive,
-        TrackProgress {
-            turn_index: 1,
-            cursor: i32::from(drive_track::raw_track_meta(3).unwrap().chain_index),
-            reversed: false,
-            residual: 0,
-        }
+        TrackProgress::for_test(
+            1,
+            i32::from(drive_track::raw_track_meta(3).unwrap().chain_index),
+            false,
+            0
+        )
     ));
     let outcome = sim
         .advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
@@ -497,7 +492,7 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
         .and_then(|r| r.retained())
         .unwrap()
         .track();
-    assert_eq!(track.turn_index, selection.turn_track_index as i32);
+    assert_eq!(track.turn_index(), selection.turn_track_index as i32);
     assert!(
         entity
             .locomotor
@@ -507,7 +502,7 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
             .unwrap()
             .track_valid()
     );
-    assert!(track.cursor > i32::from(selection.entry_index));
+    assert!(track.cursor() > i32::from(selection.entry_index));
     assert_eq!(entity.navigation.path_replay.cursor(), 1);
     // Retail RawTrack[3]7E7A58 -> point37 at7E66B4=(-136,136,32).
     // TurnTrack[1]7E7B34 flags8 leaves XY unchanged in Transform4B4780.
@@ -602,7 +597,7 @@ fn first_process_after_command_applies_raw_head_once_without_a_paid_point_and_af
                     .and_then(|r| r.retained())
                     .unwrap();
                 assert!(drive.track_valid());
-                assert_eq!((drive.track().cursor, drive.track().residual), (0, 0));
+                assert_eq!((drive.track().cursor(), drive.track().residual()), (0, 0));
             } else {
                 let ship = entity
                     .locomotor
@@ -610,7 +605,7 @@ fn first_process_after_command_applies_raw_head_once_without_a_paid_point_and_af
                     .and_then(|l| l.selected_ship_runtime())
                     .and_then(|r| r.retained())
                     .unwrap();
-                assert_eq!((ship.track().cursor, ship.track().residual), (0, 0));
+                assert_eq!((ship.track().cursor(), ship.track().residual()), (0, 0));
             }
             assert_eq!(sim.current_speed_for_test(1, &rules), 0);
             assert_eq!(
@@ -646,7 +641,7 @@ fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.cursor = drive_track::raw_track_points(1).len() as i32;
+        progress.set_cursor(drive_track::raw_track_points(1).len() as i32);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -770,12 +765,7 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
         crate::sim::movement::track_process::TrackFamily::Drive,
-        TrackProgress {
-            turn_index: 1,
-            cursor: 37,
-            reversed: false,
-            residual: 0,
-        }
+        TrackProgress::for_test(1, 37, false, 0)
     ));
     entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
@@ -789,7 +779,7 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .turn_index,
+            .turn_index(),
         1
     );
     assert_eq!(entity.navigation.path_replay.cursor(), 0);
@@ -833,7 +823,7 @@ fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.cursor = drive_track::raw_track_points(1).len() as i32;
+        progress.set_cursor(drive_track::raw_track_points(1).len() as i32);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -875,10 +865,11 @@ fn terminal_piggyback_end_is_synchronous_and_preserves_owner_speed() {
                     .with_destination_for_test(Some(DriveCoord::cell(10, 9, 0)))
                     .with_target_speed_fraction_for_test(SimFixed::from_num(1))
                     .with_track_valid_for_test(true)
-                    .with_track_for_test(TrackProgress {
-                        turn_index: 0,
-                        cursor: drive_track::raw_track_points(1).len() as i32,
-                        ..Default::default()
+                    .with_track_for_test({
+                        let mut value = TrackProgress::default();
+                        value.set_turn_index(0);
+                        value.set_cursor(drive_track::raw_track_points(1).len() as i32);
+                        value
                     })
             ))
     );

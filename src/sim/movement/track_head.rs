@@ -76,7 +76,7 @@ pub(super) fn active_track_family(
     let loco = entity.locomotor.as_ref()?;
     let family = TrackFamily::from_kind(loco.active_kind())?;
     let valid = loco.track_valid(family)?;
-    let selector = loco.track_progress(family)?.turn_index;
+    let selector = loco.track_progress(family)?.turn_index();
     (valid && selector != -1).then_some(family)
 }
 
@@ -87,7 +87,7 @@ pub(crate) fn committed_track_head(entity: &GameEntity) -> Option<DriveCoord> {
     let family = TrackFamily::from_kind(loco.active_kind())?;
     let head = loco.track_head(family)?;
     let track = loco.track_progress(family)?;
-    (track.turn_index >= 0).then_some(head)
+    (track.turn_index() >= 0).then_some(head)
 }
 
 #[cfg(test)]

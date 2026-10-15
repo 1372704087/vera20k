@@ -264,9 +264,9 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
         // The corpus enters after PerCell with supplied class bytes still set,
         // including the null-destination contrast and replacement-head rows.
         if let LocomotorRuntimePayload::Walk(state) = loco.runtime_payload_mut() {
-            state.head = retained(&input["head"]);
-            state.moving = true;
-            state.animation_moving = true;
+            state.set_head(retained(&input["head"]));
+            state.set_moving(true);
+            state.set_animation_moving(true);
         }
         actor
             .navigation

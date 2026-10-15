@@ -460,10 +460,11 @@ fn repeated_move_orders_sample_live_native_speed() {
         entity.foot_speed.set_speed_fraction(SIM_ONE);
         let loco = entity.locomotor.as_mut().unwrap();
         let mut progress = loco.track_progress(family).unwrap();
-        progress.turn_index = input["selector"].as_i64().unwrap() as i32;
-        progress.residual = input["residual"].as_i64().unwrap() as i32;
+        progress.set_turn_index(input["selector"].as_i64().unwrap() as i32);
+        progress.set_residual(input["residual"].as_i64().unwrap() as i32);
         assert_eq!(
-            progress.residual, 0,
+            progress.residual(),
+            0,
             "native prefix budget equals its speed"
         );
         loco.store_track_progress(family, progress);

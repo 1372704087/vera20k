@@ -51,7 +51,7 @@ impl Simulation {
             .locomotor
             .as_ref()
             .and_then(|loco| loco.track_progress(family))
-            .map(|p| p.turn_index);
+            .map(|p| p.turn_index());
         if selector.is_some_and(|selector| selector != -1) {
             return Ok(false);
         }

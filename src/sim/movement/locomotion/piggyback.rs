@@ -38,19 +38,80 @@ use crate::sim::components::DriveOccupationFootprint;
 /// committed head. Both XYZ values belong to this complete locomotor instance.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct WalkRuntime {
-    pub head: Option<crate::sim::components::DriveCoord>,
-    pub destination: Option<crate::sim::components::DriveCoord>,
+    head: Option<crate::sim::components::DriveCoord>,
+    destination: Option<crate::sim::components::DriveCoord>,
     /// Full object+34 / interface+30, read by IsMoving75AB30. Constructor
     ///75AAD3 clears; MoveTo75AD5A sets; null MoveTo/Stop clear only with no
     ///head. FindSubCellDest's head retirement does not change this byte.
-    pub moving: bool,
+    moving: bool,
     /// Full object+36 / interface+32: Is_Really_Moving_Now (75CB20), which
     /// Infantry520F40 asks. Process sets it on a fresh head (75BC2A) and a
     /// paid one (75BD25), and clears it after a failed path search (75AFD5),
     /// on a refused head (75B6A3) and on arrival (75BF60). Stop75ADEC clears
     /// it only with no paid head; Stop_Movement_Animation (75CBC0) always.
     /// It is distinct from IsMoving(+34).
-    pub animation_moving: bool,
+    animation_moving: bool,
+}
+
+impl WalkRuntime {
+    /// A fixture's state.
+    #[cfg(test)]
+    pub(crate) const fn for_test(
+        head: Option<crate::sim::components::DriveCoord>,
+        destination: Option<crate::sim::components::DriveCoord>,
+        moving: bool,
+        animation_moving: bool,
+    ) -> Self {
+        Self {
+            head,
+            destination,
+            moving,
+            animation_moving,
+        }
+    }
+
+    /// See the field.
+    pub(crate) const fn head(&self) -> Option<crate::sim::components::DriveCoord> {
+        self.head
+    }
+
+    /// Store the field.
+    pub(crate) fn set_head(&mut self, head: Option<crate::sim::components::DriveCoord>) {
+        self.head = head;
+    }
+
+    /// See the field.
+    pub(crate) const fn destination(&self) -> Option<crate::sim::components::DriveCoord> {
+        self.destination
+    }
+
+    /// Store the field.
+    pub(crate) fn set_destination(
+        &mut self,
+        destination: Option<crate::sim::components::DriveCoord>,
+    ) {
+        self.destination = destination;
+    }
+
+    /// See the field.
+    pub(crate) const fn moving(&self) -> bool {
+        self.moving
+    }
+
+    /// Store the field.
+    pub(crate) fn set_moving(&mut self, moving: bool) {
+        self.moving = moving;
+    }
+
+    /// See the field.
+    pub(crate) const fn animation_moving(&self) -> bool {
+        self.animation_moving
+    }
+
+    /// Store the field.
+    pub(crate) fn set_animation_moving(&mut self, animation_moving: bool) {
+        self.animation_moving = animation_moving;
+    }
 }
 
 /// Class-local state that travels with the locomotor object.

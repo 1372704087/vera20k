@@ -777,7 +777,9 @@ fn takeoff_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         "cruise_mode": input["mode"].as_bool().unwrap_or(false),
         "moving": input["moving"].as_bool().unwrap_or(false),
     })).unwrap();
-    loco.fly_runtime_mut().unwrap().target_speed = SimFixed::lit("0.25");
+    loco.fly_runtime_mut()
+        .unwrap()
+        .set_target_speed(SimFixed::lit("0.25"));
     sim.session.binary_frame = 100;
     (sim, rules)
 }
@@ -792,7 +794,7 @@ fn assert_native_takeoff_result(sim: &Simulation, row: &serde_json::Value) {
         "{row}"
     );
     assert_eq!(
-        loco.fly_runtime().unwrap().target_speed,
+        loco.fly_runtime().unwrap().target_speed(),
         SimFixed::from_num(row["speed"].as_f64().unwrap()),
         "{row}"
     );
@@ -1359,7 +1361,7 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
             .unwrap()
             .fly_runtime_mut()
             .unwrap()
-            .current_speed = fraction;
+            .set_current_speed(fraction);
         sim.session.binary_frame = frame;
         let mut restored = if input["name"] == "turn_5_100" {
             sim.scenario_rng = crate::sim::rng::SimRng::new(0);

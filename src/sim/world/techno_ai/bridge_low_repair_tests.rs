@@ -521,10 +521,13 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
                 );
                 assert_eq!(actor.navigation.path_replay.remaining_directions(), route);
                 assert_eq!(
-                    i64::from(loco.track().turn_index),
+                    i64::from(loco.track().turn_index()),
                     head_process["track_selector"]
                 );
-                assert_eq!(i64::from(loco.track().cursor), head_process["track_cursor"]);
+                assert_eq!(
+                    i64::from(loco.track().cursor()),
+                    head_process["track_cursor"]
+                );
                 assert_eq!(u64::from(loco.track_valid()), head_process["head_valid"]);
                 assert_eq!(
                     loco.target_speed_fraction().to_num::<f64>(),

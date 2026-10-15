@@ -288,11 +288,11 @@ pub(super) fn row_scene_edited(
         let timer = node["timer"].as_array().map_or((0, 0), |t| {
             (t[0].as_i64().unwrap() as i32, t[1].as_i64().unwrap() as i32)
         });
-        nodes.push(SlaveNode {
+        nodes.push(SlaveNode::for_test(
             slave,
-            state: slave_state(node["state"].as_u64().unwrap()),
-            timer: CdTimer::from_raw(frame as i32 + timer.0, timer.1),
-        });
+            slave_state(node["state"].as_u64().unwrap()),
+            CdTimer::from_raw(frame as i32 + timer.0, timer.1),
+        ));
     }
     let manager_state = manager_state(input["manager_state"].as_u64().unwrap_or(5));
     let manager_frame = match input["manager_frame_ago"].as_i64() {
@@ -482,9 +482,9 @@ fn compare_state(s: &SlaveScene, row: &Value, context: &str) {
         .iter()
         .map(|node| {
             serde_json::json!({
-                "slave": node.slave.map(|id| s.index_of(id)),
-                "state": node.state as u8,
-                "timer": [node.timer.start_frame(), node.timer.duration()],
+                "slave": node.slave().map(|id| s.index_of(id)),
+                "state": node.state() as u8,
+                "timer": [node.timer().start_frame(), node.timer().duration()],
             })
         })
         .collect();
@@ -567,7 +567,7 @@ fn compare_state(s: &SlaveScene, row: &Value, context: &str) {
     let mut compared: Vec<(u64, u64)> = s.slaves.iter().map(|(i, id)| (*i, *id)).collect();
     // A slave the call created stands for the oracle's supplied spare.
     for node in manager.nodes() {
-        if let Some(id) = node.slave
+        if let Some(id) = node.slave()
             && !s.slaves.values().any(|known| *known == id)
         {
             compared.push((SPARE, id));

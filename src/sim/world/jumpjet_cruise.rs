@@ -825,8 +825,8 @@ mod tests {
             // already applied (locomotor facing snapped to the body, both speed
             // doubles and the bob zero, `+0x80` at `JumpjetHeight=`).
             let mut flight = runtime.flight();
-            flight.facing.snap(u16::from(body_facing) << 8, 0);
-            flight.target_height = 500;
+            flight.facing_mut().snap(u16::from(body_facing) << 8, 0);
+            flight.set_target_height(500);
             *runtime = runtime
                 .clone()
                 .with_phase_for_test(STATE_TRANSLATE)

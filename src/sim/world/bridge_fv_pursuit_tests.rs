@@ -77,7 +77,7 @@ fn mission_state(actor: &crate::sim::game_entity::GameEntity) -> Value {
 }
 
 fn passive_scan_state(actor: &crate::sim::game_entity::GameEntity) -> Value {
-    json!({"timer":[actor.passive_scan.timer().start_frame,actor.passive_scan.timer().duration],
+    json!({"timer":[actor.passive_scan.timer().start_frame(),actor.passive_scan.timer().duration()],
         "last_frame":actor.passive_scan.last_scan_frame(),
         "acquired":actor.passive_scan.acquired()})
 }
@@ -136,7 +136,7 @@ fn paid_snapshot(
     let track_state = json!({
         "movement_timer":[path.movement_timer().start_frame(), path.movement_timer().duration()],
         "blocked_timer":[path.blocked_timer().start_frame(), path.blocked_timer().duration()],
-        "residual":drive.track().residual,
+        "residual":drive.track().residual(),
         "target_speed_fixed_bits":drive.target_speed_fraction().to_bits(),
     });
     let cell = sim.resolved_terrain.as_ref().unwrap().cell(87, 54).unwrap();

@@ -350,7 +350,7 @@ impl Simulation {
                 .locomotor
                 .as_ref()
                 .and_then(|locomotor| locomotor.fly_runtime())
-                .map_or(SIM_ZERO, |state| state.current_speed),
+                .map_or(SIM_ZERO, |state| state.current_speed()),
         );
         let mut candidate = location;
         if speed > 0 {
@@ -403,7 +403,7 @@ impl Simulation {
                 .locomotor
                 .as_ref()
                 .and_then(|locomotor| locomotor.fly_runtime())
-                .is_some_and(|state| state.current_speed > SIM_ZERO && !state.taking_off())
+                .is_some_and(|state| state.current_speed() > SIM_ZERO && !state.taking_off())
         {
             entity
                 .flight_attitude
@@ -552,7 +552,7 @@ impl Simulation {
             && entity.health.current() > 0
             && !state.has_phase_callback()
             && coord_cell(state.destination()) == coord_cell(location)
-            && state.target_speed == SIM_ZERO
+            && state.target_speed() == SIM_ZERO
             && (entity.attack_target.target().is_none()
                 || entity
                     .aircraft_ammo
@@ -762,7 +762,7 @@ impl Simulation {
         let land = arrival
             && distance < ARRIVAL_STOP
             && !cruise
-            && state.current_speed < air_movement::MIN_CREEP_SPEED;
+            && state.current_speed() < air_movement::MIN_CREEP_SPEED;
 
         let entity = self.substrate.entities.get_mut(id).unwrap();
         if let Some(primary) = primary {
@@ -782,11 +782,11 @@ impl Simulation {
         state.set_flight_level(level);
         if arrival && may_slow {
             if distance < ARRIVAL_STOP {
-                state.target_speed = SIM_ZERO;
+                state.set_target_speed(SIM_ZERO);
             } else if distance < ARRIVAL_HALF {
-                state.target_speed = HALF_SPEED;
+                state.set_target_speed(HALF_SPEED);
             } else if distance < ARRIVAL_THREE_QUARTERS {
-                state.target_speed = THREE_QUARTER_SPEED;
+                state.set_target_speed(THREE_QUARTER_SPEED);
             }
         }
         if land {

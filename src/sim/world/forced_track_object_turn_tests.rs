@@ -115,12 +115,12 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                 .and_then(|r| r.retained())
                 .unwrap()
                 .track();
-            if track.turn_index < 0 {
+            if track.turn_index() < 0 {
                 break;
             }
-            let stage = if track.cursor == 0 {
+            let stage = if track.cursor() == 0 {
                 0
-            } else if track.cursor == count {
+            } else if track.cursor() == count {
                 2
             } else {
                 1
@@ -168,7 +168,7 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                 );
                 restored_probes.push((stage, restored));
             }
-            let before_cursor = track.cursor;
+            let before_cursor = track.cursor();
             let stats = tick(&mut sim, &rules, frame);
             // Compare every complete state after the explicit sound-reset
             // boundary, through retirement. The control's non-audio authority
@@ -202,7 +202,7 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                         .and_then(|r| r.retained())
                         .unwrap()
                         .track()
-                        .cursor,
+                        .cursor(),
                     before_cursor,
                     "first visit retains an unpaid cursor"
                 );
@@ -218,7 +218,7 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                 .and_then(|r| r.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             -1
         );
         assert_eq!(
@@ -241,7 +241,7 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
         .and_then(|r| r.retained())
         .unwrap()
         .track()
-        .cursor;
+        .cursor();
     let before_body = entity.body_frame_counter.get();
     let outcome = tick(&mut sim, &rules(6), 1);
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -253,7 +253,7 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .cursor
+            .cursor()
             > before + 1
     );
     assert!(outcome.moved_steps > 1);

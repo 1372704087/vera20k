@@ -489,7 +489,7 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
         let mut progress = drive
             .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
             .unwrap();
-        progress.turn_index = 3;
+        progress.set_turn_index(3);
         assert!(drive.store_track_progress(
             crate::sim::movement::track_process::TrackFamily::Drive,
             progress
@@ -552,7 +552,7 @@ fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
             .and_then(|r| r.retained())
             .unwrap()
             .track()
-            .turn_index,
+            .turn_index(),
         3
     );
     assert!(

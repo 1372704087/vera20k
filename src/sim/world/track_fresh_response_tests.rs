@@ -297,7 +297,7 @@ fn compare(sim: &Simulation, id: u64, row: &Value, out: bool) {
             d.destination(),
             d.head_to(),
             d.track_valid(),
-            d.track().turn_index,
+            d.track().turn_index(),
             d.target_speed_fraction(),
         )
     } else {
@@ -311,7 +311,7 @@ fn compare(sim: &Simulation, id: u64, row: &Value, out: bool) {
             s.destination(),
             s.head_to(),
             s.track_valid(),
-            s.track().turn_index,
+            s.track().turn_index(),
             s.target_speed_fraction(),
         )
     };
@@ -447,7 +447,7 @@ fn fresh_arm_rows_match_the_original_responses() {
                     let mut progress = drive
                         .track_progress(crate::sim::movement::track_process::TrackFamily::Drive)
                         .unwrap();
-                    progress.turn_index = selector as i32;
+                    progress.set_turn_index(selector as i32);
                     assert!(drive.store_track_progress(
                         crate::sim::movement::track_process::TrackFamily::Drive,
                         progress
@@ -461,7 +461,7 @@ fn fresh_arm_rows_match_the_original_responses() {
                     let mut progress = ship
                         .track_progress(crate::sim::movement::track_process::TrackFamily::Ship)
                         .unwrap();
-                    progress.turn_index = selector as i32;
+                    progress.set_turn_index(selector as i32);
                     assert!(ship.store_track_progress(
                         crate::sim::movement::track_process::TrackFamily::Ship,
                         progress

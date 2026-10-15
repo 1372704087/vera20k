@@ -1353,7 +1353,7 @@ mod tests {
             );
             let timer = actor.infantry.unwrap().idle_action_timer;
             assert_eq!(
-                json!([timer.start_frame as i32, timer.duration as i32]),
+                json!([timer.start_frame() as i32, timer.duration() as i32]),
                 json!([after["idle_timer"][0], after["idle_timer"][2]]),
                 "{name} idle timer"
             );

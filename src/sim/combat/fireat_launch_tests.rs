@@ -351,8 +351,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
             .timer();
         // MissionTimer owns the native +180 start/+188 duration. The
         // intervening +184 DWORD is not a represented cadence input.
-        assert_eq!(u64::from(timer.start_frame), native[0].as_u64().unwrap());
-        assert_eq!(u64::from(timer.duration), native[2].as_u64().unwrap());
+        assert_eq!(u64::from(timer.start_frame()), native[0].as_u64().unwrap());
+        assert_eq!(u64::from(timer.duration()), native[2].as_u64().unwrap());
     };
     duel.sim.session.binary_frame = expiry["before"]["source"]["frame"].as_u64().unwrap() as u32;
     let before_timer = &expiry["before"]["targeting_timer"];

@@ -568,7 +568,7 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
         let runtime = loco.jumpjet_runtime_mut().expect("jumpjet runtime");
         let mut flight = runtime.flight();
         // The kernel flies toward its own retained target height.
-        flight.target_height = 208;
+        flight.set_target_height(208);
         *runtime = runtime
             .clone()
             .with_phase_for_test(
@@ -700,7 +700,9 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
     insert_sight_unit(&mut sim, 2, owner, 13, 13);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
     loco.set_layer(MovementLayer::Air);
-    loco.fly_runtime_mut().unwrap().current_speed = SimFixed::from_num(1);
+    loco.fly_runtime_mut()
+        .unwrap()
+        .set_current_speed(SimFixed::from_num(1));
     sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(loco);
     sim.set_object_height_unmarked(2, 207);
     sim.session.binary_frame = 119;
@@ -724,7 +726,9 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
             .locomotor
             .as_mut()
             .unwrap();
-        loco.fly_runtime_mut().unwrap().current_speed = SimFixed::from_num(0);
+        loco.fly_runtime_mut()
+            .unwrap()
+            .set_current_speed(SimFixed::from_num(0));
     }
     sim.set_object_height_unmarked(2, 208);
     sim.refresh_high_flying_sight_before_process(2, None);
@@ -747,7 +751,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
         .unwrap()
         .fly_runtime_mut()
         .unwrap()
-        .current_speed = SimFixed::from_num(-1);
+        .set_current_speed(SimFixed::from_num(-1));
     // Membership is false: the admitted FootAI event calls leaves which reject,
     // then still reloads15. Native moving compares !=0, so negative speed admits.
     sim.refresh_high_flying_sight_before_process(2, None);

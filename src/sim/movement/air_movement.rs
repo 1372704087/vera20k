@@ -41,12 +41,12 @@ const DEFAULT_SLOWDOWN_DISTANCE: i32 = 500;
 /// Process `0x004CE441..0x004CE495`: the current speed (`+0x48`) chases the
 /// target speed (`+0x40`) by 0.1 a frame.
 pub(crate) fn ramp_fly_speed(state: &mut super::fly_height::FlyRuntime) {
-    let target = state.target_speed;
-    let current = state.current_speed;
+    let target = state.target_speed();
+    let current = state.current_speed();
     if current < target {
-        state.current_speed = (current + FLY_SPEED_RAMP_STEP).min(target);
+        state.set_current_speed((current + FLY_SPEED_RAMP_STEP).min(target));
     } else if current > target {
-        state.current_speed = (current - FLY_SPEED_RAMP_STEP).max(target);
+        state.set_current_speed((current - FLY_SPEED_RAMP_STEP).max(target));
     }
 }
 
@@ -147,15 +147,15 @@ pub(crate) fn write_fly_target_speed(loco: &mut LocomotorState, facts: &FlySpeed
         return;
     }
     if !fly_may_slow(state.landing(), state.cruise_mode(), &facts.slow) {
-        state.target_speed = SIM_ONE;
+        state.set_target_speed(SIM_ONE);
         return;
     }
     if facts.hunter_seeker {
-        state.target_speed = if !taking_off && facts.target {
+        state.set_target_speed(if !taking_off && facts.target {
             SIM_ONE
         } else {
             SIM_ZERO
-        };
+        });
         return;
     }
     let distance = i64::from(facts.distance);
@@ -163,23 +163,23 @@ pub(crate) fn write_fly_target_speed(loco: &mut LocomotorState, facts: &FlySpeed
     // A zero SlowdownDistance divides to +inf (NaN at distance 0), which the
     // cap turns into full speed; a negative one is always under the floor.
     if slowdown == 0 || (slowdown > 0 && distance * 10 > slowdown) {
-        state.target_speed = if slowdown == 0 || distance >= slowdown {
+        state.set_target_speed(if slowdown == 0 || distance >= slowdown {
             SIM_ONE
         } else {
             SimFixed::from_bits(((distance << 16) / slowdown) as i32)
-        };
+        });
     } else if distance > 0x55 {
-        state.target_speed = FLY_CRAWL_SPEED;
+        state.set_target_speed(FLY_CRAWL_SPEED);
     } else {
-        let bits = state.current_speed.to_bits();
-        state.current_speed = SimFixed::from_bits(bits / 2 + bits % 2);
-        state.target_speed = SIM_ZERO;
+        let bits = state.current_speed().to_bits();
+        state.set_current_speed(SimFixed::from_bits(bits / 2 + bits % 2));
+        state.set_target_speed(SIM_ZERO);
     }
-    if distance << 16 < i64::from(state.current_speed.to_bits()) {
-        state.current_speed = SimFixed::from_bits((distance << 16) as i32);
+    if distance << 16 < i64::from(state.current_speed().to_bits()) {
+        state.set_current_speed(SimFixed::from_bits((distance << 16) as i32));
     }
-    if state.target_speed == SIM_ZERO && state.current_speed == SIM_ZERO && distance > 0 {
-        state.current_speed = MIN_CREEP_SPEED;
+    if state.target_speed() == SIM_ZERO && state.current_speed() == SIM_ZERO && distance > 0 {
+        state.set_current_speed(MIN_CREEP_SPEED);
     }
 }
 
@@ -622,39 +622,39 @@ pub(crate) mod tests {
 
     fn make_fly_loco() -> LocomotorState {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        loco.fly_runtime_mut().unwrap().target_speed = SIM_ONE;
+        loco.fly_runtime_mut().unwrap().set_target_speed(SIM_ONE);
         loco
     }
 
     #[test]
     fn test_fly_speed_ramp() {
         let mut fly = crate::sim::movement::fly_height::FlyRuntime::default();
-        fly.target_speed = SIM_ONE;
+        fly.set_target_speed(SIM_ONE);
         // After 5 ramps: should be ~0.5 (fixed-point 0.1 is approximate).
         for _ in 0..5 {
             ramp_fly_speed(&mut fly);
         }
-        let half_diff = (fly.current_speed - SIM_HALF).abs();
+        let half_diff = (fly.current_speed() - SIM_HALF).abs();
         assert!(
             half_diff < SimFixed::lit("0.001"),
             "Expected ~0.5, got {:?}",
-            fly.current_speed
+            fly.current_speed()
         );
         // After 5 more: should reach exactly 1.0 (clamped by min(target)).
         for _ in 0..5 {
             ramp_fly_speed(&mut fly);
         }
-        assert_eq!(fly.current_speed, SIM_ONE);
+        assert_eq!(fly.current_speed(), SIM_ONE);
     }
 
     #[test]
     fn test_fly_speed_ramp_decel() {
         let mut fly = crate::sim::movement::fly_height::FlyRuntime::default();
-        fly.current_speed = SIM_ONE;
+        fly.set_current_speed(SIM_ONE);
         for _ in 0..10 {
             ramp_fly_speed(&mut fly);
         }
-        assert_eq!(fly.current_speed, SIM_ZERO);
+        assert_eq!(fly.current_speed(), SIM_ZERO);
     }
 
     /// Every row of `tools/spatial_oracle/fly_target_speed`, the original
@@ -690,8 +690,8 @@ pub(crate) mod tests {
             }))
             .unwrap();
             let fly = loco.fly_runtime_mut().unwrap();
-            fly.target_speed = SimFixed::from_bits(int("target_speed", 65536));
-            fly.current_speed = SimFixed::from_bits(int("current", 32768));
+            fly.set_target_speed(SimFixed::from_bits(int("target_speed", 65536)));
+            fly.set_current_speed(SimFixed::from_bits(int("current", 32768)));
             let facts = FlySpeedFacts {
                 health: int("health", 100),
                 // The takeoff rows stand over one level-0 cell.
@@ -711,8 +711,8 @@ pub(crate) mod tests {
             write_fly_target_speed(&mut loco, &facts);
             let fly = loco.fly_runtime().unwrap();
             for (actual, native) in [
-                (fly.target_speed, &row["target_speed"]),
-                (fly.current_speed, &row["current"]),
+                (fly.target_speed(), &row["target_speed"]),
+                (fly.current_speed(), &row["current"]),
             ] {
                 let native = native.as_f64().unwrap() * 65536.0;
                 assert!(

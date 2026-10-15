@@ -559,7 +559,11 @@ fn retail_chrono_warp_forces_a_sailing_ships_track_to_its_landing() {
     let track = |sim: &Simulation| {
         let locomotor = sim.substrate.entities.get(ship)?.locomotor.as_ref()?;
         let ship = locomotor.selected_ship_runtime()?.retained()?;
-        Some((ship.track().turn_index, ship.head_to(), ship.destination()))
+        Some((
+            ship.track().turn_index(),
+            ship.head_to(),
+            ship.destination(),
+        ))
     };
     // The destroyer turns in place before its first track.
     for _ in 0..30 {

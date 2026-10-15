@@ -174,12 +174,12 @@ fn track_entry_matches_all_144_native_rows_and_only_changes_rejected_residual() 
         let kind = family(input);
         let mut sim = fixture(kind);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        let track = TrackProgress {
-            turn_index: integer(&input["selector"]),
-            cursor: 19,
-            reversed: true,
-            residual: integer(&case["residual_before"]),
-        };
+        let track = TrackProgress::for_test(
+            integer(&input["selector"]),
+            19,
+            true,
+            integer(&case["residual_before"]),
+        );
         set_retained(
             entity,
             kind,
@@ -309,9 +309,10 @@ fn active_dispatch_matches_all_48_native_gate_rows_without_requiring_head() {
             kind,
             bit(&input["track_valid"]),
             bit(&input["latch"]),
-            TrackProgress {
-                turn_index: integer(&input["selector"]),
-                ..Default::default()
+            {
+                let mut value = TrackProgress::default();
+                value.set_turn_index(integer(&input["selector"]));
+                value
             },
         );
         let active = super::super::track_head::active_track_family(entity).is_some();
@@ -339,12 +340,12 @@ fn setup_turn(sim: &mut Simulation, kind: LocomotorKind, live: bool, latch: bool
         kind,
         active,
         latch,
-        TrackProgress {
-            turn_index: if active { 0 } else { -1 },
-            cursor: 0,
-            reversed: false,
-            residual: if active { 0 } else { 4 },
-        },
+        TrackProgress::for_test(
+            if active { 0 } else { -1 },
+            0,
+            false,
+            if active { 0 } else { 4 },
+        ),
     );
     if active {
         let head = Some(DriveCoord {
@@ -396,8 +397,8 @@ fn actual_ground_process_samples_disagreement_and_active_tracks_bypass_it() {
                     super::super::ground_pose::position_world_coord(&entity.position),
                     position
                 );
-                assert_eq!(track.residual, if active { 0 } else { 4 });
-                assert_eq!(track.cursor, 0);
+                assert_eq!(track.residual(), if active { 0 } else { 4 });
+                assert_eq!(track.cursor(), 0);
                 assert_eq!(stats.movers_total, u32::from(active));
             }
         }
@@ -585,7 +586,7 @@ fn actual_entry_turn_gate_precedes_speed_and_points_for_both_families() {
             entity.mover_facts.set_drive_accelerates_for_test(false);
             entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));
             let (valid, latch, mut track) = retained(entity, kind);
-            track.residual = 17;
+            track.set_residual(17);
             set_retained(entity, kind, valid, latch, track);
             match kind {
                 LocomotorKind::Drive => {
@@ -625,10 +626,10 @@ fn actual_entry_turn_gate_precedes_speed_and_points_for_both_families() {
             );
             if turret {
                 assert_eq!(entity.foot_speed.applied_fraction(), SimFixed::ONE);
-                assert!(track.cursor > 0, "admitted prefix must reach paid points");
+                assert!(track.cursor() > 0, "admitted prefix must reach paid points");
             } else {
                 assert_eq!(entity.foot_speed.applied_fraction(), SimFixed::lit("0.25"));
-                assert_eq!((track.cursor, track.residual), (0, 0));
+                assert_eq!((track.cursor(), track.residual()), (0, 0));
                 assert_eq!(
                     super::super::ground_pose::position_world_coord(&entity.position),
                     before
@@ -678,16 +679,11 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                     .set_nav_com(Some(NavTargetRef::cell(10, 8)));
                 entity.navigation.path_replay =
                     FootPathQueue::for_test(vec![2, 2], 0, Some((8, 8)));
-                set_retained(
-                    entity,
-                    kind,
-                    false,
-                    false,
-                    TrackProgress {
-                        residual,
-                        ..Default::default()
-                    },
-                );
+                set_retained(entity, kind, false, false, {
+                    let mut value = TrackProgress::default();
+                    value.set_residual(residual);
+                    value
+                });
                 super::super::navcom::set_destination_internal_cell(entity, (10, 8), None, 0);
                 let target_fraction = SimFixed::lit("0.375");
                 match kind {
@@ -743,7 +739,7 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                 let (valid, _, track) = retained(entity, kind);
                 assert_eq!(stats.moved_steps, 0, "{kind:?} refused={refused}");
                 assert!(!valid);
-                assert_eq!(track.turn_index, -1);
+                assert_eq!(track.turn_index(), -1);
                 let native_rows: Vec<_> = native["rows"]
                     .as_array()
                     .unwrap()
@@ -766,7 +762,7 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                     assert_eq!(native["track_called"], true);
                     assert_eq!(native["prefix_eligible"], false);
                     assert_eq!(
-                        track.residual,
+                        track.residual(),
                         integer(&native["after"]["residual"]),
                         "{kind:?} refused={refused} before={residual}"
                     );
@@ -922,21 +918,16 @@ fn actual_turn_and_arrival_crush_use_binary_frame_for_both_shield_kinds() {
                     let position = crusher.position;
                     let current = super::super::ground_pose::position_world_coord(&position);
                     let arrival = reason == PerCellReason::Arrival;
-                    set_retained(
-                        crusher,
-                        kind,
-                        arrival,
-                        !arrival,
-                        TrackProgress {
-                            turn_index: if arrival { 0 } else { -1 },
-                            cursor: if arrival {
-                                super::super::drive_track::raw_track_points(1).len() as i32
-                            } else {
-                                0
-                            },
-                            ..Default::default()
-                        },
-                    );
+                    set_retained(crusher, kind, arrival, !arrival, {
+                        let mut value = TrackProgress::default();
+                        value.set_turn_index(if arrival { 0 } else { -1 });
+                        value.set_cursor(if arrival {
+                            super::super::drive_track::raw_track_points(1).len() as i32
+                        } else {
+                            0
+                        });
+                        value
+                    });
                     if arrival {
                         match kind {
                             LocomotorKind::Drive => {

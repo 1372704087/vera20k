@@ -3865,7 +3865,7 @@ mod tests {
                 .and_then(|runtime| runtime.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             0x47
         );
         assert_eq!(
@@ -4078,7 +4078,7 @@ mod tests {
                 .and_then(|runtime| runtime.retained())
                 .unwrap()
                 .track()
-                .turn_index,
+                .turn_index(),
             0x47
         );
         assert_eq!(

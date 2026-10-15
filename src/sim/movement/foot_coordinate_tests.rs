@@ -133,8 +133,8 @@ fn world_queries_match_all_original_foot_coordinate_rows_and_snapshot() {
         if let Some(family) = family {
             let loco = e.locomotor.as_mut().unwrap();
             if let Some(mut track) = loco.track_progress(family) {
-                track.turn_index = input["turn_index"].as_i64().unwrap() as i32;
-                track.cursor = input["cursor"].as_i64().unwrap() as i32;
+                track.set_turn_index(input["turn_index"].as_i64().unwrap() as i32);
+                track.set_cursor(input["cursor"].as_i64().unwrap() as i32);
                 assert!(loco.store_track_progress(family, track));
             }
         }

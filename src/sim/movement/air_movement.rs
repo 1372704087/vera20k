@@ -480,7 +480,7 @@ pub(crate) fn update_fly_height(
             flight_level,
         });
     entity.position.put_z(output.world_z);
-    entity.set_on_bridge(output.on_bridge);
+    entity.on_bridge.store(output.on_bridge);
     output
 }
 

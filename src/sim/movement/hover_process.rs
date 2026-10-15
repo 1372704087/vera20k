@@ -416,7 +416,7 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Result<Arrival, FrameAdvanceError> {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.set_foot_occupation_enabled(true);
+            entity.foot_occupation_enabled.resume();
             entity.navigation.path_runtime.set_path_blocked(false);
             if let Some(hover) = runtime_mut(entity) {
                 hover.pushed = false;
@@ -522,7 +522,7 @@ impl Simulation {
         if release {
             self.track_raw_mark_at(id, location, false);
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.set_foot_occupation_enabled(false);
+                entity.foot_occupation_enabled.suspend();
                 entity.navigation.path_runtime.set_path_blocked(false);
             }
         }
@@ -570,12 +570,8 @@ impl Simulation {
                 };
             let level = cells.ground_fields(entered).0;
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.set_on_bridge(on_bridge);
-                entity
-                    .position
-                    .store_level(super::super::movement_bridge::stored_level(
-                        level, on_bridge,
-                    ));
+                entity.on_bridge.store(on_bridge);
+                entity.position.store_cell_level(level, on_bridge);
             }
         }
         self.foot_mark_put(id, Some(rules), registry, effects);

@@ -333,9 +333,12 @@ pub struct GameEntity {
     /// and of the active/suspended locomotor. Deterministic fixed radians.
     #[serde(default)]
     pub(crate) flight_attitude: crate::sim::movement::fly_height::FlightAttitude,
-    /// Foot+6B6 raw occupation enable; shared by Drive/Ship and world Mark.
-    /// Foot ctor4D344A initializes1; Unit7353CE invokes that base ctor.
-    foot_occupation_enabled: bool,
+    /// The Foot occupation enable (`Foot+0x6B6`), an [`OccupationEnable`]
+    /// that `movement::foot_mark` owns. Unit's constructor (`0x007353CE`)
+    /// runs the Foot one that sets it.
+    ///
+    /// [`OccupationEnable`]: crate::sim::movement::foot_mark::OccupationEnable
+    pub(crate) foot_occupation_enabled: crate::sim::movement::foot_mark::OccupationEnable,
     /// The Magnetron lift's latches and links (Foot `+0x6AD`/`+0x6AE`,
     /// Techno `+0x2AC`/`+0x2B0`), a [`LocomotorLift`] that `locomotor_lift`
     /// owns.
@@ -517,11 +520,12 @@ pub struct GameEntity {
     /// [`DamageFires`]: crate::sim::anim_class::DamageFires
     #[serde(default)]
     pub(crate) damage_fires: crate::sim::anim_class::DamageFires,
-    /// Persistent bridge layer flag — authoritative source for "is this entity on a bridge?"
-    /// Mirrors original engine's FootClass+0x8C. Survives repath operations that reset
-    /// locomotor.layer. Set during spawn, updated at cell-crossing bridge transitions.
+    /// ObjectClass::OnBridge (`Object+0x8C`), an [`OnBridge`] that
+    /// `movement::movement_bridge` owns.
+    ///
+    /// [`OnBridge`]: crate::sim::movement::movement_bridge::OnBridge
     #[serde(default)]
-    on_bridge: bool,
+    pub(crate) on_bridge: crate::sim::movement::movement_bridge::OnBridge,
     /// Runtime-only Foot bridge mismatch latch (`FootClass+0x68b` in YR).
     #[serde(default)]
     pub(crate) runtime_bridge_transition:
@@ -626,8 +630,11 @@ pub struct GameEntity {
     /// an [`AircraftAmmo`] that `docking::aircraft_dock` owns. Present on all
     /// Aircraft, including signed negative native Ammo counts.
     pub(crate) aircraft_ammo: Option<AircraftAmmo>,
-    /// Infantry sub-cell position (0–4). Only meaningful for infantry.
-    sub_cell: Option<u8>,
+    /// The spot an infantryman holds in its cell, an [`InfantrySpot`] cache
+    /// that `movement::foot_mark` owns.
+    ///
+    /// [`InfantrySpot`]: crate::sim::movement::foot_mark::InfantrySpot
+    pub(crate) sub_cell: crate::sim::movement::foot_mark::InfantrySpot,
     /// `Crushable=` and `DeployedCrushable=`, a [`CrushableFacts`] that
     /// construction stamps.
     ///
@@ -992,34 +999,48 @@ impl GameEntity {
         self.in_playfield = in_playfield;
     }
 
-    /// `FootClass+0x8C`, the bridge layer flag; see the field.
+    /// `Object+0x8C`, OnBridge; see the field.
     pub(crate) fn on_bridge(&self) -> bool {
-        self.on_bridge
+        self.on_bridge.get()
     }
 
-    /// Store the bridge layer flag.
+    /// Store OnBridge through [`OnBridge::store`] for fixtures and for the
+    /// writers in `tube_movement`, `movement_tick`, `transport_unload` and
+    /// `parasite`, which call the record's operations once the movement
+    /// change that owns those files lands.
+    ///
+    /// [`OnBridge::store`]: crate::sim::movement::movement_bridge::OnBridge::store
     pub(crate) fn set_on_bridge(&mut self, on_bridge: bool) {
-        self.on_bridge = on_bridge;
+        self.on_bridge.store(on_bridge);
     }
 
-    /// The infantry sub-cell (0–4).
+    /// The spot an infantryman holds in its cell; see the field.
     pub(crate) fn sub_cell(&self) -> Option<u8> {
-        self.sub_cell
+        self.sub_cell.get()
     }
 
-    /// Store the infantry sub-cell.
+    /// Hold `sub_cell`, or release the spot for `None`, for fixtures and for
+    /// the movement files [`Self::set_on_bridge`] names.
     pub(crate) fn set_sub_cell(&mut self, sub_cell: Option<u8>) {
-        self.sub_cell = sub_cell;
+        match sub_cell {
+            Some(spot) => self.sub_cell.hold(spot),
+            None => self.sub_cell.release(),
+        }
     }
 
-    /// `Foot+0x6B6`, the raw occupation enable; see the field.
+    /// `Foot+0x6B6`, the occupation enable; see the field.
     pub(crate) fn foot_occupation_enabled(&self) -> bool {
-        self.foot_occupation_enabled
+        self.foot_occupation_enabled.get()
     }
 
-    /// Store the occupation enable.
+    /// Resume or suspend the occupation enable, for fixtures and for the
+    /// movement files [`Self::set_on_bridge`] names.
     pub(crate) fn set_foot_occupation_enabled(&mut self, enabled: bool) {
-        self.foot_occupation_enabled = enabled;
+        if enabled {
+            self.foot_occupation_enabled.resume();
+        } else {
+            self.foot_occupation_enabled.suspend();
+        }
     }
 
     /// `TechnoClass::ArchiveTarget` (`Techno+0x218`): the base-defence
@@ -1409,7 +1430,8 @@ impl GameEntity {
             navigation: NavigationState::at_frame(construction_frame),
             foot_speed: crate::sim::components::FootSpeedState::default(),
             flight_attitude: Default::default(),
-            foot_occupation_enabled: true,
+            foot_occupation_enabled: crate::sim::movement::foot_mark::OccupationEnable::constructed(
+            ),
             lift: Default::default(),
             drop_credit: Default::default(),
             setter_force_reassign: Default::default(),
@@ -1443,7 +1465,7 @@ impl GameEntity {
             building_has_engineer: Default::default(),
             building_light: Default::default(),
             damage_fires: Default::default(),
-            on_bridge: false,
+            on_bridge: Default::default(),
             runtime_bridge_transition: Default::default(),
             animation: None,
             voxel_animation: None,
@@ -1470,11 +1492,13 @@ impl GameEntity {
             aircraft_ammo: None,
             // Infantry get sub-cell 2 (first distinct position) at spawn so
             // they don't all pile up at cell center when multiple are created.
-            sub_cell: if category == EntityCategory::Infantry {
-                Some(2)
-            } else {
-                None
-            },
+            sub_cell: crate::sim::movement::foot_mark::InfantrySpot::new(
+                if category == EntityCategory::Infantry {
+                    Some(2)
+                } else {
+                    None
+                },
+            ),
             crushable_facts: Default::default(),
             native_crush_immunity: 0,
             mover_facts: Default::default(),
@@ -1709,7 +1733,7 @@ impl GameEntity {
 
     /// Whether this entity is currently on a bridge deck.
     pub fn is_on_bridge_layer(&self) -> bool {
-        self.on_bridge
+        self.on_bridge.get()
     }
 
     /// Create a minimal entity for testing. Fills sensible defaults for most fields.
@@ -1973,7 +1997,7 @@ mod tests {
         assert!(e.barrel_facing.is_none());
         assert!(e.miner.is_none());
         assert!(!e.mega_mission.is_attack_move());
-        assert!(!e.on_bridge);
+        assert!(!e.on_bridge());
         assert!(
             !e.in_playfield,
             "TechnoClass ctor @ 0x006F2F5B initializes +0x3D5 false"

@@ -361,9 +361,9 @@ fn paradrop(
     if flags & BRIDGE_FLAG_STRUCTURAL != 0
         && let Some(rider) = sim.substrate.entities.get_mut(passenger)
     {
-        rider.set_on_bridge(true);
+        rider.on_bridge.store(true);
         if let Some(locomotor) = rider.locomotor.as_mut() {
-            locomotor.set_layer(MovementLayer::Bridge);
+            locomotor.store_ground_layer(true);
         }
     }
     if flags & BRIDGE_FLAG_STRUCTURAL != 0 && flags & BRIDGE_FLAG_TRANSITION == 0 {
@@ -441,7 +441,11 @@ fn paradrop(
         .entities
         .get_mut(passenger)
         .is_some_and(|rider| {
-            rider.set_sub_cell((rider.category() == EntityCategory::Infantry).then_some(spot));
+            if rider.category() == EntityCategory::Infantry {
+                rider.sub_cell.hold(spot);
+            } else {
+                rider.sub_cell.release();
+            }
             rider.passenger_role.clear_carrier_relation();
             rider.on_bridge()
         });

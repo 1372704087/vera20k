@@ -478,7 +478,7 @@ impl Simulation {
             self.object_raw_receiver_at(target, coords, false);
         }
         if let Some(entity) = self.substrate.entities.get_mut(target) {
-            entity.set_foot_occupation_enabled(true);
+            entity.foot_occupation_enabled.resume();
         }
         self.reset_orders_to_guard(target, rules, effects);
         if matches!(

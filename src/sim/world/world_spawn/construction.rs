@@ -14,7 +14,7 @@ use crate::sim::animation::{HarvestOverlay, VoxelAnimation};
 use crate::sim::combat::Health;
 use crate::sim::game_entity::{GameEntity, TechnoConstructorInit};
 use crate::sim::miner::{Miner, MinerConfig, miner_kind_for_object};
-use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
+use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::vision::MAX_SIGHT_RANGE;
 use crate::sim::world::Simulation;
 
@@ -132,7 +132,7 @@ impl Simulation {
         if category == EntityCategory::Infantry {
             match origin {
                 ComponentOrigin::Authored { sub_cell, .. } => {
-                    ge.set_sub_cell(Some(sub_cell));
+                    ge.sub_cell.hold(sub_cell);
                     let (lx, ly) = crate::util::lepton::subcell_lepton_offset(ge.sub_cell());
                     ge.position.put_cell_offset(lx, ly);
                 }
@@ -141,7 +141,7 @@ impl Simulation {
                     // the caller's actual XY/Z and live occupation bytes.
                     // Constructor-held objects reserve no spot and retain
                     // their requested XY until the shared placement boundary.
-                    ge.set_sub_cell(None);
+                    ge.sub_cell.release();
                 }
             }
         }
@@ -293,10 +293,12 @@ fn install_authored_bridge(ge: &mut GameEntity, origin: ComponentOrigin) {
         ..
     } = origin
     {
+        // A map Unit's or Infantry's OnBridge (`UnitClass::Read_INI`
+        // `0x007434F3`, `InfantryClass::Read_INI` `0x0051FDB2`).
         if let Some(loco) = &mut ge.locomotor {
-            loco.set_layer(MovementLayer::Bridge);
+            loco.store_ground_layer(true);
         }
-        ge.set_on_bridge(true);
+        ge.on_bridge.store(true);
     }
 }
 

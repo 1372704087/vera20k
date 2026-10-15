@@ -11,7 +11,7 @@
 use super::infantry_entry::InfantryEntryArgs;
 use super::locomotor::LocomotorState;
 use super::track_process::TrackFamily;
-use super::{MovementTickStats, PerCellReason, movement_bridge, walk_head};
+use super::{MovementTickStats, PerCellReason, walk_head};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::map::retail_trig::TrigTable;
@@ -741,14 +741,14 @@ impl Simulation {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             // VERA's spot and level caches follow the Location: the spot is
             // the one the raw receiver reads from it.
-            actor.set_sub_cell(Some(cell_kernel::infantry_preferred_spot(
+            actor.sub_cell.hold(cell_kernel::infantry_preferred_spot(
                 cell_kernel::CellQueryPoint {
                     x: exit.x,
                     y: exit.y,
                 },
-            )));
-            let stored = movement_bridge::stored_level(level, actor.on_bridge());
-            actor.position.store_level(stored);
+            ));
+            let on_bridge = actor.on_bridge();
+            actor.position.store_cell_level(level, on_bridge);
         }
         self.foot_force_immediate_destination(id, None, Some(rules), registry, effects)?;
         if let Some(locomotor) = self

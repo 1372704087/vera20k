@@ -149,6 +149,8 @@ impl JumpjetFlightHost for CruiseHost<'_> {
     fn on_bridge(&self) -> bool {
         self.owner().on_bridge()
     }
+    /// Update's grounded reset: the raw receiver at the Location, then
+    /// OnBridge cleared (`0x0054D438`).
     fn grounded_reset(&mut self) {
         let location = self.location();
         self.sim.object_raw_receiver_at(
@@ -165,7 +167,8 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .entities
             .get_mut(self.stable_id)
             .unwrap()
-            .set_on_bridge(false);
+            .on_bridge
+            .store(false);
     }
     fn floor_height(&self, xy: [i32; 2]) -> i32 {
         ground_surface_z_at(xy, false, self.terrain(), None).unwrap_or(0)
@@ -594,13 +597,15 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let owner = self.sim.substrate.entities.get_mut(self.stable_id).unwrap();
         owner.drop_credit.forget();
     }
+    /// The crash's OnBridge raise (`0x0054D012`).
     fn set_on_bridge(&mut self) {
         self.sim
             .substrate
             .entities
             .get_mut(self.stable_id)
             .unwrap()
-            .set_on_bridge(true);
+            .on_bridge
+            .store(true);
     }
 }
 

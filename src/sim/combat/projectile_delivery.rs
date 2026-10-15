@@ -119,7 +119,14 @@ pub(super) fn classify_projectile_delivery(
     weapon: &crate::rules::weapon_type::WeaponType,
     rules: &RuleSet,
 ) -> ProjectileDelivery {
-    let projectile = bullet_type(weapon, rules);
+    classify_projectile_type(bullet_type(weapon, rules), weapon.speed, rules)
+}
+
+fn classify_projectile_type(
+    projectile: &crate::rules::projectile_type::ProjectileType,
+    max_speed: i32,
+    rules: &RuleSet,
+) -> ProjectileDelivery {
     // `BulletClass::AI @ 0x004666E0` selects an arm exactly twice: `ROT < 1` at
     // `0x004668D1`, then `Vertical` (`+0x2C0`) at `0x004671D0`. Nothing else
     // participates.
@@ -161,7 +168,7 @@ pub(super) fn classify_projectile_delivery(
             course_frames: 0,
             course_locked: true,
             very_high: projectile.very_high,
-            max_speed: weapon.speed,
+            max_speed,
             acceleration: projectile.acceleration,
             closing_frames: 0,
             closing_accumulator_bits: 0,
@@ -327,11 +334,15 @@ pub(crate) fn admit_fired_bullet(
     bullet_id: u64,
     bullet: FiredBullet,
 ) {
-    let projectile_type = weapon
-        .projectile
-        .as_deref()
-        .and_then(|projectile_id| rules.projectile(projectile_id));
-    let delivery = classify_projectile_delivery(weapon, rules);
+    let projectile_type = bullet
+        .payload
+        .projectile_type()
+        .and_then(|id| rules.projectile(world.interner.resolve(id)));
+    let delivery = classify_projectile_type(
+        projectile_type.unwrap_or_else(|| missing_projectile_fallback()),
+        bullet.max_speed,
+        rules,
+    );
     let spawn = delivery.spawn(&world.substrate.entities, rules, projectile_type, bullet);
     world.admit_projectile(bullet_id, spawn);
     world.construct_bullet_scheme(bullet_id, rules);

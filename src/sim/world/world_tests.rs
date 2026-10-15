@@ -2109,7 +2109,8 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
             payload: crate::sim::projectile::ProjectilePayload::new(
                 10,
                 sim.interner.intern("KillWH"),
-                sim.interner.intern("Gun"),
+                None,
+                false,
             ),
             reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
         };
@@ -2305,7 +2306,8 @@ fn gsi_04_11_bullet_ore_reduction_precedes_outer_crater_anim_start() {
         payload: crate::sim::projectile::ProjectilePayload::new(
             100,
             sim.interner.intern("OREWH"),
-            sim.interner.intern("TestWeapon"),
+            None,
+            false,
         ),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };

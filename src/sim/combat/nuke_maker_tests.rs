@@ -9,8 +9,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::components::DriveCoord;
 use crate::sim::house_state::HouseState;
 use crate::sim::projectile::{
-    ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload, ProjectileTarget,
-    ProjectileTrajectory,
+    ProjectileDetonation, ProjectileDetonationReason, ProjectileTarget, ProjectileTrajectory,
 };
 use crate::sim::world::Simulation;
 use serde_json::Value;
@@ -106,10 +105,12 @@ fn nuke_maker_matches_native() {
             source_id,
             target,
             impact: crate::sim::projectile::ProjectileCoord::new(coords[0], coords[1], coords[2]),
-            payload: ProjectilePayload::new(
+            payload: super::combat_tests::payload_from_weapon(
                 0,
                 sim.interner.intern("NukeMaker"),
                 sim.interner.intern("NukeCarrier"),
+                &rules,
+                &mut sim.interner,
             ),
             reason: ProjectileDetonationReason::ReachedTarget,
         };
@@ -150,7 +151,11 @@ fn nuke_maker_matches_native() {
             "{row}"
         );
         assert_eq!(bullet.payload.base_damage, int(&construct[1]), "{row}");
-        assert_eq!(sim.interner.resolve(bullet.payload.weapon), "NukePayload");
+        assert_eq!(
+            sim.interner
+                .resolve(bullet.payload.installed_weapon().unwrap()),
+            "NukePayload"
+        );
         assert_eq!(sim.interner.resolve(bullet.payload.warhead), "NUKE");
         assert_eq!(
             bullet.trajectory,

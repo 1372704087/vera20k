@@ -90,9 +90,10 @@ pub(crate) fn build_projectile_visual_instances(
         .and_then(|owner| house_colors.get(&owner).copied())
         .unwrap_or(crate::rules::house_colors::NO_REMAP);
     for (_, projectile) in sim.projectiles.iter() {
-        let Some(type_id) = rules
-            .weapon(sim.interner.resolve(projectile.payload.weapon))
-            .and_then(|weapon| weapon.projectile.as_deref())
+        let Some(type_id) = projectile
+            .payload
+            .projectile_type()
+            .map(|id| sim.interner.resolve(id))
         else {
             continue;
         };

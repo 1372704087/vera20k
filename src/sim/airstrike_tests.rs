@@ -37,8 +37,13 @@ impl Fixture {
         let payload = ProjectilePayload::new(
             weapon.damage,
             self.sim.interner.intern(weapon.warhead.as_deref().unwrap()),
-            self.sim.interner.intern("Flare"),
-        );
+            weapon
+                .projectile
+                .as_deref()
+                .map(|name| self.sim.interner.intern(name)),
+            weapon.bright,
+        )
+        .with_installed_weapon(Some(self.sim.interner.intern("Flare")));
         world_receiver::commit_projectiles(
             &mut self.sim,
             &mut world_receiver::ReceiverRun::default(),

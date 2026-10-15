@@ -1431,7 +1431,8 @@ mod tests {
             shot.payload = crate::sim::projectile::ProjectilePayload::new(
                 1,
                 sim.interner.intern("WALLWH"),
-                sim.interner.intern("MISSING"),
+                None,
+                false,
             );
             admit_existing(&mut sim, shot);
             let mut runtime = SimRuntime::from_simulation(sim);
@@ -2015,14 +2016,14 @@ mod tests {
         let mut sim = Simulation::new();
         install_native_size_terrain(&mut sim, 2, 3);
         let mut shot = gsi_05_02_projectile(999, None);
-        // The supplied motion fixture has no WeaponType, but the live Bullet
-        // header still resolves its retained weapon before checking Trailer.
-        // Keep that absent type represented by a valid Simulation-owned ID.
+        // The supplied motion fixture has no BulletType or installed weapon.
+        // Its warhead still uses a valid Simulation-owned symbol.
         let missing = sim.interner.intern("MISSING");
         shot.payload = crate::sim::projectile::ProjectilePayload::new(
             shot.payload.base_damage,
             missing,
-            missing,
+            None,
+            false,
         );
         shot.origin = ProjectileCoord::new(640, 640, 5);
         shot.target = ProjectileTarget::Cell { rx: 5, ry: 2 };
@@ -2121,7 +2122,8 @@ mod tests {
         shot.payload = crate::sim::projectile::ProjectilePayload::new(
             1,
             sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSING"),
+            None,
+            false,
         );
         admit_existing(&mut sim, shot);
         let mut runtime = SimRuntime::from_simulation(sim);
@@ -2176,7 +2178,8 @@ mod tests {
         shot.payload = crate::sim::projectile::ProjectilePayload::new(
             1,
             sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSING"),
+            None,
+            false,
         );
         admit_existing(&mut sim, shot);
         let mut runtime = SimRuntime::from_simulation(sim);

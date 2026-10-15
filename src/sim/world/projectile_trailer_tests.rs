@@ -130,7 +130,7 @@ fn counts(sim: &Simulation) -> Value {
         "pending":sim.substrate.pending_delete.len()})
 }
 
-fn scene(row: &Value, terminal: bool) -> (Simulation, u64) {
+fn scene(row: &Value, terminal: bool, rules: &RuleSet) -> (Simulation, u64) {
     let mut sim = Simulation::with_seed(31);
     sim.main_rng = SimRng::new(31).into();
     sim.scenario_rng = SimRng::new(31);
@@ -152,8 +152,15 @@ fn scene(row: &Value, terminal: bool) -> (Simulation, u64) {
     let payload = ProjectilePayload::new(
         0,
         sim.interner.intern("AP"),
-        sim.interner.intern("SubTorpedo"),
-    );
+        rules
+            .weapon("SubTorpedo")
+            .unwrap()
+            .projectile
+            .as_deref()
+            .map(|name| sim.interner.intern(name)),
+        rules.weapon("SubTorpedo").unwrap().bright,
+    )
+    .with_installed_weapon(Some(sim.interner.intern("SubTorpedo")));
     // Supplied header state, not a second launch implementation. A missing
     // target expires in the terminal control without unrelated damage effects.
     let spawn = ProjectileSpawn {
@@ -202,7 +209,7 @@ fn projectile_trailer_retail_constructor_rng_and_complete_lifetime_match_native(
         let Some(rules) = bound_retail_rules(row["supplied"]["random_rate"].as_str()) else {
             return;
         };
-        let (mut sim, bullet) = scene(row, false);
+        let (mut sim, bullet) = scene(row, false, &rules);
         sim.object_ai_visit_one_with_effects(bullet, Some(&rules), ObjectAiCtx::default());
         let bubble = only_bubble(&sim);
         assert_eq!(
@@ -282,7 +289,7 @@ fn projectile_trailer_is_registered_before_terminal_logic_compaction() {
     let corpus = native();
     let row = case(&corpus, "stock_lifetime");
     for terminal in [false, true] {
-        let (mut sim, bullet) = scene(row, terminal);
+        let (mut sim, bullet) = scene(row, terminal, &rules);
         // Existing live tail shares production ObjectAI, append and compacting
         // removal. Header corpus does not execute the complete native Logic loop;
         // its ordering rests on 55B613 / 55BAE0 instruction-level evidence.
@@ -331,7 +338,7 @@ fn projectile_trailer_save_load_preserves_live_and_pending_cleanup_boundaries() 
     };
     let corpus = native();
     let row = case(&corpus, "stock_lifetime");
-    let (mut sim, bullet) = scene(row, false);
+    let (mut sim, bullet) = scene(row, false, &rules);
     sim.object_ai_visit_one_with_effects(bullet, Some(&rules), ObjectAiCtx::default());
     let bubble = only_bubble(&sim);
     // Persist both live, then a Bullet already UnInit but not yet drained.

@@ -36,7 +36,7 @@ fn projectile(source_id: u64) -> ProjectileSpawn {
         origin: ProjectileCoord::new(0, 0, 0),
         target: ProjectileTarget::Cell { rx: 2, ry: 0 },
         initial_target_position: ProjectileCoord::new(512, 0, 0),
-        payload: ProjectilePayload::new(10, InternedId::from_index(0), InternedId::from_index(0)),
+        payload: ProjectilePayload::new(10, InternedId::from_index(0), None, false),
         speed_leptons_per_frame: 64,
         velocity: ProjectileVelocity::new(64, 0, 0),
         trajectory: ProjectileTrajectory::Straight,

@@ -89,8 +89,10 @@ fn detonation(sim: &mut Simulation, input: &Value) -> ProjectileDetonation {
         payload: ProjectilePayload::new(
             input["damage"].as_i64().unwrap() as i32,
             sim.interner.intern("WH"),
-            sim.interner.intern("SHOT"),
-        ),
+            Some(sim.interner.intern("SHELL")),
+            false,
+        )
+        .with_installed_weapon(Some(sim.interner.intern("SHOT"))),
         reason: ProjectileDetonationReason::ReachedTarget,
     }
 }

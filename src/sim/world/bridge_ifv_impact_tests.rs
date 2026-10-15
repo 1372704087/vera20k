@@ -215,8 +215,15 @@ fn native_ifv_bridge_impact_orders_live_selection_debris_ids_and_rng() {
         let payload = ProjectilePayload::new(
             rules.weapon("HoverMissile").unwrap().damage,
             world.interner.intern("HE"),
-            world.interner.intern("HoverMissile"),
-        );
+            rules
+                .weapon("HoverMissile")
+                .unwrap()
+                .projectile
+                .as_deref()
+                .map(|name| world.interner.intern(name)),
+            rules.weapon("HoverMissile").unwrap().bright,
+        )
+        .with_installed_weapon(Some(world.interner.intern("HoverMissile")));
         let target = ProjectileTarget::Cell { rx: 10, ry: 20 };
         let stable_id = world.allocate_stable_id();
         // Only retained location/OnBridge and payload are read by this handoff.

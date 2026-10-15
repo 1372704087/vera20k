@@ -5151,7 +5151,8 @@ pub(super) fn gsi_05_02_projectile(source_id: u64, fuse_frames: Option<u16>) -> 
         payload: ProjectilePayload::new(
             1,
             crate::sim::intern::InternedId::from_index(0),
-            crate::sim::intern::InternedId::from_index(0),
+            None,
+            false,
         ),
         speed_leptons_per_frame: 64,
         velocity: ProjectileVelocity::new(64, 0, 0),
@@ -5198,11 +5199,7 @@ fn persistent_bullet_logic_slot_publishes_native_wall_dirty_visits() {
         spawn.origin = impact;
         spawn.target = ProjectileTarget::Cell { rx: 5, ry: 5 };
         spawn.initial_target_position = impact;
-        spawn.payload = ProjectilePayload::new(
-            1,
-            sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        );
+        spawn.payload = ProjectilePayload::new(1, sim.interner.intern("WALLWH"), None, false);
         sim.admit_projectile(projectile_id, spawn);
 
         assert!(sim.object_ai_visit_one(
@@ -5386,11 +5383,7 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
         } else {
             None
         };
-        shot.payload = ProjectilePayload::new(
-            1,
-            sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        );
+        shot.payload = ProjectilePayload::new(1, sim.interner.intern("WALLWH"), None, false);
         let id = sim.allocate_stable_id();
         sim.admit_projectile(id, shot);
         // The native control supplies an in-flight OLD-height boundary.
@@ -6203,11 +6196,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         source_id: crate::sim::combat::RAD_NO_ATTACKER,
         target: ProjectileTarget::Entity(victim_id),
         impact: ProjectileCoord::new(5 * 256 + 128, 6 * 256 + 128, 0),
-        payload: ProjectilePayload::new(
-            10,
-            sim.interner.intern("KILLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        ),
+        payload: ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };
     let logic_order = sim.live_object_order_snapshot();
@@ -6343,11 +6332,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         source_id: crate::sim::combat::RAD_NO_ATTACKER,
         target: ProjectileTarget::Entity(building_id),
         impact: ProjectileCoord::new(8 * 256 + 128, 8 * 256 + 128, 0),
-        payload: ProjectilePayload::new(
-            10,
-            sim.interner.intern("KILLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        ),
+        payload: ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };
     let logic_order = sim.live_object_order_snapshot();
@@ -6981,11 +6966,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     spawn.origin = impact;
     spawn.target = ProjectileTarget::Entity(victim_id);
     spawn.initial_target_position = impact;
-    spawn.payload = ProjectilePayload::new(
-        10,
-        sim.interner.intern("KILLWH"),
-        sim.interner.intern("MISSINGWEAPON"),
-    );
+    spawn.payload = ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false);
     sim.admit_projectile(projectile_id, spawn);
     // Supply an already-arrived impact boundary for the lethal transaction;
     // native launch-floor placement is covered by projectile_trailer tests.

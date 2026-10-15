@@ -135,7 +135,9 @@ impl AegisScene {
         assert_eq!(emitted.fire_events.len(), 1);
         let bullet = self.world.projectiles.get(id).unwrap();
         assert_eq!(
-            self.world.interner.resolve(bullet.payload.weapon),
+            self.world
+                .interner
+                .resolve(bullet.payload.installed_weapon().unwrap()),
             expected_weapon
         );
         assert_eq!(bullet.source_id, self.aegis);

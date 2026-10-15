@@ -70,6 +70,7 @@ fn nuke_spawn(
     interner: &mut StringInterner,
     warhead: &str,
     origin: ProjectileCoord,
+    weapon: Option<&crate::rules::weapon_type::WeaponType>,
 ) -> ProjectileSpawn {
     let target = ProjectileCoord::new(origin.x + 10 * 256, origin.y, origin.z);
     ProjectileSpawn {
@@ -86,8 +87,12 @@ fn nuke_spawn(
         payload: ProjectilePayload::new(
             600,
             interner.intern(warhead),
-            interner.intern("NukePayload"),
-        ),
+            weapon
+                .and_then(|weapon| weapon.projectile.as_deref())
+                .map(|name| interner.intern(name)),
+            weapon.is_some_and(|weapon| weapon.bright),
+        )
+        .with_installed_weapon(weapon.map(|weapon| interner.intern(&weapon.id))),
         speed_leptons_per_frame: 64,
         velocity: ProjectileVelocity::new(64, 0, 0),
         trajectory: ProjectileTrajectory::Straight,
@@ -142,7 +147,12 @@ fn impact_matches_native() {
         let mut store = ProjectileStore::new();
         let id = store.spawn(
             1,
-            nuke_spawn(&mut interner, row["warhead"].as_str().unwrap(), location),
+            nuke_spawn(
+                &mut interner,
+                row["warhead"].as_str().unwrap(),
+                location,
+                None,
+            ),
         );
         store.get_mut(id).unwrap().on_bridge = row["on_bridge"].as_bool().unwrap();
         let nuke_ball = || super::nuke::nuke_ball_type(&rules);
@@ -201,7 +211,12 @@ fn impact_effects_match_native() {
         compared += 1;
         let location = coord(&row["location_after"]);
         let id = sim.allocate_stable_id();
-        let spawn = nuke_spawn(&mut sim.interner, "NUKE", location);
+        let spawn = nuke_spawn(
+            &mut sim.interner,
+            "NUKE",
+            location,
+            rules.weapon("NukePayload"),
+        );
         sim.projectiles.spawn(id, spawn);
         sim.session.binary_frame = 4000;
         sim.session.lighting = ScenarioLightingState::default();
@@ -336,7 +351,7 @@ fn wait_matches_native() {
             let mut interner = StringInterner::new();
             let mut store = ProjectileStore::new();
             let at = ProjectileCoord::new(2660, 3122, 1000);
-            let id = store.spawn(1, nuke_spawn(&mut interner, "NUKE", at));
+            let id = store.spawn(1, nuke_spawn(&mut interner, "NUKE", at, None));
             let anim_live = |id: AnimId| live && id == anim;
             let context = NukeImpactContext::new(&interner, &|| true);
             let dummy = SharedCellDummy::fresh();
@@ -667,7 +682,12 @@ fn run_until(
 fn bullets_of<'a>(sim: &'a Simulation, weapon: &str) -> Vec<(u64, &'a Projectile)> {
     sim.projectiles
         .iter()
-        .filter(|(_, bullet)| sim.interner.resolve(bullet.payload.weapon) == weapon)
+        .filter(|(_, bullet)| {
+            bullet
+                .payload
+                .installed_weapon()
+                .is_some_and(|id| sim.interner.resolve(id) == weapon)
+        })
         .map(|(&id, bullet)| (id, bullet))
         .collect()
 }
@@ -971,7 +991,7 @@ fn retail_nuke_wait_and_flash_survive_save_and_load() {
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let at = ProjectileCoord::new(8 * 256 + 128, 8 * 256 + 128, 0);
     let id = sim.allocate_stable_id();
-    let spawn = nuke_spawn(&mut sim.interner, "NUKE", at);
+    let spawn = nuke_spawn(&mut sim.interner, "NUKE", at, rules.weapon("NukePayload"));
     sim.admit_projectile(id, spawn);
     // The impact as `BulletClass::AI` takes it, then five frames of the wait.
     let context = NukeImpactContext::new(&sim.interner, &|| true);

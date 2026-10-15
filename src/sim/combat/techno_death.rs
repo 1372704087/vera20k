@@ -131,12 +131,21 @@ pub(crate) fn death_weapon_detonation(
     );
     let (damage, warhead, weapon) =
         fire_death_weapon_payload(rules, object, current_weapon, &mut world.interner)?;
+    let kind = rules.weapon(world.interner.resolve(weapon))?;
     Some(ProjectileDetonation {
         projectile_id: id,
         source_id: id,
         target: ProjectileTarget::Entity(id),
         impact: ProjectileCoord::new(impact.x, impact.y, impact.z),
-        payload: ProjectilePayload::new(damage, warhead, weapon),
+        payload: ProjectilePayload::new(
+            damage,
+            warhead,
+            kind.projectile
+                .as_deref()
+                .map(|id| world.interner.intern(id)),
+            kind.bright,
+        )
+        .with_installed_weapon(Some(weapon)),
         reason: crate::sim::projectile::ProjectileDetonationReason::DeathWeapon,
     })
 }

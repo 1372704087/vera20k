@@ -623,11 +623,6 @@ pub struct AnimStore {
     /// Which anims may have changed since [`Self::take_touched`]. Transient:
     /// never saved, compared or hashed.
     touched: TouchLog,
-    /// Derived `(bullet, anim)` pairs of the anims whose `+0x17C` names a
-    /// bullet, so a bullet's expiry finds them without a scan. Written with
-    /// that field, rebuilt from the anims on load and clone; never saved,
-    /// compared or hashed.
-    bullet_links: std::collections::BTreeSet<(u64, AnimId)>,
 }
 
 impl AnimStore {
@@ -644,12 +639,7 @@ impl AnimStore {
 
     pub(crate) fn insert(&mut self, object: AnimObject) -> Option<AnimObject> {
         self.touched.note(object.stable_id, self.anims.len());
-        if let Some(bullet) = object.attached_bullet {
-            self.bullet_links.insert((bullet, object.stable_id));
-        }
-        let replaced = self.anims.insert(object.stable_id, object);
-        self.unlink_bullet(replaced.as_ref());
-        replaced
+        self.anims.insert(object.stable_id, object)
     }
 
     pub(crate) fn remove(&mut self, id: AnimId) -> Option<AnimObject> {
@@ -657,56 +647,22 @@ impl AnimStore {
         if removed.is_some() {
             self.touched.note(id, self.anims.len());
         }
-        self.unlink_bullet(removed.as_ref());
         removed
     }
 
-    /// Drop the index pair of an anim that left the store or was replaced.
-    fn unlink_bullet(&mut self, gone: Option<&AnimObject>) {
-        if let Some(anim) = gone
-            && let Some(bullet) = anim.attached_bullet
-            && self
-                .anims
-                .get(&anim.stable_id)
-                .map(|kept| kept.attached_bullet)
-                != Some(Some(bullet))
-        {
-            self.bullet_links.remove(&(bullet, anim.stable_id));
-        }
-    }
-
-    /// Store `+0x17C` for `id` and keep the index with it.
+    /// Store the independently owned attached-Bullet pointer (+0x17C).
     fn set_attached_bullet(&mut self, id: AnimId, bullet: Option<u64>) -> bool {
         let Some(anim) = self.get_mut(id) else {
             return false;
         };
-        let previous = std::mem::replace(&mut anim.attached_bullet, bullet);
-        if let Some(previous) = previous {
-            self.bullet_links.remove(&(previous, id));
-        }
-        if let Some(bullet) = bullet {
-            self.bullet_links.insert((bullet, id));
-        }
+        anim.attached_bullet = bullet;
         true
     }
 
-    /// The anims whose `+0x17C` names `bullet`, in id order.
-    fn attached_to(&self, bullet: u64) -> Vec<AnimId> {
-        self.bullet_links
-            .range((bullet, AnimId::MIN)..=(bullet, AnimId::MAX))
-            .map(|&(_, id)| id)
-            .collect()
-    }
-
-    fn with_links(anims: BTreeMap<AnimId, AnimObject>) -> Self {
-        let bullet_links = anims
-            .values()
-            .filter_map(|anim| Some((anim.attached_bullet?, anim.stable_id)))
-            .collect();
+    fn from_anims(anims: BTreeMap<AnimId, AnimObject>) -> Self {
         Self {
             anims,
             touched: TouchLog::everything(),
-            bullet_links,
         }
     }
 
@@ -740,7 +696,7 @@ impl AnimStore {
 
 impl Default for AnimStore {
     fn default() -> Self {
-        Self::with_links(BTreeMap::new())
+        Self::from_anims(BTreeMap::new())
     }
 }
 
@@ -748,7 +704,7 @@ impl Clone for AnimStore {
     /// A clone starts with an everything-touched log: whatever was derived
     /// from the original says nothing certain about the copy's future.
     fn clone(&self) -> Self {
-        Self::with_links(self.anims.clone())
+        Self::from_anims(self.anims.clone())
     }
 }
 
@@ -779,7 +735,7 @@ impl<'de> Deserialize<'de> for AnimStore {
         #[serde(rename = "AnimStore")]
         struct Saved(BTreeMap<AnimId, AnimObject>);
         let Saved(anims) = Saved::deserialize(deserializer)?;
-        Ok(Self::with_links(anims))
+        Ok(Self::from_anims(anims))
     }
 }
 
@@ -1878,7 +1834,7 @@ impl Simulation {
     /// coordinate is returned as-is. Native cannot produce that state —
     /// `AnimClass::Detach @ 0x00425150` runs from the owner's own uninit, via
     /// `ObjectClass::Detach_From_All_Lists`, before the pointer can dangle, and
-    /// this engine mirrors it in `expire_anim_owner_reference`. The fallback
+    /// this engine mirrors it in `anim_pointer_expired`. The fallback
     /// exists so every caller agrees on one behaviour instead of one panicking
     /// and another silently dropping the anim; treating a dangling owner as no
     /// owner is also the only reading under which the stored coordinate means
@@ -1924,6 +1880,7 @@ impl Simulation {
     /// Anim PointerExpired425150 removes Display, calls owner+60, clears +CC,
     /// sets +19B and Mark(REMOVE). Stored relative coordinates remain unchanged.
     /// Normal SetOwner(NULL) would instead convert and potentially resubmit.
+    /// Its independent attached-Bullet arm clears +17C before UnInit (4251AD).
     /// Native comparisons: tools/spatial_oracle/display_anim_owner.json.
     ///
     /// Residual: native AI checks +19B at42435F after looping-sound, bounce and
@@ -1932,19 +1889,35 @@ impl Simulation {
     /// Owner expiry during combat therefore still needs that prefix audit when
     /// its missing effects land. Occupied-cell424358 and animated-tiberium424427
     /// writers of +19B remain unported. No claim of complete Anim AI parity.
-    pub(crate) fn expire_anim_owner_reference(&mut self, id: AnimId, expired_id: u64) -> bool {
-        if self.anim(id).and_then(|anim| anim.owner_entity) != Some(expired_id) {
-            return false;
+    pub(crate) fn anim_pointer_expired(
+        &mut self,
+        id: AnimId,
+        expired_id: u64,
+        rules: Option<&RuleSet>,
+    ) -> bool {
+        let mut changed = false;
+        if self.anim(id).and_then(|anim| anim.owner_entity) == Some(expired_id) {
+            self.lifecycle_outputs
+                .push(LifecycleOutput::DisplayRemove { stable_id: id });
+            self.substrate.display.remove(id);
+            self.release_anim_owner_reference(id);
+            self.mark_anim_display(id, false);
+            if let Some(anim) = self.anim_mut_by_id(id) {
+                anim.runtime.inactive = true;
+            }
+            changed = true;
         }
-        self.lifecycle_outputs
-            .push(LifecycleOutput::DisplayRemove { stable_id: id });
-        self.substrate.display.remove(id);
-        self.release_anim_owner_reference(id);
-        self.mark_anim_display(id, false);
-        if let Some(anim) = self.anim_mut_by_id(id) {
-            anim.runtime.inactive = true;
+        // Independent later +17C arm4251AD..4251C8. Clear before UnInit;
+        // the owner arm above does not suppress this callback.
+        if self
+            .anim(id)
+            .is_some_and(|anim| anim.attached_bullet == Some(expired_id))
+        {
+            self.substrate.anims.set_attached_bullet(id, None);
+            self.destroy_anim_with_context(id, rules);
+            changed = true;
         }
-        true
+        changed
     }
 
     pub(crate) fn set_anim_frame_and_z_adjust(&mut self, id: AnimId, frame: i32, z_adjust: i32) {
@@ -2035,21 +2008,6 @@ impl Simulation {
     /// `0x00424C90`: store `+0x17C`, the bullet whose expiry ends the anim.
     pub(crate) fn set_anim_attached_bullet(&mut self, id: AnimId, bullet: Option<u64>) -> bool {
         self.substrate.anims.set_attached_bullet(id, bullet)
-    }
-
-    /// `AnimClass::PointerExpired @ 0x00425150`'s `+0x17C` arm for a bullet
-    /// leaving the game: each anim holding it clears the link and UnInits
-    /// (`0x004251BE..0x004251D2`, vt+0xF8). Every producer attaches one anim
-    /// per bullet, so the listener order the broadcast visits them in has no
-    /// effect.
-    ///
-    /// The `+0x180` arm (the owning House expiring) is dormant: a House is
-    /// never deleted during a match.
-    pub(crate) fn expire_anim_attached_bullet(&mut self, bullet: u64, rules: Option<&RuleSet>) {
-        for id in self.substrate.anims.attached_to(bullet) {
-            self.substrate.anims.set_attached_bullet(id, None);
-            self.destroy_anim_with_context(id, rules);
-        }
     }
 
     /// `0x0043B4C0`, the test `AnimClass::AI` runs every frame for an anim
@@ -3295,7 +3253,7 @@ mod tests {
                         owner.position.set_exact_z_leptons_for_test(Some(700));
                     }
                     "expire" => {
-                        assert!(sim.expire_anim_owner_reference(id, owner_id));
+                        assert!(sim.anim_pointer_expired(id, owner_id, None));
                     }
                     other => panic!("unexpected {other}"),
                 }
@@ -4981,7 +4939,7 @@ mod tests {
         sim.set_anim_owner_object(anim_id, Some(building_id), &rules);
         assert_eq!(sim.anim(anim_id).unwrap().owner_entity, Some(building_id));
 
-        assert!(sim.expire_anim_owner_reference(anim_id, building_id));
+        assert!(sim.anim_pointer_expired(anim_id, building_id, None));
         assert_eq!(
             sim.substrate
                 .entities
@@ -5012,6 +4970,26 @@ mod tests {
         );
         assert!(!sim.live_object_order_snapshot().contains(&anim_id));
         assert_eq!(sim.substrate.pending_delete.object_ids(), vec![anim_id]);
+    }
+
+    #[test]
+    fn pointer_expiry_runs_owner_and_attached_bullet_arms_independently() {
+        let (mut sim, rules, owner) = damage_fire_fixture(false);
+        let fire_type = sim.interner.get("FIRE01").unwrap();
+        let anim = sim
+            .spawn_anim_object(&rules, runtime_descriptor(fire_type, 0))
+            .unwrap();
+        sim.set_anim_owner_object(anim, Some(owner), &rules);
+        sim.set_anim_attached_bullet(anim, Some(owner));
+        // Pointer fields are independently compared at425164 and4251AD;
+        // clearing the owner must not skip attached-Bullet UnInit.
+        assert!(sim.anim_pointer_expired(anim, owner, Some(&rules)));
+        let object = sim.anim(anim).unwrap();
+        assert_eq!(object.owner_entity, None);
+        assert_eq!(object.attached_bullet(), None);
+        assert!(object.runtime.inactive);
+        assert!(!object.in_logic_vector);
+        assert!(sim.substrate.pending_delete.contains_object(&anim));
     }
 
     #[test]

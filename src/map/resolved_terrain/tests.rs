@@ -714,7 +714,7 @@ fn projectile_level_uses_loaded_theater_interval_through_runtime() {
                 origin: ProjectileCoord::new(896, 896, 500),
                 target: ProjectileTarget::None,
                 initial_target_position: ProjectileCoord::new(1408, 896, 0),
-                payload: ProjectilePayload::new(0, key, key),
+                payload: ProjectilePayload::new(0, key, None, false),
                 speed_leptons_per_frame: 16,
                 velocity: ProjectileVelocity::new(16, 0, 0),
                 trajectory: ProjectileTrajectory::Ballistic,

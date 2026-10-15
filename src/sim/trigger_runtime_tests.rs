@@ -2674,7 +2674,8 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
             payload: ProjectilePayload::new(
                 40,
                 crate::sim::intern::InternedId::from_index(0),
-                crate::sim::intern::InternedId::from_index(0),
+                None,
+                false,
             ),
             speed_leptons_per_frame: 64,
             velocity: crate::sim::projectile::ProjectileVelocity::new(64, 0, 0),

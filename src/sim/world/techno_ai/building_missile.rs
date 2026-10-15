@@ -203,8 +203,13 @@ fn launch_missile(
     let payload = ProjectilePayload::new(
         weapon.damage,
         sim.interner.intern(&warhead.id),
-        sim.interner.intern(&weapon.id),
-    );
+        weapon
+            .projectile
+            .as_deref()
+            .map(|id| sim.interner.intern(id)),
+        weapon.bright,
+    )
+    .with_installed_weapon(Some(sim.interner.intern(&weapon.id)));
     if let Some(bullet) = FiredBullet::launched(
         sim,
         native_unique_id,

@@ -228,11 +228,7 @@ fn immediate_bullet_commits_before_return_with_its_original_sound_order() {
     spawn.origin = impact;
     spawn.target = ProjectileTarget::Entity(victim);
     spawn.initial_target_position = impact;
-    spawn.payload = ProjectilePayload::new(
-        40,
-        sim.interner.intern("AP"),
-        sim.interner.intern("CoilBolt"),
-    );
+    spawn.payload = ProjectilePayload::new(40, sim.interner.intern("AP"), None, false);
     sim.admit_projectile(projectile, spawn);
     // Supply the already-arrived Bullet AI boundary: this consequence-order
     // fixture detonates at the receiver, after native launch placement.

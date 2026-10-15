@@ -1866,15 +1866,13 @@ struct MapEffectObservation {
 impl MapEffectObservation {
     fn capture(
         sim: &crate::sim::world::Simulation,
-        rules: &crate::rules::ruleset::RuleSet,
+        _rules: &crate::rules::ruleset::RuleSet,
         profile: &MapCaptureProfile,
     ) -> Result<Self> {
         let projectiles = (profile.observe_projectiles == Some(true)).then(|| {
             sim.projectiles.iter().take(MAX_OBSERVATION_SAMPLES + 1).map(|(&id, bullet)| {
-                let weapon = sim.interner.resolve(bullet.payload.weapon);
-                // Bullet retains its Weapon identity; the immutable RuleSet
-                // resolves its Projectile type for the existing draw path too.
-                let type_id = rules.weapon(weapon).and_then(|weapon| weapon.projectile.as_deref());
+                let weapon = bullet.payload.installed_weapon().map(|id| sim.interner.resolve(id));
+                let type_id = bullet.payload.projectile_type().map(|id| sim.interner.resolve(id));
                 json!({"stable_id": id, "native_id": bullet.native_unique_id,
                     "weapon": weapon, "type_id": type_id, "source_id": bullet.source_id,
                     "physical_leptons": [bullet.position.x, bullet.position.y, bullet.position.z],

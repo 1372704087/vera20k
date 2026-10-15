@@ -826,11 +826,12 @@ fn retail_computer_house_nukes_the_enemy_construction_yard() {
     for _ in 0..30 {
         let commands = sim.take_due_commands();
         sim.advance_tick(&commands, Some(&rules), None, None, 33);
-        if sim
-            .projectiles
-            .iter()
-            .any(|(_, bullet)| sim.interner.resolve(bullet.payload.weapon) == "NukeCarrier")
-        {
+        if sim.projectiles.iter().any(|(_, bullet)| {
+            bullet
+                .payload
+                .installed_weapon()
+                .is_some_and(|id| sim.interner.resolve(id) == "NukeCarrier")
+        }) {
             carrier = true;
             break;
         }

@@ -14,10 +14,7 @@ use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::{FrameEffects, Simulation};
 
 fn retail_rules() -> Option<RuleSet> {
-    let (rules_ini, art_ini) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
-    Some(rules)
+    Some(crate::rules::retail_ini_fixture::retail_battle_rules()?.rules)
 }
 
 /// The flat arena: `Americans` (human) field the Magnetron, `Russians`
@@ -224,13 +221,38 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
         }),
         "the tank is pulled over the Unit"
     );
-    move_away(&mut sim, magnetron);
+    assert!(rules.combat_damage.current_strength_damage);
+    assert_eq!(rules.combat_damage.falling_damage_multiplier, 1.0);
+    let falling_damage = entity(&sim, tank).health.current();
+    let death_weapon = rules
+        .weapon(rules.combat_damage.death_weapon.as_deref().unwrap())
+        .unwrap();
     assert!(
-        run_until(&mut sim, &rules, &grid, 400, |sim| {
-            !sim.substrate.entities.contains(tank)
-        }),
-        "the tank crashes onto the Unit"
+        !death_weapon.bright,
+        "the drop overrides the stock weapon's dark default"
     );
+    sim.clear_lifecycle_test_events_for_test();
+    move_away(&mut sim, magnetron);
+    let mut impact_lights = None;
+    for _ in 0..400 {
+        let commands = sim.take_due_commands();
+        let frame = sim
+            .advance_app_frame(
+                &commands,
+                Some(&rules),
+                None,
+                33,
+                crate::sim::world::TickLane::Ordinary,
+                None,
+                FrameEffects::default(),
+            )
+            .expect("admitted drop frame");
+        if !sim.substrate.entities.contains(tank) {
+            impact_lights = Some(frame.combat_lights);
+            break;
+        }
+    }
+    let impact_lights = impact_lights.expect("the tank crashes onto the Unit");
     assert!(
         entity(&sim, below).health.current() < below_health,
         "the fall hurts the Unit below"
@@ -240,6 +262,180 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
         kills + 2,
         "the bullet and the drop's credit each book the kill"
     );
+    // Unit746275/74631F pass Bright1 independently of the installed weapon
+    // (which remains null). Detonate469BD6..469C41 emits forced lights at
+    // the existing Inviso-scattered impact coordinates, in Crush/C4 order.
+    let falling_lights: Vec<_> = impact_lights
+        .iter()
+        .filter_map(|light| match light {
+            crate::sim::combat::CombatLightRequest::Impact {
+                target_id,
+                damage,
+                warhead_ref,
+                coord,
+                force_create,
+                flags,
+            } if [
+                rules.bridge_warheads.crush_name.as_str(),
+                rules.bridge_warheads.c4_name.as_str(),
+            ]
+            .contains(&sim.interner.resolve(*warhead_ref)) =>
+            {
+                Some((
+                    *target_id,
+                    *damage,
+                    sim.interner.resolve(*warhead_ref),
+                    *coord,
+                    *force_create,
+                    *flags,
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        falling_lights.len(),
+        2,
+        "both direct falling bullets force a combat flash"
+    );
+    // State5_Crash54CAFE..54CBC2 retains the last downward step before
+    // testing GetHeight<=0; this scene crosses the floor at Z=-1. The
+    // first Unit7462B5 impact subtracts GetHeight (so Z=0), whereas the
+    // second74631A uses retained GetCoords. Inviso49F420 scatters only XY.
+    for (light, (warhead, impact_z)) in falling_lights.iter().zip([
+        (rules.bridge_warheads.crush_name.as_str(), 0),
+        (rules.bridge_warheads.c4_name.as_str(), -1),
+    ]) {
+        assert_eq!(light.0, None);
+        assert_eq!(light.1, falling_damage);
+        assert_eq!(light.2, warhead);
+        assert!((light.3.x - (13 * 256 + 128)).abs() <= 32);
+        assert!((light.3.y - (16 * 256 + 128)).abs() <= 32);
+        assert_eq!(light.3.z, impact_z);
+        assert!(light.4);
+        assert_eq!(light.5, 0, "stock Crush/Super disable no light channels");
+    }
+    assert_drop_bullet_lifetimes(&sim, &rules, tank, magnetron, falling_damage);
+    assert!(sim.radiation.is_empty());
+}
+
+fn assert_drop_bullet_lifetimes(
+    sim: &Simulation,
+    rules: &RuleSet,
+    tank: u64,
+    source: u64,
+    damage: i32,
+) {
+    use crate::sim::projectile::{ProjectileCoord, ProjectileTarget};
+    use crate::sim::world::LifecycleTestEvent;
+    let events = sim.lifecycle_test_events_for_test();
+    let births: Vec<_> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            if let LifecycleTestEvent::UnfiredProjectileConstructed {
+                stable_id,
+                native_id,
+                source_id,
+                target,
+                payload,
+                position,
+                in_logic,
+                in_display,
+            } = event
+            {
+                if *target == ProjectileTarget::Entity(tank) {
+                    return Some((
+                        index,
+                        *stable_id,
+                        *native_id,
+                        *source_id,
+                        *payload,
+                        *position,
+                        *in_logic,
+                        *in_display,
+                    ));
+                }
+            }
+            None
+        })
+        .collect();
+    assert_eq!(
+        births.len(),
+        2,
+        "each falling damage call constructs its own Bullet"
+    );
+    for (birth, warhead) in births.iter().zip([
+        &rules.bridge_warheads.crush_name,
+        &rules.bridge_warheads.c4_name,
+    ]) {
+        assert_eq!(birth.3, source);
+        assert_eq!(birth.4.base_damage, damage);
+        assert_eq!(sim.interner.resolve(birth.4.warhead), warhead);
+        assert_eq!(
+            sim.interner.resolve(birth.4.projectile_type().unwrap()),
+            "Invisible"
+        );
+        assert!(birth.4.bright());
+        assert_eq!(birth.4.installed_weapon(), None);
+        assert_eq!(birth.5, ProjectileCoord::new(0, 0, 0));
+        assert!(
+            !birth.6 && !birth.7,
+            "constructor does not Fire or enter Logic/Display"
+        );
+        assert_ne!(birth.1, tank);
+        assert!(sim.projectiles.get(birth.1).is_none());
+        assert!(!sim.substrate.logic.as_slice().contains(&birth.1));
+        let destroyed = events
+            .iter()
+            .position(|event| {
+                matches!(event,
+            LifecycleTestEvent::FinalizedCommon { stable_id } if *stable_id == birth.1)
+            })
+            .unwrap();
+        assert!(birth.0 < destroyed);
+        if birth.1 == births[0].1 {
+            assert!(
+                destroyed < births[1].0,
+                "first scalar destruction precedes second constructor"
+            );
+        }
+    }
+    assert!(
+        births[0].2 < births[1].2,
+        "native IDs are spent in actual construction order"
+    );
+    assert!(events.iter().any(|event| matches!(event,
+        LifecycleTestEvent::ProjectilePointerExpiredVisited { expired_id, projectile_id, source_id, target, .. }
+        if *expired_id == tank && *projectile_id == births[0].1
+            && *source_id == if source == tank { crate::sim::combat::RAD_NO_ATTACKER } else { source }
+            && target.object_id() != Some(tank)
+    )), "the still-represented first Bullet receives its target's fatal expiry");
+}
+
+#[test]
+fn retail_drop_after_magnetron_expiry_uses_and_clears_the_falling_source() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, grid, magnetron, tank) = lift(&rules);
+    let below = spawn(&mut sim, &rules, "AMCV", "Americans", 13, 16);
+    let before = entity(&sim, below).health.current();
+    assert!(run_until(&mut sim, &rules, &grid, 600, |sim| {
+        let held = entity(sim, tank);
+        (held.position.rx(), held.position.ry()) == (13, 16)
+    }));
+    let damage = entity(&sim, tank).health.current();
+    sim.clear_lifecycle_test_events_for_test();
+    kill(&mut sim, &rules, magnetron, tank);
+    assert_eq!(entity(&sim, tank).drop_credit.manipulated_by(), None);
+    assert!(run_until(&mut sim, &rules, &grid, 400, |sim| !sim
+        .substrate
+        .entities
+        .contains(tank)));
+    assert!(entity(&sim, below).health.current() < before);
+    assert_drop_bullet_lifetimes(&sim, &rules, tank, tank, damage);
+    assert!(sim.radiation.is_empty());
 }
 
 /// Let go mid-flight, by a move order (the firer's own destination,

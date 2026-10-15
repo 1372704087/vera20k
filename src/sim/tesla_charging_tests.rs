@@ -67,8 +67,13 @@ impl Fixture {
             self.sim
                 .interner
                 .intern(assault.warhead.as_deref().unwrap()),
-            self.sim.interner.intern("AssaultBolt"),
-        );
+            assault
+                .projectile
+                .as_deref()
+                .map(|name| self.sim.interner.intern(name)),
+            assault.bright,
+        )
+        .with_installed_weapon(Some(self.sim.interner.intern("AssaultBolt")));
         world_receiver::commit_projectiles(
             &mut self.sim,
             &mut world_receiver::ReceiverRun::default(),

@@ -195,14 +195,19 @@ fn presentation_main_service_cannot_change_later_projectile_identity() {
             },
             &rules,
             None,
-         crate::sim::world::FrameEffects::default(),);
+            crate::sim::world::FrameEffects::default(),
+        );
         assert_eq!(
             sim.projectiles.iter().count(),
             1,
             "the production FireAt path must launch a surviving Bullet"
         );
         let (_, bullet) = sim.projectiles.iter().next().unwrap();
-        assert_eq!(sim.interner.resolve(bullet.payload.weapon), "LateGun");
+        assert_eq!(
+            sim.interner
+                .resolve(bullet.payload.installed_weapon().unwrap()),
+            "LateGun"
+        );
         assert_eq!(sim.interner.resolve(bullet.payload.warhead), "LateWarhead");
     }
     assert_eq!(
@@ -216,7 +221,7 @@ fn presentation_main_service_cannot_change_later_projectile_identity() {
     let payload_ids = |sim: &Simulation| {
         let (_, bullet) = sim.projectiles.iter().next().unwrap();
         (
-            bullet.payload.weapon.index(),
+            bullet.payload.installed_weapon().unwrap().index(),
             bullet.payload.warhead.index(),
         )
     };

@@ -932,7 +932,17 @@ impl Simulation {
             projectile.last_target_position.z.hash(hasher);
             projectile.payload.base_damage.hash(hasher);
             projectile.payload.warhead.index().hash(hasher);
-            projectile.payload.weapon.index().hash(hasher);
+            projectile
+                .payload
+                .projectile_type()
+                .map(|id| id.index())
+                .hash(hasher);
+            projectile.payload.bright().hash(hasher);
+            projectile
+                .payload
+                .installed_weapon()
+                .map(|id| id.index())
+                .hash(hasher);
             if projectile.payload.damage_multiplier()
                 != crate::sim::projectile::ProjectilePayload::UNSCALED
             {

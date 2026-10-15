@@ -638,6 +638,232 @@ fn depot_release_and_pad_entry_route_through_find_path() {
     );
 }
 
+/// A Chrono Miner (`Teleporter=yes`, with the retail Chrono Miner's
+/// crusher, harvester and dock keys) at `at`, its Drive bound for its
+/// refinery (Cell 16,10 inside the foundation), the refinery its radio
+/// contact and its body facing east, at frame 100 (#1672, the sim-bench
+/// match). Its next Process_Movement takes the no-queue Find_Path, whose
+/// code-7 redirect sets the destination beside the Building; the Unit
+/// setter's Teleporter arm then stops the Drive, which cannot end while it
+/// moves (`0x0074258C..0x007425C6`: mission none, Enter queued), and
+/// Find_Path still installs its route.
+fn teleporter_bound_for_its_refinery(
+    at: (u16, u16),
+) -> (
+    Simulation,
+    RuleSet,
+    crate::rules::overlay_types::OverlayTypeRegistry,
+    u64,
+) {
+    use crate::rules::locomotor_type::LocomotorKind;
+    use crate::sim::movement::FacingClass;
+    let refinery_rules = format!(
+        "{}[TLP]\nStrength=300\nSpeed=6\nSpeedType=Track\nMovementZone=Crusher\n\
+         Crusher=yes\nHarvester=yes\nDock=REFN\nTeleporter=yes\n\
+         Locomotor={{4A582747-9839-11d1-B709-00A024DDAFD1}}\n\
+         [BuildingTypes]\n1=REFN\n\
+         [REFN]\nStrength=800\nDockUnload=yes\n",
+        UNITS.replace("1=SHP\n", "1=SHP\n2=TLP\n")
+    );
+    let (mut sim, rules, registry) = fixture_with_rules_and_fixed_art(
+        &refinery_rules,
+        &crate::rules::ini_parser::IniFile::from_str(
+            "[CABHUT]\nFoundation=1x1\n[REFN]\nFoundation=3x3\n",
+        ),
+    );
+    sim.playfield_size_height = Some(16);
+    let owner = sim.interner.intern("Americans");
+    let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 5000, 0);
+    house.player_control = true;
+    sim.houses.insert(owner, house);
+    let refinery = sim
+        .spawn_object("REFN", "Americans", 16, 9, 0, &rules)
+        .unwrap();
+    let miner = sim
+        .spawn_object("TLP", "Americans", at.0, at.1, 0, &rules)
+        .unwrap();
+    // Without a dock contact the setter drives the Teleporter toward the
+    // refinery; then the refinery is its radio contact.
+    sim.assign_destination_represented(
+        miner,
+        Some(NavTargetRef::cell(16, 10)),
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    let e = sim.substrate.entities.get_mut(miner).unwrap();
+    assert_eq!(
+        e.locomotor.as_ref().map(|loco| loco.active_kind()),
+        Some(LocomotorKind::Drive)
+    );
+    e.radio_contacts.set_slot(0, refinery);
+    // Facing the route's east words, so a clear step is taken in the call.
+    e.body_facing = FacingClass::with_rate_of(2 << 13, &e.body_facing);
+    sim.session.binary_frame = 100;
+    (sim, rules, registry, miner)
+}
+
+/// The miner two cells out, with the cells beside its first step built over
+/// and a moving friendly tank on that step, so the redirect's route steps
+/// into the tank (Can_Enter code 2).
+fn teleporter_behind_a_moving_tank() -> (
+    Simulation,
+    RuleSet,
+    crate::rules::overlay_types::OverlayTypeRegistry,
+    u64,
+) {
+    let (mut sim, rules, registry, miner) = teleporter_bound_for_its_refinery((13, 10));
+    for y in [9, 11] {
+        sim.spawn_object("CABHUT", "Americans", 14, y, 0, &rules)
+            .unwrap();
+    }
+    let tank = sim
+        .spawn_object("DRV", "Americans", 14, 10, 0, &rules)
+        .unwrap();
+    sim.assign_destination_represented(
+        tank,
+        Some(NavTargetRef::cell(14, 2)),
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    assert!(
+        sim.substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .navigation
+            .nav_com()
+            .is_some()
+    );
+    (sim, rules, registry, miner)
+}
+
+fn process_drive(
+    sim: &mut Simulation,
+    miner: u64,
+    rules: &RuleSet,
+    registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+) -> Result<bool, String> {
+    sim.run_track_process_movement(
+        miner,
+        crate::sim::movement::track_process::TrackFamily::Drive,
+        crate::sim::movement::ProcessMovementArgs::OUTER,
+        rules,
+        Some(registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+}
+
+/// The Teleporter arm's outcome: mission none with Enter queued, and no
+/// Drive destination.
+fn assert_stopped_for_enter(sim: &Simulation, miner: u64) {
+    use crate::sim::movement::track_process::TrackFamily;
+    let e = sim.substrate.entities.get(miner).unwrap();
+    assert_eq!(
+        e.mission.current(),
+        MissionId::NONE,
+        "the Teleporter arm ran"
+    );
+    assert_eq!(
+        e.mission.queued(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    let loco = e.locomotor.as_ref().unwrap();
+    assert_eq!(loco.track_destination(TrackFamily::Drive), None);
+}
+
+/// One cell from the redirect cell, the route is one word, so the accept
+/// arm runs with the destination cleared. Its read at `0x4B3E89` takes the
+/// null coordinate, asks Find_Path for cell (0,0), whose precheck refuses
+/// (`0x4D3810`), and the refusal arm sets a NULL destination; the Drive
+/// takes its step.
+#[test]
+fn a_teleporter_its_redirect_stops_takes_its_last_step_without_a_destination() {
+    use crate::sim::movement::track_process::TrackFamily;
+    let (mut sim, rules, registry, miner) = teleporter_bound_for_its_refinery((14, 10));
+
+    assert_eq!(process_drive(&mut sim, miner, &rules, &registry), Ok(false));
+
+    assert_stopped_for_enter(&sim, miner);
+    let e = sim.substrate.entities.get(miner).unwrap();
+    assert_eq!(e.navigation.nav_com(), None, "the NULL destination");
+    assert!(
+        e.locomotor
+            .as_ref()
+            .unwrap()
+            .track_head(TrackFamily::Drive)
+            .is_some(),
+        "the Drive steps toward the redirect cell"
+    );
+}
+
+/// The code-2 ladder (`0x4B3607..0x4B3A94`) runs with the destination
+/// cleared, Find_Path's own write having left the movement timer run out
+/// (`0x004D3EB2..0x004D3ECA`). Its read at `0x4B39D3` takes the null
+/// coordinate, Find_Path refuses cell (0,0), clearing the route's head word
+/// first (`0x4D392A`), and the refusal arm sets a NULL destination; the
+/// Drive keeps its cell and the rest of the redirect's route.
+#[test]
+fn a_teleporter_its_redirect_stops_waits_behind_a_moving_tank_without_a_destination() {
+    use crate::sim::movement::track_process::TrackFamily;
+    let (mut sim, rules, registry, miner) = teleporter_behind_a_moving_tank();
+
+    assert_eq!(process_drive(&mut sim, miner, &rules, &registry), Ok(false));
+
+    assert_stopped_for_enter(&sim, miner);
+    let e = sim.substrate.entities.get(miner).unwrap();
+    assert_eq!(e.navigation.nav_com(), None, "the NULL destination");
+    assert_eq!((e.position.rx(), e.position.ry()), (13, 10));
+    assert!(
+        e.locomotor
+            .as_ref()
+            .unwrap()
+            .track_head(TrackFamily::Drive)
+            .is_none(),
+        "the ladder cleared the head"
+    );
+    assert!(
+        words(&e.navigation.path_replay).starts_with(&[-1, 2]),
+        "the redirect's route without its head word: {:?}",
+        words(&e.navigation.path_replay)
+    );
+}
+
+/// With batched path searches (on in matches and sim-bench), the miner's
+/// no-queue request waits a frame, and then its ladder waits for the next
+/// batch as any code-2 re-path does (`path_batch`, a proposed deviation).
+/// That request reads the null coordinate and gets no answer, and the next
+/// Process_Movement returns on the null destination: no NULL destination is
+/// set, so the redirect's NavCom stays for the queued Enter.
+#[test]
+fn batched_the_teleporter_ladder_waits_and_keeps_the_redirect_navcom() {
+    let (mut sim, rules, registry, miner) = teleporter_behind_a_moving_tank();
+    sim.batch_path_searches();
+
+    for frame in 100..103 {
+        sim.session.binary_frame = frame;
+        sim.answer_batched_path_searches(Some(&rules), Some(&registry));
+        assert_eq!(
+            process_drive(&mut sim, miner, &rules, &registry),
+            Ok(false),
+            "frame {frame}"
+        );
+        sim.finish_batched_path_searches();
+    }
+
+    assert_stopped_for_enter(&sim, miner);
+    let e = sim.substrate.entities.get(miner).unwrap();
+    assert!(e.navigation.nav_com().is_some(), "no NULL destination");
+    assert!(
+        e.navigation.path_runtime.path_blocked(),
+        "the ladder latched its blockage and waited"
+    );
+    assert_eq!((e.position.rx(), e.position.ry()), (13, 10));
+}
+
 /// A `Teleporter=` unit on Teleport (the Chrono Miner) repaired at a depot:
 /// each pad move runs the Unit setter's Teleporter arm, which installs a
 /// Drive (`0x007425E6..0x0074277E`; a depot is no `DockUnload=` contact), and

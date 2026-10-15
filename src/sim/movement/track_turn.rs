@@ -179,13 +179,7 @@ impl Simulation {
         // destination fails the zone precheck clears its head, then stops or
         // takes the next waypoint; either way the tail follows.
         if entity.in_playfield() && mission != Some(MissionType::Enter) && moving {
-            let destination = entity
-                .locomotor
-                .as_ref()
-                .and_then(|loco| {
-                    loco.track_destination(TrackFamily::from_kind(loco.active_kind())?)
-                })
-                .unwrap_or(crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 });
+            let destination = super::track_path::track_destination_or_null(entity);
             let Some(rules) = rules else {
                 return true;
             };

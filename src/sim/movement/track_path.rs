@@ -138,6 +138,13 @@ pub(super) fn track_destination(entity: &GameEntity) -> Option<DriveCoord> {
     )?)
 }
 
+/// [`track_destination`] as the reads without a null test take it: the
+/// null coordinate (0,0,0) when there is none, which Stop_Moving writes
+/// (Drive `0x004AFEA7..0x004AFEC0`).
+pub(super) fn track_destination_or_null(entity: &GameEntity) -> DriveCoord {
+    track_destination(entity).unwrap_or(super::foot_coordinate::NULL_COORD)
+}
+
 /// `if (head != Null) { head = Null; +63 = 0; }` as every arm here writes it.
 /// Raw occupation marks are untouched, as in native.
 pub(super) fn clear_track_head(entity: &mut GameEntity) {
@@ -292,7 +299,7 @@ impl Simulation {
         let destination = self.substrate.entities.get(id).and_then(track_destination);
         //4B28CD / 6A1F1D: the zone precheck on the LIVE destination, which the
         //Unit receiver may already have cleared (Cell(0,0) refuses).
-        let probe = destination.unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        let probe = destination.unwrap_or(super::foot_coordinate::NULL_COORD);
         if !self.foot_path_zone_precheck(id, probe, rules)? {
             self.set_unit_null_destination(id, Some(rules), None, frame_effects);
             return Ok(FootPathOutcome::Returned);
@@ -552,7 +559,7 @@ impl Simulation {
         if !allied {
             return Ok(false);
         }
-        let destination = track_destination(actor).unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        let destination = track_destination_or_null(actor);
         //4B2C14..4B2C62: Distance3D (0x41C380) below CloseEnough, then no
         //radio contact (0x65AE30) and the shared stop band.
         let close = distance_3d_leptons(

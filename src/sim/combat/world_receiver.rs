@@ -1525,7 +1525,6 @@ pub(crate) fn handle_death(
                 {
                     let commit =
                         commit_projectiles(world, run, &[detonation], rules, overlay_registry);
-                    world.admit_projectile_spawns(commit.projectile_spawns, rules);
                     under_attack_events.extend(commit.under_attack_events);
                     blast_effects.append(commit.effects);
                 }
@@ -2204,18 +2203,10 @@ fn emit_detonation_receivers(
     match special_action {
         SpecialDetonationAction::OrdinaryDamage => {
             emit_projectile_shrapnel(
+                world,
+                rules,
                 detonation,
                 bullet_location(world, detonation).0,
-                &world.substrate.entities,
-                &world.substrate.occupancy,
-                &world.production.terrain_object_cells,
-                rules,
-                &mut world.interner,
-                world.resolved_terrain.as_ref(),
-                &world.house_alliances,
-                &mut world.scenario_rng,
-                &mut world.native_unique_ids,
-                out,
             );
 
             // `0x00469A69..0x00469A75`: the bullet's live Owner's house, or
@@ -2528,7 +2519,6 @@ pub(crate) fn commit_projectiles(
     debug_assert!(emit.spawn_target_updates.is_empty());
 
     LogicProjectileCommit {
-        projectile_spawns: emit.projectile_spawns,
         effects: emit.effects,
         under_attack_events,
     }

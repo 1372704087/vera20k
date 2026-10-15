@@ -2091,7 +2091,6 @@ impl Simulation {
         );
         let crate::sim::combat::CombatEmit {
             effects,
-            projectile_spawns,
             fire_events,
             // The receiver already committed these inline before returning.
             damage_events: _,
@@ -2100,7 +2099,6 @@ impl Simulation {
             spawn_target_updates: _,
             drain_links: _,
         } = emit;
-        self.admit_projectile_spawns(projectile_spawns, rules);
         let receipt = damage_consequences::DamageConsequences::live_fire(
             effects,
             pings,
@@ -2139,7 +2137,6 @@ impl Simulation {
         );
         let terrain_navigation_changed_cells = run.finish();
 
-        self.admit_projectile_spawns(commit.projectile_spawns, rules);
         #[cfg(test)]
         if let Some(fixture) = self.receiver_fixture.as_mut() {
             let changed = commit.effects.bridge_state_changed;
@@ -4212,7 +4209,7 @@ impl Simulation {
     /// Admit the bullets a detonation spawned (`BulletClass::SpawnShrapnel
     /// @ 0x0046A310`), each [`Self::construct_bullet_scheme`]d as every
     /// constructed bullet is. SpawnShrapnel then Fires each one (vt+0x1F0,
-    /// `0x0046A875`, `0x0046AD24`), whose Inviso arm (`0x004688B7..0x00468986`)
+    /// `0x0046A875`, `0x0046AD29`), whose Inviso arm (`0x004688B7..0x00468986`)
     /// stands an `Inviso=` child on its target's vt+0x58, the coordinate the
     /// spawn captured ([`ProjectileStore::fire_inviso`]); its OnBridge stays
     /// clear, as only FireAt copies one.
@@ -4242,6 +4239,10 @@ impl Simulation {
             let placement = projectile.initial_target_position;
             self.admit_projectile(stable_id, projectile);
             self.construct_bullet_scheme(stable_id, rules);
+            #[cfg(test)]
+            if let Some(fixture) = self.receiver_fixture.as_mut() {
+                fixture.admitted_spawns.push((stable_id, inviso, projectile));
+            }
             if inviso {
                 self.projectiles.fire_inviso(stable_id, placement, false);
             }
@@ -7019,7 +7020,6 @@ impl Simulation {
                 &projectile_detonations,
                 effects,
             );
-            self.admit_projectile_spawns(combat_result.projectile_spawns.iter().copied(), rules);
             bridge_state_changed |=
                 self.visit_combat_tail(first_tail_id, rules, overlay_registry, effects);
             // Unit facing already committed immediately after that Unit's

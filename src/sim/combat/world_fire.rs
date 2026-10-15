@@ -1201,7 +1201,7 @@ pub(super) fn emit_admitted_fire(
             launch_source.coord,
             // 6FE1EE reads the Building argument's+A4. The launch delta and
             // Bullet::Fire reference below independently read+58 instead.
-            super::fire_coord::effect_target_coordinate(world, rules, snap.target)
+            super::fire_coord::effect_target_coordinate(world, rules, snap.target.into())
                 .unwrap_or(impact),
             tarcom,
         );
@@ -2180,6 +2180,7 @@ pub(crate) fn tick_combat(
         return CombatTickResult {
             #[cfg(test)]
             fixture_anims: Vec::new(),
+            #[cfg(test)]
             projectile_spawns: Vec::new(),
             unit_facing: Vec::new(),
             consequences: crate::sim::world::damage_consequences::DamageConsequences::ordinary(
@@ -2379,7 +2380,6 @@ pub(crate) fn tick_combat(
     // Destructure back into the named locals for post-fire state updates.
     let CombatEmit {
         mut effects,
-        projectile_spawns,
         mut damage_events,
         mut remove_attack,
         fire_events,
@@ -2530,7 +2530,8 @@ pub(crate) fn tick_combat(
     CombatTickResult {
         #[cfg(test)]
         fixture_anims: Vec::new(),
-        projectile_spawns,
+        #[cfg(test)]
+        projectile_spawns: Vec::new(),
         unit_facing,
         consequences: crate::sim::world::damage_consequences::DamageConsequences::ordinary(
             effects,

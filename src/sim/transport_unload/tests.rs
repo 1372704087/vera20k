@@ -636,7 +636,7 @@ fn ejection_keeps_the_passengers_target_unless_it_leaves_another_houses_open_tra
             .set_passively_acquired_target_for_test(true);
         pax.weapon_burst.complete_shot(3);
         if other_house {
-            pax.set_owner_for_test(other);
+            fx.sim.substrate.entities.change_owner(passenger, other);
         }
         let effects = crate::sim::world::FrameEffects::default();
         if transport_type == "SHAD" {

@@ -577,9 +577,9 @@ mod tests {
         // `FootClass::ChangeOwner @ 0x004DBED0` moves `+0x21C`, and it dispatches
         // `vt+0x4EC` first — so this pins the read, not a reachable scenario.
         let neutral = sim.interner.intern("Neutral");
+        sim.substrate.entities.change_owner(second, neutral);
         {
             let entity = sim.substrate.entities.get_mut(second).unwrap();
-            entity.set_owner_for_test(neutral);
             entity.position.set_rx_for_test(5);
             entity.position.set_ry_for_test(5);
         }

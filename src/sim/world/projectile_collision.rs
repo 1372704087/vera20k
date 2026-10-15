@@ -821,11 +821,7 @@ mod tests {
                     EntityCategory::Unit,
                 );
                 let owner = sim.interner.intern("Russians");
-                sim.substrate
-                    .entities
-                    .get_mut(2)
-                    .unwrap()
-                    .set_owner_for_test(owner);
+                sim.substrate.entities.change_owner(2, owner);
             }
             if selected != "none" {
                 sim.substrate.occupancy.add(
@@ -1563,9 +1559,9 @@ mod tests {
                 );
                 let type_ref = sim.interner.intern(if aircraft { "AIR" } else { "VICTIM" });
                 let owner = sim.interner.intern("Russians");
+                sim.substrate.entities.change_owner(target, owner);
                 let victim = sim.substrate.entities.get_mut(target).unwrap();
                 victim.set_type_ref_for_test(type_ref);
-                victim.set_owner_for_test(owner);
                 if aircraft {
                     // Aircraft object-list membership requires its real Fly
                     // host; a category-only fixture has no valid receiver.
@@ -1664,9 +1660,9 @@ mod tests {
             );
             let target_type = sim.interner.intern("VICTIM");
             let enemy = sim.interner.intern("Russians");
+            sim.substrate.entities.change_owner(target, enemy);
             let victim = sim.substrate.entities.get_mut(target).unwrap();
             victim.set_type_ref_for_test(target_type);
-            victim.set_owner_for_test(enemy);
             assert!(matches!(sim.reveal(source), RevealOutcome::Revealed { .. }));
             assert!(matches!(sim.reveal(target), RevealOutcome::Revealed { .. }));
             // Reveal commits the coarse map coordinate; install the supplied
@@ -2086,11 +2082,7 @@ mod tests {
                     EntityCategory::Structure,
                 );
                 let owner = sim.interner.intern("Russians");
-                sim.substrate
-                    .entities
-                    .get_mut(2)
-                    .unwrap()
-                    .set_owner_for_test(owner);
+                sim.substrate.entities.change_owner(2, owner);
                 sim.substrate.occupancy.add(
                     2,
                     2,

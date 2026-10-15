@@ -4374,11 +4374,7 @@ mod tests {
         // An enemy: a computer house drops an allied target every frame
         // (`0x006FA30C`).
         let soviet = sim.interner.intern("Soviet");
-        sim.substrate
-            .entities
-            .get_mut(2)
-            .unwrap()
-            .set_owner_for_test(soviet);
+        sim.substrate.entities.change_owner(2, soviet);
         sim
     }
 
@@ -5247,11 +5243,7 @@ mod tests {
         target.lifecycle.set_in_limbo_for_test(false);
         register_entity(&mut sim, target);
         let soviet = sim.interner.intern("Soviet");
-        sim.substrate
-            .entities
-            .get_mut(2)
-            .unwrap()
-            .set_owner_for_test(soviet);
+        sim.substrate.entities.change_owner(2, soviet);
 
         let mut expected_rng = sim.clone_scenario_rng();
         let jitter = expected_rng.next_range_u32_inclusive(0, 2) as i32;

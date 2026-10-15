@@ -1093,11 +1093,7 @@ fn unloading_credits_refinery_owner_under_mind_control() {
 
     // Mind-control: rewrite the harvester's owner to a different house.
     let mc_owner = sim.interner.intern("Russians");
-    sim.substrate
-        .entities
-        .get_mut(miner_id)
-        .expect("miner entity")
-        .set_owner_for_test(mc_owner);
+    sim.substrate.entities.change_owner(miner_id, mc_owner);
 
     let americans_before = credits_for_owner(&sim, "Americans");
     let russians_before = credits_for_owner(&sim, "Russians");

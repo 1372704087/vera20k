@@ -1453,6 +1453,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         }
     }
 
+    /// Case 6's rearm (`0x006B788F..0x006B78AA`).
     fn refill(&mut self, child: u64) {
         let Some(strength) = self.child_type(child).map(|kind| kind.strength) else {
             return;

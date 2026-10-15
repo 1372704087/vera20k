@@ -1198,6 +1198,9 @@ impl Simulation {
         spawned
     }
 
+    /// The survivor's Health: `BuildingClass::SpawnSurvivors` stores it at
+    /// `0x00443214`, a dying unit's crew (`UnitClass::ReceiveDamage`) at
+    /// `0x0073830F`.
     fn set_crew_health(&mut self, id: u64, health: i32) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.health.set(health);

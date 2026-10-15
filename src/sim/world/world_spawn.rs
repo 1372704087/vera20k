@@ -1492,6 +1492,7 @@ impl Simulation {
         // facts explicit so storage can never imply cell or logic presence.
         ge.lifecycle.reset_constructed();
         ge.lifecycle.set_cell_marked(false);
+        // ObjectClass's constructor clears IsInLogic (`0x005F398D`).
         ge.in_logic_vector.mark(false);
         ge.kill_record.reset_constructed();
 

@@ -282,6 +282,7 @@ impl Simulation {
             team.just_altered = true;
         }
         if let Some(entity) = self.substrate.entities.get_mut(entity_id) {
+            // `+0x422` (`0x006EA5F5`).
             entity
                 .base_defense_response
                 .set_team_recruitable(recruitable);

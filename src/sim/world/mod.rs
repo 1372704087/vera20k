@@ -5491,8 +5491,11 @@ impl Simulation {
     /// Rebuild LogicClass membership flags from the restored active order.
     ///
     /// `+0x98` is not serialized (native does not round-trip it); vector presence
-    /// is authoritative. Idempotent — safe to call after any load. Standalone (no
-    /// heavy load-arg dependency) so save/load membership is unit-testable.
+    /// is authoritative: RegisterObject sets it after its insert (`0x0055BAC6`)
+    /// and UnregisterObject clears it after its removal (`0x0055BB27`), so the
+    /// saved order determines it. Idempotent — safe to call after any load.
+    /// Standalone (no heavy load-arg dependency) so save/load membership is
+    /// unit-testable.
     pub(crate) fn rebuild_logic_membership(&mut self) {
         for entity in self.substrate.entities.values_mut() {
             entity.in_logic_vector.mark(false);

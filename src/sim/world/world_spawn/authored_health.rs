@@ -48,6 +48,11 @@ pub(super) fn authored_health(category: EntityCategory, authored: i32, strength:
     }
 }
 
+/// Health and EstimatedHealth from the authored value: `UnitClass::Read_INI`
+/// stores them at `0x007435F5..0x00743620`, `AircraftClass::Read_INI` at
+/// `0x0041B3C0..0x0041B3EB`, `InfantryClass::Read_INI` at
+/// `0x0051FE77..0x0051FEA3` and `CCINIClass::ReadScenarioBuildings` at
+/// `0x0044FB9F..0x0044FBCF`.
 fn apply(entity: &mut GameEntity, authored: i32, strength: i32) {
     let actual = authored_health(entity.category(), authored, strength);
     entity.health.set(actual);

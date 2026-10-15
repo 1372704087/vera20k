@@ -62,6 +62,9 @@ impl ConversionHealth {
         ))
     }
 
+    /// Health and EstimatedHealth on the converted object: `UnitClass::Deploy`
+    /// stores them at `0x00739946..0x00739953`, `BuildingClass::Mission_Selling`
+    /// (undeploy) at `0x0044A02C..0x0044A039`.
     pub(crate) fn apply(self, destination: &mut GameEntity) {
         destination.health.set(self.0);
         destination.estimated_health.reset(self.0);

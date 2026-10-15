@@ -214,7 +214,9 @@ fn queue_mission(sim: &mut Simulation, id: u64, mission: MissionType) {
 /// Mission+0xBC after a Mission_Move or Mission_Attack visit that read
 /// `read` and left `next`. Those handlers write it only where it changes,
 /// and never after their `Enter_Idle_Mode(0, 1)` (vt+0x484), whose Commence
-/// zeroes it.
+/// zeroes it. The stores are the handlers' own: Mission_Move_NonCarryall
+/// (`0x004166E0`) at `0x0041675D..0x00416AB6`, Mission_Attack (`0x00417FE0`)
+/// at `0x0041801B..0x00418D17`.
 fn write_state(sim: &mut Simulation, id: u64, read: u8, next: u8) {
     if next != read
         && let Some(entity) = sim.substrate.entities.get_mut(id)

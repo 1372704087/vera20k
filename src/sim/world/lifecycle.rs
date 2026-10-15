@@ -2644,7 +2644,8 @@ impl Simulation {
 
     /// Write the per-object `in_logic_vector` membership flag for a classified
     /// object. The single dispatch the registration/removal contract repairs
-    /// the flag through.
+    /// the flag through. For a Techno it is RegisterObject's set (`0x0055BAC6`)
+    /// or UnregisterObject's clear (`0x0055BB27`).
     fn set_logic_membership_flag(&mut self, stable_id: u64, kind: ObjectKind, member: bool) {
         match kind {
             ObjectKind::Smudge => assert!(!member, "Smudge {stable_id} never joins Logic"),

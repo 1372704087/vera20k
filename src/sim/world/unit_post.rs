@@ -65,11 +65,17 @@ pub(crate) fn apply_unit_facing(
         // Most units hold their aim, so their `Set`s repeat the destination
         // and write nothing: hand a unit out only when a field changes.
         if after != before {
-            after.store(
-                entities
-                    .get_mut(id)
-                    .expect("a facing update's unit was just read"),
+            let entity = entities
+                .get_mut(id)
+                .expect("a facing update's unit was just read");
+            let latch = apply_steps(
+                &mut entity.body_facing,
+                entity.barrel_facing.as_mut(),
+                update,
+                rot,
+                binary_frame,
             );
+            entity.turret_rotation_latch.rotating = latch;
         }
     }
 }
@@ -127,54 +133,66 @@ impl UnitFacing {
         }
     }
 
-    fn store(self, entity: &mut GameEntity) {
-        entity.body_facing = self.hull;
-        entity.barrel_facing = self.barrel;
-        entity.turret_rotation_latch.rotating = self.latch;
-    }
-
-    /// Steps 1–4 in binary order.
+    /// Steps 1–4 in binary order, on the copy.
     fn apply(
         &mut self,
         update: &crate::sim::combat::UnitFacingUpdate,
         rot: i32,
         binary_frame: u32,
     ) {
-        // 1. `Fire_At_Target` case 2's hull turn, which native completes before
-        //    `Facing_Update` is entered at all (`0x007365E1`/`0x007365E8`).
-        if let Some(desired) = update.hull_destination {
-            self.hull.set(desired, binary_frame);
-            let raw_destination = self.hull.destination();
-            if let Some(ref mut barrel) = self.barrel {
-                barrel.set_rot(rot);
-                barrel.set(raw_destination, binary_frame);
-            }
-        }
-        // 2. arm A's aim `Set` (`0x00736A89`) — before the latch store.
-        if let Some(desired) = update.turret_destination
-            && !update.turret_destination_is_idle_return
-            && let Some(ref mut barrel) = self.barrel
-        {
+        self.latch = apply_steps(
+            &mut self.hull,
+            self.barrel.as_mut(),
+            update,
+            rot,
+            binary_frame,
+        );
+    }
+}
+
+/// Steps 1–4 in binary order on a unit's hull and turret, through
+/// `FacingClass::Set`; returns the `+0x6AF` latch.
+fn apply_steps(
+    hull: &mut crate::sim::movement::FacingClass,
+    mut barrel: Option<&mut crate::sim::movement::FacingClass>,
+    update: &crate::sim::combat::UnitFacingUpdate,
+    rot: i32,
+    binary_frame: u32,
+) -> bool {
+    // 1. `Fire_At_Target` case 2's hull turn, which native completes before
+    //    `Facing_Update` is entered at all (`0x007365E1`/`0x007365E8`).
+    if let Some(desired) = update.hull_destination {
+        hull.set(desired, binary_frame);
+        let raw_destination = hull.destination();
+        if let Some(barrel) = barrel.as_deref_mut() {
             barrel.set_rot(rot);
-            barrel.set(desired, binary_frame);
-        }
-        // 3. the `+0x6AF` store (`0x00736B16`), evaluated on the barrel as it
-        //    stands after the writes above. `is_some_and` reproduces the
-        //    `0x00736AD5` clear for a turretless unit, which native leaves at 0
-        //    because the `Type+0xCA1` test at `0x00736ADC` sends it past both
-        //    `Is_Rotating` calls.
-        self.latch = self
-            .barrel
-            .as_ref()
-            .is_some_and(|barrel| barrel.is_rotating(binary_frame));
-        // 4. arm B's idle-return `Set` (`0x00736BDD`) — after the latch store,
-        //    so the swing-back arc does not arm it.
-        if let Some(desired) = update.turret_destination
-            && update.turret_destination_is_idle_return
-            && let Some(ref mut barrel) = self.barrel
-        {
-            barrel.set_rot(rot);
-            barrel.set(desired, binary_frame);
+            barrel.set(raw_destination, binary_frame);
         }
     }
+    // 2. arm A's aim `Set` (`0x00736A89`) — before the latch store.
+    if let Some(desired) = update.turret_destination
+        && !update.turret_destination_is_idle_return
+        && let Some(barrel) = barrel.as_deref_mut()
+    {
+        barrel.set_rot(rot);
+        barrel.set(desired, binary_frame);
+    }
+    // 3. the `+0x6AF` store (`0x00736B16`), evaluated on the barrel as it
+    //    stands after the writes above. `is_some_and` reproduces the
+    //    `0x00736AD5` clear for a turretless unit, which native leaves at 0
+    //    because the `Type+0xCA1` test at `0x00736ADC` sends it past both
+    //    `Is_Rotating` calls.
+    let latch = barrel
+        .as_deref()
+        .is_some_and(|barrel| barrel.is_rotating(binary_frame));
+    // 4. arm B's idle-return `Set` (`0x00736BDD`) — after the latch store,
+    //    so the swing-back arc does not arm it.
+    if let Some(desired) = update.turret_destination
+        && update.turret_destination_is_idle_return
+        && let Some(barrel) = barrel
+    {
+        barrel.set_rot(rot);
+        barrel.set(desired, binary_frame);
+    }
+    latch
 }

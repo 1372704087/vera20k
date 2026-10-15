@@ -150,12 +150,12 @@ impl Simulation {
     /// store to `+0x2B8` or `+0x5A8`. Clearing there would leave a unit parked
     /// after a Stop where retail resumes its archived move on the next Restore.
     ///
-    /// MinerReturn and HarvestCell use the shared pre-queue prefix,
-    /// but their legacy mission paths still bypass the post-Queue archive
-    /// clears here. EjectBunker and dormant aircraft passenger Unload also
-    /// bypass the prefix. These pre-existing command routes can Restore a
-    /// cancelled archive; their complete DTO/mission migration is separate
-    /// from ordinary Unit depot servicing.
+    /// HarvestCell uses the shared pre-queue prefix, but its legacy mission
+    /// path still bypasses the post-Queue archive clears here. EjectBunker
+    /// and dormant aircraft passenger Unload also bypass the prefix. These
+    /// pre-existing command routes can Restore a cancelled archive; their
+    /// complete DTO/mission migration is separate from ordinary Unit depot
+    /// servicing.
     ///
     /// Without the clear on the sites that DO need it, a unit Overridden by a
     /// blocked step or by the retaliation at 0x00702B41, then retasked, then

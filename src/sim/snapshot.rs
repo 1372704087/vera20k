@@ -2133,20 +2133,6 @@ fn restore_object_references(
                 target_id,
             )?;
         }
-        if let Some(target_id) = entity
-            .miner
-            .as_ref()
-            .and_then(|miner| miner.reserved_refinery())
-        {
-            require_resolved_reference(
-                entity_ids.contains(&target_id),
-                "EntityStore",
-                entity_id,
-                "miner.reserved_refinery",
-                "EntityStore",
-                target_id,
-            )?;
-        }
         if let Some(master_id) = entity.slave.owner() {
             require_resolved_reference(
                 entity_ids.contains(&master_id),

@@ -438,7 +438,9 @@ fn retail_bridge_caller_matches_native_color_and_depth_attachments() {
                 gpu.read(&mut encoder, &depth),
             ];
             let output = gpu.finish(encoder, &reads, size);
-            assert_native_bridge_output(&output, row, format, size);
+            crate::render::terrain_draw_gpu_tests::assert_native_color_and_depth(
+                &output, row, format, size,
+            );
         }
     }
     eprintln!(
@@ -528,43 +530,10 @@ fn retail_bridge_body_matches_native_color_and_depth_attachments() {
                 gpu.read(&mut encoder, &depth),
             ];
             let output = gpu.finish(encoder, &reads, size);
-            assert_native_bridge_output(&output, row, format, size);
+            crate::render::terrain_draw_gpu_tests::assert_native_color_and_depth(
+                &output, row, format, size,
+            );
         }
-    }
-}
-
-fn assert_native_bridge_output(
-    output: &[Vec<u8>],
-    row: &Value,
-    format: wgpu::TextureFormat,
-    size: [u32; 2],
-) {
-    let input = &row["input"];
-    let background = input["background"].as_u64().unwrap() as u16;
-    let old_z = input["old_z"].as_u64().unwrap() as u16;
-    let pixels = (size[0] * size[1]) as usize;
-    // Lossless expansion of captured native buffers. This contains no
-    // projection, depth arithmetic, stencil or color transformation.
-    let mut expected = vec![[background, old_z]; pixels];
-    for run in row["output"]["runs"].as_array().unwrap() {
-        let values: [usize; 5] = std::array::from_fn(|i| run[i].as_u64().unwrap() as usize);
-        let [x, y, count, word, z] = values;
-        let start = y * size[0] as usize + x;
-        expected[start..start + count].fill([word as u16, z as u16]);
-    }
-    for (index, [word, z]) in expected.into_iter().enumerate() {
-        let offset = index * 4;
-        let actual_z = stored_z(f32::from_le_bytes(
-            output[1][offset..offset + 4].try_into().unwrap(),
-        ));
-        assert_eq!(
-            (&output[0][offset..offset + 4], actual_z),
-            (&encoded(word, format)[..], z),
-            "{} {format:?} pixel ({},{})",
-            row["name"],
-            index % size[0] as usize,
-            index / size[0] as usize,
-        );
     }
 }
 

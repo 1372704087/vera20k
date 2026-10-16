@@ -90,6 +90,13 @@ impl RockingState {
         self.angle_sideways = fixed_word(angle);
     }
 
+    /// Direct native rate writers replace only Techno+330. CaptureManager
+    /// 471C78 uses a binary32 literal; quantizing through SimFixed would lose
+    /// its value before the next ordinary RockingUpdate70B570 visit.
+    pub(crate) fn set_vel_sideways_native(&mut self, velocity: NativeF32Bits) {
+        self.vel_sideways = velocity;
+    }
+
     #[cfg(test)]
     pub(crate) fn set_angle_forwards_for_test(&mut self, angle: SimFixed) {
         self.angle_forwards = fixed_word(angle);

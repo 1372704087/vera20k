@@ -169,6 +169,8 @@ mod drone_rocking_tests;
 #[cfg(test)]
 mod area_rocker_tests;
 #[cfg(test)]
+mod mastermind_overload_tests;
+#[cfg(test)]
 pub(crate) use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]
 mod team_script_vm_tests;

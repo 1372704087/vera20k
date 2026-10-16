@@ -7,32 +7,43 @@
 //!
 //! Smudges are static — no animation, no remap, no facing. Multi-cell
 //! SmudgeType SHPs have a single composite frame. Native asks every occupied
-//! footprint cell to draw frame 0, but each call recenters on the same origin;
-//! repeated opaque draws are pixel-idempotent. Render therefore emits one
-//! SpriteInstance for the footprint origin and skips non-origin cells.
+//! footprint cell to draw frame 0. On the selected coherent flat footprint with
+//! uniform Cell material, each call recenters on the same origin and repeated
+//! opaque draws are pixel-idempotent. This builder emits the origin once;
+//! per-cell material differences and partially cleared footprints remain open.
 //!
 //! ## Dependency rules
 //! - Part of render/ — depends on map/, rules/, sim/.
 //! - Reads sim smudge state through immutable references; never mutates sim state.
 
+use crate::map::lighting::CellLightGrid;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::map::terrain::{TILE_HEIGHT, TILE_WIDTH, TilePlacement, iso_to_screen};
+use crate::map::terrain::{TILE_WIDTH, TilePlacement, iso_to_screen};
 use crate::render::batch::SpriteInstance;
+use crate::render::palette_light::PaletteLight;
 use crate::rules::smudge_type::SmudgeTypeRegistry;
 use crate::sim::smudge_grid::SmudgeGrid;
+
+#[cfg(test)]
+#[path = "smudge_gpu_tests.rs"]
+mod gpu_tests;
 
 /// Type alias for clarity at call sites.
 ///
 /// Smudges share `SpriteInstance` with every other static decal in the engine —
-/// they have no per-instance state beyond position, atlas UVs, and depth.
+/// carrying the footprint position, atlas rectangle and current Cell material.
 pub type SmudgeInstance = SpriteInstance;
 
-/// Smudges are decals that sit between terrain (depth ≈ 1.0, far) and entities
-/// (depth ≈ 0.0, near). Anything in this band draws on top of the ground and
-/// underneath any sprite that passes the depth test.
+/// In-range sprite ABI depth; the ordinary smudge passthrough pipeline reads
+/// and writes no Z (native flags E00). Submission after terrain and before
+/// entities establishes the layer, independently of this value.
 const SMUDGE_DEPTH: f32 = 0.5;
 
-/// Build a `SpriteInstance` buffer for all visible smudges.
+/// Build a `SpriteInstance` buffer for visible smudges.
+///
+/// Cell4804B4→Smudge6B55F0 passes the Cell center X, unchanged tile Y, and
+/// signed common intensity (+10C) with its CellConvert (+34). Original
+/// full-view/type/SHP execution: `tools/spatial_oracle/smudge_render`.
 ///
 /// `atlas_lookup` resolves a (smudge_type_id, frame_offset) to a TilePlacement
 /// (atlas UVs + pixel size + draw offset). The closure is borrowed because the
@@ -42,6 +53,7 @@ pub fn build_visible_instances(
     grid: &SmudgeGrid,
     registry: &SmudgeTypeRegistry,
     resolved_terrain: &ResolvedTerrainGrid,
+    cell_lights: &CellLightGrid,
     atlas_lookup: &dyn Fn(u16, u8) -> Option<TilePlacement>,
     camera_x: f32,
     camera_y: f32,
@@ -57,10 +69,10 @@ pub fn build_visible_instances(
             continue;
         };
         // Multi-cell smudge footprints are stored as W×H occupied cells, but
-        // gamemd draws the SHP once at the footprint origin (per-cell
-        // SmudgeTypeClass::Draw_It calls cancel back to the same screen
-        // position with frame=0). Skipping non-origin cells produces
-        // visually identical pixels and avoids redundant SpriteInstances.
+        // For the coherent flat uniform-material path, native per-cell
+        // SmudgeTypeClass::Draw_It calls recenter frame0 at the same point.
+        // Keep one opaque draw; unequal Cell material/partial clears remain
+        // outside this optimization's demonstrated coverage.
         if cell.frame_offset != 0 {
             continue;
         }
@@ -78,11 +90,11 @@ pub fn build_visible_instances(
             None => continue,
         };
         // iso_to_screen returns the NW corner of the cell's bounding box;
-        // shift by half a tile to land on the cell center, then apply the
-        // atlas entry's centered anchor (-pixel_w/2, -pixel_h/2). Mirrors
-        // the overlay-render position math.
+        // native caller adds half a tile only in X. Adding half-height in Y
+        // here places the complete crater 15px too low. The atlas retains
+        // the full-canvas centered anchor, as the native shape caller does.
         let draw_x = sx + TILE_WIDTH / 2.0 + placement.draw_offset[0];
-        let draw_y = sy + TILE_HEIGHT / 2.0 + placement.draw_offset[1];
+        let draw_y = sy + placement.draw_offset[1];
         // Cull against the complete composite SHP bounds. Testing the origin
         // cell's diamond would hide a wide footprint while part of its art is
         // still inside the tactical viewport.
@@ -100,6 +112,7 @@ pub fn build_visible_instances(
             depth: SMUDGE_DEPTH,
             tint: [1.0, 1.0, 1.0],
             alpha: 1.0,
+            palette_light: PaletteLight::cell(cell_lights, (rx, ry), false),
             ..Default::default()
         });
     }
@@ -142,6 +155,7 @@ mod tests {
             &grid,
             &registry,
             &terrain,
+            &CellLightGrid::new(),
             &never_lookup,
             0.0,
             0.0,
@@ -169,6 +183,7 @@ mod tests {
             &grid,
             &registry,
             &terrain,
+            &CellLightGrid::new(),
             &never_lookup,
             0.0,
             0.0,
@@ -203,6 +218,7 @@ mod tests {
             &grid,
             &registry,
             &terrain,
+            &CellLightGrid::new(),
             &never_lookup,
             0.0,
             0.0,
@@ -239,8 +255,17 @@ mod tests {
             })
         };
         let terrain = flat_terrain(0);
-        let v =
-            build_visible_instances(&grid, &registry, &terrain, &lookup, 0.0, 0.0, 800.0, 600.0);
+        let v = build_visible_instances(
+            &grid,
+            &registry,
+            &terrain,
+            &CellLightGrid::new(),
+            &lookup,
+            0.0,
+            0.0,
+            800.0,
+            600.0,
+        );
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].depth, SMUDGE_DEPTH);
     }
@@ -282,8 +307,17 @@ mod tests {
         let terrain = flat_terrain(3);
         // Only the far side of the composite overlaps this narrow viewport;
         // culling the origin cell instead of the SHP bounds would be wrong.
-        let v =
-            build_visible_instances(&grid, &registry, &terrain, &lookup, 100.0, 80.0, 10.0, 10.0);
+        let v = build_visible_instances(
+            &grid,
+            &registry,
+            &terrain,
+            &CellLightGrid::new(),
+            &lookup,
+            100.0,
+            80.0,
+            10.0,
+            10.0,
+        );
         assert_eq!(
             v.len(),
             1,
@@ -295,6 +329,6 @@ mod tests {
         let (_, flat_y) = iso_to_screen(3, 3, 0);
         let (_, elevated_y) = iso_to_screen(3, 3, 3);
         assert_eq!(flat_y - elevated_y, 45.0, "each level shifts up 15px");
-        assert_eq!(v[0].position[1], elevated_y + TILE_HEIGHT / 2.0);
+        assert_eq!(v[0].position[1], elevated_y);
     }
 }

@@ -222,9 +222,8 @@ pub(super) fn build_world_instances(state: &mut AppState, sw: f32, sh: f32) -> W
     // Both bridge passes retain native cell sweeps; accepted pixels write Z.
 
     // Smudges: static crater/scorch decals on top of terrain, under entities.
-    // Atlas registration for SmudgeType SHPs is a deferred follow-up; until it
-    // lands the lookup closure returns None and `smudge` stays empty. The
-    // pipeline plumbing (build → upload → draw) is wired regardless.
+    // Registered SmudgeType SHPs share the live OverlayAtlas and Cell light
+    // grid with the ordinary ground drawing consumers.
     let smudge: Vec<SpriteInstance> = build_smudge_instances(state, sw, sh);
 
     state
@@ -393,8 +392,8 @@ fn build_pixel_fx_sparkle_instances(state: &AppState, sw: f32, sh: f32) -> Vec<S
 ///
 /// The atlas stores each smudge SHP as one composite frame. The render helper
 /// uses the resolved terrain level at the footprint origin and emits that
-/// frame once even though native recenters an identical draw from every
-/// occupied footprint cell.
+/// frame once on the coherent flat uniform-material route. Native recenters
+/// a separate draw from every occupied cell; unequal material remains open.
 fn build_smudge_instances(state: &AppState, sw: f32, sh: f32) -> Vec<SpriteInstance> {
     let (sim, rules) = match (
         state
@@ -438,6 +437,7 @@ fn build_smudge_instances(state: &AppState, sw: f32, sh: f32) -> Vec<SpriteInsta
         grid,
         &rules.smudge_types,
         resolved_terrain,
+        state.match_state.match_presentation.lighting.grid(),
         &lookup,
         state.match_state.input.camera_x,
         state.match_state.input.camera_y,

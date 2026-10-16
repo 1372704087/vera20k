@@ -89,9 +89,8 @@ The fatal Building call is Mark0, return PC `0x005F4D73`, while the Building is
 still alive1/limbo0/Health0. Mark0 dispatches `0x0043F1CA` to MapPlaceUp; it leaves
 the four marks unchanged. Ordinary Building PUT (Mark1/3) has a separate
 whole-footprint clearing writer `0x0043F8A6`; the ToTile arm writes at
-`0x0043F3A1`. Neither writer executes in these post-effect fatal routes. The
-comparison does not identify a defect in a legitimate placement-time clearing
-owner.
+`0x0043F3A1`. Neither writer executes in these fatal prefixes. The additive seed1
+continuation below executes ordinary PUT after the real drain.
 
 The inherited empty-registry joined route suppresses this real pick and
 constructor lifecycle. Its seed2 crew is ID18/HP69 and its final cursor is20;
@@ -128,3 +127,53 @@ claims. The joined continuation ends at impact frame4, original frame increment
 to5 and that frame's deferred drain. Later visits of surviving death Anims are
 not exhaustively executed by this mode. No Rust validation was performed by
 this prerequisite audit.
+
+
+## Fresh normal PUT after drain
+
+Only `routes[1].post_drain_put` is additive. Removing that field reproduces every
+previous field of all three routes. The same Runtime executes the shared
+original Discovery/Tactical geometry initializer before a fresh whole43B740
+GAPOWR constructor, without the fixture's supplied placement/alive/marked prior.
+The existing supplied Americans House is passed to that constructor. Original
+Cell GetCoords486840 supplies XYZ[2688,2688,0] for Cell(10,10); whole440580
+Unlimbo returns AL1. No destroyed target is revived and no admission result is
+supplied. Paid production/input and whole native map/House startup are excluded.
+
+After drain the cursor is21. The new Building is ID22, Strength750, sampled
+health0, alive1/limbo1/marked0/Logic0/placed0. Its constructor consumes one
+Scenario Next. After Unlimbo it is alive1/limbo0/marked1/Logic1/placed1 at the
+original Cell XYZ, current mission18 (Construction). Actual43F8A6 clears the
+four type48 slots; data11F deliberately remains0,1,2,3. Four4852D0 redraw calls,
+sixteen486E70 dirty-ring calls and the reached6DA7D0 calls are retained. The
+three full RNG streams stay unchanged across Unlimbo; actual constructor draws,
+timer writes and the old MTNK passive-scan timer are separately recorded. Raw
+11F after absent type is a storage residual when Rust normalizes an empty cell.
+
+Existing shared animation observers establish cursor23: actual slot3 allocation,
+Anim421EA0 and Start424CE0 create **GAPOWR_A**, ID23. This is an active animation,
+not GAPOWRMK buildup; Construction mission alone must not rename its identity.
+The fatal fixture already reads this physical AnimType/image. Sparse ART caches
+exclude GAPOWRMK, and subsequent whole construction/animation AI is not claimed.
+`construction_events` and the shared native `anims` snapshots retain the actual
+identity/runtime; `building.anim_slots` records its real attachment.
+
+`input`, `source_coordinates`, `constructor`, `after_constructor`, `unlimbo`,
+`after_unlimbo`, actual calls/cell/timer writes, request/advance streams and
+`persistent_data_after` let the existing production fatal fixture consume this
+constructor-to-PUT continuation without a second cleanup algorithm. Interior
+43F8A6 is recorded as a store site, never with a fabricated return caller.
+
+
+The optional suffix also records `client_priors`: actual GameMode1, PlayerPtr
+equal to the existing Americans owner, House1EC/1ED both1, ScenarioInit0 and
+activeGame1. Four supplied known Cells have alt12C=18hex, counter/gap0, flags140=0;
+the existing origin ground cache is-1 and the other three are0. These are
+fixture inputs, not a natural map-reveal proof. `discovery_calls` establishes
+early CellPUT47E9E2→Building44D5D0→GrandOpening445F80 before UpdateReveal and
+Techno idle. At that first call the new Building has all mission selectors-1
+and41ABC=[1,0,0]; after discovery it is[1,1,0]. Later idle queues Construction18
+and Commence commits it. A consumer must enroll the same GameMode1 via its
+existing session owner at the optional suffix boundary; current-house equality
+alone does not establish this prerequisite. No manual GrandOpening substitutes
+for the original admission/order.

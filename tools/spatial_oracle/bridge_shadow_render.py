@@ -41,7 +41,7 @@ def ints(u, address, count):
     return list(struct.unpack('<' + 'i' * count, u.mem_read(address, count * 4)))
 
 
-def physical_assets(*, body=False, ore=False):
+def physical_assets(*, body=False, ore=False, tile=False):
     root = configured_gamemd().parent
     sources, assets = [], {}
     containers = (
@@ -62,12 +62,22 @@ def physical_assets(*, body=False, ore=False):
                          'cache.mix': ('palette.pal', 'anim.pal', 'temperat.pal', 'urban.pal')}),
             ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini')}),
         )
+    if tile:
+        containers = (
+            ('ra2.mix', {'isotemp.mix': tuple(f'clear01{s}.tem' for s in ('', 'a', 'b', 'c', 'd', 'e', 'f', 'g')),
+                         'cache.mix': ('isotem.pal', 'temperat.pal'),
+                         'conquer.mix': ('SHROUD.SHP',)}),
+            ('ra2md.mix', {'localmd.mix': ('temperatmd.ini',)}),
+            ('multimd.mix', {None: ('XMP03T4.MAP',)}),
+        )
     for outer_name, children in containers:
         outer_raw = (root / outer_name).read_bytes()
         outer = mix(outer_raw)
         for inner_name, names in children.items():
-            inner_raw = outer[mix_hash(inner_name)]
+            inner_raw = outer[mix_hash(inner_name)] if inner_name is not None else outer_raw
             inner = mix(inner_raw)
+            if tile and inner_name == 'isotemp.mix':
+                assert mix_hash('clear01h.tem') not in inner
             for name in names:
                 raw = inner[mix_hash(name)]
                 assets[name.upper()] = raw
@@ -824,7 +834,13 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--body', action='store_true')
     modes.add_argument('--ore', action='store_true')
+    modes.add_argument('--tile', action='store_true')
     selected, remaining = parser.parse_known_args()
+    if selected.tile:
+        from tools.spatial_oracle.tmp_clear_render import generate as generate_tile, metadata as tile_metadata
+        finish_vectors(generate_tile, Path(__file__).with_name('tmp_clear_render.json'),
+                       provenance=tile_metadata, argv=remaining)
+        raise SystemExit(0)
     generate_selected = generate_ore if selected.ore else generate_body if selected.body else generate
     path = (Path(__file__).with_name('ore_render.json') if selected.ore else
             Path(__file__).with_name('bridge_body_render.json') if selected.body else

@@ -216,7 +216,7 @@ pub(crate) fn build_tile_atlas(
         return None;
     }
 
-    let atlas: TileAtlas = tile_atlas::build_atlas(gpu, batch, &images);
+    let atlas: TileAtlas = tile_atlas::build_atlas(&gpu.device, &gpu.queue, batch, &images);
     log::info!("Atlas built: {} tiles", atlas.tile_count());
     Some(atlas)
 }

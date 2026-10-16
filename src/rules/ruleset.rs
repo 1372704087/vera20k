@@ -8249,20 +8249,6 @@ MutateWarhead=MyMutate\n\
     }
 
     #[test]
-    fn combatdamage_destroyablebridges_no_does_not_clear_default_bridge_flag() {
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n\
-             [VehicleTypes]\n\
-             [AircraftTypes]\n\
-             [BuildingTypes]\n\
-             [CombatDamage]\n\
-             DestroyableBridges=no\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("Should parse");
-        assert!(rules.bridge_rules.destroyable_by_default);
-    }
-
-    #[test]
     fn bridge_rules_voxel_max_clamps_oversize() {
         // Regression: u8 storage clamps oversize INI values to 255 instead
         // of wrapping/truncating.

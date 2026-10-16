@@ -322,7 +322,7 @@ pub(crate) fn build_unit_instances(
         };
         let no_shadow = state
             .rules()
-            .and_then(|rules| rules.object(sim.interner.resolve(entity.type_ref())))
+            .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
             .is_some_and(|object| object.no_shadow);
         let type_str = type_name.as_ref();
         observer.drawn_voxel = Some(true);
@@ -1602,7 +1602,7 @@ fn harvest_overlay_frame(
     display_binary_frame: u32,
 ) -> Option<u16> {
     let harvester = rules
-        .and_then(|rules| rules.object(sim.interner.resolve(entity.type_ref())))
+        .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
         .is_some_and(|object| object.harvester);
     if !harvester
         || !entity
@@ -1615,12 +1615,7 @@ fn harvest_overlay_frame(
         || crate::sim::movement::motion_query::is_moving_now(
             entity,
             rules.map(|rules| {
-                crate::sim::movement::SpeedRules::new(
-                    rules,
-                    &sim.interner,
-                    &sim.type_handles,
-                    &sim.houses,
-                )
+                crate::sim::movement::SpeedRules::new(rules, &sim.interner, &sim.houses)
             }),
             display_binary_frame,
         )

@@ -513,7 +513,7 @@ pub(crate) fn building_dock_coordinate(
     interner: &crate::sim::intern::StringInterner,
 ) -> Option<DriveCoord> {
     let building = entities.get(building_id)?;
-    let object = rules.object(interner.resolve(building.type_ref()))?;
+    let object = interner.object_type(building.type_ref(), rules)?;
     super::building_coordinate::dock_coordinate(
         super::ground_pose::object_location(building, terrain),
         super::ground_pose::object_get_coords(building, terrain),
@@ -590,8 +590,8 @@ pub(crate) fn nav_target_coordinate(
     if entity.category() == crate::map::entities::EntityCategory::Structure {
         let (rules, interner) =
             rules.ok_or_else(|| format!("Building {id} navigation requires type data"))?;
-        let object = rules
-            .object(interner.resolve(entity.type_ref()))
+        let object = interner
+            .object_type(entity.type_ref(), rules)
             .ok_or_else(|| format!("Building {id} navigation type disappeared"))?;
         return super::building_coordinate::navigation_coordinate(
             super::ground_pose::object_location(entity, terrain),

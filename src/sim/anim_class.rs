@@ -2105,8 +2105,9 @@ impl Simulation {
             {
                 return false;
             }
-            let radius = rules
-                .object(self.interner.resolve(entity.type_ref()))
+            let radius = self
+                .interner
+                .object_type(entity.type_ref(), rules)
                 .map_or(0, |object| i32::from(object.psychic_detection_radius));
             if radius <= 0
                 || self.building_operational_state(entity.stable_id(), rules) != Some(true)

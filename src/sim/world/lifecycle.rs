@@ -923,7 +923,7 @@ impl Simulation {
         let aircraft_type = context
             .rules
             .filter(|_| entity.category() == EntityCategory::Aircraft)
-            .and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
+            .and_then(|rules| self.interner.object_type(entity.type_ref(), rules));
         if aircraft_type.is_some_and(|object| object.missile_spawn) {
             return position
                 .exact_z_leptons()
@@ -1278,7 +1278,7 @@ impl Simulation {
             && self.substrate.entities.get(stable_id).is_some_and(|e| {
                 context
                     .rules
-                    .and_then(|r| r.object(self.interner.resolve(e.type_ref())))
+                    .and_then(|r| self.interner.object_type(e.type_ref(), r))
                     .map_or(e.category() == EntityCategory::Aircraft, |o| {
                         o.considered_aircraft
                     })
@@ -1295,7 +1295,7 @@ impl Simulation {
                 entity.category(),
                 EntityCategory::Infantry | EntityCategory::Unit | EntityCategory::Aircraft
             )
-            && let Some(object) = rules.object(self.interner.resolve(entity.type_ref()))
+            && let Some(object) = self.interner.object_type(entity.type_ref(), rules)
         {
             entity
                 .navigation
@@ -1331,7 +1331,7 @@ impl Simulation {
                     self.substrate
                         .entities
                         .get(stable_id)
-                        .and_then(|entity| rules.object(self.interner.resolve(entity.type_ref())))
+                        .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
                 })
                 .is_some_and(|object| object.small_visceroid || object.large_visceroid);
             let value = if visceroid {
@@ -2426,7 +2426,8 @@ impl Simulation {
         let non_landable_level = (entity.category() == EntityCategory::Aircraft)
             .then(|| {
                 rules.and_then(|r| {
-                    r.object(self.interner.resolve(entity.type_ref()))
+                    self.interner
+                        .object_type(entity.type_ref(), r)
                         .filter(|object| !object.landable)
                         .map(|object| object.flight_level(r.general.flight_level))
                 })

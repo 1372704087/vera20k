@@ -117,7 +117,7 @@ pub(crate) fn death_weapon_detonation(
     rules: &RuleSet,
 ) -> Option<ProjectileDetonation> {
     let entity = world.substrate.entities.get(id)?;
-    let object = rules.object(world.interner.resolve(entity.type_ref()))?;
+    let object = world.interner.object_type(entity.type_ref(), rules)?;
     let current_weapon = combat_weapon::current_weapon(
         entity,
         object,

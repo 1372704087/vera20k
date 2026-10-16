@@ -1756,7 +1756,7 @@ impl Simulation {
                 };
                 (losses as i32) >= condition.value
             }
-            9 | 10 | 11 => {
+            9 | 10 | 11 | 55 | 56 => {
                 //71F069 ->502D30: Event.value selects a Country's first
                 //registered House, independently of the incoming House or
                 //raised event. No matching House reaches the AL1 tail; this
@@ -1766,6 +1766,11 @@ impl Simulation {
                 //10's71F115..71F12E tests tracked buildings <=0, including
                 //constructor-complete Limbo until actual destruction. Steam
                 //3e81a617..08600; tag_lifecycle --building-loss-events.
+                //55/56: Steam3e81a617..08600, 71F159 /71F16F..71F187;
+                //tools/spatial_oracle/tag_lifecycle.py --naval-land-events.
+                //56's TEST after SUB observes wrapping subtraction, not a
+                //signed comparison of the two source counts. These events
+                //read tracked scalars, unlike9's on-map CounterClass totals.
                 let owner = rules.and_then(|rules| {
                     u16::try_from(condition.value).ok().and_then(|country| {
                         self.house_by_country_index(
@@ -1780,7 +1785,17 @@ impl Simulation {
                         .is_none_or(|house| match condition.kind {
                             9 => house.tracking.units_destroyed(),
                             10 => house.tracking.buildings() <= 0,
-                            _ => house.tracking.all_destroyed(),
+                            11 => house.tracking.all_destroyed(),
+                            55 => house.tracking.navy() <= 0,
+                            56 => {
+                                house
+                                    .tracking
+                                    .vehicles()
+                                    .wrapping_sub(house.tracking.navy())
+                                    <= 0
+                                    && house.tracking.infantry() <= 0
+                            }
+                            _ => unreachable!(),
                         })
                 })
             }
@@ -2549,8 +2564,9 @@ impl Simulation {
                 let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                     let powered = entity.category()
                         == crate::map::entities::EntityCategory::Structure
-                        && rules
-                            .object(self.interner.resolve(entity.type_ref()))
+                        && self
+                            .interner
+                            .object_type(entity.type_ref(), rules)
                             .is_some_and(|object| object.powered || object.powered_special);
                     entity.owner() == owner && powered == powered_pass
                 });

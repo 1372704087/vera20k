@@ -1465,7 +1465,7 @@ fn charge_turret_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    let Some(object) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+    let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
         return;
     };
     entity.update_charge_turret(sim.session.binary_frame as i32, object);
@@ -1655,8 +1655,8 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     }
     let (Some(obj), Some(target_obj)) = (
-        rules.object(sim.interner.resolve(entity.type_ref())),
-        rules.object(sim.interner.resolve(target.type_ref())),
+        sim.interner.object_type(entity.type_ref(), rules),
+        sim.interner.object_type(target.type_ref(), rules),
     ) else {
         return;
     };
@@ -1896,7 +1896,7 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     };
     let type_ref = entity.type_ref();
     let live_until_in = entity.damage_particle_live_until.live_until();
-    let Some(obj) = rules.object(sim.interner.resolve(type_ref)) else {
+    let Some(obj) = sim.interner.object_type(type_ref, rules) else {
         return;
     };
 
@@ -3205,14 +3205,15 @@ mod tests {
         let scout = sim.substrate.entities.get(1).expect("scout present");
         assert!(
             scout.health.current()
-                < rules
-                    .object(sim.interner.resolve(scout.type_ref()))
+                < sim
+                    .interner
+                    .object_type(scout.type_ref(), &rules)
                     .unwrap()
                     .strength,
             "an unordered base defence must actually shoot what it picks up: {}/{}",
             scout.health.current(),
-            rules
-                .object(sim.interner.resolve(scout.type_ref()))
+            sim.interner
+                .object_type(scout.type_ref(), &rules)
                 .unwrap()
                 .strength,
         );
@@ -3414,14 +3415,15 @@ mod tests {
         let enemy = sim.substrate.entities.get(2).expect("enemy present");
         assert!(
             enemy.health.current()
-                < rules
-                    .object(sim.interner.resolve(enemy.type_ref()))
+                < sim
+                    .interner
+                    .object_type(enemy.type_ref(), &rules)
                     .unwrap()
                     .strength,
             "and it must actually open fire: {}/{}",
             enemy.health.current(),
-            rules
-                .object(sim.interner.resolve(enemy.type_ref()))
+            sim.interner
+                .object_type(enemy.type_ref(), &rules)
                 .unwrap()
                 .strength,
         );
@@ -3501,25 +3503,27 @@ mod tests {
         let soviet = sim.substrate.entities.get(2).expect("soviet tank present");
         assert!(
             allied.health.current()
-                < rules
-                    .object(sim.interner.resolve(allied.type_ref()))
+                < sim
+                    .interner
+                    .object_type(allied.type_ref(), &rules)
                     .unwrap()
                     .strength
                 || soviet.health.current()
-                    < rules
-                        .object(sim.interner.resolve(soviet.type_ref()))
+                    < sim
+                        .interner
+                        .object_type(soviet.type_ref(), &rules)
                         .unwrap()
                         .strength,
             "a passively acquired target must actually be fired on: \
              allied {}/{}, soviet {}/{}",
             allied.health.current(),
-            rules
-                .object(sim.interner.resolve(allied.type_ref()))
+            sim.interner
+                .object_type(allied.type_ref(), &rules)
                 .unwrap()
                 .strength,
             soviet.health.current(),
-            rules
-                .object(sim.interner.resolve(soviet.type_ref()))
+            sim.interner
+                .object_type(soviet.type_ref(), &rules)
                 .unwrap()
                 .strength,
         );

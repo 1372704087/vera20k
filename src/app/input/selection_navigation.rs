@@ -183,8 +183,9 @@ fn combatant_selection(
     let combatant = |id: &u64| {
         sim.entities().get(*id).is_some_and(|entity| {
             entity.category() != EntityCategory::Structure
-                && rules
-                    .object(sim.interner.resolve(entity.type_ref()))
+                && sim
+                    .interner
+                    .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.is_selectable_combatant)
                 && crate::app::input::entity_pick::selection_dynamic_prefix(
                     entity,
@@ -411,7 +412,7 @@ fn entity_navigation_category(
     let entity = sim.entities().get(id)?;
     match kind {
         CategoryNavigationKind::Health => {
-            let object = rules.object(sim.interner.resolve(entity.type_ref()))?;
+            let object = sim.interner.object_type(entity.type_ref(), rules)?;
             Some(health_category(
                 entity.health.current(),
                 object.strength,
@@ -575,7 +576,7 @@ pub(super) fn execute_category_navigation(state: &mut AppState, kind: CategoryNa
         .filter_map(|id| sim.entities().get(*id))
         .filter_map(|entity| {
             let rules = state.rules()?;
-            let object = rules.object(sim.interner.resolve(entity.type_ref()))?;
+            let object = sim.interner.object_type(entity.type_ref(), rules)?;
             Some(sim.cost_of(entity.owner(), object, rules))
         })
         .fold(0_i32, |total, cost| total.wrapping_add(cost));

@@ -1220,7 +1220,7 @@ pub(crate) fn scale_pip_frames(
     let ore = miner.cargo().len() - gems;
     let maximum = object.pip_max(rules);
     let slots = usize::try_from(maximum).unwrap_or(0);
-    //70A26C/70A29C record independently rounded Storage slot1 (gems) and slots0/2/3
+    //70A230..29C independently rounds Storage slot1 (gems) and (slot3+2)+0
     //(ore) through amount / current Type.Storage * GetPipMax + binary64 0.5.
     //Ambient0E7F is PC53/chop: stock4/40 remains just below0.5 after the
     //multiply, so rational half-up is wrong. Reuse the existing numeric owner;

@@ -1,4 +1,4 @@
-//! Replay ordinary rank, health and building lines in Tactical Extras order.
+//! Replay rank, health, scale pips and building lines in Tactical Extras order.
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
@@ -7,7 +7,7 @@ use crate::render::selection_overlay::SelectionOverlay;
 use crate::render::terrain_draw::TerrainDrawRenderer;
 
 /// Native6F5190/70A990/6F64A0: rank and PIPBRD E00 consume A (493DF0);
-/// PIPS600 bypasses A (4912B0). Neither shape reads or writes Z. Commands
+/// PIPS/PIPS2 600 bypasses A (4912B0). Neither shape reads or writes Z. Commands
 /// and ranges belong only to this frame's retained Display traversal.
 pub(super) fn draw_object_extras(
     encoder: &mut wgpu::CommandEncoder,
@@ -28,7 +28,7 @@ pub(super) fn draw_object_extras(
             continue;
         }
         // Adjacent status parents share one attachment pass; each keeps its
-        // rank->border->fill order. A line parent fences this pass before using Z.
+        // rank->border->fill->scale order. Lines fence this pass before using Z.
         let start = next;
         while matches!(
             layer.extras_runs.get(next),

@@ -110,7 +110,9 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             let rules = patched.as_ref().map_or(rules, |retail| &retail.rules);
             let size = pair(&input["size"]);
             let tactical_clip: [u32; 4] =
-                std::array::from_fn(|index| input["clip"][index].as_u64().unwrap() as u32);
+                input.get("clip").map_or([0, 0, size[0], size[1]], |clip| {
+                    std::array::from_fn(|index| clip[index].as_u64().unwrap() as u32)
+                });
             let mut cam = camera(size);
             // The shared projection's world-row origin is +15. Native camera
             // and original Location are supplied independently in the corpus.

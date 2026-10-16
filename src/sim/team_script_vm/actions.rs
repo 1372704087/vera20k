@@ -2417,7 +2417,7 @@ impl Simulation {
         // below, and a restart after the step's advance changes nothing.
         if attack_check_frame(self.session.binary_frame as i32)
             && let (Some(leader), Some(target)) = (leader, focus)
-            && self.selected_weapon_fire_error(rules, leader, target.target_kind(), registry)
+            && self.selected_weapon_fire_error(rules, leader, target.target_kind(), true, registry)
                 == FireError::Illegal
             && let Some(team) = self.team_script_vm.teams.get_mut(&team_id)
         {

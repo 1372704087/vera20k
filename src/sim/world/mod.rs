@@ -169,6 +169,8 @@ mod drone_rocking_tests;
 #[cfg(test)]
 mod area_rocker_tests;
 #[cfg(test)]
+mod mastermind_overload_tests;
+#[cfg(test)]
 pub(crate) use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]
 mod team_script_vm_tests;
@@ -876,6 +878,24 @@ impl SimSoundEvent {
 
     pub(crate) fn voc_at(sound_id: String, position: &Position) -> Self {
         Self::voc_at_for(sound_id, None, position)
+    }
+
+    /// `VocClass::PlayAt @ 0x007509E0` for a source whose authoritative
+    /// location comes from `FootClass::GetCoords` rather than raw Position.
+    pub(crate) fn voc_at_world_coord(
+        sound_id: String,
+        coordinate: crate::sim::anim_class::AnimWorldCoord,
+    ) -> Self {
+        let (rx, ry, sub_x, sub_y, _) = coordinate.to_cell_sub_z();
+        Self::VocAt {
+            sound_id,
+            audible_to: None,
+            rx,
+            ry,
+            sub_x,
+            sub_y,
+            world_z_leptons: coordinate.z,
+        }
     }
 
     pub(crate) fn voc_at_for(

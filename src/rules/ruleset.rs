@@ -3629,6 +3629,11 @@ impl ProductionRules {
     }
 }
 
+fn next_rule_set_serial() -> u64 {
+    static SERIALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    SERIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
+
 /// O(1) index into `RuleSet::object_list`. Resolved once from a name (or from an
 /// interned id via the sim `TypeHandleTable`), then dereferenced directly —
 /// avoiding the per-call string round-trip + hash lookup of name resolution.
@@ -3640,7 +3645,11 @@ pub struct TypeHandle(pub u32);
 /// Name lookups are case-insensitive (matching the engine's find-or-allocate),
 /// resolved via `type_handle`/`object_by_handle`. The sim/ module uses RuleSet
 /// to look up costs, speeds, weapons, and prerequisites for every game action.
+///
+/// Tests may clone a set to reuse one retail load; a clone keeps the serial
+/// until [`Self::with_fresh_serial`] gives it its own.
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuleSet {
     /// All game objects in registry insertion order, indexed by `TypeHandle`.
     object_list: Vec<ObjectType>,
@@ -4719,11 +4728,10 @@ impl RuleSet {
             check_unique_ci("super_weapons", super_weapons.keys().collect());
         }
 
-        static SERIALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut rules = RuleSet {
             object_list,
             object_index,
-            serial: SERIALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
+            serial: next_rule_set_serial(),
             object_category_index,
             type_array_indices,
             weapons,
@@ -4880,6 +4888,13 @@ impl RuleSet {
     /// it to know whose handles they hold.
     pub fn serial(&self) -> u64 {
         self.serial
+    }
+
+    /// This set as a distinct set: a test's copy of a shared retail load.
+    #[cfg(test)]
+    pub(crate) fn with_fresh_serial(mut self) -> Self {
+        self.serial = next_rule_set_serial();
+        self
     }
 
     /// Dereference a handle to its object. Handles only originate from this

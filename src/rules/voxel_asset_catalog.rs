@@ -5,7 +5,7 @@
 //! alongside effect assets; replacing ART invalidates it. An unbound catalog
 //! admits no type. No renderer cache or per-entity flag can change this input.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::hva_file::HvaFile;
@@ -47,6 +47,17 @@ impl VoxelPart {
 }
 
 pub(crate) type MainVoxelParts = (VoxelPart, Vec<(Option<VoxelPart>, Option<VoxelPart>)>);
+
+/// Native TechnoType7160C7..71611D's main-VXL postpass: first section
+/// SizeY/2+0.5 and SizeX/2, in original voxel units. Every value is exact in
+/// binary32; both simulation and rendering use this physical metadata.
+pub(crate) fn voxel_tilt_half_sizes(vxl: &VxlFile) -> Option<[f32; 2]> {
+    let section = vxl.limbs.first()?;
+    Some([
+        f32::from(section.size_y) * 0.5 + 0.5,
+        f32::from(section.size_x) * 0.5,
+    ])
+}
 
 /// ObjectType5F8110's body and Unit gun loading. TechnoType716090's Voxel
 /// declaration gates the call. Main VXL ctor755CD0/755CFE retains an error byte;
@@ -103,16 +114,17 @@ pub(crate) fn load_main_voxel(
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct VoxelAssetCatalog {
-    /// The loaded types' uppercase ids: what the catalog hashes.
-    loaded: BTreeSet<String>,
+    /// Each loaded type's uppercase id and its main body's tilt half sizes
+    /// (binary32 bits): what the catalog hashes.
+    loaded: BTreeMap<String, Option<[u32; 2]>>,
     /// Derived: whether each object handle's type is in `loaded`, so the
     /// per-frame question reads no name.
     by_handle: Vec<bool>,
 }
 
 impl std::hash::Hash for VoxelAssetCatalog {
-    /// The loaded ids alone, as before `by_handle` existed: the rules hash
-    /// that saves carry stays the same.
+    /// `loaded` alone: `by_handle` derives from it, so the rules hash that
+    /// saves carry stays the same.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.loaded.hash(state);
     }
@@ -120,18 +132,20 @@ impl std::hash::Hash for VoxelAssetCatalog {
 
 impl VoxelAssetCatalog {
     pub(crate) fn bind(rules: &RuleSet, assets: &AssetManager) -> Self {
-        let by_handle: Vec<bool> = rules
+        let bodies: Vec<Option<Option<[u32; 2]>>> = rules
             .all_objects()
-            .map(|object| load_main_voxel(assets, &object.id, Some(rules)).is_some())
+            .map(|object| {
+                let (body, _) = load_main_voxel(assets, &object.id, Some(rules))?;
+                Some(voxel_tilt_half_sizes(body.vxl()).map(|sizes| sizes.map(f32::to_bits)))
+            })
             .collect();
         Self {
             loaded: rules
                 .all_objects()
-                .zip(&by_handle)
-                .filter(|&(_, &loaded)| loaded)
-                .map(|(object, _)| object.id.to_ascii_uppercase())
+                .zip(&bodies)
+                .filter_map(|(object, &body)| Some((object.id.to_ascii_uppercase(), body?)))
                 .collect(),
-            by_handle,
+            by_handle: bodies.iter().map(Option::is_some).collect(),
         }
     }
 
@@ -142,9 +156,21 @@ impl VoxelAssetCatalog {
             .unwrap_or(false)
     }
 
+    fn body(&self, type_id: &str) -> Option<&Option<[u32; 2]>> {
+        if type_id.bytes().any(|byte| byte.is_ascii_lowercase()) {
+            self.loaded.get(&type_id.to_ascii_uppercase())
+        } else {
+            self.loaded.get(type_id)
+        }
+    }
+
+    pub(crate) fn half_sizes(&self, type_id: &str) -> Option<[f32; 2]> {
+        self.body(type_id)?.map(|bits| bits.map(f32::from_bits))
+    }
+
     #[cfg(test)]
     pub(crate) fn supply_loaded(&mut self, type_id: &str, object: TypeHandle) {
-        self.loaded.insert(type_id.to_ascii_uppercase());
+        self.loaded.insert(type_id.to_ascii_uppercase(), None);
         let index = object.0 as usize;
         if self.by_handle.len() <= index {
             self.by_handle.resize(index + 1, false);
@@ -194,13 +220,29 @@ mod tests {
         assert!(!loaded(&rules, "TEST"), "unbound is explicit");
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
         assert!(loaded(&rules, "test"));
+        // Original loaded DEST postpass in naval_draw_squid_tilt.json.
+        assert_eq!(rules.object_voxel_half_sizes("test"), Some([23.5, 51.]));
         let bound_hash = rules.simulation_config_hash();
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
         assert_eq!(rules.simulation_config_hash(), bound_hash);
+        // Replacing the physical body changes both derived pose metadata and
+        // deterministic configuration identity, even with unchanged admission.
+        for (source, destination) in [("GTNK.VXL", "BODY.VXL"), ("GTNK.HVA", "BODY.HVA")] {
+            std::fs::write(
+                directory.path().join(destination),
+                assets.get_ref(source).unwrap(),
+            )
+            .unwrap();
+        }
+        rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
+        assert!(loaded(&rules, "TEST"));
+        assert_eq!(rules.object_voxel_half_sizes("TEST"), Some([15.5, 20.5]));
+        assert_ne!(rules.simulation_config_hash(), bound_hash);
         rules.install_art_fixture(ArtRegistry::from_ini(&IniFile::from_str(
             "[BODY]\nVoxel=no\n",
         )));
         assert!(!loaded(&rules, "TEST"), "ART replacement invalidates");
+        assert!(rules.object_voxel_half_sizes("TEST").is_none());
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
         assert!(
             !loaded(&rules, "TEST"),

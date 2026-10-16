@@ -814,6 +814,26 @@ gesture driver does not advance that poll. Mouse modifiers and held gestures
 across steps are also outside this profile contract. Null, unknown and wrong-case
 button values are rejected before launch.
 
+## Minimap presses
+
+A v2/v3 gesture `{"kind":"minimap","position":[740,120]}` sends an ordinary
+left press/release at render-target pixels, then restores the sealed neutral
+cursor. `{"kind":"minimap_object","entity_id":935}` instead resolves an
+installed, clickable tracker pixel for an already observed identity. It checks
+the existing reverse hit before pressing, rather than projecting a new dot.
+Both forms require the production online radar surface to accept the press;
+it neither installs radar state nor issues a camera command. Coordinates use
+the render target bounds. Ordinary tactical clicks keep their stricter bounds.
+
+Minimap profiles opt in to the existing local-input projection and binding table,
+so each gesture retains camera position before and after, with any queued commands.
+Its `minimap` receipt records resolved position, actual tracker identity (or null
+on an empty hit), clamped Cell and world center from the same production query
+used immediately by the mouse press.
+The existing local-key gesture policy carries that projection even without a key.
+A moving tracker hit follows its object's virtual+4C navigation coordinate before
+the radar's signed clamp, Cell ground center and immediate camera update.
+
 ## Literal keyboard gestures
 
 A v2 profile can send a literal key press and release through the same in-game

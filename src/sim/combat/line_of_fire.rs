@@ -228,7 +228,7 @@ pub(crate) fn cell_blocks_line_of_fire<'a>(
     if !blocks(&cell) {
         return None;
     }
-    let center = crate::sim::cell_kernel::cell_ref_own_coords(&cell).expect("Cell486840 slope");
+    let center = cell.center_coordinate().expect("Cell486840 slope");
     if crate::util::native_x87::distance_3d_leptons(
         [probe.sample.x, probe.sample.z, probe.sample.y],
         [center.x, center.z, center.y],
@@ -236,9 +236,13 @@ pub(crate) fn cell_blocks_line_of_fire<'a>(
     {
         return Some(cell);
     }
-    let source = crate::sim::cell_kernel::cell_ref_own_coords(&probe.source)
+    let source = probe
+        .source
+        .center_coordinate()
         .expect("source Cell486840 slope");
-    let target = crate::sim::cell_kernel::cell_ref_own_coords(&probe.target)
+    let target = probe
+        .target
+        .center_coordinate()
         .expect("target Cell486840 slope");
     let major_x = source.x.wrapping_sub(target.x).wrapping_abs();
     let major_y = source.y.wrapping_sub(target.y).wrapping_abs();

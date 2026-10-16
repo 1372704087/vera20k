@@ -446,6 +446,25 @@ impl RetainedRadarTracker {
             .map(|entry| entry.stable_id)
     }
 
+    /// An installed pixel whose reverse hit still selects this object. A
+    /// covered or retired entry cannot supply an ordinary input target. The caller
+    /// admits only pixels represented by its current screen geometry.
+    pub fn clickable_pixel(
+        &self,
+        stable_id: u64,
+        mut usable: impl FnMut((i32, i32)) -> bool,
+    ) -> Option<(i32, i32)> {
+        let cache = self.objects.get(&stable_id)?;
+        if !cache.registered {
+            return None;
+        }
+        cache
+            .pixels
+            .iter()
+            .copied()
+            .find(|&(x, y)| self.object_at_pixel(x, y) == Some(stable_id) && usable((x, y)))
+    }
+
     #[cfg(test)]
     pub(super) fn is_registered(&self, stable_id: u64) -> bool {
         self.objects

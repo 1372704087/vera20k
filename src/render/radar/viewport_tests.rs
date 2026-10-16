@@ -3,6 +3,37 @@ use std::collections::BTreeSet;
 use super::*;
 
 #[test]
+fn clickable_radar_points_roundtrip_at_native_and_scaled_apertures() {
+    let surface = NativeRadarSurfaceGeometry::from_raw_rect(30, 20, 300, 180).unwrap();
+    for rect in [
+        [100.0, 50.0, 140.0, 108.0],
+        [100.4, 50.6, 210.0, 162.0],
+        [100.0, 50.0, 70.0, 54.0],
+    ] {
+        let screen = NativeRadarScreenGeometry::new(surface, rect);
+        let size = surface.generated_size();
+        let mut represented = 0;
+        for y in 0..size.1 {
+            for x in 0..size.0 {
+                if let Some(point) = screen.surface_pixel_screen_point((x, y)) {
+                    assert_eq!(screen.screen_to_surface_pixel(point), Some((x, y)));
+                    represented += 1;
+                }
+            }
+        }
+        assert!(represented > 0);
+        if rect[2] >= 140.0 {
+            assert_eq!(represented, size.0 * size.1);
+        } else {
+            assert!(represented < size.0 * size.1);
+        }
+        assert_eq!(screen.surface_pixel_screen_point((-1, 0)), None);
+        assert_eq!(screen.surface_pixel_screen_point((size.0, 0)), None);
+    }
+}
+
+
+#[test]
 fn native_radar_screen_geometry_rejects_letterbox_and_maps_half_open_edges() {
     let wide = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 300, 180).unwrap();
     let screen = NativeRadarScreenGeometry::new(wide, [100.0, 50.0, 280.0, 216.0]);

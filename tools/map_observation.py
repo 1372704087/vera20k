@@ -281,9 +281,12 @@ def _gesture(value: Any, label: str, extent: tuple[int, int]) -> None:
     if 'button' in gesture:
         if gesture.get('kind') not in ('click', 'sidebar') or gesture['button'] not in ('left', 'right'):
             raise ValidationError(f'{label}.button requires click/sidebar and literal left/right')
-    if gesture.get('kind') == 'click':
+    if gesture.get('kind') in ('click', 'minimap'):
         require_exact_keys(gesture, ('kind', 'position', *(('button',) if 'button' in gesture else ())), label)
         _screen_point(gesture['position'], f'{label}.position', extent)
+    elif gesture.get('kind') == 'minimap_object':
+        require_exact_keys(gesture, ('kind', 'entity_id'), label)
+        _bounded_int(gesture['entity_id'], f'{label}.entity_id', 1, (1 << 64) - 1)
     elif gesture.get('kind') == 'drag':
         require_exact_keys(gesture, ('kind', 'from', 'to'), label)
         start = _screen_point(gesture['from'], f'{label}.from', extent)
@@ -329,7 +332,7 @@ def _gesture(value: Any, label: str, extent: tuple[int, int]) -> None:
         else:
             raise ValidationError(f'{label}.target.kind must be tab, cameo, scroll_up, scroll_down, repair or sell')
     else:
-        raise ValidationError(f'{label}.kind must be click, drag, sidebar, command_bar or key')
+        raise ValidationError(f'{label}.kind must be click, drag, minimap, minimap_object, sidebar, command_bar or key')
 
 
 def _right_button_gesture(gesture: Mapping[str, Any]) -> bool:
@@ -337,7 +340,7 @@ def _right_button_gesture(gesture: Mapping[str, Any]) -> bool:
 
 
 def _observes_local_input(profile: Mapping[str, Any]) -> bool:
-    return any(row['gesture']['kind'] == 'key' or _right_button_gesture(row['gesture'])
+    return any(row['gesture']['kind'] in ('key', 'minimap', 'minimap_object') or _right_button_gesture(row['gesture'])
                for row in profile.get('gestures', []))
 
 
@@ -2187,6 +2190,7 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
         sidebar = request['gesture']['kind'] == 'sidebar'
         keyboard = request['gesture']['kind'] == 'key'
         command_bar = request['gesture']['kind'] == 'command_bar'
+        minimap = request['gesture']['kind'] in ('minimap', 'minimap_object')
         right = _right_button_gesture(request['gesture'])
         require_exact_keys(row, ('ordinal', 'issue_after_step', 'issued_simulation_tick',
                                  'issued_binary_frame', 'gesture', 'before', 'after',
@@ -2195,13 +2199,16 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
                                  *(('right_press_captured',) if right else ()),
                                  *(('sidebar',) if sidebar else ()),
                                  *(('command_bar',) if command_bar else ()),
-                                 *(('keyboard',) if keyboard else ())), row_label)
+                                 *(('keyboard',) if keyboard else ()),
+                                 *(('minimap',) if minimap else ())), row_label)
         tick, frame = _segment_clock(request['issue_after_step'], segments, after_inputs=True, gesture_ordinal=index)
         for key, expected in (('ordinal', index), ('issue_after_step', request['issue_after_step']),
                               ('issued_simulation_tick', tick), ('issued_binary_frame', frame)):
             require_value(row[key], expected, f'{row_label}.{key}')
         _require_equal(row['gesture'], request['gesture'], f'{row_label}.gesture')
-        _gesture(row['gesture'], f'{row_label}.gesture', extent)
+        gesture_extent = ((profile['width'], profile['height'])
+                          if minimap else extent)
+        _gesture(row['gesture'], f'{row_label}.gesture', gesture_extent)
         for key, expected in (('left_press_captured', not keyboard and not right), ('neutral_input_restored', True),
                               ('band_box_before_release', request['gesture']['kind'] == 'drag')):
             require_value(row[key], expected, f'{row_label}.{key}')
@@ -2209,6 +2216,24 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
             require_value(row['right_press_captured'], True, f'{row_label}.right_press_captured')
         for key in ('before', 'after'):
             sample_count += _input_observation(row[key], f'{row_label}.{key}', local_input=local_input)
+        if minimap:
+            receipt_label = f'{row_label}.minimap'
+            hit = require_object(row['minimap'], receipt_label)
+            require_exact_keys(hit, ('resolved_position', 'tracker_hit', 'cell', 'world_leptons'), receipt_label)
+            position = _screen_point(hit['resolved_position'], f'{receipt_label}.resolved_position', gesture_extent)
+            if request['gesture']['kind'] == 'minimap':
+                _require_equal(hit['resolved_position'], request['gesture']['position'], f'{receipt_label}.resolved_position')
+            else:
+                require_value(hit['tracker_hit'], request['gesture']['entity_id'], f'{receipt_label}.tracker_hit')
+            if hit['tracker_hit'] is not None:
+                _bounded_int(hit['tracker_hit'], f'{receipt_label}.tracker_hit', 1, (1 << 64) - 1)
+            for field, length, low, high in [('cell', 2, 0, 65535), ('world_leptons', 3, -(1 << 31), (1 << 31) - 1)]:
+                values = require_array(hit[field], f'{receipt_label}.{field}')
+                if len(values) != length:
+                    raise ValidationError(f'{receipt_label}.{field} requires {length} coordinates')
+                for axis, value in enumerate(values):
+                    _bounded_int(value, f'{receipt_label}.{field}[{axis}]', low, high)
+            sample_count += 1
         if sidebar:
             sample_count += _sidebar_gesture(row['sidebar'], request['gesture']['target'],
                 f'{row_label}.sidebar', (profile['width'], profile['height']))

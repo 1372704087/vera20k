@@ -2,8 +2,8 @@ use super::*;
 use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/airstrike_tint.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/airstrike_tint.json")
 }
 
 fn int(v: &Value) -> i32 {

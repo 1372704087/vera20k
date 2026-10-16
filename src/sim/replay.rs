@@ -795,6 +795,11 @@ impl ReplayRunner {
                 current
             );
         }
+        // Playback returns every frame's hash, so a test world hashes each one;
+        // a recording compared with it must ask for the same.
+        runtime
+            .simulation
+            .hash_state_every(std::num::NonZeroU64::MIN);
         let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = runtime
@@ -889,6 +894,9 @@ impl ReplayRunner {
             }
         }
         sim.install_fixture_path_grid(path_grid);
+        // Playback returns every frame's hash, so a test world hashes each one;
+        // a recording compared with it must ask for the same.
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = sim.take_due_replay_commands(entry.commands.iter().cloned());
@@ -1456,6 +1464,7 @@ mod tests {
     fn diagnostic_replay_reproduces_midmatch_game_speed_transition() {
         let make_sim = || {
             let mut sim = Simulation::with_seed(7);
+            sim.hash_state_every(std::num::NonZeroU64::MIN);
             let owner = sim.interner.intern("Local");
             sim.houses.insert(
                 owner,

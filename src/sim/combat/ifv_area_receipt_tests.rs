@@ -3,7 +3,6 @@
 //! comparison is receipt/collection/isolation, never native health or kills.
 
 use super::*;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
@@ -45,7 +44,7 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         for item in native["initial"]["impact_anim_art"].as_array().unwrap() {
             rules.bind_anim_frame_count_for_test(
                 item["name"].as_str().unwrap(),
@@ -293,7 +292,7 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         let mut world = Simulation::with_seed(31);
         world.session.binary_frame = 100;
         world.session.no_damage = input["scenario_flags"].as_u64().unwrap() & 0x20 != 0;

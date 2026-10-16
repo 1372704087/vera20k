@@ -557,10 +557,9 @@ fn the_strategy_rebuilds_after_the_missing_factorys_sell_off() {
 /// without one.
 #[test]
 fn retail_countries_have_their_economy_types() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     let countries = [
         "Americans",
         "Alliance",

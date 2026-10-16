@@ -10,11 +10,8 @@ use serde_json::Value;
 /// diamond, so only the diamond bounds the walks.
 const GRID: (u16, u16) = (128, 128);
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/reveal_area.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/reveal_area.json")
 }
 
 fn rows(corpus: &Value) -> &[Value] {

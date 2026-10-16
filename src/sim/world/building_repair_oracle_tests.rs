@@ -68,11 +68,8 @@ fn oracle_rules_with_sounds(root: IniFile) -> RuleSet {
     )
 }
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_repair.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_repair.json")
 }
 
 fn constant(corpus: &Value, name: &str) -> u64 {

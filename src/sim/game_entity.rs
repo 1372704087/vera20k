@@ -1901,11 +1901,8 @@ impl GameEntity {
 mod tests {
     use super::*;
 
-    fn native_cloak_fixture() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/procedural_drawing_oracle/translucent_blitter_a.json",
-        ))
-        .unwrap()
+    fn native_cloak_fixture() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/procedural_drawing_oracle/translucent_blitter_a.json")
     }
 
     #[test]

@@ -537,7 +537,7 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
             }
         }
         let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         if let Some(control) = control {
             let exit = rules.object("GAWEAP").unwrap().exit_coord;
             assert_eq!(
@@ -969,6 +969,7 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
     let rules = factory_constructor_rules();
     let make = || {
         let mut sim = Simulation::with_seed(0xFAC7_0003);
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
@@ -2643,7 +2644,7 @@ fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
     };
     let ini = ini.without_entry_for_test("GAWEAP", "WeaponsFactory");
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     let gaweap = rules.object("GAWEAP").unwrap();
     assert_eq!(exit_arm(gaweap), ExitArm::Generic);
     let (width, height) = crate::rules::foundation::foundation_dimensions(&gaweap.foundation);

@@ -7,11 +7,8 @@ use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/planning_mode.json",
-    ))
-    .expect("planning native corpus")
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/planning_mode.json")
 }
 
 fn path(pending: i32, loop_start: Option<usize>) -> PlanningPath {

@@ -35,11 +35,8 @@ use serde_json::{Value, json};
 
 const TICK_MS: u32 = 67;
 
-fn ground_command_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/walk_first_path.json",
-    ))
-    .unwrap()
+fn ground_command_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/walk_first_path.json")
 }
 
 fn ground_command_history<'a>(corpus: &'a Value, name: &str) -> &'a Value {
@@ -1700,11 +1697,9 @@ fn initialized_gi_deploy_class_contexts_match_original_returns() {
     }
 }
 
-pub(super) fn corpus() -> Value {
-    let data: Value = serde_json::from_str(crate::test_fixture::text(
-        "src/sim/world/fixtures/factory_infantry_local_native.json",
-    ))
-    .unwrap();
+pub(super) fn corpus() -> &'static Value {
+    let data =
+        crate::test_fixture::json("src/sim/world/fixtures/factory_infantry_local_native.json");
     assert_eq!(data["schema_version"], 2);
     assert_eq!(
         data["native_sha256"],

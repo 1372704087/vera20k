@@ -1451,10 +1451,9 @@ mod tests {
     /// from retail `[AudioVisual]`.
     #[test]
     fn building_slam_plays_only_for_the_local_owner() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules");
         let mut sim = Simulation::new();
         let local = sim.interner.intern("Local");
         let remote = sim.interner.intern("Remote");

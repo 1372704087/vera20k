@@ -30,11 +30,8 @@ struct DragCase {
     expected: Expected,
 }
 
-fn vectors() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/input_oracle/fast_scroll.json",
-    ))
-    .unwrap()
+fn vectors() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/input_oracle/fast_scroll.json")
 }
 
 fn mouse_for(case: &DragCase) -> TacticalMouseState {

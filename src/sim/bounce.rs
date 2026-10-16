@@ -969,11 +969,8 @@ mod tests {
         );
     }
 
-    fn golden() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/bounce_tumble.json",
-        ))
-        .unwrap()
+    fn golden() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/spatial_oracle/bounce_tumble.json")
     }
 
     fn bits<const N: usize>(value: &serde_json::Value) -> [NativeF32Bits; N] {

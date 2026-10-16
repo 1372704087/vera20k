@@ -181,10 +181,9 @@ mod tests {
     /// Retail `[YTNK]` and `[YAGGUN]` through the production reader.
     #[test]
     fn retail_gattling_tables() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         for name in ["YTNK", "YAGGUN"] {
             let object = rules.object(name).unwrap();
             assert!(object.is_gattling, "{name}");

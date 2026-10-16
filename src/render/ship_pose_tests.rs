@@ -126,11 +126,8 @@ fn ship_parts_reuse_native_unit_uncached_gun_arm_controls() {
     }
 }
 
-pub(crate) fn native_ship_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/naval_draw_squid_tilt.json",
-    ))
-    .unwrap()
+pub(crate) fn native_ship_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/naval_draw_squid_tilt.json")
 }
 
 pub(crate) fn native_ground_pose(input: &serde_json::Value) -> GroundPose {
@@ -161,11 +158,8 @@ fn original_ship_matrices_loaded_half_sizes_and_physical_hull_rasters_match() {
     assert_native_ground_matrices_and_parts(native_ship_corpus(), "DEST", "ship");
 }
 
-pub(crate) fn native_drive_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/drive_draw_drone_tilt.json",
-    ))
-    .unwrap()
+pub(crate) fn native_drive_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/drive_draw_drone_tilt.json")
 }
 
 #[test]
@@ -207,7 +201,7 @@ pub(crate) fn native_ground_part(
 }
 
 fn assert_native_ground_matrices_and_parts(
-    corpus: serde_json::Value,
+    corpus: &serde_json::Value,
     type_id: &str,
     locomotor: &str,
 ) {

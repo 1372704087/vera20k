@@ -59,11 +59,8 @@ pub(super) const RULES: &str = "[VehicleTypes]\n0=HARV\n1=MTNK\n\
 const NW: (u16, u16) = (6, 9);
 const OTHER_NW: (u16, u16) = (20, 20);
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/refinery_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/refinery_dock.json")
 }
 
 pub(super) struct Scene {

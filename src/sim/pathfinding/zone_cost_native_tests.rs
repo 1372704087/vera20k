@@ -9,11 +9,8 @@ use serde_json::Value;
 
 const WIDTH: u16 = 160;
 
-fn threat_packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/fv_cell_attack/zone_threat.json",
-    ))
-    .unwrap()
+fn threat_packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/fv_cell_attack/zone_threat.json")
 }
 
 fn grid_value(grid: &Value, index: i32) -> i32 {

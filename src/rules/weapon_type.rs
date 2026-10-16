@@ -352,10 +352,9 @@ mod tests {
     /// yes stands unless a section says no (the sniper and disguise weapons).
     #[test]
     fn retail_reveal_on_fire_defaults_to_yes() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("retail rules parse");
         assert!(rules.weapon("M60").unwrap().reveal_on_fire);
         assert!(rules.weapon("105mm").unwrap().reveal_on_fire);
         assert!(!rules.weapon("AWP").unwrap().reveal_on_fire);
@@ -365,11 +364,8 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::util::fixed_math::SIM_ZERO;
 
-    fn laser_corpus() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/rules_oracle/weapon_laser.json",
-        ))
-        .unwrap()
+    fn laser_corpus() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/rules_oracle/weapon_laser.json")
     }
 
     fn laser_state(weapon: &WeaponType) -> serde_json::Value {

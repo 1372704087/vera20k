@@ -38,11 +38,8 @@ pub(super) const CODES: [FireError; 12] = [
     FireError::MustDeploy,
 ];
 
-fn golden() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_guard_attack.json",
-    ))
-    .unwrap()
+fn golden() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_guard_attack.json")
 }
 
 fn rows<'a>(golden: &'a Value, set: &str) -> &'a [Value] {

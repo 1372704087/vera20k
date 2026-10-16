@@ -9,11 +9,8 @@ use crate::sim::components::BuildingUp;
 use crate::sim::world::PlacementEvidence;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_construction.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_construction.json")
 }
 
 fn constructed(control: [i32; 3], origin: i32) -> (Simulation, RuleSet, u64) {

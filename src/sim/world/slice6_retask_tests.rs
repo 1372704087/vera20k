@@ -366,6 +366,7 @@ const SLICE6_MAIN_HASH: u64 = 0x7DBF_3798_6DCA_6E31;
 fn replay_hash_stable_through_slice6() {
     let rules = slice6_rules();
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     let grid = (*sim.path_grid_snapshot().unwrap()).clone();
     // id 1: Americans MTNK (the unit we retask). id 2: enemy MTNK (Soviet, hostile

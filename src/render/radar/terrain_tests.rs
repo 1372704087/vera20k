@@ -72,11 +72,8 @@ fn assert_surface_matches_native(raw_size: (i32, i32), generated_size: (i32, i32
     assert_eq!(packed_hash(&actual), row["output"]["rgb565_sha256"]);
 }
 
-fn native_packet() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ore_render.json",
-    ))
-    .unwrap()
+fn native_packet() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/ore_render.json")
 }
 
 fn packed_hash(pixels: &[u16]) -> String {

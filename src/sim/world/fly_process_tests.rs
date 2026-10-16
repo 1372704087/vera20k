@@ -774,10 +774,9 @@ fn fly_death_stun_matches_native_rows() {
 fn retail_fly_owners_are_aircraft() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::rules::object_type::ObjectCategory;
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     let ground: Vec<&str> = rules
         .all_objects()
         .filter(|object| {

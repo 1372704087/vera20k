@@ -17,11 +17,8 @@ use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
 use serde_json::Value;
 
-pub(crate) fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/foot_bridge_layer.json",
-    ))
-    .unwrap()
+pub(crate) fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/foot_bridge_layer.json")
 }
 
 pub(crate) fn coord(value: &Value) -> DriveCoord {

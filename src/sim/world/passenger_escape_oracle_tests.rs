@@ -59,11 +59,8 @@ const RULES: &str = "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=APC\n\
 const SPOT_OFFSETS: [(i32, i32); 5] = [(128, 128), (64, 64), (192, 64), (64, 192), (192, 192)];
 const MISSION_HUNT: i64 = 15;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/passenger_escape.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/passenger_escape.json")
 }
 
 struct Scene {

@@ -303,11 +303,8 @@ fn magnetron_temporary_bullet_tails_match_original_rng_lights_and_ids() {
 /// The oracle's aircraft stands at the centre of cell (52, 52).
 const START: i32 = 52 * 256 + 128;
 
-fn oracle() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_crash.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_crash.json")
 }
 
 fn int(input: &serde_json::Value, name: &str, default: i64) -> i64 {

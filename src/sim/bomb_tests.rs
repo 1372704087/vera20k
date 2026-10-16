@@ -1300,10 +1300,9 @@ fn the_ticking_loop_follows_the_carrier() {
 /// only the Ivans have `AttackCursorOnFriendlies=`.
 #[test]
 fn retail_rules_arm_the_stock_bomb() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     let damage = &rules.combat_damage;
     assert_eq!(damage.ivan_warhead.as_deref(), Some("IvanWH"));
     assert_eq!(

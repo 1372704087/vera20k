@@ -11,11 +11,8 @@ use crate::sim::rng::SimRng;
 use crate::sim::world::edge_cell;
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_states.json",
-    ))
-    .expect("aircraft_states.json")
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_states.json")
 }
 
 /// Every combination a stored row stands for: the union of its `covers`
@@ -602,10 +599,9 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
 /// of `TechnoTypeClass::ReadINI` (`0x0071465F`), not executed.
 #[test]
 fn retail_attack_loop_inputs() {
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     assert!(rules.general.curley_shuffle);
     for (name, strafe, fighter, delay) in [
         ("HORNET", true, false, Some(76)),

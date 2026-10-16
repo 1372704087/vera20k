@@ -8913,10 +8913,9 @@ fn inviso_direct_rocker_at_a_cell_keeps_ordinary_damage() {
 /// arm is an Inviso shot, so all of them reach this path.
 #[test]
 fn retail_special_inviso_weapons_claim_their_impact() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     for (weapon_id, expected) in [
         ("AssaultBolt", SpecialDetonationAction::ElectricAssault),
         ("MagneticBeam", SpecialDetonationAction::Locomotor),

@@ -4,11 +4,8 @@
 use super::*;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/storage_oracle/sound_theme_metadata.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/storage_oracle/sound_theme_metadata.json")
 }
 
 fn slots(value: &Value) -> ThemeSlots {

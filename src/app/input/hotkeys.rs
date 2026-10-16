@@ -564,11 +564,8 @@ fn command_from_name(name: &str) -> Option<HotkeyCommand> {
 mod tests {
     use super::*;
 
-    fn native_keyboard_fixture() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/storage_oracle/keyboard_bindings.json",
-        ))
-        .expect("preserved original keyboard fixture")
+    fn native_keyboard_fixture() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/storage_oracle/keyboard_bindings.json")
     }
 
     #[test]

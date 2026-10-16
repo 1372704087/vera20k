@@ -82,7 +82,13 @@ pub(crate) fn update_house_eva(sim: &mut Simulation, rules: &RuleSet, owner: Int
     // Available money (`IHouse::Available_Money`, House vtable `0x7EA834`
     // slot `+0x18` = `0x004F6990`, called at `0x004F8B6C`) below 100 and
     // the infantry, vehicle, building and naval factory counters summing
-    // above zero → the line, the sidebar credits flash and a re-arm.
+    // above zero → the line, a sidebar redraw request and a re-arm.
+    // Original Tab6D0EC0 sets dirty+5545 and starts+5538 for7 frames;
+    // TabAI6D068B..6D06BA requests another redraw with1 frame remaining.
+    // CreditsDraw4A2370's reached player branch still uses the same RGB
+    // source B0FA1C and flags4108 (4A2538..4A25DB): no color/visibility
+    // flash. VERA paints the sidebar every frame, so this invalidation-only
+    // timer needs no second state owner. Raw native save bytes are separate.
     if timer.expired(now) && available < FUNDS_NAG_CREDITS && factories > 0 {
         sim.sound_events.push(SimSoundEvent::HouseEva {
             owner,

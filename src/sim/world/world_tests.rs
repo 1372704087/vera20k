@@ -9439,10 +9439,7 @@ fn unit_route_beside_building(
     goal: (u16, u16),
     contact: bool,
 ) -> Option<Vec<(u16, u16)>> {
-    let ini = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini")?;
-    let art = crate::rules::retail_ini_fixture::retail_ini("artmd.ini")?;
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let rules = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()?;
     let (mut sim, rules, _) = stacking_navigation_world(rules, 24);
     let building_id = sim
         .spawn_object(building, "Americans", origin.0, origin.1, 0, &rules)

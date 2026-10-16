@@ -1556,14 +1556,13 @@ fn raw_infantry_frames_match_whole_original_selector_rows() {
     // ordinary physical GI bank is independently bound through production
     // rules/ART readers. Disguise selection, Jumpjet target-facing, rotating
     // FacingClass and downstream invalid-index shape access are excluded.
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
-        return;
-    };
     let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    let Some(mut rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+    else {
+        return;
+    };
     rules.bind_animation_sequences(&parse_infantry_sequence_registry(&art));
     let set = rules.animation_sequence("E1").unwrap();
     let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(

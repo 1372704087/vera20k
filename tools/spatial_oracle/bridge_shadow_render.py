@@ -42,7 +42,7 @@ def ints(u, address, count):
 
 
 def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar=False,
-                    frontier=False, tmp_names=()):
+                    frontier=False, tmp_names=(), smudge=False):
     root = configured_gamemd().parent
     sources, assets = [], {}
     containers = (
@@ -90,6 +90,10 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
                          'conquer.mix': ('SHROUD.SHP', 'FOG.SHP')}),
             ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini', 'URBANMD.INI')}),
         )
+    if smudge:
+        containers = (('ra2.mix', {'temperat.mix': ('CRATER11.TEM',)}),
+                      ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini')}),
+                      ('Hills.mmx', {None: ('Hills.map',)}))
     for outer_name, children in containers:
         outer_raw = (root / outer_name).read_bytes()
         outer = mix(outer_raw)
@@ -107,7 +111,7 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
                                     outer_sha256=hashlib.sha256(outer_raw).hexdigest(),
                                     inner_sha256=hashlib.sha256(inner_raw).hexdigest(),
                                     sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
-    if ore or placement or frontier:
+    if ore or placement or frontier or smudge:
         # Active retail's expansion archive overrides the base RULESMD.
         raw = (root / 'expandmd01.mix').read_bytes()
         rules = mix(raw)[mix_hash('RULESMD.INI')]
@@ -115,10 +119,11 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
         sources.append(dict(name='RULESMD.INI', outer='expandmd01.mix', inner=None,
                             outer_sha256=hashlib.sha256(raw).hexdigest(),
                             sha256=hashlib.sha256(rules).hexdigest(), bytes=len(rules)))
-        raw = (root / 'GoldSt.mmx').read_bytes()
-        assets['GOLDST.MMX'] = raw
-        sources.append(dict(name='GoldSt.mmx', kind='loose', outer=None, inner=None,
-                            sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
+        if not smudge:
+            raw = (root / 'GoldSt.mmx').read_bytes()
+            assets['GOLDST.MMX'] = raw
+            sources.append(dict(name='GoldSt.mmx', kind='loose', outer=None, inner=None,
+                                sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
     return assets, sources
 
 
@@ -868,7 +873,13 @@ if __name__ == '__main__':
     modes.add_argument('--ore', action='store_true')
     modes.add_argument('--tile', action='store_true')
     modes.add_argument('--placement', action='store_true')
+    modes.add_argument('--smudge', action='store_true')
     selected, remaining = parser.parse_known_args()
+    if selected.smudge:
+        from tools.spatial_oracle.smudge_render import generate as generate_smudge, metadata as smudge_metadata
+        finish_vectors(generate_smudge, Path(__file__).with_name('smudge_render.json'),
+                       provenance=smudge_metadata, argv=remaining)
+        raise SystemExit(0)
     if selected.placement:
         from tools.spatial_oracle.placement_render import generate as generate_placement, metadata as placement_metadata
         finish_vectors(generate_placement, Path(__file__).with_name('placement_render.json'),

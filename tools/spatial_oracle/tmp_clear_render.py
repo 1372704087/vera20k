@@ -207,7 +207,27 @@ def prepare():
     return m, inputs, files
 
 
-def execute(m, case, *, current_cell=None, current_tactical=None, preserve_alpha=False):
+def cell_transport(m, pc, cells, *, admission=True):
+    """Existing bounded current-Cell lookup/admission fixture transport.
+
+    Coordinates and results come from supplied native-constructed registrations;
+    this does not execute Map population or its playfield admission mechanism.
+    Shared by the full-view caller and selected native Cell resource consumers.
+    """
+    if pc not in (0x568300, 0x5657A0) or (pc == 0x568300 and not admission):
+        return False
+    pointer = m.read32(m.u.reg_read(UC_X86_REG_ESP) + 4)
+    xy = struct.unpack('<hh', m.u.mem_read(pointer, 4))
+    if pc == 0x5657A0:
+        assert xy in cells, xy
+        m.ret(cells[xy], 4)
+    else:
+        m.ret(int(xy in cells), 4)
+    return True
+
+
+def execute(m, case, *, current_cell=None, current_tactical=None, preserve_alpha=False,
+            current_cells=None):
     """Draw either the legacy prepared Cell or an already-produced live Cell.
 
     A composed caller supplies its own Cell/Tactical and leaves the native A
@@ -271,6 +291,8 @@ def execute(m, case, *, current_cell=None, current_tactical=None, preserve_alpha
     def observe(_u, pc, _size, _data):
         if pc in (0x6D7560, 0x47FF80, 0x480350, 0x483E30, 0x484180, 0x544E70, 0x4814F0, 0x547CF0, 0x548D90, 0x54980E):
             reached.add(pc)
+        if current_cells is not None and cell_transport(m, pc, current_cells):
+            return
         if tactical is not None and pc in (0x568300, 0x5657A0):
             pointer = m.read32(u.reg_read(UC_X86_REG_ESP) + 4)
             xy = list(struct.unpack('<hh', u.mem_read(pointer, 4)))
@@ -294,7 +316,7 @@ def execute(m, case, *, current_cell=None, current_tactical=None, preserve_alpha
         run_checked(u, 0x6D7560 if tactical is not None else 0x480350, RET_MAGIC,
                     count=12000000, timeout_us=120000000)
     u.hook_del(hook)
-    assert len(cell_points) == case['repeat'] and draws
+    assert len(cell_points) == case['repeat'] * (len(current_cells) if current_cells is not None else 1) and draws
     case['cell_point'] = cell_points[0]
     assert bytes(u.mem_read(LOAD_MAIN, STRUCT_LEN)) == before
     if preserve_alpha:
@@ -309,6 +331,28 @@ def execute(m, case, *, current_cell=None, current_tactical=None, preserve_alpha
                     top_scalar=struct.unpack('<h', u.mem_read(cell + 0x10A, 2))[0],
                     bottom_scalar=struct.unpack('<h', u.mem_read(cell + 0x10E, 2))[0],
                     common_scalar=struct.unpack('<h', u.mem_read(cell + 0x10C, 2))[0]))
+
+
+def physical_shroud_edge(m, raw, *, point=(66, 81)):
+    """Original47EFE0 physical edge in the caller's existing A surface."""
+    # Reuse the original shroud leaf in this SAME surface/raster VM. Its
+    # physical SHP owner supplies immutable bytes; no second A implementation.
+    from tools.procedural_drawing_oracle.shroud import asset
+    supplied = raw
+    raw, identity = asset()
+    assert raw == supplied
+    image = m.alloc(len(raw))
+    m.u.mem_write(image, raw)
+    m.u.mem_write(0x89E7C5, b'\1')
+    m.u.mem_write(0x89E794, dwords(image))
+    m.u.mem_write(A, struct.pack('<H', 127) * COUNT)
+    m.u.mem_write(POINT, dwords(*point))
+    m.u.mem_write(CLIP, dwords(0, 0, WIDTH, HEIGHT))
+    m.invoke(0x47EFE0, 0, (POINT, CLIP, 15))
+    alpha = bytes(value[0] for value in struct.iter_unpack('<H', m.u.mem_read(A, COUNT * 2)))
+    assert len(set(alpha)) > 1
+    return alpha, dict(source=identity, entry='0047EFE0', frame=15, initial=127,
+                       point=list(point), clip=[0, 0, WIDTH, HEIGHT], alpha_sha256=sha(alpha))
 
 
 def generate():
@@ -337,23 +381,7 @@ def generate():
     rows.append(execute(m, dict(name='full_view_XMP03T4_clear', coords=[64, 31], level=6,
         full_view=dict(view_origin=[894, 1254], redraw_rect=[0, 0, WIDTH, HEIGHT]),
         scene_lighting=authored)))
-    # Reuse the original shroud leaf in this SAME surface/raster VM. Its
-    # physical SHP owner supplies immutable bytes; no second A implementation.
-    from tools.procedural_drawing_oracle.shroud import asset
-    raw, identity = asset()
-    assert raw == files['SHROUD.SHP']
-    image = m.alloc(len(raw))
-    m.u.mem_write(image, raw)
-    m.u.mem_write(0x89E7C5, b'\1')
-    m.u.mem_write(0x89E794, dwords(image))
-    m.u.mem_write(A, struct.pack('<H', 127) * COUNT)
-    m.u.mem_write(POINT, dwords(66, 81))
-    m.u.mem_write(CLIP, dwords(0, 0, WIDTH, HEIGHT))
-    m.invoke(0x47EFE0, 0, (POINT, CLIP, 15))
-    alpha = bytes(value[0] for value in struct.iter_unpack('<H', m.u.mem_read(A, COUNT * 2)))
-    assert len(set(alpha)) > 1
-    inputs['shroud_edge'] = dict(source=identity, entry='0047EFE0', frame=15, initial=127,
-                                 point=[66, 81], clip=[0, 0, WIDTH, HEIGHT], alpha_sha256=sha(alpha))
+    alpha, inputs['shroud_edge'] = physical_shroud_edge(m, files['SHROUD.SHP'])
     rows.append(execute(m, dict(name='physical_shroud_edge', a_hex=alpha.hex(), scene_lighting=neutral)))
     probe = rows[0]
     x, y, _length, _color, candidate = probe['output']['runs'][0]

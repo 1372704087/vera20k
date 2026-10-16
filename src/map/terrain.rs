@@ -285,7 +285,8 @@ pub struct TerrainGrid {
 /// drawn on the cell's diamond centre, `iso_to_screen + (TILE_WIDTH/2,
 /// TILE_HEIGHT/2)` — see `util::lepton::lepton_to_screen`. Callers that want to
 /// place something on the middle of a cell rather than on its tile art must add
-/// that half-tile themselves, as the smudge, sparkle and target-line paths do.
+/// that half-tile themselves, as the sparkle and target-line paths do. The
+/// native smudge caller adds only half-width; see `render::smudge`.
 ///
 /// The `+ TILE_HEIGHT/2` in Y is a constant bias VERA carries on every world
 /// layer relative to the original's absolute tactical pixel; it is invisible

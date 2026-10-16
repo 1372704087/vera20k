@@ -1102,6 +1102,217 @@ impl Fixture {
         assert_eq!(actual, expected, "native persistent footprint");
     }
 
+    /// Same real stock world after drain, then a fresh Building43B740 and
+    /// normal Building440580 Unlimbo. No convenience-spawn buildup bypass.
+    /// Native suffix: building_death_anims_joined_stock_smudges.post_drain_put.
+    fn assert_stock_normal_put(&mut self, route: &Value, native: &Value) {
+        self.assert_stock_marks(&native["before"]);
+        assert_rng(&self.sim, &native["before"]["rng"], "normal PUT prior");
+        let owner_pointer = native["input"]["owner"]["pointer"].as_u64().unwrap();
+        let owner_index = route["before"]["houses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|house| house["pointer"].as_u64() == Some(owner_pointer))
+            .expect("retained normal-PUT owner");
+        let client = &native["client_priors"];
+        assert_eq!(client["player_ptr"], native["input"]["owner"]["pointer"]);
+        assert_eq!(
+            self.sim.session.current_house,
+            Some(self.houses[owner_index])
+        );
+        // The inherited ready-shot fixture has no session bootstrap. Transport
+        // this retained suffix's native Mode before its actual constructor:
+        // Mode1 CellPUT47E9E2 discovers PlayerPtr before Techno idle/Commence.
+        // No Fog reset/mapping or manual GrandOpening substitutes for it.
+        self.sim.session.game_mode_nonzero = int(&client["game_mode"]) != 0;
+        let owner = self
+            .sim
+            .interner
+            .resolve(self.houses[owner_index])
+            .to_owned();
+        let type_name = native["input"]["type_name"].as_str().unwrap();
+        let rx = u16::try_from(int(&native["input"]["coords"][0])).unwrap();
+        let ry = u16::try_from(int(&native["input"]["coords"][1])).unwrap();
+        let facing = u8::try_from(int(&native["input"]["facing"])).unwrap();
+        let xyz = coord(&native["source_coordinates"]["xyz"]);
+        assert_eq!(xyz.z, 0, "selected normal-PUT fixture is flat level zero");
+        // The constructor itself has no coordinate argument; the shared held
+        // owner resets Location to its native zero prior before this Unlimbo.
+        let id = self
+            .sim
+            .construct_object_limbo_at_height(
+                type_name,
+                &owner,
+                rx,
+                ry,
+                facing,
+                0,
+                &self.rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+        assert_eq!(self.native_id(id), int(&native["constructor"]["native_id"]));
+        assert_eq!(
+            self.sim.substrate.entities.get(id).unwrap().owner(),
+            self.houses[owner_index]
+        );
+        self.assert_stock_put_boundary(id, &native["after_constructor"], "normal PUT constructor");
+        let outcome = self
+            .sim
+            .reveal_constructed_object_at_coord_with_overlay_context(
+                id,
+                xyz,
+                facing,
+                super::PlacementEvidence::MarkSucceeded,
+                &self.rules,
+                Some(&self.registry),
+                crate::sim::world::FrameEffects::default(),
+            );
+        assert_eq!(int(&native["unlimbo"]["result"]) & 255, 1);
+        assert_eq!(
+            outcome,
+            Some(id),
+            "whole normal Unlimbo admits the fresh object"
+        );
+        self.assert_stock_put_boundary(id, &native["after_unlimbo"], "normal PUT Unlimbo");
+        // Native43F8A6 clears only type48, retaining raw11F. Rust's absent
+        // SmudgeCell normalizes its unconsumed data/origin. Drawing/hash visit
+        // type-present cells only; this is not byte-identical empty storage.
+    }
+
+    fn assert_stock_put_boundary(&self, id: u64, native: &Value, boundary: &str) {
+        let actor = self.sim.substrate.entities.get(id).unwrap();
+        let expected = &native["building"];
+        let location = ground_pose::position_world_coord(&actor.position);
+        let timer = actor.mission.dispatch_timer();
+        assert_eq!(
+            json!({
+                "id": actor.native_unique_id(),
+                "health": actor.health.current(),
+                "sampled_health": actor.building_power_health_sample().unwrap(),
+                "alive": u8::from(actor.lifecycle.object_alive()),
+                "limbo": u8::from(actor.lifecycle.in_limbo()),
+                "marked": u8::from(actor.lifecycle.cell_marked()),
+                "logic": u8::from(self.sim.logic_order().contains(&id)),
+                "placed": u8::from(actor.building_art.actually_placed()),
+                "location": [location.x, location.y, location.z],
+                "mission": [actor.mission.current().raw(), actor.mission.suspended().raw(), actor.mission.queued().raw()],
+                "mission_timer": [timer.start_frame(), timer.delay()],
+            }),
+            json!({
+                "id": expected["id"], "health": expected["health"],
+                "sampled_health": expected["sampled_health"],
+                "alive": expected["alive"], "limbo": expected["limbo"],
+                "marked": expected["marked"], "logic": expected["logic"],
+                "placed": expected["placed"], "location": expected["location"],
+                "mission": [&expected["mission"][0], &expected["mission"][1], &expected["mission"][2]],
+                "mission_timer": [&expected["mission_timer"][0], &expected["mission_timer"][2]],
+            }),
+            "{boundary}: normal Building constructor/Unlimbo state",
+        );
+        let expected_slots: Vec<_> = expected["anim_slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pointer| {
+                let pointer = pointer.as_u64().unwrap();
+                if pointer == 0 {
+                    return None;
+                }
+                let anim = native["anims"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|anim| anim["pointer"].as_u64() == Some(pointer))
+                    .unwrap();
+                let actual = self
+                    .sim
+                    .substrate
+                    .anims
+                    .iter()
+                    .map(|(_, anim)| anim)
+                    .find(|actual| actual.native_unique_id == int(&anim["native_id"]))
+                    .unwrap();
+                // Building slot membership is distinct from Anim+CC. Native
+                // GAPOWR_A23 occupies slot3 with owner_object==0 in this suffix.
+                let owner = match anim["owner_object"].as_u64().unwrap() {
+                    0 => None,
+                    pointer if Some(pointer) == expected["pointer"].as_u64() => Some(id),
+                    _ => panic!("unretained normal-PUT slot Anim owner"),
+                };
+                assert_eq!(
+                    actual.owner_entity, owner,
+                    "{boundary}: slot Anim Object owner"
+                );
+                Some(int(&anim["native_id"]))
+            })
+            .collect();
+        let slots: Vec<_> = actor
+            .building_art
+            .anim_slots()
+            .iter()
+            .map(|slot| slot.map(|id| self.native_id(id)))
+            .collect();
+        assert_eq!(
+            slots, expected_slots,
+            "{boundary}: actual attached-slot Anim identity"
+        );
+        for expected in native["anims"].as_array().unwrap() {
+            let actual = self
+                .sim
+                .substrate
+                .anims
+                .iter()
+                .map(|(_, anim)| anim)
+                .find(|anim| anim.native_unique_id == int(&expected["native_id"]))
+                .unwrap();
+            assert_eq!(
+                self.sim.interner.resolve(actual.type_id),
+                expected["type_name"],
+                "{boundary}: Anim type"
+            );
+        }
+        assert_eq!(
+            self.sim.substrate.anims.iter().count(),
+            native["anims"].as_array().unwrap().len(),
+            "{boundary}: Anim count"
+        );
+        self.assert_stock_marks(&native["stock"]);
+        assert_eq!(
+            self.sim.smudge_grid.as_ref().unwrap().object_count(),
+            native["stock"]["smudge_object_count"].as_u64().unwrap() as usize,
+            "{boundary}: transient Smudge count"
+        );
+        assert_eq!(
+            self.sim.substrate.pending_delete.object_tickets().count(),
+            native["stock"]["pending_count"].as_u64().unwrap() as usize,
+            "{boundary}: pending count"
+        );
+        assert_eq!(
+            self.sim.native_unique_ids.as_ref().unwrap().current_raw(),
+            native["unique_id_cursor"].as_u64().unwrap() as u32,
+            "{boundary}: shared cursor"
+        );
+        let passive = self
+            .sim
+            .substrate
+            .entities
+            .get(self.unit)
+            .unwrap()
+            .passive_scan
+            .timer();
+        assert_eq!(
+            [passive.start_frame() as i32, passive.duration() as i32],
+            [
+                int(&native["attacker_passive_scan_timer"][0]),
+                int(&native["attacker_passive_scan_timer"][2])
+            ],
+            "{boundary}: surviving attacker passive timer"
+        );
+        assert_rng(&self.sim, &native["stock"]["rng"], boundary);
+    }
+
     fn assert_stock_pending_snapshot(&mut self, route: &Value) {
         use crate::sim::snapshot::{GameSnapshot, SnapshotRestoreError};
         use std::hash::Hasher;
@@ -1480,6 +1691,9 @@ fn assert_ready_fatal_routes(corpus: &Value) {
             &format!("{label} deferred destructor"),
         );
         fixture.assert_stock_expiries(route, &identities);
+        if let Some(normal_put) = route.get("post_drain_put") {
+            fixture.assert_stock_normal_put(route, normal_put);
+        }
         if route["after_drain"]["crew"].as_array().unwrap().is_empty() {
             refused = true;
         } else {

@@ -830,7 +830,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
                 return
             super().hook(u, pc, size, data)
 
-        def building(self, name, pointer, radio_items, coord=(6, 9), health=None):
+        def building(self, name, pointer, radio_items, coord=(6, 9), health=None, *, constructor_only=False):
             u = self.u
             u.mem_write(pointer, bytes(0x800))
             self.phase = 'setup_full_building_constructor'
@@ -844,7 +844,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
                 self.building_constructor['logic_member_98'] = u.mem_read(pointer + 0x98, 1)[0]
                 assert self.building_constructor['logic_member_98'] == 0
                 self.building_constructor['abstract_flags'] = self.read32(pointer + 0x14)
-            if damage_sound:
+            if damage_sound or constructor_only:
                 # Original43B740/6F2B40 own +6C and43B78F owns +544=0.
                 # No post-constructor Strength/health/UID/marked prior.
                 self.building_constructor.update(type=name,
@@ -1065,7 +1065,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
     return f
 
 
-def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sound=False):
+def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sound=False, post_drain_put=False):
     from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
     from unicorn.x86_const import UC_X86_REG_EDI, UC_X86_REG_EAX, UC_X86_REG_EIP
     from tools import native_oracle as native
@@ -1437,7 +1437,143 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sou
         result['cell_spread_startup'] = f.cell_spread_startup
         result['coordinate_audio_lifecycle'] = audio.natural_coordinate_end()
         result['damage_sound_audio'] = audio.project()
+    if post_drain_put:
+        import copy
+        assert stock is not None and projectile and building_ai and seed == 1
+        # Observers retain mutable lists. Preserve every existing fatal/drain
+        # field before continuing this same native world with another object.
+        result = copy.deepcopy(result)
+        result['post_drain_put'] = post_drain_smudge_put(f, stock)
     return result
+
+
+def post_drain_smudge_put(f, stock):
+    """Fresh original GAPOWR admission after the real stock Smudge drain.
+
+    This optional continuation shares the existing Runtime/ctor/House/map; it
+    never revives the destroyed target or overwrites fresh constructor fields.
+    """
+    import copy
+    from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP, UC_X86_REG_ESI
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.refinery_dock import cell
+    from tools.spatial_oracle.unit_source_scatter import SCENARIO
+    from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry, DiscoveryFixture
+    from types import SimpleNamespace
+    u, read = f.u, f.read32
+    before = stock['snapshot']()
+    player = read(0xA83D4C)
+    proxy = SimpleNamespace(uc=u, read32=read)
+    client_priors = dict(player_ptr=player,game_mode=read(0xA8B238),
+        scenario_init=read(0xA8E7AC),active_game=u.mem_read(0xA8E9A0,1)[0],
+        player_flags_1ec_1ed=list(u.mem_read(player+0x1EC,2)),
+        cells=[DiscoveryFixture.pointer_state(proxy,cell(x,y),include_dirty=True)
+               for x,y in ((10,10),(11,10),(10,11),(11,11))])
+    assert before['pending_count'] == before['smudge_object_count'] == 0
+    assert [(r['cell'],r['type_index'],r['data']) for r in before['smudge_cells']] == [
+        ([10,10],44,0),([11,10],44,1),([10,11],44,2),([11,11],44,3)]
+    calls, writes, timer_writes, discovery_calls = [], [], [], []
+    request_start, advance_start = len(f.draws), len(f.advances)
+    event_start = len(f.events)
+    fresh = f.allocate(0x800)
+    position = f.allocate(12)
+    selected_cells = {cell(x,y):(x,y) for y in range(9,13) for x in range(9,13)}
+    entries = {0x43B740:'building_ctor',0x440580:'building_unlimbo',
+        0x43F180:'building_mark',0x43F8A6:'clear_smudge_type',
+        0x4852D0:'cell_redraw_rect',0x486E70:'cell_dirty_ring',0x6DA7D0:'tactical_dirty',
+        0x5F65F0:'uninit',0x7258D0:'expiry',0x725C70:'deferred_drain'}
+    def actor():
+        return dict(pointer=fresh,id=read(fresh+0x10),health=read(fresh+0x6C),
+            sampled_health=read(fresh+0x544),alive=u.mem_read(fresh+0x90,1)[0],
+            limbo=u.mem_read(fresh+0x81,1)[0],marked=u.mem_read(fresh+0x74,1)[0],
+            logic=u.mem_read(fresh+0x98,1)[0],placed=u.mem_read(fresh+0x6E4,1)[0],
+            anim_slots=[read(fresh+0x55C+i*4) for i in range(21)],abstract_flags=read(fresh+0x14),
+            owner=read(fresh+0x21C),discovery_41a_41b_41c=list(u.mem_read(fresh+0x41A,3)),
+            location=list(struct.unpack('<3i',u.mem_read(fresh+0x9C,12))),
+            mission=list(struct.unpack('<4i',u.mem_read(fresh+0xAC,16))),
+            mission_timer=list(struct.unpack('<3i',u.mem_read(fresh+0xC8,12))),
+            stage_timer=list(struct.unpack('<5i',u.mem_read(fresh+0xFC,20))))
+    def state():
+        # Existing shared snapshot owns AnimType identity and native runtime fields.
+        presentation = f.snapshot(fresh)
+        return dict(stock=stock['snapshot'](),building=actor(),anims=presentation['anims'],
+            unique_id_cursor=read(SCENARIO+0x214),
+            attacker_passive_scan_timer=list(struct.unpack('<3i',u.mem_read(f.source+0x180,12))))
+    discovery_entries = {0x44D5D0:'building_discovered',0x445F80:'grand_opening',
+        0x70AF50:'update_reveal',0x5B35E0:'queue_mission',0x5B3570:'commence'}
+    discovery_sites = {0x6F6E2A:'before_idle',0x6F6E4F:'after_idle_commence',
+        0x440D61:'unlimbo_explicit_discovery'}
+    def code(_u,pc,_size,_data):
+        sp=u.reg_read(UC_X86_REG_ESP);this=u.reg_read(UC_X86_REG_ECX)
+        if pc in discovery_entries and this==fresh:
+            row=dict(entry=f'{pc:08X}',kind=discovery_entries[pc],
+                caller=f'{read(sp):08X}',building_before=actor())
+            if pc in (0x44D5D0,0x5B35E0):row['arg0']=read(sp+4)
+            discovery_calls.append(row)
+        elif pc in discovery_sites and u.reg_read(UC_X86_REG_ESI)==fresh:
+            discovery_calls.append(dict(site=f'{pc:08X}',kind=discovery_sites[pc],building_before=actor()))
+        if pc not in entries:return
+        row=dict(entry=f'{pc:08X}',kind=entries[pc],phase=f.phase)
+        if pc != 0x43F8A6:
+            row.update(this=this,caller=f'{read(sp):08X}')
+        if pc==0x43F180:row['mode']=read(sp+4)
+        if pc in (0x4852D0,0x486E70) and this in selected_cells:row['cell']=list(selected_cells[this])
+        if pc==0x43F8A6:
+            pointer=u.reg_read(UC_X86_REG_EAX)
+            row.update(cell=list(struct.unpack('<hh',u.mem_read(pointer+0x24,4))),
+                before_type=struct.unpack('<i',u.mem_read(pointer+0x48,4))[0],
+                before_data=u.mem_read(pointer+0x11F,1)[0])
+        if pc in (0x440580,0x7258D0):row['arguments']=list(struct.unpack('<2I',u.mem_read(sp+4,8)))
+        calls.append(row)
+    def memory(_u,_access,address,size,value,_data):
+        row=dict(pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',phase=f.phase,address=address,
+                 size=size,value=value,before=bytes(u.mem_read(address,size)).hex())
+        for pointer,xy in selected_cells.items():
+            if pointer+0x48<=address<pointer+0x4C or address==pointer+0x11F:
+                row.update(cell=list(xy),offset=address-pointer);writes.append(row);return
+        if (fresh+0xC8<=address<fresh+0xD4 or fresh+0xFC<=address<fresh+0x110
+                or f.source+0x180<=address<f.source+0x18C):
+            timer_writes.append(row)
+    hooks=[u.hook_add(UC_HOOK_CODE,code),u.hook_add(UC_HOOK_MEM_WRITE,memory)]
+    try:
+        f.phase='post_drain_put_original_geometry_startup'
+        geometry=initialize_discovery_geometry(lambda a,obj,args:bc.invoke(u,a,obj,*args),read,u)
+        f.building('GAPOWR',fresh,f.allocate(4),constructor_only=True)
+        constructor=copy.deepcopy(f.building_constructor)
+        after_constructor=state()
+        f.phase='post_drain_put_original_cell_coordinates'
+        # Actual Cell GetCoords486840, also used by original waypoint68BD00.
+        result=bc.invoke(u,0x486840,cell(10,10),position)
+        coordinates=dict(entry='00486840',receiver=cell(10,10),result=result,
+                         xyz=list(struct.unpack('<3i',u.mem_read(position,12))))
+        f.phase='post_drain_put_original_building_unlimbo'
+        result=bc.invoke(u,0x440580,fresh,position,0)
+        after_unlimbo=state()
+        assert result&255==1,after_unlimbo
+        assert any(r['kind']=='clear_smudge_type' for r in calls)
+        assert not after_unlimbo['stock']['smudge_cells']
+        assert all(u.mem_read(cell(x,y)+0x11F,1)[0]==data
+                   for x,y,data in ((10,10,0),(11,10,1),(10,11,2),(11,11,3)))
+        assert f.code_unchanged()
+    finally:
+        for hook in hooks:u.hook_del(hook)
+    owner = after_constructor['building']['owner']
+    house_type = read(owner+0x34)
+    return dict(input=dict(type_name='GAPOWR',coords=[10,10],facing=0,
+            owner=dict(pointer=owner,house_type_pointer=house_type,house_type_name=f.string(house_type+0x24)),
+            boundary='Existing supplied Runtime House; fresh original constructor receives this owner. XYZ comes from original Cell GetCoords, not a supplied height.'),
+        before=before,client_priors=client_priors,discovery_calls=discovery_calls,
+        geometry_startup=geometry,source_coordinates=coordinates,
+        constructor=constructor,after_constructor=after_constructor,
+        unlimbo=dict(entry='00440580',receiver=fresh,facing=0,result=result),
+        after_unlimbo=after_unlimbo,calls=calls,cell_writes=writes,timer_writes=timer_writes,
+        construction_events=copy.deepcopy([e for e in f.events[event_start:] if e['event'] in
+            ('grand_opening','slot_allocate','anim_ctor','anim_start','unlimbo','logic_add','layer_submit','mark')]),
+        rng_requests=copy.deepcopy(f.draws[request_start:]),raw_advances=copy.deepcopy(f.advances[advance_start:]),
+        persistent_data_after=[dict(cell=[x,y],data=u.mem_read(cell(x,y)+0x11F,1)[0])
+                               for x,y in ((10,10),(11,10),(10,11),(11,11))],
+        limits='Same declared already-loaded flat Runtime/House/map after actual drain. Fresh constructor and whole Unlimbo run unchanged, with original Cell coordinates and successful native AL1. No paid production/input or full native world bootstrap. Existing downstream presentation/platform transport boundaries remain.')
 
 
 def joined_generate(*, stock_smudges=False):
@@ -1471,7 +1607,7 @@ def joined_generate(*, stock_smudges=False):
             native_country_sides=direct.death_country_sides,
             death_layers=direct.death_layers, native_input_execution=direct.death_input_execution,
             native_code_sections=direct.code_identity),
-        routes=([joined_execute(m, projectile=True, seed=seed, building_ai=True)
+        routes=([joined_execute(m, projectile=True, seed=seed, building_ai=True, post_drain_put=seed == 1)
                  for seed in (2,1,31)] if stock_smudges else
                 [joined_execute(m, projectile=True, seed=2, building_ai=True),
                  joined_execute(direct, projectile=False),
@@ -1895,15 +2031,19 @@ def stock_joined_metadata():
         'The additional stock ClearTile0 prior executes real IsoTileType registry CRT4E76E0, ctor5447C0 and original TEMPERATMD TileSet0000 Morphable Boolean block546124..54614C plus its original54644C result store. The admitted flat interior cells carry TileIndex0, no overlay, slope0 and initial SmudgeIndex-1. Actual full theater/TMP/map loading is excluded; class/height, connectivity and all gameplay owners retain the shared joined fixture.',
         'Original SmudgeClass registry CRT4E69E0 and sentinel6B5210 execute. Actual selected Burn/Crater placers, CanPlace, full Smudge6B4A50, Mark6B4BE0, Place6B6080, UnInit5F65F0, repeated expiry7258D0, deferred scalar6B4FA0 and Object5F3B80 execute, with IDs/flags, generic/Smudge/Logic registries, ordered queue members, cell writes and full three RNG states recorded. Physical SmudgeTypes key/value pairs retain declaration order as an array. Every registry/queue object and expiry boundary retains signed Health and raw Location. No selected type, mark, lifecycle result or RNG draw is supplied.',
         'The transient Smudge consumes original Scenario uniqueID14, queues after dead Anim7/8, never joins Logic, retires before Building1/Bullet4 and leaves its persistent2x2 cells marked after drain. This is native executed state/lifecycle evidence, not native pixel/audio or full map-loader parity.',
+        'Only stock seed1 adds a post_drain_put continuation after preserving every old prefix field. The same Runtime executes shared original Discovery geometry initialization, fresh GAPOWR43B740, Cell GetCoords486840 and full440580 with successful AL1. Native43F8A6 clears type48 across the existing2x2 footprint while preserving raw data11F. Existing supplied House/map/registry bounds remain; no paid production/input or full native world load is claimed. Native newID23 is active GAPOWR_A in slot3 with actual ctor/Start events, not GAPOWRMK buildup. Sparse ART inputs exclude GAPOWRMK; later whole construction/animation AI is not certified. Measured client priors retain original GameMode1, PlayerPtr/current-owner and House1EC/1ED, plus known Cell12C18/counter0 inputs. Original early CellPUT47E9E2 discovery opens before Techno idle; no manual opening or expected flag write is supplied.',
     ])
-    base['scope'] = 'Three coherent stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR chains through footprint, E1 crew and full deferred drain'
+    base['scope'] = 'Stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR through footprint, crew and drain, plus seed1 fresh successful normal PUT cleanup'
     base['assumptions'] = assumptions
     base['entry_points'].update(smudge_registry_startup='0x004E7260',
         smudge_list_process='0x00668DD2', smudge_type_ctor='0x006B5260',
         smudge_type_reader='0x006B56D0', smudge_runtime_ctor='0x006B4A50',
         smudge_mark='0x006B4BE0', smudge_place='0x006B6080',
         smudge_runtime_scalar='0x006B4FA0', tile_type_ctor='0x005447C0',
-        tile_morphable_reader='0x00546124', tile_morphable_store='0x0054644C')
+        tile_morphable_reader='0x00546124', tile_morphable_store='0x0054644C',
+        post_put_cell_coordinates='0x00486840', post_put_unlimbo='0x00440580',
+        post_put_clear_type='0x0043F8A6', post_put_redraw='0x004852D0',
+        post_put_dirty_ring='0x00486E70')
     return base
 
 

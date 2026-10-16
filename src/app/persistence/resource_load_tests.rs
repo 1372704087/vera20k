@@ -310,11 +310,32 @@ fn assert_next_fill_uses_saved_theater_registry(
     );
 }
 
-#[test]
-fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
-    let Some((root, mut assets)) = retail_assets() else {
-        return;
-    };
+/// The incoming saved world: the retail archives with the shell archives
+/// registered, the warm rules owner and process tile cache that bound it, its
+/// save three ways (valid, with a missing Follow, with a wrong rules digest),
+/// and the map directory with the incoming map removed, so a load must use the
+/// saved map owners.
+struct IncomingSave {
+    root: std::path::PathBuf,
+    assets: AssetManager,
+    owner: NativeRulesProcessOwner,
+    mode: IniFile,
+    directory: TestDirectory,
+    source_path: std::path::PathBuf,
+    warm_cache: TileVariantSelectorCache,
+    incoming: SimRuntime,
+    map: SavedMapMetadata,
+    incoming_file: String,
+    rules_hash: u64,
+    bytes: Vec<u8>,
+    bad_follow: Vec<u8>,
+    bad_rules: Vec<u8>,
+    incoming_lookup: (String, i32, Vec<u8>),
+    repository: SaveRepository,
+}
+
+fn incoming_save() -> Option<IncomingSave> {
+    let (root, mut assets) = retail_assets()?;
     let mut owner = retail_rules_owner(&assets);
     assets
         .register_neutral_archives()
@@ -322,7 +343,8 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
     let modes = crate::skirmish_modes::skirmish_modes_from_assets(&assets).expect("retail modes");
     let mode = crate::skirmish_modes::mode_by_id(&modes, 1).expect("retail Battle mode");
     let mode = crate::rules::retail_sources::select_ini(&assets, &mode.override_file)
-        .expect("retail Battle INI");
+        .expect("retail Battle INI")
+        .ini;
     let directory = TestDirectory::new("saved-retail-resources");
     directory.write("incoming.map", map_text("TEMPERATE", 321, 8).as_bytes());
     directory.write("outgoing.map", map_text("SNOW", 654, 6).as_bytes());
@@ -337,7 +359,7 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
         source_name,
         &mut assets,
         &mut owner,
-        &mode.ini,
+        &mode,
         &mut warm_cache,
     );
     let rules_hash = incoming.resources.rules.simulation_config_hash();
@@ -351,22 +373,60 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
         "loading must use the saved map owners"
     );
     let repository = SaveRepository::at(directory.path().join("saves"));
-    let clock = || LOAD_CLOCK_MS;
+    Some(IncomingSave {
+        root,
+        assets,
+        owner,
+        mode,
+        directory,
+        source_path,
+        warm_cache,
+        incoming,
+        map,
+        incoming_file,
+        rules_hash,
+        bytes,
+        bad_follow,
+        bad_rules,
+        incoming_lookup,
+        repository,
+    })
+}
 
-    // Native546DA0 cold table initialization is the narrow RNG comparison:
-    // real loaded Clear cells enter the same selector, without Fill or IDs.
-    let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_recalc_presentation.json",
-    ))
-    .unwrap();
-    let native = native["load_selector_cases"]
+/// Native546DA0 cold table initialization is the narrow RNG comparison:
+/// real loaded Clear cells enter the same selector, without Fill or IDs.
+fn cold_selector_case() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_recalc_presentation.json")
+        ["load_selector_cases"]
         .as_array()
         .unwrap()
         .iter()
         .find(|case| case["input"]["name"] == "cold_fixed_count2_seed0")
-        .unwrap();
-    let frontend: crate::sim::rng::MainRng =
-        SimRng::from_native_state_hex_for_test(native["before"]["main"].as_str().unwrap()).into();
+        .unwrap()
+}
+
+/// The frontend Main stream the native cold case starts from.
+fn frontend_main() -> crate::sim::rng::MainRng {
+    let native = cold_selector_case();
+    SimRng::from_native_state_hex_for_test(native["before"]["main"].as_str().unwrap()).into()
+}
+
+#[test]
+fn retail_saved_resources_prepare_cold() {
+    let Some(save) = incoming_save() else {
+        return;
+    };
+    let IncomingSave {
+        mut assets,
+        incoming,
+        map,
+        bytes,
+        repository,
+        ..
+    } = save;
+    let clock = || LOAD_CLOCK_MS;
+    let native = cold_selector_case();
+    let frontend = frontend_main();
     let frontend_before = frontend.logical_state();
     let cold_owner = retail_rules_owner(&assets);
     assert!(cold_owner.saved_scenario_rules().is_none());
@@ -417,7 +477,34 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
         "uncommitted candidate cannot warm the process cache"
     );
     assert!(cold_owner.saved_scenario_rules().is_none());
-    drop(cold);
+}
+
+#[test]
+fn retail_saved_resources_prepare_cross_map_and_roll_back_late_failure() {
+    let Some(save) = incoming_save() else {
+        return;
+    };
+    let IncomingSave {
+        root,
+        mut assets,
+        mut owner,
+        mode,
+        directory,
+        source_path,
+        mut warm_cache,
+        incoming,
+        map,
+        incoming_file,
+        rules_hash,
+        bytes,
+        bad_follow,
+        bad_rules,
+        incoming_lookup,
+        repository,
+    } = save;
+    let clock = || LOAD_CLOCK_MS;
+    let frontend = frontend_main();
+    let cold_cache = TileVariantSelectorCache::default();
 
     let outgoing_path = directory.path().join("outgoing.map");
     let outgoing_name = outgoing_path.to_str().unwrap();
@@ -429,7 +516,7 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
         outgoing_name,
         &mut assets,
         &mut owner,
-        &mode.ini,
+        &mode,
         &mut warm_cache,
     );
     outgoing

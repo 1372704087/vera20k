@@ -303,8 +303,8 @@ mod tests {
     const ART: &str = "[NAMISL]\nFoundation=1x1\n[GAPILE]\nFoundation=1x1\n\
         [PSIWARN]\n[NUKETO]\n";
 
-    fn oracle() -> Value {
-        serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+    fn oracle() -> &'static Value {
+        crate::test_fixture::json("tools/superweapon_oracle.json")
     }
 
     fn int(value: &Value) -> i32 {
@@ -341,7 +341,7 @@ mod tests {
             level: if (x, y) == target { target_level } else { 0 },
             ..test_flat_cell(x, y)
         }));
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, (target, target_level));
         let silo = sim
             .spawn_object_at_height(kind, "Russians", 20, 30, 0, 0, rules)
             .unwrap();

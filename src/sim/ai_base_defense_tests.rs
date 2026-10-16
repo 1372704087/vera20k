@@ -7,11 +7,8 @@ use crate::sim::ai_buildable::country_bit;
 use crate::sim::house_state::{HouseDifficulty, HouseState};
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/ai_base_defense_oracle.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/ai_base_defense_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {

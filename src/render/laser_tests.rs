@@ -8,11 +8,8 @@ use crate::render::terrain_draw_gpu_tests::{Gpu, camera, clear, encoded, seed_de
 use crate::sim::projectile::ProjectileCoord;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 fn integer(v: &Value) -> i32 {
     v.as_i64().unwrap() as i32

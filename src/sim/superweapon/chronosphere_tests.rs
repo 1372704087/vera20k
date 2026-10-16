@@ -61,7 +61,7 @@ pub(crate) fn world_with(
     size: u16,
     levels: &[((u16, u16), u8)],
 ) -> (RuleSet, Simulation, InternedId) {
-    world_with_cells(rules, size, |x, y| {
+    world_with_cells(rules, size, ("flat", levels.to_vec()), |x, y| {
         crate::map::resolved_terrain::ResolvedTerrainCell {
             level: levels
                 .iter()
@@ -72,10 +72,11 @@ pub(crate) fn world_with(
     })
 }
 
-/// [`world_with`] over the cells `cell` builds.
+/// [`world_with`] over the cells `cell` builds, which `terrain_key` names.
 fn world_with_cells(
     rules: RuleSet,
     size: u16,
+    terrain_key: (&'static str, Vec<((u16, u16), u8)>),
     cell: impl FnMut(u16, u16) -> crate::map::resolved_terrain::ResolvedTerrainCell,
 ) -> (RuleSet, Simulation, InternedId) {
     let mut sim = Simulation::with_seed(17);
@@ -101,7 +102,10 @@ fn world_with_cells(
     sim.session.map_width = size;
     sim.session.map_height = size;
     sim.install_resolved_terrain_for_new_map(test_grid(size, size, cell));
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    crate::sim::arena_fixture::supply_native_map_keyed(
+        &mut sim,
+        ("chronosphere world", size, terrain_key),
+    );
     (rules, sim, americans)
 }
 
@@ -113,8 +117,11 @@ fn retail_water_world() -> Option<(RuleSet, Simulation, InternedId)> {
         ..SpeedCostProfile::default()
     };
     let water = LandType::Water.as_index();
-    Some(world_with_cells(retail_rules()?, 64, |x, y| {
-        crate::map::resolved_terrain::ResolvedTerrainCell {
+    Some(world_with_cells(
+        retail_rules()?,
+        64,
+        ("water", Vec::new()),
+        |x, y| crate::map::resolved_terrain::ResolvedTerrainCell {
             land_type: water,
             yr_cell_land_type: water,
             base_land_type: water,
@@ -129,8 +136,8 @@ fn retail_water_world() -> Option<(RuleSet, Simulation, InternedId)> {
             base_ground_walk_blocked: true,
             base_build_blocked: true,
             ..crate::map::resolved_terrain::test_flat_cell(x, y)
-        }
-    }))
+        },
+    ))
 }
 
 fn spawn(sim: &mut Simulation, rules: &RuleSet, kind: &str, owner: &str, at: (u16, u16)) -> u64 {

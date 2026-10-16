@@ -2253,6 +2253,7 @@ pub(crate) mod tests {
         );
         let rules = crate_ruleset_with_images("ROADBOX", "ROADBOX", "ROADBOX", "CrateMinimum=0\n");
         let mut sim = sim_with_grid(0xDA7A_0020);
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         // Mark is invoked below; autonomous crate spawning is outside this fixture.
         sim.session.game_options.crates = false;
         sim.production.ore_growth_config.grows = false;

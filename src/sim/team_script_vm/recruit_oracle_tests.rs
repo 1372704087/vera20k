@@ -26,9 +26,10 @@ use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::lepton_to_cell_packed;
 
 fn rows(section: &str) -> Vec<Value> {
-    let oracle: Value =
-        serde_json::from_str(crate::test_fixture::text("tools/team_recruit_oracle.json")).unwrap();
-    oracle[section].as_array().unwrap().clone()
+    crate::test_fixture::json("tools/team_recruit_oracle.json")[section]
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 fn int(value: &Value) -> i32 {

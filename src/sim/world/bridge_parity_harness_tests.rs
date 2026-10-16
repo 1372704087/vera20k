@@ -677,6 +677,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
 
     // ---- Record pass: drive the crossing through the live advance_tick path. ----
     let mut rec = Simulation::with_seed(BRIDGE_HARNESS_SEED);
+    rec.hash_state_every(std::num::NonZeroU64::MIN);
     let mut diagnostic = super::global_parity_harness_tests::replay_diagnostic_file("bridge");
     let mut seed = || seed_bridge_scenario(&mut rec, &rules);
     let (_, seed_draws) = if diagnostic.is_some() {

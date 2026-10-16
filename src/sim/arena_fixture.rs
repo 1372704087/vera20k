@@ -116,10 +116,50 @@ fn flat_ground_with_size(sim: &mut Simulation, rules: &RuleSet, size: u16) -> Pa
     sim.install_resolved_terrain_for_new_map(clear_ground(size));
     sim.playfield_bounds = Some(OPEN_PLAYFIELD);
     sim.playfield_size_height = Some(20);
+    install_empty_arena_navigation(sim, rules, size);
     assert!(sim.rebuild_dynamic_navigation(rules));
     sim.path_grid_snapshot()
         .map(|grid| (*grid).clone())
         .expect("navigation grid")
+}
+
+/// Before an empty arena's first navigation rebuild, install the zones and
+/// path grid that rebuild makes, and the Dummy cell state it leaves: every
+/// empty arena of one size gets the same ones, so they are built once per
+/// test process for each size and starting Dummy state. The rebuild keeps an
+/// installed copy because its path grid and movement classes still match. An
+/// arena that already holds objects, bridges or navigation builds its own.
+fn install_empty_arena_navigation(sim: &mut Simulation, rules: &RuleSet, size: u16) {
+    if !(sim.substrate.entities.is_empty()
+        && sim.bridge_state.is_none()
+        && sim.zone_grid.is_none()
+        && sim.path_grid.is_none())
+    {
+        return;
+    }
+    let dummy = sim
+        .resolved_terrain
+        .as_ref()
+        .expect("arena terrain")
+        .shared_cell_dummy();
+    let (zones, path, built) =
+        crate::test_fixture::once_per_process(("empty arena", size, dummy.state_words()), || {
+            let mut probe = Simulation::with_seed(0);
+            probe.install_resolved_terrain_for_new_map(clear_ground(size));
+            probe.playfield_bounds = Some(OPEN_PLAYFIELD);
+            let probe_dummy = probe.resolved_terrain.as_ref()?.shared_cell_dummy();
+            probe_dummy.adopt_prepared_load_state(&dummy);
+            assert!(probe.rebuild_dynamic_navigation(rules));
+            Some((
+                probe.zone_grid?,
+                probe.path_grid?,
+                probe_dummy.fork_query_identity(),
+            ))
+        })
+        .expect("arena navigation");
+    dummy.adopt_prepared_load_state(&built);
+    sim.zone_grid = Some(zones);
+    sim.path_grid = Some(path);
 }
 
 /// A `size` x `size` grid of clear ground cells.
@@ -167,23 +207,15 @@ pub fn supply_native_map(sim: &mut Simulation) {
     let grid = PathGrid::from_resolved_terrain(terrain);
     let size = (i32::from(width), i32::from(height));
     if sim.zone_grid.is_none() {
-        let build = || {
-            ZoneGrid::build_with_native_bridge_geometry(
-                &grid,
-                terrain,
-                &[],
-                width,
-                height,
-                Some(size),
-            )
-        };
         // Every supplied clear ground has the same zones; a fixture builds
         // them once per test process and installs a copy.
         static CLEAR_GROUND_ZONES: std::sync::OnceLock<ZoneGrid> = std::sync::OnceLock::new();
         sim.zone_grid = Some(if supplies_ground {
-            CLEAR_GROUND_ZONES.get_or_init(build).clone()
+            CLEAR_GROUND_ZONES
+                .get_or_init(|| native_zones(&grid, terrain))
+                .clone()
         } else {
-            build()
+            native_zones(&grid, terrain)
         });
     }
     if sim.playfield_bounds.is_none() {
@@ -198,6 +230,44 @@ pub fn supply_native_map(sim: &mut Simulation) {
     }
     sim.playfield_size_height.get_or_insert(size.1);
     sim.install_fixture_path_grid(Some(&grid));
+}
+
+/// [`supply_native_map`] for a fixture whose installed terrain is a function
+/// of `terrain_key` alone: the zones, and the Dummy cell state their build
+/// leaves, are built once per test process for each key and starting Dummy
+/// state.
+pub fn supply_native_map_keyed<K: Ord + Send + 'static>(sim: &mut Simulation, terrain_key: K) {
+    if sim.zone_grid.is_none()
+        && let Some(terrain) = sim.resolved_terrain.as_ref()
+    {
+        let dummy = terrain.shared_cell_dummy();
+        let (zones, built) =
+            crate::test_fixture::once_per_process((terrain_key, dummy.state_words()), || {
+                let zones = native_zones(&PathGrid::from_resolved_terrain(terrain), terrain);
+                Some((zones, dummy.fork_query_identity()))
+            })
+            .expect("keyed fixture zones");
+        dummy.adopt_prepared_load_state(&built);
+        sim.zone_grid = Some(zones);
+    }
+    supply_native_map(sim);
+}
+
+/// The zones [`supply_native_map`] builds for `terrain`, whose path grid is
+/// `grid`.
+fn native_zones(
+    grid: &PathGrid,
+    terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
+) -> crate::sim::pathfinding::zone_map::ZoneGrid {
+    let (width, height) = (terrain.width(), terrain.height());
+    crate::sim::pathfinding::zone_map::ZoneGrid::build_with_native_bridge_geometry(
+        grid,
+        terrain,
+        &[],
+        width,
+        height,
+        Some((i32::from(width), i32::from(height))),
+    )
 }
 
 #[cfg(any(test, feature = "test-support"))]

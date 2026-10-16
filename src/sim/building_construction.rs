@@ -371,11 +371,8 @@ mod tests {
     use crate::sim::intern::test_intern;
     use serde_json::Value;
 
-    fn corpus() -> Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/building_construction.json",
-        ))
-        .unwrap()
+    fn corpus() -> &'static Value {
+        crate::test_fixture::json("tools/spatial_oracle/building_construction.json")
     }
 
     fn options(speed: i64) -> GameOptions {

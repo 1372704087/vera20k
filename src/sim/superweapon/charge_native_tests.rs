@@ -12,11 +12,8 @@ use crate::sim::house_state::HouseState;
 use crate::sim::rng::SimRng;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_super_charge_percent.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/trigger_super_charge_percent.json")
 }
 
 fn stock_rules() -> RuleSet {

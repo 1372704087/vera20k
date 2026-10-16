@@ -922,11 +922,8 @@ mod tests {
         ProjectileCoord::new(axis(0), axis(1), axis(2))
     }
 
-    fn fireat_speed_corpus() -> Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/projectile_oracle/fireat_speed.json",
-        ))
-        .unwrap()
+    fn fireat_speed_corpus() -> &'static Value {
+        crate::test_fixture::json("tools/projectile_oracle/fireat_speed.json")
     }
 
     /// `tools/projectile_oracle/fireat_speed.json`: `WeaponTypeClass::GetSpeed`
@@ -1037,11 +1034,8 @@ mod tests {
         assert_eq!(led, 587);
     }
 
-    fn launch_scatter_corpus() -> Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/projectile_oracle/launch_scatter.json",
-        ))
-        .unwrap()
+    fn launch_scatter_corpus() -> &'static Value {
+        crate::test_fixture::json("tools/projectile_oracle/launch_scatter.json")
     }
 
     /// `tools/projectile_oracle/launch_scatter.json`: FireAt's launch scatter

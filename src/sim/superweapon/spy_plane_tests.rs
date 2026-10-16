@@ -22,8 +22,8 @@ const SPY_PLANE: &str = "SpyPlaneSpecial";
 const TARGET: (u16, u16) = (40, 40);
 const FLY: &str = "{4A582746-9839-11D1-B709-00A024DDAFD1}";
 
-pub(super) fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+pub(super) fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 pub(super) fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {

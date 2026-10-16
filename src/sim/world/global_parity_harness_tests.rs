@@ -939,6 +939,7 @@ fn cross_house_move_executes_and_replays_without_changing_actor_owner() {
     let overlays = harness_overlays();
     let grid = PathGrid::new(HARNESS_CELL_SIDE, HARNESS_CELL_SIDE);
     let mut recorded = Simulation::with_seed(HARNESS_SEED);
+    recorded.hash_state_every(std::num::NonZeroU64::MIN);
     seed_scenario(&mut recorded, &rules, &overlays);
     let actor_owner = recorded.substrate.entities.get(6).unwrap().owner();
     let issuer = recorded.interner.get("Americans").unwrap();
@@ -1016,6 +1017,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
 
     // ---- Record pass: build a ReplayLog through the live advance_tick path. ----
     let mut rec = Simulation::with_seed(HARNESS_SEED);
+    rec.hash_state_every(std::num::NonZeroU64::MIN);
     let mut diagnostic = replay_diagnostic_file("global");
     let mut seed = || seed_scenario(&mut rec, &rules, &overlays);
     let (_, seed_draws) = if diagnostic.is_some() {

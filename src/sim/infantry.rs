@@ -800,11 +800,8 @@ mod tests {
         );
     }
 
-    fn fear_corpus() -> serde_json::Value {
-        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/infantry_fear_action.json",
-        ))
-        .unwrap();
+    fn fear_corpus() -> &'static serde_json::Value {
+        let native = crate::test_fixture::json("tools/spatial_oracle/infantry_fear_action.json");
         assert_eq!(
             native["native_sha256"],
             "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"

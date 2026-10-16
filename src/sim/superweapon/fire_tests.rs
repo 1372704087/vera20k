@@ -26,8 +26,8 @@ const RULES: &str = "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
 const ART: &str = "[NAMISL]\nFoundation=1x1\n[YARD]\nFoundation=1x1\n[BIGYARD]\nFoundation=4x4\n";
 const OWNER: &str = "Americans";
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -78,7 +78,7 @@ fn sim(rules: &RuleSet, human: bool, levels: &[((u16, u16), u8)]) -> Simulation 
         ..test_terrain_cell(x, y)
     }));
     sim.playfield_bounds = Some(test_playfield_bounds());
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, ("fire sim", levels.to_vec()));
     sim
 }
 

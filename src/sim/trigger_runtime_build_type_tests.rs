@@ -7,11 +7,8 @@ use crate::rules::object_type::ObjectCategory;
 use crate::sim::rng::SimRng;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    let result: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_build_type_events.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let result = crate::test_fixture::json("tools/spatial_oracle/trigger_build_type_events.json");
     assert_eq!(
         result["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"

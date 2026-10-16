@@ -12,11 +12,8 @@ use super::{
 use serde_json::Value;
 use wgpu::util::DeviceExt;
 
-fn fixture() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/procedural_drawing_oracle/blitter_a.json",
-    ))
-    .unwrap()
+fn fixture() -> &'static Value {
+    crate::test_fixture::json("tools/procedural_drawing_oracle/blitter_a.json")
 }
 fn buffer(gpu: &Gpu, instances: &[SpriteInstance]) -> wgpu::Buffer {
     gpu.device

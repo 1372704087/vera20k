@@ -2869,10 +2869,9 @@ mod tests {
     /// (`aircraft_receive`).
     #[test]
     fn retail_fly_aircraft_take_no_radio_passengers() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         assert!(!rules.aircraft_ids.is_empty());
         for name in &rules.aircraft_ids {
             let object = rules.object(name).unwrap();

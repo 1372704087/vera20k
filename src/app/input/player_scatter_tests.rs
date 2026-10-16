@@ -8,11 +8,8 @@ use crate::rules::{area_guard_tests as native, retail_ini_fixture};
 use crate::sim::command::{Command, CommandRecord, ScatterRecord};
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/input_oracle/player_scatter.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/input_oracle/player_scatter.json")
 }
 
 #[test]

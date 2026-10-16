@@ -13,11 +13,8 @@ use crate::sim::rng::{SimRng, trace_draws};
 use crate::sim::world::PlacementEvidence;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_construction_joined.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_construction_joined.json")
 }
 
 fn rng_digest(hex: String) -> String {

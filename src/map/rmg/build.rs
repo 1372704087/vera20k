@@ -408,12 +408,26 @@ mod tests {
         }
     }
 
+    /// [`generate_map`] of `options(map_type, theater)`, run once per test
+    /// process: several tests read the same map.
+    fn shared_run(map_type: i32, theater: i32) -> std::sync::Arc<GeneratedMap> {
+        crate::test_fixture::once_per_process(("generated map", map_type, theater), || {
+            let options = options(map_type, theater);
+            let generated = generate_map(
+                &options,
+                &RmgSettings::default(),
+                &resolved(),
+                &one_by_one(),
+                &[],
+            );
+            Some(std::sync::Arc::new(generated))
+        })
+        .expect("generated map")
+    }
+
     #[test]
     fn generate_map_produces_a_populated_map() {
-        let resolved = resolved();
-        let blocks = one_by_one();
-        let settings = RmgSettings::default();
-        let generated = generate_map(&options(1, 0), &settings, &resolved, &blocks, &[]);
+        let generated = shared_run(1, 0);
         // Every in-band cell is projected, and the terrain is shaped (not all
         // no-tile). The header carries the generated dimensions.
         assert!(!generated.map_file.cells.is_empty(), "cells were emitted");
@@ -512,9 +526,9 @@ mod tests {
         (tiles, overlays, generated.start_waypoints.clone())
     }
 
-    fn observe_run(
-        options: &RmgOptions,
-    ) -> (GeneratedMap, Vec<GenerationPoint>, Vec<GenerationSnapshot>) {
+    type ObservedRun = (GeneratedMap, Vec<GenerationPoint>, Vec<GenerationSnapshot>);
+
+    fn observe_run(options: &RmgOptions) -> ObservedRun {
         let resolved = resolved();
         let blocks = one_by_one();
         let settings = RmgSettings::default();
@@ -528,18 +542,27 @@ mod tests {
         (generated, points, snapshots)
     }
 
+    /// [`observe_run`] of `options(map_type, theater)`, run once per test
+    /// process: several tests read the same observed run.
+    fn shared_observed_run(map_type: i32, theater: i32) -> std::sync::Arc<ObservedRun> {
+        crate::test_fixture::once_per_process(("observed run", map_type, theater), || {
+            Some(std::sync::Arc::new(observe_run(&options(
+                map_type, theater,
+            ))))
+        })
+        .expect("observed run")
+    }
+
     #[test]
     fn observing_a_run_does_not_change_what_it_generates() {
-        let resolved = resolved();
-        let blocks = one_by_one();
-        let settings = RmgSettings::default();
-        let plain = generate_map(&options(1, 0), &settings, &resolved, &blocks, &[]);
+        let plain = shared_run(1, 0);
         // The observer does real work at every boundary — it projects the whole
         // grid — so this covers the projection as well as the callback.
-        let (observed, _, _) = observe_run(&options(1, 0));
+        let observed = shared_observed_run(1, 0);
+        let (observed, _, _) = &*observed;
 
         assert_eq!(plain.stages_run, observed.stages_run);
-        assert_eq!(projection(&plain), projection(&observed));
+        assert_eq!(projection(&plain), projection(observed));
     }
 
     #[test]
@@ -555,8 +578,9 @@ mod tests {
                     .map(|stage| GenerationPoint::After(*stage)),
             )
             .collect();
-        let (_, points, _) = observe_run(&options(1, 0));
-        assert_eq!(points, expected);
+        let run = shared_observed_run(1, 0);
+        let (_, points, _) = &*run;
+        assert_eq!(*points, expected);
     }
 
     #[test]
@@ -573,9 +597,10 @@ mod tests {
         // The preview's cell-admission test reads the header, so a snapshot
         // whose header differed would rasterise to a different pixel size and
         // the preview box would jump about while generating.
-        let (generated, _, snapshots) = observe_run(&options(1, 0));
+        let run = shared_observed_run(1, 0);
+        let (generated, _, snapshots) = &*run;
         let final_header = &generated.map_file.header;
-        for snapshot in &snapshots {
+        for snapshot in snapshots {
             let header = &snapshot.map_file.header;
             assert_eq!(
                 (
@@ -604,14 +629,15 @@ mod tests {
 
     #[test]
     fn start_positions_appear_from_the_starts_boundary_onwards() {
-        let (generated, points, snapshots) = observe_run(&options(1, 0));
+        let run = shared_observed_run(1, 0);
+        let (generated, points, snapshots) = &*run;
         assert!(
             !generated.start_waypoints.is_empty(),
             "the run placed starts"
         );
         let first_with_starts = points
             .iter()
-            .zip(&snapshots)
+            .zip(snapshots)
             .position(|(_, snapshot)| !snapshot.start_waypoints.is_empty())
             .expect("some snapshot carries the starts");
         assert_eq!(

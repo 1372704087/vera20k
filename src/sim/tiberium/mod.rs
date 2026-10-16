@@ -1382,6 +1382,7 @@ SpreadPercentage=.06
         .expect("empty roster rules");
         rules.tiberium_types = tiberium_types;
         let mut sim = Simulation::new();
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         sim.production.ore_growth_config.grows = false;
         sim.production.ore_growth_config.spreads = false;
         sim.production.ore_growth_state = OreGrowthState::new(1, 1);

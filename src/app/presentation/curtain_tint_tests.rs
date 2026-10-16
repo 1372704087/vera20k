@@ -20,8 +20,8 @@ const RETAIL_COLOR_ADD: &str = "[ColorAdd]\nNone=0,0,0\nStrongRed=31,0,0\nStrong
     Purple=15,0,15\nHighYellow=24,56,0\nTopYellow=16,32,0\n";
 const TINT: [f32; 3] = [0.6, 0.9, 1.2];
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn int(value: &Value) -> i32 {
@@ -308,10 +308,9 @@ fn the_blitters_or_the_colour_word_as_the_policy_answers() {
 /// first row: 0x0018 in the low 16 bits).
 #[test]
 fn retail_force_shield_colour_is_high_blue() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert_eq!(rules.general.force_shield_color, 6);
     assert_eq!(rules.color_add.slots[6].name.as_deref(), Some("HighBlue"));
     let oracle = oracle();

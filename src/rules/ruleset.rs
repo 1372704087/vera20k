@@ -6680,11 +6680,8 @@ fn parse_particle_system_types(
 
 #[cfg(test)]
 mod tests {
-    fn detail_native() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/rules_oracle/weapon_laser.json",
-        ))
-        .unwrap()
+    fn detail_native() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/rules_oracle/weapon_laser.json")
     }
 
     fn detail_state(detail: DetailRules) -> serde_json::Value {
@@ -7302,10 +7299,9 @@ CellSpread=0
     /// production reader (mode INIs and maps are not checked).
     #[test]
     fn retail_countries_author_no_speed_mults() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert!(!rules.countries.is_empty());
         for (name, country) in &rules.countries {
             assert_eq!(country.speed_mults, [NativeF32Bits::ONE; 3], "{name}");
@@ -10421,10 +10417,9 @@ Projectile=Invisible
     /// country keeps the constructor's 1.0.
     #[test]
     fn retail_difficulty_and_country_rof() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert_eq!(
             rules.general.difficulty_rows.map(|row| row.rof),
             [f64::from(0.8f32), 1.0, f64::from(1.2f32)]
@@ -10443,10 +10438,9 @@ Projectile=Invisible
     /// and are not `NotHuman=`, so their deaths pick from the six.
     #[test]
     fn retail_dead_bodies() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert_eq!(
             rules.general.dead_bodies,
             [
@@ -10467,10 +10461,9 @@ Projectile=Invisible
     /// comment); the Grizzly and Rhino keep the constructor's 8.
     #[test]
     fn retail_fire_angle() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         for (object, fire_angle) in [
             ("DEST", 32),
             ("BSUB", 64),
@@ -10621,13 +10614,11 @@ Projectile=Invisible
     /// constructor's 0, 1.0 and 0.0 stay.
     #[test]
     fn retail_elevation_model() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
         let two = NativeF64Bits::from_bits(2.0f64.to_bits());
-        let model = RuleSet::from_ini(&ini)
-            .expect("retail rules parse")
-            .elevation_model;
+        let model = rules.elevation_model;
         assert_eq!(
             (model.increment, model.increment_bonus, model.bonus_cap),
             (4, two, two)

@@ -176,7 +176,7 @@ fn drone_ground_pose_overflow_pages_preserve_native_parts_on_both_replay_routes(
 
 fn assert_ground_pose_upload_and_replay(
     type_id: &str,
-    native: serde_json::Value,
+    native: &serde_json::Value,
     expected_parts: usize,
     overflow: bool,
 ) {

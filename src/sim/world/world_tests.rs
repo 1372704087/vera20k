@@ -76,6 +76,7 @@ fn gsi_04_05_map_recruitment_bytes_reach_persistent_techno_state() {
 
 fn game_speed_command_sim() -> (Simulation, crate::sim::intern::InternedId) {
     let mut sim = Simulation::with_seed(0x5EED_0001);
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     let owner = sim.interner.intern("Local");
     sim.houses.insert(
         owner,
@@ -194,14 +195,29 @@ fn game_speed_transition_applies_at_ingress_before_triggers_and_hash() {
     ]));
 }
 
-/// Every frame hashes its state unless the caller asks for fewer. Then only a
-/// frame whose tick is a multiple of the interval hashes, and its hash is the
-/// state's.
+/// A launch hashes every frame and a test world none until the caller asks.
+/// Then only a frame whose tick is a multiple of the interval hashes, and its
+/// hash is the state's.
 #[test]
 fn a_state_hash_interval_selects_frames_by_tick() {
-    let (mut sim, _) = game_speed_command_sim();
+    let mut launched =
+        Simulation::from_descriptor(&crate::sim::scenario_session::ScenarioDescriptor::default());
+    let mut test_world = Simulation::with_seed(0x5EED_0001);
+    for sim in [&mut launched, &mut test_world] {
+        let owner = sim.interner.intern("Local");
+        sim.houses.insert(
+            owner,
+            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
+        );
+        sim.session.house_order.push(owner);
+    }
+    let launched_first = launched.advance_tick(&[], None, None, None, 67);
+    assert!(launched_first.frame_committed);
+    assert_eq!(launched_first.state_hash, Some(launched.state_hash()));
+    let mut sim = test_world;
     let first = sim.advance_tick(&[], None, None, None, 67);
-    assert_eq!(first.state_hash, Some(sim.state_hash()));
+    assert!(first.frame_committed);
+    assert_eq!(first.state_hash, None);
     sim.hash_state_every(std::num::NonZeroU64::new(3).unwrap());
     for step in 1..=6 {
         let result = sim.advance_tick(&[], None, None, None, 67);
@@ -329,6 +345,7 @@ fn network_modal_does_not_execute_game_speed_ingress() {
 
 fn animation_boundary_fixture() -> (Simulation, RuleSet) {
     let mut sim = Simulation::with_seed(0xA11A_7100);
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     let ini = IniFile::from_str("[InfantryTypes]\n0=E1\n\n[E1]\nStrength=100\n");
     let art = IniFile::from_str(
         "[E1]\nSequence=TestSequence\n\
@@ -379,6 +396,7 @@ fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
     rules.set_effect_frame_count_for_test("SMOKEIMG", frame_count, frame_count);
 
     let mut sim = Simulation::with_seed(0xEFFE_C705);
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     let stable_id = sim.allocate_stable_id();
     let particle = Particle::new(
         ParticleTypeId(0),
@@ -775,6 +793,7 @@ fn advance_tick_finishes_dying_infantry_from_rules_catalog() {
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art_ini),
     );
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     let id = sim
         .spawn_object("E1", "Americans", 4, 4, 0, &rules)
         .expect("spawn infantry");
@@ -881,6 +900,7 @@ fn terminal_master_frame_visits_class_sequence_before_exit_without_frame_commit(
 #[test]
 fn app_frame_output_transfers_pre_tick_sound_exactly_once_without_hash_change() {
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     sim.sound_events.push(SimSoundEvent::AnimationStarted {
         anim_id: 9,
         sound_id: "WaterfallLoop".to_owned(),
@@ -927,6 +947,7 @@ fn app_frame_output_transfers_pre_tick_sound_exactly_once_without_hash_change() 
 fn app_frame_output_finalizes_overlay_navigation_and_delivers_updates_once() {
     let (rules, overlays) = gsi_04_07_wall_sell_rules(false, false);
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     sim.resolved_terrain = Some(gsi_04_10_clear_terrain(4, 4));
     sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(4, 4));
     assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -8327,8 +8348,7 @@ fn combat_death_after_its_repair_visit_is_freed_at_end_of_tick() {
 /// on the unit data: an E1 written without its Walk `Locomotor` left the
 /// crusher guard stalled for 555 ticks. `None` when the retail INIs are absent.
 fn stacking_world(size: u16) -> Option<(Simulation, RuleSet, PathGrid)> {
-    let ini = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini")?;
-    let rules = RuleSet::from_ini(&ini).expect("retail rulesmd.ini parses");
+    let rules = crate::rules::retail_ini_fixture::retail_rulesmd_rules()?;
     Some(stacking_navigation_world(rules, size))
 }
 

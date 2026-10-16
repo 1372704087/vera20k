@@ -5,17 +5,13 @@
 use super::infantry_prone_raw_damage;
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
-use crate::rules::ruleset::RuleSet;
 use crate::rules::warhead_type::WarheadType;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::infantry::InfantryRuntime;
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/rules_oracle/read_double_percent.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/rules_oracle/read_double_percent.json")
 }
 
 fn bits(value: &Value) -> u64 {
@@ -108,7 +104,8 @@ fn retail_prone_damage_reads_the_original_multipliers() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
+    let rules =
+        crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
     let native = native();
     let native_rows = native["prone"]["rows"].as_array().unwrap();
     let native_row = |raw: &str| {

@@ -294,11 +294,8 @@ mod tests {
         idle_rate: 1,
     };
 
-    fn native_corpus() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/mirage_disguise.json",
-        ))
-        .unwrap()
+    fn native_corpus() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/spatial_oracle/mirage_disguise.json")
     }
 
     #[test]

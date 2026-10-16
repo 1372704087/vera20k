@@ -15,11 +15,8 @@ use crate::sim::snapshot::GameSnapshot;
 use crate::sim::world::Simulation;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_attack_release.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_attack_release.json")
 }
 
 fn fixture(input: &Value) -> (Simulation, RuleSet) {

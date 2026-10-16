@@ -8,8 +8,8 @@ use crate::rules::color_scheme::ColorSchemeEntry;
 use crate::sim::timer::CdTimer;
 use serde_json::{Value, json};
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn int(value: &Value) -> i32 {

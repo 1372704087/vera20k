@@ -26,8 +26,7 @@ pub(crate) fn control(label: &str) -> &'static Value {
 }
 
 fn request() -> Option<PlayRequest> {
-    let (_root, assets) = crate::rules::retail_ini_fixture::retail_assets()?;
-    let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+    let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()?;
     let index = native()["audio_core_controls"]["input"]["sound_index"]
         .as_u64()
         .unwrap();

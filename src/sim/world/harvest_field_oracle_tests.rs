@@ -44,11 +44,8 @@ const SKIPPED: &[&str] = &[
     "tick_not_harvester",
 ];
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/harvest_field.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/harvest_field.json")
 }
 
 /// The refinery_dock rules with the row's `SpreadPercentage=` and
@@ -93,9 +90,16 @@ fn rules_for_with(
             land.section_name()
         ));
     }
-    let ini = IniFile::from_str(&text);
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    // Scenes share a few rules and ART texts; each is parsed once.
+    let key = ("harvest scene rules", text.clone(), art.content_hash());
+    let (rules, ini) = crate::test_fixture::once_per_process(key, || {
+        let ini = IniFile::from_str(&text);
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        Some((rules, ini))
+    })
+    .unwrap();
+    let mut rules = rules.with_fresh_serial();
     rules.general.tiberium_short_scan = input["short_scan"].as_i64().unwrap_or(6 * 256) as i32;
     rules.general.tiberium_long_scan = input["long_scan"].as_i64().unwrap_or(48 * 256) as i32;
     rules.general.harvester_load_rate = input["load_rate"].as_i64().unwrap_or(2) as i32;

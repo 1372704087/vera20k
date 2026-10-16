@@ -10,7 +10,6 @@
 use super::{PlacementEvidence, Simulation, entry_test_fixture};
 use crate::map::entities::parse_map_entities;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
@@ -37,11 +36,8 @@ use serde_json::{Value, json};
 
 const NATIVE_SHA256: &str = "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c";
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/anytown_damage/unit_unlimbo.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/anytown_damage/unit_unlimbo.json");
     assert_eq!(corpus["schema_version"], 1);
     assert_eq!(corpus["native_sha256"], NATIVE_SHA256);
     assert_eq!(corpus["direct_rows"].as_array().unwrap().len(), 9);
@@ -916,7 +912,7 @@ fn retail_reused_unit_unlimbo_matches_original_stage_and_rng_tail() {
             if large { "true" } else { "no" },
         )));
         let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&variant_ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         assert_eq!(flags(&rules), json!([u8::from(small), u8::from(large)]));
         let mut sim = retail_world(&base_rules, &terrain_rules);
         let id = sim
@@ -1075,7 +1071,7 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
             }
         }
         let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         let registry = OverlayTypeRegistry::from_ini(&fixture_ini, Some(&art));
         let terrain_rules = TerrainRules::from_ini(&fixture_ini);
         let mut sim = retail_world(&rules, &terrain_rules);

@@ -33,11 +33,8 @@ use crate::util::fixed_math::SimFixed;
 #[path = "building_repair_waiter_oracle_tests.rs"]
 mod waiter_oracle_tests;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_repair.depot_service.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_repair.depot_service.json")
 }
 
 fn int(value: &Value) -> i32 {

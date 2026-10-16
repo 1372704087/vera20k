@@ -16,11 +16,8 @@ use crate::sim::mission::{MissionDispatchTimer, MissionId};
 use crate::sim::radio::{self, RadioMessage, RadioPayload};
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/refinery_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/refinery_dock.json")
 }
 
 fn int(v: &Value) -> i32 {

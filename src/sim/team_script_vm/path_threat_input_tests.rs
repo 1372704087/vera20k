@@ -11,11 +11,8 @@ use crate::sim::components::NavigationState;
 use crate::sim::intern::StringInterner;
 use serde_json::Value;
 
-fn packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_threat_inputs.json",
-    ))
-    .unwrap()
+fn packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/astar_threat_inputs.json")
 }
 
 fn stored_bits(value: &Value) -> NativeF64Bits {

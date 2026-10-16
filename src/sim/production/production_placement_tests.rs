@@ -91,7 +91,7 @@ fn stock_refinery_completion_rules() -> RuleSet {
     );
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art_ini)
         .expect("stock refinery completion rules should parse");
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art_ini));
     rules
 }
 
@@ -527,7 +527,7 @@ fn gsi_04_07_wall_placement_contract() -> (RuleSet, OverlayTypeRegistry) {
     );
     let mut rules =
         RuleSet::from_ini_with_fixed_art_for_test(&ini, &art_ini).expect("wall placement rules");
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art_ini));
     (rules, OverlayTypeRegistry::from_ini(&ini, None))
 }
 
@@ -1592,7 +1592,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
     // A retained death has real ART and a native sequence clock. An absent
     // death record retires on the first class visit, before this command.
     let death_art = IniFile::from_str("[E1]\nSequence=E1Sequence\n[E1Sequence]\nDie1=56,15,0\n");
-    rules.install_art_data(ArtRegistry::from_ini(&death_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&death_art));
     rules.bind_animation_sequences(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&death_art),
     );
@@ -1937,6 +1937,7 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     rules.bind_type_sound_references(&sound_ini, &sounds);
     let path_grid = PathGrid::new(64, 64);
     let mut sim = placement_sim();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     super::house_for_test(&mut sim, "Americans")
         .economy
         .set_credits_for_test(50_000);
@@ -2504,6 +2505,7 @@ fn gsi_04_07_placement_command_places_only_its_own_houses_production() {
     let (rules, registry) = gsi_04_07_wall_placement_contract();
     let path_grid = PathGrid::new(64, 64);
     let mut sim = placement_sim();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     spawn_structure(&mut sim, &rules, 1, "Russians", "GACNST", 10, 10);
     sim.overlay_grid = Some(OverlayGrid::new(64, 64));
     ready_building(&mut sim, &rules, "Russians", "GAWALL");
@@ -3747,7 +3749,7 @@ fn stock_yuri_cloning_world_with_scenario(
         .expect("stock Yuri Battle rules layers");
     let registry = OverlayTypeRegistry::from_ini(processed.ini(), Some(&fixed_art));
     let mut rules = RuleSet::from_processed_rules(&processed).expect("stock Yuri Battle rules");
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&fixed_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&fixed_art));
     rules.bind_animation_sequences(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&fixed_art),
     );

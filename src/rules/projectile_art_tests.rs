@@ -4,11 +4,8 @@ use crate::rules::projectile_type::ProjectileType;
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/bridge_render_art_state.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/bridge_render_art_state.json")
 }
 
 #[test]

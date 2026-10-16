@@ -15,11 +15,8 @@ use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let native: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/mirage_disguise.json",
-    ))
-    .expect("original Mirage corpus");
+fn corpus() -> &'static Value {
+    let native = crate::test_fixture::json("tools/spatial_oracle/mirage_disguise.json");
     assert_eq!(native["schema_version"], 1);
     assert_eq!(
         native["native_sha256"],

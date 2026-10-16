@@ -44,13 +44,12 @@
 //!   `rulesmd.ini` sets the key on no type.
 //! - `Record_Last_Built` and Building discovery retain class-local type indices
 //!   through HouseState for built-type triggers19..22. The remaining `+0x246`
-//!   notification only restarts a
-//!   90-frame House timer nothing else reads (`0x004F8DF6..0x004F8E21`); sets
-//!   `+0x1FC`, whose revoke and grant pass on the next House update
-//!   (`0x004F92E9..0x004F9302`) VERA runs at the placement; and plays the
-//!   type's `CreateSound=` (`+0x534`) or, for a unit, infantry or aircraft,
-//!   a Rules default (`+0x178`, `+0x17C`, `+0x180`); presentation, not
-//!   parsed.
+//!   notification restarts a90-frame House timer (`0x004F8DF6..0x004F8E21`);
+//!   no gameplay consumer of that retained timer has been established.
+//!   The shared production owner now requests the existing House+1FC recheck
+//!   after accounting and the produced type's CreateSound/class fallback
+//!   (4FB7CA..4FB804). General retained-cameo admission has its separate
+//!   residual in production_tech; this does not close the whole House tail.
 //! - Native crash or out-of-range reads that VERA defines: a node index past
 //!   the BuildingType array or a negative control other than -1/-2/-3 reads
 //!   memory past the array (`0x004FE537`, `0x004FE6F6`); a null power plant

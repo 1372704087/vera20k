@@ -18,6 +18,7 @@ use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
+use crate::sim::movement::ground_pose::Position;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
@@ -496,11 +497,16 @@ pub(in crate::sim) fn release_delivered_mobile(
     category: ProductionCategory,
     effects: FrameEffects<'_>,
 ) {
-    let type_id = sim
+    let product = sim
         .production
         .factories
         .view(owner, category)
-        .and_then(|factory| factory.object.map(|object| object.type_id));
+        .and_then(|factory| factory.object)
+        .map(|object| {
+            object
+                .entity_id
+                .expect("a factory product owns its constructed identity")
+        });
     if let Some(abandonment) = HouseFactoryAbandonment::capture(sim, owner, category) {
         abandonment.begin(sim);
         abandonment.finish(sim);
@@ -508,13 +514,37 @@ pub(in crate::sim) fn release_delivered_mobile(
     advance_after_delivery(sim, rules, owner, category, effects);
     // HousePlace4FB66D joins4FB4B4 after Abandon/StartNext, then records the
     // successfully delivered type at4FB4B7. Never score the promoted type.
-    if let Some(type_id) = type_id {
-        record_last_built(sim, rules, owner, type_id);
+    if let Some(product) = product {
+        let object = BuiltObject::capture(sim, product);
+        record_last_built(sim, rules, owner, object);
     }
 }
 
-/// `HouseClass::Record_Last_Built @ 0x004FB6B0` for an object of type
-/// `type_id` that left its factory: `HouseClass::Place_Production` calls it
+/// Temporary facts from one actual product. Live delivery captures at its
+/// RecordLastBuilt boundary after promotion/exit. Walls retain ctor Location
+/// through native UnInit5F65F0 until deferred delete725C70; Rust consumes
+/// their entity earlier, so capture before disposal without moving accounting.
+/// Type and Location always come from the same authoritative entity.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BuiltObject {
+    type_id: InternedId,
+    location: Position,
+}
+
+impl BuiltObject {
+    pub(super) fn capture(sim: &Simulation, product: u64) -> Self {
+        let entity = sim.substrate.entities.get(product).unwrap_or_else(|| {
+            panic!("successfully produced object {product} must remain available for recording")
+        });
+        Self {
+            type_id: entity.type_ref(),
+            location: entity.position,
+        }
+    }
+}
+
+/// `HouseClass::Record_Last_Built @ 0x004FB6B0` for the object that left
+/// its factory: `HouseClass::Place_Production` calls it
 /// after a successful exit (`0x004FB4B7`: a player's placed building, a
 /// delivered unit) and a computer's building factory after its placement
 /// (`BuildingClass::Factory_AI`, `0x004501A4`). The object's kind counter
@@ -524,18 +554,32 @@ pub(in crate::sim) fn release_delivered_mobile(
 /// the sum of the four. Before DontScore, each class stores its own Type
 /// ArrayIndex (+26C/+270/+274/+278): TEvent19..22 reads the most recent one,
 /// even for an unscored product. Executed: tag_lifecycle --build-type-events.
-/// Notification90-frame timer/CreateSound remain the documented residuals
-/// in `sim::ai_base_building`, not an alternate production-event dispatcher.
+/// Original4FB7CA..4FB7FF overrides the class cue with type CreateSound,
+/// copies raw Location and requests Voc7509E0 with null handle. No local,
+/// human, alive or limbo gate applies; DontScore only gates the counter.
+/// Original4FB804 requests the existing House+1FC tech recheck afterward.
+/// House+246 and its90-frame timer (4F8DD3..4F8E21) remain a separate
+/// documented raw-save residual.
 pub(super) fn record_last_built(
     sim: &mut Simulation,
     rules: &RuleSet,
     owner: InternedId,
-    type_id: InternedId,
+    object: BuiltObject,
 ) {
+    let type_id = object.type_id;
     let Some(ty) = sim.object_type(type_id, rules) else {
         return;
     };
     let (category, scores) = (ty.category, !ty.dont_score);
+    let sound = ty
+        .create_sound()
+        .or_else(|| match category {
+            ObjectCategory::Vehicle => rules.general.create_unit_sound(),
+            ObjectCategory::Infantry => rules.general.create_infantry_sound(),
+            ObjectCategory::Aircraft => rules.general.create_aircraft_sound(),
+            ObjectCategory::Building => None,
+        })
+        .map(str::to_owned);
     let type_index = rules
         .type_array_index(category, sim.interner.resolve(type_id))
         .expect("a produced object belongs to its class Type registry");
@@ -544,6 +588,13 @@ pub(super) fn record_last_built(
         if scores {
             house.stats.record_built();
         }
+    }
+    if let Some(sound) = sound {
+        sim.sound_events
+            .push(SimSoundEvent::voc_at(sound, &object.location));
+    }
+    if let Some(house) = sim.houses.get_mut(&owner) {
+        house.request_tech_recheck();
     }
 }
 
@@ -581,7 +632,6 @@ pub(super) fn refund_failed_delivery(
 pub(super) struct ReadyFactoryObject {
     owner: InternedId,
     category: ProductionCategory,
-    type_id: InternedId,
     entity_id: u64,
 }
 
@@ -606,17 +656,19 @@ impl ReadyFactoryObject {
     }
 
     /// Primary and autofill overlays are already stamped when the constructor
-    /// identity is consumed. Successor construction follows.
+    /// identity is consumed. Successor construction follows. Return the
+    /// original facts so HousePlace can record after BuildingSlam and BREAK
+    /// (`0x004FB314`, `0x004FB4A6`, `0x004FB4B7`).
     pub(super) fn consume_after_wall_stamp(
         self,
         sim: &mut Simulation,
         rules: &RuleSet,
         effects: FrameEffects<'_>,
-    ) {
+    ) -> BuiltObject {
+        let object = BuiltObject::capture(sim, self.entity_id);
         let _ = sim.discard_constructed_limbo(self.entity_id, Some(rules), effects);
-        let (owner, type_id) = (self.owner, self.type_id);
         self.release_after_placement(sim, rules, effects);
-        record_last_built(sim, rules, owner, type_id);
+        object
     }
 }
 
@@ -650,7 +702,6 @@ pub(super) fn ready_object(
     Some(ReadyFactoryObject {
         owner,
         category,
-        type_id,
         entity_id,
     })
 }

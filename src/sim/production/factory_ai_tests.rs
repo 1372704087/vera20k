@@ -30,7 +30,12 @@ fn fixture() -> Fixture {
 
 fn fixture_with(rules: &str) -> Fixture {
     let art = IniFile::from_str("[YARD]\nFoundation=2x2\n[PLAIN]\nFoundation=2x2\n");
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(rules), &art).unwrap();
+    fixture_from_sources(&IniFile::from_str(rules), &art)
+}
+
+fn fixture_from_sources(ini: &IniFile, art: &IniFile) -> Fixture {
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(ini, art).unwrap();
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(art));
     let mut sim = Simulation::new();
     let path = crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     sim.session.game_mode_nonzero = true;
@@ -122,6 +127,87 @@ fn a_placed_building_that_does_not_score_is_not_counted() {
     }
     assert_eq!(f.placed(), Some((16, 16)), "after {frames} frames");
     assert_eq!(f.sim.houses[&f.owner].stats.built(), 0);
+}
+
+/// AI4501A4 records after ExitObject has consumed its wall. The original
+/// deferred-delete boundary preserves type and raw ctor Location for that
+/// call; Rust's earlier disposal must preserve the same input facts.
+#[test]
+fn ai_wall_consumption_keeps_its_accounting_and_one_creation_cue() {
+    let mut source = RULES.replace(
+        "[PLAIN]\n",
+        "[PLAIN]\nWall=yes\nCreateSound=FixtureWallCreated\n",
+    );
+    source.push_str(
+        "\n[OverlayTypes]\n0=PLAIN\n[SoundList]\n0=FixtureWallCreated\n\
+         [FixtureWallCreated]\nSounds=wall\n",
+    );
+    let ini = IniFile::from_str(&source);
+    let art =
+        IniFile::from_str("[YARD]\nFoundation=2x2\n[PLAIN]\nFoundation=2x2\nToOverlay=PLAIN\n");
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&ini);
+    let mut f = fixture_from_sources(&ini, &art);
+    f.rules.bind_type_sound_references(&ini, &sounds);
+    let wall = f.rules.object("PLAIN").unwrap();
+    assert!(wall.wall);
+    assert_eq!(wall.to_overlay.as_deref(), Some("PLAIN"));
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
+    f.sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(32, 32));
+    let mut held = None;
+    for _ in 0..3_000 {
+        f.sim
+            .advance_tick(&[], Some(&f.rules), Some(&f.path), Some(&registry), 67);
+        held = f.held_object().or(held);
+        if f.sim.houses[&f.owner].stats.built() != 0 {
+            break;
+        }
+    }
+    let held = held.expect("the AI factory constructed its paid wall");
+    assert_eq!(f.sim.houses[&f.owner].economy.credits(), 900);
+    assert_eq!(f.sim.houses[&f.owner].stats.built(), 1);
+    assert!(!f.sim.substrate.entities.contains(held));
+    assert!(
+        f.held_object().is_none(),
+        "the completed AI factory was removed"
+    );
+    let cues = f
+        .sim
+        .sound_events
+        .iter()
+        .filter_map(|event| {
+            let crate::sim::world::SimSoundEvent::VocAt {
+                sound_id,
+                audible_to,
+                rx,
+                ry,
+                sub_x,
+                sub_y,
+                world_z_leptons,
+            } = event
+            else {
+                return None;
+            };
+            (sound_id == "FixtureWallCreated").then_some((
+                *audible_to,
+                *rx,
+                *ry,
+                *sub_x,
+                *sub_y,
+                *world_z_leptons,
+            ))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cues,
+        [(
+            None,
+            0,
+            0,
+            crate::util::fixed_math::SimFixed::ZERO,
+            crate::util::fixed_math::SimFixed::ZERO,
+            0
+        )]
+    );
 }
 
 #[test]

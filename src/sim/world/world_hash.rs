@@ -321,10 +321,11 @@ mod shared_dummy_bridge_hash_tests {
 
     use crate::map::bridge_facts::BRIDGE_FLAG_ANCHOR_SELF;
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
+    use crate::map::voxel_slope::slope_matrix;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
     use crate::sim::particles::spark::SparkMotionStep;
-    use crate::sim::particles::spark_world::{SparkCollisionWorld, slope_matrix};
+    use crate::sim::particles::spark_world::SparkCollisionWorld;
     use crate::util::native_x87::NativeF32Bits;
 
     fn spark_motion_at(x: i32, y: i32, z: i32) -> SparkMotionStep {
@@ -4556,7 +4557,7 @@ mod rocking_hash_tests {
         let id = a.substrate.entities.values().next().unwrap().stable_id();
         a.substrate.entities.get_mut(id).unwrap().rocking = Some({
             let mut value = RockingState::default();
-            value.set_angle_sideways_for_test(SimFixed::lit("0.1"));
+            value.set_angle_sideways(SimFixed::lit("0.1"));
             value
         });
         assert_ne!(a.state_hash(), b.state_hash());

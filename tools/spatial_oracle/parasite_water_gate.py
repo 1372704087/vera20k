@@ -12,6 +12,7 @@ from pathlib import Path
 import struct
 
 from tools.native_oracle import SCRATCH, call, finish_vectors, provenance
+from tools.spatial_oracle.building_body_rules import dwords
 
 CAN_INFECT = 0x0062A8E0
 UNIT_VTABLE = 0x007F5C70
@@ -93,5 +94,110 @@ def metadata():
                       'water_set_test': 0x00485060})
 
 
+
+def grapple_generate():
+    import os,hashlib
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP,UC_X86_REG_ECX
+    from tools.spatial_oracle import building_death_anims as host,building_construction as bc
+    from tools.spatial_oracle.anim_bouncer_launch import constructor_state
+    from tools.procedural_drawing_oracle.electric_bolt import RngTrace
+    root=Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS'])
+    inputs=host.grapple_inputs(root);f=host.grapple_fixture(inputs,root)
+    u,read=f.u,f.read32;source,victim,manager=f.grapple_source,f.grapple_victim,f.grapple_manager
+    scenario=read(0xA8B230)
+    rng=RngTrace.__new__(RngTrace);rng.u=u
+    rng.streams={'main':0x886B88,'scenario':scenario+0x218,'mapgen':0xABE890}
+    rng.requests=[];rng.pending=[];u.hook_add(UC_HOOK_CODE,rng.observe)
+    def xyz(p):return list(struct.unpack('<3i',u.mem_read(p,12)))
+    def member(p,base):return p in [read(read(base+4)+4*i) for i in range(read(base+16))]
+    def actor(p):
+        return dict(native_id=read(p+0x10),alive=u.mem_read(p+0x90,1)[0],limbo=u.mem_read(p+0x81,1)[0],
+            health=read(p+0x6C),location=xyz(p+0x9C))
+    def timer(p):
+        return dict(start=read(p),opaque=read(p+4),duration=read(p+8))
+    def snapshot():
+        a=read(manager+0x44)
+        return dict(source=actor(source),victim=dict(actor(victim),sinking=u.mem_read(victim+0x3CD,1)[0],
+                angle_bits=read(victim+0x328),paralysis_timer=[read(victim+0x6A0+o) for o in (0,4,8)]),
+            manager=dict(native_id=struct.unpack('<i',dwords(read(manager+0x10)))[0],phase=read(manager+0x48),stage=read(manager+0x4C),delay=read(manager+0x50),
+                invalidated=u.mem_read(manager+0x54,1)[0],anim_native_id=read(a+0x10) if a else None,
+                timer_2c=timer(manager+0x2C),timer_38=timer(manager+0x38)),
+            held_anim=constructor_state(u,a) if a else None)
+    pending=[];constructed=[];events=[]
+    def event(kind,**values):events.append(dict(event=kind,rng_request_count=len(rng.requests),native_cursor=read(scenario+0x214),**values))
+    def observe(_u,pc,_size,_data):
+        sp=u.reg_read(UC_X86_REG_ESP)
+        if pending and (pc,sp)==pending[-1][:2]:
+            _,_,p,row=pending.pop()
+            row.update(constructor_state(u,p),logic_registered=member(p,0x87F778),
+                display_layers=[i for i in range(5) if member(p,0x8A0360+24*i)],
+                rng_request_after=len(rng.requests),native_cursor_after=read(scenario+0x214))
+            constructed.append(row);event('AnimCtor_return',native_id=row['native_id'])
+        if pc==0x421EA0:
+            p=u.reg_read(UC_X86_REG_ECX);t=read(sp+4)
+            row=dict(type=f.string(t+0x24),args=dict(position=xyz(read(sp+8)),delay=read(sp+12),
+                loops=read(sp+16),flags=read(sp+20),z_adjust=struct.unpack('<i',dwords(read(sp+24)))[0],extra=read(sp+28)),
+                native_cursor_before=read(scenario+0x214),rng_request_before=len(rng.requests))
+            pending.append((read(sp),sp+32,p,row));event('AnimCtor',type=row['type'])
+        elif pc==0x410230:event('CreateId',caller=f'{read(sp):08X}')
+        elif pc==0x629D3B:event('ReceiveDamage_call')
+    u.hook_add(UC_HOOK_CODE,observe)
+    selected={};angle_rows={};first_roll=None;opposite=None;damage=[]
+    for frame in range(201):
+        u.mem_write(bc.FRAME,dwords(frame));before=rng.states();prior=snapshot()
+        cursor=read(scenario+0x214);start=len(rng.requests);mark=len(constructed);ev=len(events)
+        bc.invoke(u,0x6297F0,manager)
+        after=snapshot();assert not pending and not rng.pending
+        assert after['source']['alive']==1 and after['source']['limbo']==1
+        assert after['victim']['alive']==1 and after['victim']['limbo']==0
+        row=dict(input=dict(frame=frame,entry='006297F0'),before=prior,after=after,
+            native_cursor_before=cursor,native_cursor_after=read(scenario+0x214),
+            rng_before=before,rng_after=rng.states(),rng_requests=rng.requests[start:],
+            raw_draw_count=sum(len(r['raw_draws']) for r in rng.requests[start:]),
+            anims=constructed[mark:],events=events[ev:])
+        if frame==0:selected[frame]=row
+        branch=next((r for r in row['rng_requests'] if r['caller'] in ('0x6299ae','0x629d5d')),None)
+        if branch is not None:
+            if first_roll is None:first_roll=(after['manager']['phase'],frame);selected[frame]=row
+            elif after['manager']['phase']!=first_roll[0] and opposite is None:opposite=frame;selected[frame]=row
+        if after['victim']['health']<prior['victim']['health']:
+            damage.append(row)
+            if len(damage)==1:selected[frame]=row
+        phase,stage=after['manager']['phase'],after['manager']['stage']
+        if phase in (2,3) and stage in (1,5) and stage!=prior['manager']['stage']:
+            angle_rows.setdefault((phase,stage),row)
+        if len(angle_rows)==4 and opposite is not None and len(damage)>=2:
+            for value in angle_rows.values():selected[value['input']['frame']]=value
+            if len(selected)<8:selected[damage[1]['input']['frame']]=damage[1]
+            break
+    assert len(angle_rows)==4 and opposite is not None and len(damage)>=2
+    assert 7<=len(selected)<=8 and f.code_unchanged()
+    return dict(schema=1,initial=dict(f.grapple_context,layers=inputs.grapple_layers,
+        anim_types=inputs.grapple_anims,assets={name:dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest())
+            for name in ('SQDG.SHP','WAKE1.SHP','H2O_EXP1.SHP','H2O_EXP2.SHP','H2O_EXP3.SHP')
+            for raw in [(root/name).read_bytes()]}),visits_end=frame,rows=[selected[k] for k in sorted(selected)])
+
+
+def grapple_metadata():
+    return provenance(scope='Fresh stock SQD/DEST direct Parasite6297F0 RNG/angle component with actual constructors, Unlimbo, ObjectLimbo and AttachTo',
+        assumptions=[
+            'Existing building_death_anims physical reader/VM/allocator/House projection owns runtime. Actual SQD/DEST747620, ASW41CC20, SquidGrab/SQDJUMP/ParasitePlus readers and SQDG/WAKE1/H2O_EXP1..3 ART/SHP/sound binding execute; no full Rules process or native VXL binding is claimed.',
+            'Existing physical TMP binding owner loads genuine Water01.tem through original IsoTileType5447C0. Native TEMPERATMD scalar reader supplies WaterSet314/count838; sparse primary array/cache header and relocated TMP offsets are explicit existing input boundaries. Original47D2B0 Recalc precedes real UnitUnlimbo and derives water LandType2. Native tile before/after and true admission results are retained.',
+            'Original AircraftType4E73E0/Aircraft4E6BE0/Parasite629190/Spawn6B6C10 registries, Ship empty Coord69EBF0 and House counters49F9B0/748FD0 initialize selected prerequisites. Real stock DEST SpawnManager/ASW constructors execute. Source/victim are opposite existing fixture Houses, health200/600 from physical types, normal rank and fixed admitted positions. No full House/scenario startup claim.',
+            'Frame0 precedes all selected constructors. Actual ObjectLimbo5F4D30 returns1 immediately before CanInfect/AttachTo62A980. Both entry snapshots require source alive1/limbo1 and victim alive1/limbo0; real reciprocal links are asserted. Full FireAt/Bullet/LimboLaunch producer is excluded, not replaced by an attached prior.',
+            'Scenario map lighting/reset and cell relight are excluded. Initial lighting records the actual supplied Scenario current ambient/RGB/Ground/Level profile, raw fields/effect globals and selected Cell104..10E scalars. Original629DDE copies signed Cell10A into the held Anim Z-adjust; consumers must import this measured component lighting prior rather than full-map lighting defaults.',
+            'Initial game_speed is the signed observed GameOptions+A8EB60 input inherited from the joined construction fixture. Normalized Anim rates execute original SpeedNormalize5FB2E0 with that input; consumers must import it rather than use their default speed.',
+            'Only whole6297F0 is visited at monotonically increasing frames through the bounded collection endpoint. Other actor/Anim AI, audio update, whole Logic, culling/release/expiry and scene pixels are excluded. Original helper, direct sine/f32 angle store, all wake/splash ftol, full Anim constructors/Start/ID/Logic/Display and nonlethal receiver execute.',
+            'Full Main/Scenario/MapGen states are observed before/after every retained row without reseeding the admitted world. Ordered raw words include rejected ranged draws; constructor entry/return request indexes and native cursors preserve interleaving. Stored roll is native f32; simulation fixed-point quantization is a separate consumer boundary.',
+        ],substitutions=[
+            'Inherited successful bounded allocation/free, physical lexical INI and requested-SHP cache, IDX/BAG transport, Windows GUID/COM activation/OleRun through original factories, and declared presentation sinks. No selector/trig/ftol/RNG/GetCoords/constructor/Unlimbo/AttachTo/damage gameplay return or original instruction is replaced.'
+        ],entry_points=dict(grapple=0x6297F0,stage=0x629720,wakes=0x629E90,attach=0x62A980,can_infect=0x62A8E0,unit_ctor=0x7353C0,unit_unlimbo=0x737BA0,object_limbo=0x5F4D30,anim_ctor=0x421EA0,anim_start=0x424CE0,next=0x65C780,ranged=0x65C7E0))
+
 if __name__ == '__main__':
+    import sys
+    if '--grapple' in sys.argv:
+        finish_vectors(grapple_generate,Path(__file__).with_name('parasite_grapple_rng.json'),
+            provenance=grapple_metadata,argv=[a for a in sys.argv[1:] if a!='--grapple'])
+        raise SystemExit(0)
     finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=metadata)

@@ -3840,6 +3840,10 @@ pub struct RuleSet {
     /// GPU-independent SHP frame counts used by particle timing. Bound once
     /// from the active assets and ART data.
     effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog,
+    /// Immutable loaded main-VXL admission, rebuilt from ART/rules and the
+    /// active AssetManager with effect assets. Gameplay and rendering share
+    /// the GPU-independent physical model loader.
+    voxel_assets: crate::rules::voxel_asset_catalog::VoxelAssetCatalog,
     /// Every building type's construction control from its Buildup SHP,
     /// bound once from the active assets (`bind_building_buildup_assets`).
     buildup_assets: crate::rules::buildup_asset_catalog::BuildupAssetCatalog,
@@ -4786,6 +4790,7 @@ impl RuleSet {
                 .filter(|name| !name.is_empty())
                 .collect(),
             effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog::default(),
+            voxel_assets: crate::rules::voxel_asset_catalog::VoxelAssetCatalog::default(),
             buildup_assets: crate::rules::buildup_asset_catalog::BuildupAssetCatalog::default(),
             rubble_assets: crate::rules::building_rubble::RubbleAssetCatalog::default(),
             terrain_spawner_assets:
@@ -5215,6 +5220,7 @@ impl RuleSet {
         self.animation_sequences.hash(&mut hasher);
         self.unit_shp_read_states.hash(&mut hasher);
         self.effect_assets.hash(&mut hasher);
+        self.voxel_assets.hash(&mut hasher);
         self.buildup_assets.hash(&mut hasher);
         self.rubble_assets.hash(&mut hasher);
         self.terrain_spawner_assets.hash(&mut hasher);
@@ -5806,6 +5812,7 @@ impl RuleSet {
     }
 
     fn project_art_data(&mut self) {
+        self.voxel_assets = Default::default();
         let art = &self.art_registry;
         // Projectile ART is already projected from the per-pass registry owner.
         // A final-image reread here would lose omission/cache/default semantics.
@@ -6000,6 +6007,7 @@ impl RuleSet {
         art: crate::rules::art_data::ArtRegistry,
     ) {
         self.art_registry = art;
+        self.voxel_assets = Default::default();
     }
 
     #[cfg(test)]
@@ -6052,6 +6060,7 @@ impl RuleSet {
         &mut self,
         name: &str,
     ) -> Option<&mut crate::rules::art_data::ArtEntry> {
+        self.voxel_assets = Default::default();
         self.art_registry.get_mut(name)
     }
 
@@ -6078,6 +6087,25 @@ impl RuleSet {
             theater_ext,
             theater_name,
         );
+        self.voxel_assets =
+            crate::rules::voxel_asset_catalog::VoxelAssetCatalog::bind(self, asset_manager);
+    }
+
+    /// Techno6F9E10's loaded-main-VXL predicate, never an ART declaration or
+    /// renderer-cache query. Unbound/missing/malformed models answer false.
+    pub(crate) fn object_has_loaded_voxel(&self, type_id: &str) -> bool {
+        self.voxel_assets.contains(type_id)
+    }
+
+    /// Explicit loaded model prior for headless component fixtures. Production
+    /// callers bind immutable admission from the active physical assets.
+    #[cfg(test)]
+    pub(crate) fn supply_loaded_voxel_for_test(&mut self, type_id: &str) {
+        assert!(
+            self.object(type_id).is_some(),
+            "loaded type fixture must exist"
+        );
+        self.voxel_assets.supply_loaded(type_id);
     }
 
     /// Resolve raw terrain SHP frame counts for authoritative TIBTRE midpoint

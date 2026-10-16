@@ -102,7 +102,7 @@ impl VxlPoseFrameCache {
             .entry(key.type_id.clone())
             .or_insert_with(|| UnitModel::load(asset_manager, &key.type_id, rules))
             .as_ref()?;
-        let (sprite, native_draw_bounds) = model.render_pose(key, vpl, tilt);
+        let (sprite, native_draw_bounds) = model.render_pose(key, vpl, tilt)?;
         self.place(&sprite, native_draw_bounds)
     }
 

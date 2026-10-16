@@ -1372,6 +1372,29 @@ fn techno_common_steps(
     }
     veterancy_promotion_step(sim, id, rules);
     crate::sim::credit_income::drain_common_step(sim, id, rules);
+    // Techno6FA224..6FA244: only a valid loaded main VXL reaches
+    // RockingUpdate70B570 and its immediate Alive guard. This precedes
+    // locomotor Process and the Foot parasite tail; no later global update
+    // may erase a parasite's direct sideways-angle write.
+    let rocking_type = sim.substrate.entities.get(id).and_then(|entity| {
+        sim.object_type(entity.type_ref(), rules)
+            .filter(|object| rules.object_has_loaded_voxel(&object.id))
+    });
+    if let Some(object) = rocking_type {
+        if let Some(entity) = sim.substrate.entities.get_mut(id) {
+            // The ordinary wide-angle self-damage hook remains the existing
+            // bounded residual; crash spin returns before that check.
+            crate::sim::rocking::update(
+                entity,
+                object,
+                rules.general.fallback_coefficient,
+                &mut crate::sim::rocking::NoopSelfDestruct,
+            );
+        }
+        if !ai_alive(sim, id) {
+            return false;
+        }
+    }
     allied_target_drop_step(sim, id, rules);
     illegal_target_drop_step(sim, id, rules);
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
@@ -2148,6 +2171,191 @@ mod tests {
         entity.set_owner_for_test(sim.interner.intern("Americans"));
         entity.set_type_ref_for_test(sim.interner.intern("TEST"));
         sim.substrate.entities.insert(entity);
+    }
+
+    fn rocking_phase_fixture() -> (Simulation, RuleSet, u64, u64) {
+        let mut rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=TEST\n[InfantryTypes]\n0=WARPER\n\
+             [TEST]\nStrength=300\nSpeed=4\nCost=100\n\
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+             [WARPER]\nStrength=100\nSpeed=4\nPrimary=Beam\n\
+             Locomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n\
+             [Beam]\nDamage=1\nRange=8\nWarhead=ChronoBeam\n\
+             [ChronoBeam]\nTemporal=yes\n",
+        ))
+        .unwrap();
+        // Explicit native loaded-model prior for this headless AI-slot
+        // component fixture; asset/catalog tests prove physical admission.
+        rules.supply_loaded_voxel_for_test("TEST");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.resolve_rule_animation_lists(&rules);
+        let first = sim
+            .spawn_object("TEST", "Americans", 5, 5, 0, &rules)
+            .unwrap();
+        let second = sim
+            .spawn_object("TEST", "Americans", 7, 5, 0, &rules)
+            .unwrap();
+        (sim, rules, first, second)
+    }
+
+    /// A supplied earlier/later callback invokes the real Crash owner on a
+    /// represented airborne Unit. Production live-cursor and Techno visits
+    /// decide whether its new rates are consumed in this same pass.
+    #[test]
+    fn rocking_crash_birth_respects_the_victims_live_logic_slot() {
+        use crate::util::fixed_math::SimFixed;
+        for earlier in [true, false] {
+            let (mut sim, rules, first, second) = rocking_phase_fixture();
+            let (caller, victim) = if earlier {
+                (first, second)
+            } else {
+                (second, first)
+            };
+            sim.substrate
+                .entities
+                .get_mut(victim)
+                .unwrap()
+                .position
+                .set_exact_z_leptons_for_test(Some(512));
+            let mut rates = None;
+            sim.for_each_live_object(|sim, id| {
+                if id == caller {
+                    assert!(sim.foot_crash(victim, None, &rules, None, FrameEffects::default()));
+                    let rocking = sim.substrate.entities.get(victim).unwrap().rocking.unwrap();
+                    rates = Some((rocking.vel_sideways(), rocking.vel_forwards()));
+                }
+                sim.object_ai_visit_one(id, Some(&rules), ObjectAiCtx::default());
+            });
+            let rates = rates.unwrap();
+            assert!(rates.0 != SimFixed::ZERO || rates.1 != SimFixed::ZERO);
+            let rocking = sim.substrate.entities.get(victim).unwrap().rocking.unwrap();
+            let expected = if earlier {
+                rates
+            } else {
+                (SimFixed::ZERO, SimFixed::ZERO)
+            };
+            assert_eq!(
+                (rocking.angle_sideways(), rocking.angle_forwards()),
+                expected,
+                "earlier={earlier}: never retroactively visit the new crash"
+            );
+            sim.session.binary_frame += 1;
+            sim.object_ai_stage_with(Some(&rules), ObjectAiCtx::default());
+            let rocking = sim.substrate.entities.get(victim).unwrap().rocking.unwrap();
+            assert_eq!(
+                (rocking.angle_sideways(), rocking.angle_forwards()),
+                (expected.0 + rates.0, expected.1 + rates.1),
+                "one integration on the next visit"
+            );
+        }
+    }
+
+    #[test]
+    fn rocking_crash_integrates_once_through_a_complete_frame() {
+        let (mut sim, rules, _, victim) = rocking_phase_fixture();
+        sim.substrate
+            .entities
+            .get_mut(victim)
+            .unwrap()
+            .position
+            .set_exact_z_leptons_for_test(Some(512));
+        assert!(sim.foot_crash(victim, None, &rules, None, FrameEffects::default()));
+        let initial = sim.substrate.entities.get(victim).unwrap().rocking.unwrap();
+        assert!(
+            sim.advance_tick(&[], Some(&rules), None, None, 33)
+                .frame_committed
+        );
+        let after = sim.substrate.entities.get(victim).unwrap().rocking.unwrap();
+        assert_eq!(
+            (after.angle_sideways(), after.angle_forwards()),
+            (initial.vel_sideways(), initial.vel_forwards()),
+            "the former post-live global phase must not integrate again"
+        );
+    }
+
+    #[test]
+    fn rocking_skips_unloaded_temporal_tube_and_limbo_entries() {
+        use crate::sim::rocking::RockingState;
+        use crate::util::fixed_math::SimFixed;
+        for gate in ["unloaded", "temporal", "tube", "limbo"] {
+            let (mut sim, mut rules, _, victim) = rocking_phase_fixture();
+            let mut rocking = RockingState::default();
+            rocking.set_angle_sideways(SimFixed::lit("0.1"));
+            sim.substrate.entities.get_mut(victim).unwrap().rocking = Some(rocking);
+            match gate {
+                "unloaded" => {
+                    // Replacing ART invalidates the previously supplied model.
+                    rules.install_art_fixture(crate::rules::art_data::ArtRegistry::empty());
+                    assert!(!rules.object_has_loaded_voxel("TEST"));
+                }
+                "temporal" => {
+                    let warper = sim
+                        .spawn_object("WARPER", "Russians", 9, 5, 0, &rules)
+                        .unwrap();
+                    sim.temporal_initiate_warp(
+                        warper,
+                        Some(victim),
+                        &rules,
+                        None,
+                        FrameEffects::default(),
+                    );
+                    assert!(sim.substrate.entities.get(victim).unwrap().ai_frozen());
+                }
+                "tube" => {
+                    sim.substrate
+                        .entities
+                        .get_mut(victim)
+                        .unwrap()
+                        .low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
+                        TubeId(0),
+                        0,
+                        DriveCoord {
+                            x: 9 * 256 + 128,
+                            y: 5 * 256 + 128,
+                            z: 0,
+                        },
+                    ));
+                }
+                "limbo" => {
+                    sim.techno_limbo_with_context(
+                        victim,
+                        super::super::UninitContext::with_rules(&rules),
+                    );
+                    assert!(
+                        sim.substrate
+                            .entities
+                            .get(victim)
+                            .unwrap()
+                            .lifecycle
+                            .in_limbo()
+                    );
+                }
+                _ => unreachable!(),
+            }
+            // Tube owns its separate Process; this component test stops at
+            // the AI shell, without fabricating a Tube map or calling it twice.
+            if gate == "tube" {
+                sim.object_ai_stage_with(Some(&rules), ObjectAiCtx::default());
+            } else {
+                assert!(
+                    sim.advance_tick(&[], Some(&rules), None, None, 33)
+                        .frame_committed
+                );
+            }
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(victim)
+                    .unwrap()
+                    .rocking
+                    .unwrap()
+                    .angle_sideways(),
+                SimFixed::lit("0.1"),
+                "{gate}: Rocking slot was not reached"
+            );
+        }
     }
 
     fn unit_voice_fixture() -> (Simulation, RuleSet) {

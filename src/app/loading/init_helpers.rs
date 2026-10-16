@@ -686,7 +686,6 @@ pub(crate) fn finish_presentation_assets(
         sprite_atlas: manifest.sprite_atlas,
         overlay_atlas: overlays.overlay_atlas,
         bridge_atlas: overlays.bridge_atlas,
-        bridge_railing_atlas: overlays.bridge_railing_atlas,
         sidebar_cameo_atlas,
         sidebar_chrome,
         software_cursor,

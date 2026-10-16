@@ -744,22 +744,6 @@ impl TheaterData {
         self.cliff_ranges
             .is_on_bridge_ramp_tile(tile_id, slope_byte)
     }
-
-    /// Return the absolute tile_id starts for the two railing table ranges
-    /// written from SlopeSetPieces and SlopeSetPieces2 by gamemd.exe.
-    pub fn bridge_railing_slope_starts(&self) -> Option<(u16, u16)> {
-        let first = self
-            .lookup
-            .bounds()
-            .get(self.slope_set_pieces? as usize)?
-            .start;
-        let second = self
-            .lookup
-            .bounds()
-            .get(self.slope_set_pieces2? as usize)?
-            .start;
-        Some((first, second))
-    }
 }
 
 impl BridgeMiddleTiles {

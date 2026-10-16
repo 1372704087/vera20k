@@ -113,6 +113,7 @@ pub(crate) fn load_main_voxel(
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct VoxelAssetCatalog {
     /// Each loaded type's uppercase id and its main body's tilt half sizes
     /// (binary32 bits): what the catalog hashes.

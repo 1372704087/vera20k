@@ -36,8 +36,8 @@ const TEXT_BACKING_DEPTH: f32 = 0.60;
 const TEXT_DEPTH: f32 = 0.50;
 const TEXT_BACKING_ALPHA: f32 = 159.0 / 255.0;
 const TEXT_BACKING_PADDING: f32 = 2.0;
-/// Solid backing fill (G3) sits just behind the bar so the bar draws over it.
-const SOLID_FILL_DEPTH: f32 = 0.20;
+/// The `+0x71` house-colour outline sits just behind the bar so the bar draws over it.
+const PROGRESS_FRAME_DEPTH: f32 = 0.20;
 const PROGRESS_DEPTH: f32 = 0.10;
 /// Side icon (G4) draws above the background, at the bar's depth.
 const SIDE_ICON_DEPTH: f32 = 0.10;
@@ -506,8 +506,10 @@ fn build_native_loading_instances(
         row_layout.bar_origin[1] as f32,
     ];
 
-    // ReadScenario6847A3 passes both placement flags false for mode0;
-    // DrawFill643400's +71 solid-fill branch is therefore suppressed.
+    // `ScenarioClass__Read_Scenario @ 0x00684805..0x0068482F` passes
+    // `bMeasureText = bSolidFill = (g_GameMode != 0)` to
+    // `ProgressMeterClass__SetPlacementAndFlags @ 0x00642C80`, so campaign mode 0
+    // suppresses the house-colour outline and Skirmish sets it.
     push_loading_progress_span(
         &mut instances,
         atlas.progress_frame0,
@@ -576,9 +578,9 @@ fn push_campaign_loading_chrome(
     }
 }
 
-/// DrawFill643400 emits the optional solid player fill (G3), then the one
-/// clipped shape span (G2). The existing progress owner supplies native ftol;
-/// both loading families use this same submission body.
+/// `ProgressMeterClass__DrawFill @ 0x00643400` emits the optional house-colour
+/// outline (`+0x71`), then the one clipped shape span. The existing progress owner
+/// supplies native ftol; both loading families use this same submission body.
 fn push_loading_progress_span(
     out: &mut Vec<SpriteInstance>,
     frame: LoadingScreenEntry,
@@ -589,15 +591,37 @@ fn push_loading_progress_span(
     scale: ShellScale,
 ) {
     let bar_size = scale.art_size(frame.pixel_size[0], frame.pixel_size[1]);
-    if let Some(backing_rgb) = backing_rgb {
-        push_entry_tinted(
-            out,
-            solid_texel,
-            bar_origin,
-            bar_size,
-            SOLID_FILL_DEPTH,
-            backing_rgb,
-        );
+    // The `+0x71` branch is a one-pixel **outline**, not a filled panel:
+    // `0x0064349B..0x00643529` calls surface vtable slot `+0x58` = `XSurface__DrawRect`
+    // (`0x007BAD90`), which forwards to `XSurface__DrawRectEx` (`0x007BADC0`) and draws
+    // the rect with four `DrawLineEx` strokes over `x..x+w-1`, `y..y+h-1` (last row and
+    // column included). The rect itself is the frame outset by 3px:
+    // `0x0064341E..0x0064345E` builds `(helper+3, helper+3, W, H)` and `0x0072A9E0(rect, -3)`
+    // applies `x += n; y += n; w += n * -2; h += n * -2`, leaving
+    // `(helper, helper, W + 6, H + 6)`. So the house colour rings the meter and the
+    // un-filled interior keeps showing the loading background through it.
+    let ring = (3.0 * scale.factor()).round();
+    let frame_origin = [bar_origin[0] - ring, bar_origin[1] - ring];
+    let frame_size = [bar_size[0] + 2.0 * ring, bar_size[1] + 2.0 * ring];
+    if let Some(frame_rgb) = backing_rgb {
+        let stroke = scale.factor().round().max(1.0);
+        let [frame_w, frame_h] = frame_size;
+        let [frame_x, frame_y] = frame_origin;
+        for (origin, size) in [
+            ([frame_x, frame_y], [frame_w, stroke]),
+            ([frame_x, frame_y + frame_h - stroke], [frame_w, stroke]),
+            ([frame_x, frame_y], [stroke, frame_h]),
+            ([frame_x + frame_w - stroke, frame_y], [stroke, frame_h]),
+        ] {
+            push_entry_tinted(
+                out,
+                solid_texel,
+                origin,
+                size,
+                PROGRESS_FRAME_DEPTH,
+                frame_rgb,
+            );
+        }
     }
     let full_width = frame.pixel_size[0].max(1.0);
     let progress_width = progress.fill_width_gamemd_ftol_positive_domain(full_width as u32);

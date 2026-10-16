@@ -403,7 +403,7 @@ fn batched_frames(
     size: u16,
     threads: usize,
     frames: usize,
-    setup: impl Fn(&mut Simulation),
+    setup: impl Fn(&mut Simulation) + Sync,
 ) -> (Vec<u64>, usize) {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)

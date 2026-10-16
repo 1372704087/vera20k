@@ -64,8 +64,6 @@
 //!   and the Mastermind's `PipScale=MindControl` pips (`0x0070A15C` ->
 //!   `0x00708C30` case 5 -> Count `0x004722D0`) feed only rendering and are
 //!   not kept.
-//! - The Mastermind's overload rocking (`+0x330`, sideways lean 0.015/0.03)
-//!   has no VERA rocking producer; its Scenario draw is kept.
 //! - An expired ring anim clears the victim's `+0x2C8` natively
 //!   (`TechnoClass::PointerExpired @ 0x00707946`, `0x0071043D`); VERA clears
 //!   the link only in FreeUnit, so a ring that ran out of loops leaves a
@@ -1012,15 +1010,30 @@ impl Simulation {
                 );
             }
         }
-        // 0x00471C29..0x00471C62: above the first row and still alive, the
-        // sideways lean's sign (module residual) takes one draw.
+        // 0x00471C29..0x00471C78: after the receiver and all five full Spark
+        // constructors, a surviving controller above row zero replaces its
+        // sideways angular rate. These are original MOV binary32 literals,
+        // with FCHS for draws below 50, not an ApplyRocker impulse. The common
+        // Techno rocking slot already ran, so integration waits for its next
+        // visit; preserve both angles and the forward rate here.
         let alive = self
             .substrate
             .entities
             .get(controller_id)
             .is_some_and(|controller| controller.lifecycle.object_alive());
         if index > 0 && alive {
-            let _lean_left = self.scenario_rng.next_range_i32_inclusive(0, 100) < 50;
+            let lean_left = self.scenario_rng.next_range_i32_inclusive(0, 100) < 50;
+            let magnitude = if index == 1 { 0x3c75_c28f } else { 0x3cf5_c28f };
+            let velocity = crate::util::native_x87::NativeF32Bits::from_bits(
+                magnitude | if lean_left { 0x8000_0000 } else { 0 },
+            );
+            self.substrate
+                .entities
+                .get_mut(controller_id)
+                .expect("live overload controller remains represented")
+                .rocking
+                .get_or_insert_with(Default::default)
+                .set_vel_sideways_native(velocity);
         }
     }
 }

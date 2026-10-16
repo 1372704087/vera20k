@@ -478,6 +478,19 @@ impl EntityStore {
         self.stored().map(|(_, entity)| entity)
     }
 
+    /// The entities of `category` in stable_id order, chosen by the category
+    /// column without loading the others.
+    pub(crate) fn values_of_category(
+        &self,
+        category: EntityCategory,
+    ) -> impl Iterator<Item = &GameEntity> {
+        self.categories
+            .iter()
+            .zip(&self.entities)
+            .filter(move |&(&stored, _)| stored == category)
+            .filter_map(|(_, entity)| entity.as_deref())
+    }
+
     /// Iterate all entities mutably in stable_id order.
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut GameEntity> {
         self.touched.note_all();
@@ -818,8 +831,9 @@ mod tests {
     /// across compactions, re-stored ids and ids below the newest; the owner
     /// column follows every entity's owner through them and through
     /// `change_owner`, the category column every entity's category through
-    /// them, and the airborne set every entity's tracker membership through
-    /// them and through `set_air_membership`.
+    /// them (and walks of one category keep the stable_id order), and the
+    /// airborne set every entity's tracker membership through them and
+    /// through `set_air_membership`.
     #[test]
     fn storage_answers_as_an_ordered_map_through_compactions() {
         let mut store = EntityStore::new();
@@ -954,6 +968,19 @@ mod tests {
                         .iter()
                         .all(|(&id, &category)| store.category_of(id) == Some(category))
                 );
+                for class in classes {
+                    assert_eq!(
+                        store
+                            .values_of_category(class)
+                            .map(GameEntity::stable_id)
+                            .collect::<Vec<_>>(),
+                        categories
+                            .iter()
+                            .filter(|&(_, &category)| category == class)
+                            .map(|(&id, _)| id)
+                            .collect::<Vec<_>>()
+                    );
+                }
                 let mut expected_airborne: Vec<(u64, u64, u16)> = tracked
                     .iter()
                     .map(|(&id, &(bucket, order))| (order, id, bucket))

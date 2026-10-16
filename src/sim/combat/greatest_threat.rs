@@ -1570,11 +1570,7 @@ fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Opt
         // `0x006F9B99..0x006F9BD2`: the aircraft walk's ally test spares
         // only the `AttackFriendlies=`, berserk and mind-controlled-transport
         // scanners.
-        for candidate in ctx
-            .entities
-            .values()
-            .filter(|candidate| candidate.category() == EntityCategory::Aircraft)
-        {
+        for candidate in ctx.entities.values_of_category(EntityCategory::Aircraft) {
             if (ctx.is_ally(candidate) && !ctx.attacks_allies())
                 || !ctx.house_gates_admit(candidate)
             {

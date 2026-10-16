@@ -41,7 +41,7 @@ def ints(u, address, count):
     return list(struct.unpack('<' + 'i' * count, u.mem_read(address, count * 4)))
 
 
-def physical_assets(*, body=False, ore=False, tile=False, placement=False):
+def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar=False):
     root = configured_gamemd().parent
     sources, assets = [], {}
     containers = (
@@ -76,6 +76,11 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False):
                          'cache.mix': ('palette.pal', 'anim.pal', 'temperat.pal'),
                          'isourb.mix': ('rmpfx03.urb', 'clat03.urb', 'clat04.urb', 'proad02.urb')}),
             ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini', 'URBANMD.INI')}),
+        )
+    if radar:
+        containers = (
+            ('ra2.mix', {'isourb.mix': ('clat10.urb',)}),
+            ('ra2md.mix', {'localmd.mix': ('URBANMD.INI',)}),
         )
     for outer_name, children in containers:
         outer_raw = (root / outer_name).read_bytes()
@@ -783,23 +788,27 @@ def generate_ore():
                                   source='original density_4 raster output')
         rows.append(row)
     assert rows[-3]['output']['runs'] and not rows[-2]['output']['runs'] and not rows[-1]['output']['runs']
+    from tools.spatial_oracle.ore_radar import generate as generate_radar
     return dict(native_sha256=NATIVE_SHA256, inputs=inputs,
                 surface=dict(width=WIDTH, height=HEIGHT, baseline=32768, bytes_per_pixel=2),
-                rows=rows, controls=controls, lifecycle=sequence)
+                rows=rows, controls=controls, lifecycle=sequence, radar=generate_radar(m, types))
 
 
 def ore_metadata():
     return provenance(
-        scope='Original flat Riparius Cell body on physical TIB01..12 and global ordinary Convert, reduction1→0→empty and native active-caller empty admission; bounded RGB565/Z rows and signed numeric image selector controls. No native whole map loader or normal harvest scheduling claim.',
+        scope='Original flat Riparius Cell body on physical TIB01..12 and global ordinary Convert, reduction1→0→empty, physical current-TMP radar color/dirty/generated stores, and two full weighted radar samplers; bounded RGB565/Z rows and signed image controls. No whole map loader, online radar or normal harvest scheduling claim.',
         assumptions=[
             'Shares physical_assets/prepare/execute/snapshot and the original raster VM with bridge modes. Full original OverlayType constructors/readers and Riparius7216C0/721A50 execute on physical expansion RULESMD, MPBattleMD and GoldSt lexical layers. Original physical ART/image readers bind TEMPERATE art; all12 URBAN aliases and URBAN.PAL are byte-identical. Map pack coordinates/id/data/level are physical inputs, not derived native slope/flags.',
             'Ordinary global87F6B8 executes original Init_Game TEMPERAT.PAL load/expansion52BC49..52BCBB and full basic Convert construction/publication52BE0F..52BE48 through48E740/4BBB00/48EBF0. Source/destination885780, RGB565 surface and53shades. No ISO Cell LightConvert or generated table is injected.',
             'The8rows cover densities4/1/0 and empty at123,33 level5, a124,33 display variant and three one-scanline near/equal/far controls. Cell slope0/flags0/level/projected point, viewport/clip, A127, backgroundFFFF and oldZ are supplied component state. These are not native GoldSt constructed cells. Numeric controls execute47F8D7..47F900 directly with native reader-derived divisor/base and signed16 Cell coordinates.',
             'The same VM executes original480A80 twice with amount1 and full original47D2B0 against supplied sentinel TMPFFFF, sparse103x82 map, empty neighbors/Dummy, CliffBack0 and no LAT. Original queue/bitmap gates and native direction initialization run; both native RNG states are unchanged. Reduction result drives the next raster density. Post-clear native Tactical suffix6D6E5B..6D71D3 itself skips both calls because identity=-1. Its map/admission/rectangle/draw transport remains the existing traversal owner. Actual GoldSt terrain recalc and full harvester scheduler remain with existing consumed terrain_recalc/harvest_field/ore_queue comparisons.',
             'The caller, shape metadata/clipping, selector490E50, rowwalker437A10 and opaque4990E0 execute unchanged. Native pixels/Z supply all output runs; depth control candidates come from original raster output, not a host depth formula. This fixture does not certify GPU submission, shroud composition, all ordinary overlay branches, FoggedObject lifecycle or other theaters.',
+            'Additive radar payload runs only after all historical ore fields are captured. Existing shared TMP file transport executes original5447C0/544CB0/547020 on physical clat10.urb, with original URBAN General/ordinal and selected FileName/TilesInSet reads. Sparse selected141 registry and physical neighbor tile/level publications are supplied. Actual authored neighbor overlays/data are recorded separately from supplied empty-overlay live priors, excluding natural patch queue/RNG claims. Original full47D2B0/LAT retains selected141; current ground47C060 reads actual Left metadata and original URBAN brightness1, not a host RGB formula.',
+            'Original6551C0/655250/47C060/6547C0 execute with initialized spare dirty-vector storage and explicit173x113 radar geometry/black background, including native raw stores, generated RGB565 pixels and dirty-vector clear. Partial1to0 produces no radar entry; full clear does. Original BSurface construction/locking/writes execute. Separate full6547C0 controls consume the existing coordinate-pattern raw inputs at173x113 and137x149 and retain hashes of every store, without copied sampler math. These are component registrations/surfaces, not whole native radar bounds, viewer/object/fog composition, GPU upload or a normal harvester comparison.',
+            'Each radar row also executes original6547C0 for the full raw rectangle on that exact post-dirty buffer and records rebuild_output. The incremental surface bytes are restored, with unchanged surface/header and radar cache assertions, so original output/dirty history is retained. This compares the current Rust full-rebuild strategy directly to native full generation. Original incremental density1 differs in5pixels within3x2/one fringe row (maximum expanded channel differences about25/21/17); exact incremental drawing strategy remains a bounded presentation residual, not a fitted weight correction.',
         ],
         substitutions=[
-            'Existing PaletteReader allocation/TLS/archive-resource/RGB565 surface services remain. Full original Cell body, palette generation and raster execute. Reduction Radar6551C0/Tactical6D2790 calls are recorded transport sinks; no reduction, Recalc, queue or RNG result is substituted.',
+            'Existing PaletteReader allocation/TLS/archive-resource/RGB565 surface services remain. Full original Cell body, palette generation and raster execute. Historical lifecycle retains Radar6551C0/Tactical6D2790 transport sinks; additive radar executes actual6551C0/655250 and retains only Tactical6D2790 as a sink. No reduction, Recalc, resource queue, color or RNG result is substituted.',
         ],
         entry_points=dict(cell_body=0x47F6A0, flat_selector=0x47F8D7,
                           overlay_type_constructor=0x5FE250, overlay_reader=0x5FE770,
@@ -808,6 +817,8 @@ def ore_metadata():
                           ordinary_convert_begin=0x52BE0F, ordinary_convert_end=0x52BE48,
                           convert_constructor=0x48E740, shade_builder=0x4BBB00,
                           reduce_tiberium=0x480A80, recalc=0x47D2B0,
+                          radar_mark_dirty=0x6551C0, radar_process_dirty=0x655250,
+                          cell_radar_color=0x47C060, radar_generate=0x6547C0,
                           rle_selector=0x490E50, rle_rowwalker=0x437A10,
                           opaque_body_leaf=0x4990E0))
 

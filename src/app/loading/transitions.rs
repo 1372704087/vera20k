@@ -249,7 +249,6 @@ pub(crate) fn install_world_presentation(
         .as_ref()
         .map(|grid| {
             let runtime = state.match_state.sim_runtime.as_ref();
-            let resolved_terrain = runtime.and_then(|runtime| runtime.view().resolved_terrain());
             let overlay_registry = runtime.map(|runtime| &runtime.resources.overlay_registry);
             let rules = runtime.map(|runtime| &runtime.resources.rules);
             let overlay_data = build_minimap_overlay_data(
@@ -259,10 +258,11 @@ pub(crate) fn install_world_presentation(
                 rules,
             );
             MinimapRenderer::new(
-                &state.renderer.gpu,
+                &state.renderer.gpu.device,
+                &state.renderer.gpu.queue,
                 &state.renderer.batch_renderer,
                 grid,
-                resolved_terrain,
+                runtime,
                 &overlay_data,
                 &state.match_state.match_presentation.overlay_radar_colors,
                 &state.match_state.match_presentation.theater_name,

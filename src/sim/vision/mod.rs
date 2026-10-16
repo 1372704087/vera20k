@@ -24,7 +24,8 @@ pub use cell_reveal::SHROUD_EDGE_LUT;
 pub(crate) use cell_reveal::tests::{
     assert_native_cell_history, discovery_corpus, native_map_cell_fixture,
 };
-use cell_reveal::{DummyVisibility, MapCellEdgeCache};
+use cell_reveal::{DummyVisibility, EdgeCells, MapCellEdgeCache};
+pub(crate) use cell_reveal::{ListedEdgeCells, MapCellNotification};
 use shroud_knowledge::ShroudKnowledge;
 pub(crate) use shroud_knowledge::SightAdmission;
 pub(crate) use shroud_knowledge::{SightFacts, SightRefreshTimers};
@@ -200,6 +201,10 @@ pub struct OwnerVisibility {
     /// The cells the per-frame passes must visit; never saved or hashed.
     #[serde(skip)]
     tracked: TrackedCells,
+    /// The cells the next shroud-edge update must visit; never saved or
+    /// hashed.
+    #[serde(skip)]
+    edge_cells: EdgeCells,
 }
 
 #[cfg(test)]
@@ -212,7 +217,7 @@ thread_local! {
 }
 
 /// Whether the frame passes skip [`TrackedCells`] (tests only).
-fn visit_every_cell() -> bool {
+pub(crate) fn visit_every_cell() -> bool {
     #[cfg(test)]
     return VISIT_EVERY_CELL.get();
     #[cfg(not(test))]
@@ -254,6 +259,7 @@ impl OwnerVisibility {
                 complete: true,
                 ..TrackedCells::default()
             },
+            edge_cells: EdgeCells::complete(),
         }
     }
 
@@ -338,7 +344,7 @@ impl OwnerVisibility {
     /// so there is nothing to clean; a fogged-object port needs that call here.
     fn mark_sight(&mut self, rx: u16, ry: u16) {
         if let Some(i) = self.index(rx, ry) {
-            self.ground_flags[i] |= GROUND_VISIBLE | GROUND_OPEN;
+            self.set_ground_bits(i, self.ground_flags[i] | GROUND_VISIBLE | GROUND_OPEN);
             self.cells[i] |= FLAG_VISIBLE | FLAG_REVEALED;
         }
     }
@@ -362,10 +368,13 @@ impl OwnerVisibility {
             self.clear_every_cell();
             return false;
         }
-        for &index in &self.tracked.unground {
-            let index = index as usize;
+        for unground in 0..self.tracked.unground.len() {
+            let index = self.tracked.unground[unground] as usize;
             if self.cells[index] & FLAG_VISIBLE != 0 {
-                self.ground_flags[index] |= GROUND_VISIBLE | GROUND_OPEN;
+                self.set_ground_bits(
+                    index,
+                    self.ground_flags[index] | GROUND_VISIBLE | GROUND_OPEN,
+                );
             }
         }
         self.tracked.unground.clear();
@@ -391,11 +400,14 @@ impl OwnerVisibility {
         for knowledge in &mut self.shroud_knowledge {
             knowledge.transient_visible = false;
         }
-        for (cell, ground) in self.cells.iter_mut().zip(&mut self.ground_flags) {
-            if *cell & FLAG_VISIBLE != 0 {
-                *ground |= GROUND_VISIBLE | GROUND_OPEN;
+        for index in 0..self.cells.len() {
+            if self.cells[index] & FLAG_VISIBLE != 0 {
+                self.set_ground_bits(
+                    index,
+                    self.ground_flags[index] | GROUND_VISIBLE | GROUND_OPEN,
+                );
             }
-            *cell &= !(FLAG_VISIBLE
+            self.cells[index] &= !(FLAG_VISIBLE
                 | FLAG_GAP_COVERED
                 | FLAG_GAP_FOG
                 | FLAG_SUSTAINED_SIGHT
@@ -414,7 +426,12 @@ impl OwnerVisibility {
     /// is visible without its ground bits ([`TrackedCells::unground`]).
     fn publish_knowledge(&mut self, index: usize) {
         let cell = &mut self.cells[index];
+        let was_pending = *cell & FLAG_PENDING_GAP_CONCEAL != 0;
         *cell = *cell & !PUBLISHED_FLAGS | published_flags(self.shroud_knowledge[index]);
+        // Every pending writer publishes, so the bit's rise lists the cell.
+        if *cell & FLAG_PENDING_GAP_CONCEAL != 0 && !was_pending {
+            self.edge_cells.pending.push(index as u32);
+        }
         if *cell & FLAG_VISIBLE != 0
             && self.ground_flags[index] & (GROUND_VISIBLE | GROUND_OPEN)
                 != GROUND_VISIBLE | GROUND_OPEN
@@ -522,6 +539,7 @@ impl OwnerVisibility {
         }
         // The copied transient and gap-fog cells are not listed.
         expanded.tracked.complete = false;
+        expanded.edge_cells = EdgeCells::default();
         expanded
     }
 
@@ -1310,7 +1328,7 @@ impl FogState {
             .entry(owner)
             .or_insert_with(|| OwnerVisibility::new(width, height));
         let index = vis.index(rx, ry).expect("ground byte cell in bounds");
-        vis.ground_flags[index] = bits & (GROUND_VISIBLE | GROUND_OPEN);
+        vis.set_ground_bits(index, bits & (GROUND_VISIBLE | GROUND_OPEN));
         vis.shroud_knowledge[index].open = bits & GROUND_VISIBLE != 0;
         // Cleared ground bits are restored by the sight that covers them.
         vis.tracked.complete = false;

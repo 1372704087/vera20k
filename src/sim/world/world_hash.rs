@@ -2302,16 +2302,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0u8.hash(hasher);
     }
 
-    // Body rocking state. I16F16 doesn't implement Hash directly;
-    // .to_bits() gives the underlying i32. Drive/Ship slope state is
-    // hashed with its active/stashed locomotor payload below.
+    // Body rocking's four authoritative binary32 fields. A sub-fixed-quantum
+    // rate can select a different damping branch on the next visit, so the
+    // presentation's fixed getters cannot stand in for retained state.
+    // Drive/Ship slope state is hashed with its locomotor payload below.
     if let Some(ref r) = entity.rocking {
         1u8.hash(hasher);
-        r.angle_sideways().to_bits().hash(hasher);
-        r.angle_forwards().to_bits().hash(hasher);
-        r.vel_sideways().to_bits().hash(hasher);
-        r.vel_forwards().to_bits().hash(hasher);
-        r.is_ship_rocking().hash(hasher);
+        r.native_bits().hash(hasher);
     } else {
         0u8.hash(hasher);
     }

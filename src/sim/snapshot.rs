@@ -1050,7 +1050,9 @@ use crate::sim::world::Simulation;
 // 368 -> 369: tracked navy scalar and retained Unit Naval/Passengers admission.
 // 369 -> 370: VoxelAnim retains its constructor-assigned native numeric ID.
 // 370 -> 371: Parasite retains grapple Anim, phase/stage/delay/invalidation.
-const SNAPSHOT_VERSION: u32 = 371;
+// 371 -> 372: Rocking retains its four binary32 fields without a synthetic
+// ship-rocking flag; tiny impulse rates affect the next native damping branch.
+const SNAPSHOT_VERSION: u32 = 372;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4572,7 +4574,8 @@ mod tests {
         // 368 -> 369: tracked navy and its retained type admission.
         // 369 -> 370: constructor-assigned VoxelAnim native IDs.
         // 370 -> 371: retained Parasite grapple progress.
-        assert_eq!(super::SNAPSHOT_VERSION, 371);
+        // 371 -> 372: authoritative binary32 body angles/rates.
+        assert_eq!(super::SNAPSHOT_VERSION, 372);
     }
 
     #[test]

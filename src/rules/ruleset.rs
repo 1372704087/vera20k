@@ -6097,6 +6097,13 @@ impl RuleSet {
         self.voxel_assets.contains(type_id)
     }
 
+    /// Original main-VXL half sizes retained by the same immutable binding as
+    /// IsVoxel6F9E10. Draw_Matrix and GetFLH consume this input independently
+    /// of the renderer's model or pose caches.
+    pub(crate) fn object_voxel_half_sizes(&self, type_id: &str) -> Option<[f32; 2]> {
+        self.voxel_assets.half_sizes(type_id)
+    }
+
     /// Explicit loaded model prior for headless component fixtures. Production
     /// callers bind immutable admission from the active physical assets.
     #[cfg(test)]
@@ -6754,8 +6761,13 @@ SpawnCount=3
         assert_eq!(general.maximum_queued_objects, 29);
         assert_eq!(general.gui_build_sound.as_deref(), Some("MenuClick"));
         assert_eq!(general.building_slam.as_deref(), Some("PlaceBuilding"));
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else { return; };
-        assert_eq!(retail.rules.general.scold_sound.as_deref(), Some("MenuScold"));
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        assert_eq!(
+            retail.rules.general.scold_sound.as_deref(),
+            Some("MenuScold")
+        );
     }
 
     /// RulesClass constructor @ 0x00667588 stores 0x280 leptons; ReadGeneral
@@ -10309,6 +10321,28 @@ Projectile=Invisible
                 fire_angle,
                 "{object}"
             );
+        }
+    }
+
+    #[test]
+    fn weight_reads_keep_the_current_value_between_rules_passes() {
+        // TechnoType ctor710C66..710C71 initializes double1.0; reader
+        //7124CF..7124EA passes that current value to ReadDouble5283D0.
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\n",
+        ));
+        for (text, expected) in [
+            ("[MTNK]\nArmor=heavy\n", SimFixed::ONE),
+            ("[MTNK]\nWeight=3.5\n", SimFixed::lit("3.5")),
+            ("[MTNK]\nSpeed=6\n", SimFixed::lit("3.5")),
+            // Native ReadDouble scans malformed authored text as zero; only
+            // an absent key retains the current field.
+            ("[MTNK]\nWeight=invalid\n", SimFixed::ZERO),
+            ("[MTNK]\nSpeed=7\n", SimFixed::ZERO),
+        ] {
+            layers.push(RulesLayerKind::Scenario, IniFile::from_str(text));
+            let rules = RuleSet::from_rules_layers(&layers).unwrap();
+            assert_eq!(rules.object("MTNK").unwrap().weight, expected);
         }
     }
 

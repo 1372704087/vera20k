@@ -1381,15 +1381,32 @@ fn techno_common_steps(
             .filter(|object| rules.object_has_loaded_voxel(&object.id))
     });
     if let Some(object) = rocking_type {
-        if let Some(entity) = sim.substrate.entities.get_mut(id) {
-            // The ordinary wide-angle self-damage hook remains the existing
-            // bounded residual; crash spin returns before that check.
+        let needs_self_damage = sim.substrate.entities.get_mut(id).is_some_and(|entity| {
             crate::sim::rocking::update(
                 entity,
                 object,
                 rules.general.fallback_coefficient,
-                &mut crate::sim::rocking::NoopSelfDestruct,
+                sim.session.binary_frame,
+            )
+        });
+        if needs_self_damage {
+            // RockingUpdate70BC23..70BCA3 calls the actual receiver with
+            // type Strength, Rules C4Warhead, ignore-defenses and arg6=false.
+            // Commit after releasing the entity borrow, before the Alive guard.
+            let c4 = sim.interner.intern(&rules.bridge_warheads.c4_name);
+            let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                id,
+                object.strength,
+                0,
+                crate::sim::combat::RAD_NO_ATTACKER,
+                None,
+                c4,
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses: true,
+                    arg6: false,
+                },
             );
+            sim.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
         }
         if !ai_alive(sim, id) {
             return false;
@@ -2198,6 +2215,57 @@ mod tests {
             .spawn_object("TEST", "Americans", 7, 5, 0, &rules)
             .unwrap();
         (sim, rules, first, second)
+    }
+
+    #[test]
+    fn rocking_tipover_uses_real_c4_receiver_before_the_alive_guard() {
+        let Some(mut rules) =
+            crate::rules::retail_ini_fixture::retail_battle_rules().map(|r| r.rules)
+        else {
+            return;
+        };
+        let (_, assets) = crate::rules::retail_ini_fixture::retail_assets().unwrap();
+        rules.bind_effect_assets(&assets, "TEM", "TEMPERATE");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let victim = sim
+            .spawn_object("MTNK", "Americans", 5, 5, 0, &rules)
+            .unwrap();
+        // Explicit retained-state component input from original70B570;
+        // this does not claim a stock Drone impulse reaches the tipover gate.
+        let controls: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/unit_rocking_update.json",
+        ))
+        .unwrap();
+        let row = controls
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| {
+                row["output"]["damage_called"] == true
+                    && row["input"]["direct_rocker_link"] == false
+                    && row["input"]["crash"] == 0
+                    && row["input"]["sinking"] == 0
+            })
+            .unwrap();
+        let word =
+            |key: &str| u32::from_str_radix(row["input"][key].as_str().unwrap(), 16).unwrap();
+        let prior = serde_json::from_value(serde_json::json!({
+            "angle_sideways": word("side_angle_bits"),
+            "angle_forwards": word("forward_angle_bits"),
+            "vel_sideways": word("side_velocity_bits"),
+            "vel_forwards": word("forward_velocity_bits"),
+        }))
+        .unwrap();
+        sim.substrate.entities.get_mut(victim).unwrap().rocking = Some(prior);
+        sim.object_ai_visit_one(victim, Some(&rules), ObjectAiCtx::default());
+        assert!(
+            sim.substrate.entities.get(victim).is_none_or(|entity| {
+                !entity.lifecycle.object_alive() || entity.health.current() <= 0
+            }),
+            "Rocking's C4 request must reach the real fatal receiver, not a no-op hook"
+        );
     }
 
     /// A supplied earlier/later callback invokes the real Crash owner on a

@@ -50,12 +50,28 @@ fn a_pixels(input: &Value, size: [u32; 2]) -> Vec<u8> {
 #[test]
 #[ignore = "requires retail assets and GPU; normal AMCV source through live shroud upload and original TMP frontier pixels"]
 fn retail_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
+    assert_retail_amcv_sight_raster(false);
+}
+
+#[test]
+#[ignore = "requires retail assets and GPU; ordinary moving AMCV through native arrival shroud and physical TMP pixels"]
+fn moving_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
+    assert_retail_amcv_sight_raster(true);
+}
+
+fn assert_retail_amcv_sight_raster(moving: bool) {
+    use crate::sim::command::{Command, CommandEnvelope};
+    use crate::sim::movement::track_process::TrackFamily;
+    use crate::sim::world::{FrameEffects, TickLane};
     use crate::skirmish_launch::{AiDifficulty, LaunchCountry, LaunchStartPosition};
 
     let packet: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/procedural_drawing_oracle/shroud_frontier.json",
     ))
     .unwrap();
+    let moving_packet = moving.then(|| {
+        crate::test_fixture::json("tools/procedural_drawing_oracle/shroud_frontier_moving.json")
+    });
     let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("physical retail root"));
     let mut launch = crate::headless_scenario::battle_session(
         "GoldSt.mmx",
@@ -187,8 +203,54 @@ fn retail_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
         let atlas = crate::render::tile_atlas::build_atlas(&gpu.device, &gpu.queue, &batch, &tiles);
         (format, batch, atlas, InstanceBufferPool::new())
     });
-    for step in 0..=3 {
-        if (1..=2).contains(&step) {
+    for step in 0..=if moving { 4 } else { 3 } {
+        if moving && step > 0 {
+            let command = match step {
+                1 => Some(Command::Move {
+                    entity_id: source_id,
+                    target_rx: 111,
+                    target_ry: 27,
+                }),
+                3 => Some(Command::Stop {
+                    entity_id: source_id,
+                }),
+                _ => None,
+            }
+            .map(|command| CommandEnvelope::new(owner, scene.sim().session.tick + 1, command));
+            let mut reached = false;
+            for frame in 0..if step >= 3 { 8 } else { 160 } {
+                let commands = if frame == 0 { command.as_slice() } else { &[] };
+                scene
+                    .runtime
+                    .advance_frame(commands, 22, TickLane::Ordinary, FrameEffects::default())
+                    .expect("ordinary Move/Stop frame");
+                let entity = scene.sim().entities().get(source_id).unwrap();
+                let loco = entity.locomotor.as_ref().unwrap();
+                reached = match step {
+                    // The next head is published by actual Unit arrival,
+                    // after the physical cell crossing. No pose is injected.
+                    1 => {
+                        (entity.position.rx(), entity.position.ry()) == (110, 27)
+                            && loco
+                                .track_head(TrackFamily::Drive)
+                                .is_some_and(|head| head.x == 28544)
+                    }
+                    2 => {
+                        (entity.position.rx(), entity.position.ry()) == (111, 27)
+                            && loco.track_head(TrackFamily::Drive).is_none()
+                            && loco.track_destination(TrackFamily::Drive).is_none()
+                    }
+                    _ => frame == 7,
+                };
+                if reached {
+                    break;
+                }
+            }
+            assert!(
+                reached,
+                "moving shroud phase{step} did not reach its ordinary event"
+            );
+        } else if (1..=2).contains(&step) {
             scene.tick();
         } else if step == 3 {
             // Actual Action40 owner: false->true membership invokes70ADC0.
@@ -235,9 +297,20 @@ fn retail_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
                 scene.sim().resolved_terrain.as_ref(),
             ),
         ];
+        let native_history = if step == 1 { "arrival_1" } else { "arrival_2" };
+        let moving_history = moving_packet.filter(|_| step > 0).map(|packet| {
+            packet["histories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|history| history["name"] == native_history)
+                .unwrap()
+        });
         assert_eq!(
-            serde_json::json!(xyz),
-            packet["inputs"]["source"]["native_xyz"]
+            &serde_json::json!(xyz),
+            moving_history.map_or(&packet["inputs"]["source"]["native_xyz"], |history| {
+                &history["state"]["actor"]["position"]
+            })
         );
         assert!(
             scene
@@ -251,12 +324,20 @@ fn retail_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
         let live = terrain.cell(coords[0], coords[1]).unwrap();
         assert_eq!(terrain.presentation_tile(live), (0, 0));
         assert_eq!(live.level, 6);
-        let rows = packet["rows"].as_array().unwrap();
-        assert_eq!(rows.len(), 8);
+        let rows = moving_packet.filter(|_| step > 0).unwrap_or(&packet)["rows"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .filter(|row| !moving || step == 0 || row["history"] == native_history)
+                .count(),
+            8
+        );
         let row = rows
             .iter()
             .find(|row| {
                 row["output"]["selected_file_index"].as_u64() == Some(u64::from(live.variant))
+                    && (!moving || step == 0 || row["history"] == native_history)
             })
             .unwrap();
         let input = &row["input"];
@@ -282,12 +363,22 @@ fn retail_amcv_sight_reaches_the_live_shroud_and_tmp_raster() {
             .into_iter()
             .map(|pixel| (pixel[0] * 255.0).round() as u8)
             .collect();
+        let moving_a = moving_history.map(|history| {
+            a_pixels(
+                &serde_json::json!({"a_hex": history["output"]["alpha_hex"]}),
+                size,
+            )
+        });
         assert_eq!(
             &actual_a,
-            if step == 3 { &uncached_a } else { &expected_a },
+            moving_a
+                .as_ref()
+                .unwrap_or_else(|| if step == 3 { &uncached_a } else { &expected_a }),
             "phase{step}: original full A after starting sight or explicit Action40 restoration"
         );
-        assert!(row["output"]["sampled_a_values"].as_array().unwrap().len() > 1);
+        if !moving || step == 0 {
+            assert!(row["output"]["sampled_a_values"].as_array().unwrap().len() > 1);
+        }
         let light = lighting
             .grid()
             .cell_light_at((coords[0], coords[1]))

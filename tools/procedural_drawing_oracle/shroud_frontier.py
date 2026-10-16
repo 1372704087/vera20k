@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import hashlib
 import struct
 
-from unicorn import UC_HOOK_CODE
+from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_EIP
 from tools import native_oracle as native
 from tools.projectile_oracle.bridge_render_inputs import lexical
@@ -178,10 +178,20 @@ def observe_admission(f, stages, seen, geometry_calls, area, targets, notificati
     return u.hook_add(UC_HOOK_CODE, observe)
 
 
-def joined(assets, sources, selected_layers):
+def joined(assets, sources, selected_layers, *, moving=False):
     f = Mission(reader_factory=PaletteReader)
     m, u = f.m, f.u
     m.phase = 'frontier'
+    moving_startup = None
+    if moving:
+        from tools.spatial_oracle.object_flight_height import initialize_object_scalars
+        from tools.spatial_oracle.anytown_damage.unit_unlimbo import initialize_unit_geometry
+        moving_startup = dict(
+            object_initializers=[f'{a:08X}' for a in initialize_object_scalars(u, m.invoke)],
+            unit_geometry=initialize_unit_geometry(f, foot=True))
+        m.invoke(0x7CBED3, 0, (0x812D2C, 0x812D64))
+        moving_startup['object_scalars'] = {f'{a:08X}': m.read32(a) for a in (0xAC13C8, 0xAC13BC)}
+        moving_startup['drive_initializer_table'] = ['00812D2C', '00812D64']
     startup = geometry(f)
     f.resident.phase = 'frontier'  # no inherited measurement/gameplay/projection substitutions
     m.assets.update(assets)
@@ -311,10 +321,152 @@ def joined(assets, sources, selected_layers):
     assert inputs['langrule_absent']
     packet = dict(surface=dict(width=WIDTH,height=HEIGHT), inputs=inputs, spiral=spiral,
                   histories=[history], rows=rows)
+    if moving:
+        return moving_history(f, drawing, packet, moving_startup, lighting)
     # Execute independent declared controls only after every central output has
     # been captured. No original admission, A or material prior is changed.
     packet['controls'] = dict(uncached_reveal=uncached_reveal(f, drawing, history))
     return packet
+
+
+def moving_history(f, drawing, initial, startup, lighting):
+    """Observe original Move/Drive/Unit arrivals in the already warm world.
+
+    The Mission owner supplies its usual isolated object pass/commit/drain.
+    Native event records, pathfinding, movement and sight remain original.
+    Keep event witnesses rather than a replay of all allocated Cells/frames.
+    """
+    from tools.spatial_oracle.anytown_damage.navigation import Navigation
+    from tools.spatial_oracle.shrapnel_repair.zone_composition import BASE
+    m, u = f.m, f.u
+    side = 186
+    nav = Navigation.on_existing_map(SimpleNamespace(u=u, allocate=m.alloc), size=(103, 82),
+        class_height_plane=bytes(u.mem_read(BASE, side * side * 4)), storage_mapped=True)
+    nav.finish_graphs()
+    nav.setup_pathfinder(nav.call)
+    selected = ((106,24),(107,18),(108,18),(109,18),(109,27),(110,27),(111,27),
+                (110,22),(111,21),(111,22),(112,22),(113,22),(120,30))
+    loco = m.read32(f.src + 0x674) - 4
+    def snapshot():
+        states = cell_states(f)
+        return dict(frame=m.read32(0xA8ED84), actor=f.state(), cache=cache(m, f.src),
+            nav=m.read32(f.src + 0x5A4),
+            drive=dict(destination=ints(u,loco+0x34,3), head=ints(u,loco+0x40,3),
+                selector=ints(u,loco+0x58,1)[0], cursor=ints(u,loco+0x5C,1)[0],
+                valid=u.mem_read(loco+0x63,1)[0]), cells=[states[xy] for xy in selected])
+    histories = [dict(name='initial_amcv', state=snapshot(),
+        output_reference=dict(fixture='shroud_frontier.json', history='initial_amcv'))]
+    arrivals, crossings, rows, calls, writes, counts = [], [], [], [], [], {}
+    mark_pc = m.read32(m.read32(f.src) + 0x124)
+    def observe(_u, pc, _size, _data):
+        sp = u.reg_read(UC_X86_REG_ESP)
+        if pc in (0x739EC0,0x70B1D0,0x70AF50,0x5678E0,0x567DA0,
+                  0x487630,0x487690,0x5865F0,0x7258D0,0x5F65F0,mark_pc):
+            key = f'{pc:08X}'
+            counts[key] = counts.get(key, 0) + 1
+        if pc == 0x73AC52:
+            arrivals.append(dict(name=f'arrival_{len(arrivals)+1}', before_pair=snapshot(), calls=[]))
+        stage = {0x73AC7A:'after_pair',0x73ACAE:'before_border',0x73ACB3:'after_border'}.get(pc)
+        if stage:
+            arrivals[-1][stage] = snapshot()
+        if pc in (0x70B1D0,0x70AF50,0x5678E0,0x567DA0,0x739EC0,mark_pc):
+            row = dict(pc=f'{pc:08X}', frame=m.read32(0xA8ED84),
+                return_pc=f'{m.read32(sp):08X}', xyz=ints(u,f.src+0x9C,3), cache=cache(m,f.src))
+            if pc == 0x739EC0:row['reason'] = m.read32(sp+4)
+            if pc == 0x5678E0:
+                args=ints(u,sp+4,8)
+                row.update(coords=ints(u,args[0],3),radius=args[1],by_height=args[-2],final=args[-1])
+            if pc == 0x567DA0:
+                args=ints(u,sp+4,4)
+                row.update(coords=ints(u,args[0],3),height=args[1],radius=args[2],skip=args[3])
+            if pc == mark_pc:row['argument'] = m.read32(sp+4)
+            calls.append(row)
+            if arrivals and pc in (0x70B1D0,0x70AF50,0x5678E0,0x567DA0):
+                arrivals[-1]['calls'].append(row)
+    def observe_write(_u, _access, address, size, value, _data):
+        offset = address - f.src
+        if offset in (0xC8,0xD0,0x640,0x648,0x65C,0x664,0x668,0x670,0x6B6,0x6B7):
+            writes.append(dict(frame=m.read32(0xA8ED84),pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',
+                offset=f'{offset:03X}',size=size,value=value))
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    write_hook = u.hook_add(UC_HOOK_MEM_WRITE, observe_write)
+    def draw_stage(name):
+        output = drawing.draw_current(dict(full_redraw=True,instruction_limit=12000000,
+            timeout_us=120000000), preserve_dirty=True)
+        row = dict(name=name, state=snapshot(),
+            output={key:output[key] for key in ('alpha_hex','alpha_sha256')})
+        histories.append(row)
+        if name.startswith('arrival_'):
+            # All eight independent physical variants let the normal loader
+            # choose its own variant without importing a Rust selector/RNG.
+            for index in range(len(CLEAR_NAMES)):
+                material = draw_tmp(m, dict(name=f'{name}_clear_variant_{index}',
+                    coords=list(MATERIAL_CELL),level=6,tile_id=0,subtile=0,detail=2,
+                    scene_lighting=lighting,
+                    full_view=dict(view_origin=initial['histories'][0]['input']['camera'],
+                                   redraw_rect=[0,0,WIDTH,HEIGHT]),
+                    selector_table=[index]*64), current_cell=f.resident.ptrs[MATERIAL_CELL],
+                    current_tactical=m.read32(0x887324),preserve_alpha=True)
+                material['history'] = name
+                rows.append(material)
+        return row
+    command = m.alloc(0x70)
+    destination = (111,27)
+    house_array = m.alloc(4)
+    u.mem_write(house_array,dwords(f.house))
+    u.mem_write(0xA8022C,dwords(house_array))
+    f.phase='command'
+    move_args=(0,m.read32(f.src+0x10),0x34,2,0,0,destination[1]*1000+destination[0],0xB,0,0)
+    m.invoke(0x4C6860,command,move_args)
+    move_bytes=bytes(u.mem_read(command,0x6F)).hex()
+    m.invoke(0x4C6CB0,command)
+    after_command=snapshot()
+    final_destination=after_command['drive']['destination']
+    stop, seen_crossings, drawn = None, set(), 0
+    try:
+        for _ in range(160):
+            current=snapshot()
+            if stop is None and current['actor']['position']==final_destination and current['nav']==0:
+                f.phase='command'
+                m.invoke(0x4C65E0,command,(0,6,m.read32(f.src+0x10),0x34))
+                stop_bytes=bytes(u.mem_read(command,0x6F)).hex()
+                m.invoke(0x4C6CB0,command)
+                stop=draw_stage('stop')
+                stop['command_bytes']=stop_bytes
+            f.tick(snapshot_cell=SOURCE_CELL)
+            current=snapshot()
+            physical=tuple(value>>8 for value in current['actor']['position'][:2])
+            retained=tuple(value>>8 for value in current['cache']['xyz'][:2])
+            if physical!=retained and physical not in seen_crossings:
+                crossings.append(current)
+                seen_crossings.add(physical)
+            if len(arrivals)>drawn:
+                assert len(arrivals)==drawn+1
+                drawn=len(arrivals)
+                arrivals[-1]['after_pass']=current
+                stage=draw_stage(arrivals[-1]['name'])
+                arrivals[-1]['after_draw']=stage['state']
+        idle=draw_stage('idle')
+    finally:
+        u.hook_del(hook)
+        u.hook_del(write_hook)
+    assert len(arrivals)==2 and len(crossings)==2 and stop is not None
+    assert all(counts.get(pc)==2 for pc in ('0070B1D0','0070AF50','00567DA0'))
+    assert not any(row['offset'] in ('65C','664') for row in writes)
+    assert counts.get('007258D0',0)==counts.get('005F65F0',0)==0
+    assert idle['state']['cache']==stop['state']['cache']==histories[-3]['state']['cache']
+    final_output=next(row['output'] for row in histories if row['name']=='arrival_2')
+    for row in (stop,idle):
+        assert row.pop('output')==final_output
+        row['output_reference']=dict(history='arrival_2')
+    return dict(surface=initial['surface'],inputs=initial['inputs'],
+        initial_fixture='shroud_frontier.json',moving_startup=startup,
+        flight_queries=dict(height=m.invoke(0x5F5F40,f.src),high=m.invoke(0x5F6B90,f.src)&255),
+        command=dict(args=list(move_args),bytes=move_bytes,after=after_command),
+        crossings=crossings,arrivals=arrivals,histories=histories,rows=rows,
+        effects=dict(calls=calls,counts=counts,timer_and_occupation_writes=writes,
+            rng=[event for event in f.events if event.get('kind')=='rng'],
+            final_rng=rng_hashes(f),deferred_count=m.read32(0xB0F6A8)))
 
 
 def uncached_reveal(f, drawing, history):
@@ -488,12 +640,12 @@ def cached_release(assets, selected_layers):
         after_unlimbo=after,after_sight0_gate=gated,unlimbo=f.placement_result&255)
 
 
-def generate():
+def generate(*, moving=False):
     assets,sources=physical_assets(frontier=True)
     with TemporaryDirectory(prefix='vera-shroud-frontier-') as directory:
         selected=layers(assets,directory)
-        packet=joined(assets,sources,selected)
-        packet['controls']['cached_release']=cached_release(assets,selected)
+        packet=joined(assets,sources,selected,moving=moving)
+        if not moving:packet['controls']['cached_release']=cached_release(assets,selected)
     return packet
 
 
@@ -523,3 +675,43 @@ def metadata():
             counter_release=0x487690,border=0x567DA0,notify=0x5865F0,discover=0x6F4960,
             full_shroud=0x6D3660,cell_shroud=0x4801F0,shroud_leaf=0x47EFE0,
             full_tile=0x6D7560,cell_tile=0x480350,tmp=0x547CF0,tmp_leaf=0x548D90))
+
+
+def moving_metadata():
+    return native.provenance(
+        scope='Ordinary AMCV Move, actual Drive terminal arrivals, Unit sight border, current SHROUD A/TMP, Stop and idle on physical GoldSt crop.',
+        entry_points=dict(object_initializers=0x8141D8,drive_initializers=0x812D2C,
+            move_ctor=0x4C6860,stop_ctor=0x4C65E0,event_execute=0x4C6CB0,
+            drive_process=0x4B0500,terminal_arrival=0x4B220F,unit_per_cell=0x739EC0,
+            release=0x70B1D0,update=0x70AF50,border=0x567DA0,
+            full_shroud=0x6D3660,cell_tile=0x480350,tmp=0x547CF0),
+        assumptions=[
+            'Uses the existing stationary shroud_frontier preparation and physical inputs, one Mission/PaletteReader VM, native Cell/TMP getters, actual AMCV readers/constructor/Unlimbo, initial full A and physical Clear variants. Its starting-force/House/overlay/zone/bootstrap limits remain; this is not a native whole skirmish load.',
+            'Existing Object and Unit/Foot geometry startup plus original Drive CRT dispatcher execute before selected AMCV construction. Object scalars104/416 exclude ordinary ground MCV from the high-flight periodic sight branch. No altitude, sight timer or path answer is supplied.',
+            'Existing Navigation owner derives connectivity/hierarchy/workspace from the already resident physical crop. Outside remains blocked. Existing Mission object-pass/frame-increment/deferred-drain executes160 times, with actual Move then Stop after the observed final arrival. Full Logic prefix/suffix and global tactical scheduling are excluded.',
+            'Seed0 native RNG streams and prepared source constructor timing are inherited. Absolute native arrival frames are fixture observations, not natural-match timing goldens or inputs imported from VERA. Source current XYZ and retained XYZ are separate; comparison is event-relative.',
+            'Exactly two original terminal4B220F reason2 arrivals are observed; accepted-chain4B1CFD is not reached. Pair/border/draw Cell states are distinct. Stop keeps a live source; no expiry/UnInit is observed. Reached RNG, timer/occupation and Mark calls are recorded; no extra teardown is synthesized.',
+            'Native current A is drawn after each selected arrival. Eight independent physical Clear variant controls per changed A permit the production loader to choose its normal variant without using Rust selector/RNG as a native input. Stop/idle reference identical final A rather than duplicate it.',
+        ],
+        substitutions=[
+            'All stationary preparation transports remain: native image/heap/TLS/INI/RawFile/COM and eligible local House plus sparse physical Cell registration. Existing audio debug4068E0 returns0 with cdecl cleanup0; no native Move/Stop/gameplay return is supplied.',
+            'Native draw uses the existing192x160 camera/ABuffer and one-cell material bounds transport. No pose, path, retained sight, Cell counter/cache, native code/vtable, alpha or raster is injected from Rust.',
+        ])
+
+
+if __name__ == '__main__':
+    import argparse
+    parser=argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--moving',action='store_true')
+    options,remaining=parser.parse_known_args()
+    native.finish_vectors(lambda:generate(moving=options.moving),
+        Path(__file__).with_name('shroud_frontier_moving.json' if options.moving else 'shroud_frontier.json'),
+        provenance=moving_metadata if options.moving else metadata,argv=remaining,
+        source_paths={name:Path(__file__).resolve().parents[1]/path for name,path in {
+            'frontier':'procedural_drawing_oracle/shroud_frontier.py',
+            'drawing':'procedural_drawing_oracle/shroud.py',
+            'mission':'spatial_oracle/anytown_damage/mission.py',
+            'navigation':'spatial_oracle/anytown_damage/navigation.py',
+            'flight':'spatial_oracle/object_flight_height.py',
+            'unlimbo':'spatial_oracle/anytown_damage/unit_unlimbo.py',
+        }.items()})

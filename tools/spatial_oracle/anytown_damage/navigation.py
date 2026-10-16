@@ -17,12 +17,13 @@ class Navigation(Geometry):
  graph_snapshot=HierarchyRepair.graph_snapshot
  dummy_snapshot=HierarchyRepair.dummy_snapshot
  @classmethod
- def on_existing_map(cls,owner,*,size,class_height_plane):
+ def on_existing_map(cls,owner,*,size,class_height_plane,storage_mapped=False):
   """Join native graphs to an existing VM and declared admitted map prior.
 
   Cell membership, dimensions and the class/height bytes are caller inputs,
   not answers to a path query. Original connectivity/hierarchy and all later
   pathfinding execute. The existing runtime owns every allocation and hook.
+  storage_mapped means that owner already mapped the shared cache storage.
   """
   from types import MethodType
   m=cls.__new__(cls);m.uc=owner.u;m.case=dict(size=list(size))
@@ -30,7 +31,7 @@ class Navigation(Geometry):
   assert list(struct.unpack('<2i',m.uc.mem_read(MAP+0xF4,8)))==list(size)
   assert len(class_height_plane)==m.side*m.side*4
   m.allocate=owner.allocate;m.call=MethodType(ConnectivityRepair.call,m)
-  m.uc.mem_map(0x44000000,0x800000)
+  if not storage_mapped:m.uc.mem_map(0x44000000,0x800000)
   m.uc.mem_write(BASE,class_height_plane)
   m.uc.mem_write(MAP+0x68,dwords(BASE,m.side*m.side,PLANE))
   return m

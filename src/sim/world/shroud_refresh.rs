@@ -1315,6 +1315,14 @@ impl Simulation {
     /// callbacks, even if they removed the source's retained admission.
     pub(crate) fn reveal_object_sight_on_unlimbo(&mut self, id: u64, context: UninitContext<'_>) {
         self.update_object_sight_with_context(id, 0, None, context);
+        self.refresh_object_sight_border(id, context);
+    }
+
+    /// Map567DA0's current-source border after Unlimbo6F6D61 or Unit
+    /// PerCell2 73AC7A..73ACAE. These parents reread XYZ and cached260
+    /// after the sight callbacks; the shared release/update pair does not
+    /// imply this suffix for its other callers.
+    pub(crate) fn refresh_object_sight_border(&mut self, id: u64, context: UninitContext<'_>) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };

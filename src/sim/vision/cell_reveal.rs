@@ -420,8 +420,9 @@ impl FogState {
     /// Map567DA0 border tail: recompute only ground frame120 through
     /// Tactical6D8700. The native dirty138/6DA7D0 is presentation invalidation;
     /// no sight counter, ground bits, fog frame or discovery callback changes.
-    /// Existing full A reconstruction per Fog view generation consumes these
-    /// cache changes, replacing native dirty138/6DA7D0 without unread state.
+    /// Full A reconstruction per Fog view generation uses current knowledge
+    /// and neighbours, replacing native dirty138/6DA7D0. The stored frame
+    /// remains authoritative for later Cell change/notification decisions.
     pub(crate) fn refresh_sight_border_cell(
         &mut self,
         viewer: InternedId,

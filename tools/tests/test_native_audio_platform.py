@@ -1,13 +1,14 @@
 """Transport-only checks; these are not native audio behavior goldens."""
 from pathlib import Path
 import struct
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 import unittest
 
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_32
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 from tools.spatial_oracle.engineer_repair_admission import NativeAudioPlatform
+from tools.rules_oracle.bridge_anim_lists import Lists
 
 
 class BufferTransportTests(unittest.TestCase):
@@ -74,6 +75,19 @@ class BufferTransportTests(unittest.TestCase):
     def test_unknown_buffer_identity_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'returned device-buffer identities'):
             self.platform.configure_transport(buffer_devices={0xDEADBEEF: {}})
+
+    def test_debug_log_uses_existing_reader_return_abi(self):
+        # Physical TMP IO attaches this platform to PaletteReader/Lists. Its
+        # cdecl return owner requires an explicit EAX, unlike the COM fixture.
+        self.owner.ret = MethodType(Lists.ret, self.owner)
+        self.u.mem_write(self.sp, struct.pack('<II', 0x12345678, 0xCAFEBABE))
+        self.u.reg_write(UC_X86_REG_ESP, self.sp)
+        self.u.reg_write(UC_X86_REG_EAX, 0xDEADBEEF)
+        self.assertTrue(self.platform.hook(self.u, 0x4068E0, 1))
+        self.assertEqual(self.u.reg_read(UC_X86_REG_EAX), 0)
+        self.assertEqual(self.u.reg_read(UC_X86_REG_EIP), 0x12345678)
+        self.assertEqual(self.u.reg_read(UC_X86_REG_ESP), self.sp + 4)
+        self.assertEqual(self.read(self.sp + 4), 0xCAFEBABE)
 
 
 if __name__ == '__main__':

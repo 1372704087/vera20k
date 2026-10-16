@@ -359,7 +359,13 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // The exact-zero gate70AF87 replaces frame-produced empty source caches and
 // default fog owner planes. This is a Rust state ratchet; crossing geometry,
 // per-frame replay and absolute RNG tripwires remain independent.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x4868_04AA_0C67_B6A9;
+// Unit73AC7A..73ACAE now runs the retained-radius+3 border after arrival,
+// even for this fixture's default Sight0. The first arrival materializes a
+// default fog-owner plane. Omitting only that new call recovers the preceding
+// pin; all201 observed actors, commands, RNG draws/states, paths and lifecycle
+// outputs agree, and only the fog hash-owner digest differs. Route, replay
+// and absolute RNG tripwires above this Rust ratchet remain unchanged.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0xFC48_A97D_C0A8_FDAF;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so

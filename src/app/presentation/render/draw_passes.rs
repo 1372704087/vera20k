@@ -153,8 +153,8 @@ pub(super) fn dispatch_draw_passes(
         "smudge",
     );
 
-    // --- Step 2: Bridge body (Z-depth pipeline) ---
-    draw_pooled_bridge_zdepth(
+    // --- Step 2: Bridge bodies (native SHP row depth, strict Less + write) ---
+    draw_pooled_bridge_bodies(
         &mut pass,
         &state.renderer.batch_renderer,
         pool,
@@ -935,7 +935,7 @@ fn draw_pooled_zdepth<'a>(
     }
 }
 
-fn draw_pooled_bridge_zdepth<'a>(
+pub(super) fn draw_pooled_bridge_bodies<'a>(
     pass: &mut wgpu::RenderPass<'a>,
     batch: &'a BatchRenderer,
     pool: &'a InstanceBufferPool,
@@ -943,7 +943,18 @@ fn draw_pooled_bridge_zdepth<'a>(
     key: &'static str,
 ) {
     if let (Some(a), Some((buf, count))) = (atlas, pool.get(key)) {
-        batch.draw_with_buffer_zdepth(pass, &a.zdepth_bind_group, buf, count);
+        // Cell47F80B flags4E00 selects the opaque SHP leaf4990E0:
+        // strict signed candidate<oldZ, unlike TMP547CF0's <= policy.
+        // Reuse the native SHP row/gradient owner and its read/write pipeline.
+        batch.draw_zsprite_range(
+            pass,
+            &a.texture,
+            batch.default_zshape_bind_group(),
+            buf,
+            0,
+            count,
+            true,
+        );
     }
 }
 

@@ -578,10 +578,9 @@ fn original_signed_ammo_check() {
 /// weapon flag GetFireError reads land on the stock types that author them.
 #[test]
 fn retail_fire_error_flags() {
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = crate::rules::ruleset::RuleSet::from_ini(&rules_ini).unwrap();
     let object = |name: &str| rules.object(name).unwrap_or_else(|| panic!("{name}"));
     // T14: the dogs and animals never attack Brutes, Yuri Prime, Mummies or
     // the Boomer.

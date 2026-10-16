@@ -234,7 +234,8 @@ mod tests {
         let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&retail).unwrap();
+        let rules =
+            crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
         let general = retail
             .section("General")
             .unwrap()

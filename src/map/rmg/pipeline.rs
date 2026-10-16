@@ -547,6 +547,28 @@ mod tests {
         run_with_types(seed, map_type, theater, &[])
     }
 
+    /// [`run_with_types`] with no catalog or with [`stock_tech_types`], run once
+    /// per test process: several tests read the same runs.
+    fn shared_run(
+        seed: u16,
+        map_type: i32,
+        theater: i32,
+        stock_catalog: bool,
+    ) -> std::sync::Arc<(RmgGrid, PipelineOutput)> {
+        let key = (seed, map_type, theater, stock_catalog);
+        crate::test_fixture::once_per_process(key, || {
+            let types = if stock_catalog {
+                stock_tech_types()
+            } else {
+                Vec::new()
+            };
+            Some(std::sync::Arc::new(run_with_types(
+                seed, map_type, theater, &types,
+            )))
+        })
+        .expect("pipeline run")
+    }
+
     /// The stock YR neutral catalog, resolved from the real INIs so the gate
     /// tests exercise the same list the app wires in.
     fn stock_tech_types() -> Vec<TechType> {
@@ -915,11 +937,10 @@ mod tests {
     /// seeds, which is a fixture limitation, not a generator property.
     #[test]
     fn tech_buildings_are_placed_for_non_zero_map_types() {
-        let types = stock_tech_types();
-        assert!(!types.is_empty(), "stock catalog resolves");
+        assert!(!stock_tech_types().is_empty(), "stock catalog resolves");
         let placed: usize = [1, 2]
             .into_iter()
-            .map(|map_type| run_with_types(9, map_type, 0, &types).1.structures.len())
+            .map(|map_type| shared_run(9, map_type, 0, true).1.structures.len())
             .sum();
         assert!(placed > 0, "map types 1/2 place tech buildings");
     }
@@ -928,8 +949,7 @@ mod tests {
     /// the same run places nothing, which is the regression this pins.
     #[test]
     fn an_empty_catalog_places_no_tech_buildings() {
-        let (_, output) = run_with_types(9, 1, 0, &[]);
-        assert!(output.structures.is_empty());
+        assert!(shared_run(9, 1, 0, false).1.structures.is_empty());
     }
 
     /// Every placed structure names a type from the resolved catalog.
@@ -938,8 +958,8 @@ mod tests {
         let types = stock_tech_types();
         let names: Vec<&str> = types.iter().map(|t| t.name.as_str()).collect();
         for map_type in [1, 2] {
-            let (_, output) = run_with_types(9, map_type, 0, &types);
-            for (name, _, _) in &output.structures {
+            let run = shared_run(9, map_type, 0, true);
+            for (name, _, _) in &run.1.structures {
                 assert!(
                     names.contains(&name.as_str()),
                     "{name} is in NeutralTechBuildings"
@@ -958,7 +978,8 @@ mod tests {
     /// the seed. There is nothing reproducible to copy.
     #[test]
     fn a_starved_map_counts_its_unfilled_start_slots() {
-        let (_, output) = run(9, 0, 0);
+        let run = shared_run(9, 0, 0, false);
+        let (_, output) = &*run;
         assert!(
             output.unfilled_start_slots > 0,
             "the 1x1 synthetic tile block starves the selector on this fixture"
@@ -989,7 +1010,8 @@ mod tests {
     /// tiberium in the corner of every starved map.
     #[test]
     fn a_starved_slot_never_seeds_tiberium_at_the_origin() {
-        let (_, output) = run(9, 0, 0);
+        let run = shared_run(9, 0, 0, false);
+        let (_, output) = &*run;
         assert!(output.unfilled_start_slots > 0, "fixture starves");
         assert!(
             !output.terrain.iter().any(|(_, x, y)| *x == 0 && *y == 0),
@@ -1018,8 +1040,8 @@ mod tests {
         // degenerate terrain — that path needs real theater terrain, which is
         // the app-layer adapter's job, not the pipeline's.
         for map_type in [1, 2] {
-            let (grid, _output) = run(9, map_type, 0);
-            assert!(grid.native_cells().count() > 0);
+            let run = shared_run(9, map_type, 0, false);
+            assert!(run.0.native_cells().count() > 0);
         }
     }
 }

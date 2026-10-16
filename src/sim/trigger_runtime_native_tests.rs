@@ -10,11 +10,9 @@ fn integer(value: &Value) -> i32 {
     value.as_i64().unwrap() as i32
 }
 
-fn loss_threshold_event_corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_loss_threshold_events.json",
-    ))
-    .unwrap();
+fn loss_threshold_event_corpus() -> &'static Value {
+    let corpus =
+        crate::test_fixture::json("tools/spatial_oracle/trigger_loss_threshold_events.json");
     assert_eq!(
         corpus["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -551,11 +549,8 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
     );
 }
 
-fn funds_event_corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_funds_events.json",
-    ))
-    .unwrap();
+fn funds_event_corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/trigger_funds_events.json");
     assert_eq!(
         corpus["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -1584,9 +1579,7 @@ struct All01ChargeInputs {
 #[test]
 fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     use crate::map::{entities::EntityCategory, resolved_terrain, waypoints::Waypoint};
-    use crate::rules::{
-        art_data::ArtRegistry, ini_parser::IniFile, team_ai_ini::TeamAiIniRegistry,
-    };
+    use crate::rules::{ini_parser::IniFile, team_ai_ini::TeamAiIniRegistry};
     use crate::sim::world::{TickLane, TriggerInputs};
     let charge: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/trigger_super_charge_percent.json",
@@ -1616,7 +1609,7 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     );
     let theater = crate::map::theater::load_theater(&mut assets, &map.header.theater)
         .expect("retail theater assets");
-    rules.install_art_data(ArtRegistry::from_ini(&fixed_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&fixed_art));
     let mut roots = Vec::new();
     for name in ["NANRCT", "YAPPET"] {
         let object = rules.object(name).unwrap();
@@ -3145,7 +3138,6 @@ fn physical_team_tag_references_match_original_retention_and_long_id_controls() 
 
 #[test]
 fn team_member_tag_admission_and_removal_match_original_controls() {
-    use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
     use crate::rules::ruleset::RuleSet;
@@ -3182,7 +3174,7 @@ fn team_member_tag_admission_and_removal_match_original_controls() {
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         let mut sim = Simulation::new();
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);

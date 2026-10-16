@@ -1243,10 +1243,9 @@ fn a_gunner_transport_on_its_suicide_weapon_explodes() {
 /// passengers whose IFVMode slot is a `Suicide=` weapon.
 #[test]
 fn retail_ifv_death_arm_follows_its_passengers_slot() {
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     let fv = rules.object("FV").unwrap();
     let mut exploding: Vec<&str> = rules
         .infantry_ids

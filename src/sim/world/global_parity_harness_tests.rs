@@ -658,7 +658,7 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // with a hash that skips only that fold) gives this value in the same
 // test, with every tripwire above green.
 // Control removed. Previous: 0xE527_F567_DC13_C55E.
-// Snapshot376 retains raw Type Sight and native250/254/260 admission.
+// Snapshot377 retains raw Type Sight and native250/254/260 admission.
 // The exact-zero gate70AF87 replaces frame-produced empty source caches and
 // default fog owner planes. This is a Rust state ratchet; gameplay and RNG
 // tripwires remain independent of the composite hash.
@@ -909,6 +909,7 @@ fn cross_house_move_executes_and_replays_without_changing_actor_owner() {
     let overlays = harness_overlays();
     let grid = PathGrid::new(HARNESS_CELL_SIDE, HARNESS_CELL_SIDE);
     let mut recorded = Simulation::with_seed(HARNESS_SEED);
+    recorded.hash_state_every(std::num::NonZeroU64::MIN);
     seed_scenario(&mut recorded, &rules, &overlays);
     let actor_owner = recorded.substrate.entities.get(6).unwrap().owner();
     let issuer = recorded.interner.get("Americans").unwrap();
@@ -986,6 +987,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
 
     // ---- Record pass: build a ReplayLog through the live advance_tick path. ----
     let mut rec = Simulation::with_seed(HARNESS_SEED);
+    rec.hash_state_every(std::num::NonZeroU64::MIN);
     let mut diagnostic = replay_diagnostic_file("global");
     let mut seed = || seed_scenario(&mut rec, &rules, &overlays);
     let (_, seed_draws) = if diagnostic.is_some() {
@@ -1269,8 +1271,9 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         rep.substrate
             .entities
             .values()
-            .all(|e| *e.building_art.storage() == Default::default() && e.aircraft_ammo.is_none()),
-        "the fixture contains no storage or aircraft state"
+            .all(|e| *e.building_art.storage() == Default::default()
+                && e.ammo().is_none_or(|ammo| ammo.current() == -1)),
+        "the fixture contains no storage or nondefault ammo state"
     );
 
     // Tank 4's attack-move finds the infantryman at frame 297 and fires on

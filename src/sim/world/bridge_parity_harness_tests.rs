@@ -355,7 +355,7 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // with a hash that skips only that fold) gives this value in the same
 // test, with every tripwire above green.
 // Control removed. Previous: 0x13A7_184B_5F5F_A088.
-// Snapshot376 retains raw Type Sight and native250/254/260 admission.
+// Snapshot377 retains raw Type Sight and native250/254/260 admission.
 // The exact-zero gate70AF87 replaces frame-produced empty source caches and
 // default fog owner planes. This is a Rust state ratchet; crossing geometry,
 // per-frame replay and absolute RNG tripwires remain independent.
@@ -670,6 +670,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
 
     // ---- Record pass: drive the crossing through the live advance_tick path. ----
     let mut rec = Simulation::with_seed(BRIDGE_HARNESS_SEED);
+    rec.hash_state_every(std::num::NonZeroU64::MIN);
     let mut diagnostic = super::global_parity_harness_tests::replay_diagnostic_file("bridge");
     let mut seed = || seed_bridge_scenario(&mut rec, &rules);
     let (_, seed_draws) = if diagnostic.is_some() {

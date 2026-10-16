@@ -15,11 +15,8 @@ use crate::sim::world::bridge_test_evidence::restored_retail;
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_target_composed.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_target_composed.json")
 }
 
 fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {

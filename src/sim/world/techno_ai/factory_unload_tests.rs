@@ -5,7 +5,6 @@
 
 use super::{ObjectAiCtx, RuleSet, Simulation, mission_unload};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::foundation::FOUNDATION_TABLE;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
@@ -27,11 +26,8 @@ use serde_json::{Value, json};
 
 const NATIVE_SHA256: &str = "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c";
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/anytown_damage/unit_unlimbo.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/anytown_damage/unit_unlimbo.json");
     assert_eq!(corpus["schema_version"], 1);
     assert_eq!(corpus["native_sha256"], NATIVE_SHA256);
     assert_eq!(corpus["factory_unload_rows"].as_array().unwrap().len(), 1);
@@ -132,7 +128,7 @@ fn parsed_rules(ini: &IniFile, art: &IniFile, patch: Option<&str>) -> RuleSet {
     }
     let mut rules =
         RuleSet::from_processed_rules(&layers.process_with_fixed_art(art).unwrap()).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(art));
     rules
 }
 

@@ -12,11 +12,8 @@ use crate::map::resolved_terrain::NativeCellQuery;
 use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 use crate::sim::movement::locomotor::MovementLayer;
 
-fn receipt() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_hills_bridge_inputs.json",
-    ))
-    .expect("saved original executable Hills receipt")
+fn receipt() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/astar_hills_bridge_inputs.json")
 }
 
 fn assert_native_route(case_name: &str, actual: &[(u16, u16)]) {

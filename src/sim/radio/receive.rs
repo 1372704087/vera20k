@@ -978,10 +978,7 @@ fn aircraft_receive(
     {
         return RadioResponse::None;
     }
-    let ammo = entity
-        .aircraft_ammo
-        .as_ref()
-        .map_or(-1, |ammo| ammo.current());
+    let ammo = entity.ammo().map_or(-1, |ammo| ammo.current());
     let object = rules.and_then(|rules| sim.object_type(entity.type_ref(), rules));
     let type_ammo = object.map_or(-1, |object| object.ammo);
     let transport = AircraftHold {
@@ -1475,7 +1472,7 @@ fn techno_reload(sim: &mut Simulation, techno: u64, rules: Option<&RuleSet>) -> 
         .substrate
         .entities
         .get_mut(techno)
-        .and_then(|entity| entity.aircraft_ammo.as_mut())
+        .and_then(|entity| entity.ammo_mut())
     else {
         return RadioResponse::None;
     };
@@ -2872,10 +2869,9 @@ mod tests {
     /// (`aircraft_receive`).
     #[test]
     fn retail_fly_aircraft_take_no_radio_passengers() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         assert!(!rules.aircraft_ids.is_empty());
         for name in &rules.aircraft_ids {
             let object = rules.object(name).unwrap();

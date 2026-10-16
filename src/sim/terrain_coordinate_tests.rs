@@ -1,7 +1,6 @@
 //! Native Terrain placement coordinates retained through map changes and saves.
 use super::*;
 use crate::map::overlay::TerrainObject;
-use crate::rules::retail_ini_fixture::retail_ini;
 use crate::sim::combat::combat_aoe::{
     AoEAirImpact, AoELayerContext, AreaDamageReceiver, TerrainCollectionView,
     apply_aoe_damage_with_terrain,
@@ -14,10 +13,9 @@ use std::hash::{Hash, Hasher};
 
 #[test]
 fn bridge_neighbor_terrain_retains_native_surface_coords_through_damage_and_restore() {
-    let Some(ini) = retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/terrain_coordinate.json",
     ))

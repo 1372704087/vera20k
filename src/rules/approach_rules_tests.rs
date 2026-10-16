@@ -9,11 +9,8 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/fv_cell_attack/approach_rules.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/fv_cell_attack/approach_rules.json")
 }
 
 fn named_case<'a>(native: &'a Value, name: &str) -> &'a Value {

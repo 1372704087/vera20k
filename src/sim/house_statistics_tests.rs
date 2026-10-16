@@ -10,11 +10,8 @@ use crate::sim::snapshot::GameSnapshot;
 use crate::sim::world::Simulation;
 use serde_json::Value;
 
-fn capture_accounting_corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/engineer_capture_accounting.json",
-    ))
-    .unwrap();
+fn capture_accounting_corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/engineer_capture_accounting.json");
     assert_eq!(corpus["schema_version"], 1);
     assert_eq!(
         corpus["kind"],

@@ -211,11 +211,8 @@ impl Probe {
     }
 }
 
-fn packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ore_render.json",
-    ))
-    .unwrap()
+fn packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/ore_render.json")
 }
 
 #[test]

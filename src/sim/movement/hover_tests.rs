@@ -213,10 +213,9 @@ fn hover_keys_read_the_constructor_defaults_and_retail_values() {
         read(&RuleSet::from_ini(&IniFile::from_str("")).unwrap()),
         expected("constructor")
     );
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let retail = RuleSet::from_ini(&ini).unwrap();
     assert_eq!(read(&retail), expected("retail"));
     assert_eq!(retail.general.gravity, 6);
 }

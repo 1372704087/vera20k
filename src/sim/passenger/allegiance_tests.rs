@@ -7,11 +7,8 @@ use crate::rules::{art_data::ArtRegistry, ini_parser::IniFile};
 use crate::sim::world::ObjectAiCtx;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/garrison_oracle/allegiance.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/garrison_oracle/allegiance.json")
 }
 
 fn integer(v: &Value) -> i32 {

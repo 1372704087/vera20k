@@ -5525,12 +5525,9 @@ mod tests {
     /// `0x00460EDB`), defaulting to the constructor's false.
     #[test]
     fn retail_crate_beneath_reads() {
-        use crate::rules::ruleset::RuleSet;
-
-        let Some((ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).unwrap();
         for (id, beneath, money) in [
             ("CAWASH01", true, true),
             ("CARUS07", true, false),

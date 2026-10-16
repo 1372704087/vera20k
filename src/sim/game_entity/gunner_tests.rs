@@ -7,11 +7,8 @@ use crate::sim::combat::world_fire::fireat_rearm_frames;
 use crate::sim::timer::CdTimer;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ifv_turret_switching.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/ifv_turret_switching.json")
 }
 
 fn int(row: &Value, key: &str) -> i32 {

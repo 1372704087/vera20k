@@ -491,10 +491,9 @@ mod tests {
         // The stock `.6` spelling and the native control's `0.6` both pass
         // through the same production ReadDouble owner. Constructor omission
         // has distinct observed bits and is covered above.
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(stock) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let stock = RuleSet::from_ini(&retail).unwrap();
         let recorded = rows.iter().find(|row| row["input_delay"] == "0.6").unwrap();
         assert_eq!(
             stock.general.message_delay_minutes.bits(),
@@ -510,12 +509,9 @@ mod tests {
 
     #[test]
     fn trigger_message_scenario_side_selects_original_runtime_scheme_in_stock_colors() {
-        use crate::rules::ruleset::RuleSet;
-
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&retail).unwrap();
         let native = original_trigger_messages();
         for row in native["histories"].as_array().unwrap() {
             let color = row["calls"].as_array().unwrap().last().unwrap()["color"]

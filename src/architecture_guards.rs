@@ -16,7 +16,8 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Directory under `src/` -> reference roots its production code must not
 /// name. The simulation direction contract is in AGENTS.md; the remaining
@@ -83,28 +84,16 @@ fn master_frame_adapters_have_pinned_production_callers() {
         ("advance_app_frame", &["sim/world/mod.rs", "sim/runtime.rs"]),
     ];
     let mut violations: Vec<String> = Vec::new();
-    visit_rust_files(&src_root, &mut |path| {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        if name == "tests.rs" || name.ends_with("_tests.rs") {
-            return;
-        }
-        let rel = path
-            .strip_prefix(&src_root)
-            .expect("scanned file under src")
-            .to_string_lossy()
-            .replace('\\', "/");
-        let source =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let production = strip_test_items(&source);
+    for file in source_files(&src_root) {
+        let Some(production) = &file.production else {
+            continue;
+        };
         for (symbol, files) in allowed {
-            if production.contains(symbol) && !files.contains(&rel.as_str()) {
-                violations.push(format!("{rel}: {symbol}"));
+            if production.contains(symbol) && !files.contains(&file.rel.as_str()) {
+                violations.push(format!("{}: {symbol}", file.rel));
             }
         }
-    });
+    }
     assert!(
         violations.is_empty(),
         "swappable-resource frame adapters referenced outside their pinned \
@@ -152,29 +141,17 @@ fn raw_ini_walks_have_pinned_production_callers() {
         })
         .collect();
     let mut found = BTreeSet::new();
-    visit_rust_files(&src_root, &mut |path| {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        if name == "tests.rs" || name.ends_with("_tests.rs") {
-            return;
-        }
-        let rel = path
-            .strip_prefix(&src_root)
-            .expect("scanned file under src")
-            .to_string_lossy()
-            .replace('\\', "/");
-        let source =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let production = strip_test_items(&source);
+    for file in source_files(&src_root) {
+        let Some(production) = &file.production else {
+            continue;
+        };
         for &(symbol, _) in pinned {
-            let count = count_identifier(&production, symbol);
+            let count = count_identifier(production, symbol);
             if count > 0 {
-                found.insert((rel.clone(), symbol, count));
+                found.insert((file.rel.clone(), symbol, count));
             }
         }
-    });
+    }
     assert_eq!(
         found, expected,
         "raw INI walks called outside their pinned production sites, or a pin \
@@ -203,30 +180,90 @@ fn scan_forbidden_edges(src_root: &Path) -> BTreeSet<(String, String)> {
             dir.is_dir(),
             "layer directory src/{layer} missing — update LAYER_RULES"
         );
-        visit_rust_files(&dir, &mut |path| {
+        let prefix = format!("{layer}/");
+        for file in source_files(src_root) {
+            let Some(production) = &file.production else {
+                continue;
+            };
+            if !file.rel.starts_with(&prefix) {
+                continue;
+            }
+            for root in *forbidden {
+                if contains_crate_ref(production, root) || group_contains_root(production, root) {
+                    found.insert((file.rel.clone(), root.to_string()));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// One Rust file under `src/`, as the guards read it.
+struct SourceFile {
+    path: PathBuf,
+    /// Path from `src/`, with `/` separators.
+    rel: String,
+    source: String,
+    /// [`blank_comments_and_literals`] of `source`.
+    blanked: String,
+    /// [`strip_test_items`] of `source`; `None` for `tests.rs` and
+    /// `*_tests.rs` files, which the production scans skip.
+    production: Option<String>,
+}
+
+/// Every Rust file under `src_root`, in [`visit_rust_files`] order, read and
+/// blanked once per test process: five guards scan the same 40 MB tree, and
+/// blanking it is most of an unoptimized scan.
+fn source_files(src_root: &Path) -> &'static [SourceFile] {
+    static FILES: OnceLock<(PathBuf, Vec<SourceFile>)> = OnceLock::new();
+    let (root, files) = FILES.get_or_init(|| {
+        let mut paths = Vec::new();
+        visit_rust_files(src_root, &mut |path| paths.push(path.to_path_buf()));
+        let read = |path: PathBuf| {
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
             let name = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
-            if name == "tests.rs" || name.ends_with("_tests.rs") {
-                return;
+            let is_test_file = name == "tests.rs" || name.ends_with("_tests.rs");
+            let blanked = blank_comments_and_literals(&source);
+            let production = (!is_test_file).then(|| strip_test_items(&source, &blanked));
+            let rel = path
+                .strip_prefix(src_root)
+                .expect("scanned file under src")
+                .to_string_lossy()
+                .replace('\\', "/");
+            SourceFile {
+                path,
+                rel,
+                source,
+                blanked,
+                production,
             }
-            let source =
-                fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-            let production = strip_test_items(&source);
-            for root in *forbidden {
-                if contains_crate_ref(&production, root) || group_contains_root(&production, root) {
-                    let rel = path
-                        .strip_prefix(src_root)
-                        .expect("scanned file under src")
-                        .to_string_lossy()
-                        .replace('\\', "/");
-                    found.insert((rel, root.to_string()));
-                }
-            }
+        };
+        // Blank the files on several threads; the order stays the walk's.
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let chunk = paths.len().div_ceil(threads).max(1);
+        let mut chunks: Vec<Vec<PathBuf>> = Vec::new();
+        let mut paths = paths.into_iter().peekable();
+        while paths.peek().is_some() {
+            chunks.push(paths.by_ref().take(chunk).collect());
+        }
+        let files = std::thread::scope(|scope| {
+            let workers: Vec<_> = chunks
+                .into_iter()
+                .map(|chunk| scope.spawn(|| chunk.into_iter().map(read).collect::<Vec<_>>()))
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|worker| worker.join().expect("source scan worker"))
+                .collect()
         });
-    }
-    found
+        (src_root.to_path_buf(), files)
+    });
+    assert_eq!(root, src_root, "every guard scans the crate's src/");
+    files
 }
 
 fn visit_rust_files(dir: &Path, visit: &mut dyn FnMut(&Path)) {
@@ -379,13 +416,13 @@ fn is_raw_string_start(bytes: &[u8], i: usize) -> bool {
     bytes.get(j) == Some(&b'"')
 }
 
-/// Blank comments and literals, then remove `#[cfg(test)]` items (attribute
-/// plus the following item, braced or single-statement). `cfg(all(test, …))`
-/// and `cfg(any(test, feature = "test-support"))` count as test-only;
+/// `source` without its `#[cfg(test)]` items (attribute plus the following
+/// item, braced or single-statement), as blanked text: `text` is `source` with
+/// comments and literals blanked. `cfg(all(test, …))` and
+/// `cfg(any(test, feature = "test-support"))` count as test-only;
 /// `cfg(any(test, debug_assertions))` does not. The feature gate is read from
 /// the source line, since blanking erases its string.
-fn strip_test_items(source: &str) -> String {
-    let text = blank_comments_and_literals(source);
+fn strip_test_items(source: &str, text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut depth: i64 = 0;
     let mut skip_above: Option<i64> = None;
@@ -653,18 +690,18 @@ fn no_root_app_modules_remain() {
 /// tree at zero so a new sim-side test cannot quietly reintroduce the edge.
 #[test]
 fn sim_names_no_upper_layer_root_even_in_tests() {
-    let sim_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sim");
+    let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut offenders: Vec<String> = Vec::new();
-    visit_rust_files(&sim_root, &mut |path| {
-        let source =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let blanked = blank_comments_and_literals(&source);
+    for file in source_files(&src_root) {
+        if !file.rel.starts_with("sim/") {
+            continue;
+        }
         for root in ["render", "net", "ui", "audio", "app"] {
-            if contains_crate_ref(&blanked, root) || group_contains_root(&blanked, root) {
-                offenders.push(format!("{} -> {root}", path.display()));
+            if contains_crate_ref(&file.blanked, root) || group_contains_root(&file.blanked, root) {
+                offenders.push(format!("{} -> {root}", file.path.display()));
             }
         }
-    });
+    }
     assert!(
         offenders.is_empty(),
         "sim/ references upper-layer root(s): {offenders:?}\n\
@@ -683,17 +720,20 @@ fn sim_names_no_upper_layer_root_even_in_tests() {
 fn test_fixtures_are_read_at_run_time_from_existing_files() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (mut embedded, mut missing) = (Vec::new(), Vec::new());
-    visit_rust_files(&root.join("src"), &mut |path| {
-        let source =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let rel = path
+    for file in source_files(&root.join("src")) {
+        let rel = file
+            .path
             .strip_prefix(root)
             .expect("scanned file under the crate");
-        let (file_embedded, file_missing) =
-            fixture_violations(root, &rel.display().to_string(), &source);
+        let (file_embedded, file_missing) = fixture_violations(
+            root,
+            &rel.display().to_string(),
+            &file.source,
+            &file.blanked,
+        );
         embedded.extend(file_embedded);
         missing.extend(file_missing);
-    });
+    }
     assert!(
         embedded.is_empty(),
         "test fixtures embedded in the build: {embedded:?}\n\
@@ -723,19 +763,24 @@ fn fixture_scan_flags_embeds_and_missing_paths_but_not_program_data() {
             )
         }
     "#;
-    let (embedded, missing) = fixture_violations(root, "x.rs", source);
+    let (embedded, missing) =
+        fixture_violations(root, "x.rs", source, &blank_comments_and_literals(source));
     assert_eq!(embedded.len(), 2, "{embedded:?}");
     assert_eq!(missing, ["x.rs: tools/no_such_fixture.json"]);
 }
 
 /// Fixture embeds, and literal fixture paths that name no file, in one source
 /// file shown as `rel`.
-fn fixture_violations(root: &Path, rel: &str, source: &str) -> (Vec<String>, Vec<String>) {
-    let code = blank_comments_and_literals(source);
+fn fixture_violations(
+    root: &Path,
+    rel: &str,
+    source: &str,
+    code: &str,
+) -> (Vec<String>, Vec<String>) {
     let mut embedded = Vec::new();
     for needle in ["include_str!(", "include_bytes!("] {
         for (at, _) in code.match_indices(needle) {
-            let arguments = macro_arguments(source, &code, at + needle.len());
+            let arguments = macro_arguments(source, code, at + needle.len());
             let fixture = arguments.split('"').skip(1).step_by(2).any(|literal| {
                 literal
                     .split('/')
@@ -747,9 +792,13 @@ fn fixture_violations(root: &Path, rel: &str, source: &str) -> (Vec<String>, Vec
         }
     }
     let mut missing = Vec::new();
-    for needle in ["test_fixture::text(", "test_fixture::bytes("] {
+    for needle in [
+        "test_fixture::text(",
+        "test_fixture::bytes(",
+        "test_fixture::json(",
+    ] {
         for (at, _) in code.match_indices(needle) {
-            let argument = macro_arguments(source, &code, at + needle.len());
+            let argument = macro_arguments(source, code, at + needle.len());
             let argument = argument.trim().trim_end_matches(',').trim_end();
             let literal = argument.strip_prefix('"').and_then(|a| a.strip_suffix('"'));
             if let Some(file) = literal.filter(|file| !file.contains('"'))

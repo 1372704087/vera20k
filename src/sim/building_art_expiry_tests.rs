@@ -14,11 +14,8 @@ use crate::sim::rng::SimRng;
 use crate::sim::stage::StageClass;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_slot_replacement.expiry.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_slot_replacement.expiry.json")
 }
 
 fn integer(value: &Value) -> i32 {

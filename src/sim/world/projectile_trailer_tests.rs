@@ -15,11 +15,8 @@ use crate::sim::projectile::{
 use crate::sim::rng::SimRng;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/projectile_trailer.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/projectile_trailer.json")
 }
 
 fn case<'a>(corpus: &'a Value, name: &str) -> &'a Value {

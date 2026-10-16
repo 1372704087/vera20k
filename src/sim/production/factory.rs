@@ -1482,11 +1482,8 @@ fn native_time_to_build_rows() -> Vec<(TimeToBuildInputs, i32, serde_json::Value
 /// (`tools/spatial_oracle/factory_cadence.py`): `starts` rows run the build
 /// start alone, `builds` rows then run `FactoryClass::AI` once per frame.
 #[cfg(any(test, feature = "test-support"))]
-pub(super) fn native_factory_cadence() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/factory_cadence.json",
-    ))
-    .expect("cadence oracle")
+pub(super) fn native_factory_cadence() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/factory_cadence.json")
 }
 
 #[cfg(test)]

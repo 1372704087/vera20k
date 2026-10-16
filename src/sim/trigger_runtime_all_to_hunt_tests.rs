@@ -8,11 +8,8 @@ use crate::sim::{combat::Health, game_entity::GameEntity, house_state::HouseStat
 use serde_json::Value;
 use std::collections::HashMap;
 
-fn corpus() -> Value {
-    let result: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_all_to_hunt.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let result = crate::test_fixture::json("tools/spatial_oracle/trigger_all_to_hunt.json");
     assert_eq!(
         result["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use crate::assets::asset_manager::{AssetManager, MediaArchiveMode};
 use crate::rules::ini_parser::IniFile;
+use crate::test_fixture::once_per_process;
 
 /// Fixed ARTMD.INI [GI]/[GISequence] inputs for asset-free authored scenarios.
 /// Callers explicitly supply E1 Image=GI and use the existing ART reader and
@@ -91,11 +92,10 @@ pub(crate) const REQUIRE_RETAIL_ASSETS_ENV: &str = "VERA20K_REQUIRE_RETAIL_ASSET
 /// One mechanical export of the original registered UnitReady consumers.
 /// The factory oracle owns selection and verifies this export against its
 /// complete native receipts; component tests only read the selected state.
-pub fn factory_unit_ready_native() -> serde_json::Value {
-    let fixture: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+pub fn factory_unit_ready_native() -> &'static serde_json::Value {
+    let fixture = crate::test_fixture::json(
         "tools/spatial_oracle/_factory_infantry_output/fixtures/unit-ready-consumer-rust.json",
-    ))
-    .expect("mechanically selected native UnitReady fixture");
+    );
     assert_eq!(fixture["schema"], 1);
     for control in fixture["controls"].as_object().unwrap().values() {
         assert_eq!(
@@ -157,34 +157,6 @@ pub fn retail_ini(name: &str) -> Option<IniFile> {
     })
 }
 
-/// A copy of the value `load` returns for `key`, loaded once per test process.
-///
-/// Retail fixtures read only the files under `ini/` and `RA2_DIR`, which do
-/// not change while tests run, so every later load would build the same value.
-/// Concurrent first callers wait for one load; a load that panics is retried.
-fn once_per_process<K, T>(key: K, load: impl FnOnce() -> Option<T>) -> Option<T>
-where
-    K: Ord + Send + 'static,
-    T: Clone + Send + Sync + 'static,
-{
-    use std::any::{Any, TypeId};
-    use std::collections::BTreeMap;
-    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-
-    type Slots = BTreeMap<TypeId, Box<dyn Any + Send>>;
-    static SLOTS: Mutex<Slots> = Mutex::new(BTreeMap::new());
-    let slot = {
-        let mut slots = SLOTS.lock().unwrap_or_else(PoisonError::into_inner);
-        let by_key = slots
-            .entry(TypeId::of::<(K, T)>())
-            .or_insert_with(|| Box::new(BTreeMap::<K, Arc<OnceLock<Option<T>>>>::new()))
-            .downcast_mut::<BTreeMap<K, Arc<OnceLock<Option<T>>>>>()
-            .expect("slot map type follows its TypeId");
-        Arc::clone(by_key.entry(key).or_default())
-    };
-    slot.get_or_init(load).clone()
-}
-
 /// Retail `rulesmd.ini` and `artmd.ini` parsed, or `None` when either is absent.
 pub fn retail_rules_and_art() -> Option<(IniFile, IniFile)> {
     Some((retail_ini("rulesmd.ini")?, retail_ini("artmd.ini")?))
@@ -202,6 +174,33 @@ pub fn retail_unlayered_rules() -> Option<crate::rules::ruleset::RuleSet> {
         Some(
             crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
                 .expect("retail rules"),
+        )
+    })
+    .map(crate::rules::ruleset::RuleSet::with_fresh_serial)
+}
+
+/// [`ArtRegistry::from_ini`] of `art`, built once per test process for each
+/// ART content ([`IniFile::content_hash`]): reading a whole ARTMD is much of
+/// a retail fixture's setup in unoptimized test builds. Each caller gets its
+/// own copy.
+///
+/// [`ArtRegistry::from_ini`]: crate::rules::art_data::ArtRegistry::from_ini
+pub fn art_registry(art: &IniFile) -> crate::rules::art_data::ArtRegistry {
+    once_per_process(("art registry", art.content_hash()), || {
+        Some(crate::rules::art_data::ArtRegistry::from_ini(art))
+    })
+    .expect("art registry")
+}
+
+/// `rulesmd.ini` alone read by [`RuleSet::from_ini`], or `None` when it is
+/// absent. Built once per test process; each caller gets its own copy.
+///
+/// [`RuleSet::from_ini`]: crate::rules::ruleset::RuleSet::from_ini
+pub fn retail_rulesmd_rules() -> Option<crate::rules::ruleset::RuleSet> {
+    once_per_process("rulesmd.ini alone", || {
+        Some(
+            crate::rules::ruleset::RuleSet::from_ini(&retail_ini("rulesmd.ini")?)
+                .expect("retail rulesmd.ini parses"),
         )
     })
     .map(crate::rules::ruleset::RuleSet::with_fresh_serial)
@@ -253,7 +252,15 @@ pub fn retail_assets() -> Option<(PathBuf, AssetManager)> {
     let root = std::env::var_os("RA2_DIR");
     let required = required(std::env::var_os(REQUIRE_RETAIL_ASSETS_ENV).as_deref());
     let result = once_per_process(("retail install", root.clone(), required), || {
-        open_retail_assets(root.as_deref(), required).unwrap_or_else(|error| panic!("{error}"))
+        let opened =
+            open_retail_assets(root.as_deref(), required).unwrap_or_else(|error| panic!("{error}"));
+        // The client's audio tests all wait for the audio index, and hashing
+        // its bag is slow in unoptimized builds: start it as the archives
+        // open. This crate's own tests never read it.
+        if cfg!(not(test)) && opened.is_some() {
+            std::thread::spawn(retail_audio_index);
+        }
+        opened
     });
     if result.is_none() {
         eprintln!(
@@ -261,6 +268,39 @@ pub fn retail_assets() -> Option<(PathBuf, AssetManager)> {
         );
     }
     result
+}
+
+/// The audio index pair [`retail_assets`] selects
+/// (`AssetManager::load_audio_index`), loaded once per test process: hashing
+/// the bag for its source identity is most of a load in unoptimized test
+/// builds. `None` when the install skips or selects no pair.
+pub fn retail_audio_index() -> Option<&'static crate::assets::asset_manager::LoadedAudioIndex> {
+    static INDEX: std::sync::OnceLock<Option<crate::assets::asset_manager::LoadedAudioIndex>> =
+        std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let (_, assets) = retail_assets()?;
+            assets.load_audio_index().expect("retail audio index")
+        })
+        .as_ref()
+}
+
+/// [`AudioDefinitions::select`] over [`retail_assets`], selected once per
+/// test process. `None` when the install skips.
+///
+/// [`AudioDefinitions::select`]: crate::rules::audio_sources::AudioDefinitions::select
+pub fn retail_audio_definitions() -> Option<&'static crate::rules::audio_sources::AudioDefinitions>
+{
+    static DEFINITIONS: std::sync::OnceLock<Option<crate::rules::audio_sources::AudioDefinitions>> =
+        std::sync::OnceLock::new();
+    DEFINITIONS
+        .get_or_init(|| {
+            let (_, assets) = retail_assets()?;
+            Some(crate::rules::audio_sources::AudioDefinitions::select(
+                &assets,
+            ))
+        })
+        .as_ref()
 }
 
 /// [`retail_assets`] as a Battle launch holds it: after the shell archives
@@ -308,35 +348,61 @@ pub struct RetailBattleRules {
 
 /// Select once and retain the production process owner. A present but malformed
 /// optional input cannot serve as successful retail-fixture evidence.
+///
+/// Selection parses and hashes the same archive entries for every owner, so
+/// it runs once per test process for each set of entries `assets` resolves
+/// (archive, entry and length: an archive entry's bytes never change while
+/// tests run); every call cold-starts its own owner from copies of the
+/// selected files.
 pub fn retail_rules_owner(
     assets: &AssetManager,
 ) -> crate::rules::process_owner::NativeRulesProcessOwner {
     use crate::rules::retail_sources::RetailRulesSources;
 
-    let audio_definitions = crate::rules::audio_sources::AudioDefinitions::select(assets);
-    let sources = RetailRulesSources::select(assets).expect("select active-YR startup sources");
-    for (name, selected) in [
-        (
-            "langrule.ini",
-            sources.langrule.as_ref().map(|source| &source.source),
-        ),
-        ("soundmd.ini", audio_definitions.sound_source()),
-        ("evamd.ini", audio_definitions.eva_source()),
-    ] {
-        assert!(
-            selected.is_some() || assets.resolve_ref(name).is_none(),
-            "present optional retail source {name} must parse"
+    let entries: Vec<_> = [
+        "rulesmd.ini",
+        "langrule.ini",
+        "artmd.ini",
+        "soundmd.ini",
+        "evamd.ini",
+    ]
+    .into_iter()
+    .map(|name| {
+        assets.resolve_ref(name).map(|entry| {
+            (
+                entry.source_archive.to_owned(),
+                entry.entry_id,
+                entry.bytes.len(),
+            )
+        })
+    })
+    .collect();
+    let (sources, sounds) = once_per_process(entries, || {
+        let audio_definitions = crate::rules::audio_sources::AudioDefinitions::select(assets);
+        let sources = RetailRulesSources::select(assets).expect("select active-YR startup sources");
+        for (name, selected) in [
+            (
+                "langrule.ini",
+                sources.langrule.as_ref().map(|source| &source.source),
+            ),
+            ("soundmd.ini", audio_definitions.sound_source()),
+            ("evamd.ini", audio_definitions.eva_source()),
+        ] {
+            assert!(
+                selected.is_some() || assets.resolve_ref(name).is_none(),
+                "present optional retail source {name} must parse"
+            );
+        }
+        eprintln!(
+            "retail root {:?}; fixed ART {:?}",
+            sources.rulesmd.source, sources.artmd.source
         );
-    }
-    eprintln!(
-        "retail root {:?}; fixed ART {:?}",
-        sources.rulesmd.source, sources.artmd.source
-    );
-    sources
-        .into_startup(std::sync::Arc::clone(audio_definitions.sounds()))
-        .expect("cold startup")
-        .into_parts()
-        .2
+        Some((sources, std::sync::Arc::clone(audio_definitions.sounds())))
+    })
+    .expect("selected retail startup sources");
+    // No fixture reads the shell compatibility projection `into_startup` also
+    // derives.
+    sources.into_owner(sounds).expect("cold startup")
 }
 
 /// Bounded stock Hills/Battle fixture through the app's source-selection order.
@@ -400,10 +466,20 @@ fn load_retail_mode_rules_for_map(
     use crate::rules::retail_sources::select_ini;
 
     // The owner selects its startup sources before the shell and Choose Map
-    // archives register.
-    let mut owner = retail_rules_owner(&retail_assets()?.1);
+    // archives register. It reads its own copy of the archives, so its cold
+    // start and the Choose Map scan run side by side.
+    let (owner, scenario) = std::thread::scope(|scope| {
+        let scenario = scope.spawn(retail_scenario_assets);
+        let owner = retail_assets().map(|(_, assets)| retail_rules_owner(&assets));
+        let scenario = scenario.join();
+        (
+            owner,
+            scenario.unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        )
+    });
+    let mut owner = owner?;
     let authored_rules = owner.selected_rules_root().clone();
-    let (root, mut assets) = retail_scenario_assets()?;
+    let (root, mut assets) = scenario?;
     let modes = crate::skirmish_modes::skirmish_modes_from_assets(&assets)
         .expect("load retail mode roster");
     let mode = crate::skirmish_modes::mode_by_id(&modes, mode_id).expect("stock skirmish mode");
@@ -424,7 +500,7 @@ fn load_retail_mode_rules_for_map(
         )
         .expect("process noncampaign retail Battle Rules")
         .into_parts();
-    let art = crate::rules::art_data::ArtRegistry::from_ini(&fixed_art);
+    let art = art_registry(&fixed_art);
     rules.install_art_data(art);
     // Match the app's data-only ART sequence binding before a frame fixture
     // fires or destroys Infantry. Without it death actions cannot finish.

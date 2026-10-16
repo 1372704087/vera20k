@@ -6,11 +6,8 @@ use super::*;
 use serde_json::Value;
 use std::cell::RefCell;
 
-fn node_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_structural_height.json",
-    ))
-    .unwrap()
+fn node_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/astar_structural_height.json")
 }
 
 fn f32_hex(value: &Value) -> f32 {

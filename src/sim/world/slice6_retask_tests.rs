@@ -348,7 +348,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // with a hash that skips only that fold) gives this value in the same
 // test, with every tripwire above green.
 // Control removed. Previous: 0xE3F1_10CD_1C40_81A1.
-// Snapshot376 retains raw Type Sight and native250/254/260 admission.
+// Snapshot377 retains raw Type Sight and native250/254/260 admission.
 // The exact-zero gate70AF87 replaces frame-produced empty source caches and
 // default fog owner planes. This is a Rust state ratchet; retask behavior,
 // per-frame replay and absolute RNG tripwires remain independent.
@@ -358,6 +358,7 @@ const SLICE6_BASELINE_HASH: u64 = 0x2887_492F_5797_CE91;
 fn replay_hash_stable_through_slice6() {
     let rules = slice6_rules();
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     let grid = (*sim.path_grid_snapshot().unwrap()).clone();
     // id 1: Americans MTNK (the unit we retask). id 2: enemy MTNK (Soviet, hostile

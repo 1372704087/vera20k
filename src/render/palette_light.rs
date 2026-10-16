@@ -301,10 +301,9 @@ mod tests {
     #[test]
     fn retail_house_colors_match_original_normal_and_campaign_initialization() {
         use crate::rules::house_colors::{HouseColorIndex, NO_REMAP};
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/procedural_drawing_oracle/house_color.json",
         ))

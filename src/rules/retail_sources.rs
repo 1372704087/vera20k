@@ -21,6 +21,7 @@ pub struct IniSourceIdentity {
     pub(crate) source_sha256: String,
 }
 
+#[cfg_attr(any(test, feature = "test-support"), derive(Clone))]
 pub struct SelectedIni {
     pub ini: IniFile,
     pub source: IniSourceIdentity,
@@ -53,6 +54,7 @@ pub fn select_ini(assets: &AssetManager, name: &str) -> Result<SelectedIni, Stri
 /// Optional LANGRULE retains the existing production missing/parse-failure
 /// policy. ART is fixed and never enters the scenario layer stack. Audio
 /// definitions are separately selected and injected before Rules construction.
+#[cfg_attr(any(test, feature = "test-support"), derive(Clone))]
 pub struct RetailRulesSources {
     pub rulesmd: SelectedIni,
     pub langrule: Option<SelectedIni>,
@@ -71,14 +73,20 @@ impl RetailRulesSources {
         })
     }
 
-    pub fn into_startup(self, sounds: Arc<SoundRegistry>) -> Result<StartupRulesLoad, String> {
-        let native_owner = NativeRulesProcessOwner::from_cold_start_sources(
+    /// The cold-started native Rules authority alone, without the shell
+    /// compatibility projection [`Self::into_startup`] also derives.
+    pub fn into_owner(self, sounds: Arc<SoundRegistry>) -> Result<NativeRulesProcessOwner, String> {
+        NativeRulesProcessOwner::from_cold_start_sources(
             self.rulesmd.ini,
             self.langrule.map(|source| source.ini),
             self.artmd.ini,
             sounds,
         )
-        .map_err(|error| format!("Native rules cold startup failed: {error}"))?;
+        .map_err(|error| format!("Native rules cold startup failed: {error}"))
+    }
+
+    pub fn into_startup(self, sounds: Arc<SoundRegistry>) -> Result<StartupRulesLoad, String> {
+        let native_owner = self.into_owner(sounds)?;
         let (compatibility_rules, compatibility_projection) =
             match native_owner.startup_compatibility_projection() {
                 Ok(processed) => {

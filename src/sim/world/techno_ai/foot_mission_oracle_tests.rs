@@ -137,7 +137,17 @@ fn retained_reader_ini(ini: IniFile, unread_weapons: bool, constructor_idle: boo
     IniFile::from_str(&text)
 }
 
+/// Its inputs are the fixed retail files and the oracle, so each context's
+/// rules are built once per test process; every caller gets its own copy.
 fn rules_with_native_reader_context(unread_weapons: bool, context: &str) -> Option<RuleSet> {
+    crate::test_fixture::once_per_process(
+        ("foot mission rules", unread_weapons, context.to_owned()),
+        || build_rules_with_native_reader_context(unread_weapons, context),
+    )
+    .map(RuleSet::with_fresh_serial)
+}
+
+fn build_rules_with_native_reader_context(unread_weapons: bool, context: &str) -> Option<RuleSet> {
     let native = oracle();
     let constructor_idle = match context {
         "handler_rules_before_physical" => true,

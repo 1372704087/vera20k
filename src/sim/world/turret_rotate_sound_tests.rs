@@ -18,7 +18,6 @@ use super::turret_rotate_sound_owner;
 use super::turret_rotate_sound_techno;
 use super::{FrameEffects, SimSoundEvent, Simulation};
 use crate::map::resolved_terrain::test_flat_ground_grid;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::RulesLayerStack;
 use crate::rules::process_owner::NativeRulesProcessOwner;
@@ -675,7 +674,7 @@ fn retail_rules() -> Option<RuleSet> {
         )
         .expect("retail scenario rules")
         .into_parts();
-    rules.install_art_data(ArtRegistry::from_ini(&fixed_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&fixed_art));
     Some(rules)
 }
 

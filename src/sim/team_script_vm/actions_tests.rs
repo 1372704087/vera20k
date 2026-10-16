@@ -94,8 +94,8 @@ fn tesla_charger_team_recalls_an_automatic_target_but_keeps_an_explicit_attack()
     }
 }
 
-fn patrol_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text("tools/team_patrol.json")).unwrap()
+fn patrol_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/team_patrol.json")
 }
 
 /// The expected retained bits and periods are executed native outputs, including
@@ -766,9 +766,9 @@ fn script59_building_gate_and_retained_ammo_route_match_original_controls() {
                 .entities
                 .get_mut(member)
                 .unwrap()
-                .aircraft_ammo = Some(crate::sim::docking::aircraft_dock::AircraftAmmo::new(
-                input["ammo"].as_i64().unwrap() as i32,
-            ));
+                .install_ammo_for_test(Some(crate::sim::ammo::TechnoAmmo::new(
+                    input["ammo"].as_i64().unwrap() as i32,
+                )));
         }
         if input["count"] == 0 {
             for &member in &members {

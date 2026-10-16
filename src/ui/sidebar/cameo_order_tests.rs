@@ -15,20 +15,14 @@ use crate::rules::ruleset::{HouseCostFactors, RuleSet};
 use crate::sim::intern::StringInterner;
 use crate::util::native_x87::NativeF32Bits;
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/sidebar_oracle/cameo_order.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/sidebar_oracle/cameo_order.json");
     assert_eq!(corpus["schema"], 1);
     corpus
 }
 
-fn trigger_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/sidebar_oracle/trigger_cameos.json",
-    ))
-    .unwrap()
+fn trigger_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/sidebar_oracle/trigger_cameos.json")
 }
 
 #[test]

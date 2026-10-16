@@ -20,7 +20,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     let input = &row["input"];
     let integer = |name: &str, default: i32| input[name].as_i64().map_or(default, |v| v as i32);
     let flag = |name: &str| input[name].as_bool().unwrap_or(false);
-    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+    let text = format!(
         "[General]\nFlightLevel=1500\n[AircraftTypes]\n0=TEST\n\
          [TEST]\nStrength=100\nSpeed={}\nLandable={}\n\
          Locomotor={{4A582746-9839-11D1-B709-00A024DDAFD1}}\n\
@@ -37,8 +37,13 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         integer("flight_level", -1),
         if flag("dropship") { "yes" } else { "no" },
         if flag("carryall") { "yes" } else { "no" },
-    )))
-    .unwrap();
+    );
+    // The corpora's rows share a few type settings; each is parsed once.
+    let rules = crate::test_fixture::once_per_process(("fly height rules", text.clone()), || {
+        Some(RuleSet::from_ini(&IniFile::from_str(&text)).unwrap())
+    })
+    .unwrap()
+    .with_fresh_serial();
     let mut sim = Simulation::with_seed(0);
     install_common_raw_terrain(
         &mut sim,
@@ -506,8 +511,8 @@ fn destination_vectors() -> Vec<serde_json::Value> {
 }
 
 fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
+    use crate::sim::ammo::TechnoAmmo;
     use crate::sim::combat::TargetKind;
-    use crate::sim::docking::aircraft_dock::AircraftAmmo;
     let input = &row["input"];
     let height_row = serde_json::json!({"input": {
         "z": input["z"].as_i64().unwrap_or(500),
@@ -529,7 +534,9 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.set_rx_for_test(40);
     entity.position.set_ry_for_test(64);
-    entity.aircraft_ammo = Some(AircraftAmmo::new(input["ammo"].as_i64().unwrap_or(2) as i32));
+    entity.install_ammo_for_test(Some(TechnoAmmo::new(
+        input["ammo"].as_i64().unwrap_or(2) as i32
+    )));
     entity.attack_target.set_for_test(
         input["target"]
             .as_bool()

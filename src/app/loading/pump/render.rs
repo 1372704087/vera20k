@@ -953,11 +953,8 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
-    fn campaign_native() -> Value {
-        let fixture: Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/input_oracle/campaign_start.json",
-        ))
-        .expect("original campaign-start corpus");
+    fn campaign_native() -> &'static Value {
+        let fixture = crate::test_fixture::json("tools/input_oracle/campaign_start.json");
         assert_eq!(
             fixture["native_sha256"],
             "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"

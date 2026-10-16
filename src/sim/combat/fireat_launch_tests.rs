@@ -112,11 +112,10 @@ fn target_coord_offset_changes_fireat_speed_without_moving_bullet_reference() {
     );
 }
 
-fn attack_aim_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
+fn attack_aim_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json(
         "tools/procedural_drawing_oracle/action_lines_attack_prerequisites.json",
-    ))
-    .expect("original retained Unit aim and FireAt controls")
+    )
 }
 
 fn attack_aim_row<'a>(
@@ -814,7 +813,8 @@ fn retail_cannon_uses_converted_speed_and_arcing_under_gravity_6() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
+    let rules =
+        crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
     assert_eq!(rules.general.gravity, 6);
     for (tank, weapon) in [("MTNK", "105mm"), ("HTNK", "120mm")] {
         let object = rules.object(tank).unwrap();

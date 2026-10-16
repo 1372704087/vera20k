@@ -2,11 +2,8 @@
 use super::*;
 use serde_json::Value;
 
-fn fixture() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/procedural_drawing_oracle/shroud.json",
-    ))
-    .unwrap()
+fn fixture() -> &'static Value {
+    crate::test_fixture::json("tools/procedural_drawing_oracle/shroud.json")
 }
 fn bytes(hex: &str) -> Vec<u8> {
     hex.as_bytes()

@@ -6,11 +6,8 @@ use crate::sim::bridge_state::DispatchPath;
 use crate::sim::rng::SimRng;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_damage_admission.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_damage_admission.json")
 }
 
 fn int(case: &Value, key: &str, default: i32) -> i32 {

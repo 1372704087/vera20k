@@ -3,8 +3,8 @@ use super::*;
 use crate::rules::ini_parser::IniSection;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/voxel_oracle/recoil.json")).unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/voxel_oracle/recoil.json")
 }
 
 fn config(native: &Value, name: &str) -> RecoilConfig {

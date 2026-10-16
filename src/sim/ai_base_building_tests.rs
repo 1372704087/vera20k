@@ -5,11 +5,8 @@ use crate::sim::power_system::PowerState;
 use crate::sim::rng::SimRng;
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/ai_base_building_oracle.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/ai_base_building_oracle.json")
 }
 
 fn int(value: &Value) -> i64 {
@@ -413,7 +410,8 @@ fn retail_building_types_set_no_cloak_generator_or_upgrade() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
+    let rules =
+        crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
     assert!(rules.building_ids.len() > 100);
     for name in &rules.building_ids {
         let ty = rules.object(name).unwrap();
@@ -432,10 +430,9 @@ fn retail_building_types_set_no_cloak_generator_or_upgrade() {
 /// No other retail INI gamemd reads sets either key.
 #[test]
 fn retail_walls_by_difficulty_and_side() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert_eq!(rules.general.ai_pick_wall_defense_percent, [50, 25, 10]);
     assert_eq!(rules.concrete_wall_types, ["GAWALL", "NAWALL", "GAFWLL"]);
     for (side, name) in [(0, "GAWALL"), (1, "NAWALL"), (2, "GAFWLL")] {

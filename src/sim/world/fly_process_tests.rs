@@ -8,9 +8,9 @@ use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+use crate::sim::ammo::TechnoAmmo;
 use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
-use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId};
@@ -163,9 +163,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(frame),
     });
-    let mut ammo = AircraftAmmo::new(1);
+    let mut ammo = TechnoAmmo::new(1);
     ammo.set_current_for_test(int(input, "ammo", 1) as i32);
-    entity.aircraft_ammo = Some(ammo);
+    entity.install_ammo_for_test(Some(ammo));
     if input["target"].is_array() {
         entity
             .attack_target
@@ -774,10 +774,9 @@ fn fly_death_stun_matches_native_rows() {
 fn retail_fly_owners_are_aircraft() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::rules::object_type::ObjectCategory;
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     let ground: Vec<&str> = rules
         .all_objects()
         .filter(|object| {

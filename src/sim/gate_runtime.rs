@@ -244,11 +244,8 @@ mod tests {
     const GATE: u64 = 100;
     const MOVER: u64 = 1;
 
-    fn native_corpus() -> Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/building_guard_attack_gate.json",
-        ))
-        .unwrap()
+    fn native_corpus() -> &'static Value {
+        crate::test_fixture::json("tools/spatial_oracle/building_guard_attack_gate.json")
     }
 
     fn native_mission(value: &Value) -> MissionId {

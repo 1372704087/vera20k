@@ -22,8 +22,8 @@ const SPY_PLANE: &str = "SpyPlaneSpecial";
 const TARGET: (u16, u16) = (40, 40);
 const FLY: &str = "{4A582746-9839-11D1-B709-00A024DDAFD1}";
 
-pub(super) fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+pub(super) fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 pub(super) fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -546,18 +546,7 @@ fn spyplane_missions_match_native() {
         let id = mission_plane(&mut sim, &rules, row);
         if flag(row, "latched") {
             // A snapshot held from before, as the row's `+0x250` stands for.
-            let config = sim.sight_reveal_config(Some(&rules));
-            let plane = sim.substrate.entities.get(id).unwrap();
-            crate::sim::vision::force_refresh_entity_vision(
-                &mut sim.fog,
-                plane,
-                &config,
-                None,
-                sim.resolved_terrain.as_ref(),
-                false,
-                &sim.interner,
-                4,
-            );
+            sim.refresh_object_sight(id, Some(&rules), 4);
         }
         let opposite = pick.map(|pick| {
             let opposite = edge(pick);
@@ -597,7 +586,7 @@ fn spyplane_missions_match_native() {
         let revealed = events(row, "reveal")
             .filter(|event| event[8] == 0)
             .last()
-            .map_or(0, |event| int(&event[2]).min(10));
+            .map_or(0, |event| int(&event[2]));
         assert_eq!(i32::from(radius), revealed, "{row}");
         let sounds = events(row, "play_at")
             .filter(|event| int(&event[1]) >= 0)

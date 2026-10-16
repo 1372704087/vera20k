@@ -306,8 +306,8 @@ fn coordinate_selected_retail_clip_matches_every_original_worker_pcm_byte() {
     let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
         return;
     };
-    let selected_index = assets.load_audio_index().unwrap();
-    let index = selected_index.as_ref().map(|selected| &selected.index);
+    let selected_index = crate::rules::retail_ini_fixture::retail_audio_index();
+    let index = selected_index.map(|selected| &selected.index);
     let natural = &native()["audio_core_controls"]["natural_end"];
     let event = &natural["ended_before_main"]["events"][0];
     let identities = event["loaded_sample_identities"].as_array().unwrap();

@@ -8,11 +8,8 @@ use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::terrain_draw_gpu_tests::{Gpu, camera, clear, encoded, extent, sprite};
 use wgpu::util::DeviceExt;
 
-fn native() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/bridge_render_pixels.json",
-    ))
-    .unwrap()
+fn native() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/projectile_oracle/bridge_render_pixels.json")
 }
 
 fn read_only(index: u32, piece: TerrainPiece, atlas_slot: usize) -> DestinationEditCommand {

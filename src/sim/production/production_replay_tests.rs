@@ -236,6 +236,7 @@ fn record(
         rules_hash: 0,
     });
     let mut hashes = Vec::with_capacity(ticks as usize);
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     sim.queue_commands(pending);
     for _ in 0..ticks {
         let due = sim.take_due_commands();

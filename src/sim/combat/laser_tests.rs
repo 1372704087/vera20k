@@ -19,11 +19,8 @@ use crate::sim::world::{LifecycleOutput, Simulation, TickLane};
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 
 fn xyz(value: &Value) -> [i32; 3] {

@@ -61,6 +61,10 @@ mod building_damage_sound_tests;
 mod message_sound_tests;
 
 #[cfg(test)]
+#[path = "creation_sound_tests.rs"]
+mod creation_sound_tests;
+
+#[cfg(test)]
 #[path = "radial_fire_segments_tests.rs"]
 mod radial_fire_segments_tests;
 
@@ -1002,6 +1006,14 @@ pub struct GeneralRules {
     /// A type with its own `DamageSound=` takes `JNZ 0x0044270B` and the
     /// global is skipped.
     building_damage_sound: Option<String>,
+    /// Rules+178/+17C/+180, ctor665868..665874=-1. Original AudioVisual
+    /// 66A3AD..66A472 reads these fixed-catalog scalar names in that order
+    /// with128-byte retention readers;
+    /// House RecordLastBuilt4FB6B0 selects the concrete class before the
+    /// produced type's CreateSound override. Buildings have no class fallback.
+    create_unit_sound: Option<String>,
+    create_infantry_sound: Option<String>,
+    create_aircraft_sound: Option<String>,
     /// Thunder cues from `[AudioVisual] LightningSounds=` (stock a single
     /// `WeatherStrike`), in source order.
     ///
@@ -2265,6 +2277,9 @@ impl Default for GeneralRules {
             base_under_attack_sound: None,
             building_die_sound: None,
             building_damage_sound: None,
+            create_unit_sound: None,
+            create_infantry_sound: None,
+            create_aircraft_sound: None,
             lightning_sounds: Vec::new(),
             credit_ticks: Vec::new(),
             storm_sound: None,
@@ -2763,6 +2778,18 @@ impl GeneralRules {
     /// The Rules+714 reference resolved by the fixed SOUNDMD process binder.
     pub fn building_damage_sound(&self) -> Option<&str> {
         self.building_damage_sound.as_deref()
+    }
+
+    pub fn create_unit_sound(&self) -> Option<&str> {
+        self.create_unit_sound.as_deref()
+    }
+
+    pub fn create_infantry_sound(&self) -> Option<&str> {
+        self.create_infantry_sound.as_deref()
+    }
+
+    pub fn create_aircraft_sound(&self) -> Option<&str> {
+        self.create_aircraft_sound.as_deref()
     }
 
     pub fn time_warp_out_sound(&self) -> Option<&str> {
@@ -3268,6 +3295,9 @@ impl GeneralRules {
                 .read_name("BuildingDieSound", 0x80)
                 .map(str::to_owned),
             building_damage_sound: None,
+            create_unit_sound: None,
+            create_infantry_sound: None,
+            create_aircraft_sound: None,
             // `CCINIClass::ReadSoundList @ 0x00525430`: `ReadString(..., "",
             // buf, 0x80)` first (so the whole value is byte-cut and trimmed
             // once), then `strtok` on `","` (`0x00817F70`) with the tokens
@@ -4090,6 +4120,15 @@ impl RuleSet {
         ini: &IniFile,
         sounds: &crate::rules::sound_ini::SoundRegistry,
     ) {
+        self.general.create_unit_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "CreateUnitSound"));
+        self.general.create_infantry_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "CreateInfantrySound"));
+        self.general.create_aircraft_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "CreateAircraftSound"));
         // Original66A7B3..66A822, in native read order. Use the same fixed
         // registry and history-aware reader as every other bound Voc ID.
         self.general.incoming_message_sound = ini
@@ -4160,7 +4199,7 @@ impl RuleSet {
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
-            object.bind_damage_sound_reference(section, sounds);
+            object.bind_scalar_sound_references(section, sounds);
             object.bind_deploy_voice_references(section, sounds);
             object.voice_select = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelect")
@@ -6641,11 +6680,8 @@ fn parse_particle_system_types(
 
 #[cfg(test)]
 mod tests {
-    fn detail_native() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/rules_oracle/weapon_laser.json",
-        ))
-        .unwrap()
+    fn detail_native() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/rules_oracle/weapon_laser.json")
     }
 
     fn detail_state(detail: DetailRules) -> serde_json::Value {
@@ -7263,10 +7299,9 @@ CellSpread=0
     /// production reader (mode INIs and maps are not checked).
     #[test]
     fn retail_countries_author_no_speed_mults() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert!(!rules.countries.is_empty());
         for (name, country) in &rules.countries {
             assert_eq!(country.speed_mults, [NativeF32Bits::ONE; 3], "{name}");
@@ -10382,10 +10417,9 @@ Projectile=Invisible
     /// country keeps the constructor's 1.0.
     #[test]
     fn retail_difficulty_and_country_rof() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert_eq!(
             rules.general.difficulty_rows.map(|row| row.rof),
             [f64::from(0.8f32), 1.0, f64::from(1.2f32)]
@@ -10404,10 +10438,9 @@ Projectile=Invisible
     /// and are not `NotHuman=`, so their deaths pick from the six.
     #[test]
     fn retail_dead_bodies() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         assert_eq!(
             rules.general.dead_bodies,
             [
@@ -10428,10 +10461,9 @@ Projectile=Invisible
     /// comment); the Grizzly and Rhino keep the constructor's 8.
     #[test]
     fn retail_fire_angle() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).expect("retail rules parse");
         for (object, fire_angle) in [
             ("DEST", 32),
             ("BSUB", 64),
@@ -10582,13 +10614,11 @@ Projectile=Invisible
     /// constructor's 0, 1.0 and 0.0 stay.
     #[test]
     fn retail_elevation_model() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
         let two = NativeF64Bits::from_bits(2.0f64.to_bits());
-        let model = RuleSet::from_ini(&ini)
-            .expect("retail rules parse")
-            .elevation_model;
+        let model = rules.elevation_model;
         assert_eq!(
             (model.increment, model.increment_bonus, model.bonus_cap),
             (4, two, two)

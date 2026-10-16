@@ -561,6 +561,11 @@ pub struct ObjectType {
     pub voice_die: Vec<String>,
     /// Ordered sound choices played when this entity dies or is destroyed.
     pub die_sounds: Vec<String>,
+    /// `CreateSound=` — TechnoType+534, constructor710EE3=-1. Original
+    /// reader712E75..712EB7 uses ReadString128 then VocFindIndex7514D0,
+    /// retaining the last valid fixed-catalog ID through reached rules passes.
+    /// House RecordLastBuilt4FB7CA overrides its class cue with this scalar.
+    create_sound: Option<String>,
     /// `DamageSound=` — `TechnoTypeClass+0x538`, the type's own struck cue.
     ///
     /// Original gamemd (SHA2561cdd1180e490...) inherited constructor710AF0
@@ -881,8 +886,9 @@ pub struct ObjectType {
     /// Native open-hold delay from `GateCloseDelay=` converted as
     /// `trunc(value * 900)`.
     pub gate_close_delay_ticks: u32,
-    /// Bonus credits storage for refineries (Storage= in rules.ini).
-    /// Refineries typically have Storage=300 — added to owner credits on placement.
+    /// Signed `Storage=` capacity from the TechnoType rules reader. Building
+    /// capacity contributes to House+310, read by Available_Storage4F69D0;
+    /// placement does not grant this many credits. Mobile cargo uses it too.
     pub storage: i32,
     /// Free unit spawned when this structure is placed (FreeUnit= in rules.ini).
     pub free_unit: Option<String>,
@@ -1996,13 +2002,19 @@ impl ObjectType {
         self.damage_sound.as_deref()
     }
 
-    /// Bind TechnoType+538 through the shared registered-reference reader,
+    pub fn create_sound(&self) -> Option<&str> {
+        self.create_sound.as_deref()
+    }
+
+    /// Bind TechnoType+534/+538 in original712E75..712F07 read order,
     /// using only passes where this type existed in the native processing order.
-    pub(crate) fn bind_damage_sound_reference(
+    pub(crate) fn bind_scalar_sound_references(
         &mut self,
         section: Option<&IniSection>,
         sounds: &SoundRegistry,
     ) {
+        self.create_sound =
+            section.and_then(|section| sounds.read_rules_reference(section, "CreateSound"));
         self.damage_sound =
             section.and_then(|section| sounds.read_rules_reference(section, "DamageSound"));
     }
@@ -2529,6 +2541,7 @@ impl ObjectType {
                 .read_sound_list("DieSound")
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_default(),
+            create_sound: None,
             damage_sound: None,
             move_sound: section
                 .read_sound_list("MoveSound")
@@ -5512,12 +5525,9 @@ mod tests {
     /// `0x00460EDB`), defaulting to the constructor's false.
     #[test]
     fn retail_crate_beneath_reads() {
-        use crate::rules::ruleset::RuleSet;
-
-        let Some((ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).unwrap();
         for (id, beneath, money) in [
             ("CAWASH01", true, true),
             ("CARUS07", true, false),

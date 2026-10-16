@@ -136,10 +136,9 @@ fn reload_visit_matches_the_original() {
 /// 270 frames, as the original's `retail` row does (0.3's double gives 269).
 #[test]
 fn retail_reload_rate_services_every_270_frames() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
     assert_eq!(
         rules.general.reload_rate.to_bits(),
         f64::from(0.3_f32).to_bits()

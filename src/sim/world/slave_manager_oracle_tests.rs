@@ -104,11 +104,8 @@ const YAREFN_NW: (u16, u16) = (12, 12);
 /// The oracle's regen spare (`slave_address(7)`).
 const SPARE: u64 = 7;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/slave_manager.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/slave_manager.json")
 }
 
 fn mission(name: &str) -> MissionType {

@@ -91,7 +91,7 @@ fn stock_refinery_completion_rules() -> RuleSet {
     );
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art_ini)
         .expect("stock refinery completion rules should parse");
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art_ini));
     rules
 }
 
@@ -527,7 +527,7 @@ fn gsi_04_07_wall_placement_contract() -> (RuleSet, OverlayTypeRegistry) {
     );
     let mut rules =
         RuleSet::from_ini_with_fixed_art_for_test(&ini, &art_ini).expect("wall placement rules");
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art_ini));
     (rules, OverlayTypeRegistry::from_ini(&ini, None))
 }
 
@@ -1592,7 +1592,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
     // A retained death has real ART and a native sequence clock. An absent
     // death record retires on the first class visit, before this command.
     let death_art = IniFile::from_str("[E1]\nSequence=E1Sequence\n[E1Sequence]\nDie1=56,15,0\n");
-    rules.install_art_data(ArtRegistry::from_ini(&death_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&death_art));
     rules.bind_animation_sequences(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&death_art),
     );
@@ -1924,9 +1924,20 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
 
 #[test]
 fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
-    let (rules, registry) = gsi_04_07_wall_placement_contract();
+    let (mut rules, registry) = gsi_04_07_wall_placement_contract();
+    // A registered custom cue exercises RecordLastBuilt after Rust consumes
+    // the temporary wall. Original440774 ->UnInit5F65F0 defers deletion;
+    // Record4FB7DC reads its retained constructor Location, never the cell
+    // being stamped. Only this test's sound input extends the wall fixture.
+    let sound_ini = IniFile::from_str(
+        "[SoundList]\n0=FixtureWallCreated\n[FixtureWallCreated]\nSounds=wall\n\
+         [GAWALL]\nCreateSound=FixtureWallCreated\n",
+    );
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&sound_ini);
+    rules.bind_type_sound_references(&sound_ini, &sounds);
     let path_grid = PathGrid::new(64, 64);
     let mut sim = placement_sim();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     super::house_for_test(&mut sim, "Americans")
         .economy
         .set_credits_for_test(50_000);
@@ -1988,6 +1999,66 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     }));
     assert_eq!(tick.state_hash, Some(sim.state_hash()));
     assert!(!sim.substrate.entities.contains(held));
+    let completion_order = sim
+        .sound_events
+        .iter()
+        .filter_map(|event| match event {
+            crate::sim::world::SimSoundEvent::BuildingPlaced { owner: event_owner }
+                if *event_owner == owner =>
+            {
+                Some("BuildingSlam")
+            }
+            crate::sim::world::SimSoundEvent::VocAt { sound_id, .. }
+                if sound_id == "FixtureWallCreated" =>
+            {
+                Some("CreateSound")
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        completion_order,
+        ["BuildingSlam", "CreateSound"],
+        "HousePlace4FB314 requests BuildingSlam before RecordLastBuilt4FB4B7"
+    );
+    let cues = sim
+        .sound_events
+        .iter()
+        .filter_map(|event| {
+            let crate::sim::world::SimSoundEvent::VocAt {
+                sound_id,
+                audible_to,
+                rx,
+                ry,
+                sub_x,
+                sub_y,
+                world_z_leptons,
+            } = event
+            else {
+                return None;
+            };
+            (sound_id == "FixtureWallCreated").then_some((
+                *audible_to,
+                *rx,
+                *ry,
+                *sub_x,
+                *sub_y,
+                *world_z_leptons,
+            ))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cues,
+        [(
+            None,
+            0,
+            0,
+            crate::util::fixed_math::SimFixed::ZERO,
+            crate::util::fixed_math::SimFixed::ZERO,
+            0
+        )],
+        "consumed original wall still owns one raw-zero cue"
+    );
     let successor = super::lifecycle_tests::held_id(&sim, owner, category);
     assert!(successor > held);
     assert_eq!(
@@ -2434,6 +2505,7 @@ fn gsi_04_07_placement_command_places_only_its_own_houses_production() {
     let (rules, registry) = gsi_04_07_wall_placement_contract();
     let path_grid = PathGrid::new(64, 64);
     let mut sim = placement_sim();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     spawn_structure(&mut sim, &rules, 1, "Russians", "GACNST", 10, 10);
     sim.overlay_grid = Some(OverlayGrid::new(64, 64));
     ready_building(&mut sim, &rules, "Russians", "GAWALL");
@@ -3677,7 +3749,7 @@ fn stock_yuri_cloning_world_with_scenario(
         .expect("stock Yuri Battle rules layers");
     let registry = OverlayTypeRegistry::from_ini(processed.ini(), Some(&fixed_art));
     let mut rules = RuleSet::from_processed_rules(&processed).expect("stock Yuri Battle rules");
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&fixed_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&fixed_art));
     rules.bind_animation_sequences(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&fixed_art),
     );
@@ -4185,7 +4257,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
         assert_eq!(plane.radio_contacts.slot(0), Some(airfield));
         assert_eq!(plane.tether.partner(), None, "TETHER");
         assert_eq!(
-            plane.aircraft_ammo.as_ref().and_then(|ammo| ammo.dock()),
+            plane.ammo().and_then(|ammo| ammo.dock()),
             Some(airfield),
             "+0x6CC"
         );

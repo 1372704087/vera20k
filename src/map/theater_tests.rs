@@ -542,11 +542,8 @@ fn general_reader_missing_bridge_middle_returns_none() {
     assert_eq!(super::read_general_u16(general, "BridgeMiddle2"), None);
 }
 
-fn native_general_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/rules_oracle/theater_general_reader.json",
-    ))
-    .expect("executed 545150 General reader corpus")
+fn native_general_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/rules_oracle/theater_general_reader.json")
 }
 
 #[test]

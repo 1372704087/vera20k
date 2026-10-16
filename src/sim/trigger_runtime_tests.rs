@@ -1007,7 +1007,6 @@ fn retail_sov01_script_context() -> Option<(
     };
     use crate::rules::team_ai_ini::TeamAiIniRegistry;
     let raw_map = retail_archive_bytes("SOV01UMD.MAP")?;
-    let (retail, art) = retail_rules_and_art()?;
     let ai = retail_ini("aimd.ini")?;
     let map = crate::map::map_file::MapFile::from_bytes(&raw_map).unwrap();
     assert_eq!(
@@ -1015,13 +1014,22 @@ fn retail_sov01_script_context() -> Option<(
         "498b989a4b6f579dee0904a77f1fabf982c14786db21a46c41900fc8344ec72b"
     );
     let registry = TeamAiIniRegistry::from_sources(&ai, &map.ini, false);
-    let mut layers = RulesLayerStack::new(retail);
-    layers.push(RulesLayerKind::Scenario, map.ini.clone());
-    let processed = layers.process_with_fixed_art(&art).unwrap();
-    let mut rules = crate::rules::ruleset::RuleSet::from_processed_rules(&processed).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
-    let terrain_rules = crate::rules::terrain_rules::TerrainRules::from_ini(processed.ini());
-    let water = terrain_rules.semantics_for_land_type(2).unwrap();
+    // The map's Rules over the retail root depend on those files alone, so
+    // they are processed once per test process; each caller gets copies.
+    let (rules, water, overlay) = crate::test_fixture::once_per_process("SOV01 rules", || {
+        let (retail, art) = retail_rules_and_art()?;
+        let mut layers = RulesLayerStack::new(retail);
+        layers.push(RulesLayerKind::Scenario, map.ini.clone());
+        let processed = layers.process_with_fixed_art(&art).unwrap();
+        let mut rules = crate::rules::ruleset::RuleSet::from_processed_rules(&processed).unwrap();
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+        let terrain_rules = crate::rules::terrain_rules::TerrainRules::from_ini(processed.ini());
+        let water = *terrain_rules.semantics_for_land_type(2).unwrap();
+        let overlay =
+            crate::rules::overlay_types::OverlayTypeRegistry::from_ini(processed.ini(), Some(&art));
+        Some((rules, water, overlay))
+    })?;
+    let rules = rules.with_fresh_serial();
     let mut sim = Simulation::new();
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
@@ -1062,8 +1070,6 @@ fn retail_sov01_script_context() -> Option<(
     sim.session.current_house = Some(owner);
     sim.install_team_ai_registry(&registry, &rules).unwrap();
     sim.initialize_trigger_definitions(&map, &registry, None, None);
-    let overlay =
-        crate::rules::overlay_types::OverlayTypeRegistry::from_ini(processed.ini(), Some(&art));
     Some((sim, rules, overlay, map))
 }
 
@@ -2463,6 +2469,7 @@ fn trigger_action_40_normalizes_and_refreshes_authority_same_frame() {
         local_height: 48,
     };
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     sim.install_playfield_from_map_header(&header);
     let initial_bounds = sim.playfield_bounds.expect("initial playfield");
     let mut terrain = flat_trigger_playfield_terrain(100, 100);
@@ -2734,6 +2741,7 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
     let records = Some((&events, &actions));
 
     let mut original = Simulation::new();
+    original.hash_state_every(std::num::NonZeroU64::MIN);
     original.initialize_map_triggers(&triggers, &HashMap::new());
     ordinary_master_frame(&mut original, None, None, records);
     assert!(original.trigger_runtime.globals_set.contains(&13));

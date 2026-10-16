@@ -14,6 +14,7 @@ const TICK_MS: u32 = 33;
 
 fn make_test_sim() -> Simulation {
     let mut sim = Simulation::with_seed(123_456);
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     let entity = MapEntity {
         owner: "Americans".to_string(),
         type_id: "MTNK".to_string(),

@@ -76,11 +76,8 @@ fn authored_ai_trigger_actions_change_only_the_selected_house_latch() {
     }
 }
 
-fn corpus() -> serde_json::Value {
-    let value: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_ai_activation.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static serde_json::Value {
+    let value = crate::test_fixture::json("tools/spatial_oracle/trigger_ai_activation.json");
     assert_eq!(
         value["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"

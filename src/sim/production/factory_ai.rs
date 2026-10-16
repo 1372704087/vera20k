@@ -58,7 +58,9 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
-use super::factory_lifecycle::{abandon_production, record_last_built, start_active_production};
+use super::factory_lifecycle::{
+    BuiltObject, abandon_production, record_last_built, start_active_production,
+};
 use super::production_queue::exit_produced_object;
 use super::production_tech::production_category_for_object;
 
@@ -139,13 +141,20 @@ fn exit_finished_object(
         return;
     };
     let is_building = product_type.category == ObjectCategory::Building;
+    // Original wall Unlimbo440774 consumes the temporary building through
+    // UnInit but retains its ctor Location until deferred deletion. Capture
+    // only that consumed path before Rust disposal; live products are read
+    // at the post-exit RecordLastBuilt4501A4 boundary below.
+    let consumed_wall =
+        (is_building && product_type.wall).then(|| BuiltObject::capture(sim, product));
     let exit = exit_produced_object(sim, rules, building, product, overlay_registry, effects);
     if !is_building && exit == BuildingExit::Placed {
         sim.mission_spawned_entities = true;
     }
     match exit {
         BuildingExit::Placed => {
-            record_last_built(sim, rules, owner, object.type_id);
+            let object = consumed_wall.unwrap_or_else(|| BuiltObject::capture(sim, product));
+            record_last_built(sim, rules, owner, object);
             // CompletedProduction lets the placed object go; the delete
             // finds none to abandon.
             sim.production.factories.remove_building_factory(building);

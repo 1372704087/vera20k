@@ -7,11 +7,8 @@ use crate::map::houses::HouseAllianceMap;
 use crate::sim::house_state::HouseState;
 use crate::sim::world::{ConcealOutcome, PlacementEvidence};
 
-fn packet() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_threat_inputs.json",
-    ))
-    .unwrap()
+fn packet() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/astar_threat_inputs.json")
 }
 
 fn signed(value: &serde_json::Value) -> i32 {

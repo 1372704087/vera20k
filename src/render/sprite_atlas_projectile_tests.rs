@@ -3,11 +3,8 @@ use crate::assets::asset_manager::MediaArchiveMode;
 use crate::rules::{ini_parser::IniFile, retail_ini_fixture::retail_unlayered_rules_with_art};
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/bridge_render_inputs.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/bridge_render_inputs.json")
 }
 
 fn rules(rules: &str, art: &str) -> RuleSet {

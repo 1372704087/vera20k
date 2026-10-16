@@ -293,11 +293,8 @@ impl RetailBridgeFixture {
     }
 }
 
-fn native_bridge_packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_shadow_render.json",
-    ))
-    .unwrap()
+fn native_bridge_packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_shadow_render.json")
 }
 
 fn assert_native_cell_sweep_order(

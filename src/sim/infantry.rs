@@ -281,11 +281,11 @@ impl crate::sim::world::Simulation {
             }
             // REQUIRED SEPARATE MECHANISM:5200E1..520105 reads live
             // Techno+2FC after fear reaches0, calls the shared IsArmed701120
-            // if Ammo0, and refills from Type+684. Shared ground TechnoAmmo
-            // lifecycle is absent; immutable TypeAmmo cannot stand in for
-            // the live count. Stock E1's unlimited native Ammo-1 bypasses
-            // this arm. Saved zero-ammo controls retain the exact native
-            // prerequisite for migration of the existing AircraftAmmo owner.
+            // if Ammo0, and refills from Type+684. The shared Ammo owner now
+            // retains the constructor/chrono count, but this fear refill and
+            // ordinary ground fire debit cycle remain separate. Stock E1's
+            // negative count bypasses this arm. Saved zero-ammo controls
+            // retain its native producer for that lifecycle migration.
             let actor = self
                 .substrate
                 .entities
@@ -800,11 +800,8 @@ mod tests {
         );
     }
 
-    fn fear_corpus() -> serde_json::Value {
-        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/infantry_fear_action.json",
-        ))
-        .unwrap();
+    fn fear_corpus() -> &'static serde_json::Value {
+        let native = crate::test_fixture::json("tools/spatial_oracle/infantry_fear_action.json");
         assert_eq!(
             native["native_sha256"],
             "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"

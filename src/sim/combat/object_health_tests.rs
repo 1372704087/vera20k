@@ -2,11 +2,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::cell::Cell;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/object_health.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/object_health.json")
 }
 
 /// The scalar and callback-mutation comparisons call the same Object body as

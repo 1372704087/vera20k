@@ -1098,8 +1098,8 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .unwrap();
         assert_eq!(
             entity.sight.range(),
-            0,
-            "all three inputs lose information in fog range"
+            sight,
+            "the native signed Type Sight survives construction"
         );
         assert_eq!(entity.sight.is_zero(), sight == 0);
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
@@ -1128,7 +1128,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .get_mut(id)
             .unwrap()
             .sight
-            .set_sight_is_zero_for_test(sight != 0);
+            .stamp_type_sight(if sight == 0 { 1 } else { 0 });
         assert_ne!(
             changed_type_predicate.state_hash(),
             hash,
@@ -1765,10 +1765,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                 }
                 "PLANE" => {
                     assert_eq!(
-                        entity
-                            .aircraft_ammo
-                            .as_ref()
-                            .map(|ammo| (ammo.current(), ammo.max())),
+                        entity.ammo().map(|ammo| (ammo.current(), ammo.max())),
                         Some((5, 5))
                     );
                 }
@@ -2652,7 +2649,7 @@ fn aircraft_ammo_initialization_matches_native_for_authored_and_runtime_objects(
         assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1);
         let authored = sim.substrate.entities.values().next().unwrap();
         for entity in [&runtime, authored] {
-            let ammo = entity.aircraft_ammo.as_ref().unwrap();
+            let ammo = entity.ammo().unwrap();
             assert_eq!(
                 ammo.current(),
                 row["ammo"].as_i64().unwrap() as i32,

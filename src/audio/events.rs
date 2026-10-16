@@ -572,13 +572,17 @@ impl GameSoundEvent {
 ///   [`GameSoundEvent::CreditTick`] — reader `CreditsClass::Draw @ 0x004A24F4`;
 ///   `ImpactWaterSound`/`ImpactLandSound` (`+0x200`/`+0x204`) are the crash
 ///   impact's fallbacks, see above.)
-/// - **Dead on retail data, so not parsed:** `IceCrackSounds` (`+0x644`) is
+/// - **Other silent stock-default leads:** `IceCrackSounds` (`+0x644`) is
 ///   **empty** in stock `rulesmd.ini`;
 ///   `GateUp`/`GateDown` (`+0x404`/`+0x408`) and `Construction` (`+0x6C8`) are
-///   `Dummy`; `CreateUnitSound`/`CreateInfantrySound`/`CreateAircraftSound`
-///   (`+0x178`..`+0x180`) and `LeaveGrinderSound` are empty. `Dummy` is one of
+///   `Dummy`; `LeaveGrinderSound` is empty. `Dummy` is one of
 ///   the eight `[SoundList]` ids with no usable `Sounds=`, so it registers
-///   silently. Parsing any of these would add a field with no player effect.
+///   silently.
+/// - Rules `CreateUnitSound`/`CreateInfantrySound`/`CreateAircraftSound`
+///   (`+0x178`..`+0x180`) and type CreateSound are fixed-catalog references
+///   consumed by the shared production RecordLastBuilt4FB6B0 owner. Stock
+///   class defaults are unset, while types such as BORIS author an active cue;
+///   the existing VocAt event carries that cue without a new audio dispatcher.
 ///
 /// **Superweapon launch cues are landed** — see
 /// [`GameSoundEvent::SuperWeaponActivated`] and

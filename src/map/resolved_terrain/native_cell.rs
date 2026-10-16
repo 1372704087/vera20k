@@ -392,6 +392,22 @@ impl SharedCellDummy {
         }
     }
 
+    /// Every modeled byte, as [`Self::fork_query_identity`] copies them: a test
+    /// fixture keys a cache on the Dummy state its cached work starts from.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn state_words(&self) -> [u64; 8] {
+        [
+            self.cell_word(),
+            u64::from(self.land_type() as u32),
+            u64::from(self.state.raw_flags.load(Ordering::Relaxed)),
+            self.state.native_anchor.load(Ordering::Relaxed),
+            self.state.overlay.load(Ordering::Relaxed),
+            self.state.smudge.load(Ordering::Relaxed),
+            u64::from(self.raw_tube_index() as u16),
+            u64::from(self.neighbor_count()),
+        ]
+    }
+
     /// Reconstruct the modeled fields in place at the native Resize boundary.
     ///
     /// `MapClass::Resize @ 0x00565C10` unconditionally calls

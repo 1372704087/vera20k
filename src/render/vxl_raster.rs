@@ -2024,11 +2024,8 @@ mod tests {
         assert_eq!(turret_pivot_screen_offset(0, 0, 0, 1.0), (0.0, 0.0));
     }
 
-    fn barrel_vectors() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/voxel_oracle/barrel_pitch.json",
-        ))
-        .unwrap()
+    fn barrel_vectors() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/voxel_oracle/barrel_pitch.json")
     }
 
     /// A native row-major 3x4 matrix from its twelve binary32 words, bottom

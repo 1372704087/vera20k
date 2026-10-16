@@ -352,11 +352,8 @@ fn compare_stock_cases(cases: &Value, bounds: impl Fn(&Value) -> Option<RimBound
     }
 }
 
-fn stock_original() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_rim.json",
-    ))
-    .unwrap()
+fn stock_original() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_rim.json")
 }
 
 #[test]

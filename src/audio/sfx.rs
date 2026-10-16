@@ -3552,7 +3552,8 @@ mod tests {
         let Some(mut player) = SfxPlayer::new() else {
             return;
         };
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
         assert_eq!(definitions.eva().len(), 470);
         let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/trigger_action_values.json",
@@ -3642,114 +3643,150 @@ mod tests {
         assert_eq!(compared, 45);
     }
 
+    // One test per master setting, so their real-time playbacks overlap.
+    #[test]
+    fn reached_unit_voice_uses_sound_master_with_sound_muted() {
+        assert_reached_unit_voice_uses_sound_master(1_000, 0.0, 1.0, false);
+    }
+
+    #[test]
+    fn reached_unit_voice_uses_sound_master_with_voice_muted() {
+        assert_reached_unit_voice_uses_sound_master(2_000, 1.0, 0.0, true);
+    }
+
     /// The original ordinary event binds channel+94 to SoundVolume at
     /// 405B91..405B96, also for Techno's unity-gain call at6F9EE5..6F9EF0.
     /// Exercise actual queued/reached playback, live setters and device pulls
     /// with opposite masters; equal defaults would hide a wrong group.
-    #[test]
-    fn reached_unit_voice_uses_sound_master_at_start_and_during_playback() {
+    fn assert_reached_unit_voice_uses_sound_master(
+        now: u64,
+        sound_volume: f64,
+        voice_volume: f64,
+        audible: bool,
+    ) {
         let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
             return;
         };
         let Some(mut player) = SfxPlayer::new() else {
             return;
         };
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-        let loaded_index = assets.load_audio_index().expect("retail audio index");
-        let index = loaded_index.as_ref().map(|loaded| &loaded.index);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let index = loaded_index.map(|loaded| &loaded.index);
         let mut service = TestAudioService::default();
-        for (now, sound_volume, voice_volume, audible) in
-            [(1_000, 0.0, 1.0, false), (2_000, 1.0, 0.0, true)]
-        {
+        player.set_sound_volume(sound_volume);
+        player.set_voice_volume(voice_volume);
+        player
+            .observe_pcm(PcmObservationConfig {
+                sound_ids: vec!["GIMove".into()],
+                max_events: 1,
+                max_samples_per_event: 262_144,
+            })
+            .unwrap();
+        player.queue_unit_voice(7, "GIMove");
+        player.visit_unit_voice(7, definitions.sounds());
+        service.pump(&mut player, now, definitions.sounds(), &assets, index);
+        assert!(player.play_eva(
+            "EVA_UnitReady",
+            None,
+            definitions.eva(),
+            EvaSide::Allied,
+            definitions.sounds(),
+            &assets,
+            index,
+        ));
+        assert_eq!(
+            player.eva_player.as_ref().unwrap().player.volume() > 0.0,
+            voice_volume > 0.0,
+            "EVA retains its independent VoiceVolume group"
+        );
+        let event = player
+            .arbiter
+            .validate_loop_handle(HandleOwner::UnitVoice(7))
+            .expect("reached head has an admitted handle");
+        let started_gain = player.live[&event].player.volume();
+        assert_eq!(
+            started_gain > 0.0,
+            audible,
+            "unit voice must use SoundVolume={sound_volume}, not VoiceVolume={voice_volume}"
+        );
+        player.set_voice_volume(1.0 - voice_volume);
+        assert_eq!(player.live[&event].player.volume(), started_gain);
+        assert_eq!(
+            player.eva_player.as_ref().unwrap().player.volume() > 0.0,
+            voice_volume == 0.0
+        );
+        player.set_voice_volume(voice_volume);
+        if audible {
+            player.set_sound_volume(0.0);
+            assert_eq!(player.live[&event].player.volume(), 0.0);
             player.set_sound_volume(sound_volume);
-            player.set_voice_volume(voice_volume);
-            player
-                .observe_pcm(PcmObservationConfig {
-                    sound_ids: vec!["GIMove".into()],
-                    max_events: 1,
-                    max_samples_per_event: 262_144,
-                })
-                .unwrap();
-            player.queue_unit_voice(7, "GIMove");
-            player.visit_unit_voice(7, definitions.sounds());
-            service.pump(&mut player, now, definitions.sounds(), &assets, index);
-            assert!(player.play_eva(
-                "EVA_UnitReady",
-                None,
-                definitions.eva(),
-                EvaSide::Allied,
-                definitions.sounds(),
-                &assets,
-                index,
-            ));
-            assert_eq!(
-                player.eva_player.as_ref().unwrap().player.volume() > 0.0,
-                voice_volume > 0.0,
-                "EVA retains its independent VoiceVolume group"
-            );
-            let event = player
-                .arbiter
-                .validate_loop_handle(HandleOwner::UnitVoice(7))
-                .expect("reached head has an admitted handle");
-            let started_gain = player.live[&event].player.volume();
-            assert_eq!(
-                started_gain > 0.0,
-                audible,
-                "unit voice must use SoundVolume={sound_volume}, not VoiceVolume={voice_volume}"
-            );
-            player.set_voice_volume(1.0 - voice_volume);
             assert_eq!(player.live[&event].player.volume(), started_gain);
-            assert_eq!(
-                player.eva_player.as_ref().unwrap().player.volume() > 0.0,
-                voice_volume == 0.0
-            );
-            player.set_voice_volume(voice_volume);
-            if audible {
-                player.set_sound_volume(0.0);
-                assert_eq!(player.live[&event].player.volume(), 0.0);
-                player.set_sound_volume(sound_volume);
-                assert_eq!(player.live[&event].player.volume(), started_gain);
-            }
-            player.live[&event].player.sleep_until_end();
-            player.report_finished_outputs();
-            let report = player.finish_pcm_observation().unwrap();
-            assert!(!report.truncated);
-            assert_eq!(report.outputs.len(), 1);
-            let output = &report.outputs[0];
-            assert!(output.sample_bits.len() >= output.source_sample_count);
-            assert!(output.source_sample_count > 0);
-            assert!(
-                output
-                    .sample_bits
-                    .iter()
-                    .all(|bits| f32::from_bits(*bits).is_finite())
-            );
-            let nonzero = output
+        }
+        player.live[&event].player.sleep_until_end();
+        player.report_finished_outputs();
+        let report = player.finish_pcm_observation().unwrap();
+        assert!(!report.truncated);
+        assert_eq!(report.outputs.len(), 1);
+        let output = &report.outputs[0];
+        assert!(output.sample_bits.len() >= output.source_sample_count);
+        assert!(output.source_sample_count > 0);
+        assert!(
+            output
                 .sample_bits
                 .iter()
-                .filter(|bits| f32::from_bits(**bits) != 0.0)
-                .count();
-            assert_eq!(nonzero > 0, audible, "post-Player device pulls");
-            eprintln!(
-                "GI SoundVolume={sound_volume} VoiceVolume={voice_volume}: {} pulls, {nonzero} nonzero",
-                output.sample_bits.len()
-            );
-            player.stop_all();
-        }
+                .all(|bits| f32::from_bits(*bits).is_finite())
+        );
+        let nonzero = output
+            .sample_bits
+            .iter()
+            .filter(|bits| f32::from_bits(**bits) != 0.0)
+            .count();
+        assert_eq!(nonzero > 0, audible, "post-Player device pulls");
+        eprintln!(
+            "GI SoundVolume={sound_volume} VoiceVolume={voice_volume}: {} pulls, {nonzero} nonzero",
+            output.sample_bits.len()
+        );
+        player.stop_all();
+        // The same player re-arms observation and admits the voice again
+        // after the hard stop.
+        player
+            .observe_pcm(PcmObservationConfig {
+                sound_ids: vec!["GIMove".into()],
+                max_events: 1,
+                max_samples_per_event: 262_144,
+            })
+            .unwrap();
+        player.queue_unit_voice(7, "GIMove");
+        player.visit_unit_voice(7, definitions.sounds());
+        service.pump(
+            &mut player,
+            now + 1_000,
+            definitions.sounds(),
+            &assets,
+            index,
+        );
+        assert!(
+            player
+                .arbiter
+                .validate_loop_handle(HandleOwner::UnitVoice(7))
+                .is_some()
+        );
+        player.stop_all();
     }
 
     /// Original two-E1 QueueVoice708D90 -> AI6F9EBB -> PlayAtPos750920
     /// admits two distinct state-0 SoundEvents before either sample starts.
     #[test]
     fn two_e1_acknowledgements_hold_two_shared_pool_events() {
-        let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        let Some(definitions) = crate::rules::retail_ini_fixture::retail_audio_definitions() else {
             return;
         };
         let Some(mut player) = SfxPlayer::new() else {
             return;
         };
         player.set_volume(0.0);
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
         player.queue_unit_voice(3, "GIMove");
         player.queue_unit_voice(2, "GIMove");
         player.visit_unit_voice(2, definitions.sounds());
@@ -3778,9 +3815,10 @@ mod tests {
         };
         player.set_volume(0.0);
         let mut service = TestAudioService::default();
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-        let loaded_index = assets.load_audio_index().expect("selected audio index");
-        let audio_index = loaded_index.as_ref().map(|loaded| &loaded.index);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let audio_index = loaded_index.map(|loaded| &loaded.index);
         // `PlayNextQueued` needs `now > end_time + gap`, so the clock must
         // have moved off zero before the first line can start.
         service.pump(
@@ -3842,17 +3880,14 @@ mod tests {
         let native = &fixture["controls"]["buffer"]["decoded_pcm"];
         let selected = &fixture["controls"]["buffer"]["registered_prior"]["notification_suffix"][0]
             ["after"]["selected"][0];
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
         let entry = definitions.eva().entry("EVA_UnitReady").unwrap();
         let sample = entry.column(EvaSide::Allied).unwrap();
         assert_eq!(sample, selected["allied"].as_str().unwrap());
-        let loaded_index = assets.load_audio_index().expect("selected audio index");
-        let decoded = load_sfx(
-            sample,
-            &assets,
-            loaded_index.as_ref().map(|loaded| &loaded.index),
-        )
-        .expect("production stock UnitReady decoder");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let decoded = load_sfx(sample, &assets, loaded_index.map(|loaded| &loaded.index))
+            .expect("production stock UnitReady decoder");
         assert_eq!(
             u64::from(decoded.sample_rate),
             native["samples_per_second"].as_u64().unwrap()
@@ -3905,9 +3940,10 @@ mod tests {
         // callback or an invented idle-lapse trigger. Sample RNG stays untouched.
         let (_root, assets) = crate::rules::retail_ini_fixture::retail_assets()
             .expect("explicit device witness requires active-retail assets");
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-        let loaded_index = assets.load_audio_index().expect("retail audio index");
-        let audio_index = loaded_index.as_ref().map(|loaded| &loaded.index);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let audio_index = loaded_index.map(|loaded| &loaded.index);
         let entry = definitions.sounds().get("SquidMove").unwrap();
         assert_eq!(entry.control, control::RANDOM);
         assert_eq!(entry.loop_count, 0);
@@ -4056,9 +4092,10 @@ mod tests {
         let mut service = TestAudioService::default();
         let (_root, assets) = crate::rules::retail_ini_fixture::retail_assets()
             .expect("explicit device witness requires active-retail assets");
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-        let loaded_index = assets.load_audio_index().expect("retail audio index");
-        let audio_index = loaded_index.as_ref().map(|loaded| &loaded.index);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let audio_index = loaded_index.map(|loaded| &loaded.index);
         let sounds = definitions.sounds();
         let entry = sounds.get("_Amb_OceanLight").unwrap();
         assert_eq!(
@@ -4190,9 +4227,10 @@ mod tests {
             ["selected"][0];
         let (_root, assets) = crate::rules::retail_ini_fixture::retail_assets()
             .expect("this explicit consumer check requires active-retail assets");
-        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-        let loaded_index = assets.load_audio_index().expect("selected audio index");
-        let audio_index = loaded_index.as_ref().map(|loaded| &loaded.index);
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let audio_index = loaded_index.map(|loaded| &loaded.index);
         let entry = definitions.eva().entry("EVA_UnitReady").unwrap();
         assert_eq!(entry.column(EvaSide::Allied), Some("ceva062"));
         assert_eq!(entry.eva_type, EvaType::Standard);

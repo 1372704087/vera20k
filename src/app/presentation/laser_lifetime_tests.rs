@@ -6,11 +6,8 @@ use crate::sim::intern::InternedId;
 use crate::sim::projectile::ProjectileCoord;
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 
 fn integer(value: &Value) -> i32 {

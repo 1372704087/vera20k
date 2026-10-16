@@ -26,11 +26,8 @@ const BUILDING: (u16, u16) = (5, 5);
 const IN_RANGE: (u16, u16) = (8, 5);
 const OUT_OF_RANGE: (u16, u16) = (15, 5);
 
-fn golden() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_retaliation.json",
-    ))
-    .unwrap()
+fn golden() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_retaliation.json")
 }
 
 /// `DEF` with the row's type fields, an enemy `TANK` and `JET`, and

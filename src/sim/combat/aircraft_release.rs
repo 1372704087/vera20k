@@ -120,10 +120,7 @@ pub(super) fn visit(
             entity.attack_target.target(),
             &world.substrate.entities,
         ),
-        ammo: entity
-            .aircraft_ammo
-            .as_ref()
-            .map_or(-1, |ammo| ammo.current()),
+        ammo: entity.ammo().map_or(-1, |ammo| ammo.current()),
         strafe: combat_weapon::aircraft_strafes(rules, obj, entity.veterancy.rank()),
         fighter: obj.fighter,
         curley_shuffle: rules.general.curley_shuffle,
@@ -454,7 +451,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             .clamp(0, i32::from(u16::MAX)) as u16;
         let config = world.sight_reveal_config(Some(strike.rules));
         let heights = world.sight_height_grid(&config);
-        world.reveal_area(
+        let _ = world.reveal_area(
             &[owner],
             (
                 location.x.div_euclid(256) as u16,
@@ -467,6 +464,8 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             &config,
             crate::sim::world::UninitContext::new(Some(strike.rules), strike.overlay_registry)
                 .with_effects(strike.run.effects()),
+            crate::sim::vision::MapRevealProjection::Transient,
+            world.session.current_house,
         );
     }
 
@@ -534,7 +533,7 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
             .substrate
             .entities
             .get_mut(id)
-            .and_then(|e| e.aircraft_ammo.as_mut())
+            .and_then(|e| e.ammo_mut())
         {
             ammo.begin_release();
         }
@@ -603,7 +602,7 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
             .substrate
             .entities
             .get(self.snap.stable_id)
-            .and_then(|entity| entity.aircraft_ammo.as_ref())
+            .and_then(|entity| entity.ammo())
             .map_or(-1, |ammo| ammo.current())
     }
 }

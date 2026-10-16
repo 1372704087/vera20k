@@ -52,8 +52,8 @@ const FIXTURE_ANIMS: [(&str, i32, i32); 9] = [
 /// The oracle's map: cells beyond its 60-cell Size stay real cells.
 const FIXTURE_MAP: u16 = 128;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -175,7 +175,11 @@ fn fixture_world(
         off_108: span * 2,
     });
     sim.playfield_size_height = Some(size.1);
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    let terrain_key: Vec<_> = specs
+        .iter()
+        .map(|(at, spec)| (*at, spec.to_string()))
+        .collect();
+    crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, terrain_key);
     let mut ids = Vec::new();
     for (index, house) in houses.iter().enumerate() {
         let name = format!("H{index}");

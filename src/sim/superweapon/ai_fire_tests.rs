@@ -6,7 +6,6 @@
 use super::*;
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::resolved_terrain::test_grid;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::production::ProductionCategory;
 use crate::sim::superweapon::SuperWeaponInstance;
@@ -35,8 +34,8 @@ const TYPE_NAMES: [&str; 12] = [
     "PsychicReveal",
 ];
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -138,7 +137,7 @@ fn catalog_rules(oracle: &Value, values: Option<&Value>, extra: &str) -> RuleSet
         &art,
     )
     .unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     rules
 }
 
@@ -287,7 +286,7 @@ fn the_try_fire_arms_match_native() {
         sim.session.binary_frame = int(&row["frame"]) as u32;
         sim.resolved_terrain = Some(test_grid(64, 64, test_terrain_cell));
         sim.playfield_bounds = Some(test_playfield_bounds());
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "ai fire flat 64");
         let rally = cell(&row["rally"]);
         if rally != NO_CELL {
             sim.spawn_object_at_height(
@@ -430,7 +429,7 @@ fn the_genetic_mutator_target_matches_native() {
             .insert(ALLY.to_ascii_uppercase());
         sim.resolved_terrain = Some(test_grid(64, 64, test_terrain_cell));
         sim.playfield_bounds = Some(playfield(&oracle));
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "ai fire flat 64");
         // Each listed object and its cell, in arrival order; the cells that
         // hold a Unit or Building.
         let mut listed = Vec::new();
@@ -643,7 +642,7 @@ fn retail_skirmish() -> Option<(RuleSet, Simulation, InternedId, InternedId)> {
     sim.session.game_options.super_weapons = true;
     sim.resolved_terrain = Some(test_grid(64, 64, test_terrain_cell));
     sim.playfield_bounds = Some(test_playfield_bounds());
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "ai fire flat 64");
     Some((rules, sim, americans, russians))
 }
 
@@ -893,7 +892,7 @@ fn the_psychic_dominator_target_matches_native() {
         &art,
     )
     .unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     const NO_HOUSE: &str = "Nobody";
     for row in rows {
         let mut sim = Simulation::with_seed(5);
@@ -916,7 +915,7 @@ fn the_psychic_dominator_target_matches_native() {
             .insert(ALLY.to_ascii_uppercase());
         sim.resolved_terrain = Some(test_grid(64, 64, test_terrain_cell));
         sim.playfield_bounds = Some(playfield(&oracle));
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "ai fire flat 64");
         let status = u8::try_from(int(&row["psydom"])).unwrap();
         sim.psychic_dominator = PsychicDominatorState::for_test(
             status,

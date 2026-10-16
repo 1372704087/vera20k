@@ -100,11 +100,8 @@ mod tests {
     use super::*;
 
     /// Golden vectors captured from the original binary under emulation.
-    fn vectors() -> serde_json::Value {
-        let doc: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/rmg_oracle/vectors/rng.json",
-        ))
-        .unwrap();
+    fn vectors() -> &'static serde_json::Value {
+        let doc = crate::test_fixture::json("tools/rmg_oracle/vectors/rng.json");
         assert_eq!(
             doc["source"].as_str(),
             Some("unicorn/gamemd.exe"),

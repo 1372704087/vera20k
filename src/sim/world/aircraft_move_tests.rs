@@ -102,11 +102,8 @@ fn fly_and_jumpjet_planned_move_legs_progress_through_native_arrival() {
     }
 }
 
-fn vectors() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_move.json",
-    ))
-    .unwrap()
+fn vectors() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_move.json")
 }
 
 fn cell_of(value: &Value) -> (u16, u16) {
@@ -658,10 +655,9 @@ fn an_attack_commenced_over_mission_move_starts_at_state_zero() {
 /// retail aircraft type sets the key, so every one runs `0x004166E0`.
 #[test]
 fn retail_aircraft_types_are_not_carryalls() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert!(!rules.aircraft_ids.is_empty());
     for name in &rules.aircraft_ids {
         assert!(!rules.object(name).unwrap().carryall, "{name}");

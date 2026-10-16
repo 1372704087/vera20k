@@ -3,16 +3,23 @@
 //! Every writer goes through the money primitives here, each the one port of
 //! its native function.
 //!
-//! The house's silo storage (`+0x2FC`) is not kept, because nothing fills it:
-//! it grows only when `HouseClass::Added_To_Game @ 0x00502B83` merges a
-//! building's own store (`+0x33C`), which no code adds to, and the `Weeder=`
-//! deposit (`Add_Tiberium_To_Storage @ 0x004F9700`, called only at
-//! `0x0073E48E`) fills a separate store (`+0x314`). So `Spend_Money`'s silo
-//! drain and `Available_Money`'s storage term never run, and
-//! tools/house_money_oracle.py pins them on an empty store. One writer is not
-//! ported: `Fill_In_Data`'s `[Basic] FillSilos=` loop (`0x00684F02..
-//! 0x00684F7C`) calls `Add_Tiberium_Credits` while the silos have room, and
-//! the retail scenarios that author the key all set it to no.
+//! The house's silo aggregate (`+0x2FC`) is not represented here. Spend_Money
+//! omits its silo-drain arm; Available_Money omits its storage-value term
+//! and assumes a finite native HouseType `IncomeMult`. The corresponding
+//! tools/house_money_oracle.py controls supply an empty aggregate.
+//! `Added_To_Game @ 0x00502B83` merges a building's store (`+0x33C`), while
+//! the `Weeder=` deposit (`0x004F9700`, called at `0x0073E48E`) writes the
+//! separate store `+0x314`. Raw native Save/Load preserves these slots, so
+//! the empty-store boundary must not be extended to arbitrary native saves.
+//!
+//! `Fill_In_Data`'s exact `[Basic] FillSilos=` path (`0x00684F02..0x00684F7C`)
+//! is a separate unported cash/score writer, not a storage fill: it retains
+//! the initial Available_Money as a local budget. While that budget exceeds
+//! the first Tiberium's Value and Available_Storage is positive, it calls
+//! Add_Tiberium_Credits with amount1.0/type0 and subtracts Value from the
+//! local budget. The credit callee writes no storage.
+//! Native `Set_Defaults @ 0x00683893` clears the flag. It is absent in the
+//! inspected stock multiplayer map/mode corpus; custom true remains accepted.
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1). The wallet is
 //! serialized and hashed.
@@ -88,12 +95,17 @@ impl Economy {
     }
 
     /// `HouseClass::Available_Money @ 0x004F6990`: `ftol(storage value *
-    /// IncomeMult + balance)`, the balance while the silos are empty.
+    /// IncomeMult + balance)`. For empty storage and finite native IncomeMult,
+    /// this is exactly the retained signed balance for every i32 balance.
+    /// Nonempty/native-save and nonfinite-income inputs remain outside this
+    /// represented domain; the two consumed oracle controls use empty storage.
     pub const fn available_money(&self) -> i32 {
         self.credits
     }
 
-    /// `HouseClass::Add_Credits @ 0x004F9950`: `balance += amount`, wrapping.
+    /// `HouseClass::Add_Credits @ 0x004F9950..0x004F9962`: the complete body
+    /// adds the signed argument to House+30C modulo2^32 and writes only that
+    /// balance. No score/spending, timer, RNG, detach or callback side effect.
     pub fn add_credits(&mut self, amount: i32) {
         self.credits = self.credits.wrapping_add(amount);
     }

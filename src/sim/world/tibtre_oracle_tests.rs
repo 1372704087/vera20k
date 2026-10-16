@@ -13,11 +13,8 @@ use crate::sim::tiberium::{
 use crate::util::native_x87::NativeF32Bits;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/tibtre.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/tibtre.json")
 }
 
 fn fixture(input: &Value, stock: &Value) -> (Scene, Vec<(u16, u16)>) {

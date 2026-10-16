@@ -44,28 +44,6 @@ const ACTION_SET_SUPER_CHARGE_PERCENTAGE: i32 = 129;
 const ACTION_SET_ALTERNATE_BASE: i32 = 137;
 const ACTION_CLEAR_ALTERNATE_BASE: i32 = 138;
 
-// Rust-only attribution of retiring the former duplicated announcement feed.
-// No native/gameplay state is restored, and release builds contain no control.
-#[cfg(any(test, feature = "test-support"))]
-std::thread_local! {
-    static LEGACY_ANNOUNCEMENT_HASH_CONTROL: std::cell::Cell<bool> = const {
-        std::cell::Cell::new(false)
-    };
-}
-
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) fn with_legacy_announcement_hash_control_for_test<R>(read: impl FnOnce() -> R) -> R {
-    struct Restore(bool);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(|control| control.set(self.0));
-        }
-    }
-    let prior = LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(|control| control.replace(true));
-    let _restore = Restore(prior);
-    read()
-}
-
 const EVENT_ANY: i32 = 8;
 const EVENT_GLOBAL_IS_SET: i32 = 27;
 const EVENT_GLOBAL_IS_CLEAR: i32 = 28;
@@ -702,19 +680,6 @@ impl TriggerRuntime {
         self.map_cursor.hash(hasher);
         self.definitions_prepared.hash(hasher);
         self.classified.hash(hasher);
-        #[cfg(any(test, feature = "test-support"))]
-        if LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(std::cell::Cell::get) {
-            // Exact old Rust enum shape at HEAD40bcc7a7. Even None folded
-            // Option's discriminant. These no-Tag replay fixtures never wrote
-            // the placeholder; the current House result owner replaces it.
-            #[allow(dead_code)]
-            #[derive(Hash)]
-            enum LegacyAnnouncementKind {
-                Victory,
-                Defeat,
-            }
-            Option::<LegacyAnnouncementKind>::None.hash(hasher);
-        }
     }
     fn tag(&self, index: usize) -> Option<&LiveTag> {
         self.tags.get(index)?.as_ref()
@@ -3326,7 +3291,7 @@ impl Simulation {
                     self.flash_teams_of_type(team_id, value.unwrap_or(0));
                 }
             }
-            4 | 7 | 80 => {
+            4 | 7 | 80 | 107 => {
                 let Some(DefinitionReference::Team(team)) = reference else {
                     return false;
                 };
@@ -3344,7 +3309,7 @@ impl Simulation {
                 // Reinforcement6E2DC0 uses the TeamType waypoint. Action80
                 //6DEBD0 passes its+44 override to the same65D8E0 owner;
                 //null Team or waypoint-1 is rejected before that call.
-                let waypoint = if action.kind == 80 {
+                let waypoint = if matches!(action.kind, 80 | 107) {
                     let Some(waypoint) = action.waypoint_index else {
                         return false;
                     };
@@ -3352,16 +3317,29 @@ impl Simulation {
                 } else {
                     -1
                 };
-                if action.kind == 80 && waypoint == -1 {
+                if matches!(action.kind, 80 | 107) && waypoint == -1 {
                     return false;
                 }
-                let (result, recent_event) = self.spawn_team_reinforcements(
-                    team_id,
-                    waypoint,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
+                //1076DF672..6DF698 shares the same resolved Team/+44 gate,
+                //then calls chrono65EC30 instead of ordinary65D8E0. Only -1
+                //is rejected, not every signed negative (original execution).
+                let (result, recent_event) = if action.kind == 107 {
+                    self.spawn_chrono_team_reinforcements(
+                        team_id,
+                        waypoint,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    )
+                } else {
+                    self.spawn_team_reinforcements(
+                        team_id,
+                        waypoint,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    )
+                };
                 if let Some(cell) = recent_event {
                     effects.push(TriggerEffect::RecentEventCell { cell });
                 }
@@ -3884,3 +3862,7 @@ mod build_type_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_wakeup_tests.rs"]
 mod wakeup_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_chrono_reinforcement_tests.rs"]
+mod chrono_reinforcement_tests;

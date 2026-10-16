@@ -5,7 +5,6 @@
 
 use super::electric_bolt::{self, ElectricBoltBirth};
 use super::{TargetKind, WeaponSlot};
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::retail_ini_fixture::{RetailBattleRules, retail_battle_rules_for_map};
 use crate::rules::ruleset::RuleSet;
@@ -115,7 +114,7 @@ fn controlled_rules(retail: &RetailBattleRules, input: &Value) -> RuleSet {
     }
     ini.merge(&IniFile::from_str(&controls));
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     rules
 }
 

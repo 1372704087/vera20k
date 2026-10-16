@@ -54,11 +54,16 @@ impl PowerHealthSample {
 }
 
 /// Per-House power totals retained until native House+5778 is invalidated.
+/// Original gamemd.exe (SHA2561cdd1180e490...) exposes these same retained
+/// values through its IHouse interface, rather than reassessing on a query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PowerState {
-    /// Sum of health-scaled positive `Power=` values for all owned buildings.
+    /// Signed retained generation at House+53A4. `Power_Output4F6A00`
+    /// returns interface+5380, where that IHouse receiver is House+24.
+    /// The query does not clamp; assessment and the later House clamp own it.
     pub total_output: i32,
-    /// Sum of absolute negative `Power=` values (always full rated, regardless of health).
+    /// Signed retained drain at House+53A8. `Power_Drain4F6A10` returns
+    /// interface+5384 unchanged, including before the House4F87FF clamp.
     pub total_drain: i32,
     /// House+577B: an admitted positive-output Building has DrainingMe.
     #[serde(default)]
@@ -222,6 +227,11 @@ impl PowerState {
 /// `HouseClass @ 0x004FCE30`: the house's power ratio, left on the x87 stack.
 /// Output at least drain, or no drain, gives 1.0; no output gives 0.0;
 /// otherwise output / drain (FILD / FIDIV).
+/// Original4FCE33/39 reads the same retained House+53A4/+53A8 values as
+/// the IHouse getters above. The guarded signed-i32 divide uses the shared
+/// PC53/chop owner; neither the query nor its boolean reduction reassesses
+/// or clamps totals. `Is_Powered4F6910` is a separate signed-comparison query,
+/// not the ratio's `not<1` reduction in `PowerState::has_full_power`.
 pub(crate) fn native_power_ratio(output: i32, drain: i32) -> MaskedX87Value {
     use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
 

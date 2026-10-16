@@ -1028,8 +1028,8 @@ fn deserialized_main_rng_placeholder() -> MainRng {
     MainRng::new(0)
 }
 
-fn every_frame() -> std::num::NonZeroU64 {
-    std::num::NonZeroU64::MIN
+fn every_frame() -> Option<std::num::NonZeroU64> {
+    Some(std::num::NonZeroU64::MIN)
 }
 
 fn deserialize_scenario_rng_reset<'de, D>(deserializer: D) -> Result<SimRng, D::Error>
@@ -1430,11 +1430,13 @@ pub struct Simulation {
     #[serde(skip)]
     frame_sync_checksum: Option<FrameSyncChecksum>,
     /// VERA-only: which frames hash their state for the TickResult, by tick
-    /// number. Every frame unless the caller asks for fewer; normal play's
-    /// frame loop asks for every [`crate::sim::replay::PLAY_HASH_INTERVAL`]th.
-    /// A frame that ends the match hashes regardless. Never saved or hashed.
+    /// number; `None` for none. A launch or a loaded save hashes every frame
+    /// unless the caller asks for fewer; normal play's frame loop asks for
+    /// every [`crate::sim::replay::PLAY_HASH_INTERVAL`]th. Test and dev worlds
+    /// ([`Simulation::with_seed`]) hash only when asked. A frame that ends the
+    /// match hashes regardless. Never saved or hashed.
     #[serde(skip, default = "every_frame")]
-    state_hash_interval: std::num::NonZeroU64,
+    state_hash_interval: Option<std::num::NonZeroU64>,
     /// Pending gameplay commands waiting for their scheduled execution tick.
     /// Admitted through `queue_command(s)` and drained each tick when
     /// `cmd.execute_tick <= current_tick + 1`.
@@ -3346,7 +3348,10 @@ impl Simulation {
     /// Create a new empty simulation with an explicit deterministic seed.
     /// Test/dev entry — u64 seeds wider than 32 bits keep their full value in
     /// `session.seed` (pinned harness baselines depend on it) even though the
-    /// stream seeder consumes only 32 bits.
+    /// stream seeder consumes only 32 bits. Its frames hash their state for
+    /// the TickResult only once [`Self::hash_state_every`] asks, or when they
+    /// end the match: hashing the whole world after every frame is most of an
+    /// unoptimized frame's time.
     pub fn with_seed(seed: u64) -> Self {
         let mut session = ScenarioSession::from_descriptor(
             &crate::sim::scenario_session::ScenarioDescriptor::default(),
@@ -3355,6 +3360,7 @@ impl Simulation {
         let mut simulation = Self::construct(session);
         simulation.native_unique_ids =
             Some(crate::sim::native_identity::NativeUniqueIdCursor::for_synthetic_simulation());
+        simulation.state_hash_interval = None;
         simulation
     }
 
@@ -4036,20 +4042,9 @@ impl Simulation {
         // virtual (`0x0070ADC0`), only for human-owned live nonlimbo mobiles;
         // Buildings are explicitly excluded. Rust's owned equivalent commits
         // the sight reveal immediately, before this action returns.
-        let reveal_config = self.sight_reveal_config(rules);
-        let height_grid = self.sight_height_grid(&reveal_config);
         for (stable_id, _, reveal) in membership_updates {
-            if reveal && let Some(entity) = self.substrate.entities.get(stable_id) {
-                let sight_ability = reveal_config.sight_ability(entity, &self.interner, rules);
-                crate::sim::vision::reveal_entity_vision(
-                    &mut self.fog,
-                    entity,
-                    &reveal_config,
-                    height_grid.levels(),
-                    self.resolved_terrain.as_ref(),
-                    sight_ability,
-                    &self.interner,
-                );
+            if reveal {
+                self.reveal_uncached_object_sight(stable_id, UninitContext::new(rules, None));
             }
         }
 
@@ -5106,7 +5101,7 @@ impl Simulation {
             // sight only: what a `RevealToAll=` opening showed the current
             // house stays.
             self.remove_building_gap_before_limbo(stable_id);
-            self.fog.release_entity_sight(stable_id);
+            self.release_object_sight_with_context(stable_id, UninitContext::new(rules, None));
             // Original4483A6 clears PrimaryFactory before the old-house
             //teardown.448C69 initializes it after the delegated owner swap.
             self.production.clear_primary_factory(stable_id);
@@ -6385,27 +6380,11 @@ impl Simulation {
 
     /// The per-frame fog pass: ends last frame's sight, releases the sight of
     /// objects that no longer hold it and admits the sight of objects without
-    /// one (VERA-only, standing in for the lifecycle reveals; residual on
-    /// [`vision::recompute_owner_visibility_in_place`]), then applies SpySat
+    /// one (the remaining House admission reconciliation), then applies SpySat
     /// and Gap Generator effects. Footprints move only at reveal events
     /// ([`Self::refresh_object_sight`]).
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: Option<&RuleSet>) {
-        // End last frame's sight (preserving FLAG_REVEALED), then release and
-        // admit sources.
-        let path_grid = self.path_grid.as_deref();
-        let height_grid = self.sight_height_grid(config);
-
-        vision::recompute_owner_visibility_in_place(
-            &mut self.fog,
-            &self.substrate.entities,
-            path_grid,
-            &self.house_alliances,
-            config,
-            height_grid.levels(),
-            self.resolved_terrain.as_ref(),
-            &self.interner,
-            rules,
-        );
+        self.refresh_sight_sources(config, rules);
 
         // Apply SpySat and Gap Generator effects if rules are available.
         if let Some(rules) = rules {
@@ -6860,7 +6839,7 @@ impl Simulation {
     /// win or loss, a lost connection), whose `frame_committed` is false. A
     /// fixed frame count, so the same commands always hash the same frames.
     pub fn hash_state_every(&mut self, frames: std::num::NonZeroU64) {
-        self.state_hash_interval = frames;
+        self.state_hash_interval = Some(frames);
     }
 
     /// Install the sole audio owner's read-only pending-interest projection
@@ -7265,9 +7244,8 @@ impl Simulation {
         // log records it as its last frame.
         let state_hash = (!frame_committed
             || self
-                .session
-                .tick
-                .is_multiple_of(self.state_hash_interval.get()))
+                .state_hash_interval
+                .is_some_and(|frames| self.session.tick.is_multiple_of(frames.get())))
         .then(|| self.state_hash());
         Ok(MasterFrameOutput {
             admitted_commands: commands,

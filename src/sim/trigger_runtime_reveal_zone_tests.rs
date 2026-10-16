@@ -11,11 +11,8 @@ use crate::sim::vision::{FogState, OwnerVisibility};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_reveal_zone.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/trigger_reveal_zone.json")
 }
 
 fn number(value: &Value) -> i32 {

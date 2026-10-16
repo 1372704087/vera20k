@@ -351,6 +351,7 @@ fn retained_mobile_translucency_matches_original_packed_words() {
                             Some(&shp),
                             Some(&palettes),
                             batch.default_zshape_bind_group(),
+                            None,
                         );
                         let reads = [
                             gpu.read(&mut encoder, &color),
@@ -503,6 +504,7 @@ fn retained_packed_high_resolution_dispatch_preserves_native_pixels() {
             Some(&shp),
             None,
             batch.default_zshape_bind_group(),
+            None,
         );
         let read = gpu.read(&mut encoder, &color);
         let output = gpu.finish(encoder, &[read], size);
@@ -616,6 +618,7 @@ fn retained_packed_workload_timing() {
             Some(&shp),
             None,
             batch.default_zshape_bind_group(),
+            None,
         );
         let command = encoder.finish();
         let encode_ms = start.elapsed().as_secs_f64() * 1000.0;

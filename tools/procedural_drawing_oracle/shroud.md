@@ -273,3 +273,73 @@ Selection/hover acquisition, fog/AlphaShapes, active selfheal flashes,
 rank/status/control-group text, other PipScales/classes and whole DrawExtras
 closure remain outside this ordinary selected rookie MTNK evidence. Production
 GPU readback and normal game captures remain separate validation.
+
+## Ordinary Building health and actual body composition
+
+The additive `--building-health` mode extends the same health generator and
+recorder as `--unit-health`. It borrows the existing bracket ground/body
+initializer's already initialized `tmp_clear_render`/`PaletteReader`; it creates
+no second VM, palette, SHP decoder, INI parser, rasterizer or body mask.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --building-health --check
+```
+
+`building_health.json` has two explicit comparison boundaries:
+
+- `raster_controls` share the unit-health input/draw/pixel schema. Inputs use raw
+  Object Location XYZ; `actor_results.coords` and `.point` come from original
+  Building GetCoords447AC0 and Tactical6D2140. Positive selected rows enter the
+  complete health function6F64A0 with third argument0. Hover-only, absent and
+  sinking negatives enter complete Extras6F5190 instead, preserving its caller
+  gates without adding selected bracket pixels to a health-only comparison.
+  The exact native entry is recorded per actor. Health, selection, hover and
+  sinking are supplied priors, not lifecycle proof.
+- `composition_controls` execute complete Behind, complete first Extras, actual
+  admitted GAPOWR body, and complete late Extras, with a second control adding
+  one earlier unselected body and its empty Extras. Native4AED70 commands and
+  entries carry phase/actor identities. `before_body_pixels`,
+  `before_late_pixels` and `pixels` sample the locations touched by actual health
+  stores; `body_overwritten_health_pixels` records any original first/body/final
+  word differences; both controls record an empty difference list. They
+  demonstrate no positive visible order difference for these placements.
+  These are bounded consumer samples, not full color planes.
+  Full native color/Z crop hashes and the native body-admission point/clip
+  identify the intervening body interval. The two health phases remain explicit
+  even where their repeated opaque pixels are idempotent.
+
+The selected physical stack is RULESMD, optional LANGRULE, Battle MPBattleMD,
+then XMP03T4. Fixed ARTMD supplies Building properties. Whole native
+Rules665650/BuildingType45DD90 and BuildingType45FE50 execute; constructor and
+per-layer fields include Strength, Height/Foundation, Pip/PipScale,
+PipsDrawForAll, CanBeOccupied and SpawnsNumber. The shared original
+ConditionRed/Yellow reader blocks consume each layer's AudioVisual section.
+Stock GAPOWR resolves Strength750, Height4/Foundation3, dimensions512/512/416,
+delta0, PipScale0, PipsDrawForAllfalse and CanBeOccupiedfalse. The ordinary
+709A90 tail executes; its lack of extra SHP draws is bounded to these priors.
+
+Physical PIPS.SHP21 frames, PIPBRD.SHP and PALETTE.PAL use the chain3 normal
+STOCK_DIGITAL winners. Body dependencies GGPOWR.SHP6 frames, UNITTEM.PAL,
+BUILDNGZ.SHA and fixed ARTMD were also resolved through the production asset
+owner with no loose override; the corpus pins their actual archive bytes.
+Original native palette/LightGold constructors run in the same VM. Original
+Cell47BBF0/TMP480350 establish flat ground, and
+43CEA0→455C20/459EF0→43D290→705E00→4AED70 establishes actual body admission,
+render coordinates, SHP/shadow and BUILDNGZ depth. GAPOWR's native BibShape is
+NULL. Sparse Cell enrollment, traversal order, placed byte6E4, House/light/frame,
+startup height factor104 and camera/viewport are declared inputs.
+
+Component controls cover HP750/375/187/1, immediate-above thresholds, A127/63/2/0,
+old Z0, actual viewport-edge clipping and ordered overlapping strips. Building
+health always draws15 physical PIPS frames, including frame0 for empty pips;
+flags600 select the plain leaf and bypass A/Z. The recorder closes each shape
+at its real caller return, so following bracket A/Z accesses do not contaminate
+health/body policy counts. Original code and component A/Z remain unchanged;
+no drawing RNG entry is observed. These samples do not establish other Building
+health/status routes, selection/damage lifecycle, whole Display/Map loading,
+a GPU body renderer or a whole native frame. Existing production replay and
+runtime capture remain separate integration gates.
+
+The Building component corpus retains `store_count` and per-draw `color_stores`
+instead of ordered color-store arrays; no consumer needs a second bulk write
+trace. Historical unit/bracket payloads retain their original schema and bytes.

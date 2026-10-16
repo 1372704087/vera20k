@@ -376,6 +376,7 @@ fn compare_shape_corpus(
                 Some(atlas),
                 None,
                 batch.default_zshape_bind_group(),
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),

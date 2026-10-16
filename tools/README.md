@@ -107,6 +107,14 @@ Unwrapped Cargo can still start after that observation: all sessions must use th
 runner to eliminate the check/start race. This coordinates one repository's
 worktrees; independent repository clones do not share the lock.
 
+`cargo test` holds that lock only while Cargo compiles. Cargo hands each test
+executable to a recorder, and the runner starts them after releasing the lock, with
+the arguments, environment and working directory Cargo gave them. As with Cargo, a
+failure exits 101 and skips later executables unless `--no-fail-fast` is given. A
+second lock per checkout stays held until the tests finish, so another run from the
+same checkout waits instead of relinking a running test. A runner configured for the
+host target in Cargo configuration takes precedence; the tests then run under the lock.
+
 Each worktree has a separate cache under
 `<CARGO_TARGET_DIR or checkout/target>/owned-worktrees/<checkout-path-hash>`.
 The first build compiles dependencies into this namespace, costing time and disk;

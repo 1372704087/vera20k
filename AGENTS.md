@@ -249,7 +249,7 @@ Before fixing a bug whose expected behavior is established, first make a focused
 
 Run Cargo through `python -m tools.cargo_run -- <cargo arguments>` from the checkout.
 It waits for other builds and serializes cooperating worktrees; do not compete with or
-kill a compile. Each run blocks every other session's Cargo until it finishes, so
+kill a compile. Each compile blocks every other session's Cargo until it finishes, so
 batch edits and run the narrowest command that answers your question.
 Default to unlabelled builds; label only active comparison, capture or debugging binaries.
 Prefer release captures and retain debug tests selectively. Reference hashes, manifests

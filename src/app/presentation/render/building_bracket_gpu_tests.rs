@@ -146,6 +146,7 @@ fn native_bracket_pixels_reach_display_replay_without_writing_z() {
                 None,
                 None,
                 batch.default_zshape_bind_group(),
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),

@@ -25,7 +25,7 @@ mod bridge_shadow_gpu_tests;
 #[cfg(test)]
 mod building_bracket_gpu_tests;
 #[cfg(test)]
-mod unit_health_gpu_tests;
+mod health_gpu_tests;
 mod build_instances;
 mod draw_passes;
 mod object_extras;
@@ -505,7 +505,6 @@ fn upload_to_gpu(
         "building_radius_rings",
         &ui.radius_ring,
     );
-    pool.upload(&state.renderer.gpu, "status_building", &ui.building_status);
     pool.upload(&state.renderer.gpu, "bomb_clocks", &ui.bomb_clock);
     pool.upload(&state.renderer.gpu, "repair_wrenches", &ui.repair_wrench);
     pool.upload(&state.renderer.gpu, "occupant_pips", &ui.occupant_pip);

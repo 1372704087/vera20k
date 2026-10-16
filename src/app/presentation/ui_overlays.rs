@@ -25,38 +25,6 @@ const UNIT_PIPS_INFANTRY: u32 = 8;
 /// Horizontal pixel spacing between unit health pips (each pip drawn 2px apart).
 const UNIT_PIP_STEP_X: f32 = 2.0;
 
-/// Fixed pip step along the NW isometric edge.
-/// Each pip moves 4px left and 2px down, following the isometric 2:1 slope.
-const PIP_STEP_X: f32 = -4.0;
-const PIP_STEP_Y: f32 = 2.0;
-
-/// Multiplier for the art.ini Height= value when computing vertical pip lift (z_screen).
-/// Z = Height * HeightFactor (104) * AdjustForZ (≈0.14348) ≈ Height * 15.
-/// Height=4 → z_screen=60, Height=5 → 75.
-/// NOTE: Phobos `Height * 12` is for bracket EXTENT (vertical span), NOT z_screen.
-const PIP_HEIGHT_FACTOR: f32 = 15.0;
-
-/// Health-pip display clamp. This ratio never feeds simulation or command gates.
-fn display_health_ratio(current: i32, strength: i32) -> f32 {
-    if strength == 0 {
-        0.0
-    } else {
-        (current as f32 / strength as f32).clamp(0.0, 1.0)
-    }
-}
-
-/// Get INI-driven health condition thresholds, falling back to RA2 defaults.
-fn condition_thresholds(rules: Option<&RuleSet>) -> (f32, f32) {
-    rules
-        .map(|r| {
-            (
-                r.general.condition_yellow as f32,
-                r.general.condition_red as f32,
-            )
-        })
-        .unwrap_or((0.5, 0.25))
-}
-
 /// The object under the cursor whose health bar the original draws on hover.
 ///
 /// The per-object overlay pass calls the health-bar slot from exactly two arms:
@@ -95,6 +63,11 @@ fn health_bar_hover_target(
         | HoverTargetKind::EnemyUnit => Some((hover.stable_id, hover.kind)),
         HoverTargetKind::HiddenEnemy => None,
     }
+}
+
+/// The existing resolved hover target for either Techno health branch.
+pub(crate) fn health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
+    health_bar_hover_target(state, local_owner).map(|(id, _)| id)
 }
 
 /// The hovered *structure*, for the building pip pass.
@@ -574,214 +547,6 @@ pub(crate) fn self_heal_pip(
 //   through the live input membership in `build_control_group_status_instances`
 //   above; the self-heal status pip is ported below.
 //
-/// Building health: discrete pips from pips.shp along the isometric NW foundation edge.
-///
-/// Pip positions are computed from Dimension2 (foundation size in leptons) projected
-/// through CoordsToScreen along the NW edge.
-///
-/// Simplified formula (CTS offsets cancel with foundation geometry):
-///   num_pips  = floor(H * 15 / 2)
-///   pip_x[i]  = loc_x + (-(W+H)*15 + 3 + num_pips*4) - i*4
-///   pip_y[i]  = loc_y + ((H-W)*7.5 + 4 - 2*num_pips) + i*2
-///
-/// Where loc = the **plain entity anchor**, the projection of the building's own
-/// coordinate — the same point the original's health-bar path starts from. That
-/// path is reached from the object-render loop's foundation-centre coordinate,
-/// not from the render-coordinate override the building's art takes, so the pips
-/// deliberately do not carry that override.
-/// The draw point is then shifted by the PIPS.SHP canvas/frame offset so the
-/// SpriteInstance position is the final frame-rect top-left, matching flags 0x600.
-pub(crate) fn build_building_status_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-    ) else {
-        return Vec::new();
-    };
-    let local_owner = preferred_local_owner_name(state);
-    let pip_size: [f32; 2] = overlay.pip_frame_size();
-    let pip_uv_size: [f32; 2] = overlay.pip_uv_size();
-    let (pip_adj_x, pip_adj_y) = overlay.pip_canvas_adj();
-    let has_pips: bool = overlay.pip_texture().is_some();
-    let (cond_y, cond_r) = condition_thresholds(state.rules());
-    let hovered_structure_id = building_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-    for e in sim.entities().values() {
-        if e.category() != EntityCategory::Structure {
-            continue;
-        }
-        if !health_bar_drawable(
-            sim,
-            e,
-            hovered_structure_id,
-            local_owner.as_deref(),
-            state.rules(),
-        ) {
-            continue;
-        }
-        let health = &e.health;
-        let type_str = sim.interner.resolve(e.type_ref());
-        let (sx, sy) = crate::render::locomotor_visual::screen_position(e);
-        // The ordered rules processor supplies ObjectType's ART Foundation.
-        // Height= is an art.ini property, looked up via Image= redirect.
-        let obj = state.rules().and_then(|r| r.object(type_str));
-        let foundation: (u32, u32) = obj
-            .map(|o| {
-                let (w, h) = crate::rules::foundation::foundation_dimensions(&o.foundation);
-                (u32::from(w), u32::from(h))
-            })
-            .unwrap_or((2, 2));
-        // gamemd reads Height from the ART SECTION (Image= redirect target, NOT the
-        // type ID itself). If the Image section doesn't define Height, use default 2
-        // (BuildingTypeClass constructor default at 0x45DD90).
-        // Do NOT fall back to the type_ref section — that would read the wrong value
-        // for buildings with Image= redirect (e.g., GAPOWR→YAPOWR).
-        let art_key: &str = obj
-            .map(|o| {
-                let img = o.image.as_str();
-                if img.is_empty() { o.id.as_str() } else { img }
-            })
-            .unwrap_or(type_str);
-        let art_height: f32 = state
-            .rules()
-            .and_then(|rules| rules.art().get(art_key))
-            .map(|entry| entry.height as f32)
-            .unwrap_or(2.0);
-        let Some(strength) = obj.map(|obj| obj.strength) else {
-            // A health display needs the live type; no saved maximum fallback.
-            continue;
-        };
-        let ratio = display_health_ratio(health.current(), strength);
-        let depth: f32 = 0.0006;
-
-        // Pip count: floor(H * 7.5) — from original (screen1.y - screen2.y) / 2.
-        let num_pips: u32 = (foundation.1 * 15) / 2;
-        if num_pips == 0 {
-            continue;
-        }
-
-        // DrawHealthBar computes a PIPS.SHP canvas-center draw point at GetCoords
-        // plus the projected NW upper edge, then CC_Draw_Shape shifts it by the
-        // frame/canvas offset from flags 0x600.
-        let n: f32 = num_pips as f32;
-        let fw = foundation.0 as f32;
-        let fh = foundation.1 as f32;
-        let foundation_center_x = sx + (fw - fh) * 15.0;
-        let foundation_center_y = sy + (fw + fh) * 7.5 - 15.0;
-        let projected_x = -(fw + fh) * 15.0;
-        let projected_y = (fh - fw) * 7.5 - art_height * PIP_HEIGHT_FACTOR;
-        let draw_start_x: f32 = foundation_center_x + projected_x + 3.0 + n * 4.0;
-        let draw_start_y: f32 = foundation_center_y + projected_y + 4.0 - n * 2.0;
-        let start_x: f32 = draw_start_x + pip_adj_x;
-        let start_y: f32 = draw_start_y + pip_adj_y;
-
-        if has_pips && foundation.1 > 0 {
-            let pip_w: f32 = pip_size[0];
-            let pip_h: f32 = pip_size[1];
-            // Bounding box for culling: pips span from start to start + (N-1)*step.
-            let end_x: f32 = start_x + (n - 1.0) * PIP_STEP_X;
-            let end_y: f32 = start_y + (n - 1.0) * PIP_STEP_Y;
-            let min_x: f32 = start_x.min(end_x);
-            let min_y: f32 = start_y.min(end_y);
-            let total_w: f32 = (start_x - end_x).abs() + pip_w;
-            let total_h: f32 = (start_y - end_y).abs() + pip_h;
-            if !in_view(
-                min_x,
-                min_y,
-                total_w,
-                total_h,
-                state.match_state.input.camera_x,
-                state.match_state.input.camera_y,
-                sw,
-                sh,
-                48.0,
-            ) {
-                continue;
-            }
-            // ftol(ratio * numPips), clamped to [1, numPips].
-            let filled: u32 = if health.current() > 0 {
-                ((num_pips as f32 * ratio) as u32).max(1).min(num_pips)
-            } else {
-                0
-            };
-            let health_variant: u32 = health_pip_variant(ratio, cond_y, cond_r);
-            for i in 0..num_pips {
-                let px: f32 = start_x + i as f32 * PIP_STEP_X;
-                let py: f32 = start_y + i as f32 * PIP_STEP_Y;
-                let variant: u32 = if i < filled { health_variant } else { 0 };
-                let uv_origin: [f32; 2] = overlay.pip_uv_origin(variant);
-                instances.push(SpriteInstance {
-                    position: [px, py],
-                    size: [pip_w, pip_h],
-                    uv_origin,
-                    uv_size: pip_uv_size,
-                    depth,
-                    tint: [1.0, 1.0, 1.0],
-                    alpha: 1.0,
-                    ..Default::default()
-                });
-            }
-        } else {
-            // Fallback: procedural colored segments when pips.shp unavailable.
-            let seg_w: f32 = 3.0;
-            let seg_h: f32 = 4.0;
-            let end_x: f32 = start_x + (n - 1.0) * PIP_STEP_X;
-            let end_y: f32 = start_y + (n - 1.0) * PIP_STEP_Y;
-            let min_x: f32 = start_x.min(end_x);
-            let min_y: f32 = start_y.min(end_y);
-            let total_w: f32 = (start_x - end_x).abs() + seg_w;
-            let total_h: f32 = (start_y - end_y).abs() + seg_h;
-            if !in_view(
-                min_x,
-                min_y,
-                total_w,
-                total_h,
-                state.match_state.input.camera_x,
-                state.match_state.input.camera_y,
-                sw,
-                sh,
-                48.0,
-            ) {
-                continue;
-            }
-            let fill_color = health_fill_color(ratio, cond_y, cond_r);
-            let filled: u32 = if health.current() > 0 {
-                ((num_pips as f32 * ratio) as u32).max(1).min(num_pips)
-            } else {
-                0
-            };
-            for i in 0..num_pips {
-                let seg_x: f32 = start_x + i as f32 * PIP_STEP_X;
-                let seg_y: f32 = start_y + i as f32 * PIP_STEP_Y;
-                let tint = if i < filled {
-                    fill_color
-                } else {
-                    [0.10, 0.10, 0.10]
-                };
-                instances.push(SpriteInstance {
-                    position: [seg_x, seg_y],
-                    size: [seg_w, seg_h],
-                    uv_origin: [0.0, 0.0],
-                    uv_size: [1.0, 1.0],
-                    depth,
-                    tint,
-                    alpha: 1.0,
-                    ..Default::default()
-                });
-            }
-        }
-    }
-    instances
-}
-
 /// Occupant pips for garrisoned buildings (pips.shp frames 6-12).
 ///
 /// Drawn for every visible building with `ShowOccupantPips=yes` and `MaxNumberOccupants > 0`.
@@ -1161,59 +926,56 @@ pub(crate) fn build_repair_wrench_instances(
     instances
 }
 
-/// Frame-local screen viewport for mobile health emission.
+/// Frame-local screen viewport for Techno health emission.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct UnitHealthViewport {
+pub(crate) struct HealthViewport {
     pub camera: [f32; 2],
     pub size: [f32; 2],
 }
 
-/// One Display parent's mobile health strip, in background/fill order.
+/// One Display parent's health strip, in background/fill order.
 #[derive(Debug, Default)]
-pub(crate) struct UnitHealthStrip {
+pub(crate) struct TechnoHealthStrip {
     pub background: Option<SpriteInstance>,
+    /// Raw PIPS commands, including the Building branch's empty slots.
     pub fills: Vec<SpriteInstance>,
 }
 
-/// Native mobile DrawHealthBar @0x006F683C for an admitted Display parent.
+/// Native Techno DrawHealthBar @0x006F64A0 for one admitted Display parent.
 ///
-/// Infantry (6F6852..68E3) uses 8 pips and PIPBRD frame 1: pip point
-/// (-5,delta-24), background (11,delta-25). Other mobile classes
-/// (6F68E8..6976) use 17 and PIPBRD frame 0: pip (-15,delta-25),
-/// background (1,delta-26). Both use the shared 4AED70 centered-resource owner.
-/// Native producer/pixel controls: procedural_drawing_oracle/unit_health.json.
+/// Building6F64A0..6839 projects Dimension2's upper edge and draws raw PIPS
+/// frames1/2/4 followed by frame0. Infantry6F6852..68E3 uses8 pips and PIPBRD1:
+/// pip(-5,delta-24), background(11,delta-25). Other mobile6F68E8..6976 uses17
+/// and PIPBRD0: pip(-15,delta-25), background(1,delta-26). The common centered
+/// resource owns every frame's original origin and index plane (4AED70).
+/// Source/executable controls: procedural_drawing_oracle/building_health.json
+/// and unit_health.json. Stock selected/hovered GAPOWR and mobile coverage;
+/// conditional pip/status tails remain with their existing owners.
 /// No RNG, timer, detach or retained presentation state changes here.
-pub(crate) fn unit_health_strip_for_parent(
+pub(crate) fn health_strip_for_parent(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     rules: Option<&RuleSet>,
     overlay: &crate::render::selection_overlay::SelectionOverlay,
     hovered_id: Option<u64>,
     local_owner: Option<&str>,
-    viewport: UnitHealthViewport,
-) -> UnitHealthStrip {
-    let mut strip = UnitHealthStrip::default();
-    if entity.category() == EntityCategory::Structure
-        || entity.sinking.is_active()
+    viewport: HealthViewport,
+) -> TechnoHealthStrip {
+    let mut strip = TechnoHealthStrip::default();
+    // DrawExtras6F51AA suppresses sinking before either health arm. Passenger
+    // and tactical admission retain their existing authoritative owners.
+    if entity.sinking.is_active()
         || entity.passenger_role.is_inside_transport()
         || !health_bar_drawable(sim, entity, hovered_id, local_owner, rules)
     {
         return strip;
     }
-    // Tactical 6D9676 calls vt+48 (Object 5F65A0 for these mobile classes),
-    // then 6D9691..9726 projects integer Location before camera subtraction.
-    // Reuse GetCoords and 6D2140 projection, including signed XY chopping.
+    // Tactical6D9676 dispatches Object5F65A0/Building447AC0 GetCoords;
+    //6D9691..9726 projects integer XYZ before subtracting the camera.
     let coord =
         crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain.as_ref());
     let (sx, sy) = crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z);
     let object = rules.and_then(|rules| sim.interner.object_type(entity.type_ref(), rules));
-    let delta = object.map_or(0.0, |object| object.pixel_selection_bracket_delta as f32);
-    let infantry = entity.category() == EntityCategory::Infantry;
-    let (num_pips, background_frame, background_offset, pip_offset) = if infantry {
-        (UNIT_PIPS_INFANTRY, 1, [11.0, -25.0], [-5.0, -24.0])
-    } else {
-        (UNIT_PIPS_VEHICLE, 0, [1.0, -26.0], [-15.0, -25.0])
-    };
     let instance = |shape: &crate::render::selection_overlay::CenteredShapeStrip,
                     frame: usize,
                     point: (f32, f32),
@@ -1235,6 +997,72 @@ pub(crate) fn unit_health_strip_for_parent(
         )
         .then_some(instance)
     };
+    // Both6F65D7 and6F697C use Object5F5C60 then multiply/ftol7C5F00.
+    // Keep the shared health/numeric owners and the signed [1,N] clamp.
+    let filled_count = |strength: i32, count: i32| {
+        use crate::util::native_x87::MaskedX87Chop53 as X87;
+        X87::ftol_i32_low_masked(X87::mul(
+            entity.health.ratio(strength),
+            X87::load_i32(count),
+        ))
+        .clamp(1, count)
+    };
+    if entity.category() == EntityCategory::Structure {
+        let (Some(rules), Some(object), Some(shape)) = (rules, object, overlay.pips()) else {
+            return strip;
+        };
+        // BuildingType464AF0 owns Foundation*256 and fixed ART Height*104.
+        //6F6536/656E project local offsets through Tactical6D1F10, without
+        // the absolute projection's camera or +15 world-row origin.
+        let [width, height, z] = rules.building_dimensions(object);
+        let left = (width - width / 2).wrapping_neg();
+        let back = height - height / 2;
+        let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
+        let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
+        let upper_y = ay - crate::util::native_x87::adjust_for_z_standard(z);
+        // Both upper projections carry the same Z; it cancels in6F65BC..CF.
+        let num_pips = (ay - by) / 2;
+        if num_pips <= 0 {
+            return strip;
+        }
+        let filled = filled_count(object.strength, num_pips);
+        //6F660A/661F use the existing health-category predicates; zero HP
+        // does not satisfy IsRed. Raw frame selection is green1/yellow2/red4.
+        let frame = match crate::sim::combat::health_category(
+            entity.health.current(),
+            object.strength,
+            rules.general.condition_red,
+            rules.general.condition_yellow,
+        ) {
+            0 => 4,
+            1 => 2,
+            _ => 1,
+        };
+        let start = (
+            sx + (ax + 4 * num_pips + 3) as f32,
+            sy + (upper_y + 4 - 2 * num_pips) as f32,
+        );
+        strip.fills.reserve(num_pips as usize);
+        //6F6658..6774: filled first, then empty frame0, walking [-4,+2].
+        // Building PIPS600 bypasses A and Z; the replay owner preserves both
+        // original first-Extras and late-Extras positions around the body.
+        for index in 0..num_pips {
+            strip.fills.extend(instance(
+                shape,
+                if index < filled { frame } else { 0 },
+                (start.0 - (index * 4) as f32, start.1 + (index * 2) as f32),
+                0.0006,
+            ));
+        }
+        return strip;
+    }
+    let delta = object.map_or(0.0, |object| object.pixel_selection_bracket_delta as f32);
+    let infantry = entity.category() == EntityCategory::Infantry;
+    let (num_pips, background_frame, background_offset, pip_offset) = if infantry {
+        (UNIT_PIPS_INFANTRY, 1, [11.0, -25.0], [-5.0, -24.0])
+    } else {
+        (UNIT_PIPS_VEHICLE, 0, [1.0, -26.0], [-15.0, -25.0])
+    };
     let (draw_background, _) = status_visibility(
         entity.selection.is_selected(),
         hovered_id == Some(entity.stable_id()),
@@ -1247,19 +1075,27 @@ pub(crate) fn unit_health_strip_for_parent(
             0.0006,
         );
     }
-    let (Some(object), Some(shape)) = (object, overlay.pips()) else {
+    let (Some(rules), Some(object), Some(shape)) = (rules, object, overlay.pips()) else {
         return strip;
     };
-    let ratio = display_health_ratio(entity.health.current(), object.strength);
-    let (yellow, red) = condition_thresholds(rules);
-    let filled = ((ratio * num_pips as f32) as u32).clamp(1, num_pips);
-    // 6F69A7..69F3 selects raw PIPS frames 16/17/18 at the threshold ties.
-    let frame = if ratio > yellow {
-        16
-    } else if ratio > red {
+    let filled = filled_count(object.strength, num_pips as i32) as u32;
+    //6F69B1..69F3 compares independently: <=red overrides <=yellow. These
+    // are direct ratio comparisons, unlike Building's positive-HP red gate.
+    use crate::util::native_x87::MaskedX87Ordering::Greater;
+    let frame = if entity
+        .health
+        .compare_ratio(object.strength, rules.general.condition_red)
+        != Greater
+    {
+        18
+    } else if entity
+        .health
+        .compare_ratio(object.strength, rules.general.condition_yellow)
+        != Greater
+    {
         17
     } else {
-        18
+        16
     };
     strip.fills.reserve(filled as usize);
     for index in 0..filled {
@@ -1648,17 +1484,6 @@ fn emit_colored_line(
     }
 }
 
-/// Map health ratio to pip atlas variant index (1=green, 2=yellow, 4=red).
-fn health_pip_variant(ratio: f32, condition_yellow: f32, condition_red: f32) -> u32 {
-    if ratio > condition_yellow {
-        1 // Green.
-    } else if ratio > condition_red {
-        2 // Yellow.
-    } else {
-        4 // Red.
-    }
-}
-
 /// Resolve the active cursor id and sequence for the current game state.
 /// Maps game-state intent → CursorId → loaded sequence via HashMap lookup.
 /// The id travels with the sequence because the animation phase is keyed on it —
@@ -1750,19 +1575,6 @@ fn status_entity_visible_plain(
         && !fog.is_cell_gap_covered(local_owner, pos.rx(), pos.ry())
 }
 
-pub(crate) fn health_fill_color(ratio: f32, condition_yellow: f32, condition_red: f32) -> [f32; 3] {
-    if ratio > condition_yellow {
-        // Bright lime green — high health (#00FF00).
-        [0.0, 1.0, 0.0]
-    } else if ratio > condition_red {
-        // Yellow — medium health (#FFFF00).
-        [1.0, 1.0, 0.0]
-    } else {
-        // Red — critical health (#FF0000).
-        [1.0, 0.0, 0.0]
-    }
-}
-
 #[cfg(test)]
 #[path = "mind_control_pip_tests.rs"]
 mod mind_control_pip_tests;
@@ -1796,15 +1608,6 @@ mod tests {
             compared += 1;
         }
         assert_eq!(compared, 144);
-    }
-
-    #[test]
-    fn health_pips_clamp_signed_actual_without_narrowing_live_strength() {
-        assert_eq!(super::display_health_ratio(70_000, 140_000), 0.5);
-        assert_eq!(super::display_health_ratio(70_000, 280_000), 0.25);
-        assert_eq!(super::display_health_ratio(-1, 100_000), 0.0);
-        assert_eq!(super::display_health_ratio(150_000, 100_000), 1.0);
-        assert_eq!(super::display_health_ratio(100, 0), 0.0);
     }
 
     use super::*;

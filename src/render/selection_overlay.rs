@@ -1,11 +1,8 @@
-//! Selection overlay rendering — highlights selected entities and draws drag rectangle.
+//! Match resources for selection/status rendering and the drag rectangle.
 //!
-//! Renders visual feedback for the selection system:
-//! - Green selection brackets around selected entities.
-//! - Green drag rectangle outline while the player is box-selecting.
-//!
-//! Uses procedurally-generated textures rendered via the batch shader.
-//! The selection overlay is drawn as a separate batch pass after units/sprites.
+//! Display-parent health replay shares the centered SHP resources here;
+//! placement, conditional status and UI/debug consumers retain their assets.
+//! The presentation layer chooses their native draw order and material.
 //!
 //! ## Dependency rules
 //! - Part of render/ — reads from sim/ (Selected, Position) but NEVER mutates sim state.
@@ -27,9 +24,6 @@ const DRAG_RECT_DEPTH: f32 = 0.001;
 /// Thickness of the drag rectangle outline in pixels (1px = RA2 original style).
 const DRAG_RECT_THICKNESS: f32 = 1.0;
 
-/// Number of pip variants packed into the building pip atlas (empty, green, yellow, red).
-const PIP_VARIANT_COUNT: u32 = 4;
-
 /// Manages textures and rendering for selection overlays.
 pub struct SelectionOverlay {
     /// Solid color texture for drag rectangle lines.
@@ -43,15 +37,6 @@ pub struct SelectionOverlay {
     diamond_outline_texture: BatchTexture,
     /// White filled-diamond texture for debug pathgrid/path overlays.
     diamond_filled_texture: BatchTexture,
-    /// Pip atlas: 4 pip frames packed horizontally (empty, green, yellow, red).
-    /// Each pip is a small cube-shaped sprite from pips.shp.
-    pip_texture: Option<BatchTexture>,
-    /// Width of a single pip frame in the atlas (pixels).
-    pip_frame_w: u32,
-    /// Height of a single pip frame in the atlas (pixels).
-    pip_frame_h: u32,
-    /// Canvas centering adjustment for building pips (matches DrawSHP flag 0x200).
-    pip_canvas_adj: (f32, f32),
     /// Full PIPBRD frame table for selected mobile health backgrounds.
     pipbrd: Option<CenteredShapeStrip>,
     /// Occupant pip atlas: 7 frames from pips.shp packed horizontally.
@@ -68,7 +53,7 @@ pub struct SelectionOverlay {
     bomb_clock: Option<CenteredShapeStrip>,
     /// WRENCH.SHP, the repairing building's wrench.
     repair_wrench: Option<CenteredShapeStrip>,
-    /// Full PIPS frame table: mobile health 16..18 and self-heal 13/20.
+    /// Full PIPS frame table: Building health0/1/2/4, mobile16..18, self-heal13/20.
     /// Native LoadPipAssets 5F76B0 binds AC147C; both use Convert 87F6C4.
     pips: Option<CenteredShapeStrip>,
 }
@@ -301,10 +286,6 @@ impl SelectionOverlay {
             None,
         );
 
-        // Load pips.shp and pack 4 isometric pip frames into a horizontal strip atlas.
-        let (pip_texture, pip_frame_w, pip_frame_h, pip_adj_x, pip_adj_y) =
-            load_pip_atlas(device, queue, batch, assets).unwrap_or((None, 0, 0, 0.0, 0.0));
-
         // LoadPipAssets 5F76B0 binds PIPBRD at AC1478. DrawHealthBar 6F68AE/
         // 6F6947 selects raw frame 1/0; 4AED70 owns the stored centering.
         let pipbrd = assets.and_then(|assets| {
@@ -367,7 +348,7 @@ impl SelectionOverlay {
             )
         });
         // Original 5F76B0 /52BF26..52BFC1: one PIPS.SHP/PALETTE.PAL
-        // resource serves health 6F6A4A and the existing self-heal 70A6BB tail.
+        // resource serves Building6F66BA/mobile6F6A4A health and self-heal70A6BB.
         // Keep every frame's native origin and original index plane.
         let pips = assets.and_then(|assets| {
             CenteredShapeStrip::from_assets_on_device(
@@ -386,10 +367,6 @@ impl SelectionOverlay {
             white_texture,
             diamond_outline_texture,
             diamond_filled_texture,
-            pip_texture,
-            pip_frame_w,
-            pip_frame_h,
-            pip_canvas_adj: (pip_adj_x, pip_adj_y),
             pipbrd,
             occupant_pip_texture,
             occupant_pip_frame_w,
@@ -412,7 +389,7 @@ impl SelectionOverlay {
         self.repair_wrench.as_ref()
     }
 
-    /// Physical PIPS.SHP shared by health frames 16..18 and self-heal 13/20.
+    /// Physical PIPS.SHP: Building health0/1/2/4, mobile16..18, self-heal13/20.
     pub fn pips(&self) -> Option<&CenteredShapeStrip> {
         self.pips.as_ref()
     }
@@ -517,40 +494,6 @@ impl SelectionOverlay {
         &self.diamond_filled_texture
     }
 
-    /// Get the pip atlas texture for health bar rendering.
-    /// Returns None if pips.shp failed to load (falls back to white_texture).
-    pub fn pip_texture(&self) -> Option<&BatchTexture> {
-        self.pip_texture.as_ref()
-    }
-
-    /// UV origin for a given pip variant in the horizontal strip atlas.
-    /// Variants use pips.shp frame ids: 0=empty, 1=green, 2=yellow, 4=red.
-    pub fn pip_uv_origin(&self, variant: u32) -> [f32; 2] {
-        let atlas_slot = match variant {
-            0..=2 => variant,
-            4 => 3,
-            _ => 0,
-        };
-        let u: f32 = atlas_slot as f32 / PIP_VARIANT_COUNT as f32;
-        [u, 0.0]
-    }
-
-    /// UV size for a single pip frame in the atlas.
-    pub fn pip_uv_size(&self) -> [f32; 2] {
-        [1.0 / PIP_VARIANT_COUNT as f32, 1.0]
-    }
-
-    /// Pixel size of one pip frame.
-    pub fn pip_frame_size(&self) -> [f32; 2] {
-        [self.pip_frame_w as f32, self.pip_frame_h as f32]
-    }
-
-    /// Canvas centering adjustment for building pips.
-    /// Matches gamemd DrawSHP flag 0x200: (-canvas_w/2 + frame_x, -canvas_h/2 + frame_y).
-    pub fn pip_canvas_adj(&self) -> (f32, f32) {
-        self.pip_canvas_adj
-    }
-
     /// Occupant pip atlas texture (pips.shp frames 6-12).
     pub fn occupant_pip_texture(&self) -> Option<&BatchTexture> {
         self.occupant_pip_texture.as_ref()
@@ -615,133 +558,6 @@ fn generate_solid_color(color: [u8; 4]) -> Vec<u8> {
         rgba.extend_from_slice(&color);
     }
     rgba
-}
-
-/// Load pips.shp (buildings) and pack 4 health pip frames into a horizontal strip atlas.
-///
-/// pips.shp frame indices:
-///   0 = empty pip (dark/unfilled)
-///   1 = green pip (healthy)
-///   2 = yellow pip (medium health)
-///   4 = red pip (critical health)
-///
-/// This specialized strip serves building health. Mobile health uses raw frames16..18.
-/// Uses palette.pal for coloring.
-///
-/// Returns (Some(texture), frame_w, frame_h) on success, or (None, 0, 0) on failure.
-fn load_pip_atlas(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    batch: &BatchRenderer,
-    assets: Option<&AssetManager>,
-) -> Option<(Option<BatchTexture>, u32, u32, f32, f32)> {
-    let assets = assets?;
-    // pips.shp = building health bar pips.
-    let shp_data = assets.get("pips.shp")?;
-    let shp = ShpFile::from_bytes(&shp_data).ok()?;
-    log::info!(
-        "Pip atlas source: pips.shp ({}x{}, {} frames)",
-        shp.width,
-        shp.height,
-        shp.frames.len()
-    );
-    for (i, f) in shp.frames.iter().enumerate() {
-        log::info!(
-            "  pip frame {:2}: pos=({},{}) size={}x{} pixels={}",
-            i,
-            f.frame_x,
-            f.frame_y,
-            f.frame_width,
-            f.frame_height,
-            f.pixels.len()
-        );
-    }
-    // Load palette.pal for pip sprites (the general game palette, NOT unittem.pal).
-    let pal_data = assets
-        .get("palette.pal")
-        .or_else(|| assets.get("unittem.pal"))?;
-    let palette = Palette::from_bytes(&pal_data).ok()?;
-
-    // pips.shp frame layout (buildings only):
-    //   0 = empty pip (dark/unfilled)
-    //   1 = green pip (healthy)
-    //   2 = yellow pip (medium health)
-    //   4 = red pip (critical health)
-    // Atlas slot order: [empty, green, yellow, red]
-    let frame_indices: [usize; PIP_VARIANT_COUNT as usize] = [0, 1, 2, 4];
-
-    // Find max dimensions across the selected frames.
-    let mut max_w: u32 = 0;
-    let mut max_h: u32 = 0;
-    for &fi in &frame_indices {
-        if fi >= shp.frames.len() {
-            log::warn!("pips.shp frame {} out of range ({})", fi, shp.frames.len());
-            return Some((None, 0, 0, 0.0, 0.0));
-        }
-        let fw: u32 = shp.frames[fi].frame_width as u32;
-        let fh: u32 = shp.frames[fi].frame_height as u32;
-        if fw > max_w {
-            max_w = fw;
-        }
-        if fh > max_h {
-            max_h = fh;
-        }
-    }
-
-    // Pack frames side-by-side into atlas (max_w * 4, max_h).
-    let atlas_w: u32 = max_w * PIP_VARIANT_COUNT;
-    let atlas_h: u32 = max_h;
-    let mut rgba: Vec<u8> = vec![0u8; (atlas_w * atlas_h * 4) as usize];
-
-    for (slot, &fi) in frame_indices.iter().enumerate() {
-        let frame = &shp.frames[fi];
-        let fw: u32 = frame.frame_width as u32;
-        let fh: u32 = frame.frame_height as u32;
-        let x_off: u32 = slot as u32 * max_w;
-        // Center the frame within its slot if smaller than max.
-        let cx: u32 = (max_w - fw) / 2;
-        let cy: u32 = (max_h - fh) / 2;
-        for py in 0..fh {
-            for px in 0..fw {
-                let src_idx: usize = (py * fw + px) as usize;
-                let pal_idx: u8 = frame.pixels[src_idx];
-                if pal_idx == 0 {
-                    continue; // Transparent.
-                }
-                let color = palette.colors[pal_idx as usize];
-                let dst_x: u32 = x_off + cx + px;
-                let dst_y: u32 = cy + py;
-                let dst: usize = ((dst_y * atlas_w + dst_x) * 4) as usize;
-                rgba[dst] = color.r;
-                rgba[dst + 1] = color.g;
-                rgba[dst + 2] = color.b;
-                rgba[dst + 3] = 255;
-            }
-        }
-    }
-
-    // Canvas centering: match gamemd DrawSHP flag 0x200 integer division.
-    // actualX = drawX - (int)canvas_w/2 + frame_x
-    // actualY = drawY - (int)canvas_h/2 + frame_y
-    let ref_frame = &shp.frames[0]; // use frame 0 (empty pip) as reference
-    let adj_x: f32 = ref_frame.frame_x as f32 - (shp.width / 2) as f32;
-    let adj_y: f32 = ref_frame.frame_y as f32 - (shp.height / 2) as f32;
-
-    let texture: BatchTexture =
-        batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
-    log::info!(
-        "Pip atlas: {}x{} (frame {}x{}, {} variants, SHP {}x{} canvas_adj=({:.0},{:.0}))",
-        atlas_w,
-        atlas_h,
-        max_w,
-        max_h,
-        PIP_VARIANT_COUNT,
-        shp.width,
-        shp.height,
-        adj_x,
-        adj_y,
-    );
-    Some((Some(texture), max_w, max_h, adj_x, adj_y))
 }
 
 /// Load pips.shp frames 6-12 for occupant (garrison) pips into a 7-variant atlas.

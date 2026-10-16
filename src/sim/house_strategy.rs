@@ -44,10 +44,10 @@
 //! kill's random draws, anims and detach run as for any other damage.
 //!
 //! RESIDUALS:
-//! - State four's writers (TriggerAction::Execute `0x006DEAFF`, a team
-//!   script at `0x006E99E5`) have no VERA producer on this base. The
-//!   All-To-Hunt latch already has its shared production consumer in
-//!   `combat::greatest_threat` (`TechnoClass::Evaluate_Candidate @ 0x006F8765`).
+//! - Team script30 (`0x006E99E5`) does not yet write state four. Trigger
+//!   Action9 (`0x006DEAFF`) uses the existing state owner. The All-To-Hunt
+//!   latch is consumed by the shared greatest_threat candidate scoring
+//!   (`TechnoClass::Evaluate_Candidate @ 0x006F8765`).
 //! - The own-coordinate test against the empty coordinate
 //!   (`0x004FD5B9..0x004FD5E5`) is dormant: no cell's coordinate is zero.
 
@@ -257,7 +257,7 @@ fn has_live_factory(sim: &Simulation, rules: &RuleSet, owner: InternedId) -> boo
                     && !building.lifecycle.in_limbo()
                     && sim
                         .object_type(building.type_ref(), rules)
-                        .is_some_and(|ty| ty.factory.is_some())
+                        .is_some_and(|ty| ty.has_factory())
             })
         })
     })

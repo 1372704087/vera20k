@@ -199,10 +199,10 @@ fn an_area_guard_sent_back_to_its_post_scans_live() {
     };
     let rules = &fixture.rules;
     let (mut serial, scanner, _) = scene(rules);
-    area_guard(&mut serial, scanner, (12, 4));
+    area_guard(&mut serial, scanner, (1, 1));
     let live = guard(&mut serial, rules, scanner);
     let (mut batched, _, _) = scene(rules);
-    area_guard(&mut batched, scanner, (12, 4));
+    area_guard(&mut batched, scanner, (1, 1));
     batched.answer_batched_scans(Some(rules), None);
     assert_eq!(guard(&mut batched, rules, scanner), live);
     assert!(

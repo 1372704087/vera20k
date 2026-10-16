@@ -27178,40 +27178,20 @@
     }
   },
   {
-    "input": {
-      "start": 1000,
-      "frames": 4,
-      "delay": 36,
-      "unit_coord": [
-        2688,
-        2688,
-        0
-      ],
-      "turret_rot": 100,
-      "hull_rot": 5,
-      "turret_init": 63488,
-      "hull_init": 0,
-      "weapon": {
-        "present": 1,
-        "omni_fire": 0,
-        "turret_locked": 0
-      },
-      "turret_spins": 1,
-      "simple_deployer": 0,
-      "deployed": 0,
-      "bunkered": 0,
-      "magnetron": 0,
-      "latch_init": 1,
-      "last_fire": 1000,
-      "target_coord": null,
-      "navcom_coord": null,
-      "events": [],
-      "name": "no_target_turret_spins_rot100_wrap"
-    },
+    "first_idle_set": 1000,
     "frames": [
       {
         "frame": 1000,
-        "target_dir": null,
+        "hull": [
+          0,
+          0,
+          0,
+          999,
+          0,
+          1280
+        ],
+        "latch": 1,
+        "rotating": 0,
         "sets": [
           [
             "turret",
@@ -27219,6 +27199,7 @@
             "B"
           ]
         ],
+        "target_dir": null,
         "turret": [
           0,
           0,
@@ -27227,6 +27208,10 @@
           0,
           25600
         ],
+        "turret_raw": "0000000000f80000e8030000000000000000000000640000"
+      },
+      {
+        "frame": 1001,
         "hull": [
           0,
           0,
@@ -27237,11 +27222,6 @@
         ],
         "latch": 1,
         "rotating": 0,
-        "turret_raw": "0000000000f80000e8030000000000000000000000640000"
-      },
-      {
-        "frame": 1001,
-        "target_dir": null,
         "sets": [
           [
             "turret",
@@ -27249,6 +27229,7 @@
             "B"
           ]
         ],
+        "target_dir": null,
         "turret": [
           2048,
           2048,
@@ -27257,6 +27238,10 @@
           0,
           25600
         ],
+        "turret_raw": "0008000000000000e9030000000000000000000000640000"
+      },
+      {
+        "frame": 1002,
         "hull": [
           0,
           0,
@@ -27267,11 +27252,6 @@
         ],
         "latch": 1,
         "rotating": 0,
-        "turret_raw": "0008000000000000e9030000000000000000000000640000"
-      },
-      {
-        "frame": 1002,
-        "target_dir": null,
         "sets": [
           [
             "turret",
@@ -27279,6 +27259,7 @@
             "B"
           ]
         ],
+        "target_dir": null,
         "turret": [
           4096,
           4096,
@@ -27287,6 +27268,10 @@
           0,
           25600
         ],
+        "turret_raw": "0010000000080000ea030000000000000000000000640000"
+      },
+      {
+        "frame": 1003,
         "hull": [
           0,
           0,
@@ -27297,11 +27282,6 @@
         ],
         "latch": 1,
         "rotating": 0,
-        "turret_raw": "0010000000080000ea030000000000000000000000640000"
-      },
-      {
-        "frame": 1003,
-        "target_dir": null,
         "sets": [
           [
             "turret",
@@ -27309,6 +27289,7 @@
             "B"
           ]
         ],
+        "target_dir": null,
         "turret": [
           6144,
           6144,
@@ -27317,20 +27298,39 @@
           0,
           25600
         ],
-        "hull": [
-          0,
-          0,
-          0,
-          999,
-          0,
-          1280
-        ],
-        "latch": 1,
-        "rotating": 0,
         "turret_raw": "0018000000100000eb030000000000000000000000640000"
       }
     ],
-    "first_idle_set": 1000
+    "input": {
+      "bunkered": 0,
+      "delay": 36,
+      "deployed": 0,
+      "events": [],
+      "frames": 4,
+      "hull_init": 0,
+      "hull_rot": 5,
+      "last_fire": 1000,
+      "latch_init": 1,
+      "magnetron": 0,
+      "name": "no_target_turret_spins_rot100_wrap",
+      "navcom_coord": null,
+      "simple_deployer": 0,
+      "start": 1000,
+      "target_coord": null,
+      "turret_init": 63488,
+      "turret_rot": 100,
+      "turret_spins": 1,
+      "unit_coord": [
+        2688,
+        2688,
+        0
+      ],
+      "weapon": {
+        "omni_fire": 0,
+        "present": 1,
+        "turret_locked": 0
+      }
+    }
   },
   {
     "first_idle_set": null,

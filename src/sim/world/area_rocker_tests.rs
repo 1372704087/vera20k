@@ -57,7 +57,7 @@ fn stock_kirov_bomb_impact_rocks_its_live_neighbor_then_rolls_it() {
     let warhead = rules.warhead("BlimpHE").unwrap();
     assert!(warhead.rocker);
     assert!(warhead.cell_spread_f64 > 0.0);
-    assert!(rules.object_has_loaded_voxel("MTNK"));
+    assert!(rules.object_has_loaded_voxel(rules.type_handle("MTNK").unwrap()));
     let strength = rules.object("MTNK").unwrap().strength;
 
     let mut sim = crate::sim::arena_fixture::rival_arena_with_size(&rules, 0x489b49, 64);
@@ -353,7 +353,7 @@ impl AreaScene {
         let roots = crate::rules::effect_asset_catalog::anim_class_roots(&rules);
         rules.bind_anim_class_assets(&roots, &assets, "TEM", "TEMPERATE");
         rules.bind_effect_assets(&assets, "TEM", "TEMPERATE");
-        assert!(rules.object_has_loaded_voxel("MTNK"));
+        assert!(rules.object_has_loaded_voxel(rules.type_handle("MTNK").unwrap()));
         let mut sim = crate::sim::arena_fixture::rival_arena_with_size(&rules, 0x489b49, 64);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);

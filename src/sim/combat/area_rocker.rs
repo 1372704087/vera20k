@@ -117,7 +117,8 @@ pub(super) fn apply(
                 //40DD70 admits all four Techno classes. Their original+3D8
                 //slots share70B280; its loaded-VXL gate decides admission.
                 let request = world.substrate.entities.get(id).and_then(|entity| {
-                    let object = world.interner.object_type(entity.type_ref(), rules)?;
+                    let handle = world.interner.type_handle(entity.type_ref(), rules)?;
+                    let object = rules.object_by_handle(handle);
                     let location =
                         ground_pose::object_location(entity, world.resolved_terrain.as_ref());
                     let position = [location.x, location.y, location.z];
@@ -154,7 +155,7 @@ pub(super) fn apply(
                         force,
                         weight: object.weight,
                         no_dampen: false,
-                        has_loaded_voxel: rules.object_has_loaded_voxel(&object.id),
+                        has_loaded_voxel: rules.object_has_loaded_voxel(handle),
                     })
                 });
                 if let Some(request) = request {
@@ -241,7 +242,7 @@ mod tests {
         let mut rules = fixture.rules;
         let (_, assets) = crate::rules::retail_ini_fixture::retail_assets().unwrap();
         rules.bind_effect_assets(&assets, "TEM", "TEMPERATE");
-        assert!(rules.object_has_loaded_voxel("MTNK"));
+        assert!(rules.object_has_loaded_voxel(rules.type_handle("MTNK").unwrap()));
         for (name, expected) in corpus["initial"]["model_input"]["files"]
             .as_object()
             .unwrap()
@@ -453,7 +454,7 @@ mod tests {
         let infantry = world
             .spawn_object("E1", "Americans", 9, 20, 0, &rules)
             .unwrap();
-        assert!(!rules.object_has_loaded_voxel("E1"));
+        assert!(!rules.object_has_loaded_voxel(rules.type_handle("E1").unwrap()));
         CALLS.with_borrow_mut(|capture| *capture = Some(Vec::new()));
         apply(
             &mut world,

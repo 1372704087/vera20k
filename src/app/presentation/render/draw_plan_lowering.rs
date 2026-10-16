@@ -43,7 +43,6 @@ pub(crate) enum ObjectTexture {
     /// and no depth write. The atlas page is payload, never an ordering key.
     ProjectileShp(usize, crate::render::terrain_draw::TerrainPiece),
     UnitAtlasPage(usize),
-    UnitTransitionPage(usize),
     UnitPose,
     ShpPage(usize),
 }
@@ -301,7 +300,6 @@ fn push_object_piece(pass: &mut ObjectLayerPass, owner: DrawId, piece: ObjectPie
     let packed_parent = (matches!(
         piece.target,
         ObjectTexture::UnitAtlasPage(_)
-            | ObjectTexture::UnitTransitionPage(_)
             | ObjectTexture::UnitPose
             | ObjectTexture::ShpPage(_)
             | ObjectTexture::TerrainShp(crate::render::terrain_draw::TerrainPiece::Body)
@@ -653,7 +651,7 @@ mod tests {
                 plain_parent(&order, 1),
                 vec![
                     packed(ObjectTexture::UnitAtlasPage(0), 11, 4),
-                    packed(ObjectTexture::UnitTransitionPage(1), 12, 4),
+                    packed(ObjectTexture::UnitAtlasPage(1), 12, 4),
                     packed(ObjectTexture::UnitPose, 13, 4),
                 ],
             ),

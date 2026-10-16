@@ -8,7 +8,6 @@ use crate::render::palette_textures::PaletteSet;
 use crate::render::sprite_atlas::SpriteAtlas;
 use crate::render::terrain_draw::{PackedComposite, PackedCompositePiece, PackedSpriteKind};
 use crate::render::unit_atlas::UnitAtlas;
-use crate::render::unit_slope_transition_cache::VxlSlopeTransitionCache;
 
 use super::draw_plan_lowering::{ObjectDrawRun, ObjectLayerPass, ObjectTexture};
 use crate::render::tactical_draw_plan::RenderZPolicy;
@@ -30,7 +29,6 @@ pub(super) fn draw_native_object_pass<'a>(
     overlay_atlas: Option<&'a OverlayAtlas>,
     unit_atlas: Option<&'a UnitAtlas>,
     pose_texture: Option<&'a BatchTexture>,
-    transition_cache: &'a VxlSlopeTransitionCache,
     sprite_atlas: Option<&'a SpriteAtlas>,
     palette_set: Option<&'a PaletteSet>,
     zshape: &'a wgpu::BindGroup,
@@ -58,16 +56,6 @@ pub(super) fn draw_native_object_pass<'a>(
                 PackedSpriteKind::Voxel,
             )
         }),
-        ObjectTexture::UnitTransitionPage(page) => transition_cache
-            .page_texture(page)
-            .zip(palette_set)
-            .map(|(texture, palette)| {
-                (
-                    &texture.bind_group,
-                    &palette.bind_group,
-                    PackedSpriteKind::Voxel,
-                )
-            }),
         ObjectTexture::ShpPage(page) => sprite_atlas
             .and_then(|atlas| atlas.page(page))
             .map(|page| (&page.texture.bind_group, zshape, PackedSpriteKind::Shp)),
@@ -274,21 +262,7 @@ pub(super) fn draw_native_object_pass<'a>(
                         );
                     }
                 }
-                ObjectTexture::UnitTransitionPage(page) => {
-                    if let (Some(texture), Some(palette)) =
-                        (transition_cache.page_texture(page), palette_set)
-                    {
-                        batch.draw_voxel_sprites_range(
-                            &mut pass,
-                            texture,
-                            &palette.bind_group,
-                            buffer,
-                            start,
-                            count,
-                            run.render_z,
-                        );
-                    }
-                }
+
                 ObjectTexture::ShpPage(page) => {
                     if let Some(texture) = sprite_atlas.and_then(|atlas| atlas.page(page)) {
                         // The plan's Z policy selects the native leaf family:
@@ -401,9 +375,7 @@ fn voxel_needs_manual_depth(
 fn is_voxel_target(target: ObjectTexture) -> bool {
     matches!(
         target,
-        ObjectTexture::UnitAtlasPage(_)
-            | ObjectTexture::UnitTransitionPage(_)
-            | ObjectTexture::UnitPose
+        ObjectTexture::UnitAtlasPage(_) | ObjectTexture::UnitPose
     )
 }
 
@@ -484,7 +456,7 @@ mod tests {
         assert_eq!(voxel_fast_prefix(&slices[3..], camera), 1);
         for target in [
             ObjectTexture::UnitAtlasPage(0),
-            ObjectTexture::UnitTransitionPage(0),
+            ObjectTexture::UnitAtlasPage(1),
             ObjectTexture::UnitPose,
         ] {
             assert!(is_opaque_voxel_run(&ObjectDrawRun {
@@ -534,7 +506,7 @@ mod tests {
                 vec![
                     piece(ObjectTexture::UnitAtlasPage(0), 4),
                     piece(ObjectTexture::UnitPose, 4),
-                    piece(ObjectTexture::UnitTransitionPage(0), 4),
+                    piece(ObjectTexture::UnitAtlasPage(1), 4),
                     piece(ObjectTexture::ShpPage(0), 4),
                     piece(ObjectTexture::UnitPose, 4),
                 ],

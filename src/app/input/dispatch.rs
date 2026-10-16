@@ -3702,6 +3702,7 @@ mod control_group_tests {
                 None,
                 Some(owner),
                 false,
+                None,
             ),
             vec![(27, '1')],
             "a retained, selected YAPOWR follows the same live group projection"
@@ -3777,6 +3778,7 @@ mod control_group_tests {
                 1600.0,
                 1200.0,
                 [0, 0, 1600, 1200],
+                None,
             )
         };
 
@@ -3820,6 +3822,7 @@ mod control_group_tests {
                 Some(27),
                 Some(owner),
                 false,
+                None,
             ),
             vec![(27, '0')]
         );
@@ -3915,6 +3918,7 @@ mod control_group_tests {
                 hovered,
                 Some(current_house),
                 ignore_visibility,
+                None,
             )
         }
         assert!(labels(&sim, &groups, current_house, None, false).is_empty());
@@ -4059,6 +4063,7 @@ mod control_group_tests {
                     hovered_unit_id,
                     Some(owner),
                     ignore_visibility,
+                    None,
                 )
             };
         let projected = |groups: &[Vec<u64>], hovered_unit_id| {
@@ -4103,6 +4108,7 @@ mod control_group_tests {
                 800.0,
                 600.0,
                 fixture_clip,
+                None,
             )
         };
         let group_glyphs =
@@ -4172,6 +4178,7 @@ mod control_group_tests {
                 None,
                 Some(owner),
                 false,
+                None,
             )
             .is_empty()
         );
@@ -4189,6 +4196,7 @@ mod control_group_tests {
                 800.0,
                 600.0,
                 [0, 0, 800, 600],
+                None,
             )
             .text
             .is_empty()
@@ -4196,7 +4204,7 @@ mod control_group_tests {
     }
 
     #[test]
-    fn allied_control_group_labels_follow_fog_gap_and_sandbox_visibility() {
+    fn allied_control_group_labels_follow_body_admission_without_raw_anchor_gate() {
         use crate::map::entities::EntityCategory;
         use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
@@ -4214,6 +4222,7 @@ mod control_group_tests {
                 None,
                 Some(current_house),
                 ignore_visibility,
+                None,
             )
         }
 
@@ -4262,11 +4271,14 @@ mod control_group_tests {
             "the allied unit remains in the retained Display projection"
         );
 
-        assert!(labels(&sim, &groups, current_house, false).is_empty());
+        // Native Extras6D907E/6D9111 ->6D95D2..9789 ->6F5E27..87
+        // reaches the shared pip tail from selected retained body admission;
+        // the group tail70A6FD adds no independent raw-anchor fog query.
+        assert_eq!(labels(&sim, &groups, current_house, false), vec![(80, '1')]);
         assert_eq!(
             labels(&sim, &groups, current_house, true),
             vec![(80, '1')],
-            "sandbox full visibility bypasses fog while preserving the pip alliance gate"
+            "sandbox does not change the represented body/pip relationship policy"
         );
 
         sim.fog.mark_visible_for_owner(current_house, 10, 10);
@@ -4280,11 +4292,22 @@ mod control_group_tests {
         );
         assert!(sim.fog.is_cell_gap_covered(current_house, 10, 10));
         assert!(!sim.fog.is_cell_revealed(current_house, 10, 10));
-        assert!(
-            labels(&sim, &groups, current_house, false).is_empty(),
-            "an allied label is hidden by the same Gap policy as the status bar"
+        assert_eq!(
+            labels(&sim, &groups, current_house, false),
+            vec![(80, '1')],
+            "a retained admitted body keeps its label across a raw-anchor Gap frontier"
         );
         assert_eq!(labels(&sim, &groups, current_house, true), vec![(80, '1')]);
+
+        assert!(matches!(
+            sim.conceal(80),
+            crate::sim::world::ConcealOutcome::Concealed
+        ));
+        assert!(labels(&sim, &groups, current_house, false).is_empty());
+        assert!(
+            labels(&sim, &groups, current_house, true).is_empty(),
+            "sandbox cannot resurrect a concealed body status tail"
+        );
     }
 
     #[test]
@@ -4450,6 +4473,7 @@ mod control_group_tests {
                     None,
                     Some(owner),
                     false,
+                    None,
                 ),
                 vec![(1, digit.chars().next().expect("one native digit"))],
                 "the assignment reaches the same live production projection"
@@ -4488,6 +4512,7 @@ mod control_group_tests {
                         .collect::<Vec<_>>()
                         .try_into()
                         .expect("native clip has four xywh values"),
+                    None,
                 );
             let glyphs = &overlay_instances.text;
             if label == "outside" {

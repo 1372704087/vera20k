@@ -1054,7 +1054,8 @@ use crate::sim::world::Simulation;
 // ship-rocking flag; tiny impulse rates affect the next native damping branch.
 // 372 -> 373: House retains four class-local last-built type indices.
 // 373 -> 374: the Simulation retains whether it batches target scans.
-const SNAPSHOT_VERSION: u32 = 374;
+// 374 -> 375: CaptureManager retains its overload pip countdown.
+const SNAPSHOT_VERSION: u32 = 375;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4579,7 +4580,8 @@ mod tests {
         // 371 -> 372: authoritative binary32 body angles/rates.
         // 372 -> 373: retained House last-built type indices.
         // 373 -> 374: the batched target scan setting.
-        assert_eq!(super::SNAPSHOT_VERSION, 374);
+        // 374 -> 375: retained CaptureManager overload pip countdown.
+        assert_eq!(super::SNAPSHOT_VERSION, 375);
     }
 
     #[test]

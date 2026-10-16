@@ -216,6 +216,10 @@ impl MindScene {
     }
 
     fn capture_four_through_real_attacks(&mut self) {
+        self.capture_four_observing(|_| {});
+    }
+
+    fn capture_four_observing(&mut self, mut observe: impl FnMut(&Self)) {
         let mut fired_at = BTreeSet::new();
         let mut requested = self.targets[0];
         for _ in 0..600 {
@@ -258,6 +262,7 @@ impl MindScene {
                     "real selected FireAt must precede CaptureUnit"
                 );
             }
+            observe(self);
             if victims.contains(&requested) {
                 eprintln!(
                     "MIND ordinary capture visited_frame={} tick={} requested={} nodes={victims:?}",
@@ -304,6 +309,32 @@ impl MindScene {
             self.victims()
         );
     }
+
+    fn select_controller(&mut self) {
+        let owner = self.sim.substrate.entities.get(self.mind).unwrap().owner();
+        self.sim.queue_command(CommandEnvelope::new(
+            owner,
+            self.sim.session.tick + 1,
+            Command::Select {
+                entity_ids: vec![self.mind],
+                additive: false,
+            },
+        ));
+    }
+
+    fn pip_frames(&self, hovered: Option<u64>) -> Vec<usize> {
+        let Some(controller) = self.sim.substrate.entities.get(self.mind) else {
+            return Vec::new();
+        };
+        crate::app::presentation::ui_overlays::scale_pip_frames(
+            &self.sim,
+            controller,
+            hovered,
+            Some(self.sim.interner.resolve(controller.owner())),
+            &self.rules,
+        )
+    }
+
     fn first_pulse(&mut self) -> u32 {
         let initial_health = self
             .sim
@@ -398,6 +429,160 @@ fn stock_mastermind_four_real_captures_overload_then_rock_on_the_next_visit() {
     scene.first_pulse();
 }
 
+#[test]
+fn stock_selected_mastermind_submits_real_capture_count_and_overload_pips() {
+    let Some(mut scene) = MindScene::retail() else {
+        return;
+    };
+    scene.select_controller();
+    let mut observed_counts = BTreeSet::new();
+    scene.capture_four_observing(|scene| {
+        let controller = scene.sim.substrate.entities.get(scene.mind).unwrap();
+        if controller.selection.is_selected() {
+            let count = scene.victims().len();
+            let mut expected = vec![0; 3];
+            expected[..count.min(3)].fill(1);
+            if count > 3 {
+                expected.push(4);
+            }
+            assert_eq!(scene.pip_frames(None), expected);
+            observed_counts.insert(count);
+        }
+    });
+    assert_eq!(observed_counts, BTreeSet::from([0, 1, 2, 3, 4]));
+    let owner = scene
+        .sim
+        .substrate
+        .entities
+        .get(scene.mind)
+        .unwrap()
+        .owner();
+    let controller = scene.sim.substrate.entities.get(scene.mind).unwrap();
+    assert!(controller.selection.is_selected());
+    assert!(controller.lifecycle.object_alive() && !controller.lifecycle.in_limbo());
+    assert_eq!(
+        controller.health.current(),
+        scene.rules.object("MIND").unwrap().strength,
+        "real four-capture feedback is observed before the first overload pulse"
+    );
+    assert_eq!(scene.victims().len(), 4);
+    assert!(scene.sim.display_layers().layer_of(scene.mind).is_some());
+    // Native DrawPipScale709A90 case5: the current primary weapon supplies
+    // three ordinary slots, then IsOverloading4726C0 adds exactly one idle
+    // overload slot. Exercise the same status submission used by rendering,
+    // after actual FireAt/CaptureUnit and ordinary selection/body admission.
+    let frames = crate::app::presentation::ui_overlays::scale_pip_frames(
+        &scene.sim,
+        controller,
+        None,
+        Some(scene.sim.interner.resolve(owner)),
+        &scene.rules,
+    );
+    assert_eq!(frames, [1, 1, 1, 4]);
+
+    scene.sim.queue_command(CommandEnvelope::new(
+        owner,
+        scene.sim.session.tick + 1,
+        Command::Select {
+            entity_ids: Vec::new(),
+            additive: false,
+        },
+    ));
+    scene.step();
+    assert!(
+        !scene
+            .sim
+            .substrate
+            .entities
+            .get(scene.mind)
+            .unwrap()
+            .selection
+            .is_selected()
+    );
+    assert!(scene.pip_frames(None).is_empty());
+    assert_eq!(scene.pip_frames(Some(scene.mind)), [1, 1, 1, 4]);
+}
+
+#[test]
+fn ordinary_overload_pip_uses_ten_manager_visits_and_queries_preserve_rng() {
+    let Some(mut scene) = MindScene::retail() else {
+        return;
+    };
+    scene.select_controller();
+    scene.capture_four_through_real_attacks();
+    let initial_health = scene
+        .sim
+        .substrate
+        .entities
+        .get(scene.mind)
+        .unwrap()
+        .health
+        .current();
+    assert_eq!(scene.pip_frames(None), [1, 1, 1, 4]);
+    let mut saw_pulse = false;
+    for _ in 0..180 {
+        scene.step();
+        let controller = scene.sim.substrate.entities.get(scene.mind).unwrap();
+        if controller.health.current() < initial_health {
+            assert_eq!(
+                initial_health - controller.health.current(),
+                scene.rules.mind_control.overload_damage[1]
+            );
+            saw_pulse = true;
+            break;
+        }
+        assert_eq!(scene.pip_frames(None), [1, 1, 1, 4]);
+    }
+    assert!(
+        saw_pulse,
+        "the feedback window follows an actual ordinary damage pulse"
+    );
+    // Native471ADF writes10 on the damaging manager visit.471A64 decrements
+    // before the next countdown-return visits; the pip consumer70A17F reads
+    // only positivity, without a separate presentation clock.
+    for visits_since_pulse in 0..=10 {
+        let expected = if visits_since_pulse < 10 { 3 } else { 4 };
+        let before = (
+            scene.sim.main_rng.native_state_hex(),
+            scene.sim.scenario_rng.native_state_hex(),
+            scene.sim.mapgen_rng.native_state_hex(),
+        );
+        let manager_before = scene
+            .sim
+            .substrate
+            .entities
+            .get(scene.mind)
+            .unwrap()
+            .capture_manager
+            .clone();
+        for _ in 0..4 {
+            assert_eq!(scene.pip_frames(None), [1, 1, 1, expected]);
+            assert_eq!(scene.pip_frames(Some(scene.mind)), [1, 1, 1, expected]);
+        }
+        assert_eq!(
+            before,
+            (
+                scene.sim.main_rng.native_state_hex(),
+                scene.sim.scenario_rng.native_state_hex(),
+                scene.sim.mapgen_rng.native_state_hex(),
+            )
+        );
+        assert_eq!(
+            manager_before,
+            scene
+                .sim
+                .substrate
+                .entities
+                .get(scene.mind)
+                .unwrap()
+                .capture_manager
+        );
+        if visits_since_pulse < 10 {
+            scene.step();
+        }
+    }
+}
+
 fn spark_ids(scene: &MindScene) -> BTreeSet<u64> {
     let ty = scene
         .rules
@@ -439,6 +624,7 @@ fn stock_captive_force_attack_death_reduces_overload_then_the_controller_settles
     let Some(mut scene) = MindScene::retail() else {
         return;
     };
+    scene.select_controller();
     scene.capture_four_through_real_attacks();
     scene.first_pulse();
     let owner = scene
@@ -546,6 +732,7 @@ fn stock_captive_force_attack_death_reduces_overload_then_the_controller_settles
             }
         }
         if scene.victims().len() == 3 {
+            assert_eq!(scene.pip_frames(None), [1, 1, 1]);
             assert!(
                 genuine_fire,
                 "ordinary friendly-target105mm shots must cause node removal"
@@ -602,6 +789,7 @@ fn stock_captive_force_attack_death_reduces_overload_then_the_controller_settles
         );
         retained_health = controller.health.current();
         assert_eq!(scene.victims().len(), 3);
+        assert_eq!(scene.pip_frames(None), [1, 1, 1]);
     }
     assert!(
         scene.words().iter().all(|word| word & 0x7fff_ffff == 0),
@@ -622,6 +810,7 @@ fn stock_fatal_overload_releases_real_captives_and_retires_rings_and_sparks() {
     let Some(mut scene) = MindScene::retail() else {
         return;
     };
+    scene.select_controller();
     scene.capture_four_through_real_attacks();
     let original = scene.sim.interner.get("Russians").unwrap();
     let rings = captive_ring_ids(&scene);
@@ -689,6 +878,10 @@ fn stock_fatal_overload_releases_real_captives_and_retires_rings_and_sparks() {
         }
         if health == 0 {
             assert!(
+                scene.pip_frames(None).is_empty(),
+                "fatal controller cleanup cannot retain a pip strip"
+            );
+            assert!(
                 previous_health > 0 && previous_health <= damage,
                 "real preceding pulses and self-healing reached the fatal boundary"
             );
@@ -738,6 +931,7 @@ fn stock_fatal_overload_releases_real_captives_and_retires_rings_and_sparks() {
         scene.step();
     }
     assert!(!scene.sim.substrate.entities.contains(scene.mind));
+    assert!(scene.pip_frames(Some(scene.mind)).is_empty());
     assert!(rings.iter().all(|&id| scene.sim.anim(id).is_none()));
     assert!(
         spark_ids(&scene).is_empty(),
@@ -819,6 +1013,7 @@ fn internal_snapshot_continues_real_overload_links_rocking_and_next_pulse() {
     let Some(mut scene) = MindScene::retail() else {
         return;
     };
+    scene.select_controller();
     scene.capture_four_through_real_attacks();
     scene.first_pulse();
     for _ in 0..6 {
@@ -826,6 +1021,7 @@ fn internal_snapshot_continues_real_overload_links_rocking_and_next_pulse() {
     }
     let before = scene.words();
     assert!(before[0] & 0x7fff_ffff != 0);
+    assert_eq!(scene.pip_frames(None), [1, 1, 1, 3]);
     let saved =
         crate::sim::snapshot::GameSnapshot::save(&scene.sim, 0, 0, "mastermind-overload", 0);
     let mut loaded = crate::sim::snapshot::GameSnapshot::load(&saved)
@@ -851,6 +1047,7 @@ fn internal_snapshot_continues_real_overload_links_rocking_and_next_pulse() {
         targets: scene.targets,
     };
     assert_eq!(restored.words(), before);
+    assert_eq!(restored.pip_frames(None), scene.pip_frames(None));
     let mut saw_next_pulse = false;
     let health = scene
         .sim
@@ -866,6 +1063,7 @@ fn internal_snapshot_continues_real_overload_links_rocking_and_next_pulse() {
         let live = scene.sim.substrate.entities.get(scene.mind).unwrap();
         let replay = restored.sim.substrate.entities.get(restored.mind).unwrap();
         assert_eq!(live.health.current(), replay.health.current());
+        assert_eq!(scene.pip_frames(None), restored.pip_frames(None));
         assert_eq!(scene.words(), restored.words());
         assert_eq!(
             live.capture_manager, replay.capture_manager,

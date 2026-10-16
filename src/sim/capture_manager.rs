@@ -60,10 +60,9 @@
 //!   Effect: the unit hunts where native may send it into one of the
 //!   house's Grinders. Frequency: AI Yuri games with a Grinder.
 //! - The link line (`DrawLinks @ 0x00472160`, the node timer from
-//!   `MindControlAttackLineFrames=`), the overload flash counter (`+0x44`)
-//!   and the Mastermind's `PipScale=MindControl` pips (`0x0070A15C` ->
-//!   `0x00708C30` case 5 -> Count `0x004722D0`) feed only rendering and are
-//!   not kept.
+//!   `MindControlAttackLineFrames=`) is not kept. The separate overload pip
+//!   countdown (`+0x44`) is retained here; `IsOverloading @ 0x004726C0`
+//!   supplies its state to the `PipScale=MindControl` presentation arm.
 //! - An expired ring anim clears the victim's `+0x2C8` natively
 //!   (`TechnoClass::PointerExpired @ 0x00707946`, `0x0071043D`); VERA clears
 //!   the link only in FreeUnit, so a ring that ran out of loops leaves a
@@ -126,6 +125,10 @@ pub struct CaptureManagerState {
     overload_sound_played: bool,
     /// `+0x4C` frames until the next overload check.
     overload_countdown: i32,
+    /// `+0x44` positive countdown selecting the active overload pip.
+    /// Constructors `0x00471832` / `0x004718EA` initialize it to zero.
+    /// This is distinct from TechnoClass's hull-flash countdown.
+    overload_pip_countdown: i32,
 }
 
 impl CaptureManagerState {
@@ -136,6 +139,7 @@ impl CaptureManagerState {
             nodes: Vec::new(),
             overload_sound_played: false,
             overload_countdown: OVERLOAD_FIRST_CHECK_FRAMES,
+            overload_pip_countdown: 0,
         }
     }
 
@@ -150,8 +154,19 @@ impl CaptureManagerState {
         !self.nodes.is_empty()
     }
 
-    fn count(&self) -> i32 {
+    /// `GetControlledCount @ 0x004722D0`.
+    pub(crate) fn count(&self) -> i32 {
         i32::try_from(self.nodes.len()).unwrap_or(i32::MAX)
+    }
+
+    /// `IsOverloading @ 0x004726C0`: no extra pip unless an infinite
+    /// manager exceeds its retained capacity. The returned bool is the
+    /// native out-parameter (`+0x44 > 0`), which selects the active frame.
+    /// The base strip's maximum comes from the current type's weapon;
+    /// this method owns only the manager's overload decision.
+    pub(crate) fn overload_pip_state(&self) -> Option<bool> {
+        (self.infinite && self.count() > self.max_control)
+            .then_some(self.overload_pip_countdown > 0)
     }
 
     /// CanCapture's capacity gate (`0x00471C90`, gate 8): a finite manager
@@ -926,6 +941,11 @@ impl Simulation {
         if !manager.infinite {
             return;
         }
+        // `0x00471A64..0x00471A6C`: this precedes the overload-check
+        // countdown's early return, so the pip also expires on quiet visits.
+        if manager.overload_pip_countdown > 0 {
+            manager.overload_pip_countdown -= 1;
+        }
         if manager.overload_countdown > 0 {
             manager.overload_countdown -= 1;
             return;
@@ -952,6 +972,9 @@ impl Simulation {
             manager.overload_sound_played = false;
             return;
         }
+        // `0x00471ADF`: store ten before ReceiveDamage, including a fatal
+        // receiver. Non-damaging rows leave the earlier decrement intact.
+        manager.overload_pip_countdown = 10;
         let sound_played = manager.overload_sound_played;
         let position = entity.position;
         let location = crate::sim::movement::ground_pose::position_world_coord(&position);

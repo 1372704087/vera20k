@@ -589,6 +589,23 @@ pub(super) fn dispatch_draw_passes(
         unit_fill_tex,
         "status_unit_fill",
     );
+    // Native709A90 draws the PIPS2 scale strip before self-heal70A6BB
+    // and the control-group tail70A6FD. One atlas serves cargo and MindControl.
+    let scale_pip_tex = state
+        .match_state
+        .match_presentation
+        .selection_overlay
+        .as_ref()
+        .and_then(|overlay| overlay.scale_pips())
+        .map(|pips| pips.texture());
+    draw_pooled_no_depth(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        scale_pip_tex,
+        "scale_pips",
+    );
+
     // The self-heal status pip `DrawPipScalePips` draws after the strip
     // (pips.shp frames 0x0D / 0x14).
     let self_heal_pip_tex = state
@@ -607,7 +624,7 @@ pub(super) fn dispatch_draw_passes(
     );
     // DrawPipScalePips fills the black backing, draws its one-pixel House-color
     // outline, then submits the GAME.FNT glyph. Keep those layers under the
-    // same tactical camera/scissor and between self-heal and cargo pips.
+    // same tactical camera/scissor after the scale and self-heal pips.
     let control_group_bg_tex = state
         .match_state
         .match_presentation
@@ -629,30 +646,13 @@ pub(super) fn dispatch_draw_passes(
         "control_group_status_outline",
     );
     // Control-group digits are the GAME.FNT tail of DrawPipScalePips, after
-    // the native backing and outline and before cargo/spawn count pips.
+    // the native backing and outline after the scale and self-heal pips.
     draw_pooled_no_depth(
         &mut pass,
         &state.renderer.batch_renderer,
         pool,
         Some(state.renderer.bit_font.atlas()),
         "control_group_status",
-    );
-    // Tiberium cargo pips for harvesters (pips2.shp frames 0, 2, 5).
-    let cargo_pip_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .map(|o| {
-            o.tiberium_pip_texture()
-                .unwrap_or_else(|| o.white_texture())
-        });
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        cargo_pip_tex,
-        "cargo_pips",
     );
 
     // Original6D4664 -> Spotlight5FFFA0 edits the destination after the first

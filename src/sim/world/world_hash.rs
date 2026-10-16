@@ -1601,6 +1601,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // survivor roll and skips the engineer roll at death.
         0x6e3_u32.hash(hasher);
     }
+    if let Some(production) = entity.secret_lab_fallback() {
+        b"building-secret-production-v382".hash(hasher);
+        production.hash(hasher);
+    }
     if entity.techno_ctor_random_word() != 0 || entity.structure_upgrade_link().is_some() {
         b"techno-constructor-v1".hash(hasher);
         entity.techno_ctor_random_word().hash(hasher);

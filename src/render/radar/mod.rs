@@ -8,6 +8,7 @@ mod events;
 pub(super) mod geometry;
 mod helpers;
 mod interaction;
+pub(crate) use interaction::NativeRadarCameraTarget;
 pub mod minimap;
 pub(super) mod projection;
 pub(super) mod surface;

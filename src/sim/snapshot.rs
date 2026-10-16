@@ -1066,7 +1066,9 @@ use crate::sim::world::Simulation;
 // 379 -> 380: live type TechLevels and the process registry's global type order.
 // 380 -> 381: Factory+70 owns user hold and completion; the duplicate semantic
 // manual flag is removed. Older paused factories have incompatible state/layout.
-const SNAPSHOT_VERSION: u32 = 381;
+// 381 -> 382: retained Secret Lab rules/lists, House membership and per-
+// building fallback production. Startup assignment must not repeat on load.
+const SNAPSHOT_VERSION: u32 = 382;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4597,7 +4599,8 @@ mod tests {
         // 378 -> 379: synchronous Factory lifecycle and sale continuation.
         // 379 -> 380: live type TechLevels and global constructor chronology.
         // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
-        assert_eq!(super::SNAPSHOT_VERSION, 381);
+        // 381 -> 382: retained Secret Lab rules, membership and reward.
+        assert_eq!(super::SNAPSHOT_VERSION, 382);
     }
 
     #[test]

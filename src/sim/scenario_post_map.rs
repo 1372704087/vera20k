@@ -3,7 +3,7 @@
 //! This owns the `ScenarioClass::Post_Map_Init @ 0x00686890` tail that must
 //! complete before tick 0: native tiberium queue construction, navigation
 //! publication, the skirmish AI credit grant, scenario-start crate RNG, the
-//! final HouseClass alliance pass, and the post-`Full_Init` setup tail of
+//! final HouseClass alliance pass, Secret Lab rewards, and the post-`Full_Init` setup tail of
 //! `FUN_00684C30` (per-load particle-system ID, OreTwinkle Scenario
 //! draws). The app submits immutable map/session inputs and consumes only the
 //! receipt.
@@ -115,6 +115,10 @@ impl Simulation {
             }
             None
         };
+
+        // Post_Map_Init686AFE calls68C050 after launch alliances, before
+        // Full_Init's particle/OreTwinkle tail. Restore never reruns this pass.
+        self.assign_secret_lab_production(input.rules);
 
         // Original684C30 performs586BF0 after the zone rebuilds and before its
         // particle/twinkle tail. This command is fresh-load-only: restore writes

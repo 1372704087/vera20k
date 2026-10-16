@@ -139,29 +139,30 @@ pub(crate) fn native_cell_own_coords(
     Some((i64::from(coord.x), i64::from(coord.y), i64::from(coord.z)))
 }
 
-/// The same Cell486840 coordinate owner for an already retained real/Dummy
-/// pointer. Read the Dummy now, rather than caching its mutable coordinates.
-pub(crate) fn cell_ref_own_coords(
-    cell: &crate::sim::cell_rect::CellRef<'_>,
-) -> Option<crate::sim::components::DriveCoord> {
-    let (x, y, level, slope) = match cell {
-        crate::sim::cell_rect::CellRef::Real(cell) => (
-            i32::from(cell.rx as i16),
-            i32::from(cell.ry as i16),
-            cell.level,
-            cell.slope_type,
-        ),
-        crate::sim::cell_rect::CellRef::Dummy { cell } => {
-            let value = cell.snapshot();
-            (
-                value.coord.0,
-                value.coord.1,
-                value.level as u8,
-                value.slope_type,
-            )
-        }
-    };
-    cell_own_coords(x, y, level, slope)
+impl crate::sim::cell_rect::CellRef<'_> {
+    /// Cell486840/480A30: the receiver's signed packed center and current
+    /// ground height, without a bridge-deck rise. A retained Dummy is read now;
+    /// later map lookups can change its coordinate without changing identity.
+    pub fn center_coordinate(&self) -> Option<crate::sim::components::DriveCoord> {
+        let (x, y, level, slope) = match self {
+            Self::Real(cell) => (
+                i32::from(cell.rx as i16),
+                i32::from(cell.ry as i16),
+                cell.level,
+                cell.slope_type,
+            ),
+            Self::Dummy { cell } => {
+                let value = cell.snapshot();
+                (
+                    value.coord.0,
+                    value.coord.1,
+                    value.level as u8,
+                    value.slope_type,
+                )
+            }
+        };
+        cell_own_coords(x, y, level, slope)
+    }
 }
 
 fn cell_own_coords(

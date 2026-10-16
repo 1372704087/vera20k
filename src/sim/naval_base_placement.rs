@@ -154,26 +154,16 @@ fn first_yard_distance_accepts(
         return false;
     }
 
-    let signed_x = i32::from(candidate.0 as i16);
-    let signed_y = i32::from(candidate.1 as i16);
-    let cell_x = signed_x
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let cell_y = signed_y
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
     let Some(cell) = terrain.cell(candidate.0, candidate.1) else {
         return false;
     };
-    let Ok(cell_z) =
-        crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, cell_x, cell_y)
-    else {
+    let Some(center) = crate::sim::cell_rect::CellRef::Real(cell).center_coordinate() else {
         return false;
     };
 
     let yard_coord = crate::sim::movement::ground_pose::object_get_coords(yard, Some(terrain));
     let distance = crate::util::native_x87::distance_3d_leptons(
-        [cell_x, cell_y, cell_z],
+        [center.x, center.y, center.z],
         [yard_coord.x, yard_coord.y, yard_coord.z],
     );
     let cap = rules.ai_naval_yard_adjacency.wrapping_shl(8);

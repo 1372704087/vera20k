@@ -261,12 +261,10 @@ impl Simulation {
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
     ) -> Result<(i16, i16), String> {
-        let coordinate = super::navcom::nav_target_coordinate(
+        let coordinate = self.navigation_target_coordinate(
             crate::sim::components::NavTargetRef::Entity { id },
             None,
-            &self.substrate.entities,
-            self.resolved_terrain.as_ref(),
-            Some((rules, &self.interner)),
+            rules,
         )?;
         let terrain = self
             .resolved_terrain

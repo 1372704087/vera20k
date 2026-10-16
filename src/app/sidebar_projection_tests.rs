@@ -455,13 +455,11 @@ fn only_an_accepted_new_object_in_the_same_house_announces_construction_options(
 
 #[test]
 fn retail_rules_admission_and_csf_names_keep_the_same_identity_in_every_view() {
-    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
-        return;
-    };
     // Extracted RULESMD/ARTMD are an explicit base-rules fixture, not a claim
     // about all mode/map layers. The separate native replay supplies order.
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
+        return;
+    };
     let (sim, owner) = world(
         &rules,
         &[

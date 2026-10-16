@@ -233,9 +233,8 @@ const ANIM_INTERVAL_MS: u64 = ANIM_RATE_UNITS * CURSOR_TIMER_UNIT_MS;
 /// Format: (CursorId, start_frame, frame_count, interval_ms, hotspot).
 const CURSOR_DEFS: &[(CursorId, usize, usize, u64, CursorHotspot)] = &[
     // --- Core gameplay cursors ---
-    // Compiled table row 0: main set frame 0 count 1, with the static small
-    // variant as the row's separate mini set (frame 1, count 1) — `CursorId::DefaultMini`.
-    (CursorId::Default, 0, 1, 0, CursorHotspot::TopLeft),
+    // Native82D028 row0: normal frame0 and static small variant frame1.
+    (CursorId::Default, 0, 2, 0, CursorHotspot::TopLeft),
     (
         CursorId::Select,
         18,

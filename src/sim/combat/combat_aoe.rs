@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use super::{EntityDamageEvent, TerrainDamageEvent, cell_spread};
 use crate::map::entities::EntityCategory;
-use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::warhead_type::WarheadType;
@@ -43,16 +43,9 @@ use crate::util::native_x87::distance_3d_leptons;
 
 const BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS: i32 = 2 * LEPTONS_PER_LEVEL as i32;
 
-// GATE A1/A2 CUTOVER (authoritative): the bridge-AoE deck height is now the single
-// gamemd-verified value sourced from `bridge_topology` — the full deck offset is
-// `4 × per_level` (416 leptons = 4 Level units), so the half-deck term used by the
-// object-layer selector is `4 / 2 = 2`. The layer
-// boundary math lives in `CellBridgeView::aoe_object_layer` (strict `>` against
-// `ground_z + half_deck`); this module routes through it so there is ONE source of
-// truth for the deck height. This replaces the old `BRIDGE_AOE_SELECTOR_HEIGHT_LEVELS
-// = 4` const and its per-cell `(deck_level - level).max(4)` floor.
-// (Source: GATE_BRIDGE_DECK_HEIGHT_RESOLUTION_GHIDRA_REPORT.md §3/§5;
-//  GATE_BRIDGE_ONBRIDGE_OCCUPANCY_RESOLUTION_GHIDRA_REPORT.md §a.)
+// AreaDamage48955E..48958D freezes its ground/deck list before any
+// per-cell callback. Bridge topology owns the strict exact-lepton selector;
+// Map578080's existing ground query owns floor sampling and Dummy identity.
 
 /// Optional map context for gamemd bridge object-list selection.
 #[derive(Default)]
@@ -62,9 +55,9 @@ pub(crate) struct AoELayerContext<'a> {
     pub overlay_grid: Option<&'a mut OverlayGrid>,
     pub overlay_registry: Option<&'a OverlayTypeRegistry>,
     pub scenario_rng: Option<&'a mut SimRng>,
-    /// Exact detonation coordinate used by Apply_area_damage receiver-distance
-    /// collection. `impact_z` remains in the established whole-Level domain
-    /// for ground-vs-bridge object-list selection.
+    /// Exact detonation coordinate for receiver distance and object-list
+    /// selection. Only callers without this coordinate use the whole-Level
+    /// `impact_z` adapter below.
     pub air_impact: Option<AoEAirImpact>,
     pub impact_z: i32,
 }
@@ -159,6 +152,18 @@ pub(crate) struct AoEAirImpact {
     pub z_leptons: i32,
 }
 
+impl AoEAirImpact {
+    /// Reconstruct the exact absolute world point from its packed cell and
+    /// subcell fields. Packed negative cell coordinates remain signed.
+    fn world_point(self, impact_rx: u16, impact_ry: u16) -> crate::sim::components::DriveCoord {
+        crate::sim::components::DriveCoord {
+            x: crate::util::lepton::absolute_lepton_axis(impact_rx, self.sub_x),
+            y: crate::util::lepton::absolute_lepton_axis(impact_ry, self.sub_y),
+            z: self.z_leptons,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AoEDamageOrigin {
     pub source_id: u64,
@@ -219,21 +224,22 @@ fn air_impact_from_layer_z(
     sub_y: SimFixed,
     impact_z: i32,
 ) -> Option<AoEAirImpact> {
-    let terrain = terrain?;
-    let cell = terrain.cell(impact_rx, impact_ry)?;
-    let world_x = i32::from(impact_rx)
-        .wrapping_mul(256)
-        .wrapping_add(sub_x.to_num::<i32>());
-    let world_y = i32::from(impact_ry)
-        .wrapping_mul(256)
-        .wrapping_add(sub_y.to_num::<i32>());
-    let ground_z = ground_height_leptons(cell.level, cell.slope_type, world_x, world_y).ok()?;
-    let level_delta = impact_z.wrapping_sub(i32::from(cell.level));
-    Some(AoEAirImpact {
+    let cells = NativeCellQuery::canonical(terrain?);
+    let cell = cells.lookup((impact_rx as i16, impact_ry as i16));
+    let level = cells.ground_fields(cell).0;
+    let mut impact = AoEAirImpact {
         sub_x,
         sub_y,
-        z_leptons: ground_z.wrapping_add(level_delta.wrapping_mul(LEPTONS_PER_LEVEL as i32)),
-    })
+        z_leptons: 0,
+    };
+    let ground_z = crate::sim::movement::ground_pose::query_ground_height(
+        &cells,
+        impact.world_point(impact_rx, impact_ry),
+    )
+    .ok()?;
+    let level_delta = impact_z.wrapping_sub(i32::from(level as i8));
+    impact.z_leptons = ground_z.wrapping_add(level_delta.wrapping_mul(LEPTONS_PER_LEVEL as i32));
+    Some(impact)
 }
 
 #[cfg(test)]
@@ -246,6 +252,9 @@ pub(crate) struct CellTargetDetach {
 
 #[derive(Debug, Default)]
 pub(crate) struct AoEDamageResult {
+    /// Original489357/48955E..48958D local, frozen before cell callbacks and
+    /// reused after receiver dispatch by the area-rocker continuation.
+    pub object_list_layer: ListLayer,
     pub receivers: Vec<AreaDamageReceiver>,
     /// Compatibility-only projection for existing unit tests. Production
     /// callers consume `receivers`, which is the sole ordered authority.
@@ -436,16 +445,20 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
                 .wrapping_mul(LEPTONS_PER_LEVEL as i32),
         });
 
+    result.object_list_layer = layer_context
+        .terrain
+        .as_deref()
+        .map_or(ListLayer::Ground, |terrain| {
+            select_object_damage_layer(terrain, impact_rx, impact_ry, exact_impact)
+        });
+
     if layer_context.occupancy.is_some() && layer_context.terrain.is_some() {
         let occupancy = layer_context
             .occupancy
             .expect("checked occupied Apply_area_damage context");
-        let selected_layer = {
-            let terrain = layer_context
-                .terrain
-                .as_deref()
-                .expect("checked terrain Apply_area_damage context");
-            select_object_damage_layer(terrain, impact_rx, impact_ry, layer_context.impact_z)
+        let selected_layer = match result.object_list_layer {
+            ListLayer::Ground => MovementLayer::Ground,
+            ListLayer::Bridge => MovementLayer::Bridge,
         };
 
         // Native enters the entire airborne query only when the exact impact
@@ -766,23 +779,23 @@ fn select_object_damage_layer(
     terrain: &ResolvedTerrainGrid,
     impact_rx: u16,
     impact_ry: u16,
-    impact_z: i32,
-) -> MovementLayer {
-    let Some(cell) = terrain.cell(impact_rx, impact_ry) else {
-        return MovementLayer::Ground;
+    impact: AoEAirImpact,
+) -> ListLayer {
+    let cells = NativeCellQuery::canonical(terrain);
+    let cell = cells.lookup((impact_rx as i16, impact_ry as i16));
+    let view = CellBridgeView::from_query(&cells, cell);
+    // Original48955E gates the Map578080 floor call on the retained cell's
+    // structural flag. Keep its lookup/Dummy side effects conditional too.
+    let floor = if view.is_bridge_cell() {
+        crate::sim::movement::ground_pose::query_ground_height(
+            &cells,
+            impact.world_point(impact_rx, impact_ry),
+        )
+        .expect("AreaDamage floor requires a supported native Cell slope")
+    } else {
+        0 // Unread by the topology selector on the non-bridge arm.
     };
-
-    // Authoritative: delegate the ground-vs-deck choice to the single verified
-    // selector in bridge_topology. It applies the strict-`>` half-deck boundary
-    // (`impact_z > ground_z + DECK/2`, half = 2 levels) on the structural-bridge gate.
-    // `ground_z` is `cell.level` in the same Level domain as `impact_z` (P0b: the
-    // generic cell-center callers add the fixed deck offset, never a routed
-    // GetGroundHeight, so both operands are cell-Level units here).
-    let view = CellBridgeView::from_resolved(cell);
-    match view.aoe_object_layer(impact_z, cell.level as i32) {
-        ListLayer::Bridge => MovementLayer::Bridge,
-        ListLayer::Ground => MovementLayer::Ground,
-    }
+    view.aoe_object_layer(impact.z_leptons, floor)
 }
 
 fn offset_cell_coord(origin: u16, delta: i16) -> Option<u16> {
@@ -800,17 +813,12 @@ fn impact_is_above_ground(
     impact_ry: u16,
     impact: AoEAirImpact,
 ) -> bool {
-    let Some(cell) = terrain.cell(impact_rx, impact_ry) else {
-        return false;
-    };
-    let world_x = i32::from(impact_rx)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_x.to_num::<i32>());
-    let world_y = i32::from(impact_ry)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_y.to_num::<i32>());
-    ground_height_leptons(cell.level, cell.slope_type, world_x, world_y)
-        .is_ok_and(|ground_z| ground_z < impact.z_leptons)
+    let cells = NativeCellQuery::canonical(terrain);
+    crate::sim::movement::ground_pose::query_ground_height(
+        &cells,
+        impact.world_point(impact_rx, impact_ry),
+    )
+    .is_ok_and(|floor| floor < impact.z_leptons)
 }
 
 fn push_airborne_aoe_damage(
@@ -844,12 +852,8 @@ fn push_airborne_aoe_damage(
         return;
     }
     let target_z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, Some(terrain));
-    let impact_x = i32::from(impact_rx)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_x.to_num::<i32>());
-    let impact_y = i32::from(impact_ry)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_y.to_num::<i32>());
+    let impact_point = impact.world_point(impact_rx, impact_ry);
+    let (impact_x, impact_y) = (impact_point.x, impact_point.y);
     let target_x = i32::from(entity.position.rx())
         .wrapping_mul(256)
         .wrapping_add(entity.position.sub_x().to_num::<i32>());
@@ -934,12 +938,8 @@ fn push_entity_aoe_damage(
         return;
     }
 
-    let impact_x = i32::from(impact_rx)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_x.to_num::<i32>());
-    let impact_y = i32::from(impact_ry)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_y.to_num::<i32>());
+    let impact_point = impact.world_point(impact_rx, impact_ry);
+    let (impact_x, impact_y) = (impact_point.x, impact_point.y);
 
     // Building receiver records are keyed to the selected CellClass entry.
     // Both center and adjacent foundation cells use that cell's center
@@ -1023,12 +1023,8 @@ fn push_terrain_aoe_damage(
         return;
     }
 
-    let impact_x = i32::from(impact_rx)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_x.to_num::<i32>());
-    let impact_y = i32::from(impact_ry)
-        .wrapping_mul(256)
-        .wrapping_add(impact.sub_y.to_num::<i32>());
+    let impact_point = impact.world_point(impact_rx, impact_ry);
+    let (impact_x, impact_y) = (impact_point.x, impact_point.y);
     let target_coord = object.world_coord();
     let distance_leptons = distance_3d_leptons(
         [impact_x, impact_y, impact.z_leptons],
@@ -2511,6 +2507,217 @@ mod tests {
         .hits;
 
         assert_eq!(hit_ids(&hits), vec![1]);
+    }
+
+    #[test]
+    fn bridge_object_layer_keeps_the_exact_impact_lepton_remainder() {
+        // Apply_area_damage48955E..48958D compares the exact impact against
+        // Map578080's floor plus half of the original416-lepton deck. The
+        // production caller supplies both the coordinate and its whole-Level
+        // fallback;209 must not be rounded down to the208 boundary.
+        for (z_leptons, expected) in [(208, 1), (209, 2)] {
+            let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
+                bridge_layer_test_fixture();
+            let hits = apply_aoe_damage(
+                &mut entities,
+                5,
+                5,
+                100,
+                &warhead,
+                &rules,
+                &mut interner,
+                "Americans",
+                AoELayerContext {
+                    occupancy: Some(&occupancy),
+                    terrain: Some(&mut terrain),
+                    air_impact: Some(AoEAirImpact {
+                        sub_x: CELL_CENTER_LEPTON,
+                        sub_y: CELL_CENTER_LEPTON,
+                        z_leptons,
+                    }),
+                    impact_z: z_leptons.div_euclid(LEPTONS_PER_LEVEL as i32),
+                    ..AoELayerContext::default()
+                },
+            )
+            .hits;
+            assert_eq!(hit_ids(&hits), vec![expected], "impact Z {z_leptons}");
+        }
+    }
+
+    #[test]
+    fn bridge_object_layer_uses_signed_slope_floor_at_exact_subcell_xy() {
+        // Reuse the established Cell47B3A0 controls from util::lepton: level2
+        // ramp1 at(64,192) gives234; signed levelFF ramp1 at(1,0) gives-102.
+        for (level, sub_x, sub_y, floor) in [(2, 64, 192, 234), (0xff, 1, 0, -102)] {
+            for (above, expected) in [(208, ListLayer::Ground), (209, ListLayer::Bridge)] {
+                let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
+                    bridge_layer_test_fixture();
+                let cell = terrain.cell_mut(5, 5).unwrap();
+                cell.level = level;
+                cell.slope_type = 1;
+                let z = floor + above;
+                let result = apply_aoe_damage(
+                    &mut entities,
+                    5,
+                    5,
+                    100,
+                    &warhead,
+                    &rules,
+                    &mut interner,
+                    "Americans",
+                    AoELayerContext {
+                        occupancy: Some(&occupancy),
+                        terrain: Some(&mut terrain),
+                        air_impact: Some(AoEAirImpact {
+                            sub_x: SimFixed::from_num(sub_x),
+                            sub_y: SimFixed::from_num(sub_y),
+                            z_leptons: z,
+                        }),
+                        impact_z: z.div_euclid(LEPTONS_PER_LEVEL as i32),
+                        ..AoELayerContext::default()
+                    },
+                );
+                assert_eq!(
+                    result.object_list_layer, expected,
+                    "level{level} sub{sub_x},{sub_y} Z{z}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bridge_object_layer_is_frozen_before_any_cell_prelude() {
+        struct ChangeBridge {
+            flags: u32,
+            visited: bool,
+        }
+        impl AoECellPrelude for ChangeBridge {
+            fn before_cell(
+                &mut self,
+                rx: u16,
+                ry: u16,
+                _: Option<&mut OverlayGrid>,
+                _: Option<&OverlayTypeRegistry>,
+                terrain: Option<&mut ResolvedTerrainGrid>,
+                _: Option<&mut SimRng>,
+                _: Option<&OccupancyGrid>,
+            ) {
+                if (rx, ry) == (5, 5) {
+                    self.visited = true;
+                    terrain
+                        .unwrap()
+                        .cell_mut(5, 5)
+                        .unwrap()
+                        .bridge_facts
+                        .raw_flags = self.flags;
+                }
+            }
+        }
+        for initial_bridge in [false, true] {
+            let (mut entities, occupancy, mut terrain, rules, warhead, interner) =
+                bridge_layer_test_fixture();
+            terrain.cell_mut(5, 5).unwrap().bridge_facts.raw_flags = if initial_bridge {
+                BRIDGE_FLAG_STRUCTURAL
+            } else {
+                0
+            };
+            let mut prelude = ChangeBridge {
+                flags: if initial_bridge {
+                    0
+                } else {
+                    BRIDGE_FLAG_STRUCTURAL
+                },
+                visited: false,
+            };
+            let result = apply_aoe_damage_with_terrain_and_scenario(
+                &mut entities,
+                5,
+                5,
+                100,
+                &warhead,
+                &rules,
+                &interner,
+                None,
+                "Americans",
+                AoELayerContext {
+                    occupancy: Some(&occupancy),
+                    terrain: Some(&mut terrain),
+                    air_impact: Some(AoEAirImpact {
+                        sub_x: CELL_CENTER_LEPTON,
+                        sub_y: CELL_CENTER_LEPTON,
+                        z_leptons: 209,
+                    }),
+                    impact_z: 2,
+                    ..AoELayerContext::default()
+                },
+                None,
+                false,
+                Some(&mut prelude),
+            );
+            assert!(prelude.visited);
+            assert_eq!(
+                result.object_list_layer,
+                if initial_bridge {
+                    ListLayer::Bridge
+                } else {
+                    ListLayer::Ground
+                }
+            );
+            assert_eq!(
+                hit_ids(&result.hits),
+                vec![if initial_bridge { 2 } else { 1 }],
+                "callbacks cannot reselect this call's list"
+            );
+        }
+    }
+
+    #[test]
+    fn bridge_object_layer_keeps_fixed_stride_alias_and_live_dummy_floor() {
+        let (_, _, terrain, _, _, _) = bridge_layer_test_fixture();
+        let impact = AoEAirImpact {
+            sub_x: CELL_CENTER_LEPTON,
+            sub_y: CELL_CENTER_LEPTON,
+            z_leptons: 209,
+        };
+        // (517,4) aliases the allocated native512-stride slot(5,5).
+        assert_eq!(
+            select_object_damage_layer(&terrain, 517, 4, impact),
+            ListLayer::Bridge
+        );
+        let dummy = terrain.shared_cell_dummy();
+        dummy.test_set_retained_bridge_flags(BRIDGE_FLAG_STRUCTURAL);
+        terrain.test_set_dummy_cell_level_slope(-1, 1);
+        terrain.stamp_dummy_cell_requested_coord(77, 88);
+        for (z_leptons, expected) in [(106, ListLayer::Ground), (107, ListLayer::Bridge)] {
+            // Native signed levelFF ramp1 at local(1,0) is-102; Map578080
+            // stamps this same retained Dummy and adds no deck to its floor.
+            let impact = AoEAirImpact {
+                sub_x: SimFixed::from_num(1),
+                sub_y: SimFixed::ZERO,
+                z_leptons,
+            };
+            assert_eq!(
+                select_object_damage_layer(&terrain, 20, 20, impact),
+                expected
+            );
+            assert_eq!(dummy.snapshot().coord, (20, 20));
+        }
+        assert_eq!(terrain.dummy_cell_level_slope(), (-1, 1));
+        // Whole-Level compatibility uses the same canonical lookup/floor arm.
+        let legacy = air_impact_from_layer_z(
+            Some(&terrain),
+            20,
+            20,
+            SimFixed::from_num(1),
+            SimFixed::ZERO,
+            1,
+        )
+        .unwrap();
+        assert_eq!(legacy.z_leptons, 106);
+        assert_eq!(
+            select_object_damage_layer(&terrain, 20, 20, legacy),
+            ListLayer::Ground
+        );
     }
 
     #[test]

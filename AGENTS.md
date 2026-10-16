@@ -133,11 +133,11 @@ tests reach it; only test modules and the hooks into them stay `#[cfg(test)]`.
 App code orchestrates without owning duplicate gameplay. Current module contracts
 and `advance_tick` phases describe the architecture. Name coordinate frames/units.
 
-Trace affected state and call chains. Refactor only what the selected chain needs
-for ownership, dependencies or correctness. Finish migrations, update consumers
-and remove duplicate/superseded code and state in the same change. Preserve
-intentional differences, validate affected paths and retain existing owners for
-shared dependencies still used elsewhere.
+Trace affected state and call chains. Keep refactoring within the selected chain;
+fix affected ownership, duplication and maintainability issues without unrelated
+redesign. Finish migrations, update consumers and remove duplicate/superseded code
+and state in the same change. Preserve intentional differences, validate affected
+paths and retain existing owners for shared dependencies still used elsewhere.
 
 File `refactor` issues only for work outside the chain or too large for it; add
 `tooling` for tools, tests, CI or workflow. Search open issues for a match first.

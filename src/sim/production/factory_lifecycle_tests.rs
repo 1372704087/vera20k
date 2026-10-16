@@ -39,6 +39,18 @@ fn world(seed: u64) -> (Simulation, RuleSet, InternedId) {
     world_with(manager_rules(), seed)
 }
 
+fn world_with_creation_cue(seed: u64) -> (Simulation, RuleSet, InternedId) {
+    let mut ini = manager_ini();
+    ini.merge(&IniFile::from_str(
+        "[SoundList]\n0=FixtureCreated\n[FixtureCreated]\nSounds=fixture\n\
+         [E1]\nCreateSound=FixtureCreated\n",
+    ));
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&ini);
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    rules.bind_type_sound_references(&ini, &sounds);
+    world_with(rules, seed)
+}
+
 fn world_with(rules: RuleSet, seed: u64) -> (Simulation, RuleSet, InternedId) {
     let mut sim = Simulation::with_seed(seed);
     sim.intern_rule_type_ids(&rules);
@@ -138,7 +150,19 @@ fn record_last_built_matches_native_class_slots_score_gate_and_rng() {
             let owner = sim.interner.intern("Americans");
             sim.houses
                 .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-            let type_id = sim.interner.intern(type_name);
+            let product = sim
+                .construct_object_limbo_at_height(
+                    type_name,
+                    "Americans",
+                    0,
+                    0,
+                    0,
+                    0,
+                    rules,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .expect("the comparison's supplied actor/type prior");
+            let object = super::factory_lifecycle::BuiltObject::capture(&sim, product);
             for (slot, slot_name) in categories {
                 assert_eq!(
                     i64::from(sim.houses[&owner].last_built_type_index(slot)),
@@ -158,7 +182,7 @@ fn record_last_built_matches_native_class_slots_score_gate_and_rng() {
             sim.mapgen_rng =
                 SimRng::from_native_state_hex_for_test(before["mapgen"].as_str().unwrap());
 
-            super::factory_lifecycle::record_last_built(&mut sim, rules, owner, type_id);
+            super::factory_lifecycle::record_last_built(&mut sim, rules, owner, object);
 
             for (slot, slot_name) in categories {
                 assert_eq!(
@@ -185,6 +209,246 @@ fn record_last_built_matches_native_class_slots_score_gate_and_rng() {
                 );
             }
         }
+    }
+}
+
+/// Direct RecordLastBuilt control-flow regression, separate from successful
+/// delivery. Original4FB6B0 admits even limbo/nonhuman products; DontScore
+/// gates accounting but not the type override/class fallback or1FC writer.
+#[test]
+fn record_last_built_uses_class_fallbacks_type_overrides_and_the_existing_tech_owner() {
+    use crate::rules::sound_ini::SoundRegistry;
+    use crate::sim::world::{FrameEffects, SimSoundEvent};
+
+    let mut ini = manager_ini();
+    ini.merge(&IniFile::from_str(
+        "[SoundList]\n0=TypeCue\n1=UnitCue\n2=InfantryCue\n3=AircraftCue\n\
+         [TypeCue]\nSounds=type\n[UnitCue]\nSounds=unit\n\
+         [InfantryCue]\nSounds=infantry\n[AircraftCue]\nSounds=aircraft\n\
+         [AudioVisual]\nCreateUnitSound=UnitCue\nCreateInfantrySound=InfantryCue\n\
+         CreateAircraftSound=AircraftCue\n[E1]\nCreateSound=TypeCue\nDontScore=yes\n\
+         [GAPOWR]\nCreateSound=TypeCue\n",
+    ));
+    let sounds = SoundRegistry::from_ini(&ini);
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    rules.bind_type_sound_references(&ini, &sounds);
+    for (name, expected) in [
+        ("MTNK", Some("UnitCue")),
+        ("SLAV", Some("InfantryCue")),
+        ("ORCA", Some("AircraftCue")),
+        ("E1", Some("TypeCue")),
+        ("GAPOWR", Some("TypeCue")),
+        ("GACNST", None),
+    ] {
+        let (mut sim, _, owner) = world_with(rules.clone(), 0x4FB7_FF00);
+        sim.houses.get_mut(&owner).unwrap().is_human = false;
+        assert!(sim.session.current_house.is_none());
+        let product = sim
+            .construct_object_limbo_at_height(
+                name,
+                "Americans",
+                7,
+                9,
+                0,
+                2,
+                &rules,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        assert!(
+            sim.substrate
+                .entities
+                .get(product)
+                .unwrap()
+                .lifecycle
+                .in_limbo()
+        );
+        let object = super::factory_lifecycle::BuiltObject::capture(&sim, product);
+        sim.sound_events.clear();
+        let house = sim.houses.get_mut(&owner).unwrap();
+        house.take_tech_recheck();
+        assert!(!house.tech_recheck_pending());
+        super::factory_lifecycle::record_last_built(&mut sim, &rules, owner, object);
+        let actual = sim
+            .sound_events
+            .iter()
+            .map(|event| {
+                let SimSoundEvent::VocAt {
+                    sound_id,
+                    audible_to,
+                    ..
+                } = event
+                else {
+                    panic!("unexpected RecordLastBuilt output {event:?}");
+                };
+                assert!(audible_to.is_none());
+                sound_id.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{name}");
+        assert_eq!(sim.houses[&owner].stats.built(), u32::from(name != "E1"));
+        assert!(
+            sim.houses[&owner].tech_recheck_pending(),
+            "native4FB804, {name}"
+        );
+    }
+}
+
+/// Ordinary paid BORIS through the bound frame API, with an explicit supplied
+/// live Soviet tech base and flat-map prior. No completion/payment/exit state is
+/// armed by the test. Original4FB4B7 ->4FB6B0 ->4FB7FF reads the delivered
+/// object's Location after successor promotion, and ignores the local-house
+/// notification gate. Reader/resource evidence: House creation-cue audit,
+/// original gamemd SHA2561cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c.
+#[test]
+fn paid_boris_delivery_requests_its_creation_cue_once_at_the_delivered_location() {
+    use crate::rules::object_type::ObjectCategory;
+    use crate::sim::command::{Command, CommandEnvelope};
+    use crate::sim::house_state::HouseState;
+    use crate::sim::runtime::{SimResources, SimRuntime};
+    use crate::sim::world::{FrameEffects, SimSoundEvent, TickLane};
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let rules = retail.rules;
+    let mut sim = Simulation::with_seed(0x4FB6_B000);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    super::tests::install_infantry_delivery_fixture_map(&mut sim);
+    let owner = sim.interner.intern("Russians");
+    let mut house = HouseState::new(owner, 0, Some(owner), true, 50_000, 10);
+    house.project_country_mults(&rules, &sim.interner);
+    sim.houses.insert(owner, house);
+    sim.session.current_house = Some(owner);
+    for (index, (name, x)) in [
+        ("NACNST", 5),
+        ("NAHAND", 14),
+        ("NAPOWR", 23),
+        ("NAPOWR", 29),
+        ("NAPOWR", 35),
+        ("NATECH", 41),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = index as u64 + 1;
+        spawn_structure(&mut sim, &rules, id, "Russians", name, x, 10);
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(rules.object(name).unwrap().strength);
+        sim.remove_entity_occupancy(id);
+        super::tests::stamp_type_foundation(&mut sim, &rules, id);
+        sim.add_entity_occupancy(id);
+    }
+    assert!(sim.rebuild_dynamic_navigation(&rules));
+    let boris = sim.interner.get("BORIS").unwrap();
+    let conscript = sim.interner.get("E2").unwrap();
+    for name in ["BORIS", "E2"] {
+        assert!(
+            super::build_options_for_owner(&sim, &rules, "Russians")
+                .iter()
+                .any(|option| sim.interner.resolve(option.type_id) == name && option.enabled),
+            "the real reader/prerequisite owners admit {name}"
+        );
+    }
+    let cost = sim.cost_of(owner, rules.object("BORIS").unwrap(), &rules);
+    assert!(cost > 0);
+    let mut runtime = SimRuntime {
+        simulation: sim,
+        resources: SimResources {
+            rules,
+            ..SimResources::empty()
+        },
+    };
+    let mut product = None;
+    let mut cues = Vec::new();
+    let mut delivered = false;
+    for tick in 1..=4_000 {
+        let commands = if tick == 1 {
+            [boris, conscript]
+                .map(|type_id| CommandEnvelope::new(owner, 1, Command::QueueProduction { type_id }))
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+        let output = runtime
+            .advance_frame(&commands, 67, TickLane::Ordinary, FrameEffects::default())
+            .expect("ordinary paid production frame");
+        for event in output.sound_events {
+            if let SimSoundEvent::VocAt {
+                sound_id,
+                audible_to,
+                rx,
+                ry,
+                sub_x,
+                sub_y,
+                world_z_leptons,
+            } = event
+                && sound_id == "BorisCreated"
+            {
+                assert!(audible_to.is_none(), "native has no local-House gate");
+                cues.push((rx, ry, sub_x, sub_y, world_z_leptons));
+            }
+        }
+        let sim = &runtime.simulation;
+        let id = *product.get_or_insert_with(|| held_id(sim, owner, ProductionCategory::Infantry));
+        let entity = sim.substrate.entities.get(id).expect("same retained BORIS");
+        assert_eq!(entity.type_ref(), boris);
+        if !entity.lifecycle.in_limbo() {
+            delivered = true;
+            break;
+        }
+        assert!(
+            cues.is_empty(),
+            "completion/held objects cannot play creation"
+        );
+    }
+    assert!(delivered, "ordinary funded BORIS exits its barracks");
+    let sim = &runtime.simulation;
+    let product = product.unwrap();
+    let position = sim.substrate.entities.get(product).unwrap().position;
+    let promoted = held_id(sim, owner, ProductionCategory::Infantry);
+    assert_ne!(promoted, product, "the FIFO successor has a fresh identity");
+    let successor = sim.substrate.entities.get(promoted).unwrap();
+    assert_eq!(successor.type_ref(), conscript);
+    assert!(successor.lifecycle.in_limbo());
+    assert_eq!(sim.houses[&owner].economy.spent_credits(), cost);
+    assert_eq!(sim.houses[&owner].economy.available_money(), 50_000 - cost);
+    assert_eq!(sim.houses[&owner].stats.built(), 1);
+    assert_eq!(
+        sim.houses[&owner].last_built_type_index(ObjectCategory::Infantry),
+        runtime
+            .resources
+            .rules
+            .type_array_index(ObjectCategory::Infantry, "BORIS")
+            .unwrap()
+    );
+    assert_eq!(
+        cues,
+        [(
+            position.rx(),
+            position.ry(),
+            position.sub_x(),
+            position.sub_y(),
+            crate::sim::movement::ground_pose::position_world_coord(&position).z
+        )],
+        "the completed BORIS, not the promoted E2, owns one creation request"
+    );
+    for _ in 0..8 {
+        let output = runtime
+            .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+            .unwrap();
+        assert!(
+            !output.sound_events.iter().any(|event| {
+                matches!(event, SimSoundEvent::VocAt { sound_id, .. } if sound_id == "BorisCreated")
+            }),
+            "later publication/frames do not replay creation"
+        );
     }
 }
 
@@ -1284,7 +1548,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
 
 #[test]
 fn missing_barracks_retains_completed_infantry_and_queued_successor() {
-    let (mut sim, rules, owner) = world(0xfac7_0013);
+    let (mut sim, rules, owner) = world_with_creation_cue(0xfac7_0013);
     assert!(enqueue_by_type(
         &mut sim,
         &rules,
@@ -1338,6 +1602,13 @@ fn missing_barracks_retains_completed_infantry_and_queued_successor() {
     assert!(object.lifecycle.in_limbo() && !object.lifecycle.cell_marked());
     assert_eq!(sim.houses[&owner].economy.credits(), credits);
     assert_eq!(sim.substrate.next_stable_object_id, allocated);
+    assert!(
+        !sim.sound_events.iter().any(|event| {
+            matches!(event, crate::sim::world::SimSoundEvent::VocAt { sound_id, .. }
+            if sound_id == "FixtureCreated")
+        }),
+        "missing producer retains the paid head without creation output"
+    );
     assert_eq!(
         (
             sim.main_rng.logical_state(),
@@ -1727,7 +1998,7 @@ fn a_cancel_refunds_the_cost_of_at_cancel_time() {
 /// paid-ready priors, not a comparison of the native charging cadence.
 #[test]
 fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
-    let (mut sim, rules, owner) = world(0xfac7_0023);
+    let (mut sim, rules, owner) = world_with_creation_cue(0xfac7_0023);
     super::tests::install_infantry_delivery_fixture_map(&mut sim);
     let category = ProductionCategory::Infantry;
     let producer = 2;
@@ -1757,6 +2028,17 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     assert!(sim.pending_command_snapshot().is_empty());
     let first_entity = sim.substrate.entities.get(first).unwrap();
     assert!(!first_entity.lifecycle.in_limbo() && first_entity.in_logic_vector.is_member());
+    assert_eq!(
+        sim.sound_events
+            .iter()
+            .filter(|event| {
+                matches!(event, crate::sim::world::SimSoundEvent::VocAt { sound_id, .. }
+            if sound_id == "FixtureCreated")
+            })
+            .count(),
+        1,
+        "the first successful GI has one creation request"
+    );
     let first_contacts = first_entity.radio_contacts.clone();
     assert_eq!(first_contacts.slot(0), Some(producer));
     assert_eq!(first_entity.tether.partner(), Some(producer));
@@ -1888,6 +2170,13 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
         event,
         crate::sim::world::SimSoundEvent::UnitComplete { owner: receiver, .. } if *receiver == owner
     )));
+    assert!(
+        !sim.sound_events[event_start..].iter().any(|event| {
+            matches!(event, crate::sim::world::SimSoundEvent::VocAt { sound_id, .. }
+            if sound_id == "FixtureCreated")
+        }),
+        "refunded/disposed head and newly promoted limbo head play no creation cue"
+    );
     assert_constructor_words(&sim, successor, &mut expected_scenario);
     assert_eq!(sim.main_rng.logical_state(), main);
     assert_eq!(sim.mapgen_rng.logical_state(), mapgen);

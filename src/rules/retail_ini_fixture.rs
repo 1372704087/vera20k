@@ -146,11 +146,43 @@ pub(crate) fn retail_ini_text(name: &str) -> Option<String> {
 }
 
 /// `ini/<name>` parsed, or `None` when absent (see [`retail_ini_bytes`]).
+/// Parsed once per test process; each caller gets its own copy.
 pub(crate) fn retail_ini(name: &str) -> Option<IniFile> {
-    let bytes = retail_ini_bytes(name)?;
-    Some(
-        IniFile::from_bytes(&bytes).unwrap_or_else(|error| panic!("retail {name} parses: {error}")),
-    )
+    once_per_process(name.to_owned(), || {
+        let bytes = retail_ini_bytes(name)?;
+        Some(
+            IniFile::from_bytes(&bytes)
+                .unwrap_or_else(|error| panic!("retail {name} parses: {error}")),
+        )
+    })
+}
+
+/// A copy of the value `load` returns for `key`, loaded once per test process.
+///
+/// Retail fixtures read only the files under `ini/` and `RA2_DIR`, which do
+/// not change while tests run, so every later load would build the same value.
+/// Concurrent first callers wait for one load; a load that panics is retried.
+fn once_per_process<K, T>(key: K, load: impl FnOnce() -> Option<T>) -> Option<T>
+where
+    K: Ord + Send + 'static,
+    T: Clone + Send + Sync + 'static,
+{
+    use std::any::{Any, TypeId};
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+    type Slots = BTreeMap<TypeId, Box<dyn Any + Send>>;
+    static SLOTS: Mutex<Slots> = Mutex::new(BTreeMap::new());
+    let slot = {
+        let mut slots = SLOTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let by_key = slots
+            .entry(TypeId::of::<(K, T)>())
+            .or_insert_with(|| Box::new(BTreeMap::<K, Arc<OnceLock<Option<T>>>>::new()))
+            .downcast_mut::<BTreeMap<K, Arc<OnceLock<Option<T>>>>>()
+            .expect("slot map type follows its TypeId");
+        Arc::clone(by_key.entry(key).or_default())
+    };
+    slot.get_or_init(load).clone()
 }
 
 /// Retail `rulesmd.ini` and `artmd.ini` parsed, or `None` when either is absent.
@@ -212,6 +244,7 @@ pub(crate) fn retail_archive_bytes(name: &str) -> Option<Vec<u8>> {
 }
 
 /// Authored root text and final scenario fields are deliberately separate.
+#[derive(Clone)]
 pub(crate) struct RetailBattleRules {
     pub(crate) authored_rules: IniFile,
     pub(crate) fixed_art: IniFile,
@@ -286,6 +319,26 @@ pub(crate) fn retail_mode_rules_for_map(mode_id: i32, map_name: &str) -> Option<
 
 #[cfg(test)]
 fn retail_mode_rules_for_map_impl(
+    mode_id: i32,
+    map_name: &str,
+    patch: Option<&IniFile>,
+) -> Option<RetailBattleRules> {
+    // Patched loads are not kept: callers patch different keys, so a copy
+    // would only hold memory.
+    if let Some(patch) = patch {
+        return load_retail_mode_rules_for_map(mode_id, map_name, Some(patch));
+    }
+    once_per_process((mode_id, map_name.to_owned()), || {
+        load_retail_mode_rules_for_map(mode_id, map_name, None)
+    })
+    .map(|loaded| RetailBattleRules {
+        rules: loaded.rules.with_fresh_serial(),
+        ..loaded
+    })
+}
+
+#[cfg(test)]
+fn load_retail_mode_rules_for_map(
     mode_id: i32,
     map_name: &str,
     patch: Option<&IniFile>,

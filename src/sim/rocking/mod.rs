@@ -4,14 +4,16 @@
 //! each tick. Drive/Ship slope interpolation is owned separately by locomotor
 //! runtime payload state.
 //!
-//! # The crash spin is live; the rocker is still dead (GSI-08.14)
+//! # Crash spin and Squid roll are live; ordinary impulses remain deferred
 //!
 //! `FootClass::Crash @ 0x004DEBB0` writes a crashing object's spin rates
-//! (`sim::world::crash`), [`tick`]'s crashing branch
+//! (`sim::world::crash`), [`rocking_system::update`]'s crashing branch
 //! ([`rocking_system::advance_crash_spin`], `RockingUpdate 0x0070B63D`)
 //! integrates them, and the unit renderer draws the angles through Fly
 //! Draw_Matrix's crashing arm (`render::vxl_raster`); Jumpjet crash tilt also
-//! consumes these angles. Everything below is about the ordinary damped
+//! consumes these angles. Squid Parasite629A46 directly writes sideways roll
+//! after this update, and Ship69F670 consumes it. Both producers install the
+//! sparse state on first use. Everything below is about the ordinary damped
 //! ground rocker, which still has no producer or Drive body-drawing consumer:
 //!
 //! - **No producer.** [`apply_rocker_impulse`] has no caller outside this
@@ -60,7 +62,7 @@ pub mod self_destruct;
 mod rocking_tests;
 
 pub use impulse::apply_rocker_impulse;
-pub use rocking_system::tick;
+pub(crate) use rocking_system::update;
 pub use self_destruct::{NoopSelfDestruct, SelfDestructHook, check_and_fire};
 
 use crate::util::fixed_math::SimFixed;
@@ -71,9 +73,9 @@ use crate::util::fixed_math::SimFixed;
 /// wobble. Drive/Ship slope interpolation is locomotor-owned state and is
 /// intentionally independent from this optional component.
 ///
-/// Optional component on `GameEntity` — present on vehicles, ships, and
-/// voxel-bodied buildings; `None` for infantry and SHP-bodied buildings, and
-/// for aircraft until `FootClass::Crash` sets their spin rates.
+/// Optional sparse component on `GameEntity`: absence represents the native
+/// zero angles/rates. Crash and Squid grapple producers install it when
+/// needed; ordinary vehicle admission does not allocate a neutral component.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub struct RockingState {
     /// Roll angle, rad. Positive sign matches AngleRotatedSideways convention.
@@ -130,9 +132,9 @@ impl RockingState {
         rocking.vel_forwards = vel_forwards;
     }
 
-    /// Install a fixture's sideways angle.
-    #[cfg(test)]
-    pub(crate) fn set_angle_sideways_for_test(&mut self, angle: SimFixed) {
+    /// Parasite629A46 directly writes the grapple roll; release62A869
+    /// clears that same angle. Neither writer changes its angular velocity.
+    pub(crate) fn set_angle_sideways(&mut self, angle: SimFixed) {
         self.angle_sideways = angle;
     }
 

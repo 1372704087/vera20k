@@ -433,7 +433,8 @@ fn minimal_rules() -> RuleSet {
 /// entity's `RockingState` initialized to default. Returns `(sim, rules,
 /// path_grid)` so each test can drive `advance_tick` directly.
 fn make_test_simulation_with_one_vehicle() -> (Simulation, RuleSet, PathGrid) {
-    let rules = minimal_rules();
+    let mut rules = minimal_rules();
+    rules.supply_loaded_voxel_for_test("MTNK");
     let mut sim = Simulation::new();
     sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
         base: 0,

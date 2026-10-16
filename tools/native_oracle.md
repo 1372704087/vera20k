@@ -1,5 +1,38 @@
 # Native comparison workflow
 
+### Squid-grapple Ship presentation controls
+
+`tools.spatial_oracle.naval_draw_bounds --squid-tilt` adds eight original
+`69F670` matrix controls without changing the historical default corpus. Set
+`VERA20K_SHRAPNEL_INPUTS` to the physical input directory containing
+`DEST.VXL`, `DEST.HVA` and `VOXELS.VPL`, and run with
+`PYTHONPATH=.:tools/spatial_oracle`. Use `--check` to compare or `--write` to
+deliberately regenerate `spatial_oracle/naval_draw_squid_tilt.json`.
+
+The existing raster VM loads the physical model, executes original loaded-model
+validity and half-size postpass, constructs Ship locomotion, initializes native
+slope/quaternion tables and runs the original draw matrix. Inputs cover the
+double 0.005 tilt gate, opposite rolls, two angles/facing, retained slope and a
+slope transition. Two rows retain physical hull raster pixels; their explicit
+gun-component matrices reuse `barrel_pitch.native_arm`. Retail DEST has
+`Turret=no` and no turret/barrel models, so those component matrices do not
+claim physical DEST gun rendering. Frame, pose and timer are supplied numerical
+inputs; native scenario motion, shadow pixels and whole-scene RGB are excluded.
+
+`python -m tools.native_slope --blend --check` compares the same startup's
+21 matrices and quaternions plus seven full `755A40` interpolation controls.
+The existing VM/startup owner supplies both tables; original `646590` and
+`646980` compute each blend. Differing indices still interpolate at phase 0
+and 1, so those endpoints can differ from the stable matrix table. Equal
+indices copy the stable matrix directly. The small `native_slope_blend.json`
+corpus records actual live and cached CRT controls and finite supplied phases;
+it does not establish a locomotor timer or cell-transition history.
+
+`tools.spatial_oracle.parasite_water_gate --grapple` adds the related bounded
+RNG/angle comparison through full original `6297F0`. Its fresh physical host
+and explicit direct-Limbo/Attach boundary are documented with the
+[shared runtime](spatial_oracle/building_death_anims_joined.md#squid-grapple-numeric-component).
+
 For original byte reads, disassembly and whole-code scans, use the indexed
 [native inspection tool](native_inspect.md). It shares this runner's executable
 identity and PE owner; static inspection is separate from checked execution.

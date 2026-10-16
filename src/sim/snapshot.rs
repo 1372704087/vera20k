@@ -1049,7 +1049,8 @@ use crate::sim::world::Simulation;
 // 367 -> 368: ordered Techno DistributedFire candidates/scores and history.
 // 368 -> 369: tracked navy scalar and retained Unit Naval/Passengers admission.
 // 369 -> 370: VoxelAnim retains its constructor-assigned native numeric ID.
-const SNAPSHOT_VERSION: u32 = 370;
+// 370 -> 371: Parasite retains grapple Anim, phase/stage/delay/invalidation.
+const SNAPSHOT_VERSION: u32 = 371;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1970,6 +1971,20 @@ fn restore_object_references(
     // complete modeled pointer graph before mutating even weak references or
     // derived caches, so a failed restore remains an atomic rejection.
     for (entity_id, entity) in sim.substrate.entities.iter_sorted() {
+        if let Some(anim_id) = entity
+            .parasite
+            .class()
+            .and_then(|class| class.grapple_anim())
+        {
+            require_resolved_reference(
+                anim_ids.contains(&anim_id),
+                "EntityStore",
+                entity_id,
+                "parasite.grapple.anim",
+                "AnimStore",
+                anim_id,
+            )?;
+        }
         if entity.tesla_charger.is_active()
             && !matches!(
                 entity.category(),
@@ -4556,7 +4571,8 @@ mod tests {
         // 367 -> 368: retained runtime DistributedFire state.
         // 368 -> 369: tracked navy and its retained type admission.
         // 369 -> 370: constructor-assigned VoxelAnim native IDs.
-        assert_eq!(super::SNAPSHOT_VERSION, 370);
+        // 370 -> 371: retained Parasite grapple progress.
+        assert_eq!(super::SNAPSHOT_VERSION, 371);
     }
 
     #[test]

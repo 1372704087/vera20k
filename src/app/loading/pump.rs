@@ -471,12 +471,12 @@ pub(crate) enum NativeLoadingArt {
 pub(crate) struct NativeLoadingScreenState {
     pub variant: NativeLoadingArt,
     local_side_index: u8,
-    /// Local player's MP color scheme — source of the G3 solid backing fill and
-    /// bar remap. Derived from the launch session, not the country variant.
+    /// Local player's MP color scheme — source of the progress outline and bar
+    /// remap. Derived from the launch session, not the country variant.
     pub color_index: HouseColorIndex,
-    /// Empty-bar backing fill color (normalized RGB), resolved from the player's
-    /// `[Colors]` scheme HSV. Falls back to a static shade when `[Colors]` is
-    /// unavailable (e.g. assets missing).
+    /// Player `[Colors]` base color (normalized RGB) from that scheme's HSV, resolved
+    /// through native `HSV_To_RGB`. Draws the meter's `+0x71` outline and the row
+    /// label. Falls back to a static shade when `[Colors]` is unavailable.
     pub backing_rgb: [f32; 3],
     /// GAME.FNT loading-copy color from the named AlliedLoad/SovietLoad scheme.
     pub text_rgb: [f32; 3],

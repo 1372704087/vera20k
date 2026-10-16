@@ -27,6 +27,8 @@ pub(super) struct DrawPassData<'a> {
     pub overlay_render_z: &'a [RenderZPolicy],
     pub bridge_shadows: &'a [SpriteInstance],
     pub object_layers: &'a [super::draw_plan_lowering::ObjectLayerPass; 5],
+    pub bracket_extras: crate::render::terrain_draw::SurfaceLineBatch,
+    pub surface_effects: crate::render::terrain_draw::SurfaceLineBatch,
     pub sidebar_unavailable: &'a [SpriteInstance],
     pub sidebar_flash: &'a [SpriteInstance],
     pub sidebar_gclock: &'a [SpriteInstance],
@@ -359,27 +361,6 @@ pub(super) fn dispatch_draw_passes(
         pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
     }
 
-    // Building selection bracket back/left edges. Drawn before object bodies so
-    // the normal SHP merge naturally occludes the hidden bracket edges.
-    draw_pooled_passthrough_texture(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        bracket_tex,
-        "selection_brackets_back",
-    );
-    // gamemd's first object pass calls DrawExtras before the nonzero +0x104
-    // display call. Re-submit the front/right bracket stubs here; object body
-    // draws can still occlude this first submission, and the later DrawExtras
-    // phase submits them again.
-    draw_pooled_passthrough_texture(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        bracket_tex,
-        "selection_brackets_front_first",
-    );
-
     // Bridge units share the native Ground parent pass below. Their body
     // split changes per-pixel Z, never their position among buildings.
 
@@ -570,21 +551,15 @@ pub(super) fn dispatch_draw_passes(
     // returning to Tactical. Unit6F5190 submits rank, health, brackets and
     // pips here, before effects6D4664, BandBox6D46BD and action6D4750.
     // Evidence: tools/procedural_drawing_oracle/action_lines instruction packet.
-    // Final selected-building front bracket redraw: gamemd line pixels test Z
-    // but do not write it — the store back into Z sits behind a caller flag
-    // this path leaves clear. Each pixel carries its ground-footprint corner's
-    // depth, so the marks that fall behind the building art lose the test
-    // against the Z the building body wrote in the Ground pass (BUILDNGZ
-    // shaped, `0x004990e0`); no separate depth stamp is needed. The CPU
-    // instance builder already samples the tactical ABuffer for this
-    // post-shroud redraw.
-    draw_pooled_depth_test_texture(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        bracket_tex,
-        "selection_brackets_front",
-    );
+    // Native6D9789: the later Extras sweep uses the same Display order,
+    // completed body destination and live Z;4BFD30 never writes that Z.
+    drop(pass);
+    state
+        .renderer
+        .terrain_draw_renderer
+        .draw_surface_lines(encoder, view, data.bracket_extras);
+    let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
+    pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
     // Building health pips: discrete pips from pips.shp atlas.
     let building_status_tex = state
         .match_state
@@ -755,7 +730,7 @@ pub(super) fn dispatch_draw_passes(
     state
         .renderer
         .terrain_draw_renderer
-        .draw_surface_lines(encoder, view);
+        .draw_surface_lines(encoder, view, data.surface_effects);
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
     pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
 
@@ -1170,31 +1145,6 @@ pub(crate) fn draw_pooled_overlay_bodies<'a>(
                 ),
             );
         }
-    }
-}
-
-fn draw_pooled_passthrough_texture<'a>(
-    pass: &mut wgpu::RenderPass<'a>,
-    batch: &'a BatchRenderer,
-    pool: &'a InstanceBufferPool,
-    tex: Option<&'a BatchTexture>,
-    key: &'static str,
-) {
-    if let (Some(t), Some((buf, count))) = (tex, pool.get(key)) {
-        batch.draw_with_buffer_passthrough(pass, t, buf, count);
-    }
-}
-
-/// Draw a pooled buffer that tests the depth buffer and does not write it.
-fn draw_pooled_depth_test_texture<'a>(
-    pass: &mut wgpu::RenderPass<'a>,
-    batch: &'a BatchRenderer,
-    pool: &'a InstanceBufferPool,
-    tex: Option<&'a BatchTexture>,
-    key: &'static str,
-) {
-    if let (Some(t), Some((buf, count))) = (tex, pool.get(key)) {
-        batch.draw_with_buffer_depth_test(pass, t, buf, count);
     }
 }
 

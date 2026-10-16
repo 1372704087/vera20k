@@ -5636,6 +5636,22 @@ impl RuleSet {
             .map_or(2, |art| art.height)
     }
 
+    /// BuildingType Dimension2 @0x00464AF0, virtual+7C: the foundation's
+    /// width/height in 256-lepton cells and fixed ART Height times 104. Shares
+    /// the existing Height reader/default with FireAt's distinct Height * 200
+    /// launch calculation. Original execution: building_brackets.json and
+    /// spatial_oracle/height_factor.json; consumers do not copy this query.
+    pub fn building_dimensions(&self, object: &ObjectType) -> [i32; 3] {
+        let [width, height] =
+            crate::rules::foundation::foundation_dimensions_leptons(&object.foundation);
+        [
+            width,
+            height,
+            self.building_launch_height(object)
+                .wrapping_mul(crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS),
+        ]
+    }
+
     /// Whether a country/house type has `MultiplayPassive=true`.
     pub fn country_multiplay_passive(&self, id: &str) -> bool {
         self.country_rules(id)

@@ -3,10 +3,11 @@
 //! `render_game()` is the per-frame entry point. It runs a 7-phase pipeline:
 //!
 //! 1. **World instances** — terrain tiles, map overlays, bridges, VXL units,
-//!    SHP buildings/infantry, AnimClass objects, damage fires, fog snapshots
+//!    SHP buildings/infantry, their bracket commands, AnimClass objects,
+//!    damage fires, fog snapshots
 //! 2. **Debug instances** — pathgrid, cell grid, heightmap overlays (toggled by hotkey)
 //! 3. **Shroud ABuffer** - CPU shroud buffer rebuilt before UI overlays sample it
-//! 4. **UI instances** - minimap dots, selection brackets, health bars, placement preview
+//! 4. **UI instances** - minimap dots, health bars, placement preview
 //! 5. **Sidebar instances** - chrome, cameos, text, minimap rect, radar animation
 //! 6. **Upload** - all instance vectors uploaded to GPU buffer pool
 //! 7. **Draw** - render pass created, draw calls dispatched in layer order
@@ -21,6 +22,8 @@
 
 #[cfg(test)]
 mod bridge_shadow_gpu_tests;
+#[cfg(test)]
+mod building_bracket_gpu_tests;
 mod build_instances;
 mod draw_passes;
 #[cfg(test)]
@@ -127,14 +130,50 @@ pub(crate) fn render_game(
     let vsw = sw / z;
     let vsh = sh / z;
 
+    let selected_building = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|runtime| {
+            runtime.simulation.entities().values().any(|entity| {
+                entity.category() == crate::map::entities::EntityCategory::Structure
+                    && entity.selection.is_selected()
+            })
+        });
+    // FileSystem52BE61..52BFCE's PALETTE.PAL plain N53 Convert is shared
+    // by Bolt and the selected Building's15/12 bracket colors.
+    let surface_palette = (selected_building
+        || !state
+            .match_state
+            .match_presentation
+            .electric_bolts
+            .is_empty())
+    .then(|| {
+        let bytes = state
+            .process_assets
+            .manager()
+            .and_then(|assets| assets.get_ref("palette.pal"))
+            .expect("ready tactical assets include PALETTE.PAL");
+        crate::assets::pal_file::Palette::from_bytes(bytes).expect("validated retail PALETTE.PAL")
+    });
+    let bracket_palette = surface_palette.as_ref().map(|palette| {
+        [15_u8, 12].map(|index| {
+            let color = palette.colors[usize::from(index)];
+            crate::render::palette_light::PaletteLight::plain(53, 1000).rgb565(
+                [color.r, color.g, color.b],
+                index,
+                127,
+            )
+        })
+    });
     // Phase 1: Build game-world instances (terrain, overlays, entities).
-    let world = build_instances::build_world_instances(state, vsw, vsh);
+    let mut world = build_instances::build_world_instances(state, vsw, vsh, bracket_palette);
 
     // Phase 2: Build debug overlay instances (pathgrid, cell grid, heightmap).
     let debug = build_instances::build_debug_instances(state, vsw, vsh);
 
     // Phase 3: Rebuild shroud ABuffer (CPU blit + GPU upload). The final
-    // building-bracket front redraw samples this CPU buffer during UI build.
+    // shared surface lines sample this CPU buffer during upload preparation.
     let rw = state.render_width();
     let rh = state.render_height();
     // F10 cone: the render feed reads through SimView getters. This site
@@ -249,21 +288,9 @@ pub(crate) fn render_game(
         z_origin_y: native_z_origin_y as i32,
         zoom: z,
     };
-    let palette = (!state
-        .match_state
-        .match_presentation
-        .electric_bolts
-        .is_empty())
-    .then(|| {
-        let bytes = state
-            .process_assets
-            .manager()
-            .and_then(|assets| assets.get_ref("palette.pal"))
-            .expect("ready tactical assets include PALETTE.PAL");
-        let palette = crate::assets::pal_file::Palette::from_bytes(bytes)
-            .expect("validated retail PALETTE.PAL");
-        crate::render::electric_bolt::ElectricBoltPalette::from_palette(&palette)
-    });
+    let palette = surface_palette
+        .as_ref()
+        .map(crate::render::electric_bolt::ElectricBoltPalette::from_palette);
     let presentation = &mut state.match_state.match_presentation;
     // Tactical6D466E executes once, before6D4673 trails, even when this
     // composite ran no Logic. GPU uploads never consume the process cursor.
@@ -287,34 +314,71 @@ pub(crate) fn render_game(
     });
     let shroud = presentation.shroud_buffer.as_ref();
     let sandbox = state.match_state.sandbox_full_visibility;
-    state.renderer.terrain_draw_renderer.prepare_surface_lines(
-        &state.renderer.gpu.device,
-        &state.renderer.gpu.queue,
+    let mut alpha = |point: [i32; 2]| {
+        if sandbox {
+            127
+        } else {
+            shroud
+                .and_then(|buffer| {
+                    buffer.sample_world(
+                        point[0] as f32 + camera[0].floor(),
+                        point[1] as f32 + camera[1].floor(),
+                        camera[0],
+                        camera[1],
+                    )
+                })
+                .map_or(127, u16::from)
+        }
+    };
+    let terrain = &mut state.renderer.terrain_draw_renderer;
+    let gpu = &state.renderer.gpu;
+    terrain.begin_surface_lines();
+    let surface_effects = terrain.prepare_surface_lines(
+        &gpu.device,
+        &gpu.queue,
         presentation.lasers.draws(),
         bolt_lines,
         segments,
         viewport,
         || {
             let mut detail = presentation.detail.borrow_mut();
-            let enough_fps = detail.frame_rate() >= detail.minimum_frame_rate();
-            enough_fps && presentation.in_game_options.detail_level != 0
+            detail.frame_rate() >= detail.minimum_frame_rate()
+                && presentation.in_game_options.detail_level != 0
         },
-        |point| {
-            if sandbox {
-                127
-            } else {
-                shroud
-                    .and_then(|buffer| {
-                        buffer.sample_world(
-                            point[0] as f32 + camera[0].floor(),
-                            point[1] as f32 + camera[1].floor(),
-                            camera[0],
-                            camera[1],
-                        )
-                    })
-                    .map_or(127, u16::from)
-            }
-        },
+        &mut alpha,
+    );
+    for layer in &mut world.object_layers {
+        layer.line_batches = layer
+            .before_lines
+            .iter()
+            .map(|lines| {
+                terrain.prepare_surface_lines(
+                    &gpu.device,
+                    &gpu.queue,
+                    std::iter::empty(),
+                    lines,
+                    &[],
+                    viewport,
+                    || false,
+                    &mut alpha,
+                )
+            })
+            .collect();
+    }
+    let extras: Vec<_> = world
+        .object_layers
+        .iter()
+        .flat_map(|layer| layer.extras_lines.iter().copied())
+        .collect();
+    let bracket_extras = terrain.prepare_surface_lines(
+        &gpu.device,
+        &gpu.queue,
+        std::iter::empty(),
+        &extras,
+        &[],
+        viewport,
+        || false,
+        &mut alpha,
     );
 
     let ion_blasts = crate::app::presentation::ion_blasts::draws(state);
@@ -334,6 +398,8 @@ pub(crate) fn render_game(
             overlay_render_z: &world.overlay_render_z,
             bridge_shadows: &world.bridge_body_shadow,
             object_layers: &world.object_layers,
+            bracket_extras,
+            surface_effects,
             sidebar_unavailable: &sidebar.unavailable,
             sidebar_flash: &sidebar.flash,
             sidebar_gclock: &sidebar.gclock,
@@ -425,21 +491,6 @@ fn upload_to_gpu(
 
     // UI overlays
     pool.upload(&state.renderer.gpu, "drag", &ui.drag);
-    pool.upload(
-        &state.renderer.gpu,
-        "selection_brackets_back",
-        &ui.bracket_back,
-    );
-    pool.upload(
-        &state.renderer.gpu,
-        "selection_brackets_front_first",
-        &ui.bracket_front_first,
-    );
-    pool.upload(
-        &state.renderer.gpu,
-        "selection_brackets_front",
-        &ui.bracket_front,
-    );
     pool.upload(
         &state.renderer.gpu,
         "building_radius_rings",

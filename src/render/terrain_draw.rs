@@ -30,6 +30,7 @@ use batching::{TerrainBatches, TerrainCommand};
 pub(crate) use ion_blasts::IonBlastDraw;
 pub(crate) use packed::{PackedComposite, PackedCompositePiece, PackedSpriteKind};
 use submission::PassSubmission;
+pub(crate) use surface_lines::SurfaceLineBatch;
 
 // High16 bits select the final admitted body; low16 retain its native word.
 const READ_ONLY_COMMAND_LIMIT: usize = u16::MAX as usize;

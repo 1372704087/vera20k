@@ -240,6 +240,12 @@ struct TrackedCells {
     /// Cells published visible while their ground bits lacked
     /// `GROUND_VISIBLE | GROUND_OPEN`.
     unground: Vec<u32>,
+    /// Cells whose ground bits a cell writer took off since the last frame
+    /// pass (a conceal, a shroud-edge sweep or a reveal that leaves the cell
+    /// closed). A pass that marks every retained footprint gives them back
+    /// under the footprints that cover them; a tracked pass does that for
+    /// these cells alone ([`FogState::mark_cleared_cells`]).
+    cleared: Vec<u32>,
 }
 
 impl OwnerVisibility {
@@ -416,6 +422,8 @@ impl OwnerVisibility {
         self.tracked.transient.clear();
         self.tracked.gap_fog.clear();
         self.tracked.unground.clear();
+        // This pass marks every retained footprint.
+        self.tracked.cleared.clear();
         self.tracked.complete = true;
         for index in 0..self.cells.len() {
             self.publish_knowledge(index);
@@ -750,6 +758,43 @@ impl FogState {
             .collect();
         for (viewer, admission) in retained {
             self.apply_sight(viewer, &admission, SightApply::Mark);
+        }
+    }
+
+    /// Mark each tracked map's cleared cells ([`TrackedCells::cleared`]) that
+    /// a retained footprint covers, after the frame pass's sources, as the
+    /// pass's marks of every retained footprint would on an untracked map.
+    /// A cell's source counts count its retained footprints, alternate ones
+    /// too ([`Self::admit_alternate_sight`]), which the pass does not mark.
+    fn mark_cleared_cells(&mut self) {
+        for (&viewer, vis) in &mut self.by_owner {
+            if vis.tracked.cleared.is_empty() {
+                continue;
+            }
+            let mut alternate: Vec<usize> = self
+                .alternate_sight_admissions
+                .iter()
+                .filter(|&(&(_, alternate_viewer), _)| alternate_viewer == viewer)
+                .flat_map(|(_, admission)| &admission.cells)
+                .filter_map(|&(x, y)| vis.index(x, y))
+                .collect();
+            alternate.sort_unstable();
+            let mut cleared = std::mem::take(&mut vis.tracked.cleared);
+            for &index in &cleared {
+                let index = index as usize;
+                let knowledge = vis.shroud_knowledge[index];
+                let sources =
+                    u64::from(knowledge.local_sources) + u64::from(knowledge.allied_sources);
+                let alternates = alternate.partition_point(|&cell| cell <= index)
+                    - alternate.partition_point(|&cell| cell < index);
+                if sources > alternates as u64 {
+                    let width = usize::from(vis.width);
+                    vis.mark_sight((index % width) as u16, (index / width) as u16);
+                    vis.publish_knowledge(index);
+                }
+            }
+            cleared.clear();
+            vis.tracked.cleared = cleared;
         }
     }
 
@@ -1885,14 +1930,14 @@ pub fn recompute_owner_visibility_in_place(
         // `+0x260`) until a reveal event moves it ([`force_refresh_entity_vision`]):
         // `UpdateReveal @ 0x0070AF50` runs from cell arrivals and its other
         // callers, never from a frame pass. On tracked maps its cells kept
-        // their bits; a map whose clear visited every cell (after a load,
-        // or a writer that bypassed publishing) has them marked again.
+        // their bits, but for those a cell writer cleared, which get theirs
+        // back after the walk ([`FogState::mark_cleared_cells`]); a map whose
+        // clear visited every cell (after a load, or a writer that bypassed
+        // publishing) has them marked again.
         if covered {
             if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                 fog.mark_retained_sight(entity.stable_id());
             }
-            #[cfg(test)]
-            assert_retained_sight_marked(fog, entity.stable_id());
             continue;
         }
         // A source without its own house's admission, or whose owner or
@@ -1916,6 +1961,9 @@ pub fn recompute_owner_visibility_in_place(
             reconcile_source_sight(fog, entity.stable_id(), admission, viewers, false, true);
         }
     }
+    fog.mark_cleared_cells();
+    #[cfg(test)]
+    assert_retained_sight_marked(fog);
     #[cfg(test)]
     for vis in fog.by_owner.values() {
         vis.assert_tracked();
@@ -2272,11 +2320,11 @@ fn retained_sight_covers(
     }) && retained.next().is_none()
 }
 
-/// Panics unless every footprint cell source `id` retains has its ground
-/// bits on its viewer's map, as marking it would leave them.
+/// Panics unless every retained footprint cell has its ground bits on its
+/// viewer's map, as marking every footprint would leave them.
 #[cfg(test)]
-fn assert_retained_sight_marked(fog: &FogState, id: u64) {
-    for (&(_, viewer), admission) in fog.sight_admissions.range(source_keys(id)) {
+fn assert_retained_sight_marked(fog: &FogState) {
+    for (&(id, viewer), admission) in &fog.sight_admissions {
         let vis = &fog.by_owner[&viewer];
         for &(x, y) in &admission.cells {
             let index = vis.index(x, y).expect("admitted source cell");

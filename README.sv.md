@@ -79,6 +79,10 @@ därifrån. Diskussionen sker på [Discord](https://discord.gg/kmjRUn5m5F) och i
 Spelmekaniken finns i `src/sim/`, renderingen i `src/render/` och menyer och inmatning i
 `src/app/` och `src/ui/`; Python-verktygen i `tools/` behöver du inte.
 
+Speltesta dina ändringar med `cargo run --profile fast --bin vera20k`. Den är optimerad som
+`--release` men bygger bara om det du har ändrat, så du kommer snabbare tillbaka till spelet.
+Mät prestanda med `--release`.
+
 Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
 
 ## Tack och juridisk information

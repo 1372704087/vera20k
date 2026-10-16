@@ -3,9 +3,8 @@ use std::collections::HashMap;
 
 use crate::map::actions::{ActionMap, MapAction};
 use crate::map::entities::EntityCategory;
-use crate::map::events::MapEvent;
 use crate::map::triggers::{MapTrigger, TriggerDifficulty};
-use crate::map::variable_names::{LocalVariable, LocalVariableMap};
+use crate::map::waypoints::Waypoint;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::projectile::{
     ProjectileCollisionPolicy, ProjectileCoord, ProjectilePayload, ProjectileSpawn,
@@ -66,20 +65,12 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
             }
         };
         let frame = |sim: &mut Simulation| {
-            sim.advance_master_frame(
-                &[],
+            ordinary_master_frame(
+                sim,
                 Some(&rules),
                 Some(&overlay),
-                67,
-                TickLane::Ordinary,
-                Some(TriggerInputs {
-                    events: &Default::default(),
-                    actions: &Default::default(),
-                    rules: Some(&rules),
-                }),
-                FrameEffects::default(),
-            )
-            .unwrap();
+                Some((&Default::default(), &Default::default())),
+            );
         };
         assert_eq!(loss_count(&sim), 0);
         for (index, victim) in victims.into_iter().enumerate() {
@@ -157,16 +148,7 @@ fn funds_event_runs_from_house_rung_after_a_spend() {
         if frame == 7 {
             crate::sim::credit_income::spend_money(&mut sim, houses[0], 60000);
         }
-        sim.advance_master_frame(
-            &[],
-            Some(&rules),
-            Some(&overlay),
-            67,
-            TickLane::Ordinary,
-            None,
-            FrameEffects::default(),
-        )
-        .expect("the ordinary frame reaches its House rung");
+        ordinary_master_frame(&mut sim, Some(&rules), Some(&overlay), None);
         // Native House4F8F87 -> Tag/RegisterEvent -> HasOccurred52:
         // equality after spending admits the next eighth-frame poll.
         assert_eq!(
@@ -202,20 +184,12 @@ fn building_loss_event_waits_for_the_real_destructor_and_house_poll() {
          [Tags]\nLOSS_TAG=0,Loss,LOSS\nFOLLOW_TAG=0,Follow,FOLLOW\n",
     );
     let frame = |sim: &mut Simulation| {
-        sim.advance_master_frame(
-            &[],
+        ordinary_master_frame(
+            sim,
             Some(&rules),
             Some(&overlay),
-            67,
-            TickLane::Ordinary,
-            Some(TriggerInputs {
-                events: &Default::default(),
-                actions: &Default::default(),
-                rules: Some(&rules),
-            }),
-            FrameEffects::default(),
-        )
-        .unwrap();
+            Some((&Default::default(), &Default::default())),
+        );
     };
     frame(&mut sim);
     assert!(!sim.trigger_runtime.locals_set.contains(&10));
@@ -285,20 +259,12 @@ fn naval_land_events_poll_final_tracking_removal_from_the_master_house_rung() {
             sim.uninit_with_rules(land, &rules);
             assert_eq!(sim.houses[&owner].tracking.vehicles(), 1);
         }
-        sim.advance_master_frame(
-            &[],
+        ordinary_master_frame(
+            &mut sim,
             Some(&rules),
             Some(&overlay),
-            67,
-            TickLane::Ordinary,
-            Some(TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
-                rules: Some(&rules),
-            }),
-            FrameEffects::default(),
-        )
-        .unwrap();
+            Some((&map.events, &map.actions)),
+        );
         assert_eq!(
             sim.trigger_runtime.globals_set.contains(&7),
             frame >= 8,
@@ -670,13 +636,7 @@ fn scenario_timer_retail_sov01_actions_reach_the_expiry_predicate() {
     let Some((mut sim, rules, overlay, _map)) = retail_sov01_script_context() else {
         return;
     };
-    let source = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|trigger| trigger.id == "0952F87C")
-        .unwrap();
+    let source = trigger_type_index(&sim, "0952F87C");
     let actions = sim.trigger_runtime.definitions.trigger_types[source]
         .actions
         .clone();
@@ -699,23 +659,7 @@ fn scenario_timer_retail_sov01_actions_reach_the_expiry_predicate() {
         Some((1800, "MISSION:TmeTimer"))
     );
     sim.classify_map_triggers(Some(&rules));
-    let destination = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|trigger| trigger.id == "0BDE333C")
-        .unwrap();
-    let live = sim
-        .trigger_runtime
-        .triggers
-        .iter()
-        .position(|trigger| {
-            trigger
-                .as_ref()
-                .is_some_and(|trigger| trigger.type_index == destination)
-        })
-        .unwrap();
+    let live = live_trigger_of_type(&sim, trigger_type_index(&sim, "0BDE333C"));
     for (frame, elapsed) in [(1922, false), (1923, true)] {
         sim.session.binary_frame = frame;
         assert_eq!(
@@ -845,23 +789,8 @@ fn all_change_house_retail_sov01_handoff_transfers_units_and_powered_buildings()
         None,
     );
     sim.classify_map_triggers(Some(&rules));
-    let typ = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|typ| typ.id == "07F2978C")
-        .unwrap();
-    let live = sim
-        .trigger_runtime
-        .triggers
-        .iter()
-        .position(|trigger| {
-            trigger
-                .as_ref()
-                .is_some_and(|trigger| trigger.type_index == typ)
-        })
-        .unwrap();
+    let typ = trigger_type_index(&sim, "07F2978C");
+    let live = live_trigger_of_type(&sim, typ);
     let action = sim.trigger_runtime.definitions.trigger_types[typ].actions[0].clone();
     assert_eq!((action.entry.kind, action.value), (36, Some(14)));
     let context =
@@ -931,13 +860,7 @@ fn action128_retail_foots_use_reverse_shared_sweep_and_finish_the_warp() {
          [Events]\nSHIFT=1,8,0,0\n[Actions]\nSHIFT=1,128,0,478,0,0,0,0,P\n",
     );
     sim.session.install_waypoints(&map.waypoints);
-    let source = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|trigger| trigger.id == "SHIFT")
-        .unwrap();
+    let source = trigger_type_index(&sim, "SHIFT");
     let action = sim.trigger_runtime.definitions.trigger_types[source].actions[0].clone();
     assert_eq!(action.entry.waypoint_index, Some(15));
     let before_other = crate::sim::movement::ground_pose::object_get_coords(
@@ -1148,6 +1071,29 @@ fn retail_sov01_script_context() -> Option<(
     sim.install_team_ai_registry(&registry, &rules).unwrap();
     sim.initialize_trigger_definitions(&map, &registry, None, None);
     Some((sim, rules, overlay, map))
+}
+
+/// The registry index of TriggerType `id`, without registering a missing one.
+fn trigger_type_index(sim: &Simulation, id: &str) -> usize {
+    sim.trigger_runtime
+        .definitions
+        .trigger_types
+        .iter()
+        .position(|typ| typ.id == id)
+        .unwrap()
+}
+
+/// The first live Trigger instance of TriggerType `type_index`.
+fn live_trigger_of_type(sim: &Simulation, type_index: usize) -> usize {
+    sim.trigger_runtime
+        .triggers
+        .iter()
+        .position(|trigger| {
+            trigger
+                .as_ref()
+                .is_some_and(|trigger| trigger.type_index == type_index)
+        })
+        .unwrap()
 }
 
 #[test]
@@ -1549,23 +1495,7 @@ fn unit_record_kill_releases_retail_sov01_landing_when_the_last_target_is_a_ship
         .unwrap();
     let tag = sim.shared_trigger_tag(tag_type);
     assert_eq!(sim.trigger_runtime.tag(tag).unwrap().refs, 7);
-    let landing_type = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|trigger| trigger.id == "0B92C6AC")
-        .unwrap();
-    let landing = sim
-        .trigger_runtime
-        .triggers
-        .iter()
-        .position(|trigger| {
-            trigger
-                .as_ref()
-                .is_some_and(|trigger| trigger.type_index == landing_type)
-        })
-        .unwrap();
+    let landing = live_trigger_of_type(&sim, trigger_type_index(&sim, "0B92C6AC"));
     assert!(!sim.trigger_runtime.trigger(landing).unwrap().enabled);
     let mut victims: Vec<_> = sim
         .substrate
@@ -1881,7 +1811,7 @@ fn advance_trigger_frame(
     events: &EventMap,
     actions: &ActionMap,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    waypoints: &HashMap<u32, crate::map::waypoints::Waypoint>,
+    waypoints: &HashMap<u32, Waypoint>,
 ) -> Vec<TriggerEffect> {
     sim.session.binary_frame = current_frame;
     sim.session.install_waypoints(waypoints);
@@ -1949,6 +1879,48 @@ fn make_trigger(
     }
 }
 
+/// The production `[Triggers]`, `[Events]` and `[Actions]` readers over one
+/// fixture INI body.
+fn parse_trigger_records(body: &str) -> (TriggerMap, EventMap, ActionMap) {
+    let ini = crate::rules::ini_parser::IniFile::from_str(body);
+    (
+        crate::map::triggers::parse_triggers(&ini),
+        crate::map::events::parse_events(&ini),
+        crate::map::actions::parse_actions(&ini),
+    )
+}
+
+/// One ordinary production master frame: no commands, the 67 ms tick and
+/// default frame effects. `records` become the frame's trigger inputs, read
+/// with the same `rules`.
+fn ordinary_master_frame(
+    sim: &mut Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    overlays: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    records: Option<(&EventMap, &ActionMap)>,
+) -> crate::sim::world::TickResult {
+    sim.advance_master_frame(
+        &[],
+        rules,
+        overlays,
+        67,
+        TickLane::Ordinary,
+        records.map(|(events, actions)| TriggerInputs {
+            events,
+            actions,
+            rules,
+        }),
+        FrameEffects::default(),
+    )
+    .expect("the ordinary fixture frame completes")
+    .into_tick()
+}
+
+/// A waypoint table holding only `index` at `(rx, ry)`.
+fn waypoint_map(index: u32, (rx, ry): (u16, u16)) -> HashMap<u32, Waypoint> {
+    HashMap::from([(index, Waypoint { index, rx, ry })])
+}
+
 fn spawn_type(sim: &mut Simulation, type_id: &str) -> u64 {
     let sid = sim.allocate_stable_id();
     let owner_id = sim.interner.intern("Neutral");
@@ -1992,14 +1964,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
     sim.houses
         .insert(owner, HouseState::new(owner, 0, Some(owner), false, 0, 10));
     sim.session.house_order.push(owner);
-    sim.session.install_waypoints(&HashMap::from([(
-        139,
-        crate::map::waypoints::Waypoint {
-            index: 139,
-            rx: 10,
-            ry: 10,
-        },
-    )]));
+    sim.session.install_waypoints(&waypoint_map(139, (10, 10)));
     assert!(crate::sim::build_site::can_place_building_at(
         &sim,
         &rules,
@@ -2204,16 +2169,7 @@ fn damage_at_waypoint_reaches_the_shared_building_receiver() {
     );
     sim.substrate.entities.insert(building);
     sim.add_entity_occupancy(1);
-    let mut waypoints = HashMap::new();
-    waypoints.insert(
-        364,
-        crate::map::waypoints::Waypoint {
-            index: 364,
-            rx: 10,
-            ry: 10,
-        },
-    );
-    sim.session.install_waypoints(&waypoints);
+    sim.session.install_waypoints(&waypoint_map(364, (10, 10)));
     let mut definitions = RuntimeDefinitions::default();
     let typ = definitions.trigger_type("DAMAGE").unwrap();
     let ini = IniFile::from_str("[Actions]\nDAMAGE=1,63,0,364,0,0,0,0,A\n");
@@ -2255,14 +2211,11 @@ fn parsed_event_records_match_native_list_and_production_predicates() {
     ))
     .unwrap();
     for row in rows {
-        let ini = crate::rules::ini_parser::IniFile::from_str(&format!(
+        let (triggers, events, actions) = parse_trigger_records(&format!(
             "[Triggers]\nEVENT=Neutral,<none>,Event,0,1,1,1,0\n\
              [Events]\nEVENT={}\n[Actions]\nEVENT=1,112,0,0,0,0,0,0,A\n",
             row.raw
         ));
-        let triggers = crate::map::triggers::parse_triggers(&ini);
-        let events = crate::map::events::parse_events(&ini);
-        let actions = crate::map::actions::parse_actions(&ini);
         let conditions = &events["EVENT"].conditions;
         assert_eq!(conditions.len(), row.conditions.len(), "{}", row.raw);
         for (rust, native) in conditions.iter().zip(&row.conditions) {
@@ -2346,14 +2299,11 @@ fn parsed_variable_actions_match_native_reader_dispatch_and_restore() {
         .collect();
     assert_eq!(rows.len(), 61);
     for row in rows {
-        let ini = crate::rules::ini_parser::IniFile::from_str(&format!(
+        let (triggers, events, actions) = parse_trigger_records(&format!(
             "[Triggers]\nVARIABLE=Neutral,<none>,Variable,0,1,1,1,0\n\
              [Events]\nVARIABLE=1,47,0,0\n[Actions]\nVARIABLE=1,{}\n",
             row.raw
         ));
-        let triggers = crate::map::triggers::parse_triggers(&ini);
-        let events = crate::map::events::parse_events(&ini);
-        let actions = crate::map::actions::parse_actions(&ini);
         let entry = &actions["VARIABLE"].entries[0];
         assert_eq!(entry.kind, row.kind, "{}", row.raw);
         assert_eq!(entry.literal_value(), Some(row.value), "{}", row.raw);
@@ -2372,23 +2322,7 @@ fn parsed_variable_actions_match_native_reader_dispatch_and_restore() {
         restored.restore_after_snapshot_load().unwrap();
         for sim in [&mut original, &mut restored] {
             let before_rng = sim.rng_state();
-            let frame = sim
-                .advance_master_frame(
-                    &[],
-                    None,
-                    None,
-                    67,
-                    TickLane::Ordinary,
-                    Some(TriggerInputs {
-                        events: &events,
-                        actions: &actions,
-
-                        rules: None,
-                    }),
-                    crate::sim::world::FrameEffects::default(),
-                )
-                .unwrap()
-                .into_tick();
+            let frame = ordinary_master_frame(sim, None, None, Some((&events, &actions)));
             assert!(frame.frame_committed);
             assert_eq!(sim.trigger_runtime.globals_set, row.globals, "{}", row.raw);
             assert_eq!(sim.trigger_runtime.locals_set, row.locals, "{}", row.raw);
@@ -2516,46 +2450,13 @@ fn trigger_action_40_normalizes_and_refreshes_authority_same_frame() {
     use crate::sim::pathfinding::PathGrid;
     use crate::sim::pathfinding::zone_map::ZONE_INVALID;
 
-    let triggers: TriggerMap = [(
-        "AREA".to_string(),
-        make_trigger("AREA", None, "Change visible map area", true),
-    )]
-    .into_iter()
-    .collect();
-    let events: EventMap = [(
-        "AREA".to_string(),
-        MapEvent {
-            id: "AREA".to_string(),
-            fields: vec![],
-            conditions: vec![EventCondition {
-                kind: 47,
-                value: 0,
-                ..Default::default()
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
     // Stock all06umd-shaped payload: 40,0,0,2,41,56,38,A. With params equal
     // to chunk[1..], ParamType/Param3 are the first two zeroes and LocalSize
     // is exactly params[2..=5].
-    let actions: ActionMap = [(
-        "AREA".to_string(),
-        MapAction {
-            id: "AREA".to_string(),
-            fields: vec![],
-            entries: vec![ActionEntry {
-                kind: 40,
-                params: ["0", "0", "2", "41", "56", "38", "A"]
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect(),
-                waypoint_index: Some(0),
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nAREA=Neutral,<none>,Change visible map area,0,1,1,1,0\n\
+         [Events]\nAREA=1,47,0,0\n[Actions]\nAREA=1,40,0,0,2,41,56,38,A\n",
+    );
     let header = MapHeader {
         theater: "TEMPERATE".to_string(),
         fill: "Clear".to_string(),
@@ -2594,23 +2495,7 @@ fn trigger_action_40_normalizes_and_refreshes_authority_same_frame() {
             .outside_playfield
     );
 
-    let tick = sim
-        .advance_master_frame(
-            &[],
-            None,
-            None,
-            67,
-            TickLane::Ordinary,
-            Some(TriggerInputs {
-                events: &events,
-                actions: &actions,
-
-                rules: None,
-            }),
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("fixture frame must complete")
-        .into_tick();
+    let tick = ordinary_master_frame(&mut sim, None, None, Some((&events, &actions)));
 
     assert_eq!(
         sim.playfield_bounds,
@@ -2791,65 +2676,10 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
 
 #[test]
 fn time_trigger_can_center_camera_at_waypoint() {
-    let triggers: TriggerMap = [(
-        "TRIG_A".to_string(),
-        make_trigger("TRIG_A", None, "Timer A", true),
-    )]
-    .into_iter()
-    .collect();
-    let events: EventMap = [(
-        "TRIG_A".to_string(),
-        MapEvent {
-            id: "TRIG_A".to_string(),
-            fields: vec![
-                "1".to_string(),
-                "47".to_string(),
-                "3".to_string(),
-                "0".to_string(),
-            ],
-            conditions: vec![EventCondition {
-                kind: 47,
-                value: 3,
-                ..Default::default()
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [(
-        "TRIG_A".to_string(),
-        MapAction {
-            id: "TRIG_A".to_string(),
-            fields: vec![
-                "1".to_string(),
-                "112".to_string(),
-                "0".to_string(),
-                "0".to_string(),
-                "0".to_string(),
-                "0".to_string(),
-                "0".to_string(),
-                "0".to_string(),
-                "J".to_string(),
-            ],
-            entries: vec![ActionEntry {
-                kind: 112,
-                // Runtime owns the reader-materialized +0x44 value below;
-                // changing retained source text must not trigger re-decoding.
-                params: vec![
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "ZZ".to_string(),
-                ],
-                waypoint_index: Some(9),
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Timer A,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,3\n[Actions]\nTRIG_A=1,112,0,0,0,0,0,0,J\n",
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
 
@@ -2870,69 +2700,15 @@ fn time_trigger_can_center_camera_at_waypoint() {
 
 #[test]
 fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
-    let triggers: TriggerMap = [(
-        "TRIG_A".to_string(),
-        make_trigger("TRIG_A", None, "Frame Zero", true),
-    )]
-    .into_iter()
-    .collect();
-    let events: EventMap = [(
-        "TRIG_A".to_string(),
-        MapEvent {
-            id: "TRIG_A".to_string(),
-            fields: vec![],
-            conditions: vec![EventCondition {
-                kind: 47,
-                value: 0,
-                ..Default::default()
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [(
-        "TRIG_A".to_string(),
-        MapAction {
-            id: "TRIG_A".to_string(),
-            fields: vec![],
-            entries: vec![ActionEntry {
-                kind: 112,
-                params: vec![
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "J".to_string(),
-                ],
-                waypoint_index: Some(9),
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Frame Zero,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,0\n[Actions]\nTRIG_A=1,112,0,0,0,0,0,0,J\n",
+    );
     let mut sim = Simulation::new();
     sim.resolved_terrain = Some(flat_trigger_playfield_terrain(32, 32));
     sim.initialize_map_triggers(&triggers, &HashMap::new());
 
-    let tick = sim
-        .advance_master_frame(
-            &[],
-            None,
-            None,
-            67,
-            TickLane::Ordinary,
-            Some(TriggerInputs {
-                events: &events,
-                actions: &actions,
-
-                rules: None,
-            }),
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("fixture frame must complete")
-        .into_tick();
+    let tick = ordinary_master_frame(&mut sim, None, None, Some((&events, &actions)));
 
     assert!(tick.frame_committed);
     assert_eq!(
@@ -2958,62 +2734,16 @@ fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
 
 #[test]
 fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
-    let triggers: TriggerMap = [(
-        "TRIG_A".to_string(),
-        make_trigger("TRIG_A", None, "Set Global", true),
-    )]
-    .into_iter()
-    .collect();
-    let events: EventMap = [(
-        "TRIG_A".to_string(),
-        MapEvent {
-            id: "TRIG_A".to_string(),
-            fields: vec![],
-            conditions: vec![EventCondition {
-                kind: 47,
-                value: 0,
-                ..Default::default()
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [(
-        "TRIG_A".to_string(),
-        MapAction {
-            id: "TRIG_A".to_string(),
-            fields: vec![],
-            entries: vec![ActionEntry {
-                kind: 28,
-                params: vec!["0".to_string(), "13".to_string()],
-                waypoint_index: Some(0),
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
-    let trigger_inputs = TriggerInputs {
-        events: &events,
-        actions: &actions,
-
-        rules: None,
-    };
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Set Global,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,0\n[Actions]\nTRIG_A=1,28,0,13,0,0,0,0,A\n",
+    );
+    let records = Some((&events, &actions));
 
     let mut original = Simulation::new();
     original.hash_state_every(std::num::NonZeroU64::MIN);
     original.initialize_map_triggers(&triggers, &HashMap::new());
-    original
-        .advance_master_frame(
-            &[],
-            None,
-            None,
-            67,
-            TickLane::Ordinary,
-            Some(trigger_inputs),
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("fixture frame must complete")
-        .into_tick();
+    ordinary_master_frame(&mut original, None, None, records);
     assert!(original.trigger_runtime.globals_set.contains(&13));
 
     let projectile_id = original.allocate_stable_id();
@@ -3075,18 +2805,7 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
             .contains_object(&deleted_id)
     );
 
-    let original_tick = original
-        .advance_master_frame(
-            &[],
-            None,
-            None,
-            67,
-            TickLane::Ordinary,
-            Some(trigger_inputs),
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("fixture frame must complete")
-        .into_tick();
+    let original_tick = ordinary_master_frame(&mut original, None, None, records);
     let mut replay_log = ReplayLog::new(ReplayHeader {
         pixel_conversion_bounds: Default::default(),
         version: 1,
@@ -3096,18 +2815,7 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
         rules_hash: 0,
     });
     replay_log.record_tick(original_tick.tick, Vec::new(), original_tick.state_hash);
-    let restored_tick = restored
-        .advance_master_frame(
-            &[],
-            None,
-            None,
-            67,
-            TickLane::Ordinary,
-            Some(trigger_inputs),
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("fixture frame must complete")
-        .into_tick();
+    let restored_tick = ordinary_master_frame(&mut restored, None, None, records);
 
     assert!(original_tick.frame_committed);
     assert!(restored_tick.frame_committed);
@@ -3127,7 +2835,11 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
             None,
             None,
             67,
-            Some(trigger_inputs),
+            Some(TriggerInputs {
+                events: &events,
+                actions: &actions,
+                rules: None,
+            }),
         ),
         vec![original_tick.state_hash],
     );
@@ -3171,26 +2883,14 @@ fn elapsed_time_uses_signed_current_frame_divided_by_fifteen() {
 /// The original Read6DD5B0 puts a type2 token3 reference at +50; token2 is
 /// metadata, even when a TriggerType named "2" happens to exist.
 fn dispatch_typed_trigger_reference(kind: i32, target_enabled: bool) -> Simulation {
-    let ini = crate::rules::ini_parser::IniFile::from_str(&format!(
-        "[Actions]\nSOURCE=1,{kind},2,0DD8E18C,0,0,0,0,A\n0DD8E18C=1,28,0,7,0,0,0,0,A\n2=1,28,0,8,0,0,0,0,A\n"
+    let disabled = u8::from(!target_enabled);
+    let (triggers, _, actions) = parse_trigger_records(&format!(
+        "[Triggers]\nSOURCE=Neutral,<none>,Source,0,1,1,1,0\n\
+         0DD8E18C=Neutral,<none>,Intro,{disabled},1,1,1,0\n\
+         2=Neutral,<none>,Metadata decoy,{disabled},1,1,1,0\n\
+         [Actions]\nSOURCE=1,{kind},2,0DD8E18C,0,0,0,0,A\n\
+         0DD8E18C=1,28,0,7,0,0,0,0,A\n2=1,28,0,8,0,0,0,0,A\n"
     ));
-    let actions = crate::map::actions::parse_actions(&ini);
-    let triggers: TriggerMap = [
-        (
-            "SOURCE".into(),
-            make_trigger("SOURCE", None, "Source", true),
-        ),
-        (
-            "0DD8E18C".into(),
-            make_trigger("0DD8E18C", None, "Intro", target_enabled),
-        ),
-        (
-            "2".into(),
-            make_trigger("2", None, "Metadata decoy", target_enabled),
-        ),
-    ]
-    .into_iter()
-    .collect();
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
     for index in 0..sim.trigger_runtime.definitions.trigger_types.len() {
@@ -3212,13 +2912,7 @@ fn dispatch_typed_trigger_reference(kind: i32, target_enabled: bool) -> Simulati
     for tag in 0..sim.trigger_runtime.definitions.tag_types.len() {
         sim.construct_trigger_tag(tag);
     }
-    let source = sim
-        .trigger_runtime
-        .definitions
-        .trigger_types
-        .iter()
-        .position(|t| t.id == "SOURCE")
-        .unwrap();
+    let source = trigger_type_index(&sim, "SOURCE");
     let action = sim.trigger_runtime.definitions.trigger_types[source].actions[0].clone();
     sim.apply_live_trigger_action(
         &action,
@@ -3238,107 +2932,29 @@ fn typed_trigger_reference_force_uses_operand_instead_of_metadata() {
 }
 
 #[test]
-fn typed_trigger_reference_enable_uses_operand_instead_of_metadata() {
-    let sim = dispatch_typed_trigger_reference(53, false);
-    assert!(
-        sim.trigger_runtime
-            .triggers
-            .iter()
-            .flatten()
-            .find(|t| sim.trigger_runtime.definitions.trigger_types[t.type_index].id == "0DD8E18C")
-            .unwrap()
-            .enabled
-    );
-    assert!(
-        !sim.trigger_runtime
-            .triggers
-            .iter()
-            .flatten()
-            .find(|t| sim.trigger_runtime.definitions.trigger_types[t.type_index].id == "2")
-            .unwrap()
-            .enabled
-    );
-}
-
-#[test]
-fn typed_trigger_reference_disable_uses_operand_instead_of_metadata() {
-    let sim = dispatch_typed_trigger_reference(54, true);
-    assert!(
-        !sim.trigger_runtime
-            .triggers
-            .iter()
-            .flatten()
-            .find(|t| sim.trigger_runtime.definitions.trigger_types[t.type_index].id == "0DD8E18C")
-            .unwrap()
-            .enabled
-    );
-    assert!(
-        sim.trigger_runtime
-            .triggers
-            .iter()
-            .flatten()
-            .find(|t| sim.trigger_runtime.definitions.trigger_types[t.type_index].id == "2")
-            .unwrap()
-            .enabled
-    );
+fn typed_trigger_reference_enable_and_disable_use_operand_instead_of_metadata() {
+    // Enable53 starts from disabled Triggers, Disable54 from enabled ones;
+    // only the operand Trigger flips, never the "2" metadata decoy.
+    for (kind, initially_enabled) in [(53, false), (54, true)] {
+        let sim = dispatch_typed_trigger_reference(kind, initially_enabled);
+        let enabled = |id: &str| {
+            let live = live_trigger_of_type(&sim, trigger_type_index(&sim, id));
+            sim.trigger_runtime.trigger(live).unwrap().enabled
+        };
+        assert_eq!(enabled("0DD8E18C"), !initially_enabled, "kind {kind}");
+        assert_eq!(enabled("2"), initially_enabled, "kind {kind}");
+    }
 }
 
 #[test]
 fn global_actions_can_enable_and_force_followup_trigger() {
-    let triggers: TriggerMap = [
-        (
-            "TRIG_A".to_string(),
-            make_trigger("TRIG_A", None, "Set Global", true),
-        ),
-        (
-            "TRIG_B".to_string(),
-            make_trigger("TRIG_B", None, "Camera", false),
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let events: EventMap = [
-        (
-            "TRIG_A".to_string(),
-            MapEvent {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "47".to_string(),
-                    "1".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 47,
-                    value: 1,
-                    ..Default::default()
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapEvent {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "27".to_string(),
-                    "7".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 27,
-                    value: 7,
-                    ..Default::default()
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let actions = crate::map::actions::parse_actions(&crate::rules::ini_parser::IniFile::from_str(
-        "[Actions]\nTRIG_A=3,28,0,7,0,0,0,0,A,53,2,TRIG_B,0,0,0,0,A,22,2,TRIG_B,0,0,0,0,A\n\
-             TRIG_B=1,112,0,0,0,0,0,0,D\n",
-    ));
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Set Global,0,1,1,1,0\n\
+         TRIG_B=Neutral,<none>,Camera,1,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,27,0,7\n\
+         [Actions]\nTRIG_A=3,28,0,7,0,0,0,0,A,53,2,TRIG_B,0,0,0,0,A,22,2,TRIG_B,0,0,0,0,A\n\
+         TRIG_B=1,112,0,0,0,0,0,0,D\n",
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
 
@@ -3353,120 +2969,12 @@ fn global_actions_can_enable_and_force_followup_trigger() {
 
 #[test]
 fn linked_trigger_instances_execute_in_reverse_chain_order() {
-    let triggers: TriggerMap = [
-        (
-            "TRIG_A".to_string(),
-            make_trigger("TRIG_A", Some("TRIG_B"), "Primary", true),
-        ),
-        (
-            "TRIG_B".to_string(),
-            make_trigger("TRIG_B", None, "Followup", true),
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let events: EventMap = [
-        (
-            "TRIG_A".to_string(),
-            MapEvent {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "47".to_string(),
-                    "1".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 47,
-                    value: 1,
-                    ..Default::default()
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapEvent {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "28".to_string(),
-                    "9".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 28,
-                    value: 9,
-                    ..Default::default()
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [
-        (
-            "TRIG_A".to_string(),
-            MapAction {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "28".to_string(),
-                    "0".to_string(),
-                    "5".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 28,
-                    params: vec![
-                        "0".to_string(),
-                        "5".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                    ],
-                    waypoint_index: Some(0),
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapAction {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "112".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "E".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 112,
-                    params: vec![
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "E".to_string(),
-                    ],
-                    waypoint_index: Some(4),
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,TRIG_B,Primary,0,1,1,1,0\n\
+         TRIG_B=Neutral,<none>,Followup,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,28,0,9\n\
+         [Actions]\nTRIG_A=1,28,0,5,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,E\n",
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
 
@@ -3481,60 +2989,12 @@ fn linked_trigger_instances_execute_in_reverse_chain_order() {
 
 #[test]
 fn force_trigger_bypasses_unmet_event_predicates() {
-    let triggers: TriggerMap = [
-        (
-            "TRIG_A".to_string(),
-            make_trigger("TRIG_A", None, "Force", true),
-        ),
-        (
-            "TRIG_B".to_string(),
-            make_trigger("TRIG_B", None, "Blocked", true),
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let events: EventMap = [
-        (
-            "TRIG_A".to_string(),
-            MapEvent {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "47".to_string(),
-                    "1".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 47,
-                    value: 1,
-                    ..Default::default()
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapEvent {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "27".to_string(),
-                    "99".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 27,
-                    value: 99,
-                    ..Default::default()
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let actions = crate::map::actions::parse_actions(&crate::rules::ini_parser::IniFile::from_str(
-        "[Actions]\nTRIG_A=1,22,2,TRIG_B,0,0,0,0,A\n\
-             TRIG_B=1,112,0,0,0,0,0,0,D\n",
-    ));
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Force,0,1,1,1,0\n\
+         TRIG_B=Neutral,<none>,Blocked,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,27,0,99\n\
+         [Actions]\nTRIG_A=1,22,2,TRIG_B,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,D\n",
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
 
@@ -3574,18 +3034,12 @@ fn mission_announce_then_end_uses_the_player_house_and_shared_timer() {
     sim.session.house_order = vec![player, other];
     sim.session.current_house = Some(player);
     sim.session.game_mode_nonzero = false;
-    let mut trigger = make_trigger("RESULT", None, "End Mission", true);
-    trigger.owner = Some("OtherCountry".to_string());
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nRESULT=OtherCountry,<none>,End Mission,0,1,1,1,0\n\
+         [Events]\nRESULT=1,47,0,1\n[Actions]\nRESULT=2,67,0,0,0,0,0,0,A,69,0,0,0,0,0,0,A\n",
+    );
     let before = sim.houses[&player].outcome_timer();
-    sim.initialize_map_triggers(
-        &HashMap::from([("RESULT".to_string(), trigger)]),
-        &HashMap::new(),
-    );
-    let ini = IniFile::from_str(
-        "[Events]\nRESULT=1,47,0,1\n[Actions]\nRESULT=2,67,0,0,0,0,0,0,A,69,0,0,0,0,0,0,A\n",
-    );
-    let events = crate::map::events::parse_events(&ini);
-    let actions = crate::map::actions::parse_actions(&ini);
+    sim.initialize_map_triggers(&triggers, &HashMap::new());
     let effects = advance_trigger_frame(
         &mut sim,
         15,
@@ -3619,130 +3073,15 @@ fn mission_announce_then_end_uses_the_player_house_and_shared_timer() {
 
 #[test]
 fn local_variables_seed_and_gate_followup_triggers() {
-    let triggers: TriggerMap = [
-        (
-            "TRIG_A".to_string(),
-            make_trigger("TRIG_A", None, "Flip Local", true),
-        ),
-        (
-            "TRIG_B".to_string(),
-            make_trigger("TRIG_B", None, "Uses Local", true),
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let events: EventMap = [
-        (
-            "TRIG_A".to_string(),
-            MapEvent {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "37".to_string(),
-                    "2".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 37,
-                    value: 2,
-                    ..Default::default()
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapEvent {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "36".to_string(),
-                    "2".to_string(),
-                    "0".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 36,
-                    value: 2,
-                    ..Default::default()
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [
-        (
-            "TRIG_A".to_string(),
-            MapAction {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "56".to_string(),
-                    "0".to_string(),
-                    "2".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 56,
-                    params: vec![
-                        "0".to_string(),
-                        "2".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                    ],
-                    waypoint_index: Some(0),
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapAction {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "112".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "G".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 112,
-                    params: vec![
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "G".to_string(),
-                    ],
-                    waypoint_index: Some(6),
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let local_variables: LocalVariableMap = [(
-        2,
-        LocalVariable {
-            index: 2,
-            name: "BridgeDone".to_string(),
-            initially_set: false,
-        },
-    )]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Flip Local,0,1,1,1,0\n\
+         TRIG_B=Neutral,<none>,Uses Local,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,37,0,2\nTRIG_B=1,36,0,2\n\
+         [Actions]\nTRIG_A=1,56,0,2,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,G\n",
+    );
+    let local_variables = crate::map::variable_names::parse_local_variables(
+        &crate::rules::ini_parser::IniFile::from_str("[VariableNames]\n2=BridgeDone,0\n"),
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &local_variables);
 
@@ -3762,122 +3101,12 @@ fn local_variables_seed_and_gate_followup_triggers() {
 
 #[test]
 fn techtype_exists_and_not_exists_query_simulation_world() {
-    let triggers: TriggerMap = [
-        (
-            "TRIG_A".to_string(),
-            make_trigger("TRIG_A", None, "Need Two Power Plants", true),
-        ),
-        (
-            "TRIG_B".to_string(),
-            make_trigger("TRIG_B", None, "No Radar", true),
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let events: EventMap = [
-        (
-            "TRIG_A".to_string(),
-            MapEvent {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "60".to_string(),
-                    "2".to_string(),
-                    "GAPOWR".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 60,
-                    value: 2,
-                    type_name: Some("GAPOWR".to_string()),
-                    ..Default::default()
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapEvent {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "61".to_string(),
-                    "0".to_string(),
-                    "GAAIRC".to_string(),
-                ],
-                conditions: vec![EventCondition {
-                    kind: 61,
-                    value: 0,
-                    type_name: Some("GAAIRC".to_string()),
-                    ..Default::default()
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
-    let actions: ActionMap = [
-        (
-            "TRIG_A".to_string(),
-            MapAction {
-                id: "TRIG_A".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "112".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "L".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 112,
-                    params: vec![
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "L".to_string(),
-                    ],
-                    waypoint_index: Some(11),
-                }],
-            },
-        ),
-        (
-            "TRIG_B".to_string(),
-            MapAction {
-                id: "TRIG_B".to_string(),
-                fields: vec![
-                    "1".to_string(),
-                    "112".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    "M".to_string(),
-                ],
-                entries: vec![ActionEntry {
-                    kind: 112,
-                    params: vec![
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "0".to_string(),
-                        "M".to_string(),
-                    ],
-                    waypoint_index: Some(12),
-                }],
-            },
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let (triggers, events, actions) = parse_trigger_records(
+        "[Triggers]\nTRIG_A=Neutral,<none>,Need Two Power Plants,0,1,1,1,0\n\
+         TRIG_B=Neutral,<none>,No Radar,0,1,1,1,0\n\
+         [Events]\nTRIG_A=1,60,2,2,GAPOWR\nTRIG_B=1,61,2,0,GAAIRC\n\
+         [Actions]\nTRIG_A=1,112,0,0,0,0,0,0,L\nTRIG_B=1,112,0,0,0,0,0,0,M\n",
+    );
     let mut sim = Simulation::new();
     sim.initialize_map_triggers(&triggers, &HashMap::new());
     spawn_type(&mut sim, "GAPOWR");
@@ -3910,27 +3139,15 @@ fn run_waypoint_action(
     token: Option<&str>,
     trigger_country: Option<&str>,
     sim: &mut Simulation,
-    waypoints: &HashMap<u32, crate::map::waypoints::Waypoint>,
+    waypoints: &HashMap<u32, Waypoint>,
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> Vec<TriggerEffect> {
     let mut trigger = make_trigger("WAYPOINT_ACTION", None, "Waypoint action", true);
     trigger.owner = trigger_country.map(str::to_string);
     trigger.fields[0] = trigger_country.unwrap_or("").to_string();
     let triggers: TriggerMap = [(trigger.id.clone(), trigger)].into_iter().collect();
-    let events: EventMap = [(
-        "WAYPOINT_ACTION".to_string(),
-        MapEvent {
-            id: "WAYPOINT_ACTION".to_string(),
-            fields: Vec::new(),
-            conditions: vec![EventCondition {
-                kind: 47,
-                value: 0,
-                ..Default::default()
-            }],
-        },
-    )]
-    .into_iter()
-    .collect();
+    let (_, events, _) = parse_trigger_records("[Events]\nWAYPOINT_ACTION=1,47,0,0\n");
+    // The token stays hand-built: an empty token never survives the reader.
     let mut params = vec!["0".to_string(); 6];
     if let Some(token) = token {
         params.push(token.to_string());
@@ -3982,16 +3199,7 @@ fn register_waypoint_action_house(
 fn camera_actions_use_alpha_tokens_and_ctor_zero_not_decimal_indices() {
     for (kind, token, waypoint, immediate) in [(48, "NZ", 389, false), (112, "AA", 26, true)] {
         let mut sim = Simulation::new();
-        let waypoints = [(
-            waypoint,
-            crate::map::waypoints::Waypoint {
-                index: waypoint,
-                rx: 9,
-                ry: 10,
-            },
-        )]
-        .into_iter()
-        .collect();
+        let waypoints = waypoint_map(waypoint, (9, 10));
         assert_eq!(
             run_waypoint_action(kind, Some(token), None, &mut sim, &waypoints, None),
             vec![TriggerEffect::CameraAtCoord {
@@ -4027,16 +3235,7 @@ fn action_137_replays_all_three_retail_waypoint_fixtures() {
         let mut sim = Simulation::new();
         let rules = waypoint_action_rules();
         let house = register_waypoint_action_house(&mut sim, "HouseA", Some("Americans"), (0, 0));
-        let waypoints = [(
-            index,
-            crate::map::waypoints::Waypoint {
-                index,
-                rx: cell.0,
-                ry: cell.1,
-            },
-        )]
-        .into_iter()
-        .collect();
+        let waypoints = waypoint_map(index, cell);
 
         assert!(
             run_waypoint_action(
@@ -4060,16 +3259,7 @@ fn action_137_uses_first_registration_order_country_match_only() {
     let rules = waypoint_action_rules();
     let first = register_waypoint_action_house(&mut sim, "First", Some("Americans"), (1, 2));
     let second = register_waypoint_action_house(&mut sim, "Second", Some("AMERICANS"), (3, 4));
-    let waypoints = [(
-        15,
-        crate::map::waypoints::Waypoint {
-            index: 15,
-            rx: 93,
-            ry: 106,
-        },
-    )]
-    .into_iter()
-    .collect();
+    let waypoints = waypoint_map(15, (93, 106));
 
     run_waypoint_action(
         137,
@@ -4089,16 +3279,7 @@ fn action_137_uses_first_registration_order_country_match_only() {
 #[test]
 fn action_137_canonicalizes_house_type_alias_and_none_owner() {
     let rules = waypoint_action_rules();
-    let waypoints = [(
-        15,
-        crate::map::waypoints::Waypoint {
-            index: 15,
-            rx: 93,
-            ry: 106,
-        },
-    )]
-    .into_iter()
-    .collect();
+    let waypoints = waypoint_map(15, (93, 106));
 
     let mut alias_sim = Simulation::new();
     let alias_house =
@@ -4143,16 +3324,7 @@ fn action_137_rejects_only_exact_packed_zero_cell() {
         let mut sim = Simulation::new();
         let house =
             register_waypoint_action_house(&mut sim, "AxisHouse", Some("Americans"), (9, 9));
-        let waypoints = [(
-            15,
-            crate::map::waypoints::Waypoint {
-                index: 15,
-                rx: cell.0,
-                ry: cell.1,
-            },
-        )]
-        .into_iter()
-        .collect();
+        let waypoints = waypoint_map(15, cell);
         run_waypoint_action(
             137,
             Some("P"),
@@ -4198,7 +3370,7 @@ fn action_137_invalid_resolution_and_waypoints_do_not_mutate_either_base_cell() 
         trigger_country: Option<&str>,
         house_country: Option<&str>,
         token: Option<&str>,
-        waypoints: HashMap<u32, crate::map::waypoints::Waypoint>,
+        waypoints: HashMap<u32, Waypoint>,
         register: bool,
         with_rules: bool,
     ) {
@@ -4220,79 +3392,23 @@ fn action_137_invalid_resolution_and_waypoints_do_not_mutate_either_base_cell() 
         }
     }
 
-    let valid = || {
-        [(
-            15,
-            crate::map::waypoints::Waypoint {
-                index: 15,
-                rx: 93,
-                ry: 106,
-            },
-        )]
-        .into_iter()
-        .collect()
-    };
-    assert_no_write(None, Some("Americans"), Some("P"), valid(), true, true);
-    assert_no_write(
-        Some("Americans"),
-        Some("Americans"),
-        Some("P"),
-        valid(),
-        true,
-        false,
-    );
-    assert_no_write(Some("Americans"), None, Some("P"), valid(), true, true);
-    assert_no_write(
-        Some("Americans"),
-        Some("Americans"),
-        Some("P"),
-        valid(),
-        false,
-        true,
-    );
-    assert_no_write(
-        Some("Americans"),
-        Some("Americans"),
-        Some("15"),
-        valid(),
-        true,
-        true,
-    );
-    assert_no_write(
-        Some("Americans"),
-        Some("Americans"),
-        Some("P"),
-        HashMap::new(),
-        true,
-        true,
-    );
-    assert_no_write(
-        Some("Americans"),
-        Some("Americans"),
-        Some("P"),
-        [(
-            15,
-            crate::map::waypoints::Waypoint {
-                index: 15,
-                rx: 0,
-                ry: 0,
-            },
-        )]
-        .into_iter()
-        .collect(),
-        true,
-        true,
-    );
-    // Matching the House name is insufficient: only HouseState.country owns
-    // the native Spring/Find_By_Country_Index resolution.
-    assert_no_write(
-        Some("Americans"),
-        Some("Russians"),
-        Some("P"),
-        valid(),
-        true,
-        true,
-    );
+    let (usa, p) = (Some("Americans"), Some("P"));
+    let valid = || waypoint_map(15, (93, 106));
+    // (trigger country, House country, token, waypoints, registered, with rules)
+    for (trigger, house, token, waypoints, registered, ruled) in [
+        (None, usa, p, valid(), true, true),
+        (usa, usa, p, valid(), true, false),
+        (usa, None, p, valid(), true, true),
+        (usa, usa, p, valid(), false, true),
+        (usa, usa, Some("15"), valid(), true, true),
+        (usa, usa, p, HashMap::new(), true, true),
+        (usa, usa, p, waypoint_map(15, (0, 0)), true, true),
+        // Matching the House name is insufficient: only HouseState.country owns
+        // the native Spring/Find_By_Country_Index resolution.
+        (usa, Some("Russians"), p, valid(), true, true),
+    ] {
+        assert_no_write(trigger, house, token, waypoints, registered, ruled);
+    }
 }
 
 #[test]

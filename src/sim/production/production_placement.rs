@@ -401,7 +401,7 @@ pub(crate) fn place_production_with_overlays(
         // Wall placement consumes the factory-created BuildingClass into
         // overlay state; the constructor identity is destroyed, never
         // reconstructed at placement.
-        held.consume_after_wall_stamp(sim, rules, effects);
+        let object = held.consume_after_wall_stamp(sim, rules, effects);
         sim.sound_events
             .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
         sim.lifecycle_outputs.push(
@@ -414,6 +414,9 @@ pub(crate) fn place_production_with_overlays(
             Some(rules),
             effects,
         );
+        // A consumed wall skips selection, but still reaches BuildingSlam
+        // (4FB2E6 ->4FB2FD..4FB314) and BREAK before Record4FB4B7.
+        super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
         return true;
     }
     let foundation_str: String = rules
@@ -513,7 +516,8 @@ pub(crate) fn place_production_with_overlays(
     );
     // Original4FB4B7 records the successful build after FirstContact BREAK,
     // not during CompletedProduction4FB2A1 or its C message4FB2AD.
-    super::factory_lifecycle::record_last_built(sim, rules, owner_id, type_interned);
+    let object = super::factory_lifecycle::BuiltObject::capture(sim, new_sid);
+    super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
     true
 }
 

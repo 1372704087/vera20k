@@ -77,6 +77,9 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 游戏逻辑在 `src/sim/`，渲染在 `src/render/`，菜单和输入在 `src/app/` 和 `src/ui/`；
 你不需要 `tools/` 中的 Python 工具。
 
+要在游戏中试玩你的改动，请运行 `cargo run --profile fast --bin vera20k`。它和 `--release` 一样经过优化，
+但只重新编译你改动的部分，让你更快回到游戏。测量性能时请使用 `--release`。
+
 贡献内容与项目其余部分一样采用 GPLv3 许可证；无需签署 CLA。
 
 ## 致谢与法律声明

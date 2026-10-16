@@ -1098,6 +1098,125 @@ mod tests {
         (rules, warhead, registry)
     }
 
+    /// Exact detonation coordinate at the impact cell's centre.
+    fn center_impact(z_leptons: i32) -> AoEAirImpact {
+        AoEAirImpact {
+            sub_x: CELL_CENTER_LEPTON,
+            sub_y: CELL_CENTER_LEPTON,
+            z_leptons,
+        }
+    }
+
+    /// Native cell-list collection. `air_z` is the exact centre impact Z;
+    /// `None` takes the whole-Level adapter at level 0.
+    fn native_lists<'a>(
+        occupancy: &'a OccupancyGrid,
+        terrain: &'a mut ResolvedTerrainGrid,
+        air_z: Option<i32>,
+    ) -> AoELayerContext<'a> {
+        AoELayerContext {
+            occupancy: Some(occupancy),
+            terrain: Some(terrain),
+            air_impact: air_z.map(center_impact),
+            ..AoELayerContext::default()
+        }
+    }
+
+    /// Wall routing without cell lists, at the whole-Level ground impact.
+    fn wall_routing<'a>(
+        terrain: &'a mut ResolvedTerrainGrid,
+        overlays: &'a mut OverlayGrid,
+        registry: &'a OverlayTypeRegistry,
+        rng: &'a mut SimRng,
+    ) -> AoELayerContext<'a> {
+        AoELayerContext {
+            terrain: Some(terrain),
+            overlay_grid: Some(overlays),
+            overlay_registry: Some(registry),
+            scenario_rng: Some(rng),
+            ..AoELayerContext::default()
+        }
+    }
+
+    /// Native AddContent on the ground list: a nonbuilding at the head.
+    fn prepend_ground(occupancy: &mut OccupancyGrid, rx: u16, ry: u16, id: u64) {
+        occupancy.add(
+            rx,
+            ry,
+            id,
+            MovementLayer::Ground,
+            None,
+            CellListInsertion::PrependNonBuilding,
+        );
+    }
+
+    /// Native AddContent on the ground list: a Building at the tail.
+    fn append_building(occupancy: &mut OccupancyGrid, rx: u16, ry: u16, id: u64) {
+        occupancy.add(
+            rx,
+            ry,
+            id,
+            MovementLayer::Ground,
+            None,
+            CellListInsertion::AppendBuilding,
+        );
+    }
+
+    /// State the production ordered receiver commit (`commit_damage_events`)
+    /// keeps across calls; no house order, overlays or traces.
+    struct ReceiverCommit {
+        houses: BTreeMap<crate::sim::intern::InternedId, HouseState>,
+        alliances: HouseAllianceMap,
+        main_rng: SimRng,
+        scenario_rng: SimRng,
+        handled_deaths: Vec<u64>,
+    }
+
+    impl ReceiverCommit {
+        fn new() -> Self {
+            Self {
+                houses: BTreeMap::new(),
+                alliances: HouseAllianceMap::new(),
+                main_rng: SimRng::new(1),
+                scenario_rng: SimRng::new(2),
+                handled_deaths: Vec::new(),
+            }
+        }
+
+        fn run(
+            &mut self,
+            hits: &[EntityDamageEvent],
+            entities: &mut EntityStore,
+            occupancy: &mut OccupancyGrid,
+            rules: &RuleSet,
+            interner: &mut StringInterner,
+            terrain: &mut ResolvedTerrainGrid,
+        ) -> (
+            crate::sim::combat::DeathEffects,
+            Vec<crate::sim::combat::UnderAttackEvent>,
+        ) {
+            crate::sim::combat::commit_damage_events(
+                hits,
+                entities,
+                occupancy,
+                rules,
+                interner,
+                &mut self.houses,
+                &[],
+                &self.alliances,
+                &mut self.main_rng,
+                &mut self.scenario_rng,
+                &mut self.handled_deaths,
+                None,
+                None,
+                Some(terrain),
+                0,
+                &mut None,
+                &mut None,
+            )
+        }
+    }
+
     #[test]
     fn wrapped_spread_collects_the_real_zero_cell_on_both_axes() {
         for transpose in [false, true] {
@@ -1121,14 +1240,7 @@ mod tests {
                 7, "MTNK", "Soviet", receiver.0, receiver.1,
             ));
             let mut occupancy = OccupancyGrid::new();
-            occupancy.add(
-                receiver.0,
-                receiver.1,
-                7,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, receiver.0, receiver.1, 7);
             let mut terrain = crate::map::resolved_terrain::test_grid(32, 32, test_terrain_cell);
             let result = apply_aoe_damage(
                 &mut entities,
@@ -1140,14 +1252,12 @@ mod tests {
                 &mut interner,
                 "Americans",
                 AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
                     air_impact: Some(AoEAirImpact {
                         sub_x: sub.0,
                         sub_y: sub.1,
                         z_leptons: 0,
                     }),
-                    ..AoELayerContext::default()
+                    ..native_lists(&occupancy, &mut terrain, None)
                 },
             );
             assert_eq!(
@@ -1208,11 +1318,7 @@ mod tests {
                     overlay_grid: Some(&mut overlays),
                     overlay_registry: Some(&registry),
                     scenario_rng: Some(&mut rng),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons: 0,
-                    }),
+                    air_impact: Some(center_impact(0)),
                     impact_z: 0,
                 },
                 None,
@@ -1270,14 +1376,7 @@ mod tests {
             let mut entities = EntityStore::new();
             entities.insert(GameEntity::test_default(7, "MTNK", "Soviet", 20, 20));
             let mut occupancy = OccupancyGrid::new();
-            occupancy.add(
-                20,
-                20,
-                7,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 20, 20, 7);
             let mut terrain = crate::map::resolved_terrain::test_grid(32, 32, test_terrain_cell);
             terrain.test_set_native_allocated_cells(&[(1, 1)]);
             let dummy = terrain.shared_cell_dummy();
@@ -1303,17 +1402,10 @@ mod tests {
                 None,
                 "Americans",
                 AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
                     overlay_grid: Some(&mut overlays),
                     overlay_registry: Some(&registry),
                     scenario_rng: Some(&mut rng),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons: 0,
-                    }),
-                    impact_z: 0,
+                    ..native_lists(&occupancy, &mut terrain, Some(0))
                 },
                 Some(TerrainCollectionView {
                     objects: &objects,
@@ -1363,69 +1455,42 @@ mod tests {
         let mut interner = test_interner();
         let warhead_ref = interner.intern("BlastWH");
 
-        let (rules, wad, registry) = wall_aoe_fixture(".5", "WallAbsoluteDestroyer=yes\nWall=yes");
-        let mut overlays = OverlayGrid::new(16, 16);
-        overlays.place_overlay(8, 8, 2, 0);
-        let mut scenario_rng = SimRng::new(17);
-        let before = scenario_rng.state();
-        let result = apply_aoe_damage(
-            &mut entities,
-            8,
-            8,
-            0,
-            &wad,
-            &rules,
-            &mut interner,
-            (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: None,
-                terrain: None,
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
-        );
-        assert_eq!(overlays.cell(8, 8).overlay_id, Some(2));
-        assert_eq!(scenario_rng.state(), before);
-        assert!(result.hits.is_empty());
-        assert!(result.wall_mutations.is_empty());
-        assert!(result.cell_target_detaches.is_empty());
-        assert!(matches!(
-            entities.get(20).unwrap().attack_target.target(),
-            Some(TargetKind::Cell(8, 8))
-        ));
-
-        let (rules, wall, registry) = wall_aoe_fixture(".5", "Wall=yes");
-        let mut overlays = OverlayGrid::new(16, 16);
-        overlays.place_overlay(8, 8, 0, 0);
-        let mut scenario_rng = SimRng::new(29);
-        let before = scenario_rng.state();
-        let result = apply_aoe_damage(
-            &mut entities,
-            8,
-            8,
-            0,
-            &wall,
-            &rules,
-            &mut interner,
-            (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: None,
-                terrain: None,
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
-        );
-        assert_eq!(overlays.cell(8, 8).overlay_id, Some(0));
-        assert_eq!(scenario_rng.state(), before);
-        assert!(result.hits.is_empty());
-        assert!(result.wall_mutations.is_empty());
-        assert!(result.cell_target_detaches.is_empty());
+        // WallAbsoluteDestroyer on GAWALL, then an ordinary Wall on GASAND.
+        for (warhead_flags, overlay, seed) in [
+            ("WallAbsoluteDestroyer=yes\nWall=yes", 2, 17),
+            ("Wall=yes", 0, 29),
+        ] {
+            let (rules, warhead, registry) = wall_aoe_fixture(".5", warhead_flags);
+            let mut overlays = OverlayGrid::new(16, 16);
+            overlays.place_overlay(8, 8, overlay, 0);
+            let mut scenario_rng = SimRng::new(seed);
+            let before = scenario_rng.state();
+            let result = apply_aoe_damage(
+                &mut entities,
+                8,
+                8,
+                0,
+                &warhead,
+                &rules,
+                &mut interner,
+                (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
+                AoELayerContext {
+                    overlay_grid: Some(&mut overlays),
+                    overlay_registry: Some(&registry),
+                    scenario_rng: Some(&mut scenario_rng),
+                    ..AoELayerContext::default()
+                },
+            );
+            assert_eq!(overlays.cell(8, 8).overlay_id, Some(overlay));
+            assert_eq!(scenario_rng.state(), before);
+            assert!(result.hits.is_empty());
+            assert!(result.wall_mutations.is_empty());
+            assert!(result.cell_target_detaches.is_empty());
+            assert!(matches!(
+                entities.get(20).unwrap().attack_target.target(),
+                Some(TargetKind::Cell(8, 8))
+            ));
+        }
     }
 
     #[test]
@@ -1458,13 +1523,10 @@ mod tests {
             Some(handles),
             (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
             AoELayerContext {
-                occupancy: None,
-                terrain: None,
                 overlay_grid: Some(&mut overlays),
                 overlay_registry: Some(&registry),
                 scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
+                ..AoELayerContext::default()
             },
             None,
             true,
@@ -1535,15 +1597,7 @@ mod tests {
             &interner,
             Some(handles),
             (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
-            AoELayerContext {
-                occupancy: None,
-                terrain: Some(&mut terrain),
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
+            wall_routing(&mut terrain, &mut overlays, &registry, &mut scenario_rng),
             None,
             false,
             Some(&mut prelude),
@@ -1610,17 +1664,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                air_impact: Some(AoEAirImpact {
-                    sub_x: CELL_CENTER_LEPTON,
-                    sub_y: CELL_CENTER_LEPTON,
-                    z_leptons: 0,
-                }),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, Some(0)),
         );
         assert!(
             at_ground.hits.is_empty(),
@@ -1636,17 +1680,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                air_impact: Some(AoEAirImpact {
-                    sub_x: CELL_CENTER_LEPTON,
-                    sub_y: CELL_CENTER_LEPTON,
-                    z_leptons: 1,
-                }),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, Some(1)),
         );
         assert_eq!(
             hit_id_distances(&one_above.hits),
@@ -1706,17 +1740,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                air_impact: Some(AoEAirImpact {
-                    sub_x: CELL_CENTER_LEPTON,
-                    sub_y: CELL_CENTER_LEPTON,
-                    z_leptons: 1,
-                }),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, Some(1)),
         );
         assert_eq!(hit_id_distances(&result.hits), vec![(1, 1)]);
     }
@@ -1750,25 +1774,11 @@ mod tests {
         let mut interner = test_interner();
         let warhead_ref = interner.intern("IvanWH");
         let mut occupancy = OccupancyGrid::new();
-        occupancy.add(
-            11,
-            10,
-            320,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
+        prepend_ground(&mut occupancy, 11, 10, 320);
         // Prepend in reverse so the cell's native selected-list order is
         // 384,385,386. The last candidate is excluded only after Sqrt_Approx.
         for stable_id in [386, 385, 384] {
-            occupancy.add(
-                12,
-                10,
-                stable_id,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 12, 10, stable_id);
         }
         let mut terrain = crate::map::resolved_terrain::test_grid(24, 24, test_terrain_cell);
 
@@ -1781,17 +1791,7 @@ mod tests {
             &rules,
             &mut interner,
             (77, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                air_impact: Some(AoEAirImpact {
-                    sub_x: CELL_CENTER_LEPTON,
-                    sub_y: CELL_CENTER_LEPTON,
-                    z_leptons: 0,
-                }),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, Some(0)),
         );
         assert_eq!(
             result
@@ -1815,30 +1815,13 @@ mod tests {
             "Sqrt_Approx keeps 385 at the inclusive boundary and rejects 386"
         );
 
-        let mut main_rng = SimRng::new(1);
-        let mut scenario_rng = SimRng::new(2);
-        let mut handled_deaths = Vec::new();
-        let mut houses = BTreeMap::new();
-        let mut fatal_lifecycle = None;
-        let mut sound_sink = None;
-        let (death, pings) = crate::sim::combat::commit_damage_events(
+        let (death, pings) = ReceiverCommit::new().run(
             &result.hits,
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
         assert!(death.despawned_ids.is_empty());
         assert!(pings.is_empty());
@@ -1876,14 +1859,7 @@ mod tests {
         building.health.set_for_test(300);
         entities.insert(building);
         let mut occupancy = OccupancyGrid::new();
-        occupancy.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
+        append_building(&mut occupancy, 5, 5, 1);
         let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
 
         for (impact_z, expected_distance) in [(208, 0), (256, 48)] {
@@ -1896,17 +1872,7 @@ mod tests {
                 &rules,
                 &mut interner,
                 (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-                AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons: impact_z,
-                    }),
-                    impact_z: 0,
-                    ..AoELayerContext::default()
-                },
+                native_lists(&occupancy, &mut terrain, Some(impact_z)),
             );
             assert_eq!(
                 result
@@ -1978,14 +1944,7 @@ mod tests {
             // protected target first so the vulnerable record is collected
             // first, proving that a later IC record isolates globally.
             for stable_id in [2, 1] {
-                occupancy.add(
-                    5,
-                    5,
-                    stable_id,
-                    MovementLayer::Ground,
-                    None,
-                    CellListInsertion::PrependNonBuilding,
-                );
+                prepend_ground(&mut occupancy, 5, 5, stable_id);
             }
             let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
             let aoe = apply_aoe_damage(
@@ -1997,17 +1956,7 @@ mod tests {
                 &rules,
                 &mut interner,
                 (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-                AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons: 0,
-                    }),
-                    impact_z: 0,
-                    ..AoELayerContext::default()
-                },
+                native_lists(&occupancy, &mut terrain, Some(0)),
             );
             let records = aoe
                 .hits
@@ -2021,30 +1970,13 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            let mut main_rng = SimRng::new(1);
-            let mut scenario_rng = SimRng::new(2);
-            let mut handled_deaths = Vec::new();
-            let mut houses = BTreeMap::new();
-            let mut fatal_lifecycle = None;
-            let mut sound_sink = None;
-            let (effects, pings) = crate::sim::combat::commit_damage_events(
+            let (effects, pings) = ReceiverCommit::new().run(
                 &aoe.hits,
                 &mut entities,
                 &mut occupancy,
                 &rules,
                 &mut interner,
-                &mut houses,
-                &[],
-                &HouseAllianceMap::new(),
-                &mut main_rng,
-                &mut scenario_rng,
-                &mut handled_deaths,
-                None,
-                None,
-                Some(&mut terrain),
-                0,
-                &mut fatal_lifecycle,
-                &mut sound_sink,
+                &mut terrain,
             );
             assert!(pings.is_empty());
             (
@@ -2160,22 +2092,8 @@ mod tests {
             entities.insert(air_center_second);
             entities.insert(air_center_first);
             let mut occupancy = OccupancyGrid::new();
-            occupancy.add(
-                5,
-                5,
-                20,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
-            occupancy.add(
-                7,
-                5,
-                10,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 5, 5, 20);
+            prepend_ground(&mut occupancy, 7, 5, 10);
             let mut terrain = crate::map::resolved_terrain::test_grid(10, 10, test_terrain_cell);
             let mut overlays = OverlayGrid::new(10, 10);
             for &(rx, ry) in &[(3, 5), (5, 5), (7, 5)] {
@@ -2187,11 +2105,6 @@ mod tests {
                 crate::sim::type_handle_table::ResolvedRuleHandles::resolve(&rules, &mut interner);
             let blast_ref = interner.intern("BlastWH");
             let mut scenario_rng = SimRng::new(1);
-            let air_impact = Some(AoEAirImpact {
-                sub_x: CELL_CENTER_LEPTON,
-                sub_y: CELL_CENTER_LEPTON,
-                z_leptons: 1,
-            });
             let aoe = apply_aoe_damage(
                 &mut entities,
                 5,
@@ -2202,13 +2115,10 @@ mod tests {
                 &mut interner,
                 (crate::sim::combat::RAD_NO_ATTACKER, blast_ref),
                 AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
                     overlay_grid: Some(&mut overlays),
                     overlay_registry: Some(&registry),
                     scenario_rng: Some(&mut scenario_rng),
-                    air_impact,
-                    impact_z: 0,
+                    ..native_lists(&occupancy, &mut terrain, Some(1))
                 },
             );
             let hit_order = hit_ids(&aoe.hits);
@@ -2347,14 +2257,7 @@ mod tests {
 
         let mut occupancy = OccupancyGrid::new();
         for &(id, rx, ry) in &[(100, 20, 20), (200, 17, 31), (300, 23, 31), (400, 17, 9)] {
-            occupancy.add(
-                rx,
-                ry,
-                id,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, rx, ry, id);
         }
         let mut terrain = crate::map::resolved_terrain::test_grid(48, 48, test_terrain_cell);
         let mut interner = test_interner();
@@ -2379,12 +2282,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, None),
         );
         assert_eq!(hit_ids(&stock_result.hits), vec![100]);
 
@@ -2397,12 +2295,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, None),
         );
         assert_eq!(
             hit_ids(&result.hits),
@@ -2410,34 +2303,21 @@ mod tests {
             "indices 319/320/321/322 retain the repeated receiver in place"
         );
 
-        let events = result.hits;
-        let mut main_rng = SimRng::new(7);
-        let mut scenario_rng = SimRng::new(9);
-        let mut handled_deaths = Vec::new();
-        let mut houses = BTreeMap::new();
-        let mut fatal_lifecycle = None;
-        let mut sound_sink = None;
-        let (death, pings) = crate::sim::combat::commit_damage_events(
-            &events,
+        let mut commit = ReceiverCommit {
+            main_rng: SimRng::new(7),
+            scenario_rng: SimRng::new(9),
+            ..ReceiverCommit::new()
+        };
+        let (death, pings) = commit.run(
+            &result.hits,
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
         assert!(pings.is_empty());
-        assert_eq!(handled_deaths, vec![200]);
+        assert_eq!(commit.handled_deaths, vec![200]);
         assert_eq!(death.immediate_uninit_ids, vec![200]);
         assert_eq!(entities.get(200).unwrap().health.current(), 0);
         assert_eq!(entities.get(100).unwrap().health.current(), 70);
@@ -2470,15 +2350,7 @@ mod tests {
             &rules,
             &mut interner,
             "Americans",
-            AoELayerContext {
-                occupancy: None,
-                terrain: Some(&mut terrain),
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
+            wall_routing(&mut terrain, &mut overlays, &registry, &mut scenario_rng),
         );
 
         assert_eq!(scenario_rng.state(), reference_rng.state());
@@ -2527,15 +2399,7 @@ mod tests {
             &rules,
             &mut interner,
             "Americans",
-            AoELayerContext {
-                occupancy: None,
-                terrain: Some(&mut terrain),
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
+            wall_routing(&mut terrain, &mut overlays, &registry, &mut scenario_rng),
         );
         assert_eq!(
             scenario_rng.state(),
@@ -2574,15 +2438,7 @@ mod tests {
             &rules,
             &mut interner,
             "Americans",
-            AoELayerContext {
-                occupancy: None,
-                terrain: Some(&mut terrain),
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
+            wall_routing(&mut terrain, &mut overlays, &registry, &mut scenario_rng),
         );
         assert_eq!(
             scenario_rng.state(),
@@ -2653,15 +2509,7 @@ mod tests {
             &rules,
             &mut interner,
             "Americans",
-            AoELayerContext {
-                occupancy: None,
-                terrain: Some(&mut terrain),
-                overlay_grid: Some(&mut overlays),
-                overlay_registry: Some(&registry),
-                scenario_rng: Some(&mut scenario_rng),
-                air_impact: None,
-                impact_z: 0,
-            },
+            wall_routing(&mut terrain, &mut overlays, &registry, &mut scenario_rng),
         );
 
         assert_eq!(overlays.cell(8, 8).overlay_id, None);
@@ -2701,71 +2549,20 @@ mod tests {
     }
 
     #[test]
-    fn bridge_impact_above_threshold_damages_only_bridge_layer() {
-        let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
-            bridge_layer_test_fixture();
-        let hits = apply_aoe_damage(
-            &mut entities,
-            5,
-            5,
-            100,
-            &warhead,
-            &rules,
-            &mut interner,
-            "Americans",
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                overlay_grid: None,
-                overlay_registry: None,
-                scenario_rng: None,
-                air_impact: None,
-                impact_z: 4,
-            },
-        )
-        .hits;
-
-        assert_eq!(hit_ids(&hits), vec![2]);
-    }
-
-    #[test]
-    fn bridge_impact_at_threshold_stays_on_ground_layer() {
-        let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
-            bridge_layer_test_fixture();
-        let hits = apply_aoe_damage(
-            &mut entities,
-            5,
-            5,
-            100,
-            &warhead,
-            &rules,
-            &mut interner,
-            "Americans",
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                overlay_grid: None,
-                overlay_registry: None,
-                scenario_rng: None,
-                air_impact: None,
-                // Exactly at the half-deck mid-height (ground_z 0 + DECK/2 = 2).
-                // Verified deck = 4 levels → half-deck = 2; strict `>` keeps the
-                // boundary on the ground list.
-                impact_z: 2,
-            },
-        )
-        .hits;
-
-        assert_eq!(hit_ids(&hits), vec![1]);
-    }
-
-    #[test]
-    fn bridge_object_layer_keeps_the_exact_impact_lepton_remainder() {
+    fn bridge_impact_selects_the_deck_list_strictly_above_half_deck() {
         // Apply_area_damage48955E..48958D compares the exact impact against
-        // Map578080's floor plus half of the original416-lepton deck. The
-        // production caller supplies both the coordinate and its whole-Level
-        // fallback;209 must not be rounded down to the208 boundary.
-        for (z_leptons, expected) in [(208, 1), (209, 2)] {
+        // Map578080's floor plus half of the original416-lepton deck (208);
+        // strict `>` keeps the boundary on the ground list (entity 1), above
+        // it only the deck list (entity 2) is hit. Without an exact coordinate
+        // the whole-Level adapter lifts `impact_z` (level 2 is exactly 208).
+        // With one, the caller's whole-Level fallback is unread: 209 must not
+        // be rounded down to the 208 boundary.
+        for (air_z, impact_z, expected) in [
+            (None, 2, 1),
+            (None, 4, 2),
+            (Some(208), 2, 1),
+            (Some(209), 2, 2),
+        ] {
             let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
                 bridge_layer_test_fixture();
             let hits = apply_aoe_damage(
@@ -2778,19 +2575,16 @@ mod tests {
                 &mut interner,
                 "Americans",
                 AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons,
-                    }),
-                    impact_z: z_leptons.div_euclid(LEPTONS_PER_LEVEL as i32),
-                    ..AoELayerContext::default()
+                    impact_z,
+                    ..native_lists(&occupancy, &mut terrain, air_z)
                 },
             )
             .hits;
-            assert_eq!(hit_ids(&hits), vec![expected], "impact Z {z_leptons}");
+            assert_eq!(
+                hit_ids(&hits),
+                vec![expected],
+                "exact Z {air_z:?}, level {impact_z}"
+            );
         }
     }
 
@@ -2816,15 +2610,13 @@ mod tests {
                     &mut interner,
                     "Americans",
                     AoELayerContext {
-                        occupancy: Some(&occupancy),
-                        terrain: Some(&mut terrain),
                         air_impact: Some(AoEAirImpact {
                             sub_x: SimFixed::from_num(sub_x),
                             sub_y: SimFixed::from_num(sub_y),
                             z_leptons: z,
                         }),
                         impact_z: z.div_euclid(LEPTONS_PER_LEVEL as i32),
-                        ..AoELayerContext::default()
+                        ..native_lists(&occupancy, &mut terrain, None)
                     },
                 );
                 assert_eq!(
@@ -2890,15 +2682,8 @@ mod tests {
                 None,
                 "Americans",
                 AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    air_impact: Some(AoEAirImpact {
-                        sub_x: CELL_CENTER_LEPTON,
-                        sub_y: CELL_CENTER_LEPTON,
-                        z_leptons: 209,
-                    }),
                     impact_z: 2,
-                    ..AoELayerContext::default()
+                    ..native_lists(&occupancy, &mut terrain, Some(209))
                 },
                 None,
                 false,
@@ -2924,14 +2709,9 @@ mod tests {
     #[test]
     fn bridge_object_layer_keeps_fixed_stride_alias_and_live_dummy_floor() {
         let (_, _, terrain, _, _, _) = bridge_layer_test_fixture();
-        let impact = AoEAirImpact {
-            sub_x: CELL_CENTER_LEPTON,
-            sub_y: CELL_CENTER_LEPTON,
-            z_leptons: 209,
-        };
         // (517,4) aliases the allocated native512-stride slot(5,5).
         assert_eq!(
-            select_object_damage_layer(&terrain, 517, 4, impact),
+            select_object_damage_layer(&terrain, 517, 4, center_impact(209)),
             ListLayer::Bridge
         );
         let dummy = terrain.shared_cell_dummy();
@@ -3020,14 +2800,7 @@ mod tests {
             entities.insert(enemy);
             let mut occupancy = OccupancyGrid::new();
             for stable_id in [3, 2, 1] {
-                occupancy.add(
-                    1,
-                    1,
-                    stable_id,
-                    MovementLayer::Ground,
-                    None,
-                    CellListInsertion::PrependNonBuilding,
-                );
+                prepend_ground(&mut occupancy, 1, 1, stable_id);
             }
             let mut terrain = crate::map::resolved_terrain::test_grid(3, 3, test_terrain_cell);
             let aoe = apply_aoe_damage(
@@ -3039,12 +2812,7 @@ mod tests {
                 &rules,
                 &mut interner,
                 (1, Some(source_house), warhead_ref),
-                AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    impact_z: 0,
-                    ..AoELayerContext::default()
-                },
+                native_lists(&occupancy, &mut terrain, None),
             );
             let ids = hit_ids(&aoe.hits);
             let captured_houses = aoe.hits.iter().map(|event| event.source_house).collect();
@@ -3052,35 +2820,19 @@ mod tests {
             // Prove alliance resolution reads the detonation ABI snapshot, not
             // a later live-source owner value.
             entities.change_owner(1, enemy_house);
-            let mut alliances = HouseAllianceMap::new();
-            alliances
+            let mut commit = ReceiverCommit::new();
+            commit
+                .alliances
                 .entry("SOURCEHOUSE".to_string())
                 .or_default()
                 .insert("ALLYHOUSE".to_string());
-            let mut main_rng = SimRng::new(1);
-            let mut scenario_rng = SimRng::new(2);
-            let mut handled_deaths = Vec::new();
-            let mut houses = BTreeMap::new();
-            let mut fatal_lifecycle = None;
-            let mut sound_sink = None;
-            let (death, pings) = crate::sim::combat::commit_damage_events(
+            let (death, pings) = commit.run(
                 &aoe.hits,
                 &mut entities,
                 &mut occupancy,
                 &rules,
                 &mut interner,
-                &mut houses,
-                &[],
-                &alliances,
-                &mut main_rng,
-                &mut scenario_rng,
-                &mut handled_deaths,
-                None,
-                None,
-                Some(&mut terrain),
-                0,
-                &mut fatal_lifecycle,
-                &mut sound_sink,
+                &mut terrain,
             );
             assert!(death.despawned_ids.is_empty());
             assert!(pings.is_empty());
@@ -3156,14 +2908,7 @@ mod tests {
             entities.insert(hut);
 
             let mut occupancy = OccupancyGrid::new();
-            occupancy.add(
-                5,
-                5,
-                2,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::AppendBuilding,
-            );
+            append_building(&mut occupancy, 5, 5, 2);
             let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
             let aoe = apply_aoe_damage(
                 &mut entities,
@@ -3174,12 +2919,7 @@ mod tests {
                 &rules,
                 &mut interner,
                 (1, Some(soviet), ap),
-                AoELayerContext {
-                    occupancy: Some(&occupancy),
-                    terrain: Some(&mut terrain),
-                    impact_z: 0,
-                    ..AoELayerContext::default()
-                },
+                native_lists(&occupancy, &mut terrain, None),
             );
             assert_eq!(
                 aoe.hits
@@ -3190,30 +2930,13 @@ mod tests {
                 "Immune remains an ordered receiver record, not a collector filter"
             );
 
-            let mut main_rng = SimRng::new(1);
-            let mut scenario_rng = SimRng::new(2);
-            let mut handled_deaths = Vec::new();
-            let mut houses = BTreeMap::new();
-            let mut fatal_lifecycle = None;
-            let mut sound_sink = None;
-            let (death, pings) = crate::sim::combat::commit_damage_events(
+            let (death, pings) = ReceiverCommit::new().run(
                 &aoe.hits,
                 &mut entities,
                 &mut occupancy,
                 &rules,
                 &mut interner,
-                &mut houses,
-                &[],
-                &HouseAllianceMap::new(),
-                &mut main_rng,
-                &mut scenario_rng,
-                &mut handled_deaths,
-                None,
-                None,
-                Some(&mut terrain),
-                0,
-                &mut fatal_lifecycle,
-                &mut sound_sink,
+                &mut terrain,
             );
             (
                 entities.get(2).unwrap().health.current(),
@@ -3289,14 +3012,7 @@ mod tests {
 
         let mut occupancy = OccupancyGrid::new();
         for stable_id in [3, 2] {
-            occupancy.add(
-                5,
-                5,
-                stable_id,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 5, 5, stable_id);
         }
         let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
         let aoe = apply_aoe_damage(
@@ -3308,12 +3024,7 @@ mod tests {
             &rules,
             &mut interner,
             (1, Some(russian), ap),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, None),
         );
         assert_eq!(
             aoe.hits
@@ -3324,33 +3035,17 @@ mod tests {
             "Apply_area_damage records keep raw Rhino damage for the ordered receiver"
         );
 
-        let mut houses = BTreeMap::new();
+        let mut commit = ReceiverCommit::new();
         let mut target_house = HouseState::new(american, 0, Some(american), true, 0, 10);
         target_house.difficulty = HouseDifficulty::Normal;
-        houses.insert(american, target_house);
-        let mut main_rng = SimRng::new(1);
-        let mut scenario_rng = SimRng::new(2);
-        let mut handled_deaths = Vec::new();
-        let mut fatal_lifecycle = None;
-        let mut sound_sink = None;
-        let (death, pings) = crate::sim::combat::commit_damage_events(
+        commit.houses.insert(american, target_house);
+        let (death, pings) = commit.run(
             &aoe.hits,
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
 
         assert_eq!(entities.get(2).unwrap().health.current(), 210);
@@ -3447,23 +3142,9 @@ mod tests {
 
         let mut occupancy = OccupancyGrid::new();
         for stable_id in [4, 3, 2] {
-            occupancy.add(
-                5,
-                5,
-                stable_id,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 5, 5, stable_id);
         }
-        occupancy.add(
-            5,
-            5,
-            5,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
+        append_building(&mut occupancy, 5, 5, 5);
         let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
         let aoe = apply_aoe_damage(
             &mut entities,
@@ -3474,12 +3155,7 @@ mod tests {
             &rules,
             &mut interner,
             (1, Some(yuri), psych_gas_create),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, None),
         );
         assert_eq!(
             aoe.hits
@@ -3490,30 +3166,14 @@ mod tests {
             "Apply_area_damage preserves raw ordered records; Psychedelic gates live in the receiver"
         );
 
-        let mut main_rng = SimRng::new(1);
-        let mut scenario_rng = SimRng::new(2);
-        let mut handled_deaths = Vec::new();
-        let mut houses = BTreeMap::new();
-        let mut fatal_lifecycle = None;
-        let mut sound_sink = None;
-        let (death, pings) = crate::sim::combat::commit_damage_events(
+        let mut commit = ReceiverCommit::new();
+        let (death, pings) = commit.run(
             &aoe.hits,
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
         assert!(death.despawned_ids.is_empty());
         assert!(pings.is_empty());
@@ -3556,24 +3216,13 @@ mod tests {
                 dispatch_timer: MissionDispatchTimer::at_frame(0),
             });
         }
-        let (refresh_death, refresh_pings) = crate::sim::combat::commit_damage_events(
+        let (refresh_death, refresh_pings) = commit.run(
             &aoe.hits[..1],
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
         let target = entities.get(2).unwrap();
         assert!(refresh_death.despawned_ids.is_empty());
@@ -3655,14 +3304,7 @@ mod tests {
 
         let mut occupancy = OccupancyGrid::new();
         for stable_id in [4, 3, 2] {
-            occupancy.add(
-                5,
-                5,
-                stable_id,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::PrependNonBuilding,
-            );
+            prepend_ground(&mut occupancy, 5, 5, stable_id);
         }
         let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
         let aoe = apply_aoe_damage(
@@ -3674,12 +3316,7 @@ mod tests {
             &rules,
             &mut interner,
             (1, Some(source_house), grizape),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, None),
         );
         assert_eq!(
             aoe.hits
@@ -3690,36 +3327,20 @@ mod tests {
             "collection preserves stock 105mmE raw records"
         );
 
-        let mut houses = BTreeMap::new();
+        let mut commit = ReceiverCommit::new();
         let mut normal = HouseState::new(normal_house, 0, None, false, 0, 10);
         normal.difficulty = HouseDifficulty::Normal;
-        houses.insert(normal_house, normal);
+        commit.houses.insert(normal_house, normal);
         let mut easy = HouseState::new(easy_house, 0, None, false, 0, 10);
         easy.difficulty = HouseDifficulty::Easy;
-        houses.insert(easy_house, easy);
-        let mut main_rng = SimRng::new(1);
-        let mut scenario_rng = SimRng::new(2);
-        let mut handled_deaths = Vec::new();
-        let mut fatal_lifecycle = None;
-        let mut sound_sink = None;
-        let (death, _) = crate::sim::combat::commit_damage_events(
+        commit.houses.insert(easy_house, easy);
+        let (death, _) = commit.run(
             &aoe.hits,
             &mut entities,
             &mut occupancy,
             &rules,
             &mut interner,
-            &mut houses,
-            &[],
-            &HouseAllianceMap::new(),
-            &mut main_rng,
-            &mut scenario_rng,
-            &mut handled_deaths,
-            None,
-            None,
-            Some(&mut terrain),
-            0,
-            &mut fatal_lifecycle,
-            &mut sound_sink,
+            &mut terrain,
         );
 
         assert_eq!(entities.get(2).unwrap().health.current(), 0);
@@ -4349,14 +3970,7 @@ mod tests {
         entities.insert(bridge);
 
         let mut occupancy = OccupancyGrid::new();
-        occupancy.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
+        prepend_ground(&mut occupancy, 5, 5, 1);
         occupancy.add(
             5,
             5,
@@ -4451,22 +4065,8 @@ mod tests {
         entities.insert(air);
 
         let mut occupancy = OccupancyGrid::new();
-        occupancy.add(
-            5,
-            5,
-            20,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        occupancy.add(
-            5,
-            5,
-            30,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
+        prepend_ground(&mut occupancy, 5, 5, 20);
+        append_building(&mut occupancy, 5, 5, 30);
 
         let mut terrain_objects = BTreeMap::new();
         let mut terrain_cells = BTreeMap::new();
@@ -4489,17 +4089,7 @@ mod tests {
             &rules,
             &mut interner,
             (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
-            AoELayerContext {
-                occupancy: Some(&occupancy),
-                terrain: Some(&mut terrain),
-                air_impact: Some(AoEAirImpact {
-                    sub_x: CELL_CENTER_LEPTON,
-                    sub_y: CELL_CENTER_LEPTON,
-                    z_leptons: 1,
-                }),
-                impact_z: 0,
-                ..AoELayerContext::default()
-            },
+            native_lists(&occupancy, &mut terrain, Some(1)),
             Some(TerrainCollectionView {
                 objects: &terrain_objects,
                 cells: &terrain_cells,

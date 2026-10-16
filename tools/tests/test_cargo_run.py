@@ -418,6 +418,26 @@ class CargoRunTests(unittest.TestCase):
         # Existing MCP consumers retain their documented preference.
         self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (release, 'release'))
 
+    def test_fast_profile_records_and_resolves_as_a_host_profile(self):
+        fast = self.recorded_binary('fast')
+        self.assertEqual(self.resolve_cli('--resolve', 'asset', '--profile', 'fast'),
+                         (0, str(fast) + '\n', ''))
+        self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (fast, 'fast'))
+        # An omitted profile still prefers release.
+        release = self.recorded_binary('release')
+        self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (release, 'release'))
+        _, binary, _ = self.preserved_label('fast-a', source_suffix='fast')
+        self.assertEqual(cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', 'fast'),
+                         (binary, 'fast'))
+        with self.assertRaisesRegex(ValueError, 'not a release host bin'):
+            cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', 'release')
+        # Without a profile the label's own host profile is returned.
+        self.assertEqual(cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', None),
+                         (binary, 'fast'))
+        self.preserved_label('deps-a', source_suffix='fast/deps')
+        with self.assertRaisesRegex(ValueError, 'not a host bin'):
+            cargo_run.resolve_labeled_binary(self.root, 'deps-a', 'asset', None)
+
     def test_explicit_resolve_never_falls_back_after_missing_or_changed_binary(self):
         debug = self.recorded_binary('debug')
         for state in ('missing_record', 'changed_bytes', 'missing_file'):

@@ -1,7 +1,24 @@
 use std::collections::HashMap;
 
 /// Identifies a visual cursor from mouse.sha. Used as HashMap key in SoftwareCursor.
-/// Frame ranges are hardcoded constants matching the vanilla RA2 exe (not INI-driven).
+///
+/// The ranges below are the compiled cursor descriptor table at `0x0082D028`:
+/// 86 records of 28 bytes, indexed by `Set_Mouse_Cursor_Shape` (`0x005BDC80`) as
+/// `base + 28 * row`. Each record is `(frame, count, rate, miniFrame, miniCount,
+/// hotspotX, hotspotY)` with `miniFrame == -1` when the row has no second set
+/// and the two hotspot fields taking `0` (near edge), `12345` (centre) or
+/// `54321` (far edge) — `0x005BDD27`/`0x005BDD44` turn those sentinels into the
+/// offset. `tools/mouse_oracle/cursor_table.py` dumps the table and the
+/// `DisplayClass::SetCursorFromAction` (`0x004AAE90`, jump table `0x004AB884`)
+/// action-to-row switch into `tools/mouse_oracle/cursor_table.json`, which
+/// `cursor_rows_match_the_compiled_descriptor_table` checks this against.
+///
+/// Two switches read that table. The tactical one is `SetCursorFromAction`'s
+/// main jump table (`0x004AB884`, indexed by action - 1). The radar one is its
+/// mini switch (byte table `0x004AB838` indexed by action, jump table
+/// `0x004AB7D0`), which the RadarClass mouse handler (`0x006539D0`) reaches
+/// with `mini = 1`; a row whose `miniFrame` is `-1` falls back to its main set
+/// even under the mini flag (`0x005BDCA3`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CursorId {
     Default,
@@ -37,6 +54,36 @@ pub(crate) enum CursorId {
     NoMoveW,
     NoMoveNW,
     MinimapMove,
+    /// Radar (minimap) cursor sets — the `miniFrame`/`miniCount` pair of a
+    /// descriptor row, shown when the original's RadarClass mouse handler
+    /// (`0x006539D0`) passes `mini = 1` into `SetCursorFromAction`
+    /// (`0x004AAE90`). The mini switch (byte table `0x004AB838` indexed by
+    /// action, jump table `0x004AB7D0`) is its own action-to-row map and is
+    /// NOT the tactical one. Row 0's mini set is the plain arrow the radar
+    /// defaults to once the keep-table filter drops the action.
+    DefaultMini,
+    /// Row 19's mini set — the NoMove mini (mini switch action 2 -> row 19).
+    MinimapNoMove,
+    /// Rows 20/21/71 share mini frame 63 with count 5; row 26's mini set
+    /// starts at the same frame 63 with count 1.
+    MinimapAttack,
+    MinimapNoEnter,
+    /// Row 22's mini set.
+    MinimapGuardArea,
+    /// Row 25's mini set.
+    MinimapEnter,
+    /// Superweapon targeting mini sets: Nuke 513/1 (row 53), LightningStorm
+    /// 514/1 (row 50), SpyPlane 512/1 (row 85), PsychicReveal 515/1 (row 84).
+    /// Count-1 sets are static whatever the row's rate.
+    NukeMini,
+    LightningStormMini,
+    SpyPlaneMini,
+    PsychicRevealMini,
+    /// Rows 47 (Paradrop) and 83 (PsychicDominator) share one static mini
+    /// frame (516, `miniCount` -1 — the signed modulo in `Advance` pins the
+    /// counter at 0, so the set never advances whatever the row's rate).
+    ParadropMini,
+    PsychicDominatorMini,
     Enter,
     NoEnter,
     EngineerRepair,
@@ -71,7 +118,6 @@ pub(crate) enum CursorId {
     Detonate,
     Demolish,
     Disarm,
-    InfantryHeal,
     // Spy / infiltration cursors.
     Disguise,
     SpyTech,
@@ -144,7 +190,8 @@ use image::RgbaImage;
 use std::path::Path;
 
 /// Hotspot position within the FullWidth × FullHeight canvas.
-/// Matches the Left/Center/Right + Top/Middle/Bottom combos in the reference table.
+/// Matches the near/centre/far sentinels the two hotspot fields of a descriptor
+/// row carry (`0`, `12345`, `54321`; see the `CursorId` header).
 /// The hotspot pixel is the one that registers as the actual click point.
 #[derive(Clone, Copy)]
 enum CursorHotspot {
@@ -240,6 +287,11 @@ const CURSOR_DEFS: &[(CursorId, usize, usize, u64, CursorHotspot)] = &[
         CursorHotspot::CenterMiddle,
     ),
     (CursorId::NoDeploy, 119, 1, 0, CursorHotspot::CenterMiddle),
+    // --- Radar (minimap) cursor sets: the miniFrame/miniCount pairs ---
+    // Row 18 (Move)'s mini set. The RadarClass mouse handler (0x006539D0)
+    // reaches it through the mini switch: actions 1 (Move) and 5 land on
+    // row 18, and action 2 (NoMove) takes row 18 while a drag owns the
+    // radar and row 19 otherwise.
     (
         CursorId::MinimapMove,
         42,
@@ -247,6 +299,98 @@ const CURSOR_DEFS: &[(CursorId, usize, usize, u64, CursorHotspot)] = &[
         ANIM_INTERVAL_MS,
         CursorHotspot::CenterMiddle,
     ),
+    // Row 19's mini set — the NoMove mini.
+    (
+        CursorId::MinimapNoMove,
+        52,
+        1,
+        0,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Rows 20/21/71 share mini frame 63 with count 5; row 26's mini set
+    // starts at the same frame 63 with count 1. Both live in the table.
+    (
+        CursorId::MinimapAttack,
+        63,
+        5,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    (
+        CursorId::MinimapNoEnter,
+        63,
+        1,
+        0,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Row 22's mini set.
+    (
+        CursorId::MinimapGuardArea,
+        73,
+        5,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Row 25's mini set.
+    (
+        CursorId::MinimapEnter,
+        100,
+        10,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Superweapon targeting mini sets, one per targeting row that carries a
+    // mini pair: Nuke 513/1 (row 53), LightningStorm 514/1 (row 50),
+    // SpyPlane 512/1 (row 85), PsychicReveal 515/1 (row 84).
+    (
+        CursorId::NukeMini,
+        513,
+        1,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    (
+        CursorId::LightningStormMini,
+        514,
+        1,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    (
+        CursorId::SpyPlaneMini,
+        512,
+        1,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    (
+        CursorId::PsychicRevealMini,
+        515,
+        1,
+        ANIM_INTERVAL_MS,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Rows 47 (Paradrop) and 83 (PsychicDominator) share mini frame 516 with
+    // miniCount -1: the signed modulo in Advance pins the counter at 0, so
+    // the set is static. Row 47's rate is 0 and row 83's is 4 — both pin.
+    (
+        CursorId::ParadropMini,
+        516,
+        1,
+        0,
+        CursorHotspot::CenterMiddle,
+    ),
+    (
+        CursorId::PsychicDominatorMini,
+        516,
+        1,
+        0,
+        CursorHotspot::CenterMiddle,
+    ),
+    // Row 0's mini set — the plain arrow the radar defaults to when the
+    // action does not survive its keep-table filter. Its fallthrough exit is
+    // `SetCursorRow(0, mini = 1)` at `0x00653D62`.
+    (CursorId::DefaultMini, 1, 1, 0, CursorHotspot::TopLeft),
     (
         CursorId::Enter,
         89,
@@ -344,22 +488,12 @@ const CURSOR_DEFS: &[(CursorId, usize, usize, u64, CursorHotspot)] = &[
     ),
     (CursorId::GIDeploy, 239, 10, 0, CursorHotspot::CenterMiddle),
     (CursorId::Crush, 219, 5, 0, CursorHotspot::CenterMiddle),
-    (
-        CursorId::Tote,
-        329,
-        10,
-        ANIM_INTERVAL_MS,
-        CursorHotspot::CenterMiddle,
-    ),
+    // Rows 54 and 51 carry ten frames at rate 0: the original keeps them on
+    // one frame rather than cycling the strip.
+    (CursorId::Tote, 329, 10, 0, CursorHotspot::CenterMiddle),
     // Row 38 (`0x0082D450`): start 204, count 5, rate 0 — a still frame.
     (CursorId::IvanBomb, 204, 5, 0, CursorHotspot::CenterMiddle),
-    (
-        CursorId::Detonate,
-        299,
-        10,
-        ANIM_INTERVAL_MS,
-        CursorHotspot::CenterMiddle,
-    ),
+    (CursorId::Detonate, 299, 10, 0, CursorHotspot::CenterMiddle),
     (
         CursorId::Demolish,
         309,
@@ -368,13 +502,6 @@ const CURSOR_DEFS: &[(CursorId, usize, usize, u64, CursorHotspot)] = &[
         CursorHotspot::CenterMiddle,
     ),
     (CursorId::Disarm, 369, 15, 0, CursorHotspot::CenterMiddle),
-    (
-        CursorId::InfantryHeal,
-        355,
-        1,
-        0,
-        CursorHotspot::CenterMiddle,
-    ),
     // --- Spy / infiltration ---
     (CursorId::Disguise, 199, 5, 0, CursorHotspot::CenterMiddle),
     (CursorId::SpyTech, 224, 5, 0, CursorHotspot::CenterMiddle),
@@ -582,19 +709,32 @@ fn build_cursor_sequence(
 }
 
 fn resolve_hotspot(hotspot: CursorHotspot, shp: &ShpFile) -> [f32; 2] {
-    // Hotspot pixel positions within FullWidth × FullHeight canvas (reference §7.3).
-    let w: f32 = shp.width as f32;
-    let h: f32 = shp.height as f32;
+    hotspot_offset(hotspot, shp.width, shp.height)
+}
+
+/// `Set_Mouse_Cursor_Shape` (`0x005BDC80`) decodes the record's two hotspot
+/// sentinel fields against the mouse.sha canvas — `word[+2]`/`word[+4]` of
+/// the file header, the same words `ShpFile::from_bytes` reads as
+/// `width`/`height`: `12345` (centre) is a truncating half
+/// (`movsx; cdq; sub; sar 1` at `0x005BDD33`), `54321` (far edge) is the
+/// full width/height (`movsx edi, word [ebx+2]` at `0x005BDD52`), and `0`
+/// (near edge) is 0. Integer division matters: an odd canvas halves toward
+/// zero, and the far edge is one pixel past the last one.
+fn hotspot_offset(hotspot: CursorHotspot, width: u16, height: u16) -> [f32; 2] {
+    let w = width as f32;
+    let h = height as f32;
+    let half_w = (width / 2) as f32;
+    let half_h = (height / 2) as f32;
     match hotspot {
         CursorHotspot::TopLeft => [0.0, 0.0],
-        CursorHotspot::CenterTop => [w / 2.0, 0.0],
-        CursorHotspot::RightTop => [w - 1.0, 0.0],
-        CursorHotspot::RightMiddle => [w - 1.0, h / 2.0],
-        CursorHotspot::RightBottom => [w - 1.0, h - 1.0],
-        CursorHotspot::CenterBottom => [w / 2.0, h - 1.0],
-        CursorHotspot::LeftBottom => [0.0, h - 1.0],
-        CursorHotspot::LeftMiddle => [0.0, h / 2.0],
-        CursorHotspot::CenterMiddle => [w / 2.0, h / 2.0],
+        CursorHotspot::CenterTop => [half_w, 0.0],
+        CursorHotspot::RightTop => [w, 0.0],
+        CursorHotspot::RightMiddle => [w, half_h],
+        CursorHotspot::RightBottom => [w, h],
+        CursorHotspot::CenterBottom => [half_w, h],
+        CursorHotspot::LeftBottom => [0.0, h],
+        CursorHotspot::LeftMiddle => [0.0, half_h],
+        CursorHotspot::CenterMiddle => [half_w, half_h],
     }
 }
 
@@ -813,6 +953,225 @@ mod tests {
                 start + count <= MOUSE_SHA_FRAME_COUNT,
                 "{id:?} runs to frame {} of {MOUSE_SHA_FRAME_COUNT}",
                 start + count
+            );
+        }
+    }
+
+    /// Every loaded frame set must come from the compiled descriptor table,
+    /// with that record's frame count, rate and centre hotspot. Default packs
+    /// both static row-0 sets so Planning Mode can select its small arrow.
+    /// The table is
+    /// dumped from the executable by `tools/mouse_oracle/cursor_table.py`, so a
+    /// row guessed from a document or drifted by one frame fails here. Each
+    /// record contributes both its main set and its `miniFrame` set.
+    #[test]
+    fn cursor_rows_match_the_compiled_descriptor_table() {
+        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/mouse_oracle/cursor_table.json",
+        ))
+        .unwrap();
+        // Every frame set the table carries: each record's main set plus its
+        // mini set. A Vec, not a frame-keyed map — frame 63 begins two
+        // different mini sets (rows 20/21/71 count 5, row 26 count 1) and
+        // frame 516 two rows' static mini set, so a start frame does not
+        // identify a set on its own.
+        let mut sets: Vec<(usize, usize, u64, u64, u64)> = Vec::new();
+        for record in native["rows"].as_array().expect("rows") {
+            let rate = record["rate"].as_u64().expect("rate");
+            let hotspots = (
+                record["hotspot_x"].as_u64().expect("hotspot x"),
+                record["hotspot_y"].as_u64().expect("hotspot y"),
+            );
+            sets.push((
+                record["frame"].as_u64().expect("frame") as usize,
+                record["count"].as_u64().expect("count") as usize,
+                rate,
+                hotspots.0,
+                hotspots.1,
+            ));
+            if let Some(frame) = record["mini_frame"].as_u64() {
+                // miniCount -1 (null here): the signed modulo in Advance
+                // divides by -1, the remainder is always 0, so the set is
+                // static whatever the row's rate.
+                let (count, mini_rate) = match record["mini_count"].as_u64() {
+                    Some(count) => (count as usize, rate),
+                    None => (1, 0),
+                };
+                sets.push((frame as usize, count, mini_rate, hotspots.0, hotspots.1));
+            }
+        }
+        for &(id, start, count, interval, hotspot) in CURSOR_DEFS {
+            let loaded_sets = if id == CursorId::Default {
+                // build_software_cursor_instances selects frames[1] for the
+                // PlanMgr63AC41 small-arrow route. This is two native static
+                // sets in one atlas allocation, not a two-frame animation.
+                assert_eq!(count, 2, "Default packs normal and small arrows");
+                vec![(start, 1), (start + 1, 1)]
+            } else {
+                vec![(start, count)]
+            };
+            for (set_start, set_count) in loaded_sets {
+                let Some(&(_, _, rate, hx, hy)) = sets.iter().find(|&&(f, c, r, ..)| {
+                    f == set_start && c == set_count && r * CURSOR_TIMER_UNIT_MS == interval
+                }) else {
+                    panic!(
+                        "{id:?} starts at frame {set_start} with count {set_count} and {interval} ms, \
+                         which begins no frame set of the compiled descriptor table"
+                    );
+                };
+                assert_eq!(
+                    rate * CURSOR_TIMER_UNIT_MS,
+                    interval,
+                    "{id:?} carries rate {rate} units"
+                );
+                if hx == 12345 && hy == 12345 {
+                    assert!(
+                        matches!(hotspot, CursorHotspot::CenterMiddle),
+                        "{id:?} carries centre/centre hotspot sentinels"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `0x005BDD33` halves the canvas toward zero and `0x005BDD52` takes the
+    /// full canvas: on the 88x68 mouse.sha the centre hotspot is 44,34 and
+    /// the far corner one pixel past the last one at 88,68 — not 87,67, and
+    /// not a float half.
+    #[test]
+    fn hotspot_sentinels_decode_to_truncating_centre_and_full_far_edge() {
+        assert_eq!(
+            hotspot_offset(CursorHotspot::CenterMiddle, 88, 68),
+            [44.0, 34.0]
+        );
+        assert_eq!(
+            hotspot_offset(CursorHotspot::RightBottom, 88, 68),
+            [88.0, 68.0]
+        );
+        assert_eq!(hotspot_offset(CursorHotspot::RightTop, 88, 68), [88.0, 0.0]);
+        assert_eq!(
+            hotspot_offset(CursorHotspot::LeftMiddle, 88, 68),
+            [0.0, 34.0]
+        );
+        assert_eq!(hotspot_offset(CursorHotspot::TopLeft, 88, 68), [0.0, 0.0]);
+        // Odd canvas: 7 / 2 truncates to 3, the far edge is 7.
+        assert_eq!(
+            hotspot_offset(CursorHotspot::CenterMiddle, 7, 7),
+            [3.0, 3.0]
+        );
+        assert_eq!(hotspot_offset(CursorHotspot::RightBottom, 7, 7), [7.0, 7.0]);
+    }
+
+    /// The radar's default cursor is row 0's mini set — the plain arrow at
+    /// frame 1 — not the tactical main arrow (frame 0) and not the move
+    /// cluster: the RadarClass handler's fallthrough exit is
+    /// `SetCursorRow(0, mini = 1)` at `0x00653D62`, and its keep-table filter
+    /// (`0x00653F04`, action-1 indexed) zeroes every action outside
+    /// {1,2,3,5,6,9,16,20,26,38,41,65,66,67,72} to row 0.
+    #[test]
+    fn radar_default_cursor_is_row_zero_mini_set() {
+        assert_eq!(row(CursorId::DefaultMini), (1, 1, 0));
+        // Default's atlas also keeps row0's small frame for Planning Mode.
+        assert_eq!(row(CursorId::Default), (0, 2, 0));
+    }
+
+    /// The superweapon targeting rows that carry a mini pair keep their own
+    /// mini set on the radar (mini switch action -> row -> mini): Nuke 513/1,
+    /// LightningStorm 514/1, SpyPlane 512/1, PsychicReveal 515/1, and the
+    /// static 516 shared by Paradrop and PsychicDominator.
+    #[test]
+    fn superweapon_mini_sets_are_the_targeting_rows_second_frame_sets() {
+        assert_eq!(row(CursorId::NukeMini), (513, 1, ANIM_INTERVAL_MS));
+        assert_eq!(
+            row(CursorId::LightningStormMini),
+            (514, 1, ANIM_INTERVAL_MS)
+        );
+        assert_eq!(row(CursorId::SpyPlaneMini), (512, 1, ANIM_INTERVAL_MS));
+        assert_eq!(row(CursorId::PsychicRevealMini), (515, 1, ANIM_INTERVAL_MS));
+        assert_eq!(row(CursorId::ParadropMini), (516, 1, 0));
+        assert_eq!(row(CursorId::PsychicDominatorMini), (516, 1, 0));
+    }
+
+    /// The minimap's Move cursor is not a row of its own: frames 42-51 are row
+    /// 18's second set, the `miniFrame`/`miniCount` pair of its record.
+    #[test]
+    fn minimap_move_is_the_move_rows_second_frame_set() {
+        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/mouse_oracle/cursor_table.json",
+        ))
+        .unwrap();
+        let move_row = native["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .find(|row| row["frame"].as_u64() == Some(31))
+            .expect("row 18 starts at frame 31");
+        let (start, count, _) = row(CursorId::MinimapMove);
+        assert_eq!(
+            (
+                move_row["mini_frame"].as_u64().expect("mini frame") as usize,
+                move_row["mini_count"].as_u64().expect("mini count") as usize
+            ),
+            (start, count),
+            "MinimapMove must stay row 18's mini set"
+        );
+    }
+
+    /// The actions `input::cursor` cites by number must reach the row whose
+    /// frames this table gives to the named `CursorId`. It ties the three links
+    /// the original separates — action, descriptor row, frame set — so a citation
+    /// in a comment cannot drift away from either table.
+    #[test]
+    fn cited_actions_reach_the_row_the_named_cursor_uses() {
+        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/mouse_oracle/cursor_table.json",
+        ))
+        .unwrap();
+        let by_row: HashMap<usize, &serde_json::Value> = native["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|record| (record["row"].as_u64().expect("row") as usize, record))
+            .collect();
+        let entries = native["action_switch"]["entries"]
+            .as_array()
+            .expect("entries");
+        assert_eq!(
+            entries.len(),
+            native["action_switch"]["entry_count"]
+                .as_u64()
+                .expect("entry count") as usize,
+            "the fixture must carry as many entries as the dispatch's bound"
+        );
+
+        for (action, id) in [
+            (1u32, CursorId::Move),
+            (2, CursorId::NoMove),
+            (9, CursorId::Enter),
+            (16, CursorId::Demolish),
+            (53, CursorId::IvanBomb),
+            (57, CursorId::Disarm),
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry["action"].as_u64() == Some(u64::from(action)))
+                .unwrap_or_else(|| panic!("the switch records no entry for action {action}"));
+            let row_number = entry["row"].as_u64().expect("entry row") as usize;
+            let record = by_row
+                .get(&row_number)
+                .unwrap_or_else(|| panic!("action {action} reaches missing row {row_number}"));
+            let (start, count, _) = CURSOR_DEFS
+                .iter()
+                .find(|(cursor, ..)| *cursor == id)
+                .map(|&(_, start, count, interval, _)| (start, count, interval))
+                .expect("cursor row");
+            assert_eq!(
+                (
+                    record["frame"].as_u64().expect("frame") as usize,
+                    record["count"].as_u64().expect("count") as usize
+                ),
+                (start, count),
+                "action {action} reaches row {row_number}, which is not {id:?}'s frame set"
             );
         }
     }

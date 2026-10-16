@@ -158,6 +158,11 @@ def build_store(root: Path) -> tuple[Path, str]:
     return common / 'owned-builds', hashlib.sha256(os.fsencode(root.resolve())).hexdigest()[:16]
 
 
+# Cargo profiles whose host executables the runner records and resolves. `fast`
+# is the workspace's incremental release profile (Cargo.toml).
+HOST_PROFILES = ('release', 'fast', 'debug')
+
+
 def resolve_binary(root: Path, name: str, profile: str | None = None) -> tuple[Path | None, str | None]:
     """Discover only unchanged host executables reported by successful owned builds.
 
@@ -166,14 +171,14 @@ def resolve_binary(root: Path, name: str, profile: str | None = None) -> tuple[P
     An explicit profile never falls back. Omitted profile preserves the MCP's
     release-first policy. Byte identity does not establish source freshness.
     """
-    if profile not in (None, 'release', 'debug'):
-        raise ValueError('Expected release or debug host profile')
+    if profile not in (None, *HOST_PROFILES):
+        raise ValueError('Expected a release, fast or debug host profile')
     store, namespace = build_store(root)
     record = store / 'latest' / f'{namespace}.json'
     if not record.exists():
         return None, None
     records = json.loads(record.read_text())
-    for candidate in (profile,) if profile else ('release', 'debug'):
+    for candidate in (profile,) if profile else HOST_PROFILES:
         if entry := records.get(candidate, {}).get(name):
             path = Path(entry['path'])
             if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == entry['sha256']:
@@ -224,7 +229,7 @@ def _manifest_object(pairs: list[tuple[str, object]]) -> dict:
 
 def host_bin_profile(target: Path, executable: Path) -> str | None:
     """Classify Cargo's retained path, without resolving mutable cache paths."""
-    for profile in ('release', 'debug'):
+    for profile in HOST_PROFILES:
         if executable.parent == target / profile:
             return profile
     return None
@@ -270,7 +275,7 @@ def preserved_artifact(directory: Path, entry: dict) -> Path:
 
 
 def resolve_labeled_binary(root: Path, label: str, name: str,
-                           profile: str) -> tuple[Path | None, str | None]:
+                           profile: str | None) -> tuple[Path | None, str | None]:
     """Resolve one unchanged preserved host bin; never use latest or cache paths.
 
     Schema 1 retains Cargo's original executable path and owned target root.
@@ -278,11 +283,13 @@ def resolve_labeled_binary(root: Path, label: str, name: str,
     publish_binaries: dependency/test binaries, examples and cross-target paths
     do not qualify. Original build outputs need no longer exist; only the
     preserved bytes are opened. This proves recorded byte identity, not source
-    freshness, executable format, or a hermetic/authenticated build.
+    freshness, executable format, or a hermetic/authenticated build. A label
+    holds one Cargo invocation's profile: profile None accepts that host profile
+    and returns it.
     """
     validate_label(label)
-    if profile not in ('release', 'debug'):
-        raise ValueError('Expected release or debug host profile')
+    if profile is not None and profile not in HOST_PROFILES:
+        raise ValueError('Expected a release, fast or debug host profile')
     if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
         raise ValueError('Expected an executable basename, not a path')
     store, _ = build_store(root)
@@ -304,15 +311,17 @@ def resolve_labeled_binary(root: Path, label: str, name: str,
         raise ValueError(f'Ambiguous preserved executable basename: {expected}')
     entry, = matches
     source = Path(entry['source'])
-    if (not source.is_absolute() or '..' in source.parts
-            or host_bin_profile(target, source) != profile or source.name != expected):
-        raise ValueError(f'Preserved executable is not a {profile} host bin: {entry["source"]}')
+    found = host_bin_profile(target, source)
+    if (not source.is_absolute() or '..' in source.parts or found is None
+            or profile not in (None, found) or source.name != expected):
+        kind = f'{profile} host bin' if profile else 'host bin'
+        raise ValueError(f'Preserved executable is not a {kind}: {entry["source"]}')
     path = preserved_artifact(directory, entry)
-    return path, profile
+    return path, found
 
 
 def publish_binaries(store: Path, namespace: str, target: Path, artifacts: set[Path]):
-    """Record native host release/debug bins; test/dependency/cross-target bins are excluded."""
+    """Record native host release/fast/debug bins; test/dependency/cross-target bins are excluded."""
     record = store / 'latest' / f'{namespace}.json'
     records = json.loads(record.read_text()) if record.exists() else {}
     for path in artifacts:
@@ -496,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--incremental-gib', help='Incremental cache budget (default/env: 4 GiB)')
     parser.add_argument('--min-free-gib', help='Minimum volume free-space target (default/env: 16 GiB)')
     parser.add_argument('--from-label', metavar='LABEL', help='Resolve from one preserved build label, not latest')
-    parser.add_argument('--profile', choices=('release', 'debug'), help='Required with --resolve; no fallback')
+    parser.add_argument('--profile', choices=HOST_PROFILES, help='Required with --resolve; no fallback')
     parser.add_argument('--wait-seconds', type=float,
                         help='Maximum build-owner wait (default: 3600)')
     parser.add_argument('cargo', nargs=argparse.REMAINDER)

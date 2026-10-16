@@ -27,6 +27,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 | Refresh Anytown packet source provenance after helper maintenance | [checked native replay and receipt refresh](spatial_oracle/anytown_damage/README.md) |
 | Compare empty-IFV bridge pursuit, missiles, collapse, Stop and restoration | [conditional native continuation and input provenance](spatial_oracle/fv_cell_attack/README.md) |
 | Read/disassemble native VAs; scan callers, fields and bytes | [native inspection](native_inspect.md), `python -m tools.native_inspect` |
+| Refresh the compiled mouse-cursor descriptor and action-to-row tables | [mouse cursor tables](mouse_oracle/cursor_table.md), `python -m tools.mouse_oracle.cursor_table` |
 | Compare Ghidra decompiles, callers and native stack frames | [Ghidra comparisons](ghidra_compare.md), `python -m tools.ghidra_compare` |
 | Replay a recorded annotation pass onto another copy of the Ghidra database | [Ghidra annotation passes](ghidra_pass.md), `ApplyGhidraPass.java` |
 | Reproduce Foot coordinates and bridge source-layer / reachability queries | [checked Foot bridge-layer oracle](spatial_oracle/foot_bridge_layer.md) |
@@ -94,6 +95,11 @@ python -m tools.cargo_run --resolve asset --profile release
 python -m tools.cargo_run --resolve vera20k --profile release --from-label release-before
 python -m unittest tools.tests.test_cargo_run -v
 ```
+
+`--profile fast` (Cargo.toml) optimizes like `--release` but compiles the workspace crates
+incrementally, so a play-test, capture or other run after an edit rebuilds in a fraction of the
+time. Keep timing and performance numbers on `--release`. The runner records, labels and
+resolves `fast` host executables as it does `release` and `debug` ones.
 
 `--wait-seconds 60` bounds the wait (default one hour). Ctrl-C interrupts the
 runner. It does not kill other owners. Failed commands retain their exit code,
@@ -220,7 +226,7 @@ nonzero on inspection/deletion errors. See [retention validation](cargo_cache_va
 
 Saved builds have a separate, explicit lifecycle. Default to unlabelled iteration;
 preserve only binaries needed for active comparisons, captures or debugging.
-Prefer release binaries for ordinary captures and label debug tests selectively.
+Prefer `fast` binaries for ordinary captures and label debug tests selectively.
 Evidence should reference the shared label, manifest, source/binary hashes and
 results instead of creating additional executable copies.
 
@@ -280,14 +286,14 @@ APFS clones/snapshots and unrelated volume activity can make observed reclamatio
 differ from file allocation; applying a plan rechecks real free space and tries
 additional eligible cold entries when necessary. Plans are never reused for deletion.
 
-`--resolve <BIN> --profile release|debug --from-label <LABEL>` selects a
+`--resolve <BIN> --profile release|fast|debug --from-label <LABEL>` selects a
 preserved executable from that label. It verifies the recorded artifact path,
 host/profile classification and actual SHA-256; missing, ambiguous, malformed or
 changed artifacts fail without falling back to a latest build. This uses the
 same preserved manifest owner as `--label`, including existing schema-1 labels.
 The original build source and toolchain metadata stay in the label's manifest.
 
-For shell use, `--resolve <BIN> --profile release|debug` prints only the absolute
+For shell use, `--resolve <BIN> --profile release|fast|debug` prints only the absolute
 verified path to stdout. Missing records/files or changed bytes produce a nonzero
 exit and diagnostics on stderr. It never builds or falls back to another profile;
 resolve mode accepts no Cargo arguments, label or build-wait option. For example:
@@ -302,11 +308,12 @@ Build after source changes; use a preserved label when exact build provenance is
 needed. The Python API permits an omitted profile for the existing MCP preference.
 
 The asset-browser MCP uses `cargo_run.resolve_binary` to discover emitted host
-release/debug executables from the per-checkout record in
+release/fast/debug executables from the per-checkout record in
 `<git-common-dir>/owned-builds/latest/`. That record is updated atomically after
 successful builds, and discovery verifies executable bytes. Cross-target and
-custom-profile builds still support explicit paths/labels; they are not auto-run
-by host tooling. Conventional target paths are not a fallback.
+other custom-profile builds (such as `shipping`) still support explicit
+paths/labels; they are not auto-run by host tooling. Conventional target paths
+are not a fallback.
 
 ## Python regression suite
 

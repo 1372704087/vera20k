@@ -4,6 +4,8 @@ Run python -m tools.can_build_oracle --check (or explicit --write).
 Rust consumer: src/sim/production/can_build_tests.rs.
 The separate --secret-lab profile also supplies sim::secret_lab and the
 retained rules-reader tests; see can_build_secret_lab.md.
+The --construction-options profile executes the Building's sidebar insertion
+admission with original CanBuild; see can_build_construction_options.md.
 
 Sections, each case executed in a fresh emulator:
 - can_build: HouseClass::CanBuild 0x4F7870 over its gates, the human
@@ -773,6 +775,183 @@ def secret_lab_metadata():
                           read_string=0x528A10, read_bool=0x5295F0))
 
 
+# --------------------------------------------- construction-options profile
+
+UPDATE_CONSTRUCTION_OPTIONS = 0x4456D0
+TYPE_ARRAYS = {'building': (0xA83C6C, 0xA83C78),
+               'unit': (0xA83CE4, 0xA83CF0),
+               'infantry': (0xA8E34C, 0xA8E358),
+               'aircraft': (0xA8B21C, 0xA8B228)}
+
+
+def construction_options(row):
+    """Whole4456D0 and CanBuild. Only the reached AddCameo is an observed sink."""
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP
+
+    emu = BuildEmu()
+    u = emu.uc
+    building, building_type = FAKE + 0x500000, FAKE + 0x510000
+    lab, lab_type = FAKE + 0x520000, FAKE + 0x530000
+    emu.write32(0xA83D4C, HOUSE)
+    emu.write32(HOUSE_TYPE + 0xB8, 1)
+    emu.write32(HOUSE + 0x1D4, 10)
+    u.mem_write(HOUSE + 0x1EC, b'\x01\x01')
+    emu.write32(GAME_MODE, 1)
+    for _code, offset in GROUPS.values():
+        emu.vector(RULES + offset, [])
+    for family, (items, count) in TYPE_ARRAYS.items():
+        catalog = row.get('catalogs', {}).get(family, [])
+        pointers = []
+        for index, spec in enumerate(catalog):
+            if spec['id'] in emu.types:
+                raise OracleError('construction catalog must use fresh unique type names')
+            pointer = emu.techno_type(spec['id'], family, index)
+            emu.write32(pointer + 0x634, spec.get('tech', 1))
+            emu.write32(pointer + 0x3B8, spec.get('limit', 0x7FFFFFFF))
+            emu.uc.mem_write(pointer + 0xCCE, bytes([int(spec.get('naval', False))]))
+            emu.counter(OWNED[family], index, spec.get('owned', 0))
+            emu.counter(ACTIVE[family], index, spec.get('active', spec.get('owned', 0)))
+            pointers.append(pointer)
+        emu.write32(items, emu.list(pointers))
+        emu.write32(count, len(pointers))
+    names = {pointer: name for name, pointer in emu.types.items()}
+    emu.write32(building + 0x21C,
+                HOUSE if row.get('owner', 'self') == 'self' else OTHER_HOUSE)
+    emu.write32(building + 0x520, building_type)
+    emu.write32(building_type + 0xEB8, row['factory_rtti'])
+    for offset, key, default in ((0x81, 'limbo', False),
+                                  (0x41B, 'discovered', True),
+                                  (0x660, 'online', True)):
+        u.mem_write(building + offset, bytes([int(row.get(key, default))]))
+    emu.write32(lab + 0x520, lab_type)
+    additions, calls = [], []
+    trace = native.NativeCallTrace(u, emu.read32, calls)
+
+    def add_cameo(e):
+        kind, index = e.arg(0), e.arg(1)
+        family = next(name for name, value in RTTI.items() if value == kind)
+        items = e.read32(TYPE_ARRAYS[family][0])
+        additions.append(dict(kind=kind, index=index,
+                              type_id=names[e.read32(items + index * 4)]))
+        return 1
+
+    emu.hook(0x6A6300, add_cameo, 8)
+    rng_calls = []
+
+    def observe(_u, pc, _size, _data):
+        sp = u.reg_read(UC_X86_REG_ESP)
+        trace.returned(pc, sp)
+        if pc == CAN_BUILD:
+            trace.entered(pc, sp, ('CanBuild', 3, 12))
+        if pc in (0x65C780, 0x65C7E0):
+            rng_calls.append(hex(pc))
+
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    for pointer in RNG_STREAMS.values():
+        emu.invoke(0x65C6D0, ecx=pointer, args=(42,))
+    before = {key: bytes(u.mem_read(pointer, 0x3F4))
+              for key, pointer in RNG_STREAMS.items()}
+    phases = []
+    for phase in row.get('phases', [dict(name='admission')]):
+        if phase.get('online_action') == 'pause':
+            emu.invoke(0x4521C0, ecx=building, required=(0x4521C0,))
+        elif phase.get('online_action') == 'resume':
+            emu.invoke(0x452210, ecx=building, required=(0x452210,))
+        grant = phase.get('grant', row.get('grant'))
+        emu.write32(lab + 0x6F4, emu.types[grant] if grant else 0)
+        emu.vector(HOUSE + 0x110, [lab] if grant else [])
+        first_call, first_add = len(calls), len(additions)
+        emu.invoke(UPDATE_CONSTRUCTION_OPTIONS, ecx=building,
+                   required=(UPDATE_CONSTRUCTION_OPTIONS,))
+        trace.returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+        assert not trace.pending
+        phases.append(dict(name=phase['name'], grant=grant,
+            online=bool(u.mem_read(building + 0x660, 1)[0]),
+            can_build=[dict(type_id=names[call['args'][0]],
+                            args=[bool(value) for value in call['args'][1:]],
+                            answer=(call['return_eax'] - (1 << 32)
+                                    if call['return_eax'] & 0x80000000
+                                    else call['return_eax']),
+                            caller=call['caller'])
+                       for call in calls[first_call:]],
+            attempted_additions=additions[first_add:]))
+    after = {key: bytes(u.mem_read(pointer, 0x3F4))
+             for key, pointer in RNG_STREAMS.items()}
+    u.hook_del(hook)
+    assert before == after and not rng_calls
+    return dict(**row, results=phases, rng_calls=rng_calls,
+                rng_unchanged={key: before[key] == after[key] for key in before})
+
+
+def construction_options_generate():
+    infantry = {'infantry': [dict(id='Available'), dict(id='NegativeTech', tech=-1),
+                              dict(id='AtLimit', limit=1, owned=1)]}
+    rows = []
+    for name, gates in (
+        ('eligible infantry includes the nonzero build-limit answer', {}),
+        ('foreign owner', dict(owner='other')),
+        ('limbo factory', dict(limbo=True)),
+        ('undiscovered factory', dict(discovered=False)),
+        ('offline factory', dict(online=False)),
+        ('no factory kind', dict(factory_rtti=0)),
+        ('nonproduction factory kind', dict(factory_rtti=8)),
+        ('factory kind above switch range', dict(factory_rtti=99)),
+    ):
+        row = dict(name=name, factory_rtti=RTTI['infantry'], catalogs=infantry)
+        row.update(gates)
+        rows.append(construction_options(row))
+    for family in ('building', 'unit', 'infantry', 'aircraft'):
+        rows.append(construction_options(dict(
+            name=f'{family} uses its registry order', factory_rtti=RTTI[family],
+            catalogs={family: [dict(id='LastByName'), dict(id='Hidden', tech=-1),
+                               dict(id='FirstByName', naval=family == 'unit')]})))
+    rows.append(construction_options(dict(
+        name='offline lab grant is withheld until release',
+        factory_rtti=RTTI['infantry'],
+        catalogs={'infantry': [dict(id='Existing'), dict(id='Grant', tech=-1)]},
+        phases=[dict(name='before warp'),
+                dict(name='warp begins', online_action='pause'),
+                dict(name='captured lab grants Grant while offline', grant='Grant'),
+                dict(name='release admits grant', online_action='resume', grant='Grant')],
+    )))
+    return dict(schema_version=1, native_sha256=native.image_sha256(), rows=rows)
+
+
+def construction_options_metadata():
+    return provenance(
+        scope='Original Building4456D0 construction-option admission, actual House '
+              'CanBuild and SecretLab getter; AddCameo attempt identity/order',
+        assumptions=[
+            'BuildEmu supplies the existing sized counters, human House and registered '
+            'type identities. Each catalog is its declared original type-array order; '
+            'current-player owner, limbo, discovery and online bytes are explicit inputs. '
+            'The whole4456D0 body calls original4F7870; no admission answer is supplied.',
+            'The phased case executes whole Building pause4521C0/resume452210 with '
+            'empty animation slots. Captured-lab membership/fallback is supplied to '
+            'House+110; original459840 executes inside CanBuild. Temporal trigger, '
+            'capture, assignment RNG and the House update loop are outside this fixture.',
+            'AddCameo6A6300 is an observed sink: attempted kind/index/type identity is '
+            'recorded, while actual insertion, duplicate handling, EVA, sorting, timers, '
+            'retained removal and rendering remain covered by the existing sidebar '
+            'cameo_order corpus and production integration, not these controls.',
+            'All three RNG states are initialized by original65C6D0 and checked '
+            'unchanged across admission/phases; the profile observes zero RNG calls.',
+        ],
+        substitutions=[
+            'Existing Emu allocator/delete/CRT-registration transport and BuildEmu '
+            'type RTTI/index/object-type virtual answers; counter growth excluded by '
+            'the supplied sized arrays.',
+            'AddCameo6A6300 records its two original caller-supplied arguments and '
+            'returns1 without executing the separate sidebar insertion mechanism.',
+        ],
+        entry_points=dict(update_construction_options=UPDATE_CONSTRUCTION_OPTIONS,
+                          can_build=CAN_BUILD, check_build_limit=CHECK_BUILD_LIMIT,
+                          get_secret_production=GET_SECRET_PRODUCTION,
+                          pause_building=0x4521C0, resume_building=0x452210,
+                          add_cameo_observed_sink=0x6A6300))
+
+
 def metadata():
     return provenance(
         scope=('HouseClass::CanBuild over its gates, the human prerequisite arm and the build '
@@ -790,7 +969,12 @@ def metadata():
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if '--secret-lab' in args:
+    if '--construction-options' in args:
+        args.remove('--construction-options')
+        finish_vectors(construction_options_generate,
+                       Path(__file__).with_name('can_build_construction_options.json'),
+                       provenance=construction_options_metadata, argv=args)
+    elif '--secret-lab' in args:
         args.remove('--secret-lab')
         finish_vectors(secret_lab_generate, Path(__file__).with_name('can_build_secret_lab.json'),
                        provenance=secret_lab_metadata, argv=args)

@@ -192,9 +192,10 @@ pub struct BuildOption {
 }
 
 impl BuildOption {
-    /// Whether a membership pass admits/keeps this option through
+    /// Whether a membership pass keeps this option through
     /// `production_tech::strip_keeps`. The app's retained strip owns actual
-    /// membership between House rechecks. Money never darkens a cameo:
+    /// membership between House rechecks. Building4456D0 supplies separate
+    /// adding-factory admission. Money never darkens a cameo:
     /// a build the house cannot pay for starts and stalls its paid steps.
     pub fn visible_in_sidebar(&self) -> bool {
         !matches!(

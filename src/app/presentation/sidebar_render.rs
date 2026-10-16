@@ -191,6 +191,15 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         .expect("sidebar runtime")
         .simulation;
     let owner = sim.interner.get(&owner_name).unwrap_or_default();
+    let seed_additions = state
+        .match_state
+        .match_presentation
+        .sidebar_projection
+        .needs_cameo_seed(owner)
+        .then(|| {
+            production::initial_construction_options(sim, state.rules().expect("sidebar rules"))
+        })
+        .unwrap_or_default();
     let cameos = crate::app::sidebar_projection::cameo_candidates(
         sim,
         state.rules().expect("sidebar rules"),
@@ -204,7 +213,7 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         .match_state
         .match_presentation
         .sidebar_projection
-        .reconcile_cameos(owner, &cameos, visible_rows);
+        .reconcile_cameos(owner, &cameos, visible_rows, &seed_additions);
     state
         .match_state
         .match_presentation
@@ -830,7 +839,7 @@ mod tests {
                          candidates: &[Cameo],
                          active: &mut SidebarTab,
                          gadgets: &mut SidebarGadgetState| {
-            let reconciled = strips.reconcile(candidates, 3, true);
+            let reconciled = strips.reconcile_fixture(candidates, 3, true);
             super::apply_cameo_transitions(reconciled.transitions(), active, gadgets);
         };
 
@@ -914,7 +923,7 @@ mod tests {
             },
         ];
         let mut strips = CameoStrips::default();
-        let reconciled = strips.reconcile(&candidates, 3, true);
+        let reconciled = strips.reconcile_fixture(&candidates, 3, true);
         let mut active = SidebarTab::Building;
         let mut gadgets = SidebarGadgetState::default();
 

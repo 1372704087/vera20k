@@ -104,11 +104,10 @@
 //!     CheckDockArrayOccupancy (`0x0044E855`). Effect: an option enabled by a
 //!     warped upgrade host
 //!     stays available.
-//!   - The player-only BuildingClass virtual `+0x4E0` (`0x004456D0`,
-//!     UpdateConstructionOptions: it adds the sidebar cameos of what the
-//!     building's factory kind can build) and the sensor-range circle
-//!     (`0x00456750`), both presentation. `0x0044017E` lies past
-//!     BuildingClass::Update's frozen jump, so no warp reaches it.
+//!   - The sensor-range circle (`0x00456750`), presentation. The separate
+//!     House4F92D2→Building4456D0 membership pass does honor the online latch:
+//!     existing cameos may stay dark while new additions wait for release.
+//!     `0x0044017E` reads660 for Tesla charging, not construction options.
 //! - A building's erase kills its garrison through `0x004585C0(0)` and deletes
 //!   absorbed passengers outright before Record_The_Kill; VERA's carrier
 //!   UnInit purges both inside the building's UnInit (each at health 0 with no

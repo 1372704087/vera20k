@@ -584,6 +584,13 @@ pub enum ConcealOutcome {
 /// but the stream preserves the verified native relative ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleOutput {
+    /// Building4456D0 attempts AddCameo before House4F92E2 recalculates.
+    /// The retained client strip owns duplicate/capacity admission. Emit in
+    /// House building/type order at the simulation phase that made the query.
+    SidebarConstructionOption {
+        owner: InternedId,
+        type_id: InternedId,
+    },
     /// Local House4F927C consumes +1FC before4F92E2 recalculates the retained
     /// sidebar. Sale begin and ordinary StripAI/Draw do not request this pass.
     SidebarRecalculated {

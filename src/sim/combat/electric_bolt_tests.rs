@@ -88,8 +88,8 @@ fn assert_rng(sim: &Simulation, expected: &Value, name: &str) {
 /// Preserve the physical layered Battle input, then supply only the native
 /// fixture's explicit field controls through the same production readers.
 fn controlled_rules(retail: &RetailBattleRules, input: &Value) -> RuleSet {
-    let mut ini = retail.processed_rules.clone();
-    let mut art = retail.fixed_art.clone();
+    let mut ini = (*retail.processed_rules).clone();
+    let mut art = (*retail.fixed_art).clone();
     let mut controls = format!(
         "[CoilBolt]\nIsLaser={}\nIsElectricBolt={}\nIsAlternateColor={}\n\
          [TESLA]\nTurretCount={}\n",

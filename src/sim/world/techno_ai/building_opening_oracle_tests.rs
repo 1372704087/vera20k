@@ -425,7 +425,7 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
         let input = &row["input"];
         let control = input["clear_stupid_guard_control"].as_bool().unwrap();
         let control_rules = if control {
-            let mut ini = fixture.processed_rules.clone();
+            let mut ini = (*fixture.processed_rules).clone();
             ini.merge(&IniFile::from_str("[GAPOWR]\nHasStupidGuardMode=no\n"));
             let mut rules =
                 RuleSet::from_ini_with_fixed_art_for_test(&ini, &fixture.fixed_art).unwrap();

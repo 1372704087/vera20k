@@ -57,7 +57,7 @@ pub(super) fn fixture(corpus: &Value, row: &Value, retail: RetailBattleRules) ->
         })
         .unwrap()["before"];
     let mut rules = retail.rules;
-    let mut ini = retail.processed_rules.clone();
+    let mut ini = (*retail.processed_rules).clone();
     ini.merge(&native::voice_overrides(&row["input"]));
     rules.bind_type_sound_references(&ini, &native::catalog(corpus));
     let registry = OverlayTypeRegistry::from_ini(&ini, Some(&retail.fixed_art));

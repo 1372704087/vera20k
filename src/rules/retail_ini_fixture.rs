@@ -338,12 +338,25 @@ pub(crate) fn retail_archive_bytes(name: &str) -> Option<Vec<u8>> {
 }
 
 /// Authored root text and final scenario fields are deliberately separate.
+/// Every copy shares the three INI files; take an owned file with
+/// `(*fixture.processed_rules).clone()` to change it.
 #[derive(Clone)]
 pub struct RetailBattleRules {
-    pub(crate) authored_rules: IniFile,
-    pub fixed_art: IniFile,
-    pub processed_rules: IniFile,
+    pub(crate) authored_rules: std::sync::Arc<IniFile>,
+    pub fixed_art: std::sync::Arc<IniFile>,
+    pub processed_rules: std::sync::Arc<IniFile>,
     pub rules: crate::rules::ruleset::RuleSet,
+}
+
+impl RetailBattleRules {
+    /// This copy with its own rule-set identity, for a test that takes it
+    /// from a cache.
+    pub(crate) fn with_fresh_serial(self) -> Self {
+        Self {
+            rules: self.rules.with_fresh_serial(),
+            ..self
+        }
+    }
 }
 
 /// Select once and retain the production process owner. A present but malformed
@@ -444,17 +457,14 @@ fn retail_mode_rules_for_map_impl(
     patch: Option<&IniFile>,
 ) -> Option<RetailBattleRules> {
     // Patched loads are not kept: callers patch different keys, so a copy
-    // would only hold memory.
+    // would only hold memory. Tests that share one patch keep it themselves.
     if let Some(patch) = patch {
         return load_retail_mode_rules_for_map(mode_id, map_name, Some(patch));
     }
     once_per_process((mode_id, map_name.to_owned()), || {
         load_retail_mode_rules_for_map(mode_id, map_name, None)
     })
-    .map(|loaded| RetailBattleRules {
-        rules: loaded.rules.with_fresh_serial(),
-        ..loaded
-    })
+    .map(RetailBattleRules::with_fresh_serial)
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -508,9 +518,9 @@ fn load_retail_mode_rules_for_map(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&fixed_art),
     );
     Some(RetailBattleRules {
-        authored_rules,
-        fixed_art,
-        processed_rules,
+        authored_rules: std::sync::Arc::new(authored_rules),
+        fixed_art: std::sync::Arc::new(fixed_art),
+        processed_rules: std::sync::Arc::new(processed_rules),
         rules,
     })
 }

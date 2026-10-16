@@ -294,8 +294,9 @@ fn native_mirage_acquisition_gates_and_retained_identity() {
                 overrides.push_str(&format!("{ini_key}={}\n", if value { "yes" } else { "no" }));
             }
         }
-        let mut layers =
-            crate::rules::native_processing::RulesLayerStack::new(retail.processed_rules.clone());
+        let mut layers = crate::rules::native_processing::RulesLayerStack::new(
+            (*retail.processed_rules).clone(),
+        );
         layers.push(
             crate::rules::native_processing::RulesLayerKind::Scenario,
             crate::rules::ini_parser::IniFile::from_str(&overrides),

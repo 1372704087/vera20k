@@ -165,7 +165,7 @@ mod tests {
         // A deliberate control of the final processed projection. The stock
         // candidate above retains the real source selection and every layer;
         // only GTGCAN's voxel flag is cleared in this synthetic control.
-        let mut control_ini = retail.processed_rules;
+        let mut control_ini = (*retail.processed_rules).clone();
         control_ini.merge(&crate::rules::ini_parser::IniFile::from_str(
             "[GTGCAN]\nTurretAnimIsVoxel=false\n",
         ));

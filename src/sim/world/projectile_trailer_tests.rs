@@ -58,7 +58,7 @@ fn bound_retail_rules(random_rate: Option<&str>) -> Option<RuleSet> {
     if let Some(random_rate) = random_rate {
         // The control changes only the physical ART input sent through the
         // original reader in the corpus. It does not assign a runtime rate.
-        let mut art = fixture.fixed_art;
+        let mut art = (*fixture.fixed_art).clone();
         art.merge(&IniFile::from_str(&format!(
             "[BBBLELRG]\nRandomRate={random_rate}\n"
         )));
@@ -203,12 +203,13 @@ fn only_bubble(sim: &Simulation) -> u64 {
 /// 46B280 updates this retained type's cadence at the eighth live member.
 /// This is not a stock Medusa visual claim (its Trailer is null).
 fn scalable_unit_scene(shots: usize) -> Option<(Simulation, RuleSet, u64, u64)> {
-    let patch = IniFile::from_str("[Cannon]\nImage=SUBT\nScalable=yes\n");
-    let Some(fixture) =
-        crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
-    else {
-        return None;
-    };
+    // Four tests start from this patched load, so it is read once.
+    let fixture = crate::test_fixture::once_per_process("scalable Cannon Battle rules", || {
+        crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&IniFile::from_str(
+            "[Cannon]\nImage=SUBT\nScalable=yes\n",
+        ))
+    })?
+    .with_fresh_serial();
     let (_, assets) = crate::rules::retail_ini_fixture::retail_assets().unwrap();
     let mut rules = fixture.rules;
     assert_eq!(rules.object("MTNK").unwrap().primary(), Some("105mm"));

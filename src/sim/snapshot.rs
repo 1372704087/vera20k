@@ -1060,7 +1060,10 @@ use crate::sim::world::Simulation;
 // 376 -> 377: sight cache254/260 persists independently of latch250.
 // Earlier saves omitted inactive caches and are rejected, not reconstructed.
 // 377 -> 378: per-Super recharge override and House scripted offensive target.
-const SNAPSHOT_VERSION: u32 = 378;
+// 378 -> 379: Factory queue cleanup runs at Building lifecycle callbacks;
+// StartNext uses forced Begin admission and Abandon retains held identity
+// through destruction. Layout is unchanged; older sale continuations differ.
+const SNAPSHOT_VERSION: u32 = 379;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4585,7 +4588,8 @@ mod tests {
         // 375 -> 376: retained Foot Ammo and chrono reinforcement pending state.
         // 376 -> 377: retained source cache and independent sight latch.
         // 377 -> 378: Super recharge override and House offensive target.
-        assert_eq!(super::SNAPSHOT_VERSION, 378);
+        // 378 -> 379: synchronous Factory lifecycle and sale continuation.
+        assert_eq!(super::SNAPSHOT_VERSION, 379);
     }
 
     #[test]

@@ -1,20 +1,26 @@
-//! Batched target scans: the scans a live object pass's targeting slots are
-//! due to run are answered side by side when the pass begins.
+//! Batched target scans: the scans a live object pass's targeting slots and
+//! Area Guard handlers are due to run are answered side by side when the pass
+//! begins.
 //!
-//! `TechnoClass::AI_Update`'s targeting slot (`0x006FA65A..0x006FA6EE`) runs
-//! `Retaliate_And_Scan` with mask 1 around the object's own coordinate once
-//! its targeting timer has run out: the passive block's Passive_Target_Acquire
-//! or, for an attack-mover, Arrival_Target_Handler (`0x004DF3A0`). With
-//! batching on, the live object pass first finds the objects whose slot
-//! reaches Greatest_Threat this frame as the world stands (the timer has run
-//! out, no target is held or the handler drops it, and the gate or the
-//! handler's reach test lets the scan run: [`Simulation::slot_scans`]), and
-//! runs their Greatest_Threat (`0x006F8DF0`, through the gated entry) on
-//! worker threads against that frame-start world. At the object's turn its
-//! scan takes the answer in place of its own Greatest_Threat when the object
-//! still stands as it did ([`ScannerKey`]) and the pick still stands as the
-//! scan saw it ([`Simulation::take_batched_scan`]); otherwise it scans as
-//! usual.
+//! Two callers of `Retaliate_And_Scan` are batched:
+//! - `TechnoClass::AI_Update`'s targeting slot (`0x006FA65A..0x006FA6EE`)
+//!   scans with mask 1 around the object's own coordinate once its targeting
+//!   timer has run out: the passive block's Passive_Target_Acquire or, for an
+//!   attack-mover, Arrival_Target_Handler (`0x004DF3A0`).
+//! - `FootClass::Mission_AreaGuard` (`0x004D6AA0`) scans with mask 2 around
+//!   its post once its handler runs with no target held, it can acquire one
+//!   and its targeting timer has run out.
+//!
+//! With batching on, the live object pass first finds the objects whose turn
+//! reaches Greatest_Threat this frame as the world stands, and with which
+//! mask and coordinate ([`Simulation::scan_ahead`]: the Area Guard handler's
+//! scan, which runs first in a turn, else the targeting slot's), and runs
+//! their Greatest_Threat (`0x006F8DF0`, through the gated entry) on worker
+//! threads against that frame-start world. At the object's turn a scan with
+//! that mask and coordinate takes the answer in place of its own
+//! Greatest_Threat when the object still stands as it did ([`ScannerKey`])
+//! and the pick still stands as the scan saw it
+//! ([`Simulation::take_batched_scan`]); otherwise it scans as usual.
 //!
 //! An answer's pick is held across the turns before the scanner's, as a
 //! TarCom is, so what releases a TarCom releases the pick too
@@ -22,15 +28,17 @@
 //! (`0x007258D0`; a kill's or a cloak's Detach_All, limbo) and the detach
 //! targeting sweep (`0x0070D4A0`; an owner change, a sale). A pick whose
 //! owner changed, or whose owner the scanner's house now allies or no longer
-//! allies, or that the drop step's GetFireError would drop (ILLEGAL, CANT,
-//! RANGE: it left weapon range, for one) is not taken either.
+//! allies, or that GetFireError now refuses (ILLEGAL or CANT; and RANGE for
+//! the slot's scan, whose next drop step would drop a passive pick that left
+//! weapon range: Area Guard picks beyond it by design) is not taken either.
 //!
 //! Proposed sim-scale deviation from native order (update order and
 //! same-frame effects), pending side-by-side play: an answered scan sees the
 //! world as it stood when the pass began rather than at the scanner's turn.
 //! A target that comes into reach, or a better one that appears, during the
-//! turns before the scanner's is seen at its next scan
-//! (`[General] NormalTargetingDelay=` frames later, plus the 0..2 draw), and
+//! turns before the scanner's is seen at its next scan (the targeting slot's
+//! `[General] NormalTargetingDelay=` frames later, plus the 0..2 draw; Area
+//! Guard's at its next handler run with the timer run out), and
 //! an estimate another scan debited during those turns does not lower this
 //! scan's scores (`VHPScan=`, retail `[NASAM]` only). The scan's own effects
 //! stay at the object's turn in native order: the scan frame stamp, the
@@ -49,7 +57,9 @@
 //! does not stamp first sees the last serial stamp; the turn's GetFireError
 //! on the pick runs InRange's line query, whose lookups can stamp where the
 //! serial scan's did not. A `DistributedFire=` scanner (retail `[AEGIS]`)
-//! keeps the candidates its walk collects, so it always scans live.
+//! keeps the candidates its walk collects, so it always scans live. Aircraft
+//! reach Area Guard through their own mission (`aircraft_guard`), and deployed
+//! infantry through the deploy shim (`0x00521320`), so neither is foreseen.
 
 use std::collections::BTreeSet;
 
@@ -61,6 +71,7 @@ use crate::sim::combat::combat_weapon::{
     AttackerFacts, attacker_facts, controlled_transport_house, is_ally_by_object,
 };
 use crate::sim::combat::fire_error::FireError;
+use crate::sim::combat::fire_error_world::{FireSubject, FirerPart};
 use crate::sim::combat::greatest_threat::{RetargetAfterStop, ThreatScanOutcome};
 use crate::sim::combat::{ScanMission, TargetKind};
 use crate::sim::game_entity::GameEntity;
@@ -89,6 +100,9 @@ pub(crate) struct ScanBatch {
 
 #[derive(Debug)]
 struct BatchedScan {
+    /// The scan the answer is for.
+    mask: ScanMission,
+    scan_coord: Option<[i32; 3]>,
     key: ScannerKey,
     outcome: ThreatScanOutcome,
     /// The pick's owner, and whether the scanner's house allied it, when the
@@ -121,6 +135,10 @@ struct ScannerKey {
     team: Option<(u64, bool)>,
     /// Its house's last lost building (`House+0x54E0`).
     lost_building: Option<u64>,
+    /// GetFireError's firer half (`FireSubject::firer_part`), which the
+    /// scan's candidate probes read: NavCom, speed, sequence, links and the
+    /// rest.
+    fire: FirerPart,
 }
 
 impl ScannerKey {
@@ -150,13 +168,24 @@ impl ScannerKey {
                 .houses
                 .get(&entity.owner())
                 .and_then(|house| house.lost_building()),
+            fire: FireSubject {
+                world,
+                rules,
+                overlay_registry: None,
+                fog: None,
+                firer: entity,
+                obj,
+                target: None,
+                weapon_index: 0,
+            }
+            .firer_part(),
         }
     }
 }
 
 impl Simulation {
-    /// Answer the targeting slots' scans side by side from now on; see the
-    /// module docs.
+    /// Answer the targeting slots' and Area Guard handlers' scans side by
+    /// side from now on; see the module docs.
     pub fn batch_target_scans(&mut self) {
         self.scan_batch.get_or_insert_with(ScanBatch::default);
     }
@@ -179,15 +208,16 @@ impl Simulation {
         let answers = world.substrate.entities.par_filter_map(|id, entity| {
             let (answer, stamped) = dummy.detached_stamps(|| {
                 let obj = world.object_type(entity.type_ref(), rules)?;
-                if obj.distributed_fire || !world.slot_scans(id, entity, rules, overlay_registry) {
+                if obj.distributed_fire {
                     return None;
                 }
+                let (mask, scan_coord) = world.scan_ahead(id, entity, rules, overlay_registry)?;
                 let outcome = world.threat_scan(
                     rules,
                     overlay_registry,
                     id,
-                    ScanMission::Guard,
-                    None,
+                    mask,
+                    scan_coord,
                     crate::sim::combat::acquire_best_target_for_entity,
                 );
                 let pick_house = outcome
@@ -195,6 +225,8 @@ impl Simulation {
                     .and_then(|pick| world.substrate.entities.get(pick))
                     .map(|pick| (pick.owner(), world.scanner_allies(entity, pick.owner())));
                 Some(BatchedScan {
+                    mask,
+                    scan_coord,
                     key: ScannerKey::of(world, entity, obj, rules),
                     outcome,
                     pick_house,
@@ -225,21 +257,27 @@ impl Simulation {
         }
     }
 
-    /// Whether `id`'s targeting slot reaches Greatest_Threat this frame, as
-    /// the world stands: the slot runs (`target_scan::targeting_slot`), and
+    /// The first Greatest_Threat `id`'s turn reaches this frame as the world
+    /// stands, as its mask and coordinate (`None`: its own): the Area Guard
+    /// handler's (`mission_handlers::foot_area_guard_scan_ahead`), which
+    /// runs before the targeting slot, else the targeting slot's (mask 1).
+    /// The slot scans when it runs (`target_scan::targeting_slot`) and
     /// Arrival_Target_Handler scans ([`Simulation::foot_arrival_step`]) with
     /// no target left, or Passive_Target_Acquire's gate passes with none
     /// held. A held target the drop step would drop is not foreseen: its
     /// object scans live.
-    fn slot_scans(
+    fn scan_ahead(
         &self,
         id: u64,
         entity: &GameEntity,
         rules: &RuleSet,
         overlay_registry: Option<&OverlayTypeRegistry>,
-    ) -> bool {
+    ) -> Option<(ScanMission, Option<[i32; 3]>)> {
+        if let Some(post) = super::mission_handlers::foot_area_guard_scan_ahead(self, id, rules) {
+            return Some((ScanMission::AreaGuard, Some(post)));
+        }
         let unheld = entity.attack_target.target().is_none();
-        match super::target_scan::targeting_slot(entity, self.session.binary_frame) {
+        let scans = match super::target_scan::targeting_slot(entity, self.session.binary_frame) {
             TargetingSlot::Skip => false,
             TargetingSlot::ArrivalHandler => matches!(
                 self.foot_arrival_step(id, rules, overlay_registry),
@@ -248,7 +286,8 @@ impl Simulation {
             TargetingSlot::PassiveAcquire(mission) => {
                 unheld && passive_acquire_gate(self, id, rules, mission)
             }
-        }
+        };
+        scans.then_some((ScanMission::Guard, None))
     }
 
     /// Whether `scanner`'s house allies `owner`, as the scan asks it
@@ -264,11 +303,12 @@ impl Simulation {
 
     /// The answer to `id`'s Greatest_Threat with `mask` around `scan_coord`
     /// (`None`: its own coordinate) through the gated entry, when this pass
-    /// made one, the object still stands as it did, and its pick, if any, is
-    /// unreleased, has the owner and the standing with the scanner's house it
-    /// had, and passes the drop step's GetFireError (vt+0x3C0 with range for
-    /// SelectWeapon's weapon, `0x007098B9..0x00709912`): neither ILLEGAL,
-    /// CANT nor RANGE. A scan takes it once.
+    /// made one for that scan, the object still stands as it did, and its
+    /// pick, if any, is unreleased, has the owner and the standing with the
+    /// scanner's house it had, and GetFireError (vt+0x3C0 with range for
+    /// SelectWeapon's weapon) does not refuse it: neither ILLEGAL nor CANT,
+    /// nor RANGE for the slot's in-range scan, whose next drop step
+    /// (`0x007098B9..0x00709912`) would drop it. A scan takes it once.
     pub(super) fn take_batched_scan(
         &mut self,
         rules: &RuleSet,
@@ -277,15 +317,20 @@ impl Simulation {
         mask: ScanMission,
         scan_coord: Option<[i32; 3]>,
     ) -> Option<ThreatScanOutcome> {
-        if mask != ScanMission::Guard || scan_coord.is_some() {
-            return None;
-        }
         let batch = self.scan_batch.as_mut()?;
         let index = batch
             .answers
             .binary_search_by_key(&id, |&(scanner, _)| scanner)
             .ok()?;
-        let answer = batch.answers[index].1.take()?;
+        let slot = &mut batch.answers[index].1;
+        // Another scan of the object leaves the answer for its own.
+        if !slot
+            .as_ref()
+            .is_some_and(|answer| (answer.mask, answer.scan_coord) == (mask, scan_coord))
+        {
+            return None;
+        }
+        let answer = slot.take()?;
         let released = answer
             .outcome
             .target()
@@ -301,17 +346,20 @@ impl Simulation {
                 .entities
                 .get(pick)
                 .map(|pick| (pick.owner(), self.scanner_allies(scanner, pick.owner())));
-            if pick_house != answer.pick_house
-                || matches!(
-                    self.selected_weapon_fire_error(
-                        rules,
-                        id,
-                        TargetKind::Entity(pick),
-                        overlay_registry
-                    ),
-                    FireError::Illegal | FireError::Cant | FireError::Range
-                )
-            {
+            if pick_house != answer.pick_house {
+                return None;
+            }
+            let refused = match self.selected_weapon_fire_error(
+                rules,
+                id,
+                TargetKind::Entity(pick),
+                overlay_registry,
+            ) {
+                FireError::Illegal | FireError::Cant => true,
+                FireError::Range => mask == ScanMission::Guard,
+                _ => false,
+            };
+            if refused {
                 return None;
             }
         }

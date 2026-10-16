@@ -35,6 +35,24 @@ mod engineer_hunt_tests;
 #[path = "infantry_capture_arm_tests.rs"]
 mod infantry_capture_arm_tests;
 
+/// Whether [`dispatch_foot_mission`] runs `id`'s handler at `now`: an alive,
+/// positive-health Unit or Infantry (Mission5B306C..5B30AC admits only such a
+/// receiver; harvest_attack_return.json dead_source / zero_health_source pin
+/// direct receiver calls as well as the object-AI host) whose dispatch timer
+/// has run out (`MissionClass::AI @ 0x005B3060`). Every term is a pure read.
+fn foot_mission_handler_due(sim: &Simulation, id: u64, now: u32) -> bool {
+    sim.substrate.entities.get(id).is_some_and(|entity| {
+        !entity.death.is_dying()
+            && entity.is_object_alive()
+            && super::mission_handlers_run(sim, id)
+            && matches!(
+                entity.category(),
+                EntityCategory::Unit | EntityCategory::Infantry
+            )
+            && entity.mission.dispatch_timer().due(now)
+    })
+}
+
 /// Re-arm the evidence-backed Foot/Unit handler subset without duplicating the
 /// legacy movement, combat, or target-selection systems.
 ///
@@ -55,23 +73,14 @@ pub(crate) fn dispatch_foot_mission(
 ) -> bool {
     let mut bridge_changed = false;
     let now = sim.session.binary_frame;
+    if !foot_mission_handler_due(sim, id, now) {
+        return bridge_changed;
+    }
     let input = {
         let Some(entity) = sim.substrate.entities.get(id) else {
             return bridge_changed;
         };
-        // Mission5B306C..5B30AC admits only an alive, positive-health receiver.
-        // Pin direct receiver calls as well as the enclosing object-AI host:
-        // harvest_attack_return.json dead_source / zero_health_source.
-        if entity.death.is_dying()
-            || !entity.is_object_alive()
-            || !super::mission_handlers_run(sim, id)
-        {
-            return bridge_changed;
-        }
         let category = entity.category();
-        if !matches!(category, EntityCategory::Unit | EntityCategory::Infantry) {
-            return bridge_changed;
-        }
         let mission = entity.mission.current().known();
         let depot_dock_state =
             crate::sim::docking::building_dock::depot_owns_enter(sim, Some(rules), id);
@@ -99,7 +108,6 @@ pub(crate) fn dispatch_foot_mission(
             depot_dock_state,
             refinery_dock_miner,
             entry_adapter,
-            timer_due: entity.mission.dispatch_timer().due(now),
             moving_or_queued: moving || entity.mission.queued() != MissionId::NONE,
             has_attack_target: entity.attack_target.target().is_some(),
             // The destination slot alone, NOT the wider "is this object in
@@ -123,9 +131,6 @@ pub(crate) fn dispatch_foot_mission(
                     }),
         }
     };
-    if !input.timer_due {
-        return bridge_changed;
-    }
 
     let mut infantry_guard_handled = false;
     let evaluation = match (input.category, input.mission) {
@@ -817,7 +822,6 @@ pub(super) struct MissionHandlerInput {
     /// An adapter carries the object's entry (Boarding, or the tank bunker
     /// approach), so its Enter dispatch does not run the Foot body.
     pub(super) entry_adapter: bool,
-    pub(super) timer_due: bool,
     /// `Mission_Move`'s keep-going test (`0x004D4203..0x004D4238`): a NavCom,
     /// the locomotor's `Is_Moving`, or a queued mission.
     pub(super) moving_or_queued: bool,
@@ -1768,6 +1772,61 @@ fn evaluate_foot_rescue(
     MissionHandlerEvaluation::cadence(jittered_mission_cadence(sim, rules, mission))
 }
 
+/// Where Area Guard's Retaliate_And_Scan looks for an object holding no
+/// target: `post`'s coordinate, once the object can acquire a target and its
+/// targeting timer has run out; `None` when the handler does not scan.
+/// `0x004D6EF5..0x004D6F06` uses archive+48. A queued mission can leave no
+/// archive; that invalid native pointer is outside this ordinary lane. Every
+/// term is a pure read, so their order is not observable.
+fn area_guard_scan_point(
+    sim: &Simulation,
+    id: u64,
+    rules: &RuleSet,
+    post: Option<crate::sim::combat::TargetKind>,
+) -> Option<[i32; 3]> {
+    let timer_due = sim
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|entity| entity.passive_scan.timer().due(sim.session.binary_frame));
+    if !(can_acquire_target(sim, id, rules) && timer_due) {
+        return None;
+    }
+    let coord = crate::sim::movement::ground_pose::target_get_coords(
+        post?,
+        &sim.substrate.entities,
+        sim.resolved_terrain
+            .as_ref()
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+            .as_ref(),
+    )?;
+    Some([coord.x, coord.y, coord.z])
+}
+
+/// Where `id`'s Area Guard handler ([`evaluate_foot_area_guard`]) scans this
+/// frame as the world stands, for the batched target scans
+/// (`techno_ai::scan_batch`): its handler is due, it holds no target, it is
+/// not a deployed infantryman (whose Area Guard is the deploy shim's,
+/// `0x00521320`: its arms act or re-acquire in place), and
+/// [`area_guard_scan_point`] answers for its post. The heads that return
+/// before the scan, a post the handler archives at this run and a target the
+/// leash drops are not foreseen; those objects scan live, if at all.
+pub(super) fn foot_area_guard_scan_ahead(
+    sim: &Simulation,
+    id: u64,
+    rules: &RuleSet,
+) -> Option<[i32; 3]> {
+    let entity = sim.substrate.entities.get(id)?;
+    if entity.mission.current().known() != Some(MissionType::AreaGuard)
+        || entity.attack_target.target().is_some()
+        || entity.infantry_deploy_doing()
+        || !foot_mission_handler_due(sim, id, sim.session.binary_frame)
+    {
+        return None;
+    }
+    area_guard_scan_point(sim, id, rules, entity.archive_target())
+}
+
 /// Smallest value of the Area Guard cadence jitter draw (`RandomRanged(1, 5)`).
 /// Every other absorbed handler draws `(0, 2)`; this one does not.
 const AREA_GUARD_CADENCE_JITTER_MIN: u32 = 1;
@@ -1883,38 +1942,18 @@ pub(super) fn evaluate_foot_area_guard(
     if !needs_target && archive.is_some() {
         sim.approach_target(id, rules, ctx.overlay_registry, ctx.effects);
     }
-    let timer_due = sim
-        .substrate
-        .entities
-        .get(id)
-        .is_some_and(|entity| entity.passive_scan.timer().due(sim.session.binary_frame));
-    if needs_target && can_acquire_target(sim, id, rules) && timer_due {
-        let point = archive
-            .and_then(|post| {
-                crate::sim::movement::ground_pose::target_get_coords(
-                    post,
-                    &sim.substrate.entities,
-                    sim.resolved_terrain
-                        .as_ref()
-                        .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                        .as_ref(),
-                )
-            })
-            .map(|coord| [coord.x, coord.y, coord.z]);
-        //4D6EF5..4D6F06 uses archive+48. A queued mission can leave no
-        // archive; that invalid native pointer is outside this ordinary lane.
-        if point.is_some()
-            && super::target_scan::scan(
-                sim,
-                id,
-                rules,
-                crate::sim::combat::ScanMission::AreaGuard,
-                ctx,
-                point,
-            )
-        {
-            return MissionHandlerEvaluation::cadence(1);
-        }
+    if needs_target
+        && let Some(point) = area_guard_scan_point(sim, id, rules, archive)
+        && super::target_scan::scan(
+            sim,
+            id,
+            rules,
+            crate::sim::combat::ScanMission::AreaGuard,
+            ctx,
+            Some(point),
+        )
+    {
+        return MissionHandlerEvaluation::cadence(1);
     }
     if sim
         .substrate

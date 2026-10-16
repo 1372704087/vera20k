@@ -178,9 +178,24 @@ opt-level = 1
 [profile.test]
 opt-level = 0
 
+# Play-tests and captures after an edit: release optimization, but the
+# workspace crates compile incrementally, so rustc splits each into 256 codegen
+# units and reuses those an edit leaves unchanged. Measured on an M4 Mac mini on
+# 2026-10-16: after a one-line edit the game rebuilt in about 31 s (sim file) or
+# 10 s (ui file) instead of 64 s or 36 s, with the same sim-bench state hash and
+# tick time. Keep timing and performance numbers on --release. Capping it at 16
+# codegen units rebuilt ui edits in 25 s. `lto = false` pins release's thin
+# local LTO: with `lto = "off"`, sim edits rebuilt in 23 s but the median
+# sim-bench tick took 65% longer.
+[profile.fast]
+inherits = "release"
+lto = false
+incremental = true
+
 # Published builds (.github/workflows/release.yml): whole-program optimization
 # across every crate, compiled as one unit. It rebuilds everything for this
-# profile and links slowly, so day-to-day timing and play stay on --release.
+# profile and links slowly, so day-to-day timing stays on --release and play on
+# `fast`.
 [profile.shipping]
 inherits = "release"
 lto = "fat"

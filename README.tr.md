@@ -79,6 +79,10 @@ Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda
 Oyun mantığı `src/sim/`, çizim `src/render/`, menüler ve girdi ise `src/app/` ve `src/ui/`
 içinde; `tools/` altındaki Python araçlarına ihtiyacınız yok.
 
+Değişikliklerinizi oyunda denemek için `cargo run --profile fast --bin vera20k` çalıştırın.
+`--release` gibi optimize edilmiştir ama yalnızca değiştirdiğiniz kısmı yeniden derler, böylece
+oyuna daha çabuk dönersiniz. Performansı `--release` ile ölçün.
+
 Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 
 ## Teşekkürler ve yasal bilgiler

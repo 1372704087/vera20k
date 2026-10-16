@@ -95,6 +95,11 @@ python -m tools.cargo_run --resolve vera20k --profile release --from-label relea
 python -m unittest tools.tests.test_cargo_run -v
 ```
 
+`--profile fast` (Cargo.toml) optimizes like `--release` but compiles the workspace crates
+incrementally, so a play-test, capture or other run after an edit rebuilds in a fraction of the
+time. Keep timing and performance numbers on `--release`. The runner records, labels and
+resolves `fast` host executables as it does `release` and `debug` ones.
+
 `--wait-seconds 60` bounds the wait (default one hour). Ctrl-C interrupts the
 runner. It does not kill other owners. Failed commands retain their exit code,
 produce no label and leave compiler diagnostics visible. Source edits during a
@@ -280,14 +285,14 @@ APFS clones/snapshots and unrelated volume activity can make observed reclamatio
 differ from file allocation; applying a plan rechecks real free space and tries
 additional eligible cold entries when necessary. Plans are never reused for deletion.
 
-`--resolve <BIN> --profile release|debug --from-label <LABEL>` selects a
+`--resolve <BIN> --profile release|fast|debug --from-label <LABEL>` selects a
 preserved executable from that label. It verifies the recorded artifact path,
 host/profile classification and actual SHA-256; missing, ambiguous, malformed or
 changed artifacts fail without falling back to a latest build. This uses the
 same preserved manifest owner as `--label`, including existing schema-1 labels.
 The original build source and toolchain metadata stay in the label's manifest.
 
-For shell use, `--resolve <BIN> --profile release|debug` prints only the absolute
+For shell use, `--resolve <BIN> --profile release|fast|debug` prints only the absolute
 verified path to stdout. Missing records/files or changed bytes produce a nonzero
 exit and diagnostics on stderr. It never builds or falls back to another profile;
 resolve mode accepts no Cargo arguments, label or build-wait option. For example:
@@ -302,11 +307,12 @@ Build after source changes; use a preserved label when exact build provenance is
 needed. The Python API permits an omitted profile for the existing MCP preference.
 
 The asset-browser MCP uses `cargo_run.resolve_binary` to discover emitted host
-release/debug executables from the per-checkout record in
+release/fast/debug executables from the per-checkout record in
 `<git-common-dir>/owned-builds/latest/`. That record is updated atomically after
 successful builds, and discovery verifies executable bytes. Cross-target and
-custom-profile builds still support explicit paths/labels; they are not auto-run
-by host tooling. Conventional target paths are not a fallback.
+other custom-profile builds (such as `shipping`) still support explicit
+paths/labels; they are not auto-run by host tooling. Conventional target paths
+are not a fallback.
 
 ## Python regression suite
 

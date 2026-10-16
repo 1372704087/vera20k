@@ -528,6 +528,20 @@ class CacheTests(unittest.TestCase):
             with self.subTest(inspector=inspector):
                 self.assert_blocked(self.trim(dependencies=inspector), orphan)
 
+    def test_fast_profile_record_and_caches_follow_the_host_profile_rules(self):
+        game = self.write('fast/game', content=b'\xcf\xfa\xed\xfefast')
+        cargo_run.publish_binaries(self.store, self.namespace, self.target, {game})
+        required = self.write('fast/deps/required.rcgu.o')
+        disposable = [self.write('fast/deps/orphan.rcgu.o'),
+                      self.write('fast/incremental/crate-123/s-old/object.o', age=1),
+                      self.write('fast/incremental/crate-123/s-hot/object.o', age=20)]
+        outside_profile = self.write('research/deps/native.rcgu.o')
+        result = self.trim(dependencies=lambda binary: {required} if binary == game else set())
+        self.assertEqual(set(result['removed_files']), {str(path) for path in disposable}, result)
+        for path in (game, required, outside_profile):
+            self.assertTrue(path.exists(), path)
+        self.assertEqual(cargo_run.resolve_binary(self.root, 'game', 'fast'), (game, 'fast'))
+
     def test_stale_latest_record_protects_replacement_executable_dependencies(self):
         original = self.write('release/game', content=b'\xcf\xfa\xed\xfeold')
         cargo_run.publish_binaries(self.store, self.namespace, self.target, {original})

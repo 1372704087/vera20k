@@ -544,6 +544,11 @@ env -u RA2_DIR python -m tools.map_observation \
   --output /absolute/evidence/before-map-change
 ```
 
+`--build-profile fast` selects the `fast` profile's `vera20k` instead, either the one
+recorded for this checkout or the one in `--build-label`. Build it with
+`python -m tools.cargo_run -- build -p vera20k --profile fast --bin vera20k`; it runs
+the same simulation as release and rebuilds faster after an edit. Keep timing on release.
+
 The supplied contract must match the repository contract bytes. Every environment
 variable in its denylist must be absent, even if set to an empty string. The
 wrapper reports denied variables and does not silently change the environment.

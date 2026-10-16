@@ -81,6 +81,10 @@ Diskutiert wird auf [Discord](https://discord.gg/kmjRUn5m5F) und in der QQ-Grupp
 Die Spiellogik liegt in `src/sim/`, das Rendering in `src/render/` und Menüs und Eingabe in
 `src/app/` und `src/ui/`; die Python-Werkzeuge in `tools/` brauchst du nicht.
 
+Zum Testen deiner Änderungen im Spiel starte `cargo run --profile fast --bin vera20k`. Das ist
+optimiert wie `--release`, baut aber nur neu, was du geändert hast, sodass du schneller wieder
+im Spiel bist. Miss die Leistung mit `--release`.
+
 Beiträge stehen wie das übrige Projekt unter der GPLv3; ein CLA gibt es nicht.
 
 ## Danksagung und Rechtliches

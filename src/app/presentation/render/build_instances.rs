@@ -220,8 +220,7 @@ pub(super) fn build_world_instances(state: &mut AppState, sw: f32, sh: f32) -> W
     let mut bridge_body_shadow: Vec<SpriteInstance> = Vec::new();
     instances::bridges::build_bridge_body_instances(state, sw, sh, &mut bridge_body);
     instances::bridges::build_bridge_shadow_instances(state, sw, sh, &mut bridge_body_shadow);
-    sort_by_depth_desc(&mut bridge_body);
-    // Shadow emission retains the native cell sweep; its accepted pixels write Z.
+    // Both bridge passes retain native cell sweeps; accepted pixels write Z.
 
     // Smudges: static crater/scorch decals on top of terrain, under entities.
     // Atlas registration for SmudgeType SHPs is a deferred follow-up; until it
@@ -947,19 +946,6 @@ fn build_radar_anim_instance(state: &AppState) -> Vec<SpriteInstance> {
         alpha: 1.0,
         ..Default::default()
     }]
-}
-
-// ---------------------------------------------------------------------------
-// Sort helpers
-// ---------------------------------------------------------------------------
-
-/// Sort instances by depth descending (furthest-back first for back-to-front draw).
-fn sort_by_depth_desc(instances: &mut [SpriteInstance]) {
-    instances.sort_by(|a, b| {
-        b.depth
-            .partial_cmp(&a.depth)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
 }
 
 #[cfg(test)]

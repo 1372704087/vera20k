@@ -68,6 +68,23 @@ impl NativeRadarScreenGeometry {
         ))
     }
 
+    /// Resolve an actual destination pixel which the existing inverse maps
+    /// back to this generated pixel. A downscaled, unrepresented pixel has no
+    /// clickable point; do not silently select its neighbor.
+    pub fn surface_pixel_screen_point(self, pixel: (i32, i32)) -> Option<(f32, f32)> {
+        let rect = self.content_rect();
+        let size = self.surface.generated_size();
+        if pixel.0 < 0 || pixel.1 < 0 || pixel.0 >= size.0 || pixel.1 >= size.1 {
+            return None;
+        }
+        let extent = (rect[2].round() as i32, rect[3].round() as i32);
+        let point = (
+            rect[0].round() + ((pixel.0 * extent.0 + size.0 - 1) / size.0) as f32,
+            rect[1].round() + ((pixel.1 * extent.1 + size.1 - 1) / size.1) as f32,
+        );
+        (self.screen_to_surface_pixel(point) == Some(pixel)).then_some(point)
+    }
+
     pub fn surface_scale(self) -> (f32, f32) {
         (
             self.aperture[2] / RADAR_APERTURE_WIDTH as f32,

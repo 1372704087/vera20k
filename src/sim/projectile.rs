@@ -208,22 +208,22 @@ pub(crate) fn cell_ground_coord(
     rx: u16,
     ry: u16,
 ) -> ProjectileCoord {
-    let x = i32::from(rx)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = i32::from(ry)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z = terrain
-        .and_then(|grid| grid.cell(rx, ry))
-        .map(|cell| {
-            crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, x, y)
-                .expect("resolved CellClass target must have a supported slope")
-        })
-        // Mapless fixtures use flat ground. Production misses retain the
-        // shared CellClass and use dummy_cell_ground_coord instead.
-        .unwrap_or(0);
-    ProjectileCoord::new(x, y, z)
+    if let Some(cell) = terrain.and_then(|grid| grid.cell(rx, ry)) {
+        let point = crate::sim::cell_rect::CellRef::Real(cell)
+            .center_coordinate()
+            .expect("resolved CellClass target must have a supported slope");
+        return ProjectileCoord::new(point.x, point.y, point.z);
+    }
+    // Preserve the mapless/missing-cell flat-ground adapter. Production misses
+    // retain the shared CellClass and use dummy_cell_ground_coord instead.
+    let point = crate::sim::cell_kernel::cell_center(
+        crate::sim::cell_kernel::CellCoordinate {
+            x: i32::from(rx as i16),
+            y: i32::from(ry as i16),
+        },
+        0,
+    );
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// CellClass virtual +0x58 @ 0x00486890: +0x48 ground coordinate plus 416
@@ -249,21 +249,12 @@ pub(crate) fn cell_target_coord(
 /// The shared fallback CellClass's +0x48 coordinate. Read the retained dummy
 /// at the receiver boundary; later map misses can change this same identity.
 pub(crate) fn dummy_cell_ground_coord(dummy: &SharedCellDummy) -> ProjectileCoord {
-    let snapshot = dummy.snapshot();
-    let x = snapshot
-        .coord
-        .0
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = snapshot
-        .coord
-        .1
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z =
-        crate::util::lepton::ground_height_leptons(snapshot.level as u8, snapshot.slope_type, x, y)
-            .expect("shared CellClass target must have a supported slope");
-    ProjectileCoord::new(x, y, z)
+    let point = crate::sim::cell_rect::CellRef::Dummy {
+        cell: dummy.clone(),
+    }
+    .center_coordinate()
+    .expect("shared CellClass target must have a supported slope");
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// Resolve the current virtual `CellClass::GetTargetCoords` value for the one

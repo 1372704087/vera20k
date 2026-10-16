@@ -580,7 +580,8 @@ impl EntityStore {
         //412B6E calls Cell vt+48;413A30 truncates the returned XYZ's
         // X/Y toward zero and packs16. Read the resolved live Cell rather
         // than its lookup argument: aliases and the shared Dummy can differ.
-        let point = crate::sim::cell_kernel::cell_ref_own_coords(center_cell)
+        let point = center_cell
+            .center_coordinate()
             .expect("admitted Cell ground coordinate");
         let center = (
             crate::util::lepton::lepton_to_cell_packed(point.x) as u16,

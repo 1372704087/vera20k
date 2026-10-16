@@ -419,23 +419,24 @@ pub(crate) fn try_begin_minimap_drag(state: &mut AppState) -> bool {
     true
 }
 
-pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
+pub(crate) fn minimap_camera_target(
+    state: &AppState,
+) -> Option<crate::render::radar::NativeRadarCameraTarget> {
     let rect = active_minimap_screen_rect(state);
     let (cursor_x, cursor_y) = sidebar_cursor(state);
-    let Some(minimap) = state.match_state.match_presentation.minimap.as_ref() else {
-        return;
-    };
+    let minimap = state.match_state.match_presentation.minimap.as_ref()?;
     let runtime = state.match_state.sim_runtime.as_ref();
     let native_facts = runtime.and_then(|runtime| {
         let view = runtime.view();
         Some((
-            view.entities(),
+            view.simulation(),
+            &runtime.resources.rules,
             view.resolved_terrain()?,
             view.playfield_map_size()?,
         ))
     });
     let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);
-    let native_target = native_facts.and_then(|(entities, terrain, map_size)| {
+    native_facts.and_then(|(simulation, rules, terrain, map_size)| {
         minimap.native_click_target_in_rect(
             cursor_x,
             cursor_y,
@@ -443,12 +444,32 @@ pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
             rect.y,
             rect.w,
             rect.h,
-            entities,
+            simulation,
+            rules,
             terrain,
             map_size,
             (tactical_w as i32, tactical_h as i32),
         )
-    });
+    })
+}
+
+pub(crate) fn minimap_object_click_position(state: &AppState, id: u64) -> Option<[u32; 2]> {
+    let rect = active_minimap_screen_rect(state);
+    let minimap = state.match_state.match_presentation.minimap.as_ref()?;
+    let (x, y) = minimap.native_object_click_point_in_rect(id, [rect.x, rect.y, rect.w, rect.h])?;
+    let frame = state
+        .sidebar_frame()
+        .rect_to_frame(crate::ui::sidebar::Rect {
+            x,
+            y,
+            w: 1.0,
+            h: 1.0,
+        });
+    Some([frame.x.round() as u32, frame.y.round() as u32])
+}
+
+pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
+    let native_target = minimap_camera_target(state);
     if let Some(target) = native_target {
         // `0x00653EA0 -> FUN_006D6070` writes current and desired viewport
         // together from the complete CellClass center XYZ. The camera owner
@@ -457,6 +478,10 @@ pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
         crate::app::input::camera::center_camera_on_lepton_point(state, x, y, z);
         return;
     }
+    let rect = active_minimap_screen_rect(state);
+    let Some(minimap) = state.match_state.match_presentation.minimap.as_ref() else {
+        return;
+    };
     if minimap.has_playfield_authority() {
         // A live map whose generated surface is unavailable must not silently
         // approximate the click through the old normalized 200x200 transform.
@@ -464,6 +489,7 @@ pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
     }
 
     // Mapless/headless presentation fixture adapter only.
+    let (cursor_x, cursor_y) = sidebar_cursor(state);
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
     let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);

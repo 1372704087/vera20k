@@ -295,6 +295,7 @@ struct EarlyRow {
 struct CenterRow {
     name: String,
     input_xy: [i16; 2],
+    center_xyz: [i32; 3],
     receiver: String,
     identity: String,
     dummy_xy: [i16; 2],
@@ -412,6 +413,36 @@ fn original_cell_center_query_reads_the_retained_receiver_coordinate() {
         } else {
             TargetKind::Cell(row.input_xy[0] as u16, row.input_xy[1] as u16)
         };
+        // Consume the original486840 XYZ before the following Map565730
+        // lookup can stamp the same retained Dummy to a different coordinate.
+        let receiver = if row.receiver == "dummy" {
+            crate::sim::cell_rect::CellRef::Dummy {
+                cell: dummy.clone(),
+            }
+        } else {
+            crate::sim::cell_rect::CellRef::Real(
+                terrain
+                    .cell(row.input_xy[0] as u16, row.input_xy[1] as u16)
+                    .unwrap(),
+            )
+        };
+        let point = receiver.center_coordinate().unwrap();
+        assert_eq!([point.x, point.y, point.z], row.center_xyz, "{}", row.name);
+        let projectile = if row.receiver == "dummy" {
+            crate::sim::projectile::dummy_cell_ground_coord(&dummy)
+        } else {
+            crate::sim::projectile::cell_ground_coord(
+                Some(terrain),
+                row.input_xy[0] as u16,
+                row.input_xy[1] as u16,
+            )
+        };
+        assert_eq!(
+            [projectile.x, projectile.y, projectile.z],
+            row.center_xyz,
+            "{}",
+            row.name
+        );
         let subject = FireSubject {
             world: &sim,
             rules: &rules,

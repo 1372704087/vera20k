@@ -588,6 +588,39 @@ class MapObservationTests(unittest.TestCase):
             row['local_input'] = self.local_input_observation()
         self.profile_path.write_text(json.dumps(self.profile))
 
+    def test_minimap_gesture_uses_render_bounds_and_preserves_camera_receipts(self):
+        self.keyboard_profile()
+        # The radar lies outside the tactical viewport (6x6), inside8x8.
+        for request, receipt in zip(self.profile['gestures'], self.gesture_receipts):
+            request['gesture'] = {'kind': 'minimap', 'position': [6, 2]}
+            receipt['gesture'] = deepcopy(request['gesture'])
+            receipt.pop('keyboard')
+            receipt['left_press_captured'] = True
+            receipt['queued_commands'] = []
+            receipt['minimap'] = {'resolved_position': [6, 2], 'tracker_hit': None,
+                                  'cell': [55, 55], 'world_leptons': [14208, 14208, 0]}
+        self.gesture_receipts[0]['after']['local_input']['camera_top_left'] = [30.0, 40.0]
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertEqual(report['capture']['observations']['gesture_input']['receipts'][0][
+            'after']['local_input']['camera_top_left'], [30.0, 40.0])
+        for request, receipt in zip(self.profile['gestures'], self.gesture_receipts):
+            request['gesture'] = {'kind': 'minimap_object', 'entity_id': 935}
+            receipt['gesture'] = deepcopy(request['gesture'])
+            receipt['minimap']['tracker_hit'] = 935
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.output = self.root / 'minimap-tracker-object'
+        self.assertEqual(self.run_capture()['status'], 'VALID')
+        self.gesture_receipts[0]['minimap']['tracker_hit'] = 936
+        self.output = self.root / 'minimap-wrong-tracker-object'
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
+        self.profile['gestures'][0]['gesture'] = {'kind': 'click', 'position': [6, 2]}
+        self.gesture_receipts[0]['gesture'] = deepcopy(self.profile['gestures'][0]['gesture'])
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.output = self.root / 'tactical-click-cannot-use-radar-bounds'
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
+
     def test_literal_keys_preserve_same_step_order_loaded_binding_and_pending_voice_receipts(self):
         self.keyboard_profile()
         self.gesture_receipts[0]['after']['local_input']['main_rng_cursor'] = [1, 104]

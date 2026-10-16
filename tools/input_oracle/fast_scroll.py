@@ -7,9 +7,11 @@ Explicitly regenerate reviewed evidence with --write. See README.md for bounds.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import struct
+from types import SimpleNamespace
 
-from unicorn import Uc, UC_ARCH_X86, UC_HOOK_CODE, UC_MODE_32
+from unicorn import Uc, UC_ARCH_X86, UC_HOOK_CODE, UC_HOOK_MEM_WRITE, UC_MODE_32
 from unicorn.x86_const import (
     UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP,
     UC_X86_REG_FPCW, UC_X86_REG_EBX, UC_X86_REG_ESI,
@@ -982,6 +984,228 @@ def saved_view_inputs():
 
 
 
+class RadarClickFixture(SavedViewFixture):
+    """Prepared native-produced Foot/Cell inputs, original radar and camera."""
+
+    def __init__(self, spec):
+        from tools.spatial_oracle.foot_navigation_coordinate import OriginalBridgeQuery
+        from tools.spatial_oracle.map_queries import TABLE, EMPTY_TABLE, DUMMY, packed
+        from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry
+
+        setup = dict(camera_inputs()[0], name=spec['name'], viewport=spec['viewport'],
+                     map_rect_width=spec['map_size'][0], local_size=spec['local_size'],
+                     initial_center_seed=[0, 2500])
+        super().__init__(setup)
+        self.spec, self.uc = spec, self.machine
+        u = self.machine
+        self.read32 = lambda address: u32(u, address)
+        self.registrations = []
+        self.calls, self.writes, self.counts = [], [], {}
+        self.trace = native_oracle.NativeCallTrace(u, self.read32, self.calls)
+        self.measuring = False
+        u.reg_write(UC_X86_REG_ESI, self.tactical)
+        u.reg_write(UC_X86_REG_EBX, 0)
+        run_checked(u, 0x6D1DC5, 0x6D1E24)
+        put32(u, self.tactical, 0x7F4348)
+        u.mem_write(0xB0CE30, struct.pack('<2i', *spec['viewport']))
+        put32(u, DISPLAY + 0xF8, spec['map_size'][1])
+        # The existing geometry startup owns independent ground/shroud scalars.
+        self.startup = initialize_discovery_geometry(
+            lambda address, receiver, args: self.invoke(address, args, receiver=receiver),
+            self.read32, u)
+        assert u32(u, 0x89E7C0) == u32(u, 0xABDE88) == 104
+        put32(u, 0xB0CE88, 0)  # camera-only control has no ZBuffer allocation
+        put8(u, 0xA8EB7C, 0)  # supplied left-sidebar coordinate frame
+        put32(u, DISPLAY + 0x14B0, spec.get('radar_mode', 1))
+        put32(u, DISPLAY + 0x14AC, spec.get('radar_state', 1))
+        put32(u, DISPLAY + 0x1488, spec['zoom_bits'])
+        put32(u, DISPLAY + 0x1490, spec['column_base'])
+        put32(u, DISPLAY + 0x1498, spec['row_base'])
+        u.mem_write(DISPLAY + 0x149C, struct.pack('<4i', *spec['image_rect']))
+        put8(u, 0xA8ED6B, 0)
+        put32(u, 0xA8B238, 5)
+        u.mem_write(0xB048C0, packed(32767, 32767))
+        # Margin refusal reaches the original cursor setter's already-set,
+        # null-image early return, without a mouse device callback or timer.
+        put8(u, 0xABF2DD, 1)
+        put32(u, 0xABF294, 0)
+        u.mem_write(TABLE, EMPTY_TABLE)
+        put32(u, DISPLAY + 0x13C, TABLE)
+        put32(u, DISPLAY + 0x140, 0x40000)
+        self.cell_ids = {DUMMY: 'dummy'}
+        proxy = SimpleNamespace(uc=u, read32=self.read32)
+        # Reuse the existing fixture's memory transport, not a second Cell or
+        # Foot setup. These are explicit prepared inputs, not constructors.
+        OriginalBridgeQuery.write_cell(proxy, DUMMY,
+            dict(xy=[1234, -2345], level=0, slope=0, flags=0))
+        for index, cell in enumerate(spec['cells']):
+            pointer = SCRATCH + 0xA000 + index * 0x200
+            OriginalBridgeQuery.write_cell(proxy, pointer, cell)
+            self.cell_ids[pointer] = 'cell_' + '_'.join(map(str, cell['xy']))
+            put32(u, TABLE + (cell['xy'][1] * 512 + cell['xy'][0]) * 4, pointer)
+        self.foot, self.loco = SCRATCH + 0xB000, SCRATCH + 0xB804
+        OriginalBridgeQuery.setup_foot(proxy, self.foot, self.loco,
+            dict(family='drive', current=spec['actor']['current'],
+                 stored_head=spec['actor']['head'], on_bridge=False,
+                 locomotor_present=True, tube=None))
+        self.input_pointer, self.pixel_pointer = SCRATCH + 0xC000, SCRATCH + 0xC040
+        self.key_pointer, self.gadget = SCRATCH + 0xC080, SCRATCH + 0xC100
+        put32(u, 0x87F770, self.input_pointer)
+        # Retained tracker membership is supplied; original656750 owns lookup.
+        tracker, buckets, entry = 0xD10000, 0xD11000, 0xD13000
+        put32(u, DISPLAY + 0x1258, tracker)
+        put32(u, tracker, buckets)
+        u.mem_write(buckets, bytes(256 * 24))
+        if spec.get('tracked', True):
+            u.mem_write(POINT, struct.pack('<3i', *spec['actor']['current']))
+            self.invoke(0x6557F0, [self.pixel_pointer, POINT, 0], receiver=DISPLAY)
+            pixel = list(struct.unpack('<2i', u.mem_read(self.pixel_pointer, 8)))
+            bucket = (pixel[0] - 5 * pixel[1]) & 255
+            put32(u, buckets + bucket * 24 + 4, entry)
+            put32(u, buckets + bucket * 24 + 0x10, 1)
+            u.mem_write(entry, struct.pack('<4I', self.foot, *pixel, self.foot))
+        else:
+            pixel = spec['pixel']
+        self.pixel = pixel
+        self.cursor = spec.get('cursor', [pixel[0] + spec['image_rect'][0],
+                                          pixel[1] + spec['image_rect'][1]])
+        u.mem_write(self.input_pointer, struct.pack('<2i', *self.cursor))
+        self.foot_before = bytes(u.mem_read(self.foot, 0x700))
+        self.loco_before = bytes(u.mem_read(self.loco, 0x80))
+        u.hook_add(UC_HOOK_MEM_WRITE, self.observe_write)
+
+    def camera_state(self):
+        u = self.machine
+        return dict(committed=list(struct.unpack('<2i', u.mem_read(self.tactical + 0xD64, 8))),
+                    requested=list(struct.unpack('<2i', u.mem_read(self.tactical + 0xD74, 8))),
+                    top_left=list(struct.unpack('<2i', u.mem_read(self.tactical + 0xB0, 8))),
+                    visible_cells=list(struct.unpack('<4i', u.mem_read(self.tactical + 0xD80, 16))),
+                    redraw=u.mem_read(self.tactical + 0xD7D, 1)[0],
+                    screen_redraw_level=u32(u, DISPLAY + 0xC),
+                    map_redraw_generation_1158=u.mem_read(DISPLAY + 0x1158, 1)[0])
+
+    def observe_write(self, u, _access, address, size, value, _data):
+        if self.measuring and address == 0xABDC74:
+            self.writes.append(dict(owner='dummy_coordinate', size=size, value=value))
+
+    def sink(self, u, pc, size, data):
+        super().sink(u, pc, size, data)
+        if not getattr(self, 'measuring', False):
+            return
+        sp = u.reg_read(UC_X86_REG_ESP)
+        for index in self.trace.returned(pc, sp):
+            row = self.calls[index]
+            name, args = row['name'], row['args']
+            if name == 'radar_pick':
+                row['cell'] = list(struct.unpack('<2h', u.mem_read(args[1], 4)))
+                row['tracked_object'] = 'amcv' if u32(u, args[2]) == self.foot else None
+            elif name in ('foot_navigation', 'drive_head', 'cell_center'):
+                row['xyz'] = list(struct.unpack('<3i', u.mem_read(u.reg_read(UC_X86_REG_EAX), 12)))
+            elif name == 'map_cell':
+                receiver = u.reg_read(UC_X86_REG_EAX)
+                row['identity'] = self.cell_ids.get(receiver, f'unknown_{receiver:08X}')
+                row['stored_cell'] = list(struct.unpack('<2h', u.mem_read(receiver + 0x24, 4)))
+        specs = {0x6539D0: ('radar_action', 3, 12), 0x656750: ('radar_pick', 3, 12),
+                 0x4DBDF0: ('foot_navigation', 2, 8), 0x4AFCC0: ('drive_head', 2, 8),
+                 0x5657A0: ('map_cell', 1, 4), 0x578080: ('map_ground', 1, 4),
+                 0x47B3A0: ('cell_ground', 1, 4), 0x586360: ('shroud_query', 1, 4),
+                 0x480A30: ('cell_center', 1, 4), 0x6D6070: ('set_view', 1, 4),
+                 0x6D8B30: ('viewport_update', 0, 0), 0x6D8640: ('camera_clamp', 1, 4),
+                 0x4F42F0: ('redraw', 1, 4), 0x578AC0: ('redraw_generation', 0, 0),
+                 0x4E1530: ('gadget_tail', 3, 12)}
+        if pc in specs:
+            row = self.calls[self.trace.entered(pc, sp, specs[pc])]
+            if row['name'] == 'map_cell':
+                row['cell_input'] = list(struct.unpack('<2h', u.mem_read(row['args'][0], 4)))
+            elif row['name'] == 'set_view':
+                row['xyz'] = list(struct.unpack('<3i', u.mem_read(row['args'][0], 12)))
+        if pc in (0x65C780, 0x65C7E0, 0x7258D0, 0x5F65F0, 0x6C8C40):
+            key = f'{pc:08X}'
+            self.counts[key] = self.counts.get(key, 0) + 1
+
+    def execute(self):
+        u = self.machine
+        guard = code_guard(u)
+        before = self.camera_state()
+        self.refresh_calls = 0
+        self.measuring = True
+        self.invoke(0x6539D0, [self.spec.get('flags', 0x11), self.key_pointer, 0], receiver=self.gadget)
+        self.trace.returned(RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+        self.measuring = False
+        assert not self.trace.pending
+        assert bytes(u.mem_read(self.foot, 0x700)) == self.foot_before
+        assert bytes(u.mem_read(self.loco, 0x80)) == self.loco_before
+        check_code(u, guard)
+        return dict(input=self.spec, pixel=self.pixel, cursor=self.cursor,
+                    before=before, after=self.camera_state(), calls=self.calls,
+                    dummy_writes=self.writes, effects=self.counts,
+                    refresh_calls=self.refresh_calls, result=u.reg_read(UC_X86_REG_EAX),
+                    original_code_unchanged=True, foot_and_locomotor_unchanged=True,
+                    geometry_startup=self.startup)
+
+
+def radar_click_inputs():
+    root = Path(__file__).resolve().parents[1]
+    moving = json.loads((root / 'procedural_drawing_oracle/shroud_frontier_moving.json').read_text())
+    placement = json.loads((root / 'spatial_oracle/placement_render.json').read_text())
+    histories = {row['name']: row['state'] for row in moving['histories']}
+    ramp = placement['inputs']['map']['native_recalc']['rows'][0]
+    moving_cells = {tuple(cell['cell']): cell for cell in histories['arrival_1']['cells']}
+    # Retained native Cell levels; flat slope/flag priors are explicit below.
+    cells = [dict(xy=xy, level=moving_cells[tuple(xy)]['level'], slope=0, flags=0)
+             for xy in ([110, 27], [111, 27])]
+    cells.append(dict(xy=ramp['coords'], level=ramp['output']['level'],
+                      slope=ramp['output']['slope'], flags=0))
+    base = dict(viewport=[856, 736], map_size=[103, 82], local_size=[2, 4, 99, 72],
+                image_rect=[12, 20, 140, 108], zoom_bits=0x3F800000,
+                column_base=30, row_base=100, cells=cells)
+    rows = []
+    for name, history in [('moving_occupied', 'arrival_1'), ('stopped_occupied', 'stop')]:
+        source = histories[history]
+        actor = dict(current=source['actor']['position'], head=source['drive']['head'])
+        rows.append(base | dict(name=name, actor=actor, native_history=history,
+                                native_frame=source['frame']))
+    rows += [rows[0] | dict(name='empty_physical_ramp', tracked=False, pixel=[102, 40]),
+             rows[0] | dict(name='radar_offline', radar_state=0),
+             rows[0] | dict(name='radar_other_mode', radar_mode=2),
+             rows[0] | dict(name='outside_generated_image', cursor=[11, 20]),
+             rows[0] | dict(name='right_gadget_flag_rejected', flags=0x22)]
+    return rows
+
+
+def radar_click_generate():
+    rows = [RadarClickFixture(spec).execute() for spec in radar_click_inputs()]
+    startup = rows[0]['geometry_startup']
+    for row in rows:
+        assert row.pop('geometry_startup') == startup
+        admitted = row['input']['name'] in ('moving_occupied', 'stopped_occupied', 'empty_physical_ramp')
+        assert row['refresh_calls'] == int(admitted)
+        assert any(call['name'] == 'cell_center' for call in row['calls']) == admitted
+        assert not row['effects']
+    return dict(native_inputs=dict(
+        moving='tools/procedural_drawing_oracle/shroud_frontier_moving.json histories arrival_1 and stop',
+        ramp='tools/spatial_oracle/placement_render.json inputs.map.native_recalc.rows[0]',
+        geometry_startup=startup,
+        boundary='Replayed original-produced pose/head and ramp fields; supplied sparse map, retained tracker and online/generated geometry, not native whole skirmish startup.'), rows=rows)
+
+
+def radar_click_metadata():
+    return provenance(scope='Original radar gadget6539D0 through tracked Foot navigation, Cell center and immediate camera/view bounds.',
+        assumptions=[
+            'Existing CameraFixture/SavedViewFixture own VM transport, original WinMain PC53/chop initialization, native projection multiplier and full viewport updater. No camera formula is copied.',
+            'Moving arrival_1 and Stop pose/head come from the consumed original Move corpus; physical GoldSt ramp106,34 level5/slope1 comes from consumed original TMP/Recalc placement inputs. Replayed prepared state is not whole native scenario or absolute timing parity.',
+            'Shared OriginalBridgeQuery setup owns Foot/Drive and Cell backing. Native Unit+4C, Foot4DBDF0, Drive4AFCC0 and null/current fallback execute. No pose/head/navigation output comes from Rust.',
+            'Existing initialize_discovery_geometry executes original ground/shroud/Tactical startup, establishing104/416 and projection scalars before the selected calls. Original camera constructor matrix stores execute in this same VM.',
+            'MapSize103,82 and LocalSize2,4,99,72 reflect physical GoldSt. Sparse enrollment, flat corridor slope0/flags0, one retained tracker entry and generated ImageRect/scale/offsets are supplied component inputs. Whole native geometry generation, radar provider/power/animation and tracker registration producers are excluded.',
+            'Flags11 executes original ground/shroud queries, signed clamp, never-null Map lookup, Cell480A30, Tactical6D6070/6D8B30/redraw and zero-flags Gadget tail. Controls refuse mode/state, margin and flags22.',
+            'No ZBuffer allocation is present. Original cursor setter uses its already-set/null-image early return on the margin control. No rendered radar/cursor or whole-frame pixels are claimed.',
+        ], substitutions=[], entry_points=dict(radar_action=0x6539D0, radar_pick=0x656750,
+            radar_project=0x6557F0, foot_navigation=0x4DBDF0, drive_head=0x4AFCC0,
+            map_cell=0x5657A0, map_ground=0x578080, cell_ground=0x47B3A0,
+            cell_center=0x480A30, set_view=0x6D6070, viewport_update=0x6D8B30,
+            clamp=0x6D8640, redraw=0x4F42F0))
+
+
 def generate() -> dict:
     cases = []
     for case in input_cases():
@@ -1006,6 +1230,21 @@ def generate() -> dict:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--radar-click', action='store_true')
+    options, remaining = parser.parse_known_args()
+    if options.radar_click:
+        finish_vectors(radar_click_generate, Path(__file__).with_name('radar_click.json'),
+            provenance=radar_click_metadata, argv=remaining,
+            source_paths=dict(producer=Path(__file__), shared_runner=Path(native_oracle.__file__),
+                foot=Path(__file__).resolve().parents[1] / 'spatial_oracle/foot_navigation_coordinate.py',
+                locomotor=Path(__file__).resolve().parents[1] / 'spatial_oracle/locomotor_at_coord.py',
+                map_queries=Path(__file__).resolve().parents[1] / 'spatial_oracle/map_queries.py',
+                geometry=Path(__file__).resolve().parents[1] / 'spatial_oracle/trigger_action_values.py',
+                moving=Path(__file__).resolve().parents[1] / 'procedural_drawing_oracle/shroud_frontier_moving.json',
+                placement=Path(__file__).resolve().parents[1] / 'spatial_oracle/placement_render.json'))
+        raise SystemExit(0)
     finish_vectors(
         generate, Path(__file__).with_suffix(".json"),
         provenance=lambda: provenance(
@@ -1055,6 +1294,7 @@ if __name__ == "__main__":
                           "ConstructorMatrixStart": 0x006D1DC5,
                           "ConstructorMatrixEnd": 0x006D1E24},
         ),
+        argv=remaining,
         source_paths={"producer": Path(__file__), "shared_runner": Path(native_oracle.__file__),
                       "projection_fixture": Path(native_oracle.__file__).with_name("bridge_click_oracle.py")},
     )

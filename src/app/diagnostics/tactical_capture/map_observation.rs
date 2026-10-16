@@ -113,6 +113,15 @@ enum MapGesture {
         from: [u32; 2],
         to: [u32; 2],
     },
+    /// Ordinary left press/release on the live generated radar surface.
+    /// Online admission and screen-to-generated-pixel remain production input.
+    Minimap {
+        position: [u32; 2],
+    },
+    /// Resolve a current retained tracker pixel, then send ordinary mouse edges.
+    MinimapObject {
+        entity_id: u64,
+    },
     /// Resolve the named control from the current immutable sidebar view.
     /// This still sends ordinary mouse edges, never a SidebarAction.
     Sidebar {
@@ -147,6 +156,10 @@ enum MapGesture {
 }
 
 impl MapGesture {
+    fn is_minimap(&self) -> bool {
+        matches!(self, Self::Minimap { .. } | Self::MinimapObject { .. })
+    }
+
     fn is_right_button(&self) -> bool {
         matches!(
             self,
@@ -167,9 +180,14 @@ impl MapGesture {
     }
     fn points(&self) -> Option<([u32; 2], [u32; 2])> {
         match self {
-            Self::Click { position, .. } => Some((*position, *position)),
+            Self::Click { position, .. } | Self::Minimap { position } => {
+                Some((*position, *position))
+            }
             Self::Drag { from, to } => Some((*from, *to)),
-            Self::Sidebar { .. } | Self::CommandBar { .. } | Self::Key { .. } => None,
+            Self::Sidebar { .. }
+            | Self::CommandBar { .. }
+            | Self::Key { .. }
+            | Self::MinimapObject { .. } => None,
         }
     }
 }
@@ -606,14 +624,27 @@ impl MapCaptureProfile {
             );
             if let Some((from, to)) = gesture.gesture.points() {
                 for [x, y] in [from, to] {
-                    ensure!(
-                        x > 0 && x < tactical_width - 1 && y > 0 && y < tactical_height - 1,
-                        "gesture points must be inside the tactical viewport's outermost pixels"
-                    );
+                    if gesture.gesture.is_minimap() {
+                        ensure!(
+                            x > 0 && x < self.width - 1 && y > 0 && y < self.height - 1,
+                            "minimap gesture must be inside the render target's outermost pixels"
+                        );
+                    } else {
+                        ensure!(
+                            x > 0 && x < tactical_width - 1 && y > 0 && y < tactical_height - 1,
+                            "gesture points must be inside the tactical viewport's outermost pixels"
+                        );
+                    }
                 }
                 ensure!(
                     !matches!(gesture.gesture, MapGesture::Drag { .. }) || from != to,
                     "drag endpoints must differ"
+                );
+            }
+            if let MapGesture::MinimapObject { entity_id } = gesture.gesture {
+                ensure!(
+                    entity_id != 0,
+                    "minimap object requires a live nonzero identity"
                 );
             }
             if let MapGesture::Sidebar { target, .. } = &gesture.gesture {
@@ -810,7 +841,9 @@ impl MapCaptureProfile {
 
     fn observes_local_input(&self) -> bool {
         self.gestures().iter().any(|entry| {
-            matches!(entry.gesture, MapGesture::Key { .. }) || entry.gesture.is_right_button()
+            matches!(entry.gesture, MapGesture::Key { .. })
+                || entry.gesture.is_minimap()
+                || entry.gesture.is_right_button()
         })
     }
 
@@ -1689,6 +1722,14 @@ struct MapSidebarFrame {
 }
 
 #[derive(Debug, Serialize)]
+struct MapMinimapGestureReceipt {
+    resolved_position: [u32; 2],
+    tracker_hit: Option<u64>,
+    cell: [u16; 2],
+    world_leptons: [i32; 3],
+}
+
+#[derive(Debug, Serialize)]
 struct MapGestureReceipt {
     ordinal: usize,
     issue_after_step: u32,
@@ -1709,6 +1750,8 @@ struct MapGestureReceipt {
     keyboard: Option<MapKeyboardGestureReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command_bar: Option<MapCommandBarGestureReceipt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    minimap: Option<MapMinimapGestureReceipt>,
 }
 
 fn disguise_inputs(
@@ -2800,6 +2843,7 @@ impl TacticalCaptureSession {
             let local_input = profile.observes_local_input();
             let before = MapInputObservation::capture(state, local_input)?;
             let right = scheduled.gesture.is_right_button();
+            let mut minimap = None;
             let (
                 left_press_captured,
                 right_press_captured,
@@ -2838,6 +2882,11 @@ impl TacticalCaptureSession {
                     _ => None,
                 };
                 let (from, to, sidebar_slot) = match &scheduled.gesture {
+                    MapGesture::MinimapObject { entity_id } => {
+                        let position = crate::app::presentation::sidebar_render::minimap_object_click_position(state, *entity_id)
+                            .context("requested object has no retained clickable radar pixel")?;
+                        (position, position, None)
+                    }
                     MapGesture::Sidebar { target, .. } => {
                         let (position, slot) =
                             sidebar_before
@@ -2878,6 +2927,27 @@ impl TacticalCaptureSession {
                     crate::app::input::dispatch::handle_mouse_input(state, mouse_button, edge);
                 };
                 move_cursor(state, from);
+                if scheduled.gesture.is_minimap() {
+                    let target =
+                        crate::app::presentation::sidebar_render::minimap_camera_target(state)
+                            .context("minimap point has no current native camera target")?;
+                    if let MapGesture::MinimapObject { entity_id } = scheduled.gesture {
+                        ensure!(
+                            target.tracker_hit == Some(entity_id),
+                            "resolved radar point no longer selects the requested object"
+                        );
+                    }
+                    minimap = Some(MapMinimapGestureReceipt {
+                        resolved_position: from,
+                        tracker_hit: target.tracker_hit,
+                        cell: [target.cell.0, target.cell.1],
+                        world_leptons: [
+                            target.world_leptons.0,
+                            target.world_leptons.1,
+                            target.world_leptons.2,
+                        ],
+                    });
+                }
                 button(state, ElementState::Pressed);
                 let mouse = &state.match_state.input.tactical_mouse;
                 let gadgets = &state.match_state.match_presentation.in_game_gadgets;
@@ -2917,6 +2987,8 @@ impl TacticalCaptureSession {
                         };
                         let routed = gadgets.out.consumed_by.or(gadgets.focus.sticky);
                         expected.is_some() && routed == expected && !mouse.captured
+                    } else if scheduled.gesture.is_minimap() {
+                        state.match_state.input.minimap_dragging && !mouse.captured
                     } else {
                         mouse.captured
                     };
@@ -3040,6 +3112,7 @@ impl TacticalCaptureSession {
                 .and_then(|count| count.checked_add(after.sample_count()))
                 .and_then(|count| count.checked_add(queued_commands.len()))
                 .and_then(|count| count.checked_add(usize::from(command_bar.is_some())))
+                .and_then(|count| count.checked_add(usize::from(minimap.is_some())))
                 .and_then(|count| {
                     count.checked_add(sidebar.as_ref().map_or(0, |receipt| {
                         receipt.before.sample_count()
@@ -3069,6 +3142,7 @@ impl TacticalCaptureSession {
                 sidebar,
                 keyboard,
                 command_bar,
+                minimap,
             });
         }
     }
@@ -4710,6 +4784,20 @@ mod tests {
             to: [100, 100],
         };
         profile.validate().unwrap();
+        // A radar gesture uses the same ordinary mouse edges, but its live
+        // production admission is outside the tactical rectangle.
+        profile.gestures.as_mut().unwrap()[0].gesture = MapGesture::Minimap {
+            position: [profile.width - 20, 100],
+        };
+        profile.validate().unwrap();
+        for position in [[0, 1], [profile.width - 1, 100], [20, profile.height - 1]] {
+            profile.gestures.as_mut().unwrap()[0].gesture = MapGesture::Minimap { position };
+            assert!(profile.validate().is_err());
+        }
+        profile.gestures.as_mut().unwrap()[0].gesture = MapGesture::Drag {
+            from: [10, 10],
+            to: [100, 100],
+        };
         let valid = serde_json::to_value(profile).unwrap();
         for gesture in [
             json!({"kind": "click", "position": [true, 1]}),
@@ -5250,6 +5338,7 @@ mod tests {
                 sidebar: None,
                 keyboard: None,
                 command_bar: None,
+                minimap: None,
             });
         }
         assert!(map.pending_gesture(&profile, 1).unwrap().is_none());

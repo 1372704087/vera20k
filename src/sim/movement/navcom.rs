@@ -609,6 +609,27 @@ pub(crate) fn nav_target_coordinate(
     super::foot_coordinate::navigation_coordinate(entity, terrain)
 }
 
+impl crate::sim::world::Simulation {
+    /// Query the existing virtual+4C navigation owner with the actual requester.
+    /// Unlike Object+48, a moving Foot can return its retained head or tube exit;
+    /// Buildings retain their requester/type-dependent coordinate policy.
+    /// Radar6567F4 passes a null requester before its own signed cell clamp.
+    pub fn navigation_target_coordinate(
+        &self,
+        target: NavTargetRef,
+        requester: Option<u64>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Result<DriveCoord, String> {
+        nav_target_coordinate(
+            target,
+            requester,
+            &self.substrate.entities,
+            self.resolved_terrain.as_ref(),
+            Some((rules, &self.interner)),
+        )
+    }
+}
+
 /// Cell callers of the shared non-null destination owner. Object callers
 /// capture their receiver's +4C through `nav_target_coordinate` instead.
 pub(crate) fn set_destination_internal_cell(

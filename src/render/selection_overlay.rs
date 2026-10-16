@@ -96,12 +96,10 @@ pub struct SelectionOverlay {
     occupant_pip_frame_w: u32,
     occupant_pip_frame_h: u32,
     occupant_pip_canvas_adj: (f32, f32),
-    /// Tiberium cargo pip atlas: 3 frames from pips2.shp packed horizontally.
-    /// Frames 0 (empty), 2 (ore/green), 5 (gem) — used for harvester cargo display.
-    tiberium_pip_texture: Option<BatchTexture>,
-    tiberium_pip_frame_w: u32,
-    tiberium_pip_frame_h: u32,
-    tiberium_pip_canvas_adj: (f32, f32),
+    /// PIPS2.SHP: all raw frames, shared by cargo and MindControl scales.
+    /// Native LoadPipAssets5F76B0 binds AC1480; DrawPipScalePips709AEF
+    /// selects this shape for nonbuildings, in PALETTE.PAL/Convert87F6C4.
+    scale_pips: Option<CenteredShapeStrip>,
     /// BOMBCURS.SHP, the Crazy Ivan bomb clock.
     bomb_clock: Option<CenteredShapeStrip>,
     /// WRENCH.SHP, the repairing building's wrench.
@@ -150,68 +148,69 @@ impl CenteredShapeStrip {
             ..Default::default()
         })
     }
-}
-
-/// Decode `shp_name` in `pal_name` into a [`CenteredShapeStrip`].
-fn load_centered_shape_strip(
-    gpu: &GpuContext,
-    batch: &BatchRenderer,
-    assets: &AssetManager,
-    shp_name: &str,
-    pal_name: &str,
-) -> Option<CenteredShapeStrip> {
-    let shp = ShpFile::from_bytes(&assets.get(shp_name)?).ok()?;
-    let palette = Palette::from_bytes(&assets.get(pal_name)?).ok()?;
-    let atlas_w: u32 = shp
-        .frames
-        .iter()
-        .map(|f| u32::from(f.frame_width))
-        .sum::<u32>()
-        .max(1);
-    let atlas_h: u32 = shp
-        .frames
-        .iter()
-        .map(|f| u32::from(f.frame_height))
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let mut rgba = vec![0u8; (atlas_w * atlas_h * 4) as usize];
-    let mut frames = Vec::with_capacity(shp.frames.len());
-    let mut x = 0;
-    for frame in &shp.frames {
-        let (w, h) = (u32::from(frame.frame_width), u32::from(frame.frame_height));
-        for py in 0..h {
-            for px in 0..w {
-                let index = frame.pixels[(py * w + px) as usize];
-                if index == 0 {
-                    continue;
+    /// Decode every raw SHP frame in its named palette. This is the same
+    /// resource path for windowed loading and offscreen GPU checks.
+    pub(crate) fn from_assets_on_device(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &BatchRenderer,
+        assets: &AssetManager,
+        shp_name: &str,
+        pal_name: &str,
+    ) -> Option<Self> {
+        let shp = ShpFile::from_bytes(&assets.get(shp_name)?).ok()?;
+        let palette = Palette::from_bytes(&assets.get(pal_name)?).ok()?;
+        let atlas_w: u32 = shp
+            .frames
+            .iter()
+            .map(|f| u32::from(f.frame_width))
+            .sum::<u32>()
+            .max(1);
+        let atlas_h: u32 = shp
+            .frames
+            .iter()
+            .map(|f| u32::from(f.frame_height))
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        let mut rgba = vec![0u8; (atlas_w * atlas_h * 4) as usize];
+        let mut frames = Vec::with_capacity(shp.frames.len());
+        let mut x = 0;
+        for frame in &shp.frames {
+            let (w, h) = (u32::from(frame.frame_width), u32::from(frame.frame_height));
+            for py in 0..h {
+                for px in 0..w {
+                    let index = frame.pixels[(py * w + px) as usize];
+                    if index == 0 {
+                        continue;
+                    }
+                    let color = palette.colors[index as usize];
+                    let dst = ((py * atlas_w + x + px) * 4) as usize;
+                    rgba[dst..dst + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
                 }
-                let color = palette.colors[index as usize];
-                let dst = ((py * atlas_w + x + px) * 4) as usize;
-                rgba[dst..dst + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
             }
+            frames.push(CenteredShapeFrame {
+                x,
+                w,
+                h,
+                offset: (
+                    i32::from(frame.frame_x) - i32::from(shp.width / 2),
+                    i32::from(frame.frame_y) - i32::from(shp.height / 2),
+                ),
+            });
+            x += w;
         }
-        frames.push(CenteredShapeFrame {
-            x,
-            w,
-            h,
-            offset: (
-                i32::from(frame.frame_x) - i32::from(shp.width / 2),
-                i32::from(frame.frame_y) - i32::from(shp.height / 2),
-            ),
-        });
-        x += w;
+        log::info!(
+            "{shp_name} strip in {pal_name}: {atlas_w}x{atlas_h}, {} frames",
+            frames.len()
+        );
+        Some(Self {
+            texture: batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None),
+            atlas_w: atlas_w as f32,
+            atlas_h: atlas_h as f32,
+            frames,
+        })
     }
-    log::info!(
-        "{shp_name} strip in {pal_name}: {atlas_w}x{atlas_h}, {} frames",
-        frames.len()
-    );
-    Some(CenteredShapeStrip {
-        texture: batch.create_texture(gpu, &rgba, atlas_w, atlas_h),
-        atlas_w: atlas_w as f32,
-        atlas_h: atlas_h as f32,
-        frames,
-    })
 }
 
 impl SelectionOverlay {
@@ -295,33 +294,67 @@ impl SelectionOverlay {
             occ_adj_y,
         ) = load_occupant_pip_atlas(gpu, batch, assets).unwrap_or((None, 0, 0, 0.0, 0.0));
 
-        // Load pips2.shp frames 0, 2, 5 for tiberium cargo pips (harvesters).
-        let (
-            tiberium_pip_texture,
-            tiberium_pip_frame_w,
-            tiberium_pip_frame_h,
-            tib_adj_x,
-            tib_adj_y,
-        ) = load_tiberium_pip_atlas(gpu, batch, assets).unwrap_or((None, 0, 0, 0.0, 0.0));
+        // Native Init_Game52BF26/52BFC1 builds Convert87F6C4 from the
+        // literal PALETTE.PAL; keep the SHP's full raw frame table. The
+        // common centered owner applies each stored frame's own origin.
+        let scale_pips = assets.and_then(|assets| {
+            CenteredShapeStrip::from_assets_on_device(
+                &gpu.device,
+                &gpu.queue,
+                batch,
+                assets,
+                "pips2.shp",
+                "palette.pal",
+            )
+        });
 
         // `Rules+0xFE0`, BOMBCURS.SHP by name (0x0066C5F4), drawn through the
         // convert `[0x0087F6C8]` that Init_Game builds from MOUSEPAL.PAL
         // (0x0052C13D..0x0052C1DD).
         let bomb_clock = assets.and_then(|assets| {
-            load_centered_shape_strip(gpu, batch, assets, "bombcurs.shp", "mousepal.pal")
+            CenteredShapeStrip::from_assets_on_device(
+                &gpu.device,
+                &gpu.queue,
+                batch,
+                assets,
+                "bombcurs.shp",
+                "mousepal.pal",
+            )
         });
         // WRENCH.SHP by name (`0x0045E99E` into `[0x0089DDC8]`), drawn
         // through the same convert.
         let repair_wrench = assets.and_then(|assets| {
-            load_centered_shape_strip(gpu, batch, assets, "wrench.shp", "mousepal.pal")
+            CenteredShapeStrip::from_assets_on_device(
+                &gpu.device,
+                &gpu.queue,
+                batch,
+                assets,
+                "wrench.shp",
+                "mousepal.pal",
+            )
         });
         // PIPS.SHP — the same file the health strip's pips come from, in the
         // unit pips' palette. Its tail (`0x0070A614..0x0070A6BB`) draws the
         // self-heal status pip (index 0x0D organic / 0x14 units) centered on
         // the draw point, so the strip's own frame origins carry the offset.
         let self_heal_pip = assets.and_then(|assets| {
-            load_centered_shape_strip(gpu, batch, assets, "pips.shp", "palette.pal").or_else(|| {
-                load_centered_shape_strip(gpu, batch, assets, "pips.shp", "unittem.pal")
+            CenteredShapeStrip::from_assets_on_device(
+                &gpu.device,
+                &gpu.queue,
+                batch,
+                assets,
+                "pips.shp",
+                "palette.pal",
+            )
+            .or_else(|| {
+                CenteredShapeStrip::from_assets_on_device(
+                    &gpu.device,
+                    &gpu.queue,
+                    batch,
+                    assets,
+                    "pips.shp",
+                    "unittem.pal",
+                )
             })
         });
 
@@ -353,10 +386,7 @@ impl SelectionOverlay {
             occupant_pip_frame_w,
             occupant_pip_frame_h,
             occupant_pip_canvas_adj: (occ_adj_x, occ_adj_y),
-            tiberium_pip_texture,
-            tiberium_pip_frame_w,
-            tiberium_pip_frame_h,
-            tiberium_pip_canvas_adj: (tib_adj_x, tib_adj_y),
+            scale_pips,
             bomb_clock,
             repair_wrench,
             self_heal_pip,
@@ -596,33 +626,10 @@ impl SelectionOverlay {
         self.occupant_pip_canvas_adj
     }
 
-    /// Get the tiberium cargo pip atlas texture (pips2.shp frames 0, 2, 5).
-    pub fn tiberium_pip_texture(&self) -> Option<&BatchTexture> {
-        self.tiberium_pip_texture.as_ref()
-    }
-
-    /// UV origin for a tiberium pip variant: 0=empty, 1=ore, 2=gem.
-    pub fn tiberium_pip_uv_origin(&self, variant: u32) -> [f32; 2] {
-        let v: f32 = (variant.min(TIBERIUM_PIP_VARIANT_COUNT - 1)) as f32;
-        [v / TIBERIUM_PIP_VARIANT_COUNT as f32, 0.0]
-    }
-
-    /// UV size for a single tiberium pip frame in the atlas.
-    pub fn tiberium_pip_uv_size(&self) -> [f32; 2] {
-        [1.0 / TIBERIUM_PIP_VARIANT_COUNT as f32, 1.0]
-    }
-
-    /// Pixel size of one tiberium pip frame.
-    pub fn tiberium_pip_frame_size(&self) -> [f32; 2] {
-        [
-            self.tiberium_pip_frame_w as f32,
-            self.tiberium_pip_frame_h as f32,
-        ]
-    }
-
-    /// Canvas centering adjustment for tiberium cargo pips.
-    pub fn tiberium_pip_canvas_adj(&self) -> (f32, f32) {
-        self.tiberium_pip_canvas_adj
+    /// The one PIPS2.SHP strip: raw frame0 empty,1 occupied,3/4 overload,
+    /// and2/5 ore/gem. Callers supply native frame IDs, not atlas variants.
+    pub fn scale_pips(&self) -> Option<&CenteredShapeStrip> {
+        self.scale_pips.as_ref()
     }
 
     /// Get the pipbrd atlas texture for non-building health bar backgrounds.
@@ -1092,100 +1099,6 @@ fn load_occupant_pip_atlas(
         max_h,
         VARIANT_COUNT,
         OCCUPANT_PIP_FRAMES,
-        adj_x,
-        adj_y,
-    );
-    Some((Some(texture), max_w, max_h, adj_x, adj_y))
-}
-
-/// Number of tiberium pip variants packed into the tiberium pip atlas (empty, ore, gem).
-const TIBERIUM_PIP_VARIANT_COUNT: u32 = 3;
-
-/// Load pips2.shp frames 0, 2, 5 for tiberium/cargo pip display on harvesters.
-///
-/// pips2.shp frame layout (non-building pip display):
-///   0 = empty pip (dark)
-///   2 = ore pip (green)
-///   5 = gem pip (yellow/blue)
-///
-/// Uses palette.pal for coloring.
-fn load_tiberium_pip_atlas(
-    gpu: &GpuContext,
-    batch: &BatchRenderer,
-    assets: Option<&AssetManager>,
-) -> Option<(Option<BatchTexture>, u32, u32, f32, f32)> {
-    let assets = assets?;
-    let shp_data = assets.get("pips2.shp")?;
-    let shp = ShpFile::from_bytes(&shp_data).ok()?;
-    if shp.frames.len() < 6 {
-        log::warn!(
-            "pips2.shp has fewer than 6 frames ({}), cannot load tiberium pip atlas",
-            shp.frames.len()
-        );
-        return Some((None, 0, 0, 0.0, 0.0));
-    }
-    let pal_data = assets
-        .get("palette.pal")
-        .or_else(|| assets.get("unittem.pal"))?;
-    let palette = Palette::from_bytes(&pal_data).ok()?;
-
-    // Atlas slot order: [empty, ore, gem] from pips2.shp frames [0, 2, 5].
-    let frame_indices: [usize; TIBERIUM_PIP_VARIANT_COUNT as usize] = [0, 2, 5];
-    let mut max_w: u32 = 0;
-    let mut max_h: u32 = 0;
-    for &fi in &frame_indices {
-        let fw: u32 = shp.frames[fi].frame_width as u32;
-        let fh: u32 = shp.frames[fi].frame_height as u32;
-        if fw > max_w {
-            max_w = fw;
-        }
-        if fh > max_h {
-            max_h = fh;
-        }
-    }
-
-    let atlas_w: u32 = max_w * TIBERIUM_PIP_VARIANT_COUNT;
-    let atlas_h: u32 = max_h;
-    let mut rgba: Vec<u8> = vec![0u8; (atlas_w * atlas_h * 4) as usize];
-
-    for (slot, &fi) in frame_indices.iter().enumerate() {
-        let frame = &shp.frames[fi];
-        let fw: u32 = frame.frame_width as u32;
-        let fh: u32 = frame.frame_height as u32;
-        let x_off: u32 = slot as u32 * max_w;
-        let cx: u32 = (max_w - fw) / 2;
-        let cy: u32 = (max_h - fh) / 2;
-        for py in 0..fh {
-            for px in 0..fw {
-                let src_idx: usize = (py * fw + px) as usize;
-                let pal_idx: u8 = frame.pixels[src_idx];
-                if pal_idx == 0 {
-                    continue;
-                }
-                let color = palette.colors[pal_idx as usize];
-                let dst_x: u32 = x_off + cx + px;
-                let dst_y: u32 = cy + py;
-                let dst: usize = ((dst_y * atlas_w + dst_x) * 4) as usize;
-                rgba[dst] = color.r;
-                rgba[dst + 1] = color.g;
-                rgba[dst + 2] = color.b;
-                rgba[dst + 3] = 255;
-            }
-        }
-    }
-
-    let ref_frame = &shp.frames[0];
-    let adj_x: f32 = ref_frame.frame_x as f32 - (shp.width / 2) as f32;
-    let adj_y: f32 = ref_frame.frame_y as f32 - (shp.height / 2) as f32;
-
-    let texture: BatchTexture = batch.create_texture(gpu, &rgba, atlas_w, atlas_h);
-    log::info!(
-        "Tiberium pip atlas: {}x{} (frame {}x{}, {} variants, pips2.shp frames [0,2,5], adj ({:.0},{:.0}))",
-        atlas_w,
-        atlas_h,
-        max_w,
-        max_h,
-        TIBERIUM_PIP_VARIANT_COUNT,
         adj_x,
         adj_y,
     );

@@ -188,3 +188,6 @@ pub fn supply_native_map(sim: &mut Simulation) {
     sim.playfield_size_height.get_or_insert(size.1);
     sim.install_fixture_path_grid(Some(&grid));
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod mastermind;

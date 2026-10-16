@@ -63,10 +63,20 @@ struct SharedCellDummyState {
 }
 
 thread_local! {
-    /// The Dummy (by its state's address) whose packed cell word this thread
-    /// has detached, and its private copy; see [`SharedCellDummy::detached`].
-    static DETACHED_CELL: std::cell::Cell<Option<(usize, u64)>> =
+    /// The Dummy word this thread has detached; see
+    /// [`SharedCellDummy::detached`].
+    static DETACHED_CELL: std::cell::Cell<Option<DetachedWord>> =
         const { std::cell::Cell::new(None) };
+}
+
+/// A detached run's private copy of one Dummy's packed cell word.
+#[derive(Clone, Copy)]
+struct DetachedWord {
+    /// The Dummy, by its state's address.
+    address: usize,
+    word: u64,
+    /// A stamp changed `word` since the run began.
+    changed: bool,
 }
 
 /// One native map-query identity domain. Bulk terrain is borrowed; input
@@ -487,30 +497,41 @@ impl SharedCellDummy {
     }
 
     /// Run `work` with this Dummy's packed coordinate/level/slope word private
-    /// to the current thread: its stamps and reads use a copy taken now, and
-    /// the shared word stays as it is. Path searches running side by side
-    /// (`movement::path_batch`) stamp through it, so they neither race on
-    /// the Dummy nor change what later lookups on the simulation thread see.
+    /// to the current thread: its stamps and reads use a copy of the shared
+    /// word taken now, and the shared word stays as it is. Path searches and
+    /// target scans running side by side (`movement::path_batch`,
+    /// `techno_ai::scan_batch`, `greatest_threat::flat_scores`) stamp
+    /// through it, so they neither race on the Dummy nor change what later
+    /// lookups on the simulation thread see.
+    ///
+    /// A run starts from the shared word also inside another run on this
+    /// thread: a worker waiting on nested parallel work can run another
+    /// task there, so starting from the enclosing copy would make a run's
+    /// start depend on where it landed. The enclosing copy resumes after.
     pub fn detached<R>(&self, work: impl FnOnce() -> R) -> R {
-        struct Restore(Option<(usize, u64)>);
+        self.detached_stamps(work).0
+    }
+
+    /// [`Self::detached`], also answering whether a stamp changed the
+    /// private copy at any point, even when a later one restored it: work
+    /// nested side by side in the run started from the shared word, where
+    /// one by one it would have seen the change.
+    pub(crate) fn detached_stamps<R>(&self, work: impl FnOnce() -> R) -> (R, bool) {
+        struct Restore(Option<DetachedWord>);
         impl Drop for Restore {
             fn drop(&mut self) {
                 DETACHED_CELL.set(self.0);
             }
         }
-        let word = self.cell_word();
-        let _restore = Restore(DETACHED_CELL.replace(Some((self.address(), word))));
-        work()
-    }
-
-    /// [`Self::detached`], also answering whether `work` changed the private
-    /// copy: a lookup it made stamped the Dummy.
-    pub(crate) fn detached_stamps<R>(&self, work: impl FnOnce() -> R) -> (R, bool) {
-        self.detached(|| {
-            let before = self.cell_word();
-            let result = work();
-            (result, self.cell_word() != before)
-        })
+        let run = DetachedWord {
+            address: self.address(),
+            word: self.state.cell.load(Ordering::Relaxed),
+            changed: false,
+        };
+        let _restore = Restore(DETACHED_CELL.replace(Some(run)));
+        let result = work();
+        let changed = DETACHED_CELL.get().is_some_and(|run| run.changed);
+        (result, changed)
     }
 
     fn address(&self) -> usize {
@@ -519,15 +540,20 @@ impl SharedCellDummy {
 
     fn cell_word(&self) -> u64 {
         match DETACHED_CELL.get() {
-            Some((address, word)) if address == self.address() => word,
+            Some(run) if run.address == self.address() => run.word,
             _ => self.state.cell.load(Ordering::Relaxed),
         }
     }
 
     fn update_cell_word(&self, update: impl Fn(u64) -> u64) {
         match DETACHED_CELL.get() {
-            Some((address, word)) if address == self.address() => {
-                DETACHED_CELL.set(Some((address, update(word))));
+            Some(run) if run.address == self.address() => {
+                let word = update(run.word);
+                DETACHED_CELL.set(Some(DetachedWord {
+                    word,
+                    changed: run.changed || word != run.word,
+                    ..run
+                }));
             }
             _ => {
                 let _ =

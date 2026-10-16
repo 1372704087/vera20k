@@ -150,7 +150,7 @@ pub struct OverlayGrid {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct OverlayRecalcOutcome {
+pub struct OverlayRecalcOutcome {
     pub navigation_changed: bool,
     pub zone_changed: bool,
 }
@@ -1014,7 +1014,7 @@ impl OverlayGrid {
     /// @ 0x00480630 runs Recalc @ 0x00480969, compares old/new zone at
     /// 0x0048096E..0x00480977, then repairs the graph before its neighbor-count
     /// tail. The caller still owns those callbacks in their native slots.
-    pub(crate) fn recalculate_runtime_cell(
+    pub fn recalculate_runtime_cell(
         &mut self,
         terrain: &mut ResolvedTerrainGrid,
         registry: &OverlayTypeRegistry,

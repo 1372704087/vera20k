@@ -1546,10 +1546,9 @@ fn scanner_mask<'r>(
 /// native has (`[0x00A8EC88]` is the global object count) and is bounded by the
 /// object count rather than by the map. The ring path borrows maintained Cell
 /// lists, while its airborne pre-pass uses the shared retained-bucket query. A hunting
-/// object scans only when it holds
-/// no target and its `NormalTargetingDelay` timer has expired, so at charter
-/// scale the cost is one N-pass per hunting object per cadence — not per tick,
-/// and not per ring.
+/// object scans at each run of its Hunt handler (`0x004D5350`) while it
+/// holds no target, so at charter scale the cost is one N-pass per targetless
+/// hunter per handler run — not per tick, and not per ring.
 fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Option<u64> {
     let mut best: Option<u64> = None;
     // `local_50 = -1` on the ring path; the same strictly-greater keep, so a

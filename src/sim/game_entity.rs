@@ -571,7 +571,7 @@ pub struct GameEntity {
     /// authoritative runtime state; they cannot be reconstructed from the
     /// victims' back-links.
     #[serde(default)]
-    pub(crate) capture_manager: Option<crate::sim::capture_manager::CaptureManagerState>,
+    pub capture_manager: Option<crate::sim::capture_manager::CaptureManagerState>,
     /// Spawn-manager pool carried by a `Spawns=` parent (V3 Launcher,
     /// Dreadnought, Boomer, Aircraft Carrier, Destroyer). Mirrors the native
     /// `TechnoClass+0x2D0` manager pointer: present iff `Spawns=` resolved.
@@ -605,7 +605,7 @@ pub struct GameEntity {
     /// The victim side of mind control (`TechnoClass+0x2C0` MindControlledBy,
     /// `+0x2C8` the ring anim), written only by `capture_manager`.
     #[serde(default)]
-    pub(crate) mind_control: crate::sim::capture_manager::MindControlLink,
+    pub mind_control: crate::sim::capture_manager::MindControlLink,
     /// TemporalClass state (`TechnoClass+0x274` TemporalImUsing and `+0x278`
     /// TemporalTargetingMe), written only by `temporal`.
     #[serde(default)]

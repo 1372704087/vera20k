@@ -527,10 +527,7 @@ impl HouseTracking {
     /// through `0x0049FAE0`, signed `> 0` (`JG`), as the Harvest preamble
     /// (`0x0073E69B..0x0073E6A2`) and Guard's computer-harvester arm
     /// (`0x007408AF..0x007408B6`) test a harvester's `Dock=` list.
-    pub(crate) fn owns_any_building(
-        &self,
-        building_types: impl IntoIterator<Item = InternedId>,
-    ) -> bool {
+    pub fn owns_any_building(&self, building_types: impl IntoIterator<Item = InternedId>) -> bool {
         building_types
             .into_iter()
             .any(|type_id| self.owned_count(EntityCategory::Structure, type_id) > 0)

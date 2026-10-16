@@ -113,8 +113,7 @@ pub fn build_visible_instances(
         //   base = DefaultZ + YOrigin - diamond_top - tileH - tileH*level/2,
         //   pixel = base + zdata, drawn and stored when `pixel <= zbuf`.
         // `z_adjust` is that base relative to the instance's canvas top
-        // (extra-data tiles start above the diamond by `draw_offset.y`), and
-        // `fx_params.w = +1` tells the shader the Z-data byte is added.
+        // (extra-data tiles start above the diamond by `draw_offset.y`).
         let iso_row: f32 = cell.screen_y + f32::from(cell.z as i8) * HEIGHT_STEP;
         let screen_y = iso_row - level as f32 * HEIGHT_STEP;
         let depth: f32 = native_z::depth_for_row(iso_row, grid.origin_y, grid.world_height);
@@ -125,8 +124,7 @@ pub fn build_visible_instances(
         let tint = lighting_grid
             .map(|lights| lights.terrain_tile_tint_at((cell.rx, cell.ry)))
             .unwrap_or(cell.tint);
-        let mut draw_state = DrawState::default();
-        draw_state.fx_params[3] = 1.0;
+        let draw_state = DrawState::default();
         let inst = SpriteInstance {
             position: [
                 cell.screen_x + p.draw_offset[0],

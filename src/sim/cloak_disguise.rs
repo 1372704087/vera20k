@@ -519,36 +519,39 @@ pub fn is_disguised_to(
     !disguised_as_house_present || disguised_as_is_observer_or_ally
 }
 
-/// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
-/// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
-/// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
-/// about the observer, then the observer about the house it wears (`+0x51C`).
-/// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
-/// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
-pub(crate) fn object_disguised_to(
-    object: &crate::sim::game_entity::GameEntity,
-    observer: InternedId,
-    fog: Option<&crate::sim::vision::FogState>,
-    alliances: Option<&crate::map::houses::HouseAllianceMap>,
-    interner: &crate::sim::intern::StringInterner,
-) -> bool {
-    let Some(disguise) = object.disguise.as_ref() else {
-        return false;
-    };
-    let allied = |asker: InternedId, other: InternedId| {
-        crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
-    };
-    is_disguised_to(
-        disguise.disguised,
-        allied(object.owner(), observer),
-        fog.is_some_and(|fog| {
-            fog.detects_disguise_for_house(observer, object.position.rx(), object.position.ry())
-        }),
-        disguise
-            .disguised_as_house
-            .is_some_and(|fake| allied(observer, fake)),
-        disguise.disguised_as_house.is_some(),
-    )
+impl crate::sim::game_entity::GameEntity {
+    /// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
+    /// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
+    /// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
+    /// about the observer, then the observer about the house it wears (`+0x51C`).
+    /// Unit746750/Infantry5227F0; DrawExtras6F5357 also consumes this query.
+    /// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
+    /// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
+    pub fn is_disguised_to(
+        &self,
+        observer: InternedId,
+        fog: Option<&crate::sim::vision::FogState>,
+        alliances: Option<&crate::map::houses::HouseAllianceMap>,
+        interner: &crate::sim::intern::StringInterner,
+    ) -> bool {
+        let Some(disguise) = self.disguise.as_ref() else {
+            return false;
+        };
+        let allied = |asker: InternedId, other: InternedId| {
+            crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
+        };
+        is_disguised_to(
+            disguise.disguised,
+            allied(self.owner(), observer),
+            fog.is_some_and(|fog| {
+                fog.detects_disguise_for_house(observer, self.position.rx(), self.position.ry())
+            }),
+            disguise
+                .disguised_as_house
+                .is_some_and(|fake| allied(observer, fake)),
+            disguise.disguised_as_house.is_some(),
+        )
+    }
 }
 
 /// The disguise arm of `Evaluate_Candidate`, `0x006F84B1..0x006F854B`.

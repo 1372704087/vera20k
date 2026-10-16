@@ -78,13 +78,7 @@ fn an_idle_retail_mirage_hides_from_an_ordinary_enemy_observer() {
     let enemy = sim.interner.intern("Russians");
     sim.update_unit_disguise(1, &retail.rules).unwrap();
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(crate::sim::cloak_disguise::object_disguised_to(
-        entity,
-        enemy,
-        None,
-        None,
-        &sim.interner,
-    ));
+    assert!(entity.is_disguised_to(enemy, None, None, &sim.interner,));
 }
 
 /// A Mirage whose Drive has a destination is moving, so UpdateDisguise takes

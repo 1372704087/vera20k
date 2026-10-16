@@ -25,7 +25,7 @@ mod bridge_shadow_gpu_tests;
 #[cfg(test)]
 mod building_bracket_gpu_tests;
 #[cfg(test)]
-mod health_gpu_tests;
+mod status_gpu_tests;
 mod build_instances;
 mod draw_passes;
 mod object_extras;

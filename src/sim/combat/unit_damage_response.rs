@@ -294,8 +294,7 @@ impl Simulation {
             easy: house.difficulty == crate::sim::house_state::HouseDifficulty::Easy,
             iq: house.current_iq,
             iq_auto_crush: rules.general.iq_auto_crush,
-            disguised: crate::sim::cloak_disguise::object_disguised_to(
-                victim,
+            disguised: victim.is_disguised_to(
                 unit.owner(),
                 Some(&self.fog),
                 Some(&self.house_alliances),

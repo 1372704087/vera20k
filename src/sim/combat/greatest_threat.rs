@@ -2121,13 +2121,8 @@ fn evaluate_candidate(
     //   wiring it costs one scenario draw per evaluated disguised candidate and
     //   shifts RNG order for every later consumer in the tick.
     const BLINK_TIMER_NOT_MODELLED: i32 = 0;
-    let candidate_disguised_to_attacker = crate::sim::cloak_disguise::object_disguised_to(
-        candidate,
-        ctx.attacker.owner,
-        ctx.fog,
-        ctx.alliances(),
-        ctx.interner,
-    );
+    let candidate_disguised_to_attacker =
+        candidate.is_disguised_to(ctx.attacker.owner, ctx.fog, ctx.alliances(), ctx.interner);
     if !matches!(
         crate::sim::cloak_disguise::disguise_rejects_candidate(
             candidate_disguised_to_attacker,

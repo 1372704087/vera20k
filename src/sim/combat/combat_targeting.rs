@@ -425,8 +425,7 @@ pub(crate) fn should_retaliate(
         source.owner(),
     );
     if allied
-        || crate::sim::cloak_disguise::object_disguised_to(
-            source,
+        || source.is_disguised_to(
             victim.owner(),
             Some(&world.fog),
             Some(&world.house_alliances),

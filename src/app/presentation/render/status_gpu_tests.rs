@@ -146,14 +146,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 let name = actor["type_name"].as_str().unwrap_or(type_name);
                 let object = rules.object(name).expect("native actor type");
                 let type_ref = sim.interner.intern(name);
-                let actor_category = match object.category {
-                    crate::rules::object_type::ObjectCategory::Infantry => EntityCategory::Infantry,
-                    crate::rules::object_type::ObjectCategory::Vehicle => EntityCategory::Unit,
-                    crate::rules::object_type::ObjectCategory::Aircraft => EntityCategory::Aircraft,
-                    crate::rules::object_type::ObjectCategory::Building => {
-                        EntityCategory::Structure
-                    }
-                };
+                let actor_category = EntityCategory::from(object.category);
                 row_has_building |= actor_category == EntityCategory::Structure;
                 let xyz: [i32; 3] =
                     std::array::from_fn(|i| actor["location"][i].as_i64().unwrap() as i32);
@@ -257,7 +250,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                                 owner,
                                 Health::new(passenger_type.strength),
                                 passenger_ref,
-                                EntityCategory::Infantry,
+                                EntityCategory::from(passenger_type.category),
                                 0,
                                 5,
                                 false,

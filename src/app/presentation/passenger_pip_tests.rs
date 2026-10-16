@@ -1,4 +1,4 @@
-//! Stock FV boarding/departure through the production passenger and display
+//! Stock passenger boarding/departure through the production cargo and display
 //! owners. The drawing oracle separately executes the original pip consumer.
 use crate::rules::ruleset::RuleSet;
 use crate::sim::command::Command;
@@ -6,11 +6,11 @@ use crate::sim::world::Simulation;
 
 const OWNER: &str = "Americans";
 
-fn frames(sim: &Simulation, rules: &RuleSet, ifv: u64, hover: Option<u64>) -> Vec<usize> {
+fn frames(sim: &Simulation, rules: &RuleSet, transport: u64, hover: Option<u64>) -> Vec<usize> {
     let hash = sim.state_hash();
     let result = super::ui_overlays::scale_pip_frames(
         sim,
-        sim.entities().get(ifv).unwrap(),
+        sim.entities().get(transport).unwrap(),
         hover,
         Some(OWNER),
         rules,
@@ -24,13 +24,34 @@ fn frames(sim: &Simulation, rules: &RuleSet, ifv: u64, hover: Option<u64>) -> Ve
 }
 
 #[test]
-fn stock_ifv_pip_follows_real_boarding_departure_and_selection() {
+fn stock_passenger_pips_follow_real_boarding_departure_and_selection() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
     else {
         return;
     };
     let rules = &retail.rules;
-    for (passenger_type, native_frame) in [("E1", 3), ("ENGINEER", 5)] {
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/passenger_pips.json");
+    for (transport_type, passenger_type, control) in [
+        ("FV", "E1", "loaded_a127"),
+        ("FV", "ENGINEER", "engineer"),
+        ("LCRF", "MTNK", "integer_size_passenger"),
+    ] {
+        let row = native["raster_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == control)
+            .unwrap();
+        let loaded: Vec<_> = row["draws"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|draw| draw["asset"] == "PIPS2.SHP")
+            .map(|draw| draw["frame"].as_u64().unwrap() as usize)
+            .collect();
+        //709D38 zero-initializes GetPipMax slots; loaded frames above are
+        //actual native executions, including the Size>1 own/filler ordering.
+        let empty = vec![0; rules.object(transport_type).unwrap().pip_max(rules) as usize];
         let mut sim = Simulation::new();
         let owner = sim.interner.intern(OWNER);
         sim.houses.insert(
@@ -42,24 +63,26 @@ fn stock_ifv_pip_follows_real_boarding_departure_and_selection() {
         sim.intern_rule_type_ids(rules);
         sim.resolve_type_handles(rules);
         sim.fog.reveal_all_for_owner(owner);
-        let ifv = sim.spawn_object("FV", OWNER, 16, 16, 64, rules).unwrap();
+        let transport = sim
+            .spawn_object(transport_type, OWNER, 16, 16, 64, rules)
+            .unwrap();
         let passenger = sim
             .spawn_object(passenger_type, OWNER, 16, 15, 64, rules)
             .unwrap();
         assert!(sim.apply_command(
             OWNER,
             &Command::Select {
-                entity_ids: vec![ifv],
+                entity_ids: vec![transport],
                 additive: false,
             },
             Some(rules)
         ));
-        assert_eq!(frames(&sim, rules, ifv, None), [0]);
+        assert_eq!(frames(&sim, rules, transport, None), empty);
         assert!(sim.apply_command(
             OWNER,
             &Command::EnterTransport {
                 passenger_id: passenger,
-                transport_id: ifv,
+                transport_id: transport,
             },
             Some(rules)
         ));
@@ -77,22 +100,30 @@ fn stock_ifv_pip_follows_real_boarding_departure_and_selection() {
             }
         }
         let rider = sim.entities().get(passenger).unwrap();
-        assert_eq!(rider.passenger_role.inside_transport(), Some((ifv, false)));
+        assert_eq!(
+            rider.passenger_role.inside_transport(),
+            Some((transport, false))
+        );
         assert!(rider.lifecycle.in_limbo());
         let hold = sim
             .entities()
-            .get(ifv)
+            .get(transport)
             .unwrap()
             .passenger_role
             .cargo()
             .unwrap();
         assert_eq!(hold.passengers(), [passenger]);
-        assert_eq!(hold.total_size(), 1);
-        assert_eq!(frames(&sim, rules, ifv, None), [native_frame]);
+        assert_eq!(
+            hold.total_size(),
+            rules.object(passenger_type).unwrap().size
+        );
+        assert_eq!(frames(&sim, rules, transport, None), loaded, "{control}");
 
         assert!(sim.apply_command(
             OWNER,
-            &Command::UnloadPassengers { transport_id: ifv },
+            &Command::UnloadPassengers {
+                transport_id: transport
+            },
             Some(rules)
         ));
         for _ in 0..240 {
@@ -112,13 +143,13 @@ fn stock_ifv_pip_follows_real_boarding_departure_and_selection() {
         assert!(!rider.lifecycle.in_limbo());
         assert_eq!(
             sim.entities()
-                .get(ifv)
+                .get(transport)
                 .unwrap()
                 .passenger_role
                 .passenger_count(),
             0
         );
-        assert_eq!(frames(&sim, rules, ifv, None), [0]);
+        assert_eq!(frames(&sim, rules, transport, None), empty);
         assert!(sim.apply_command(
             OWNER,
             &Command::Select {
@@ -127,8 +158,8 @@ fn stock_ifv_pip_follows_real_boarding_departure_and_selection() {
             },
             Some(rules)
         ));
-        assert!(frames(&sim, rules, ifv, None).is_empty());
-        assert_eq!(frames(&sim, rules, ifv, Some(ifv)), [0]);
+        assert!(frames(&sim, rules, transport, None).is_empty());
+        assert_eq!(frames(&sim, rules, transport, Some(transport)), empty);
     }
 }
 

@@ -9060,6 +9060,37 @@
       "vtable": "007EB058",
       "walk_constructor": "0075AA90",
       "whole_infantry_constructor": false
+    },
+    "MTNK": {
+      "constructor_begin": "007353C0",
+      "constructor_rng_requests": [
+        {
+          "bounds": [],
+          "caller": "006F3259",
+          "entry": "0065C780",
+          "stream": "scenario"
+        }
+      ],
+      "constructor_stop": "007354CE",
+      "control_group": -1,
+      "ctor_veterancy_raw_bits": 0,
+      "drive_constructor": "004AF540",
+      "drive_visual_callback": "0055ABC0",
+      "flags": 7,
+      "flat_cells": 30,
+      "house_indices": [
+        0,
+        1
+      ],
+      "limbo": true,
+      "mutually_allied": false,
+      "passive_scan_timer": [
+        0,
+        0,
+        45
+      ],
+      "unit_vtable": "007F5C70",
+      "whole_unit_constructor": false
     }
   },
   "physical_inputs": [
@@ -21087,6 +21118,2857 @@
       ],
       "rng_entries": [],
       "store_count": 228,
+      "z_unchanged": true
+    },
+    {
+      "a_unchanged": true,
+      "actor_results": [
+        {
+          "cargo_count": 1,
+          "cargo_entries": [
+            "004733A0",
+            "004DB260",
+            "006F6AC0"
+          ],
+          "cargo_operations": [
+            {
+              "count": 1,
+              "head_type": "MTNK",
+              "operation": "add"
+            }
+          ],
+          "cargo_size": 3,
+          "coords": [
+            2688,
+            5248,
+            0
+          ],
+          "entry": "006F5190",
+          "pip_max": 12,
+          "point": [
+            80,
+            80
+          ],
+          "projection_admitted": true,
+          "rank_setter": {
+            "args": [
+              1
+            ],
+            "entry": "00750080"
+          }
+        }
+      ],
+      "callbacks": [
+        {
+          "actor": 0,
+          "entry": "00746750"
+        },
+        {
+          "actor": 0,
+          "entry": "004DA4E0"
+        },
+        {
+          "actor": 0,
+          "entry": "0055ABC0"
+        },
+        {
+          "actor": 0,
+          "entry": "00703860"
+        },
+        {
+          "actor": 0,
+          "entry": "004F9A50"
+        }
+      ],
+      "drawing_fpcw": 3711,
+      "draws": [
+        {
+          "a_reads": 144,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPBRD.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 144,
+          "flags": 3584,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "00493DF0",
+              "vtable": "007E57E0"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            81,
+            54
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            65,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            67,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            69,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            71,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            73,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            75,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            77,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            79,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            81,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            83,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            85,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            87,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            89,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            91,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            93,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            95,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 4,
+          "flags": 1536,
+          "frame": 16,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            97,
+            55
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 16,
+          "flags": 1536,
+          "frame": 5,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            65,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 16,
+          "flags": 1536,
+          "frame": 3,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            69,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 16,
+          "flags": 1536,
+          "frame": 3,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            73,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            77,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            81,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            85,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            89,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            93,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            97,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            101,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            105,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        },
+        {
+          "a_reads": 0,
+          "a_writes": 0,
+          "actor": 0,
+          "asset": "PIPS2.SHP",
+          "brightness": 1000,
+          "clip": [
+            0,
+            0,
+            160,
+            120
+          ],
+          "color": 0,
+          "color_stores": 12,
+          "flags": 1536,
+          "frame": 0,
+          "gradient": 0,
+          "has_zshape": false,
+          "leaves": [
+            {
+              "entry": "004912B0",
+              "vtable": "007E5A20"
+            }
+          ],
+          "phase": "health",
+          "point": [
+            109,
+            90
+          ],
+          "remap": 0,
+          "z_adjust": 0,
+          "z_reads": 0,
+          "z_writes": 0,
+          "zshape_frame": 0,
+          "zshape_offset": [
+            0,
+            0
+          ]
+        }
+      ],
+      "entries": [
+        {
+          "actor": 0,
+          "entry": "00716290",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "00473460",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "006F5190",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "0070A990",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "006F64A0",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "00709A90",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "00716290",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "00473460",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "00473450",
+          "phase": "health"
+        },
+        {
+          "actor": 0,
+          "entry": "0070AA60",
+          "phase": "health"
+        }
+      ],
+      "gates": [
+        {
+          "actor": 0,
+          "gate": "disguised_to",
+          "result": 0
+        },
+        {
+          "actor": 0,
+          "gate": "visual_character",
+          "result": 0
+        }
+      ],
+      "input": {
+        "a_value": 127,
+        "actors": [
+          {
+            "cloak_progress": 0,
+            "cloak_state": 0,
+            "disguise_detect_count": 0,
+            "disguised": false,
+            "disguised_as_current_house": false,
+            "health": 300,
+            "hovered": false,
+            "kind": "unit",
+            "location": [
+              2688,
+              5248,
+              0
+            ],
+            "owned_by_current_house": true,
+            "owner_is_current": true,
+            "passenger": "MTNK",
+            "selected": true,
+            "sensor_count": 0,
+            "sinking": false,
+            "type_name": "LCRF",
+            "unload": false,
+            "veterancy_raw_bits": 0
+          }
+        ],
+        "background": 63808,
+        "camera": [
+          -380,
+          385
+        ],
+        "clip": [
+          0,
+          0,
+          160,
+          120
+        ],
+        "depth_baseline": 32768,
+        "old_z": 65535,
+        "size": [
+          160,
+          120
+        ]
+      },
+      "name": "integer_size_passenger",
+      "numeric_results": [],
+      "pixels": [
+        [
+          63,
+          52,
+          65535
+        ],
+        [
+          64,
+          52,
+          65535
+        ],
+        [
+          65,
+          52,
+          65535
+        ],
+        [
+          66,
+          52,
+          65535
+        ],
+        [
+          67,
+          52,
+          65535
+        ],
+        [
+          68,
+          52,
+          65535
+        ],
+        [
+          69,
+          52,
+          65535
+        ],
+        [
+          70,
+          52,
+          65535
+        ],
+        [
+          71,
+          52,
+          65535
+        ],
+        [
+          72,
+          52,
+          65535
+        ],
+        [
+          73,
+          52,
+          65535
+        ],
+        [
+          74,
+          52,
+          65535
+        ],
+        [
+          75,
+          52,
+          65535
+        ],
+        [
+          76,
+          52,
+          65535
+        ],
+        [
+          77,
+          52,
+          65535
+        ],
+        [
+          78,
+          52,
+          65535
+        ],
+        [
+          79,
+          52,
+          65535
+        ],
+        [
+          80,
+          52,
+          65535
+        ],
+        [
+          81,
+          52,
+          65535
+        ],
+        [
+          82,
+          52,
+          65535
+        ],
+        [
+          83,
+          52,
+          65535
+        ],
+        [
+          84,
+          52,
+          65535
+        ],
+        [
+          85,
+          52,
+          65535
+        ],
+        [
+          86,
+          52,
+          65535
+        ],
+        [
+          87,
+          52,
+          65535
+        ],
+        [
+          88,
+          52,
+          65535
+        ],
+        [
+          89,
+          52,
+          65535
+        ],
+        [
+          90,
+          52,
+          65535
+        ],
+        [
+          91,
+          52,
+          65535
+        ],
+        [
+          92,
+          52,
+          65535
+        ],
+        [
+          93,
+          52,
+          65535
+        ],
+        [
+          94,
+          52,
+          65535
+        ],
+        [
+          95,
+          52,
+          65535
+        ],
+        [
+          96,
+          52,
+          65535
+        ],
+        [
+          97,
+          52,
+          65535
+        ],
+        [
+          98,
+          52,
+          65535
+        ],
+        [
+          63,
+          53,
+          65535
+        ],
+        [
+          64,
+          53,
+          2016
+        ],
+        [
+          65,
+          53,
+          704
+        ],
+        [
+          66,
+          53,
+          2016
+        ],
+        [
+          67,
+          53,
+          704
+        ],
+        [
+          68,
+          53,
+          2016
+        ],
+        [
+          69,
+          53,
+          704
+        ],
+        [
+          70,
+          53,
+          2016
+        ],
+        [
+          71,
+          53,
+          704
+        ],
+        [
+          72,
+          53,
+          2016
+        ],
+        [
+          73,
+          53,
+          704
+        ],
+        [
+          74,
+          53,
+          2016
+        ],
+        [
+          75,
+          53,
+          704
+        ],
+        [
+          76,
+          53,
+          2016
+        ],
+        [
+          77,
+          53,
+          704
+        ],
+        [
+          78,
+          53,
+          2016
+        ],
+        [
+          79,
+          53,
+          704
+        ],
+        [
+          80,
+          53,
+          2016
+        ],
+        [
+          81,
+          53,
+          704
+        ],
+        [
+          82,
+          53,
+          2016
+        ],
+        [
+          83,
+          53,
+          704
+        ],
+        [
+          84,
+          53,
+          2016
+        ],
+        [
+          85,
+          53,
+          704
+        ],
+        [
+          86,
+          53,
+          2016
+        ],
+        [
+          87,
+          53,
+          704
+        ],
+        [
+          88,
+          53,
+          2016
+        ],
+        [
+          89,
+          53,
+          704
+        ],
+        [
+          90,
+          53,
+          2016
+        ],
+        [
+          91,
+          53,
+          704
+        ],
+        [
+          92,
+          53,
+          2016
+        ],
+        [
+          93,
+          53,
+          704
+        ],
+        [
+          94,
+          53,
+          2016
+        ],
+        [
+          95,
+          53,
+          704
+        ],
+        [
+          96,
+          53,
+          2016
+        ],
+        [
+          97,
+          53,
+          704
+        ],
+        [
+          98,
+          53,
+          65535
+        ],
+        [
+          63,
+          54,
+          65535
+        ],
+        [
+          64,
+          54,
+          1568
+        ],
+        [
+          65,
+          54,
+          704
+        ],
+        [
+          66,
+          54,
+          1568
+        ],
+        [
+          67,
+          54,
+          704
+        ],
+        [
+          68,
+          54,
+          1568
+        ],
+        [
+          69,
+          54,
+          704
+        ],
+        [
+          70,
+          54,
+          1568
+        ],
+        [
+          71,
+          54,
+          704
+        ],
+        [
+          72,
+          54,
+          1568
+        ],
+        [
+          73,
+          54,
+          704
+        ],
+        [
+          74,
+          54,
+          1568
+        ],
+        [
+          75,
+          54,
+          704
+        ],
+        [
+          76,
+          54,
+          1568
+        ],
+        [
+          77,
+          54,
+          704
+        ],
+        [
+          78,
+          54,
+          1568
+        ],
+        [
+          79,
+          54,
+          704
+        ],
+        [
+          80,
+          54,
+          1568
+        ],
+        [
+          81,
+          54,
+          704
+        ],
+        [
+          82,
+          54,
+          1568
+        ],
+        [
+          83,
+          54,
+          704
+        ],
+        [
+          84,
+          54,
+          1568
+        ],
+        [
+          85,
+          54,
+          704
+        ],
+        [
+          86,
+          54,
+          1568
+        ],
+        [
+          87,
+          54,
+          704
+        ],
+        [
+          88,
+          54,
+          1568
+        ],
+        [
+          89,
+          54,
+          704
+        ],
+        [
+          90,
+          54,
+          1568
+        ],
+        [
+          91,
+          54,
+          704
+        ],
+        [
+          92,
+          54,
+          1568
+        ],
+        [
+          93,
+          54,
+          704
+        ],
+        [
+          94,
+          54,
+          1568
+        ],
+        [
+          95,
+          54,
+          704
+        ],
+        [
+          96,
+          54,
+          1568
+        ],
+        [
+          97,
+          54,
+          704
+        ],
+        [
+          98,
+          54,
+          65535
+        ],
+        [
+          63,
+          55,
+          65535
+        ],
+        [
+          64,
+          55,
+          65535
+        ],
+        [
+          65,
+          55,
+          65535
+        ],
+        [
+          66,
+          55,
+          65535
+        ],
+        [
+          67,
+          55,
+          65535
+        ],
+        [
+          68,
+          55,
+          65535
+        ],
+        [
+          69,
+          55,
+          65535
+        ],
+        [
+          70,
+          55,
+          65535
+        ],
+        [
+          71,
+          55,
+          65535
+        ],
+        [
+          72,
+          55,
+          65535
+        ],
+        [
+          73,
+          55,
+          65535
+        ],
+        [
+          74,
+          55,
+          65535
+        ],
+        [
+          75,
+          55,
+          65535
+        ],
+        [
+          76,
+          55,
+          65535
+        ],
+        [
+          77,
+          55,
+          65535
+        ],
+        [
+          78,
+          55,
+          65535
+        ],
+        [
+          79,
+          55,
+          65535
+        ],
+        [
+          80,
+          55,
+          65535
+        ],
+        [
+          81,
+          55,
+          65535
+        ],
+        [
+          82,
+          55,
+          65535
+        ],
+        [
+          83,
+          55,
+          65535
+        ],
+        [
+          84,
+          55,
+          65535
+        ],
+        [
+          85,
+          55,
+          65535
+        ],
+        [
+          86,
+          55,
+          65535
+        ],
+        [
+          87,
+          55,
+          65535
+        ],
+        [
+          88,
+          55,
+          65535
+        ],
+        [
+          89,
+          55,
+          65535
+        ],
+        [
+          90,
+          55,
+          65535
+        ],
+        [
+          91,
+          55,
+          65535
+        ],
+        [
+          92,
+          55,
+          65535
+        ],
+        [
+          93,
+          55,
+          65535
+        ],
+        [
+          94,
+          55,
+          65535
+        ],
+        [
+          95,
+          55,
+          65535
+        ],
+        [
+          96,
+          55,
+          65535
+        ],
+        [
+          97,
+          55,
+          65535
+        ],
+        [
+          98,
+          55,
+          65535
+        ],
+        [
+          62,
+          87,
+          0
+        ],
+        [
+          63,
+          87,
+          0
+        ],
+        [
+          64,
+          87,
+          0
+        ],
+        [
+          65,
+          87,
+          0
+        ],
+        [
+          66,
+          87,
+          0
+        ],
+        [
+          67,
+          87,
+          0
+        ],
+        [
+          68,
+          87,
+          0
+        ],
+        [
+          69,
+          87,
+          0
+        ],
+        [
+          70,
+          87,
+          0
+        ],
+        [
+          71,
+          87,
+          0
+        ],
+        [
+          72,
+          87,
+          0
+        ],
+        [
+          73,
+          87,
+          0
+        ],
+        [
+          74,
+          87,
+          0
+        ],
+        [
+          75,
+          87,
+          0
+        ],
+        [
+          76,
+          87,
+          0
+        ],
+        [
+          77,
+          87,
+          0
+        ],
+        [
+          78,
+          87,
+          0
+        ],
+        [
+          79,
+          87,
+          0
+        ],
+        [
+          80,
+          87,
+          0
+        ],
+        [
+          81,
+          87,
+          0
+        ],
+        [
+          82,
+          87,
+          0
+        ],
+        [
+          83,
+          87,
+          0
+        ],
+        [
+          84,
+          87,
+          0
+        ],
+        [
+          85,
+          87,
+          0
+        ],
+        [
+          86,
+          87,
+          0
+        ],
+        [
+          87,
+          87,
+          0
+        ],
+        [
+          88,
+          87,
+          0
+        ],
+        [
+          89,
+          87,
+          0
+        ],
+        [
+          90,
+          87,
+          0
+        ],
+        [
+          91,
+          87,
+          0
+        ],
+        [
+          92,
+          87,
+          0
+        ],
+        [
+          93,
+          87,
+          0
+        ],
+        [
+          94,
+          87,
+          0
+        ],
+        [
+          95,
+          87,
+          0
+        ],
+        [
+          96,
+          87,
+          0
+        ],
+        [
+          97,
+          87,
+          0
+        ],
+        [
+          98,
+          87,
+          0
+        ],
+        [
+          99,
+          87,
+          0
+        ],
+        [
+          100,
+          87,
+          0
+        ],
+        [
+          101,
+          87,
+          0
+        ],
+        [
+          102,
+          87,
+          0
+        ],
+        [
+          103,
+          87,
+          0
+        ],
+        [
+          104,
+          87,
+          0
+        ],
+        [
+          105,
+          87,
+          0
+        ],
+        [
+          106,
+          87,
+          0
+        ],
+        [
+          107,
+          87,
+          0
+        ],
+        [
+          108,
+          87,
+          0
+        ],
+        [
+          109,
+          87,
+          0
+        ],
+        [
+          62,
+          88,
+          0
+        ],
+        [
+          63,
+          88,
+          17596
+        ],
+        [
+          64,
+          88,
+          8889
+        ],
+        [
+          65,
+          88,
+          0
+        ],
+        [
+          66,
+          88,
+          0
+        ],
+        [
+          67,
+          88,
+          59196
+        ],
+        [
+          68,
+          88,
+          44405
+        ],
+        [
+          69,
+          88,
+          0
+        ],
+        [
+          70,
+          88,
+          0
+        ],
+        [
+          71,
+          88,
+          59196
+        ],
+        [
+          72,
+          88,
+          44405
+        ],
+        [
+          73,
+          88,
+          0
+        ],
+        [
+          74,
+          88,
+          0
+        ],
+        [
+          77,
+          88,
+          0
+        ],
+        [
+          78,
+          88,
+          0
+        ],
+        [
+          81,
+          88,
+          0
+        ],
+        [
+          82,
+          88,
+          0
+        ],
+        [
+          85,
+          88,
+          0
+        ],
+        [
+          86,
+          88,
+          0
+        ],
+        [
+          89,
+          88,
+          0
+        ],
+        [
+          90,
+          88,
+          0
+        ],
+        [
+          93,
+          88,
+          0
+        ],
+        [
+          94,
+          88,
+          0
+        ],
+        [
+          97,
+          88,
+          0
+        ],
+        [
+          98,
+          88,
+          0
+        ],
+        [
+          101,
+          88,
+          0
+        ],
+        [
+          102,
+          88,
+          0
+        ],
+        [
+          105,
+          88,
+          0
+        ],
+        [
+          106,
+          88,
+          0
+        ],
+        [
+          109,
+          88,
+          0
+        ],
+        [
+          62,
+          89,
+          0
+        ],
+        [
+          63,
+          89,
+          8889
+        ],
+        [
+          64,
+          89,
+          4595
+        ],
+        [
+          65,
+          89,
+          0
+        ],
+        [
+          66,
+          89,
+          0
+        ],
+        [
+          67,
+          89,
+          44405
+        ],
+        [
+          68,
+          89,
+          31727
+        ],
+        [
+          69,
+          89,
+          0
+        ],
+        [
+          70,
+          89,
+          0
+        ],
+        [
+          71,
+          89,
+          44405
+        ],
+        [
+          72,
+          89,
+          31727
+        ],
+        [
+          73,
+          89,
+          0
+        ],
+        [
+          74,
+          89,
+          0
+        ],
+        [
+          77,
+          89,
+          0
+        ],
+        [
+          78,
+          89,
+          0
+        ],
+        [
+          81,
+          89,
+          0
+        ],
+        [
+          82,
+          89,
+          0
+        ],
+        [
+          85,
+          89,
+          0
+        ],
+        [
+          86,
+          89,
+          0
+        ],
+        [
+          89,
+          89,
+          0
+        ],
+        [
+          90,
+          89,
+          0
+        ],
+        [
+          93,
+          89,
+          0
+        ],
+        [
+          94,
+          89,
+          0
+        ],
+        [
+          97,
+          89,
+          0
+        ],
+        [
+          98,
+          89,
+          0
+        ],
+        [
+          101,
+          89,
+          0
+        ],
+        [
+          102,
+          89,
+          0
+        ],
+        [
+          105,
+          89,
+          0
+        ],
+        [
+          106,
+          89,
+          0
+        ],
+        [
+          109,
+          89,
+          0
+        ],
+        [
+          62,
+          90,
+          0
+        ],
+        [
+          63,
+          90,
+          0
+        ],
+        [
+          64,
+          90,
+          0
+        ],
+        [
+          65,
+          90,
+          0
+        ],
+        [
+          66,
+          90,
+          0
+        ],
+        [
+          67,
+          90,
+          0
+        ],
+        [
+          68,
+          90,
+          0
+        ],
+        [
+          69,
+          90,
+          0
+        ],
+        [
+          70,
+          90,
+          0
+        ],
+        [
+          71,
+          90,
+          0
+        ],
+        [
+          72,
+          90,
+          0
+        ],
+        [
+          73,
+          90,
+          0
+        ],
+        [
+          74,
+          90,
+          0
+        ],
+        [
+          75,
+          90,
+          0
+        ],
+        [
+          76,
+          90,
+          0
+        ],
+        [
+          77,
+          90,
+          0
+        ],
+        [
+          78,
+          90,
+          0
+        ],
+        [
+          79,
+          90,
+          0
+        ],
+        [
+          80,
+          90,
+          0
+        ],
+        [
+          81,
+          90,
+          0
+        ],
+        [
+          82,
+          90,
+          0
+        ],
+        [
+          83,
+          90,
+          0
+        ],
+        [
+          84,
+          90,
+          0
+        ],
+        [
+          85,
+          90,
+          0
+        ],
+        [
+          86,
+          90,
+          0
+        ],
+        [
+          87,
+          90,
+          0
+        ],
+        [
+          88,
+          90,
+          0
+        ],
+        [
+          89,
+          90,
+          0
+        ],
+        [
+          90,
+          90,
+          0
+        ],
+        [
+          91,
+          90,
+          0
+        ],
+        [
+          92,
+          90,
+          0
+        ],
+        [
+          93,
+          90,
+          0
+        ],
+        [
+          94,
+          90,
+          0
+        ],
+        [
+          95,
+          90,
+          0
+        ],
+        [
+          96,
+          90,
+          0
+        ],
+        [
+          97,
+          90,
+          0
+        ],
+        [
+          98,
+          90,
+          0
+        ],
+        [
+          99,
+          90,
+          0
+        ],
+        [
+          100,
+          90,
+          0
+        ],
+        [
+          101,
+          90,
+          0
+        ],
+        [
+          102,
+          90,
+          0
+        ],
+        [
+          103,
+          90,
+          0
+        ],
+        [
+          104,
+          90,
+          0
+        ],
+        [
+          105,
+          90,
+          0
+        ],
+        [
+          106,
+          90,
+          0
+        ],
+        [
+          107,
+          90,
+          0
+        ],
+        [
+          108,
+          90,
+          0
+        ],
+        [
+          109,
+          90,
+          0
+        ]
+      ],
+      "rng_entries": [],
+      "store_count": 368,
       "z_unchanged": true
     },
     {
@@ -51760,13 +54642,109 @@
             "section": "ENGINEER"
           },
           {
+            "default": 1.0,
+            "key": "Size",
+            "reader": "005283D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0.0,
+            "key": "SizeLimit",
+            "reader": "005283D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "Gunner",
+            "reader": "005295F0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "Passengers",
+            "reader": "005276D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "Storage",
+            "reader": "005276D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "Strength",
+            "reader": "005276D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "PipScale",
+            "reader": "00474940",
+            "section": "LCRF"
+          },
+          {
+            "default": 0,
+            "key": "PixelSelectionBracketDelta",
+            "reader": "005276D0",
+            "section": "LCRF"
+          },
+          {
+            "default": 1.0,
+            "key": "Size",
+            "reader": "005283D0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0.0,
+            "key": "SizeLimit",
+            "reader": "005283D0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "Gunner",
+            "reader": "005295F0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "Passengers",
+            "reader": "005276D0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "Storage",
+            "reader": "005276D0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "Strength",
+            "reader": "005276D0",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "PipScale",
+            "reader": "00474940",
+            "section": "MTNK"
+          },
+          {
+            "default": 0,
+            "key": "PixelSelectionBracketDelta",
+            "reader": "005276D0",
+            "section": "MTNK"
+          },
+          {
             "default": 0,
             "key": "Damage",
             "reader": "005276D0",
             "section": "MultipleMindControlTank"
           },
           {
-            "default": 606393600,
+            "default": 606418944,
             "key": "InfiniteMindControl",
             "reader": "005295F0",
             "section": "MultipleMindControlTank"
@@ -51819,11 +54797,23 @@
             "Storage": "40",
             "Strength": "1000"
           },
+          "LCRF": {
+            "Passengers": "12",
+            "PipScale": "Passengers",
+            "Size": "16",
+            "SizeLimit": "6",
+            "Strength": "300"
+          },
           "MIND": {
             "PipScale": "MindControl",
             "Primary": "MultipleMindControlTank",
             "Size": "6",
             "Strength": "500"
+          },
+          "MTNK": {
+            "Primary": "105mm",
+            "Size": "3",
+            "Strength": "300"
           },
           "MultipleMindControlTank": {
             "Damage": "3",
@@ -51891,6 +54881,19 @@
               "strength": 1000
             }
           },
+          "LCRF": {
+            "admitted": true,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 12,
+              "pip_scale": 3,
+              "size": 16.0,
+              "size_limit": 6.0,
+              "storage": 0,
+              "strength": 300
+            }
+          },
           "MIND": {
             "admitted": true,
             "after": {
@@ -51905,6 +54908,19 @@
               "storage": 0,
               "strength": 500,
               "weapon_damage": 3
+            }
+          },
+          "MTNK": {
+            "admitted": true,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 0,
+              "pip_scale": 0,
+              "size": 3.0,
+              "size_limit": 0.0,
+              "storage": 0,
+              "strength": 300
             }
           }
         }
@@ -51992,6 +55008,19 @@
               "strength": 1000
             }
           },
+          "LCRF": {
+            "admitted": false,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 12,
+              "pip_scale": 3,
+              "size": 16.0,
+              "size_limit": 6.0,
+              "storage": 0,
+              "strength": 300
+            }
+          },
           "MIND": {
             "admitted": false,
             "after": {
@@ -52006,6 +55035,19 @@
               "storage": 0,
               "strength": 500,
               "weapon_damage": 3
+            }
+          },
+          "MTNK": {
+            "admitted": false,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 0,
+              "pip_scale": 0,
+              "size": 3.0,
+              "size_limit": 0.0,
+              "storage": 0,
+              "strength": 300
             }
           }
         }
@@ -52088,6 +55130,19 @@
               "strength": 1000
             }
           },
+          "LCRF": {
+            "admitted": false,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 12,
+              "pip_scale": 3,
+              "size": 16.0,
+              "size_limit": 6.0,
+              "storage": 0,
+              "strength": 300
+            }
+          },
           "MIND": {
             "admitted": false,
             "after": {
@@ -52102,6 +55157,19 @@
               "storage": 0,
               "strength": 500,
               "weapon_damage": 3
+            }
+          },
+          "MTNK": {
+            "admitted": false,
+            "after": {
+              "delta": 0,
+              "gunner": false,
+              "passengers": 0,
+              "pip_scale": 0,
+              "size": 3.0,
+              "size_limit": 0.0,
+              "storage": 0,
+              "strength": 300
             }
           }
         }
@@ -52170,7 +55238,27 @@
         "storage": 0,
         "strength": 0
       },
+      "LCRF": {
+        "delta": 0,
+        "gunner": false,
+        "passengers": 0,
+        "pip_scale": 0,
+        "size": 1.0,
+        "size_limit": 0.0,
+        "storage": 0,
+        "strength": 0
+      },
       "MIND": {
+        "delta": 0,
+        "gunner": false,
+        "passengers": 0,
+        "pip_scale": 0,
+        "size": 1.0,
+        "size_limit": 0.0,
+        "storage": 0,
+        "strength": 0
+      },
+      "MTNK": {
         "delta": 0,
         "gunner": false,
         "passengers": 0,
@@ -52243,6 +55331,17 @@
         "storage": 40,
         "strength": 1000
       },
+      "LCRF": {
+        "delta": 0,
+        "gunner": false,
+        "passengers": 12,
+        "pip_max": 12,
+        "pip_scale": 3,
+        "size": 16.0,
+        "size_limit": 6.0,
+        "storage": 0,
+        "strength": 300
+      },
       "MIND": {
         "delta": 0,
         "gunner": false,
@@ -52256,6 +55355,17 @@
         "storage": 0,
         "strength": 500,
         "weapon_damage": 3
+      },
+      "MTNK": {
+        "delta": 0,
+        "gunner": false,
+        "passengers": 0,
+        "pip_max": 0,
+        "pip_scale": 0,
+        "size": 3.0,
+        "size_limit": 0.0,
+        "storage": 0,
+        "strength": 300
       },
       "NABNKR": {
         "can_be_occupied": true,
@@ -52328,6 +55438,36 @@
         0,
         1
       ],
+      "mutually_allied": false,
+      "passive_scan_timer": [
+        0,
+        0,
+        45
+      ],
+      "unit_vtable": "007F5C70",
+      "whole_unit_constructor": false
+    },
+    "LCRF": {
+      "constructor_begin": "007353C0",
+      "constructor_rng_requests": [
+        {
+          "bounds": [],
+          "caller": "006F3259",
+          "entry": "0065C780",
+          "stream": "scenario"
+        }
+      ],
+      "constructor_stop": "007354CE",
+      "control_group": -1,
+      "ctor_veterancy_raw_bits": 0,
+      "flags": 7,
+      "flat_cells": 30,
+      "house_indices": [
+        0,
+        1
+      ],
+      "locomotor_constructor": "00513C20",
+      "locomotor_visual_callback": "0055ABC0",
       "mutually_allied": false,
       "passive_scan_timer": [
         0,

@@ -429,6 +429,19 @@ SizeLimit1. Original E1/ENGINEER readers supply transport Pip3/5. Complete
 one-slot FV draws PIPS2 frame0 empty,3 GI,5 engineer at point+[−15,+10].
 Native4AED70 flags600 reach4912B0/7E5A20: no A/Z access or depth writes.
 A127/63/2/0, oldZ0, clipping and ordered parent controls retain native stores.
+The shared integer-size control uses physical LCRF Passengers12, SizeLimit6,
+Size16, Strength300 and MTNK Size3. Original Cargo.Add4733A0 reaches Unit
+Limbo4DB260/Techno6F6AC0 with the passenger's constructor Limbo1; the retained
+count is1 and native473460 returns3. Whole Extras emits raw PIPS2 frames
+`[5,3,3,0,0,0,0,0,0,0,0,0]`:709F0A..709F23 writes Size−1 fillerframe3 at
+higher indices **before** placing Unitframe5 at the lower index. This
+distinguishes the order that a size-one passenger cannot expose.
+`integer_size_passenger` declares actor `type_name=LCRF`, `passenger=MTNK`;
+`actor_results.cargo_size` records the native total. Its original Unit prefix
+uses real Hover513C20 for LCRF (physical Locomotor742) and Drive4AF540 for
+MTNK, with explicit interface linkage. The control establishes frame
+consumption and Cargo operations; whole construction, transport boarding,
+hover movement and placement remain outside this boundary.
 The overlap has points[80,80] then[80,115]; twelve earlier scale pixel values
 are overwritten by the later health strip, recorded in
 `overwritten_scale_pixels`. This is a positive ordering witness for migrating
@@ -473,7 +486,9 @@ whole Building Extras admission, bunker body and garrison-entry lifecycle
 are excluded. Stock battle bunker is NABNKR; no CABUNK section is invented.
 
 RULESMD, optional LANGRULE, selected MPBattleMD/map and fixed ART inputs are
-recorded separately. Original5F76B0 pushes the literal `PIPS2.SHP` at5F7758
+recorded separately. Section lookup526810 returns a pointer; admission tests
+full EAX rather than treating its low byte as a boolean. Original5F76B0 pushes
+the literal `PIPS2.SHP` at5F7758
 through CCFile65CA80/loader4A3890, retainsAC1480 at5F7776, and709AEF consumes
 that same asset. Independent normal STOCK_DIGITAL AssetManager lookup selects
 `ra2md.mix/conqmd.mix/PIPS2.SHP`:1,384bytes,19frames, SHA256

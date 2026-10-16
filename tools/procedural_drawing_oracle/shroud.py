@@ -642,7 +642,7 @@ def building_bracket_geometry(palette_word):
                     for name, keys in sections.items()}
         m.make_ini(selected)
         m.phase = 'image_' + filename
-        admitted = bool(m.invoke(0x526810, READER_INI, (typ + 0x24,)) & 255)
+        admitted = bool(m.invoke(0x526810, READER_INI, (typ + 0x24,)))
         mark = len(reads)
         if admitted:
             # Original ObjectType Image caller frame, after section admission.
@@ -1212,8 +1212,8 @@ class _HealthRecorder:
             self.u.hook_del(hook)
 
 
-def _prepare_unit_rank(m, typ, actor, house):
-    """Existing original Unit/Foot prefix and Drive constructor, in this VM.
+def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540):
+    """Existing original Unit/Foot prefix and locomotor constructor, in this VM.
 
     CoCreate/whole typed Unit constructor and Unlimbo are excluded priors.
     No visual-character or observer predicate result is supplied.
@@ -1241,21 +1241,25 @@ def _prepare_unit_rank(m, typ, actor, house):
     u.reg_write(UC_X86_REG_ECX,actor)
     native.run_checked(u,0x7353C0,0x7354CE,count=300000,
                        required_addresses=(0x4D31E0,0x4D3217,0x4D321D))
-    drive = m.alloc(0x100)
-    m.invoke(0x4AF540,drive)
+    locomotor = m.alloc(0x100)
+    m.invoke(locomotor_ctor,locomotor)
     u.hook_del(ctor_hook)
-    u.mem_write(drive+0xC,words(actor))
-    u.mem_write(drive+0x14,words(1))
-    u.mem_write(actor+0x674,words(drive+4))
+    u.mem_write(locomotor+0xC,words(actor))
+    u.mem_write(locomotor+0x14,words(1))
+    u.mem_write(actor+0x674,words(locomotor+4))
     enemy = m.alloc(0x18000)
     u.mem_write(house+0x30,words(0))
     u.mem_write(enemy+0x30,words(1))
     table,cells = _prepare_flat_cells(m,range(8,13),range(18,24))
     by_coord = {tuple(struct.unpack('<2h',u.mem_read(cell+0x24,4))):cell for cell in cells}
+    locomotor_evidence = dict(drive_constructor='004AF540',
+        drive_visual_callback=f'{m.read32(m.read32(locomotor+4)+0x34):08X}')
+    if locomotor_ctor != 0x4AF540:
+        locomotor_evidence = dict(locomotor_constructor=f'{locomotor_ctor:08X}',
+            locomotor_visual_callback=f'{m.read32(m.read32(locomotor+4)+0x34):08X}')
     return dict(enemy=enemy,cells=by_coord,evidence=dict(
         constructor_begin='007353C0',constructor_stop='007354CE',
-        whole_unit_constructor=False,drive_constructor='004AF540',
-        drive_visual_callback=f'{m.read32(m.read32(drive+4)+0x34):08X}',
+        whole_unit_constructor=False,**locomotor_evidence,
         flags=m.read32(actor+0x14),unit_vtable=f'{m.read32(actor):08X}',
         control_group=struct.unpack('<i',u.mem_read(actor+0x214,4))[0],
         ctor_veterancy_raw_bits=m.read32(actor+0x150),flat_cells=len(cells),
@@ -1409,8 +1413,8 @@ def _read_pip_controls(m, typ, constructor):
                 table=table,controls=controls,section_passes=passes)
 
 
-def _prepare_status_passengers(m, types):
-    """Existing Infantry/Walk prefix with genuine Cargo add/remove receivers.
+def _prepare_status_passengers(m, types, house):
+    """Existing Infantry/Walk and Unit/Drive prefixes for genuine Cargo calls.
 
     The initial Limbo1 is native constructor output; placement/boarding and
     whole typed COM construction remain separate production prerequisites.
@@ -1441,6 +1445,11 @@ def _prepare_status_passengers(m, types):
                 limbo=bool(u.mem_read(actor+0x81,1)[0]),vtable=f'{m.read32(actor):08X}',
                 constructor_rng_requests=requests,passive_scan_timer=rally.ints(u,actor+0x180,3)))
         assert passengers[name]['evidence']['limbo']
+    actor = m.alloc(0x900)
+    runtime = _prepare_unit_rank(m,types['MTNK'],actor,house)
+    passengers['MTNK'] = dict(actor=actor,template=bytes(u.mem_read(actor,0x900)),
+        evidence=runtime['evidence'] | dict(limbo=bool(u.mem_read(actor+0x81,1)[0])))
+    assert passengers['MTNK']['evidence']['limbo']
     return passengers
 
 
@@ -1449,6 +1458,8 @@ def _passenger_cases(base):
         *[dict(name=f'loaded_a{a}',a_value=a) for a in (127,63,2,0)],
         dict(name='loaded_occluding_z',old_z=0),
         dict(name='engineer',actors=[dict(base,passenger='ENGINEER')]),
+        dict(name='integer_size_passenger',actors=[dict(base,type_name='LCRF',
+            passenger='MTNK',health=300)]),
         dict(name='unload_empty',actors=[dict(base,unload=True)]),
         dict(name='hover_only',actors=[dict(base,selected=False,hovered=True)]),
         dict(name='absent',actors=[dict(base,selected=False)]),
@@ -1528,7 +1539,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
         types={'FV':typ,'NABNKR':scene['typ']}
         u.mem_write(0x887568,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
         u.mem_write(0xA8E348,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
-        for name in ('MIND','HARV','E1','ENGINEER'):
+        for name in ('MIND','HARV','E1','ENGINEER','LCRF','MTNK'):
             types[name]=m.alloc(0x2000)
             m.invoke(0x5236A0 if name in ('E1','ENGINEER') else 0x7470D0,
                      types[name],(m.cstring(name),))
@@ -1585,7 +1596,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
             assert 'Invisible' not in sections.get(section_name,{})
         m.rules_cache(sections)
         mark = len(reads)
-        admitted = bool(m.invoke(0x526810, RULES, (typ + 0x24,)) & 255)
+        #526810 returns a Section pointer, not AL; a valid pointer may end00.
+        admitted = bool(m.invoke(0x526810, RULES, (typ + 0x24,)))
         if admitted and not building:
             for begin, end, regs in (
                     (0x5F94D3, 0x5F94F3, {UC_X86_REG_EBX:typ, UC_X86_REG_EBP:typ+0x24}),
@@ -1597,7 +1609,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
             for type_name,p in types.items():
                 if type_name=='NABNKR':
                     continue  # Complete original reader already ran in scene.
-                present=bool(m.invoke(0x526810,RULES,(p+0x24,))&255)
+                present=bool(m.invoke(0x526810,RULES,(p+0x24,)))
                 if present:
                     blocks=[(0x712511,0x712553), (0x714A49,0x714A63),
                             (0x714B35,0x714B56), (0x713129,0x713143)]
@@ -1628,7 +1640,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
                 type_results['MIND']['after'].update(primary=m.string(weapon+0x24),
                     weapon_damage=m.read32(weapon+0xA4),
                     infinite_mind_control=bool(u.mem_read(weapon+0x140,1)[0]))
-        av_admitted = bool(m.invoke(0x526810, RULES, (m.cstring('AudioVisual'),)) & 255)
+        av_admitted = bool(m.invoke(0x526810, RULES, (m.cstring('AudioVisual'),)))
         if av_admitted:
             for begin, end in ((0x66B337, 0x66B35E), (0x66B35E, 0x66B385)):
                 u.reg_write(UC_X86_REG_ESP, READER_SP)
@@ -1680,10 +1692,11 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
         actor_template = bytes(u.mem_read(actor,0x900))
     if passenger:
         status_runtimes,actor_templates={},{}
-        for name in ('FV','MIND','HARV'):
-            status_runtimes[name]=_prepare_unit_rank(m,types[name],actor,house)
+        for name in ('FV','MIND','HARV','LCRF'):
+            status_runtimes[name]=_prepare_unit_rank(m,types[name],actor,house,
+                locomotor_ctor=0x513C20 if name=='LCRF' else 0x4AF540)
             actor_templates[name]=bytes(u.mem_read(actor,0x900))
-        passengers=_prepare_status_passengers(m,types)
+        passengers=_prepare_status_passengers(m,types,house)
         _prepare_ground_building(m,actor,types['NABNKR'],house,selected=False)
         actor_templates['NABNKR']=bytes(u.mem_read(actor,0x900))
         manager=m.alloc(0x60)
@@ -1787,8 +1800,10 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
                     prepared=passengers[supplied['passenger']]
                     u.mem_write(prepared['actor'],prepared['template'])
                     m.invoke(0x4733A0,actor+0x114,(prepared['actor'],))
+                    head=m.read32(actor+0x118)
+                    head_type=m.invoke(m.read32(m.read32(head)+0x84),head)
                     cargo_events.append(dict(operation='add',count=m.read32(actor+0x114),
-                        head_type=m.string(m.read32(m.read32(actor+0x118)+0x6C0)+0x24)))
+                        head_type=m.string(head_type+0x24)))
                     if supplied['unload']:
                         removed=m.invoke(0x473430,actor+0x114)
                         assert removed==prepared['actor']
@@ -1833,6 +1848,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False):
                 actors[-1].update(cargo_operations=cargo_events,cargo_entries=cargo_entries,
                     cargo_count=m.read32(actor+0x114),
                     pip_max=m.invoke(0x716290,current_type))
+                if case['name']=='integer_size_passenger':
+                    actors[-1]['cargo_size']=m.invoke(0x473460,actor+0x114)
                 if is_garrison:
                     actors[-1].update(garrison_slots=m.read32(current_type+0x1580),
                         show_occupant_pips=bool(u.mem_read(current_type+0x1584,1)[0]))
@@ -2079,6 +2096,7 @@ def passenger_pips_metadata():
             'ReadPip4748A0 and both actual Infantry call/store blocks execute on explicit strings/current constructor defaults. Original Abstract410A60 admission distinguishes absent sections from admitted unrelated-key passes. Missing defaults use native table indexes, including adjacent Ammo/Tiberium names at11/12. Explicit empty cache values are separate from physical empty INI omission. These controls expose the required existing retained-type pass-owner behavior, not a second INI implementation.',
             'Existing Unit7353C0->Foot4D31E0 prefix stops7354CE before typed COM activation, followed by real Drive4AF540. Infantry517A50 prefix stops517AE6 before ID/COM, followed by real Walk75AA90. Supplied interface owner/link/active priors expose their original virtuals. Original constructor Limbo1 permits whole Cargo4733A0->51DF10->4DB260->6F6AC0 and473430 without gameplay sinks. Whole typed construction, Unlimbo, boarding and unloading missions remain separate production tests. Selected mobile prefix RNG requests/passive timers are recorded separately from drawing; inherited Building/type/palette startup is outside that recorded initialization interval.',
             'Every mobile row executes complete6F5190, original rank/observer gates,6F64A0 and actual709A90/70AA60 tails. Native716290/473460/473450 and passenger array fill choose physical PIPS2 frames, centered origins and flags600. Garrison rows enter full6F64A0 directly with explicit prepared occupant vector/count, then actual709C27..709D17 uses raw OccupyPip11 or reader-evolved1 and emptyframe6. These direct-health rows do not establish whole Building Extras admission.',
+            'One affected shared frame-consumer row uses stock LCRF Passengers12/SizeLimit6/Size16 and MTNK Size3 through the same constructors/read blocks. LCRF consumes real Hover513C20 with supplied interface linkage, matching physical Locomotor742; MTNK uses the existing Unit/Drive prefix with native Limbo1. Whole Cargo4733A0 reaches Unit4DB260/Techno6F6AC0 and retains one size3 passenger. Original709F0A..709F23 fills higher slots with frame3 before placing Unitframe5 in the lower slot, producing5,3,3 then nine empty0 frames. This is a render-consumer/whole-Cargo dependency control, not LCRF boarding, movement, placement or whole construction evidence.',
             'MIND uses the original4717D0 manager constructor with retained count/vector and overload-counter priors, not captures/Update; original4722D0/4726C0 and708C30 execute. HARV receives explicit four native float storage slots; original6C9650/6C9680 and independent ore/gem rounding execute. Stock positive Storage40 and size-one infantry match the existing gameplay state owners. Fractional size/reload behavior, manager lifecycle, harvest lifecycle and other PipScales remain open.',
             'PIPS/PIPBRD/PALETTE retain established normal STOCK_DIGITAL winners. Original5F76B0 pushes literal PIPS2.SHP at5F7758 through CCFile65CA80/loader4A3890, retainsAC1480 at5F7776 and709AEF consumes that same asset. Independent normal STOCK_DIGITAL AssetManager lookup selects ra2md.mix/conqmd.mix PIPS2,1384bytes/19frames, no loose override or catalog-only hit; ra2.mix/conquer.mix1280bytes/18frames is shadowed. The oracle pins the selected physical bytes while archive/cache transport remains supplied. Native palette/Convert constructors,4AED70/pickers/rowwalkers/leaves execute unchanged. A127/63/2/0, oldZ0, clip, sinking and ordered overlapping parents are render-consumer controls. Sparse pixels/draws and counts are native stores; no VERA scalar or host palette/raster/count formula supplies expected output.',
             'Original code/vtables, prepared actor bytes and A/Z remain unchanged across measured draws; no drawing RNG, timer write or detach occurs. The component does not run mobile bodies, whole Display/Scenario/Map, selection generation, damage/promotion or a whole native frame.',
@@ -2088,6 +2106,7 @@ def passenger_pips_metadata():
             building_type_ctor=0x45DD90,building_type_reader=0x45FE50,
             infantry_ctor_begin=0x517A50,infantry_ctor_stop=0x517AE6,walk_ctor=0x75AA90,
             unit_ctor_begin=0x7353C0,unit_ctor_stop=0x7354CE,drive_ctor=0x4AF540,
+            hover_ctor=0x513C20,
             pip_ctor=0x5236BD,occupy_pip_ctor=0x5236C7,read_pip=0x4748A0,
             pip_caller=0x5240E3,occupy_pip_caller=0x5240FD,section_gate=0x410A60,
             cargo_add=0x4733A0,cargo_remove=0x473430,cargo_head=0x473450,cargo_size=0x473460,

@@ -1168,21 +1168,27 @@ pub(crate) fn scale_pip_frames(
                 EntityCategory::Unit => 5,
                 _ => 1,
             };
-            //709E65..F4A fills from the last occupied slot toward zero, cargo
-            //head first. Extra Size slots use frame3. Malformed links/sizes
-            //cannot address outside this frame-local vector in Rust.
+            //709EB5..ECA/709F0A..F23 consume high slots with Size-1 fillers
+            //BEFORE the passenger's own lower slot. Cargo head comes first.
+            //The other-RTTI arm709F2C writes only frame1. Malformed links/
+            //sizes cannot address outside this frame-local vector in Rust.
+            if matches!(
+                passenger.category(),
+                EntityCategory::Infantry | EntityCategory::Unit
+            ) {
+                for _ in 1..kind.size {
+                    let Some(index) = next.checked_sub(1) else {
+                        break;
+                    };
+                    frames[index] = 3;
+                    next = index;
+                }
+            }
             let Some(index) = next.checked_sub(1) else {
                 break;
             };
             frames[index] = frame;
             next = index;
-            for _ in 1..kind.size {
-                let Some(index) = next.checked_sub(1) else {
-                    break;
-                };
-                frames[index] = 3;
-                next = index;
-            }
         }
         return frames;
     }

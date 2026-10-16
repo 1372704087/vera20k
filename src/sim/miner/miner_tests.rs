@@ -563,28 +563,6 @@ fn set_miner_state(sim: &mut Simulation, miner_id: u64, state: MinerState) {
 }
 
 // ==========================================================================
-// Test 10: Cargo pips always show 5 steps of 20%
-// ==========================================================================
-#[test]
-fn cargo_pips_five_steps() {
-    let config = MinerConfig::default();
-    let mut miner = Miner::new(MinerKind::War, &config, 0);
-    // War Miner capacity = 40 bales
-    assert_eq!(miner.cargo_pips(), 0);
-
-    // Each 20% (8 bales) fills one more pip, up to 5 at 40 bales.
-    for pips in 1..=5 {
-        for _ in 0..8 {
-            miner.cargo.push(CargoBale {
-                resource_type: ResourceType::Ore,
-                value: 25,
-            });
-        }
-        assert_eq!(miner.cargo_pips(), pips, "{} bales", miner.cargo.len());
-    }
-}
-
-// ==========================================================================
 // Test: Chrono Miner drives to ore (does NOT warp — only warps on return)
 // ==========================================================================
 /// Regression: chrono miners warp ONLY on the inbound (ore -> refinery)

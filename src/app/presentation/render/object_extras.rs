@@ -1,4 +1,4 @@
-//! Replay ordinary rank, health and building lines in Tactical Extras order.
+//! Replay rank, health, scale pips and building lines in Tactical Extras order.
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
@@ -7,7 +7,7 @@ use crate::render::selection_overlay::SelectionOverlay;
 use crate::render::terrain_draw::TerrainDrawRenderer;
 
 /// Native6F5190/70A990/6F64A0: rank and PIPBRD E00 consume A (493DF0);
-/// PIPS600 bypasses A (4912B0). Neither shape reads or writes Z. Commands
+/// PIPS/PIPS2 600 bypasses A (4912B0). Neither shape reads or writes Z. Commands
 /// and ranges belong only to this frame's retained Display traversal.
 pub(super) fn draw_object_extras(
     encoder: &mut wgpu::CommandEncoder,
@@ -28,7 +28,7 @@ pub(super) fn draw_object_extras(
             continue;
         }
         // Adjacent status parents share one attachment pass; each keeps its
-        // rank->border->fill order. A line parent fences this pass before using Z.
+        // rank->border->fill->scale order. Lines fence this pass before using Z.
         let start = next;
         while matches!(
             layer.extras_runs.get(next),
@@ -73,6 +73,7 @@ pub(super) fn draw_status_runs(
             rank,
             background,
             fills,
+            scale,
             ..
         } = &runs[next]
         else {
@@ -100,6 +101,17 @@ pub(super) fn draw_status_runs(
                     fills.end - fills.start,
                 );
             }
+            if let Some(shape) = overlay.scale_pips() {
+                //709A90 uses physical PIPS2 through the same plain600,
+                //neutral-A/no-Z store owner as health and garrison fills.
+                batch.draw_with_buffer_passthrough_range(
+                    &mut pass,
+                    shape.texture(),
+                    buffer,
+                    scale.start,
+                    scale.end - scale.start,
+                );
+            }
         }
         next = end;
     }
@@ -116,12 +128,13 @@ fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
         rank: Some(first),
         background: None,
         fills,
+        scale,
         ..
     } = &runs[start]
     else {
         return start + 1;
     };
-    if !fills.is_empty() {
+    if !fills.is_empty() || !scale.is_empty() {
         return start + 1;
     }
     let mut end = start + 1;
@@ -129,10 +142,11 @@ fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
         rank: Some(index),
         background: None,
         fills,
+        scale,
         ..
     }) = runs.get(end)
     {
-        if !fills.is_empty() || *index != *first + (end - start) as u32 {
+        if !fills.is_empty() || !scale.is_empty() || *index != *first + (end - start) as u32 {
             break;
         }
         end += 1;
@@ -150,6 +164,7 @@ mod tests {
             rank: Some(index),
             background: None,
             fills: index + 1..index + 1,
+            scale: index + 1..index + 1,
         }
     }
 
@@ -169,6 +184,7 @@ mod tests {
                 rank: Some(2),
                 background: Some(3),
                 fills: 4..5,
+                scale: 5..5,
             },
             rank(5),
             ObjectExtrasRun::Status {
@@ -176,6 +192,7 @@ mod tests {
                 rank: None,
                 background: None,
                 fills: 6..7,
+                scale: 7..7,
             },
             rank(7),
             ObjectExtrasRun::Lines {
@@ -185,8 +202,25 @@ mod tests {
             },
             rank(8),
             rank(10),
+            ObjectExtrasRun::Status {
+                parent: 11,
+                rank: Some(11),
+                background: None,
+                fills: 12..12,
+                scale: 12..13,
+            },
+            rank(13),
         ];
-        for (start, end) in [(0, 2), (2, 3), (3, 4), (5, 6), (7, 8), (8, 9)] {
+        for (start, end) in [
+            (0, 2),
+            (2, 3),
+            (3, 4),
+            (5, 6),
+            (7, 8),
+            (8, 9),
+            (9, 10),
+            (10, 11),
+        ] {
             assert_eq!(rank_run_end(&runs, start), end, "run {start}");
         }
     }

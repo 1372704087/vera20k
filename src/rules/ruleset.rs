@@ -4100,6 +4100,15 @@ impl RuleSet {
                 object.gunner_turrets = *gunner_turrets;
             }
         }
+        for (name, pips) in processed.infantry_pip_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == ObjectCategory::Infantry && object.id == name)
+            {
+                object.project_infantry_pips(pips);
+            }
+        }
         rules.anim_type_art_read_states = processed
             .anim_type_art_read_states()
             .map(|(name, read)| (name.to_owned(), read))
@@ -6793,6 +6802,32 @@ fn parse_particle_system_types(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn infantry_occupy_pip_uses_each_admitted_rules_section_pass() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        // Original Infantry5240D1..524125 calls ReadPip4748A0 on every
+        // admitted section, even when the pip key is missing. Executed native
+        // section controls: passenger_pips.json/read_pip (also Pip3→4→5→7).
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[InfantryTypes]\n0=E1\n[E1]\nPip=white\nOccupyPip=PersonBlue\n",
+        ));
+        for (patch, expected) in [
+            ("[Unrelated]\nStrength=1\n", 11),
+            ("[E1]\nStrength=125\n", 1),
+            ("[E1]\nStrength=126\n", 2),
+            ("[E1]\nStrength=127\n", 3),
+        ] {
+            layers.push(RulesLayerKind::Scenario, IniFile::from_str(patch));
+            let processed = layers.process().expect("ordered native rules passes");
+            let rules = RuleSet::from_processed_rules(&processed).expect("projected types");
+            assert_eq!(
+                rules.object("E1").unwrap().occupy_pip(),
+                expected,
+                "ReadPip must use the retained field as a table index after {patch:?}"
+            );
+        }
+    }
+
     fn detail_native() -> &'static serde_json::Value {
         crate::test_fixture::json("tools/rules_oracle/weapon_laser.json")
     }

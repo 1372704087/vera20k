@@ -39,12 +39,6 @@ pub struct SelectionOverlay {
     diamond_filled_texture: BatchTexture,
     /// Full PIPBRD frame table for selected mobile health backgrounds.
     pipbrd: Option<CenteredShapeStrip>,
-    /// Occupant pip atlas: 7 frames from pips.shp packed horizontally.
-    /// Frames 6 (empty), 7-12 (PersonGreen..PersonPurple) — used for garrison pips.
-    occupant_pip_texture: Option<BatchTexture>,
-    occupant_pip_frame_w: u32,
-    occupant_pip_frame_h: u32,
-    occupant_pip_canvas_adj: (f32, f32),
     /// PIPS2.SHP: all raw frames, shared by cargo and MindControl scales.
     /// Native LoadPipAssets5F76B0 binds AC1480; DrawPipScalePips709AEF
     /// selects this shape for nonbuildings, in PALETTE.PAL/Convert87F6C4.
@@ -53,7 +47,7 @@ pub struct SelectionOverlay {
     bomb_clock: Option<CenteredShapeStrip>,
     /// WRENCH.SHP, the repairing building's wrench.
     repair_wrench: Option<CenteredShapeStrip>,
-    /// Full PIPS: health0/1/2/4/16..18, rank14/15/19, self-heal13/20.
+    /// Full PIPS: health, rank, raw garrison Pip values and self-heal.
     /// Native LoadPipAssets 5F76B0 binds AC147C; both use Convert 87F6C4.
     pips: Option<CenteredShapeStrip>,
 }
@@ -299,15 +293,6 @@ impl SelectionOverlay {
             )
         });
 
-        // Load pips.shp frames 6-12 for occupant pips (garrison slots).
-        let (
-            occupant_pip_texture,
-            occupant_pip_frame_w,
-            occupant_pip_frame_h,
-            occ_adj_x,
-            occ_adj_y,
-        ) = load_occupant_pip_atlas(device, queue, batch, assets).unwrap_or((None, 0, 0, 0.0, 0.0));
-
         // Native Init_Game52BF26/52BFC1 builds Convert87F6C4 from the
         // literal PALETTE.PAL; keep the SHP's full raw frame table. The
         // common centered owner applies each stored frame's own origin.
@@ -368,10 +353,6 @@ impl SelectionOverlay {
             diamond_outline_texture,
             diamond_filled_texture,
             pipbrd,
-            occupant_pip_texture,
-            occupant_pip_frame_w,
-            occupant_pip_frame_h,
-            occupant_pip_canvas_adj: (occ_adj_x, occ_adj_y),
             scale_pips,
             bomb_clock,
             repair_wrench,
@@ -494,42 +475,6 @@ impl SelectionOverlay {
         &self.diamond_filled_texture
     }
 
-    /// Occupant pip atlas texture (pips.shp frames 6-12).
-    pub fn occupant_pip_texture(&self) -> Option<&BatchTexture> {
-        self.occupant_pip_texture.as_ref()
-    }
-
-    /// Number of garrison pip frames in the occupant atlas.
-    const OCCUPANT_PIP_VARIANTS: u32 = OCCUPANT_PIP_FRAMES.len() as u32;
-
-    /// UV origin for an occupant pip by pips.shp frame index (6-12).
-    /// Frame 6 → slot 0, frame 7 → slot 1, ..., frame 12 → slot 6.
-    pub fn occupant_pip_uv_origin(&self, frame_index: u32) -> [f32; 2] {
-        let slot: u32 = OCCUPANT_PIP_FRAMES
-            .iter()
-            .position(|f| *f as u32 == frame_index)
-            .unwrap_or(0) as u32;
-        [slot as f32 / Self::OCCUPANT_PIP_VARIANTS as f32, 0.0]
-    }
-
-    /// UV size for a single occupant pip frame in the atlas.
-    pub fn occupant_pip_uv_size(&self) -> [f32; 2] {
-        [1.0 / Self::OCCUPANT_PIP_VARIANTS as f32, 1.0]
-    }
-
-    /// Pixel size of one occupant pip frame.
-    pub fn occupant_pip_frame_size(&self) -> [f32; 2] {
-        [
-            self.occupant_pip_frame_w as f32,
-            self.occupant_pip_frame_h as f32,
-        ]
-    }
-
-    /// Canvas centering adjustment for occupant pips.
-    pub fn occupant_pip_canvas_adj(&self) -> (f32, f32) {
-        self.occupant_pip_canvas_adj
-    }
-
     /// The one PIPS2.SHP strip: raw frame0 empty,1 occupied,3/4 overload,
     /// and2/5 ore/gem. Callers supply native frame IDs, not atlas variants.
     pub fn scale_pips(&self) -> Option<&CenteredShapeStrip> {
@@ -544,100 +489,6 @@ fn generate_solid_color(color: [u8; 4]) -> Vec<u8> {
         rgba.extend_from_slice(&color);
     }
     rgba
-}
-
-/// Only garrison frames6..12 are uploaded. Rank uses the shared centered PIPS
-/// resource. The existing garrison consumer retains its old slot padding below.
-const OCCUPANT_PIP_FRAMES: [usize; 7] = [6, 7, 8, 9, 10, 11, 12];
-
-/// Load garrison frames6..12 into seven slots: empty6, PersonGreen..Purple7..12.
-/// Returns texture, slot size and canvas adjustment for the garrison consumer.
-fn load_occupant_pip_atlas(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    batch: &BatchRenderer,
-    assets: Option<&AssetManager>,
-) -> Option<(Option<BatchTexture>, u32, u32, f32, f32)> {
-    let assets = assets?;
-    let shp_data = assets.get("pips.shp")?;
-    let shp = ShpFile::from_bytes(&shp_data).ok()?;
-    if shp.frames.len() <= OCCUPANT_PIP_FRAMES[OCCUPANT_PIP_FRAMES.len() - 1] {
-        log::warn!(
-            "pips.shp has too few frames ({}), cannot load the occupant pip atlas",
-            shp.frames.len()
-        );
-        return Some((None, 0, 0, 0.0, 0.0));
-    }
-    let pal_data = assets
-        .get("palette.pal")
-        .or_else(|| assets.get("unittem.pal"))?;
-    let palette = Palette::from_bytes(&pal_data).ok()?;
-
-    const VARIANT_COUNT: u32 = OCCUPANT_PIP_FRAMES.len() as u32;
-    let frame_indices = OCCUPANT_PIP_FRAMES;
-    let mut max_w: u32 = 0;
-    let mut max_h: u32 = 0;
-    // The old garrison consumer centers its6..12 pixels inside the maximum
-    // header rectangle previously shared with chevrons. Preserve that layout
-    // while removing the rank uploads: stock remains8x14, not7x14 (which
-    // would shift colored occupants1px). Only available physical headers are
-    // consulted; missing unrelated rank frames do not prevent garrison loading.
-    for fi in frame_indices.into_iter().chain([14, 15, 19]) {
-        let Some(frame) = shp.frames.get(fi) else {
-            continue;
-        };
-        max_w = max_w.max(u32::from(frame.frame_width));
-        max_h = max_h.max(u32::from(frame.frame_height));
-    }
-
-    let atlas_w: u32 = max_w * VARIANT_COUNT;
-    let atlas_h: u32 = max_h;
-    let mut rgba: Vec<u8> = vec![0u8; (atlas_w * atlas_h * 4) as usize];
-
-    for (slot, &fi) in frame_indices.iter().enumerate() {
-        let frame = &shp.frames[fi];
-        let fw: u32 = frame.frame_width as u32;
-        let fh: u32 = frame.frame_height as u32;
-        let x_off: u32 = slot as u32 * max_w;
-        let cx: u32 = (max_w - fw) / 2;
-        let cy: u32 = (max_h - fh) / 2;
-        for py in 0..fh {
-            for px in 0..fw {
-                let src_idx: usize = (py * fw + px) as usize;
-                let pal_idx: u8 = frame.pixels[src_idx];
-                if pal_idx == 0 {
-                    continue;
-                }
-                let color = palette.colors[pal_idx as usize];
-                let dst_x: u32 = x_off + cx + px;
-                let dst_y: u32 = cy + py;
-                let dst: usize = ((dst_y * atlas_w + dst_x) * 4) as usize;
-                rgba[dst] = color.r;
-                rgba[dst + 1] = color.g;
-                rgba[dst + 2] = color.b;
-                rgba[dst + 3] = 255;
-            }
-        }
-    }
-
-    let ref_frame = &shp.frames[6];
-    let adj_x: f32 = ref_frame.frame_x as f32 - (shp.width / 2) as f32;
-    let adj_y: f32 = ref_frame.frame_y as f32 - (shp.height / 2) as f32;
-
-    let texture: BatchTexture =
-        batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
-    log::info!(
-        "Occupant pip atlas: {}x{} (frame {}x{}, {} variants, frames {:?}, adj ({:.0},{:.0}))",
-        atlas_w,
-        atlas_h,
-        max_w,
-        max_h,
-        VARIANT_COUNT,
-        OCCUPANT_PIP_FRAMES,
-        adj_x,
-        adj_y,
-    );
-    Some((Some(texture), max_w, max_h, adj_x, adj_y))
 }
 
 /// Generate a 1px-thick diamond outline texture (TILE_WIDTH x TILE_HEIGHT).

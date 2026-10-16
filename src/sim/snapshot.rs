@@ -1057,7 +1057,9 @@ use crate::sim::world::Simulation;
 // 374 -> 375: CaptureManager retains its overload pip countdown.
 // 375 -> 376: Foots retain their shared signed Ammo and chrono reinforcements
 // retain the pending Teleport state (Techno+280).
-const SNAPSHOT_VERSION: u32 = 376;
+// 376 -> 377: sight cache254/260 persists independently of latch250.
+// Earlier saves omitted inactive caches and are rejected, not reconstructed.
+const SNAPSHOT_VERSION: u32 = 377;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4580,7 +4582,8 @@ mod tests {
         // 373 -> 374: the batched target scan setting.
         // 374 -> 375: retained CaptureManager overload pip countdown.
         // 375 -> 376: retained Foot Ammo and chrono reinforcement pending state.
-        assert_eq!(super::SNAPSHOT_VERSION, 376);
+        // 376 -> 377: retained source cache and independent sight latch.
+        assert_eq!(super::SNAPSHOT_VERSION, 377);
     }
 
     #[test]
@@ -9465,9 +9468,12 @@ mod tests {
     fn reveal_then_conceal_roundtrips_membership() {
         use crate::sim::game_entity::GameEntity;
         let mut sim = Simulation::new();
-        sim.substrate
-            .entities
-            .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
+        let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
+        // test_default interns into the thread-local fixture, whereas Reveal
+        // now reaches the ordinary sight/discovery owners in this Simulation.
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("MTNK"));
+        sim.substrate.entities.insert(entity);
         sim.reveal(1);
         assert!(
             sim.substrate

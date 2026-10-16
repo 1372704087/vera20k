@@ -254,7 +254,7 @@ JOINED_EXTRA_ASSETS = tuple(name + '.SHP' for name in JOINED_ANIMS) + ('GI.SHP',
 JOINED_DAMAGE_FIRES = ('FIRE01', 'FIRE02', 'FIRE03')
 # These are existing Mission platform/presentation arms, never a replacement
 # FireAt, Bullet, entry, damage, Scatter, graph, path, animation or House answer.
-JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C,
+JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C, 0x413DE2, 0x413DF1,
     0x46B072, 0x655560, 0x655740, 0x5F8110, 0x5F8CE0, 0x46AFE5, 0x46B007,
     0x55A965, 0x55A987, 0x7CAA5E))
 
@@ -2212,6 +2212,157 @@ def typed_debris_main(argv):
     finish_vectors(typed_debris_generate,Path(__file__).with_name('building_death_anims_typed_debris.json'),
                    provenance=typed_debris_metadata,argv=argv)
 
+
+
+def grapple_inputs(root):
+    """Extend the existing physical reader for the selected stock SQD/DEST route."""
+    from collections import deque
+    from types import SimpleNamespace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP,UC_X86_REG_ESI,UC_X86_REG_EDI
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.rules_oracle.bridge_child_sound import sections
+    from tools.spatial_oracle.building_body_rules import INI,SP,dwords
+    import hashlib
+    m=joined_inputs(root);u=m.u;read=m.read32
+    m.grapple_layers=[]
+    proxy=SimpleNamespace(m=m,trace=deque(maxlen=64),events=[],pending={},frame=0,phase='setup')
+    def transport(u,pc,n,d):
+     if pc in JOINED_TRANSPORT-{0x527af9,0x527b0c}:Mission.observe(proxy,u,pc,n,d)
+     elif pc==0x7c978a:m.ret(0)
+    h=u.hook_add(UC_HOOK_CODE,transport)
+    m.invoke(0x4e73e0,0)
+    artall=sections((root/'ARTMD.INI').read_bytes());animnames=['SQDG','WAKE1','H2O_EXP1','H2O_EXP2','H2O_EXP3']
+    art={k:v for k,v in m.death_art_input_sections.items() if v};art.update({k:artall[k] for k in ['SQD','DEST','ASW']+animnames if k in artall})
+    for n in animnames:m.assets[n+'.SHP']=(root/(n+'.SHP')).read_bytes()
+    sound=sections((root/'SOUNDMD.INI').read_bytes());wanted=set()
+    for n in animnames:
+     for k in ['Report','StartSound']:wanted.update(art.get(n,{}).get(k,'').split(','))
+    wanted.discard('');selected={k:v for k,v in sound.items() if k in wanted|{'Defaults'}};selected['SoundList']={k:v for k,v in sound['SoundList'].items() if v in wanted};m.make_ini(selected);m.invoke(0x7510d0,INI)
+    m.make_ini(art);artcache=bytes(u.mem_read(INI,0x40))
+    for name in ['SQD','DEST']:
+     t=m.alloc(0xf00);m.invoke(0x7470d0,t,(m.cstring(name),));m.types[name]=t
+    w=m.invoke(0x772fa0,m.cstring('SquidGrab'))
+    for fn in ['RULESMD.INI','LANGRULE.INI','MPBattleMD.ini','Hills.map']:
+     p=root/fn
+     if not p.exists():
+      assert fn=='LANGRULE.INI';m.grapple_layers.append(dict(file=fn,absent=True));continue
+     m.grapple_layers.append(dict(file=fn,sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
+     all=sections(p.read_bytes());sel={k:v for k,v in all.items() if k in {'SQD','DEST','SquidGrab','SQDJUMP','ParasitePlus','ASW','General','CombatDamage'}}
+     m.make_ini(sel);rules=m.alloc(0x40);u.mem_write(rules,bytes(u.mem_read(INI,0x40)));u.mem_write(INI,artcache)
+     for name in ['SQD','DEST']:m.invoke(0x747620,m.types[name],(rules,))
+     asw=read(m.types['DEST']+0xd58);m.types['ASW']=asw;m.invoke(0x41cc20,asw,(rules,))
+     m.invoke(0x772080,w,(rules,));m.invoke(0x46bee0,read(w+0xa0),(rules,));m.invoke(0x75d3a0,read(w+0xac),(rules,));m.invoke(0x7729f0,w)
+     for a,b in [(0x66d847,0x66d894),(0x66c184,0x66c287)]:
+      u.mem_write(SP-4,dwords(0));u.reg_write(UC_X86_REG_ESP,SP-4 if a==0x66d847 else SP);u.reg_write(UC_X86_REG_ESI,m.rules);u.reg_write(UC_X86_REG_EDI,rules);run_checked(u,a,b)
+    u.mem_write(INI,artcache)
+    anim_rows=[]
+    for name in animnames:
+     t=m.invoke(0x428b80,m.cstring(name));result=m.invoke(0x427d00,t,(INI,));anim_rows.append(dict(pointer=t,**m.result(name,t,result)))
+    u.hook_del(h)
+    m.grapple_weapon=w;m.grapple_anims=anim_rows
+    return m
+
+
+def grapple_fixture(inputs, root, *, seed=1):
+    """Fresh stock actors on the shared runtime's declared water projection.
+
+    This calls Object::Limbo directly before AttachTo; native FireAt and the
+    Bullet producer are excluded. Every selected actor remains genuinely alive.
+    """
+    from types import SimpleNamespace
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.refinery_dock import cell
+    from tools.spatial_oracle.anytown_damage import next_family_native as identity
+    from tools.spatial_oracle.anytown_damage.navigation_inputs import bind_primary_tiles
+    from tools.rules_oracle.bridge_anim_inputs import Reader
+    previous=identity.ri.ASSETS;identity.ri.ASSETS=root
+    try:theater=identity.theater()
+    finally:identity.ri.ASSETS=previous
+    f=joined_fixture(inputs,38,seed=seed,unit_startup=True);u=f.u;read=f.read32
+    u.mem_write(bc.FRAME,dwords(0))
+    u.mem_write(0xA8B218,bytes(inputs.u.mem_read(0xA8B218,24)))
+    for entry in (0x69EBF0,0x4E6BE0,0x629190,0x6B6C10):bc.invoke(u,entry,0)
+    for house in f.owner_houses:
+        for offset in (0x553C,0x558C):bc.invoke(u,0x49F9B0,house+offset)
+        bc.invoke(u,0x748FD0,house+0x328)
+    # Adapt only transport API names to the same VM and allocator. No native
+    # object constructor, map query, numeric kernel or gameplay answer is supplied.
+    view=SimpleNamespace(u=u,alloc=f.allocate,read32=read)
+    view.invoke=lambda address,obj,args=():bc.invoke(u,address,obj,*args)
+    view.cstring=lambda name:Reader.cstring(view,name)
+    u.mem_write(0xA8ED28,dwords(0x7EB6D4,0x44000000,theater['count'],1,theater['count'],10))
+    water=theater['globals'][0xAA0738]
+    tiles=bind_primary_tiles(view,theater,[water],preserve_abstract_registry=True)
+    for address,value in theater['globals'].items():u.mem_write(address,dwords(value))
+    for y in range(7,10):
+        for x in range(7,11):
+            p=cell(x,y);u.mem_write(p+0x38,dwords(water));u.mem_write(p+0x11A,b'\0')
+    # Derive LandType from physical TMP through the real owner before admission.
+    # Otherwise Ship Unlimbo correctly refuses the inherited clear-land prior.
+    for y in range(7,10):
+        for x in range(7,11):bc.invoke(u,0x47D2B0,cell(x,y),0xFFFFFFFF)
+    def actor_state(p):
+        owner=read(p+0x21C)
+        # FacingClass::Current4C93D0 returns the supplied DirStruct pointer;
+        # Parasite helper629736 passes output storage, then reads that DWORD.
+        current=f.allocate(4);u.mem_write(current,dwords(0))
+        assert bc.invoke(u,0x4C93D0,p+0x388,current)==current
+        return dict(native_id=read(p+0x10),alive=u.mem_read(p+0x90,1)[0],
+            limbo=u.mem_read(p+0x81,1)[0],health=read(p+0x6C),
+            location=list(struct.unpack('<3i',u.mem_read(p+0x9C,12))),
+            owner_native_id=read(owner+0x10),owner_slot=read(owner+0x30),
+            owner_alliances=read(owner+0x5788),
+            primary_facing_hex=bytes(u.mem_read(p+0x388,20)).hex(),
+            primary_current_raw=read(current))
+    def manager_timers(p):
+        return {name:dict(start=read(p+offset),opaque=read(p+offset+4),duration=read(p+offset+8))
+            for name,offset in [('timer_2c',0x2C),('timer_38',0x38)]}
+    actors=[];admissions=[]
+    for name,xy,house in [('SQD',(8,8),f.owner_houses[0]),('DEST',(9,8),f.owner_houses[1])]:
+        p=f.allocate(0x1000);bc.invoke(u,0x7353C0,p,f.types[name],house)
+        c=cell(*xy);before_tile=read(c+0x38);coord=f.allocate(12)
+        u.mem_write(coord,dwords(xy[0]*256+128,xy[1]*256+128,0))
+        answer=bc.invoke(u,0x737BA0,p,coord,128)&255
+        assert answer==1 and read(c+0x38)==water and read(c+0xEC)==2
+        assert actor_state(p)['alive']==1 and actor_state(p)['limbo']==0
+        actors.append(p);admissions.append(dict(type=name,**actor_state(p),
+            unlimbo_al=answer,unlimbo_facing_input=128,tile_before=before_tile,tile_after=read(c+0x38),land_after=read(c+0xEC)))
+    source,victim=actors;manager=read(source+0x69C)
+    assert read(manager+0x10)==0xFFFFFFFF
+    limbo=bc.invoke(u,0x5F4D30,source)&255;assert limbo==1
+    attach_entry=[actor_state(p) for p in actors]
+    timers_before_attach=manager_timers(manager)
+    assert [(a['alive'],a['limbo']) for a in attach_entry]==[(1,1),(1,0)]
+    can_infect=bc.invoke(u,0x62A8E0,manager,victim)&255;assert can_infect==1
+    bc.invoke(u,0x62A980,manager,victim)
+    assert read(manager+0x28)==victim and read(victim+0x694)==source
+    grapple_entry=[actor_state(p) for p in actors]
+    assert [(a['alive'],a['limbo']) for a in grapple_entry]==[(1,1),(1,0)]
+    scenario=read(0xA8B230)
+    # This component does not run Scenario map lighting or a cell relight.
+    # Preserve that supplied lighting prior, rather than imply reset defaults.
+    lighting=dict(normal_profile={name:struct.unpack('<i',dwords(read(scenario+offset)))[0]
+        for name,offset in [('ambient_percent',0x352C),('red_percent',0x3534),
+            ('green_percent',0x3538),('blue_percent',0x353C),('ground_units',0x3540),('level_units',0x3544)]},
+        scenario_fields={f'{offset:04X}':read(scenario+offset)
+            for offset in range(0x3528,0x3548,4)},
+        effect_globals={f'{address:08X}':read(address) for address in (0xA9FAB4,0xA9FABC,0xA9FAC0)},
+        cells=[dict(cell=[x,8],level=u.mem_read(cell(x,8)+0x11B,1)[0],
+            fields_104=list(struct.unpack('<i4h',u.mem_read(cell(x,8)+0x104,12))),
+            ground_z_adjust=struct.unpack('<h',u.mem_read(cell(x,8)+0x10A,2))[0]) for x in (8,9)])
+    f.grapple_source,f.grapple_victim,f.grapple_manager=source,victim,manager
+    f.grapple_context=dict(seed=seed,frame=0,
+        game_speed=struct.unpack('<i',dwords(read(0xA8EB60)))[0],actor_admissions=admissions,
+        source_limbo_al=limbo,attach_entry=attach_entry,can_infect_al=can_infect,
+        grapple_entry=grapple_entry,manager_native_id=struct.unpack('<i',dwords(read(manager+0x10)))[0],
+        manager_timers_before_attach=timers_before_attach,manager_timers_grapple_entry=manager_timers(manager),
+        lighting=lighting,
+        water=dict(tile=water,theater_count=theater['count'],theater_sha256=theater['sha256'],
+            selected_tmp=tiles['added_rows'],projection_bounds=[7,7,10,9],
+            recalc_entry='0047D2B0'),native_cursor=read(read(0xA8B230)+0x214))
+    assert f.code_unchanged()
+    return f
 
 if __name__ == "__main__":
     import sys

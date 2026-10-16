@@ -5,8 +5,7 @@
 //! reference engine; do not change without binary verification.
 
 use crate::map::entities::EntityCategory;
-use crate::rules::ruleset::RuleSet;
-use crate::sim::entity_store::EntityStore;
+use crate::rules::object_type::ObjectType;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::rocking::RockingState;
 use crate::sim::rocking::self_destruct::SelfDestructHook;
@@ -169,74 +168,48 @@ pub(crate) fn advance_ship_rocking(rocking: &mut RockingState, type_supports_shi
     }
 }
 
-/// Advance every entity's `RockingState` by one sim tick.
-///
-/// Order per entity:
-///   1. If `is_ship_rocking`: integrate without damping (`advance_ship_rocking`).
-///   2. Else: spring-damper on each axis (`advance_axis`). The forwards-axis
-///      ±π/10 override during vehicle-vs-building crush [L8] is DEFERRED until
-///      building-crushing lands; both axes use ±π/4 uniformly.
-///   3. Wide-amplitude self-destruct check [L30]: if either body angle now
-///      exceeds ±π, fire `hook`. Mirrors the end-of-RockingUpdate damage call
-///      in the reference engine.
-pub fn tick(
-    entities: &mut EntityStore,
-    rules: &RuleSet,
-    interner: &crate::sim::intern::StringInterner,
+/// One Techno6FA236 -> RockingUpdate70B570 visit. The AI host owns the
+/// loaded-main-VXL gate and visit order; this owner alone advances the angles.
+/// Crashing bodies return before damping and the ordinary wide-angle check.
+pub(crate) fn update(
+    entity: &mut GameEntity,
+    object_type: &ObjectType,
+    fallback: SimFixed,
     self_destruct_hook: &mut dyn SelfDestructHook,
 ) {
-    let keys = entities.keys_sorted();
-    for &id in &keys {
-        let Some(entity) = entities.get_mut_if(id, |entity| entity.rocking.is_some()) else {
-            continue;
-        };
-
-        // Read whole-entity properties before borrowing rocking mutably.
-        // RESIDUAL: VERA keeps no DirectRocker link (`Techno+0x2A8`). Only the
-        // DirectRocker detonation arm sets it (`0x004699AD..0x004699B9`), whose
-        // effect `sim::projectile` does not perform, and no warhead in retail
-        // `rulesmd.ini` sets `DirectRocker=`.
-        let direct_rocker_linked = false;
-        let supports_ship_rock = entity_type_supports_ship_rocking(entity);
-        let fallback = rules.general.fallback_coefficient;
-
-        // 1–2: mutate the rocking state. The &mut borrow is scoped to this
-        // block so step 3 can take a fresh &mut GameEntity for the hook.
-        {
-            let crashing = entity.crash.is_crashing();
-            let balloon_hover = balloon_hover_type(entity, rules, interner);
-            let rocking = entity.rocking.as_mut().unwrap();
-            if rocking.is_ship_rocking {
-                advance_ship_rocking(rocking, supports_ship_rock);
-            } else if crashing {
-                // A crashing object spins by the rates Crash drew and returns:
-                // no damping and no wide-amplitude self-destruct.
-                advance_crash_spin(rocking, balloon_hover);
-                continue;
-            } else {
-                // L8 forwards override (±π/10 during building-crush) is DEFERRED
-                // — the gate it depends on isn't wired yet. Both axes use ±π/4.
-                let forward_cap = SATURATION_PI4;
-                advance_axis(
-                    &mut rocking.angle_sideways,
-                    &mut rocking.vel_sideways,
-                    SATURATION_PI4,
-                    direct_rocker_linked,
-                    fallback,
-                );
-                advance_axis(
-                    &mut rocking.angle_forwards,
-                    &mut rocking.vel_forwards,
-                    forward_cap,
-                    direct_rocker_linked,
-                    fallback,
-                );
-            }
-        }
-
-        // 3: wide-amplitude self-destruct check [L30].
-        crate::sim::rocking::self_destruct::check_and_fire(entity, self_destruct_hook);
+    // RESIDUAL: VERA keeps no DirectRocker link (Techno+2A8). Its only
+    // setter is Bullet4699AD..4699B9, whose effect remains unported; no
+    // retail rulesmd warhead authors DirectRocker. Keep the existing bound.
+    let direct_rocker_linked = false;
+    let supports_ship_rock = entity_type_supports_ship_rocking(entity);
+    let crashing = entity.crash.is_crashing();
+    let Some(rocking) = entity.rocking.as_mut() else {
+        return;
+    };
+    if rocking.is_ship_rocking {
+        advance_ship_rocking(rocking, supports_ship_rock);
+    } else if crashing {
+        advance_crash_spin(rocking, object_type.balloon_hover);
+        return;
+    } else {
+        // The forwards PI/10 building-crush gate remains unported. Both
+        // axes retain the existing ordinary PI/4 numeric responsibility.
+        advance_axis(
+            &mut rocking.angle_sideways,
+            &mut rocking.vel_sideways,
+            SATURATION_PI4,
+            direct_rocker_linked,
+            fallback,
+        );
+        advance_axis(
+            &mut rocking.angle_forwards,
+            &mut rocking.vel_forwards,
+            SATURATION_PI4,
+            direct_rocker_linked,
+            fallback,
+        );
     }
+    crate::sim::rocking::self_destruct::check_and_fire(entity, self_destruct_hook);
 }
 
 /// `TechnoClass::RockingUpdate @ 0x0070B570`'s crashing branch
@@ -260,17 +233,6 @@ pub(crate) fn advance_crash_spin(rocking: &mut RockingState, balloon_hover: bool
             .max(-SATURATION_PI4)
             .min(SATURATION_PI4);
     }
-}
-
-fn balloon_hover_type(
-    entity: &GameEntity,
-    rules: &RuleSet,
-    interner: &crate::sim::intern::StringInterner,
-) -> bool {
-    entity.crash.is_crashing()
-        && interner
-            .object_type(entity.type_ref(), rules)
-            .is_some_and(|object| object.balloon_hover)
 }
 
 /// Working assumption per design doc §"Open Questions" #1: vehicles ship-rock,

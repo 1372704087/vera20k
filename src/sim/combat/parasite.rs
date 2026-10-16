@@ -46,9 +46,6 @@
 //!   cell arrival. Trigger: a jump whose host is lost in flight. Effect: the
 //!   returned drone sees around its launch cell before it moves again.
 //!   Frequency: rare.
-//! - ExitUnit zeroes the victim's sideways rock angle (`+0x328`,
-//!   `0x0062A869`). VERA's bites do not rock the victim (the bite's own
-//!   residual), so there is no angle to clear.
 //! - GetReleaseCoords' PlaceInfantryInCell finding no spot writes the zero
 //!   coordinate (`0x0089E778`), which a Unit owner turns into map cell
 //!   (0,0)'s GetCoords (`0x0062AE09..0x0062AE3E`); that is no longer the
@@ -59,11 +56,10 @@
 //!   the cell ahead of the victim holds a vehicle or a closed object.
 //!   Effect: the drone is lost instead of standing off the map's corner.
 //!   Frequency: rare. Risk: the owner's unit count only.
-//! - Paralysis in some movers: Drive Set_Destination `0x004AFD5E`, Ship
-//!   `0x0069F46E`/`0x006A1DA9`, Fly `0x004CCD00`/`0x004CF96E`, Mech Move_To
+//! - Paralysis in some movers: Fly `0x004CCD00`/`0x004CF96E`, Mech Move_To
 //!   `0x005B0099` and Tunnel Move_To `0x00728B10` refuse a paralyzed Foot;
 //!   VERA's ports of those do not read [`FootParasite::is_paralyzed`] yet
-//!   (Drive Process_Movement `0x004B2759`, Hover, Teleport and the
+//!   (Drive/Ship Move_To and fresh Process_Movement, Hover, Teleport and the
 //!   player-control virtual +0xA0 `0x00700C90` do). Trigger: a successful
 //!   release paralyzes the owner for 3x ROF (a drone knocked off a Chrono
 //!   Miner's warp: 180 frames). Effect: such a released owner can be given a
@@ -85,6 +81,9 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::{FrameEffects, Simulation, UninitContext};
 use crate::util::direction_tables::CELL_DELTAS;
 
+#[path = "parasite_grapple.rs"]
+mod grapple;
+
 /// Foot+698 launch lock: `TechnoClass::Fire @ 0x006FF81F` stores
 /// `Frame + 0x14`; GetFireError `0x006FCAE1` refuses parasite shots before it.
 pub(crate) const LAUNCH_LOCK_FRAMES: u32 = 0x14;
@@ -99,7 +98,7 @@ pub(crate) const CHRONO_WARP_SUPPRESSION_FRAMES: i32 = 500;
 
 /// Retained ParasiteClass instance fields. The owner (`+0x24`) is the entity
 /// storing this value.
-#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ParasiteState {
     /// `+0x28` Victim (FootClass).
     victim: Option<u64>,
@@ -108,6 +107,23 @@ pub(crate) struct ParasiteState {
     suppression: CdTimer,
     /// `+0x38` damage-delivery timer (bite cadence).
     damage: CdTimer,
+    /// Parasite+44..54: retained animation and manager-controlled progress.
+    /// Load6295B0 preserves these while restarting only the two timers.
+    grapple: grapple::GrappleState,
+}
+
+impl std::hash::Hash for ParasiteState {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.victim.hash(state);
+        self.suppression.hash(state);
+        self.damage.hash(state);
+        // Preserve the established non-grapple hash while including every
+        // nondefault field named by native ComputeCRC6294D0.
+        if self.grapple != Default::default() {
+            b"parasite-grapple-v371".hash(state);
+            self.grapple.hash(state);
+        }
+    }
 }
 
 impl ParasiteState {
@@ -118,6 +134,7 @@ impl ParasiteState {
             victim: None,
             suppression: CdTimer::started(frame as i32, 0),
             damage: CdTimer::started(frame as i32, 0),
+            grapple: Default::default(),
         }
     }
 
@@ -125,6 +142,10 @@ impl ParasiteState {
     /// (Unit `0x0073F530`, Infantry `0x0051C259`).
     pub(crate) fn victim(&self) -> Option<u64> {
         self.victim
+    }
+
+    pub(crate) fn grapple_anim(&self) -> Option<u64> {
+        self.grapple.anim
     }
 
     #[cfg(test)]
@@ -162,8 +183,8 @@ pub(crate) struct FootParasite {
     /// Foot+6A0 ParalysisTimer. FootClass ctor `0x004D33FC` starts it at the
     /// construction frame with zero duration; ParasiteClass arms it (bites,
     /// release) and clears it, as does FootClass::IronCurtain `0x004DEAE0`.
-    /// The Squid grapple's writes (`ParasiteClass::UpdateSquidGrapple`,
-    /// `0x0062987A`, `0x0062989E`, `0x00629CFF`) are unported with it.
+    /// The Squid grapple refreshes the host timer and clears the released
+    /// owner's timer (`0x0062987A`, `0x0062989E`, `0x00629CFF`).
     paralysis: CdTimer,
     /// Techno+432 ReselectIfLimboed memo (`TechnoClass::Fire @ 0x006FF79C`),
     /// consumed by a successful parasite release. Process-local like
@@ -248,15 +269,8 @@ impl FootParasite {
 /// Naval+Organic owners (retail `[SQD]`) run the grapple machine `0x006297F0`
 /// from the class AI (`0x00629FE4..0x0062A00C`).
 ///
-/// RESIDUAL (Squid grapple): the grapple state machine, its SQDG anim, wakes,
-/// splashes, Culling and per-tick victim paralysis are not ported. Until they
-/// are, such owners neither LimboLaunch nor attach (both gates below). Trigger:
-/// a Giant Squid (SQD) firing SquidGrab/SquidGrabE. Effect: SQDJUMP is Inviso;
-/// VERA's instant-hit path runs the Parasite arm, whose attach this gate
-/// refuses, so the shot does nothing (no damage, the squid visible and the
-/// ship free), where native grapples, paralyzes, rocks and damages the ship
-/// every 40 frames and culls it when weak. Frequency: Yuri's Revenge naval
-/// games. Risk: naval balance.
+/// This predicate selects the separate grapple progression; launch,
+/// relationship, admission and release remain the same shared owners.
 pub(crate) fn owner_uses_grapple(object: &ObjectType) -> bool {
     object.naval && object.organic
 }
@@ -336,17 +350,9 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) {
         let frame = self.session.binary_frame;
-        // Squid residual: a visible grapple owner must not attach while its
-        // grapple is unported (every release path would fail its reveal).
-        if self
-            .substrate
-            .entities
-            .get(owner)
-            .and_then(|o| self.object_type(o.type_ref(), rules))
-            .is_some_and(owner_uses_grapple)
-        {
-            return;
-        }
+        // AttachTo629A989..629A9D4 clears old grapple progress and its
+        // dedicated animation before the damage timer and CanInfect query.
+        self.reset_parasite_grapple(owner, Some(rules));
         let Some(state) = self
             .substrate
             .entities
@@ -364,8 +370,8 @@ impl Simulation {
         let victim = victim.expect("CanInfect admitted a victim");
         // 0x0062AAD9..0x0062AB24: the OWNER's locomotor Force_Track(-1, victim
         // XYZ). Drive and Ship reset their track (and return with the owner in
-        // limbo); Walk binds the base no-op 0x0055AC10. Retail's one Ship
-        // parasite, SQD, takes the grapple arm above instead.
+        // limbo); Walk binds the base no-op 0x0055AC10. SQD uses this same
+        // attachment; its victim AI selects the separate grapple progression.
         let victim_coord = ground_pose::position_world_coord(
             &self.substrate.entities.get(victim).unwrap().position,
         );
@@ -516,6 +522,7 @@ impl Simulation {
             return;
         };
         if owner_uses_grapple(owner_object) {
+            self.parasite_grapple(owner, victim, rules, overlay_registry, effects);
             return;
         }
         let Some(weapon) = weapon_zero(rules, owner_object, owner_entity.veterancy.rank()) else {
@@ -700,6 +707,8 @@ impl Simulation {
             if let Some(entity) = self.substrate.entities.get_mut(owner) {
                 entity.parasite.paralysis = CdTimer::started(frame as i32, rof.wrapping_mul(3));
             }
+            // ExitUnit62A7E0..62A84B, before clearing the victim fields.
+            self.reset_parasite_grapple(owner, Some(rules));
         } else {
             self.substrate
                 .entities
@@ -719,6 +728,9 @@ impl Simulation {
     /// Foot+694 = 0, Parasite.Victim = 0 (`0x0062A862..0x0062A88F`).
     fn detach_parasite_victim(&mut self, owner: u64, victim: u64, frame: u32) {
         if let Some(entity) = self.substrate.entities.get_mut(victim) {
+            if let Some(rocking) = entity.rocking.as_mut() {
+                rocking.set_angle_sideways(crate::util::fixed_math::SimFixed::ZERO);
+            }
             entity.parasite.end_paralysis(frame);
             if entity.parasite.eater == Some(owner) {
                 entity.parasite.eater = None;
@@ -1144,9 +1156,6 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
-        if owner_uses_grapple(object) {
-            return;
-        }
         let target_id = match target {
             super::TargetKind::Entity(id) => Some(id),
             super::TargetKind::Cell(..) => None,

@@ -24,6 +24,7 @@ pub(crate) use building_missions::PrismSupport;
 pub(crate) use building_missions::queue_and_commence;
 pub(crate) use building_missions::{BuildingDelayedFire, DelayedFire};
 mod mission_handlers;
+mod scan_batch;
 mod target_scan;
 pub(crate) use mission_handlers::dispatch_foot_mission;
 pub(crate) use mission_handlers::enter_idle_mode;
@@ -31,6 +32,7 @@ pub(crate) use mission_handlers::foot_enter_idle_mode_selection;
 pub(crate) use mission_handlers::techno_unlimbo_idle_mode;
 #[cfg(test)]
 use mission_handlers::*;
+pub(crate) use scan_batch::ScanBatch;
 pub(crate) use target_scan::PassiveScan;
 pub(crate) use target_scan::direct_greatest_threat;
 pub(crate) use target_scan::passive_target_acquire;

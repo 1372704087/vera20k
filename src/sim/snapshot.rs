@@ -1064,7 +1064,9 @@ use crate::sim::world::Simulation;
 // StartNext uses forced Begin admission and Abandon retains held identity
 // through destruction. Layout is unchanged; older sale continuations differ.
 // 379 -> 380: live type TechLevels and the process registry's global type order.
-const SNAPSHOT_VERSION: u32 = 380;
+// 380 -> 381: Factory+70 owns user hold and completion; the duplicate semantic
+// manual flag is removed. Older paused factories have incompatible state/layout.
+const SNAPSHOT_VERSION: u32 = 381;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4594,7 +4596,8 @@ mod tests {
         // 377 -> 378: Super recharge override and House offensive target.
         // 378 -> 379: synchronous Factory lifecycle and sale continuation.
         // 379 -> 380: live type TechLevels and global constructor chronology.
-        assert_eq!(super::SNAPSHOT_VERSION, 380);
+        // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
+        assert_eq!(super::SNAPSHOT_VERSION, 381);
     }
 
     #[test]

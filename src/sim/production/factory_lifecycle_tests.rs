@@ -1406,8 +1406,14 @@ fn retail_superweapon_construction_survives_revalidation() {
                 .lifecycle
                 .in_limbo()
         );
+        let factories = sim.production.factories.clone();
+        let wallet = sim.houses[&owner].economy.clone();
+        let next_identity = sim.substrate.next_stable_object_id;
+        // House4FA5A8/4FA628 admits this same completed product through the
+        // held-build limit exception. Resume refuses without writes, so this
+        // is a relink, not another copy (factory_hold_resume.json/.md).
         assert!(
-            !enqueue_by_type(
+            enqueue_by_type(
                 &mut sim,
                 rules,
                 country,
@@ -1415,7 +1421,16 @@ fn retail_superweapon_construction_survives_revalidation() {
                 crate::sim::world::FrameEffects::default(),
                 false,
             ),
-            "{building}: a second copy still exceeds the stock limit"
+            "{building}: same completed request is admitted"
+        );
+        assert_eq!(
+            sim.production.factories, factories,
+            "{building}: complete resume is inert"
+        );
+        assert_eq!(sim.houses[&owner].economy, wallet, "{building}: no charge");
+        assert_eq!(
+            sim.substrate.next_stable_object_id, next_identity,
+            "{building}: no new object"
         );
         assert_eq!(held_id(&sim, owner, category), head);
         let preview = super::placement_preview_for_owner_with_overlays(
@@ -1901,8 +1916,9 @@ fn ready_manager_cancel_refunds_disposes_and_constructs_one_successor() {
     let credits = sim.houses[&owner].economy.credits();
     // A PRODUCE of the type waiting finished takes Begin_Production's resume
     // branch (0x004FA5A8..0x004FA5C4), which the build start refuses at stage 54
-    // (0x004C9ECD): nothing is queued or charged.
-    assert!(!enqueue_by_type(
+    // (0x004C9ECD). House ignores that refusal and still admits/relinks:
+    // nothing is queued or charged (factory_hold_resume.json).
+    assert!(enqueue_by_type(
         &mut sim,
         &rules,
         "Americans",

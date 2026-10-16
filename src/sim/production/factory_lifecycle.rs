@@ -82,8 +82,9 @@ impl HouseFactoryAbandonment {
 /// type takes the same-type branch (`0x004FA5A8..0x004FA5C4`): a held build
 /// resumes, and a finished one stays (the build start refuses stage 54,
 /// `0x004C9ECD`). Otherwise `FactoryClass::StartProduction @ 0x004C9C70`
-/// starts or queues the build. Nothing on this path checks money: a short
-/// wallet stalls the steps instead. A queue already holding `[General]
+/// starts or queues the build. Resume checks the next charge only after
+/// unpausing/rearming; House ignores its AL, so a short wallet still admits
+/// the request and stalls at the next due step. A queue already holding `[General]
 /// MaximumQueuedObjects=` builds, or a type at its limit
 /// (`HouseClass::CheckBuildLimit`, `0x004C9CEA`), refuses the append and
 /// scolds the local player.
@@ -119,14 +120,13 @@ pub fn enqueue_by_type(
     }
     let category = production_category_for_object(obj);
     let type_interned = sim.interner.intern(type_id);
-    if let Some((active, held, finished)) =
-        sim.production.factories.active_object(owner_id, category)
+    if let Some((active, suspended)) = sim.production.factories.active_object(owner_id, category)
         && active == type_interned
-        && (held || finished)
+        && suspended
     {
-        if !held {
-            return false;
-        }
+        //4FA5A8/+70 bypasses construction even at stage54. Resume4C9EA0
+        // then refuses a complete product, but House ignores its AL and
+        // still links/returns0. Source: factory_hold_resume.md.
         let time_to_build = time_to_build(&time_to_build_inputs(sim, rules, owner_id, obj));
         let frame = sim.session.binary_frame;
         sim.production

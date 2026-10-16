@@ -428,6 +428,16 @@ def sale_sidebar_events(m):
     return events
 
 
+def advance_factory_to_stage(m, factory, target_stage):
+    """Advance the existing paid head through original FactoryAI4C9B20."""
+    for _ in range(1000):
+        m.u.mem_write(bc.FRAME, c.dwords(m.get(bc.FRAME) + 1))
+        m.invoke(0x4C9B20, factory)
+        if m.get(factory + 0x24) == target_stage:
+            break
+    assert m.get(factory + 0x24) == target_stage
+
+
 def sale_sidebar_control(m, name, *, selling=False, complete=False, recheck=False, survivor=False,
                          target_stage=None, auto_receive=False):
     from tools.sidebar_oracle import power_draw
@@ -442,12 +452,7 @@ def sale_sidebar_control(m, name, *, selling=False, complete=False, recheck=Fals
         assert u.mem_read(m.er.HOUSE + 0x1FC, 1)[0] == 0
     if complete or target_stage is not None:
         target_stage = 54 if complete else target_stage
-        for _ in range(1000):
-            u.mem_write(bc.FRAME, c.dwords(get(bc.FRAME) + 1))
-            m.invoke(0x4C9B20, factory)
-            if get(factory + 0x24) == target_stage:
-                break
-        assert get(factory + 0x24) == target_stage
+        advance_factory_to_stage(m, factory, target_stage)
     prepared = sale_sidebar_state(m, factory)
     if recheck:
         u.mem_write(m.er.HOUSE + 0x1FC, b'\1')  # explicit external request input
@@ -731,6 +736,183 @@ def sale_sidebar_metadata():
     record['retail_inputs'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in sorted(root.iterdir()) if p.is_file()}
     record['retail_inputs']['LANGRULE.INI'] = None if not (root / 'LANGRULE.INI').exists() else record['retail_inputs']['LANGRULE.INI']
+    return record
+
+
+def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
+    """Real Select/receive around Suspend1 and same-head Resume0.
+
+    Reuse the paid Russian fixture and its evidence collector. No held flag,
+    rate, timer, stage, event payload or admission result is supplied.
+    """
+    factory, product = sale_queue_start(m, 'E2')
+    if complete:
+        advance_factory_to_stage(m, factory, 54)
+    m.watch.update({0x4FA910: ('house_suspend', 3, 12),
+                    0x4C9E60: ('factory_suspend', 1, 4),
+                    0x4CA6E0: ('factory_rate_rewrite', 0, 0),
+                    0x6F47A0: ('time_to_build', 0, 0),
+                    0x4C98B0: ('factory_constructor', 0, 0),
+                    0x517A50: ('infantry_constructor', 2, 8),
+                    0x517D90: ('infantry_destructor', 0, 0),
+                    0x68BCB0: ('next_identity', 0, 0)})
+    m.calls.clear()
+    m.call_trace.pending.clear()
+    phases = []
+
+    def state():
+        observed = sale_sidebar_state(m, factory)
+        return dict(frame=observed['frame'], factory=observed['factory'])
+
+    def identity_cursor():
+        return m.get(m.get(0xA8B230) + 0x214)
+
+    def hashes(streams):
+        return {key: hashlib.sha256(bytes.fromhex(raw)).hexdigest()
+                for key, raw in streams.items()}
+
+    def phase(label, operation):
+        before, cursor = state(), identity_cursor()
+        evidence = m.step(label, operation)
+        after = state()
+        calls = []
+        for row in evidence['native_calls']:
+            if row['name'] not in ('select_action', 'house_suspend', 'factory_suspend',
+                    'begin_production', 'set_production_rate', 'type_find_factory',
+                    'sidebar_link_factory', 'factory_rate_rewrite', 'time_to_build',
+                    'play_gui_sound', 'eva'):
+                continue
+            call = dict(name=row['name'], caller=row['caller'], args_raw=row['args'],
+                        returned='return_eax' in row)
+            if 'return_eax' in row:
+                call['return_eax_raw'] = row['return_eax']
+            if row['name'] in ('factory_suspend', 'set_production_rate'):
+                # These original functions read the byte argument. Native
+                # event callers may leave unrelated high bytes in its slot.
+                call.update(argument_low_byte=row['args'][0] & 255,
+                            return_low_byte=row['return_eax'] & 255)
+            elif row['name'] in ('house_suspend', 'begin_production'):
+                call['naval_low_byte'] = row['args'][2] & 255
+                if row['name'] == 'begin_production':
+                    call['force_low_byte'] = row['args'][3] & 255
+            elif row['name'] == 'time_to_build':
+                call.update(return_i32=struct.unpack('<i', c.dwords(row['return_eax']))[0],
+                            held_object=int(row['ecx'], 16) == product)
+            elif row['name'] == 'eva':
+                call['request'] = m.inputs.string(int(row['ecx'], 16))
+            calls.append(call)
+        timers = []
+        for row in evidence['timer_writes']:
+            offset = int(row['address'], 16) - factory
+            if offset in (0x2C, 0x34):
+                timers.append(dict(field='start' if offset == 0x2C else 'duration',
+                    pc=row['pc'], size=row['size'], before=row['before'], after=row['after']))
+        all_calls = evidence['native_calls']
+        constructors = sum(row['name'] in ('start_production', 'factory_constructor',
+                           'infantry_constructor') for row in all_calls)
+        detaches = sum(row['name'] in ('object_detach', 'dispatch_pointer_expired')
+                       for row in all_calls)
+        destructors = sum(row['name'] in ('infantry_destructor', 'factory_scalar_delete')
+                          for row in all_calls)
+        before_rng, after_rng = evidence['before']['rng'], evidence['after']['rng']
+        assert evidence['native_code_unchanged'] and before_rng == after_rng
+        assert not evidence['rng_requests'] and not evidence['rng_advances']
+        assert constructors == detaches == destructors == identity_cursor() - cursor == 0
+        assert m.get(m.er.HOUSE + 0x53B0) == factory and m.get(factory + 0x58) == product
+        phases.append(dict(name=label, before=before, after=after,
+            events=sale_sidebar_events(m), calls=calls, timer_writes=timers,
+            constructor_count=constructors, detach_count=detaches,
+            destructor_count=destructors, identity_delta=identity_cursor() - cursor,
+            factory_identity_unchanged=True, held_identity_unchanged=True,
+            rng=dict(unchanged=True, request_count=len(evidence['rng_requests']),
+                raw_advance_count=len(evidence['rng_advances']),
+                before_sha256=hashes(before_rng), after_sha256=hashes(after_rng))))
+
+    initial = state()
+    if complete:
+        # This is an admitted House request, not a completed portrait click
+        # (which enters the separate PLACE route). Resume must still refuse.
+        phase('completed_same_type_begin', lambda: m.invoke(0x4FA350, m.er.HOUSE, 16,
+            m.get(m.f.types['E2'] + 0xDF8), 0, 0))
+    else:
+        def frame(offset):
+            m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + offset))
+        frame(1)
+        phase('right_select', lambda: m.click('E2', right=True, kind=16, tab=2))
+        phase('suspend_receive', m.receive)
+        frame(10)
+        phase('paused_ai', lambda: m.invoke(0x4C9B20, factory))
+        phase('rate_refresh', lambda: m.invoke(0x4CA6E0, m.er.HOUSE))
+        frame(11)
+        phase('refreshed_paused_ai', lambda: m.invoke(0x4C9B20, factory))
+        if poor_wallet:
+            # A declared external spending request through the original
+            # wallet owner; no wallet, pause or affordability answer is set.
+            phase('spend_wallet', lambda: m.invoke(0x4F9790, m.er.HOUSE,
+                                                  m.get(m.er.HOUSE + 0x30C)))
+        frame(12)
+        phase('left_select', lambda: m.click('E2', kind=16, tab=2))
+        phase('resume_receive', m.receive)
+        phase('same_frame_ai', lambda: m.invoke(0x4C9B20, factory))
+        frame(13)
+        phase('next_frame_ai', lambda: m.invoke(0x4C9B20, factory))
+    return dict(name=name, inputs=dict(poor_wallet=poor_wallet, completed=complete,
+        power_output=m.get(m.er.HOUSE + 0x53A4), power_drain=m.get(m.er.HOUSE + 0x53A8)),
+        initial=initial, phases=phases)
+
+
+def hold_resume_generate():
+    m = sale_sidebar_setup(sale_sidebar_root())
+    return dict(schema=1, type_inputs=m.inputs.sale_type_inputs,
+        controls=[hold_resume_control(m, 'affordable'),
+                  hold_resume_control(m, 'poor_wallet', poor_wallet=True),
+                  hold_resume_control(m, 'completed_same_type', complete=True)])
+
+
+def hold_resume_metadata():
+    record = provenance(
+        scope='Three paid E2 same-head user-hold, rate-refresh, Resume0 and completed '
+              'HouseBegin controls; no system hold, forced held-start or Draw.',
+        assumptions=[
+            'Reuse sale_sidebar_setup/sale_queue_start, physical Russian type/country '
+            'readers, constructors, paid E2+E2 FIFO and the same ReadyBuildingFixture '
+            'VM/allocator/map/platform priors. Existing native layout opens Infantry; '
+            'no new fixture, parser, event dispatcher or admission substitution.',
+            'Whole Select6AAD00 Right/Left uses actual Infantry kind16/tab2. Existing '
+            'local receive6474C7..6474BF executes SUSPEND15/PRODUCE14 and original '
+            'HouseSuspend4FA910/Suspend1 or HouseBegin4FA350/Resume0. Native bool '
+            'arguments/results are low-byte values; high argument bytes and void '
+            'EAX are raw receipts, not additional semantics.',
+            'Existing call trace observes actual Time_To_Build6F47A0 entry/return '
+            'for the held object during rate_refresh/resume_receive. Its signed '
+            'EAX return is the rate/resume kernel input, never inferred from rate.',
+            'Only frame inputs are advanced between visits. Original4CA6E0 runs with '
+            'the joined prior House power99/0; it is the rate consumer boundary, not '
+            'a proof of the full power-dirty producer. FactoryAI supplies every stage '
+            'and completion. Meaningful timer start/duration are recorded; opaque+30 '
+            'is excluded. No flags, timer, stage, balance or result is primed.',
+            'Poor-wallet control executes original SpendMoney4F9790 for the current '
+            'wallet before Left. This is an explicit external spending input, not '
+            'a simulated purchase. Resume itself performs no debit. Complete control '
+            'reaches54 through originalAI then directly requests HouseBegin(force0); '
+            'a real completed Left click instead takes the separate PLACE route.',
+            'Each measured phase compares all three complete Main/Scenario/MapGen '
+            'RNG buffers and existing request/raw-advance hooks, identity cursor, '
+            'constructor, detach and destructor entries. Setup/paid-start/completion '
+            'preparation are outside those measured zero-draw boundaries. Existing '
+            'EVA752700 remains an observed RET4 sink; no whole cue/device RNG claim.',
+            'Raw+71 is observed, not reproduced by a semantic manual flag. '
+            'Suspend0/system holds, Resume1/forced held-start, special+68 products, '
+            'GoOnline/Offline scheduling, native save streams and rendered HOLD '
+            'remain outside these ordinary held-E2 controls.',
+        ],
+        substitutions=['Inherited physical-cache, allocator, OS/COM/DirectSound and '
+                       'observed EVA boundary services; original gameplay code unchanged.'],
+        entry_points=dict(select_action=0x6AAD00, local_receive=0x6474C7,
+            house_suspend=0x4FA910, factory_suspend=0x4C9E60, house_begin=0x4FA350,
+            factory_resume=0x4C9EA0, factory_rate_rewrite=0x4CA6E0,
+            time_to_build=0x6F47A0, factory_ai=0x4C9B20, spend_money=0x4F9790))
+    record['retail_inputs'] = sale_sidebar_metadata()['retail_inputs']
     return record
 
 
@@ -1196,7 +1378,11 @@ def metadata():
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if '--sale-sidebar' in args:
+    if '--hold-resume' in args:
+        args.remove('--hold-resume')
+        finish_vectors(hold_resume_generate, Path(__file__).with_name('factory_hold_resume.json'),
+                       provenance=hold_resume_metadata, argv=args)
+    elif '--sale-sidebar' in args:
         args.remove('--sale-sidebar')
         finish_vectors(sale_sidebar_generate, Path(__file__).with_name('factory_sale_sidebar.json'),
                        provenance=sale_sidebar_metadata, argv=args)

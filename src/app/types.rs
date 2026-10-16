@@ -294,7 +294,8 @@ mod tests {
 }
 
 /// Eight compass directions used for edge-scroll cursor selection.
-/// Maps directly to the MoveN..MoveNW frames in mouse.sha (reference §4).
+/// Each direction selects one row of the compiled cursor descriptor table:
+/// rows 1..8 while the view can still scroll, rows 9..16 when it cannot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollDir {
     N,
@@ -311,6 +312,15 @@ pub(crate) enum ScrollDir {
 pub(crate) enum CursorFeedbackKind {
     /// Native Action0: normal arrow, without a move or attack action.
     Default,
+    /// Empty-selection hover over a selectable object. gamemd's
+    /// `DetermineAction` (`0x00692610`) runs its no-selection arm when the
+    /// selection is empty: the object under the cursor, once it passes the
+    /// TechnoClass selectable test (vtable `+0x138`, `0x005F6C30`) and the
+    /// two flag gates, answers action 7 — row 17, the Select cursor (frames
+    /// 18-30) — with no ownership test, so own and enemy alike show it. Not
+    /// `FriendlyUnit`'s select — that one is the with-selection answer of the
+    /// same row.
+    Select,
     Move,
     AttackMove,
     FriendlyUnit,
@@ -336,8 +346,18 @@ pub(crate) enum CursorFeedbackKind {
     /// The pan cursor's directional variant, shown when the map cannot scroll
     /// any further the way the table's blocked-direction mask points.
     PanBlocked(ScrollDir),
-    /// Move cursor minimap variant (frames 42–51) — shown when hovering over the minimap.
-    MinimapMove,
+    /// Radar (minimap) cursor — the payload is one of the descriptor table's
+    /// mini frame sets. The original's RadarClass mouse handler (`0x006539D0`)
+    /// asks `SetCursorFromAction` (`0x004AAE90`) for the cursor with
+    /// `mini = 1`, so the mini switch (byte table `0x004AB838` indexed by
+    /// action, jump table `0x004AB7D0`) — not the tactical one — picks the
+    /// row. Its default is row 0's mini set, the plain arrow (frame 1): the
+    /// keep-table filter (`0x00653F04`) drops every action outside
+    /// {1,2,3,5,6,9,16,20,26,38,41,65,66,67,72} to row 0, and the
+    /// fallthrough exit is `SetCursorRow(0, mini = 1)` at `0x00653D62`. Only
+    /// the move family (row 18, frames 42-51) and the superweapon targeting
+    /// rows reach a mini set of their own.
+    Minimap(CursorId),
     /// Deploy/undeploy cursor — shown when a Deployer unit hovers over itself.
     Deploy,
     NoDeploy,

@@ -10,7 +10,8 @@ import struct
 
 from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import (
-    UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EBP, UC_X86_REG_EDI, UC_X86_REG_ESP,
+    UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EBP,
+    UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP,
 )
 from tools.native_oracle import (
     NATIVE_SHA256, RET_MAGIC, configured_gamemd, finish_vectors, provenance,
@@ -33,16 +34,17 @@ CELL, POINT, CLIP, RECT = [MEM + n for n in (0, 0x1000, 0x1020, 0x1040)]
 LEAVES = {0x493830: 'plain_shadow', 0x497390: 'rle_shadow'}
 BODY_LEAVES = {0x4990E0: 'rle_body'}
 BRIDGE_TYPES = ('BRIDGE1', 'BRIDGE2', 'BRIDGEB1', 'BRIDGEB2')
+ORE_TYPES = tuple(f'TIB{index:02}' for index in range(1, 13))
 
 
 def ints(u, address, count):
     return list(struct.unpack('<' + 'i' * count, u.mem_read(address, count * 4)))
 
 
-def physical_assets(*, body=False):
+def physical_assets(*, body=False, ore=False):
     root = configured_gamemd().parent
     sources, assets = [], {}
-    for outer_name, children in (
+    containers = (
         ('ra2.mix', {'temperat.mix': ('bridge.tem', 'bridgb.tem'),
                      'snow.mix': ('bridge.sno', 'bridgb.sno'),
                      'urban.mix': ('bridge.urb', 'bridgb.urb'),
@@ -52,7 +54,15 @@ def physical_assets(*, body=False):
                        'urbann.mix': ('bridge.ubn', 'bridgb.ubn'),
                        'desert.mix': ('bridge.des', 'bridgb.des'),
                        'lunar.mix': ('bridge.lun', 'bridgb.lun')}),
-    ):
+    )
+    if ore:
+        containers = (
+            ('ra2.mix', {'temperat.mix': tuple(f'{name.lower()}.tem' for name in ORE_TYPES),
+                         'urban.mix': tuple(f'{name.lower()}.urb' for name in ORE_TYPES),
+                         'cache.mix': ('palette.pal', 'anim.pal', 'temperat.pal', 'urban.pal')}),
+            ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini')}),
+        )
+    for outer_name, children in containers:
         outer_raw = (root / outer_name).read_bytes()
         outer = mix(outer_raw)
         for inner_name, names in children.items():
@@ -65,11 +75,24 @@ def physical_assets(*, body=False):
                                     outer_sha256=hashlib.sha256(outer_raw).hexdigest(),
                                     inner_sha256=hashlib.sha256(inner_raw).hexdigest(),
                                     sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
+    if ore:
+        # Active retail's expansion archive overrides the base RULESMD.
+        raw = (root / 'expandmd01.mix').read_bytes()
+        rules = mix(raw)[mix_hash('RULESMD.INI')]
+        assets['RULESMD.INI'] = rules
+        sources.append(dict(name='RULESMD.INI', outer='expandmd01.mix', inner=None,
+                            outer_sha256=hashlib.sha256(raw).hexdigest(),
+                            sha256=hashlib.sha256(rules).hexdigest(), bytes=len(rules)))
+        raw = (root / 'GoldSt.mmx').read_bytes()
+        assets['GOLDST.MMX'] = raw
+        sources.append(dict(name='GoldSt.mmx', kind='loose', outer=None, inner=None,
+                            sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
     return assets, sources
 
 
-def prepare(*, body=False):
-    assets, sources = physical_assets(body=body)
+def prepare(*, body=False, ore=False):
+    assert not (body and ore)
+    assets, sources = physical_assets(body=body, ore=ore)
     shadow_bytes, shape_aliases = {}, []
     for name, raw in assets.items():
         image_name = name.split('.')[0]
@@ -91,10 +114,12 @@ def prepare(*, body=False):
                                    shadow_frames_sha256=hashlib.sha256(normalized).hexdigest()))
     assert all(len(images) == 6 and all(raw == images[0] for raw in images)
                for images in shadow_bytes.values())
-    art, art_lines = lexical(assets['ARTMD.INI'], {*BRIDGE_TYPES, 'BRIDGE', 'BRIDGB'})
+    selected_types = ORE_TYPES if ore else BRIDGE_TYPES
+    art, art_lines = lexical(assets['ARTMD.INI'], set(selected_types)
+                             | (set() if ore else {'BRIDGE', 'BRIDGB'}))
     m = PaletteReader(art)
     m.assets.update(assets)
-    initialize(m)
+    initialize(m, ordinary=ore)
     u = m.u
     u.mem_map(MEM, 0x200000)
     # Existing registry constructor, then actual physical registry-prefix names.
@@ -102,7 +127,7 @@ def prepare(*, body=False):
     run_checked(u, 0x4E71E0, 0x4E7216)
     declared, _ = lexical(assets['RULESMD.INI'], {'OverlayTypes'})
     names = list(declared['OverlayTypes'].values())
-    names = names[:1 + max(names.index(name) for name in BRIDGE_TYPES)]
+    names = names[:1 + max(names.index(name) for name in selected_types)]
     types = {}
     for name in names:
         typ = m.alloc(0x300)
@@ -110,10 +135,10 @@ def prepare(*, body=False):
         types[name] = typ
     m.make_ini(art)
     layers = []
-    for filename in ('RULESMD.INI', 'MPBattleMD.ini'):
-        sections, lines = lexical(assets[filename.upper()], set(BRIDGE_TYPES))
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', *(('GoldSt.mmx',) if ore else ())):
+        sections, lines = lexical(assets[filename.upper()], set(selected_types))
         m.rules_cache(sections)
-        for name in BRIDGE_TYPES:
+        for name in selected_types:
             typ = types[name]
             mark = len(m.asset_loaded)
             admitted = m.invoke(0x5FE770, typ, (RULES,)) & 255
@@ -142,7 +167,57 @@ def prepare(*, body=False):
                   physical_art=art, art_source_lines=art_lines, layers=layers)
     if body:
         inputs['cell_convert'] = initialize_cell_convert(m)
+    if ore:
+        inputs['ordinary_convert'] = ordinary_convert_state(m)
+        inputs['tiberium'] = prepare_tiberium(m, assets)
+        from tools.spatial_oracle.shrapnel_repair.map_facts import decode_cells
+        parsed, cells = decode_cells(assets['GOLDST.MMX'])
+        inputs['map'] = dict(name='GoldSt.mmx', physical_map_section=parsed['Map'],
+                             cells=[dict(coords=list(xy), **cells[xy])
+                                    for xy in ((123, 33), (124, 33))],
+                             boundary='Authored pack data only; live slope0/flags0 are supplied component inputs, not native map-loader results.')
+        assert all(assets[f'{name}.TEM'] == assets[f'{name}.URB'] for name in ORE_TYPES)
+        assert assets['TEMPERAT.PAL'] == assets['URBAN.PAL']
+        inputs['urban_aliases'] = dict(images=list(ORE_TYPES), byte_identical=True,
+                                       palettes=['TEMPERAT.PAL', 'URBAN.PAL'])
     return m, types, inputs
+
+
+def ordinary_convert_state(m):
+    convert = m.read32(0x87F6B8)
+    assert m.read32(convert) == 0x7E5358 and m.read32(convert + 4) == 2
+    count, table = m.read32(convert + 0x16C), m.read32(convert + 0x170)
+    assert count == 53
+    return dict(global_address='0087F6B8', source_palette='TEMPERAT.PAL',
+                destination_palette='TEMPERAT.PAL', shade_count=count,
+                middle_row=(m.read32(convert + 0x174) - table) // 512,
+                expanded_palette_sha256=hashlib.sha256(bytes(m.u.mem_read(0x885780, 768))).hexdigest(),
+                table_sha256=hashlib.sha256(bytes(m.u.mem_read(table, count * 512))).hexdigest())
+
+
+def prepare_tiberium(m, assets):
+    """Full original Tiberium constructor and physical selected layer readers."""
+    u = m.u
+    u.mem_write(0xB0F4E8, dwords(0x7EB6D4, m.alloc(4096), 1024, 1, 0, 10))
+    typ = m.alloc(0x200)
+    m.invoke(0x7216C0, typ, (m.cstring('Riparius'),))
+    layers = []
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', 'GoldSt.mmx'):
+        sections, lines = lexical(assets[filename.upper()], {'Riparius'})
+        m.rules_cache(sections)
+        admitted = m.invoke(0x721A50, typ, (RULES,)) & 255
+        layers.append(dict(file=filename, physical_keys=sections.get('Riparius'),
+                           source_lines=lines, admitted=admitted,
+                           index=m.read32(typ + 0x98),
+                           base_overlay_id=m.read32(m.read32(typ + 0xE0) + 0x294),
+                           num_images=m.read32(typ + 0xE8), num_slopes=m.read32(typ + 0xEC),
+                           value=m.read32(typ + 0xB8), growth=m.read32(typ + 0xA8),
+                           spread=m.read32(typ + 0x9C),
+                           growth_percentage_bits=f'{struct.unpack("<Q", u.mem_read(typ + 0xB0, 8))[0]:016x}',
+                           spread_percentage_bits=f'{struct.unpack("<Q", u.mem_read(typ + 0xA0, 8))[0]:016x}'))
+    assert layers[-1]['index'] == 0 and layers[-1]['base_overlay_id'] == 102
+    assert layers[-1]['num_images'] == 12
+    return dict(constructor='007216C0', reader='00721A50', layers=layers)
 
 
 def initialize_cell_convert(m):
@@ -225,20 +300,24 @@ def snapshot(u, background, old_z):
                 depth_sha256=hashlib.sha256(bytes(u.mem_read(Z, COUNT * 2))).hexdigest())
 
 
-def execute(m, types, case, *, body=False, boundary_only=False, reset_surface=True):
-    assert body or not boundary_only
-    case = dict(type='BRIDGE1', coords=[10, 20], level=0, state=0,
-                flags=0x180, cell_point=[66, 81], clip=[0, 0, WIDTH, HEIGHT],
+def execute(m, types, case, *, body=False, ore=False, boundary_only=False, reset_surface=True):
+    assert body or ore or not boundary_only
+    case = dict(type='TIB01' if ore else 'BRIDGE1',
+                coords=[123, 33] if ore else [10, 20], level=5 if ore else 0, state=0,
+                flags=0 if ore else 0x180,
+                cell_point=[66, 141] if ore else [66, 81], clip=[0, 0, WIDTH, HEIGHT],
                 viewport_y=0, background=0xFFFF, old_z=65535, repeat=1) | case
     u = m.u
     typ = types[case.get('type', 'BRIDGE1')]
     shp = m.read32(typ + 0xA4)
-    assert shp, 'Physical bridge image must bind through original reader'
+    assert shp, 'Physical image must bind through original reader'
     u.mem_write(CELL + 0x44, dwords(m.read32(typ + 0x294)))
     u.mem_write(CELL + 0x24, struct.pack('<2h', *case['coords']))
     u.mem_write(CELL + 0x11B, bytes((case.get('level', 0) & 255,)))
     u.mem_write(CELL + 0x11E, bytes((case.get('state', 0),)))
     u.mem_write(CELL + 0x140, dwords(case.get('flags', 0x180)))
+    if ore:
+        u.mem_write(CELL + 0x11C, bytes((0,)))
     u.mem_write(0x886FA0, dwords(0, case.get('viewport_y', 0), WIDTH, HEIGHT))
     u.mem_write(POINT, dwords(*case.get('cell_point', [66, 81])))
     u.mem_write(CLIP, dwords(*case.get('clip', [0, 0, WIDTH, HEIGHT])))
@@ -248,8 +327,8 @@ def execute(m, types, case, *, body=False, boundary_only=False, reset_surface=Tr
         u.mem_write(Z, packed_words([old_z] * COUNT))
         u.mem_write(A, packed_words([127] * COUNT))
     draws, rows, reached, steps = [], [], set(), []
-    leaves = BODY_LEAVES if body else LEAVES
-    entry = 0x47F6A0 if body else 0x47F510
+    leaves = BODY_LEAVES if body or ore else LEAVES
+    entry = 0x47F6A0 if body or ore else 0x47F510
 
     def observe(_u, address, _size, _data):
         if address in (entry, 0x480110, 0x5FDCC0, 0x4AED70, 0x69E7E0,
@@ -274,7 +353,7 @@ def execute(m, types, case, *, body=False, boundary_only=False, reset_surface=Tr
 
     hook = u.hook_add(UC_HOOK_CODE, observe)
     for _ in range(case.get('repeat', 1)):
-        if body:
+        if body or ore:
             # Supplied dirty-cache miss forces every repeat through the
             # original raster, rather than measuring its redundant-draw cache.
             u.mem_write(CELL + 0x64, dwords(0xFFFFFFFF))
@@ -286,13 +365,18 @@ def execute(m, types, case, *, body=False, boundary_only=False, reset_surface=Tr
             observe(u, 0x4AED70, 0, None)
         else:
             m.invoke(entry, CELL, (POINT, CLIP))
-        if body and not boundary_only and case['repeat'] > 1:
+        if (body or ore) and not boundary_only and case['repeat'] > 1:
             steps.append(snapshot(u, background, old_z))
     u.hook_del(hook)
     required = {entry, 0x480110, 0x5FDCC0, 0x4AED70}
     if not boundary_only:
-        required |= {0x490E50, 0x437A10, 0x4990E0 if body else 0x497390}
+        required |= {0x490E50, 0x437A10, 0x4990E0 if body or ore else 0x497390}
     assert draws and required.issubset(reached)
+    if ore:
+        # The original coordinate selector can bind another image than the
+        # gameplay Cell's live overlay identity. Observe its actual pointer.
+        shp = draws[0]['raw_args'][0]
+        typ = next(pointer for pointer in types.values() if m.read32(pointer + 0xA4) == shp)
     m.invoke(0x69E7E0, shp, (RECT, draws[0]['frame']))
     result = dict(name=case['name'], input=case, draws=draws, leaf_rows=rows,
                   image_name=m.string(typ + 0x1F8),
@@ -303,6 +387,8 @@ def execute(m, types, case, *, body=False, boundary_only=False, reset_surface=Tr
     result['canvas'] = list(struct.unpack('<2H', u.mem_read(shp + 2, 4)))
     if steps:
         result['steps'] = steps
+    if ore:
+        result['display_overlay_id'] = m.read32(typ + 0x294)
     return result
 
 
@@ -351,7 +437,7 @@ def pixel_rows(m):
     return rows
 
 
-def traversal(m, *, origin=(10, 20), view_origin=(0, 0)):
+def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True):
     """Original Tactical loop order; map/visibility and draw calls are sinks."""
     u = m.u
     tactical = m.alloc(0xE20)
@@ -387,7 +473,8 @@ def traversal(m, *, origin=(10, 20), view_origin=(0, 0)):
 
     hook = u.hook_add(UC_HOOK_CODE, observe)
     run_checked(u, 0x6D6E5B, 0x6D71D3, count=200000,
-                required_addresses=(0x6D7001, 0x6D7031, 0x6D719F))
+                required_addresses=((0x6D7001, 0x6D7031, 0x6D719F) if require_draws
+                                    else (0x6D6EDA, 0x6D7031)))
     u.hook_del(hook)
     return dict(entry='006D6E5B', end='006D71D3', origin=list(origin),
                 max_diagonal=2, cells_per_diagonal=3, calls=calls)
@@ -564,6 +651,146 @@ def generate_body():
                 rows=rows, controls=controls, scenes=[body_overlap_scene(m, types)])
 
 
+def ore_selector_controls(m):
+    """Original flat selector, including signed-coordinate boundary inputs."""
+    u = m.u
+    tib = m.read32(m.read32(0xB0F4EC))
+    rows = []
+    for xy in [(x, 1) for x in range(12)] + [(123, 33), (124, 33), (-1, 1),
+                                           (-32768, 32767), (32767, 32767)]:
+        u.mem_write(CELL + 0x24, struct.pack('<2h', *xy))
+        u.reg_write(UC_X86_REG_ESI, CELL)
+        u.reg_write(UC_X86_REG_EBX, tib)
+        u.reg_write(UC_X86_REG_ESP, SP)
+        run_checked(u, 0x47F8D7, 0x47F900, required_addresses=(0x47F8E3, 0x47F8FD))
+        selected = u.reg_read(UC_X86_REG_ECX)
+        rows.append(dict(coords=list(xy), display_overlay_id=m.read32(selected + 0x294)))
+    return rows
+
+
+def ore_reduction_sequence(m, types):
+    """Original Cell reduction and full Recalc in the same physical-art VM.
+
+    Sparse map/zone storage and a sentinel TMP are explicit component state;
+    this neither constructs GoldSt terrain nor reimplements the reduction.
+    """
+    from tools.spatial_oracle.terrain_recalc import LAT_GLOBALS
+    u = m.u
+    initial = execute(m, types, dict(name='density_1', state=1), ore=True)
+    u.mem_write(CELL + 0x38, dwords(0xFFFF))
+    u.mem_write(CELL + 0xEC, dwords(5))
+    u.mem_write(0x887324, dwords(m.alloc(0xE20)))
+    u.mem_write(0x8871E0, dwords(m.alloc(0x2000)))
+    u.mem_write(0xB0CD48, struct.pack('<Q', 0x3FC25E5374344960))
+    u.mem_write(0xB0CE30, dwords(WIDTH, HEIGHT))
+    # Physical map Size is103x82, but only this component's cell is resident.
+    # Native map lookups return the shared empty Dummy for all neighbors.
+    u.mem_write(0x87F7E8 + 0xF4, dwords(103, 82))
+    u.mem_write(0x87F7E8 + 0x68, dwords(m.alloc(1000000), 100000, m.alloc(1000000)))
+    table = m.alloc(0x100000)
+    u.mem_write(table + (33 * 512 + 123) * 4, dwords(CELL))
+    u.mem_write(0x87F7E8 + 0x13C, dwords(table, 0x40000))
+    u.mem_write(0xABDC50 + 0x44, dwords(-1))
+    for address in LAT_GLOBALS:
+        u.mem_write(address, dwords(-1))
+    tib = m.read32(m.read32(0xB0F4EC))
+    u.mem_write(tib + 0xF8, dwords(m.alloc(0x10000)))
+    m.invoke(0x49F2F0, 0)
+    scenario = m.read32(0xA8B230)
+    u.mem_write(scenario, dwords(0x80))
+    m.invoke(0x65C6D0, scenario + 0x218, (1,))
+    rng_before = bytes(u.mem_read(scenario + 0x218, 0x3F4))
+    events = []
+
+    def observe(_u, pc, _size, _data):
+        if pc in (0x47D2B0, 0x722AB0, 0x722AF0, 0x7235A0, 0x65C780):
+            events.append(dict(entry=f'{pc:08X}'))
+        elif pc in (0x6551C0, 0x6D2790):
+            sp = u.reg_read(UC_X86_REG_ESP)
+            events.append(dict(entry=f'{pc:08X}',
+                               args=ints(u, sp + 4, 1 if pc == 0x6551C0 else 5)))
+            m.ret(0, 4 if pc == 0x6551C0 else 0x14)
+
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    steps, rows = [], [initial]
+    for index in range(2):
+        start = len(events)
+        removed = m.invoke(0x480A80, CELL, (1,))
+        state = dict(overlay_id=ints(u, CELL + 0x44, 1)[0],
+                     data=u.mem_read(CELL + 0x11E, 1)[0],
+                     land=ints(u, CELL + 0xEC, 1)[0],
+                     level=struct.unpack('<b', u.mem_read(CELL + 0x11B, 1))[0])
+        steps.append(dict(amount=1, removed=removed, state=state, events=events[start:]))
+        if index == 0:
+            assert state['overlay_id'] == 102
+            rows.append(execute(m, types, dict(name='density_0', state=state['data']), ore=True))
+    u.hook_del(hook)
+    assert bytes(u.mem_read(scenario + 0x218, 0x3F4)) == rng_before
+    assert not any(event['entry'] == '0065C780' for event in events)
+    assert steps[-1]['state']['overlay_id'] == -1
+    # The original active caller's own -1 test skips body and shadow calls.
+    # Do not invoke47F6A0 with an invalid identity or manufacture its result.
+    u.mem_write(PIXELS, packed_words([65535] * COUNT))
+    u.mem_write(Z, packed_words([65535] * COUNT))
+    native_traversal = traversal(m, origin=(123, 33), require_draws=False)
+    assert native_traversal['calls'] == []
+    empty_input = initial['input'] | dict(name='empty', state=0, overlay_id=-1)
+    rows.append(dict(name='empty', input=empty_input, draws=[], leaf_rows=[],
+                     native_rect=[0, 0, 0, 0], canvas=initial['canvas'],
+                     output=snapshot(u, 65535, 65535), native_traversal=native_traversal))
+    return rows, dict(entry='00480A80', cell=[123, 33], initial_data=1, steps=steps,
+                      rng_before_sha256=hashlib.sha256(rng_before).hexdigest(),
+                      rng_after_sha256=hashlib.sha256(bytes(u.mem_read(scenario + 0x218, 0x3F4))).hexdigest(),
+                      boundary='Supplied sparse103x82 map, empty neighbors/shared Dummy, sentinel TMPFFFF, CliffBack0 and no LAT; full original Recalc executes. Radar/tactical dirtiness are transport sinks. Not GoldSt terrain construction or normal harvester scheduling.')
+
+
+def generate_ore():
+    m, types, inputs = prepare(ore=True)
+    controls = ore_selector_controls(m)
+    rows = [execute(m, types, dict(name='density_4', state=4), ore=True)]
+    sequence_rows, sequence = ore_reduction_sequence(m, types)
+    rows += sequence_rows
+    rows.append(execute(m, types, dict(name='coordinate_variant', coords=[124, 33], state=4), ore=True))
+    probe = rows[0]
+    x, y, _count, _color, candidate = next(run for run in probe['output']['runs']
+                                          if run[3] not in (0, 65535))
+    assert 0 < candidate < 65535
+    for name, old_z in (('near', candidate + 1), ('equal', candidate), ('far', candidate - 1)):
+        row = execute(m, types, dict(name=f'depth_{name}', state=4, old_z=old_z,
+                                    clip=[0, y, WIDTH, 1]), ore=True)
+        row['depth_probe'] = dict(pixel=[x, y], candidate=candidate,
+                                  source='original density_4 raster output')
+        rows.append(row)
+    assert rows[-3]['output']['runs'] and not rows[-2]['output']['runs'] and not rows[-1]['output']['runs']
+    return dict(native_sha256=NATIVE_SHA256, inputs=inputs,
+                surface=dict(width=WIDTH, height=HEIGHT, baseline=32768, bytes_per_pixel=2),
+                rows=rows, controls=controls, lifecycle=sequence)
+
+
+def ore_metadata():
+    return provenance(
+        scope='Original flat Riparius Cell body on physical TIB01..12 and global ordinary Convert, reduction1→0→empty and native active-caller empty admission; bounded RGB565/Z rows and signed numeric image selector controls. No native whole map loader or normal harvest scheduling claim.',
+        assumptions=[
+            'Shares physical_assets/prepare/execute/snapshot and the original raster VM with bridge modes. Full original OverlayType constructors/readers and Riparius7216C0/721A50 execute on physical expansion RULESMD, MPBattleMD and GoldSt lexical layers. Original physical ART/image readers bind TEMPERATE art; all12 URBAN aliases and URBAN.PAL are byte-identical. Map pack coordinates/id/data/level are physical inputs, not derived native slope/flags.',
+            'Ordinary global87F6B8 executes original Init_Game TEMPERAT.PAL load/expansion52BC49..52BCBB and full basic Convert construction/publication52BE0F..52BE48 through48E740/4BBB00/48EBF0. Source/destination885780, RGB565 surface and53shades. No ISO Cell LightConvert or generated table is injected.',
+            'The8rows cover densities4/1/0 and empty at123,33 level5, a124,33 display variant and three one-scanline near/equal/far controls. Cell slope0/flags0/level/projected point, viewport/clip, A127, backgroundFFFF and oldZ are supplied component state. These are not native GoldSt constructed cells. Numeric controls execute47F8D7..47F900 directly with native reader-derived divisor/base and signed16 Cell coordinates.',
+            'The same VM executes original480A80 twice with amount1 and full original47D2B0 against supplied sentinel TMPFFFF, sparse103x82 map, empty neighbors/Dummy, CliffBack0 and no LAT. Original queue/bitmap gates and native direction initialization run; both native RNG states are unchanged. Reduction result drives the next raster density. Post-clear native Tactical suffix6D6E5B..6D71D3 itself skips both calls because identity=-1. Its map/admission/rectangle/draw transport remains the existing traversal owner. Actual GoldSt terrain recalc and full harvester scheduler remain with existing consumed terrain_recalc/harvest_field/ore_queue comparisons.',
+            'The caller, shape metadata/clipping, selector490E50, rowwalker437A10 and opaque4990E0 execute unchanged. Native pixels/Z supply all output runs; depth control candidates come from original raster output, not a host depth formula. This fixture does not certify GPU submission, shroud composition, all ordinary overlay branches, FoggedObject lifecycle or other theaters.',
+        ],
+        substitutions=[
+            'Existing PaletteReader allocation/TLS/archive-resource/RGB565 surface services remain. Full original Cell body, palette generation and raster execute. Reduction Radar6551C0/Tactical6D2790 calls are recorded transport sinks; no reduction, Recalc, queue or RNG result is substituted.',
+        ],
+        entry_points=dict(cell_body=0x47F6A0, flat_selector=0x47F8D7,
+                          overlay_type_constructor=0x5FE250, overlay_reader=0x5FE770,
+                          tiberium_constructor=0x7216C0, tiberium_reader=0x721A50,
+                          ordinary_palette_begin=0x52BC49, ordinary_palette_end=0x52BCBB,
+                          ordinary_convert_begin=0x52BE0F, ordinary_convert_end=0x52BE48,
+                          convert_constructor=0x48E740, shade_builder=0x4BBB00,
+                          reduce_tiberium=0x480A80, recalc=0x47D2B0,
+                          rle_selector=0x490E50, rle_rowwalker=0x437A10,
+                          opaque_body_leaf=0x4990E0))
+
+
 def body_metadata():
     return provenance(
         scope='Eight original high-bridge body caller/raster controls and one adjacent-anchor composition on physical BRIDGE/BRIDGB art, native default Cell LightConvert and strict RGB565/Z leaves; 41 caller-boundary controls including all16 LatinSquare positions. No whole scenario, GPU, snapshot drawing or complete47F6A0 parity.',
@@ -594,9 +821,13 @@ def body_metadata():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--body', action='store_true')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--body', action='store_true')
+    modes.add_argument('--ore', action='store_true')
     selected, remaining = parser.parse_known_args()
-    finish_vectors(generate_body if selected.body else generate,
-                   Path(__file__).with_name('bridge_body_render.json') if selected.body
-                   else Path(__file__).with_suffix('.json'),
-                   provenance=body_metadata if selected.body else metadata, argv=remaining)
+    generate_selected = generate_ore if selected.ore else generate_body if selected.body else generate
+    path = (Path(__file__).with_name('ore_render.json') if selected.ore else
+            Path(__file__).with_name('bridge_body_render.json') if selected.body else
+            Path(__file__).with_suffix('.json'))
+    metadata_selected = ore_metadata if selected.ore else body_metadata if selected.body else metadata
+    finish_vectors(generate_selected, path, provenance=metadata_selected, argv=remaining)

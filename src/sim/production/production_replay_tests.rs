@@ -301,20 +301,60 @@ fn event_tail_enqueue_first_charges_one_rate_later() {
 #[test]
 fn derived_view_state_stays_building_on_underfunded_stall() {
     let (mut sim, rules) = scenario();
-    let (am, _, e1, _) = ids(&sim);
-    // Arm an E1 build directly, then simulate a mid-build underfunded stall.
-    sim.production
+    let (am, ..) = ids(&sim);
+    // Start through the real constructor/rate owner, pay the first step, then
+    // spend the remaining wallet and let FactoryAI enter its cash stall. An
+    // unstarted rate0 kernel fixture is stopped, not an underfunded build.
+    assert!(super::enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        Default::default(),
+        false
+    ));
+    for _ in 0..256 {
+        sim.advance_tick(&[], Some(&rules), None, None, TICK_MS);
+        if sim
+            .production
+            .factories
+            .view(am, ProductionCategory::Infantry)
+            .unwrap()
+            .progress
+            > 0
+        {
+            break;
+        }
+    }
+    let progress = sim
+        .production
         .factories
-        .test_enqueue_kernel(am, ProductionCategory::Infantry, e1, 1, 200);
-    {
+        .view(am, ProductionCategory::Infantry)
+        .unwrap()
+        .progress;
+    assert!(progress > 0 && progress < super::PRODUCTION_STEPS);
+    let cash = crate::sim::credit_income::available_money(&sim, am);
+    crate::sim::credit_income::spend_money(&mut sim, am, cash);
+    for _ in 0..256 {
+        sim.advance_tick(&[], Some(&rules), None, None, TICK_MS);
         let f = sim
             .production
             .factories
-            .test_factory_mut(am, ProductionCategory::Infantry)
+            .view(am, ProductionCategory::Infantry)
             .expect("infantry factory armed");
-        f.progress = 10;
-        f.on_hold = true; // underfunded stall: not paused, not complete
+        if f.on_hold {
+            assert!(f.is_running());
+            assert_eq!(f.progress, progress);
+            break;
+        }
     }
+    assert!(
+        sim.production
+            .factories
+            .view(am, ProductionCategory::Infantry)
+            .unwrap()
+            .on_hold
+    );
     let view = queue_view_for_owner(&sim, &rules, "Americans");
     assert_eq!(
         view.len(),

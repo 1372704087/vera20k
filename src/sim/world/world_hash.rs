@@ -1264,7 +1264,6 @@ impl Simulation {
             }
             f.on_hold.hash(hasher);
             f.suspended.hash(hasher);
-            f.manual.hash(hasher);
             if f.has_changed() {
                 b"factory-changed-5d".hash(hasher);
             }

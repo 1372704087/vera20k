@@ -4,8 +4,8 @@
 //! This module owns production charging and the queue-of-record: a build
 //! starts owing its house's Cost_Of without a money check, `step_all` steps
 //! each build once per rate and charges `balance/steps_left` per step, a
-//! shortfall rewinds the step onto on-hold, a user hold clears the rate until
-//! the same type is produced again, and an abandoned build reports the Balance
+//! shortfall rewinds the step onto on-hold, a user hold sets suspension across
+//! rate refreshes until same-type Resume, and an abandoned build reports the Balance
 //! it still owed for the lifecycle owner's refund. State here is serialized
 //! and folded into the lockstep hash.
 //!
@@ -93,7 +93,8 @@ pub struct Factory {
     /// `0..=54`; completion at `PRODUCTION_STEPS`.
     pub progress: u16,
     /// Frames per step, `clamp(Time_To_Build / 54, 1, 255)` (Factory `+0x38`);
-    /// `0` before the build starts and once it completes.
+    /// `0` before the build starts and after Suspend/completion, until the
+    /// House's rate-only reassessment may rewrite it independently of +70.
     pub step_rate_frames: u16,
     /// The step timer (Factory `+0x2C`), anchored to the native frame: a step
     /// comes once `step_rate_frames` frames have passed since the last one.
@@ -106,19 +107,14 @@ pub struct Factory {
     /// The last step could not be afforded (Factory `+0x5C`); the step was
     /// rewound and the next one retries at the same rate.
     pub on_hold: bool,
-    /// Complete and not yet delivered: the completing step set Factory `+0x70`
-    /// and cleared the rate (`0x004C9C06..`).
+    /// Factory `+0x70`, shared by Suspend4C9E60 and completion4C9C06.
+    /// The rate-only House power pass4CA6E0 preserves this authority even
+    /// when it restores a nonzero rate on a user-held or completed factory.
+    /// Native evidence: tools/sidebar_oracle/factory_hold_resume.md.
+    /// Raw+71, system Suspend(0)/GoOnline and forced held-start remain the
+    /// separate lifecycle residual in factory_lifecycle::update_factory_queue;
+    /// +71 is not a stepping or user-pause flag (ordinary Resume0 sets it).
     pub suspended: bool,
-    /// Existing semantic user-hold flag: Suspend(1)4C9E60 stops the build;
-    /// a PRODUCE of the same type restarts it (`Factory::resume`). This is
-    /// not a raw +71 port: native Resume also sets that latch on an affordable
-    /// ordinary start. Its affordability/held-start interactions and the
-    /// system hold (`Suspend(0)`,
-    /// which `HouseClass::Update_Factory_Queue @ 0x00509140` takes at
-    /// `0x0050924D` when only offline factories could build the object and
-    /// lifts at `0x00509283`) is not ported: see
-    /// `factory_lifecycle::update_factory_queue`.
-    pub manual: bool,
     /// FIFO queue-of-record waiting behind the active object (Factory `+0x40`).
     pub queue: VecDeque<QueueEntry>,
     /// The factory's construction order: gamemd appends each new FactoryClass
@@ -138,6 +134,20 @@ pub struct Factory {
 }
 
 impl Factory {
+    /// One read-only projection for House and Building holders. All queue,
+    /// sidebar and input consumers share FactoryView's native running test.
+    pub(super) fn view(&self) -> FactoryView<'_> {
+        FactoryView {
+            construction_order: self.insertion_seq,
+            step_rate_frames: self.step_rate_frames,
+            progress: self.progress,
+            on_hold: self.on_hold,
+            suspended: self.suspended,
+            object: self.object.as_ref(),
+            queue: &self.queue,
+        }
+    }
+
     pub(crate) fn has_changed(&self) -> bool {
         self.changed
     }
@@ -175,10 +185,10 @@ impl Factory {
     /// otherwise the rate clears and the step timer restarts empty at `frame`.
     /// The progress, balance and a cash stall are kept.
     fn suspend(&mut self, frame: u32) -> bool {
-        if self.object.is_none() || self.manual || self.suspended {
+        if self.suspended {
             return false;
         }
-        self.manual = true;
+        self.suspended = true;
         self.step_rate_frames = 0;
         self.step_timer = CdTimer::started(frame as i32, 0);
         true
@@ -198,8 +208,8 @@ impl Factory {
     ///     (delivery, a later slice, clears the object and advances the queue).
     pub fn advance_one_step(&mut self, economy: &mut Economy) -> StepOutcome {
         // ARMED GATE: not stepping this call -> Idle. No object, or suspended
-        // (complete-held / paused), or a latched on_hold, or a manual pause.
-        if self.object.is_none() || self.suspended || self.on_hold || self.manual {
+        // (complete-held / paused), or a latched on_hold.
+        if self.object.is_none() || self.suspended || self.on_hold {
             return StepOutcome::Idle;
         }
         // Defensive: a settled factory is suspended (caught above); guard anyway.
@@ -270,8 +280,7 @@ impl Factory {
 
     ///4CA053..4CA07E follows the refund. Keep held identity visible through
     /// the destructor; PointerExpired/4CA0FF clears it afterward. Native+71
-    /// and cash-stall+5C are untouched; retain the existing semantic user hold
-    /// (its broader Resume latch residual is documented on `manual`).
+    /// (the separate system-hold residual) and cash-stall+5C are untouched.
     /// NULL held performs no reset.
     fn abandon_production(&mut self, frame: u32) -> Option<AbandonedObject> {
         let abandoned = self.pending_abandonment()?;
@@ -540,8 +549,8 @@ pub(super) enum EnqueueOutcome {
 }
 
 /// Borrow-only read view of one factory, for the lifecycle and delivery code and
-/// tests. Never mutates; never hashed. The user hold is not in it: the sidebar reads
-/// that through `production_queue::queue_view_for_owner`.
+/// tests. Never mutates or owns state; suspension covers user hold and completion.
+/// Queue, sidebar and input share its native rate/+70/IsComplete decision.
 pub struct FactoryView<'a> {
     construction_order: u64,
     step_rate_frames: u16,
@@ -640,16 +649,9 @@ impl FactoryRegistry {
 
     /// Read-only sidebar projection. Never mutates.
     pub fn view(&self, owner: InternedId, category: ProductionCategory) -> Option<FactoryView<'_>> {
-        let f = self.factories.get(&FactoryHolder::House(owner, category))?;
-        Some(FactoryView {
-            construction_order: f.insertion_seq,
-            step_rate_frames: f.step_rate_frames,
-            progress: f.progress,
-            on_hold: f.on_hold,
-            suspended: f.suspended,
-            object: f.object.as_ref(),
-            queue: &f.queue,
-        })
+        self.factories
+            .get(&FactoryHolder::House(owner, category))
+            .map(Factory::view)
     }
 
     /// FactoryClass::PointerExpired4CA580, called by Dispatch725957 for
@@ -758,9 +760,7 @@ impl FactoryRegistry {
                 .object
                 .as_ref()
                 .is_some_and(|object| object.entity_id == Some(entity))
-                && factory.step_rate_frames != 0
-                && !factory.suspended
-                && !factory.manual
+                && factory.view().is_running()
         })
     }
 
@@ -957,7 +957,6 @@ impl FactoryRegistry {
             });
             f.on_hold = false;
             f.suspended = false;
-            f.manual = false;
             f.changed = true;
             return EnqueueOutcome::Started;
         }
@@ -978,7 +977,6 @@ impl FactoryRegistry {
                 }),
                 on_hold: false,
                 suspended: false,
-                manual: false,
                 queue: VecDeque::new(),
                 insertion_seq: enqueue_order,
                 changed: true,
@@ -1003,8 +1001,11 @@ impl FactoryRegistry {
     }
 
     /// Begin_Production's same-type branch (`0x004FA5A8..0x004FA5C4` skips
-    /// StartProduction) for a user-held build: the build start `0x004C9EA0`
-    /// at `0x004FA628` clears the hold and restarts the rate at `frame`.
+    /// StartProduction) for a suspended build: Resume4C9EA0 at4FA628 clears
+    /// +70 and restarts the rate at `frame`, even when the next charge cannot
+    /// be afforded. Complete products refuse Resume without timer writes;
+    /// House Begin still admits/relinks that same-type request. Raw+71 and
+    /// forced Resume1 remain the documented system-hold lifecycle residual.
     pub(super) fn resume(
         &mut self,
         owner: InternedId,
@@ -1015,28 +1016,31 @@ impl FactoryRegistry {
         if let Some(f) = self
             .factories
             .get_mut(&FactoryHolder::House(owner, category))
-            && f.manual
+            && f.suspended
+            && f.object.is_some()
+            && f.progress != PRODUCTION_STEPS
         {
-            f.manual = false;
+            f.suspended = false;
             f.start_rate(time_to_build, frame);
         }
     }
 
-    /// The type and state of the category's active object: `(type, held,
-    /// finished)` where `held` is the user's hold.
+    /// The type and +70 suspension of the category's held object. Completion
+    /// and user hold take the same native Begin_Production branch.
     pub(super) fn active_object(
         &self,
         owner: InternedId,
         category: ProductionCategory,
-    ) -> Option<(InternedId, bool, bool)> {
+    ) -> Option<(InternedId, bool)> {
         let f = self.factories.get(&FactoryHolder::House(owner, category))?;
         let object = f.object.as_ref()?;
-        Some((object.type_id, f.manual, f.progress >= PRODUCTION_STEPS))
+        Some((object.type_id, f.suspended))
     }
 
     /// CompletedProduction4CA1A0 releases a stage54 product without
-    /// removing its House slot or queue. Balance and the manual latch retain
-    /// their values; stage/rate/timer/suspension follow4CA1BA..4CA1DB.
+    /// removing its House slot or queue. Balance retains its value;
+    /// stage/rate/timer/suspension follow4CA1BA..4CA1DB. The unrepresented
+    /// raw+71 latch is not read or written by this body.
     pub(super) fn complete_production(
         &mut self,
         owner: InternedId,
@@ -1223,9 +1227,9 @@ impl FactoryRegistry {
                 continue;
             };
             let owner = f.owner;
-            // Only an armed, in-flight build steps: object held, not complete (held for
-            // delivery), not suspended, not manually paused.
-            if f.object.is_none() || f.suspended || f.manual || f.progress >= PRODUCTION_STEPS {
+            // Only an armed, in-flight build steps: object held, not complete
+            // (held for delivery), with the one suspension authority clear.
+            if f.object.is_none() || f.suspended || f.progress >= PRODUCTION_STEPS {
                 continue;
             }
             let Some(house) = houses.get_mut(&owner) else {
@@ -1573,7 +1577,6 @@ mod tests {
                             12
                         },
                         suspended: status == "held" || status == "complete",
-                        manual: status == "held",
                         on_hold: status == "held",
                         balance: cost,
                         step_rate_frames: 77,
@@ -1615,6 +1618,137 @@ mod tests {
             f.advance_one_step(&mut Economy::default()),
             StepOutcome::Idle
         ));
+    }
+
+    /// Original whole Select/receive controls expose the reported hold/rate
+    /// mismatch, paid-poor Resume0 and complete same-type refusal. This compares
+    /// the existing Factory kernels at every measured boundary, using native
+    /// pre-state and actual Time_To_Build return values as inputs. +71/system
+    /// holds and whole UI/audio/save behavior remain outside this kernel test.
+    #[test]
+    fn factory_hold_resume_matches_native_paid_boundaries() {
+        use crate::sim::house_state::HouseState;
+
+        let corpus = crate::test_fixture::json("tools/sidebar_oracle/factory_hold_resume.json");
+        let controls = corpus["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 3);
+        let owner = InternedId::from_index(1);
+        let type_id = InternedId::from_index(2);
+        let category = ProductionCategory::Infantry;
+        let holder = FactoryHolder::House(owner, category);
+        for row in controls {
+            let initial = &row["initial"]["factory"];
+            let int = |state: &serde_json::Value, key: &str| state[key].as_i64().unwrap() as i32;
+            assert_eq!(initial["held_type"], "E2");
+            let mut reg = reg_with(
+                owner,
+                category,
+                Factory {
+                    owner,
+                    category,
+                    progress: int(initial, "stage") as u16,
+                    step_rate_frames: int(initial, "rate") as u16,
+                    step_timer: CdTimer::started(
+                        int(initial, "timer_start"),
+                        int(initial, "timer_duration"),
+                    ),
+                    balance: int(initial, "balance"),
+                    object: Some(PendingObject {
+                        type_id,
+                        entity_id: initial["held_id"].as_u64(),
+                        ..Default::default()
+                    }),
+                    on_hold: initial["on_hold"].as_bool().unwrap(),
+                    suspended: initial["suspended"].as_bool().unwrap(),
+                    changed: initial["changed"].as_bool().unwrap(),
+                    queue: initial["queue"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|name| {
+                            assert_eq!(name, "E2");
+                            QueueEntry {
+                                type_id,
+                                enqueue_order: 1,
+                            }
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            );
+            let mut house = HouseState::new(
+                owner,
+                0,
+                None,
+                true,
+                int(initial, "credits") + int(initial, "spent"),
+                10,
+            );
+            house.economy.spend_money(int(initial, "spent"));
+            let mut houses = BTreeMap::from([(owner, house)]);
+            let project = |reg: &FactoryRegistry, houses: &BTreeMap<InternedId, HouseState>| {
+                let f = &reg.factories[&holder];
+                serde_json::json!({
+                    "stage": f.progress, "rate": f.step_rate_frames,
+                    "timer_start": f.step_timer.start_frame(), "timer_duration": f.step_timer.duration(),
+                    "balance": f.balance, "on_hold": f.on_hold, "suspended": f.suspended,
+                    "changed": f.changed, "credits": houses[&owner].economy.credits(),
+                    "spent": houses[&owner].economy.spent_credits(),
+                    "held_type": f.object.as_ref().map(|obj| { assert_eq!(obj.type_id, type_id); "E2" }),
+                    "held_id": f.object.as_ref().and_then(|obj| obj.entity_id),
+                    "queue": f.queue.iter().map(|entry| { assert_eq!(entry.type_id, type_id); "E2" }).collect::<Vec<_>>()
+                })
+            };
+            let normalized = |state: &serde_json::Value| {
+                let mut state = state["factory"].clone();
+                state.as_object_mut().unwrap().remove("latch");
+                state
+            };
+            for phase in row["phases"].as_array().unwrap() {
+                let label = format!("{} {}", row["name"], phase["name"]);
+                assert_eq!(
+                    project(&reg, &houses),
+                    normalized(&phase["before"]),
+                    "{label} before"
+                );
+                let frame = phase["before"]["frame"].as_u64().unwrap() as u32;
+                let ttb = || {
+                    let call = phase["calls"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|call| call["name"] == "time_to_build")
+                        .expect("original Time_To_Build output supplies the kernel input");
+                    assert_eq!(call["held_object"], true, "{label} original TTB receiver");
+                    call["return_eax_raw"].as_u64().unwrap() as u32 as i32
+                };
+                match phase["name"].as_str().unwrap() {
+                    "suspend_receive" => {
+                        assert!(reg.suspend(owner, category, frame));
+                    }
+                    "rate_refresh" => reg.factories.get_mut(&holder).unwrap().set_rate(ttb()),
+                    "resume_receive" => reg.resume(owner, category, ttb(), frame),
+                    "completed_same_type_begin" => {
+                        // Native Resume refuses before reading Time_To_Build.
+                        reg.resume(owner, category, 0, frame);
+                    }
+                    "spend_wallet" => {
+                        let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                        economy.spend_money(economy.credits());
+                    }
+                    "paused_ai" | "refreshed_paused_ai" | "same_frame_ai" | "next_frame_ai" => {
+                        reg.step_all(&mut houses, frame)
+                    }
+                    "right_select" | "left_select" => {}
+                    name => panic!("unconsumed native phase {name}"),
+                }
+                assert_eq!(
+                    project(&reg, &houses),
+                    normalized(&phase["after"]),
+                    "{label} after"
+                );
+            }
+        }
     }
 
     /// Whole builds against the originals' per-frame `FactoryClass::AI`
@@ -1680,7 +1814,8 @@ mod tests {
                     let accepted = if kind == "suspend" {
                         reg.suspend(owner, category, frame)
                     } else {
-                        let held = reg.factories[&FactoryHolder::House(owner, category)].manual;
+                        let f = &reg.factories[&FactoryHolder::House(owner, category)];
+                        let held = f.suspended && f.progress != PRODUCTION_STEPS;
                         reg.resume(owner, category, time_to_build(&inputs), frame);
                         held
                     };
@@ -1693,7 +1828,7 @@ mod tests {
                         f.step_timer.start_frame(),
                         f.step_timer.duration(),
                         f.progress,
-                        f.manual || f.suspended,
+                        f.suspended,
                     ]));
                 }
                 let before = reg.factories[&FactoryHolder::House(owner, category)]
@@ -2038,7 +2173,7 @@ mod tests {
         assert_eq!(f.progress, 0);
         assert_eq!(f.balance, 0);
         assert_eq!(f.step_rate_frames, 0, "no-object => rate-0 sentinel");
-        assert!(f.suspended && !f.on_hold && !f.manual);
+        assert!(f.suspended && !f.on_hold);
     }
 
     /// Original whole BuildingLimbo reaches this reset with the held pointer

@@ -2531,6 +2531,60 @@ fn only_a_busy_airfield_refuses_its_type() {
     ));
 }
 
+/// Original HouseBegin4FA5A8..4FA6AF admits/relinks a suspended same-type
+/// request at stage54, although Resume4C9EA0 refuses without writes. This is
+/// a received PRODUCE control, not the READY portrait's separate PLACE route.
+/// Native completed_same_type control: factory_hold_resume.json/.md.
+#[test]
+fn completed_same_type_produce_preserves_the_factory_at_build_limit() {
+    let (mut sim, rules, owner) = hold_world();
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "AMCV",
+        Default::default(),
+        false
+    ));
+    assert!(
+        sim.production
+            .factories
+            .test_arm_ready(owner, ProductionCategory::Vehicle)
+    );
+    let before = sim
+        .production
+        .factories
+        .test_factory_mut(owner, ProductionCategory::Vehicle)
+        .unwrap()
+        .clone();
+    let next_order = sim.production.next_enqueue_order;
+    let wallet = sim.houses[&owner].economy.clone();
+    let rng = sim.rng_state();
+    sim.session.binary_frame = 300;
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "AMCV",
+        Default::default(),
+        false
+    ));
+    assert_eq!(
+        *sim.production
+            .factories
+            .test_factory_mut(owner, ProductionCategory::Vehicle)
+            .unwrap(),
+        before
+    );
+    assert_eq!(sim.production.next_enqueue_order, next_order);
+    assert_eq!(sim.houses[&owner].economy, wallet);
+    assert_eq!(sim.rng_state(), rng);
+    assert_eq!(
+        queue_view_for_owner(&sim, &rules, "Americans")[0].state,
+        BuildQueueState::Done
+    );
+}
+
 /// A PRODUCE resumes a held build even at its type's build limit: the held build
 /// counts toward the limit, and `CanBuild(type, 1, 1)` passes a type one of the
 /// house's factories holds (`0x004F8348`). The build start (`0x004C9EA0`)
@@ -2582,7 +2636,7 @@ fn a_held_build_at_its_build_limit_resumes_on_produce() {
         .factories
         .test_factory_mut(owner, ProductionCategory::Vehicle)
         .unwrap();
-    assert!(!factory.manual);
+    assert!(!factory.suspended);
     assert!(factory.step_rate_frames > 0);
     assert_eq!(
         factory.step_timer,

@@ -202,9 +202,7 @@ fn abandon_stopped_factory(
         .production
         .factories
         .building_factory(building)
-        .is_some_and(|factory| {
-            factory.step_rate_frames == 0 || factory.suspended || factory.manual
-        });
+        .is_some_and(|factory| !factory.view().is_running());
     if stopped {
         abandon_production(
             sim,

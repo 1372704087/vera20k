@@ -275,7 +275,7 @@ def preserved_artifact(directory: Path, entry: dict) -> Path:
 
 
 def resolve_labeled_binary(root: Path, label: str, name: str,
-                           profile: str) -> tuple[Path | None, str | None]:
+                           profile: str | None) -> tuple[Path | None, str | None]:
     """Resolve one unchanged preserved host bin; never use latest or cache paths.
 
     Schema 1 retains Cargo's original executable path and owned target root.
@@ -283,10 +283,12 @@ def resolve_labeled_binary(root: Path, label: str, name: str,
     publish_binaries: dependency/test binaries, examples and cross-target paths
     do not qualify. Original build outputs need no longer exist; only the
     preserved bytes are opened. This proves recorded byte identity, not source
-    freshness, executable format, or a hermetic/authenticated build.
+    freshness, executable format, or a hermetic/authenticated build. A label
+    holds one Cargo invocation's profile: profile None accepts that host profile
+    and returns it.
     """
     validate_label(label)
-    if profile not in HOST_PROFILES:
+    if profile is not None and profile not in HOST_PROFILES:
         raise ValueError('Expected a release, fast or debug host profile')
     if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
         raise ValueError('Expected an executable basename, not a path')
@@ -309,11 +311,13 @@ def resolve_labeled_binary(root: Path, label: str, name: str,
         raise ValueError(f'Ambiguous preserved executable basename: {expected}')
     entry, = matches
     source = Path(entry['source'])
-    if (not source.is_absolute() or '..' in source.parts
-            or host_bin_profile(target, source) != profile or source.name != expected):
-        raise ValueError(f'Preserved executable is not a {profile} host bin: {entry["source"]}')
+    found = host_bin_profile(target, source)
+    if (not source.is_absolute() or '..' in source.parts or found is None
+            or profile not in (None, found) or source.name != expected):
+        kind = f'{profile} host bin' if profile else 'host bin'
+        raise ValueError(f'Preserved executable is not a {kind}: {entry["source"]}')
     path = preserved_artifact(directory, entry)
-    return path, profile
+    return path, found
 
 
 def publish_binaries(store: Path, namespace: str, target: Path, artifacts: set[Path]):

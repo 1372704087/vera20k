@@ -245,7 +245,7 @@ Before fixing a bug whose expected behavior is established, first make a focused
   what they cover. Don't dispatch the manual platform workflows unless asked.
 - Clippy: once a month on `main`, not per PR: `cargo clippy --workspace --lib` in the
   same environment, with its fixes in one PR.
-- Asset binding, loader or rules-closure changes: a release-build retail map load
+- Asset binding, loader or rules-closure changes: a `--profile fast` retail map load
   before merge; the lib suite never runs the app loader against retail assets.
 - Docs/skills: validate content, links/examples and tooling; no Cargo suite.
 - Python tools and skills (`tools/`, `.agents/skills/`): one `python -m tools.run_tests`
@@ -258,8 +258,9 @@ It waits for other builds and serializes cooperating worktrees; do not compete w
 kill a compile. Each compile blocks every other session's Cargo until it finishes, so
 batch edits and run the narrowest command that answers your question.
 Default to unlabelled builds; label only active comparison, capture or debugging binaries.
-Prefer release captures and retain debug tests selectively. Reference hashes, manifests
-and results without extra executable copies. After each merge, dry-run retirement of
+Build captures and play-tests with `--profile fast`, timing and performance numbers with
+`--release`; retain debug tests selectively. Reference hashes, manifests and results
+without extra executable copies. After each merge, dry-run retirement of
 superseded owned labels, preserving required binaries, dependencies and evidence.
 Resolve unmet minimum free space before another large build; follow the
 [retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Run

@@ -516,7 +516,7 @@ ancestors; use canonical temporary paths on macOS. The output parent must exist,
 and the output directory itself must not exist.
 
 ```sh
-python -m tools.cargo_run -- build -p vera20k --release --bin vera20k
+python -m tools.cargo_run -- build -p vera20k --profile fast --bin vera20k
 env -u RA2_DIR python -m tools.map_observation \
   --profile /absolute/checkout/tools/map_observation.example.json \
   --contract /absolute/checkout/src/app/diagnostics/tactical_capture/contract.v2.json \
@@ -524,18 +524,23 @@ env -u RA2_DIR python -m tools.map_observation \
   --output /absolute/evidence/new-map-observation
 ```
 
-The default executable is the unchanged release `vera20k` recorded for this
-checkout by `tools.cargo_run`; it never guesses a target directory. Recorded byte
-identity does not establish source freshness: build the intended revision first.
+Captures use the `fast` profile: it runs the same simulation as `--release` and
+rebuilds faster after an edit. Keep timing on `--release`. The default executable is
+the unchanged `fast` or release `vera20k` recorded for this checkout by
+`tools.cargo_run`; it never guesses a target directory. When both are recorded, each
+may come from a different revision, so the capture refuses until `--build-profile
+fast` or `--build-profile release` chooses one. Recorded byte identity does not
+establish source freshness: build the intended revision first.
 `--executable /absolute/path/to/vera20k` selects an explicit binary instead.
 For preserved builds, `--build-label LABEL` asks the shared Cargo owner for that
-label's verified host release `vera20k`; the two selectors are mutually exclusive.
+label's verified host `vera20k`, in the one profile the label was built with.
+`--executable` cannot be combined with `--build-label` or `--build-profile`.
 It checks the artifact path, target/profile classification, ambiguity and actual
 executable SHA, with no fallback to the latest build. For example:
 
 ```sh
-python -m tools.cargo_run --label before-map-change -- build -p vera20k --release --bin vera20k
-python -m tools.cargo_run --resolve vera20k --profile release --from-label before-map-change
+python -m tools.cargo_run --label before-map-change -- build -p vera20k --profile fast --bin vera20k
+python -m tools.cargo_run --resolve vera20k --profile fast --from-label before-map-change
 env -u RA2_DIR python -m tools.map_observation \
   --build-label before-map-change \
   --profile /absolute/checkout/tools/map_observation.example.json \
@@ -543,11 +548,6 @@ env -u RA2_DIR python -m tools.map_observation \
   --cwd /absolute/checkout \
   --output /absolute/evidence/before-map-change
 ```
-
-`--build-profile fast` selects the `fast` profile's `vera20k` instead, either the one
-recorded for this checkout or the one in `--build-label`. Build it with
-`python -m tools.cargo_run -- build -p vera20k --profile fast --bin vera20k`; it runs
-the same simulation as release and rebuilds faster after an edit. Keep timing on release.
 
 The supplied contract must match the repository contract bytes. Every environment
 variable in its denylist must be absent, even if set to an empty string. The

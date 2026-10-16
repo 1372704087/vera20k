@@ -12,7 +12,8 @@ use crate::util::fixed_math::SimFixed;
 
 #[test]
 fn retail_landing_child_reports_release_instead_of_cutting_samples() {
-    let (Some(rules), Some(sound)) = (retail_unlayered_rules_with_art(), retail_ini("soundmd.ini"))
+    let (Some(mut rules), Some(sound)) =
+        (retail_unlayered_rules_with_art(), retail_ini("soundmd.ini"))
     else {
         return;
     };

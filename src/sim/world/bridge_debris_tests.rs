@@ -98,7 +98,8 @@ fn retail_rules(corpus: &Value) -> Option<RuleSet> {
 
 #[test]
 fn retail_bridge_anim_inputs_match_original_full_art_reader() {
-    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
+    let Some(mut rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+    else {
         return;
     };
     // Original427530 -> full427D00/5F92E0 -> image427B50, supplied only raw

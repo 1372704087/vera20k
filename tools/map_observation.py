@@ -451,7 +451,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         if (not 1 <= len(ids) <= 16 or any(type(value) is not str or not value.isascii() or not 1 <= len(value) <= 128
                                            for value in ids) or len({value.upper() for value in ids}) != len(ids)):
             raise ValidationError('profile.observe_audio.sound_ids must contain 1..16 unique bounded ASCII IDs')
-        for key, maximum in (('max_events', 16), ('max_samples_per_event', 262144), ('completion_tail_ms', 10000)):
+        for key, maximum in (('max_events', 32), ('max_samples_per_event', 262144), ('completion_tail_ms', 10000)):
             _bounded_int(audio[key], f'profile.observe_audio.{key}', 1, maximum)
     if 'allow_load_segments' in profile and type(profile['allow_load_segments']) is not bool:
         raise ValidationError('profile.allow_load_segments must be a boolean')
@@ -1890,8 +1890,11 @@ def _sound_state(value: Any, label: str) -> int:
         for index, value in enumerate(requests):
             at = f'{label}.coordinate_requests[{index}]'
             request = require_object(value, at)
+            raw_fields = ('coordinate_leptons', 'flags')
+            observes_raw = any(key in request for key in raw_fields)
             require_exact_keys(request, ('request_id', 'sound_id', 'source_world_pixels',
-                                         'source_cell', 'suspend_depth'), at)
+                                         'source_cell', 'suspend_depth',
+                                         *(raw_fields if observes_raw else ())), at)
             identity = _bounded_int(request['request_id'], f'{at}.request_id', 1, (1 << 64) - 1)
             if identity in seen:
                 raise ValidationError(f'{label}.coordinate_requests duplicates an owner')
@@ -1905,6 +1908,13 @@ def _sound_state(value: Any, label: str) -> int:
                 _finite_number(pixel, f'{at}.source_world_pixels[{axis}]')
             _coordinate(request['source_cell'], f'{at}.source_cell')
             _bounded_int(request['suspend_depth'], f'{at}.suspend_depth', -(1 << 31), (1 << 31) - 1)
+            if observes_raw:
+                # Current SfxPlayer::coordinate_sound_observation retains the
+                # signed native XYZ and u32 caller word. They are passive
+                # fields; do not reconstruct them from the projected pixels.
+                # Historical receipts may omit the pair without implying zero.
+                _coordinate(request['coordinate_leptons'], f'{at}.coordinate_leptons', leptons=True)
+                _bounded_int(request['flags'], f'{at}.flags', 0, (1 << 32) - 1)
     for key in ('main_rng_cursor', 'scenario_rng_cursor'):
         cursor = require_array(state[key], f'{label}.{key}')
         if len(cursor) != 2:

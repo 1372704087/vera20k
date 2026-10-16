@@ -534,7 +534,11 @@ impl PcmObservationConfig {
                 .sound_ids
                 .iter()
                 .any(|id| id.is_empty() || id.len() > 128 || !id.is_ascii())
-            || !(1..=16).contains(&self.max_events)
+            // The ordinary low-power row has more than16 UTF-16 units and
+            // requests one cue per paint.32 retains its full typing history;
+            // worst-case sample hex still occupies at most64MiB of a128MiB
+            // map receipt. This opt-in limit never changes audio admission.
+            || !(1..=32).contains(&self.max_events)
             || !(1..=262_144).contains(&self.max_samples_per_event)
         {
             return Err("audio observation exceeds its sound/event/sample bounds");

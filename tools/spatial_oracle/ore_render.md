@@ -109,3 +109,82 @@ production frame/index handoff or GPU submission. Production consumers must
 exercise those existing owners against these outputs. It does not establish a
 complete original frame, shroud composition, FoggedObject drawing, sloped ore,
 other resource types, or closure of every `DrawOverlay_Body` branch.
+
+## Additive current-cell radar comparison
+
+`radar` executes after every historical input, selector, eight raster rows and
+sentinel reduction result has been captured; those existing fields are unchanged.
+`ore_radar.py` orchestrates the existing shared VM, native runner, archive/INI,
+TMP resource and surface owners. `sidebar_oracle/radar_surface.py` remains the
+independent stock radar-frame4912B0 history owner; it is not a weighted minimap
+sampler and is neither copied nor replaced here.
+
+`radar.depletion.terrain` pins physical `URBANMD.INI` and `clat10.urb` from
+ra2md/localmd and ra2/isourb. Original theater General/ordinal projection plus
+FileName/TilesInSet reads establish selected tile141, TileSet0014 base132,
+FileNameclat/count16. The accumulation/selected registration is a supplied
+bootstrap boundary. The shared `tmp_clear_render.load_tmp_files` owner executes
+original constructors and full lazy RawFile/TMP IO; no relocated TMP or decoded
+color is prepared by the host. The tile/placement callers use that same owner,
+retaining their original construction/load order and variant linking. The
+physical subtile0 gives slope0/Land1 and radar pairs Left102,78,48/Right101,77,48.
+Original Scenario theater2 selects brightness bits3F800000 from the executable.
+
+The selected sparse Cell starts at authored GoldSt123,33/tile141/sub0/level5.
+Current density1 is a supplied control. Original Rules constructor and layered
+CliffBack/land reads execute. Physical neighbor tile identities/levels cover
+native LAT's four cardinal reads and later Recalc height reads. Authored neighbor
+overlay/data fields are recorded separately: their supplied **live overlays are
+empty**, isolating this consumer from natural patch reseeding. Unused neighbor
+slope0 fields do not claim native neighbor TMP production. Full original Recalc
+runs before the initial color and again inside terminal reduction; native LAT
+retains tile141 and normal selected ground becomes Land1. This establishes the
+selected final tile/color at the declared sparse boundary, not a native whole
+GoldSt map/queue bootstrap. Normal production must independently match current
+identity before consuming the physical ground golden.
+
+The actual layered TIB01 has Tiberium1 and resolved CellAnim=null. Original
+`47C060` returns `[170,170,130]` into both raw halves for density1 and density0.
+After full removal it reads physical TMP Left, calls original brightness661190,
+shifts and duplicates `[51,39,24]`. No SHP average, resource Color scheme, guessed
+palette or host channel arithmetic creates these expected colors.
+
+`radar.depletion.input` explicitly supplies raw173x113, columnBase10/rowBase100
+and black backing; these are component geometry, not computed native GoldSt
+radar bounds. Original `6551C0` populates the real spare vector, `655250` calls
+`47C060`, writes the raw pair at100,56/101,56 and calls complete `6547C0`.
+Original BSurface allocation/lock/unlock and RGB565 stores execute. The native
+initial/full-removal generated dirty rectangle is80,45,3,2, and vector count is
+zero after processing. Partial1→0 leaves the ore/raw/generated surface unchanged
+with no queued cell; full removal queues one entry, replaces the ground and
+clears it; unchanged-empty processing queues nothing and retains pixels.
+`rows[].raw_pixels` and `output.runs` losslessly retain nonblack native stores;
+full raw/generated hashes also cover every unchanged pixel. No Python raster or
+native-equivalent output calculation is used.
+
+Each row's `rebuild_output` comes from original6547C0 over the full raw rectangle
+on that exact post-dirty raw buffer. The original incremental surface bytes are
+restored afterward; assertions retain unchanged BSurface/header/radar-cache and
+raw-buffer state. Thus `output`, dirty history and later incremental rows are
+unchanged. This native full-generation result is the honest comparison target
+for the current Rust full-rebuild strategy, without fitting sampling weights.
+Residual: original incremental density1 differs from the native-exact Rust full
+rebuild at five pixels in3x2/one fringe row (max expanded channels≈25/21/17);
+exact incremental drawing strategy remains outside this bounded comparison.
+
+`radar.weighted_controls` executes complete original6547C0 on the existing
+terrain-tests input pattern (wrapping channels17x+3y,5x+29y,41x+7y). The supplied
+raw sizes173x113 and137x149 produce native140x91 and99x108. Hashes cover all
+little-endian RGB565 stores; retaining full pattern/output runs would be bulk.
+These expected hashes replace the affected handwritten reference sampler rather
+than introducing another sampling implementation. Native FCW0E7F is recorded.
+
+The selected Cell color/dirty/raster calls pass no gameplay timer or Detach.
+With the explicit empty-overlay neighbors, native reduction admits no spread
+entry or Scenario RNG draw; retained full-state hashes are unchanged. That does
+not certify natural GoldSt patch neighbors as RNG-free. Normal harvester timers,
+resource growth/reseed state and queues remain with harvest_field/ore_queue;
+whole online-radar admission, fog/objects/events, final GPU/HUD composition and
+upload/acknowledgement remain separate production consumers to validate. The
+Tactical dirty call remains a declared sink; no Radar color/dirty/generated
+store, Recalc or reduction return is substituted in this new payload.

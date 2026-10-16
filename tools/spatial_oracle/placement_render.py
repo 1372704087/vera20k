@@ -19,62 +19,21 @@ def sha(raw):
 
 def physical_ramp(m):
     """Existing original TMP/RawFile and theater reader owners, selected files."""
-    from tools.spatial_oracle.engineer_repair_admission import NativeAudioPlatform
-    from tools.rules_oracle.theater_general_reader import (
-        TheaterReader, lexical_records, BEGIN, END, PROJECT_BEGIN, PROJECT_END)
+    from tools.spatial_oracle.tmp_clear_render import load_tmp_files, theater_tile_files
     u = m.u
-    records = lexical_records(m.assets['URBANMD.INI'].decode('latin1'))
-    TheaterReader.prepare_records(m, records)
-    u.mem_write(SP + 0x38, bytes(u.mem_read(INI, 0x40)))
-    u.reg_write(UC_X86_REG_ESP, SP)
-    run_checked(u, BEGIN, END, required_addresses=(0x5276D0,))
-    defined = {name for name, _ in records}
-    base, tiles, mapping = 0, {}, None
-    for ordinal in range(300):
-        section_name = f'TileSet{ordinal:04}'
-        if section_name not in defined:
-            break
-        section = m.cstring(section_name)
-        count = m.invoke(0x5276D0, INI, (section, m.cstring('TilesInSet'), 0))
-        assert 0 <= count < 1000
-        name = m.alloc(64)
-        m.invoke(0x528A10, INI, (section, m.cstring('FileName'), m.cstring('TILE'), name, 64))
-        filename = m.string(name)
-        for n in range(count):
-            tiles[base + n] = f'{filename}{n + 1:02}.urb'.lower()
-        if base <= 512 < base + count:
-            mapping = dict(section=section_name, base=base, tiles_in_set=count,
-                file_name=filename, tile_id=512,
-                boundary='Native INI scalar/string reads; prefix accumulation is the supplied selected theater registration boundary.')
-        u.reg_write(UC_X86_REG_ESP, SP)
-        u.reg_write(UC_X86_REG_EDI, ordinal)
-        u.reg_write(UC_X86_REG_EBX, base)
-        run_checked(u, PROJECT_BEGIN, PROJECT_END)
-        base += count
-    assert mapping is not None
+    tiles, mapping = theater_tile_files(m, m.assets['URBANMD.INI'], 512, 'urb')
     m.phase = 'placement_tmp_loading'
     names = ('rmpfx03.urb', 'clat03.urb', 'clat04.urb', 'proad02.urb')
-    platform = NativeAudioPlatform(m, configured_gamemd().parent)
-    platform.configure_transport(prepared_files={name: m.assets[name.upper()] for name in names})
-    u.hook_add(UC_HOOK_CODE, lambda u, pc, n, d: platform.hook(u, pc, n) if pc != 0x7C9430 else None)
-    u.reg_write(UC_X86_REG_ESP, SP)
-    run_checked(u, 0x4E76E0, 0x4E7716)
-    u.mem_write(0xA8ED28, dwords(0x7EB6D4, m.alloc(64), 16, 1, 0, 10))
+    loaded, file_io = load_tmp_files(m, {name: m.assets[name.upper()] for name in names})
     heads = {}
     for name in names:
-        raw = m.assets[name.upper()]
-        head = m.alloc(0x400)
-        m.invoke(0x5447C0, head, (0, -65, 0, m.cstring(name[:-4]), False))
-        u.mem_write(head + 0x2F4, b'\1' + name.encode() + b'\0')
-        image = m.invoke(0x544CB0, head)
-        assert bytes(u.mem_read(image, 16)) == raw[:16]
+        head = loaded[name]
         heads[name] = dict(pointer=head, slope=m.invoke(0x5471B0, head, (0,)) & 255,
                           land=m.invoke(0x544BE0, head, (0,)))
     ramp = heads['rmpfx03.urb']
     return dict(name='rmpfx03.urb', subtile=0, slope=ramp['slope'], land=ramp['land'], mapping=mapping,
         boundary='Original full lazy readers/getters; selected pristine registrations are supplied for the following full Cell Recalc comparison, not whole map construction.',
-        file_io=[{k: v for k, v in event.items() if k not in ('returned_bytes_hex', 'args')}
-                 for event in platform.file_io]), heads, tiles
+        file_io=file_io), heads, tiles
 
 
 def recalculate(m, table, heads, tiles, authored):

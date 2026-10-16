@@ -658,6 +658,19 @@ impl MovementPassCache {
                     entry.foot_revision = grid.foot_neighbor_revision();
                 }
                 for id in touched.into_iter().flatten() {
+                    // With the retained Foot bytes only a building is a
+                    // source (`blocker_plane_source`), and a stored object's
+                    // category never changes: a touched object of another
+                    // category without a source still has none. The category
+                    // column says so without loading the entity.
+                    if retained_foot
+                        && entities
+                            .category_of(id)
+                            .is_some_and(|category| category != EntityCategory::Structure)
+                        && !entry.sources.contains_key(&id)
+                    {
+                        continue;
+                    }
                     let now = entities.get(id).and_then(|entity| {
                         bump_crush::blocker_plane_source(
                             entity,

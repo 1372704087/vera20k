@@ -8,19 +8,27 @@ use crate::sim::world::{FrameEffects, ObjectAiCtx};
 /// three cells south, both in sight; its passive scan is due. Scans are
 /// batched, but no pass has answered them yet.
 fn scene(rules: &RuleSet) -> (Simulation, u64, [u64; 2]) {
+    let (sim, scanner, riflemen) = scene_with(rules, &[(14, 12), (12, 15)]);
+    (sim, scanner, [riflemen[0], riflemen[1]])
+}
+
+/// [`scene`] with Soviet riflemen, in sight, at `cells`.
+fn scene_with(rules: &RuleSet, cells: &[(u16, u16)]) -> (Simulation, u64, Vec<u64>) {
     let mut sim = crate::sim::arena_fixture::rival_arena(rules, 626);
     let scanner = sim
         .spawn_object("E1", "Americans", 12, 12, 0, rules)
         .unwrap();
-    let east = sim
-        .spawn_object("E1", "Russians", 14, 12, 0, rules)
-        .unwrap();
-    let south = sim
-        .spawn_object("E1", "Russians", 12, 15, 0, rules)
-        .unwrap();
+    let riflemen = cells
+        .iter()
+        .map(|&(rx, ry)| {
+            sim.spawn_object("E1", "Russians", rx, ry, 0, rules)
+                .unwrap()
+        })
+        .collect();
     let owner = sim.substrate.entities.get(scanner).unwrap().owner();
-    sim.fog.mark_visible_for_owner(owner, 14, 12);
-    sim.fog.mark_visible_for_owner(owner, 12, 15);
+    for &(rx, ry) in cells {
+        sim.fog.mark_visible_for_owner(owner, rx, ry);
+    }
     sim.session.binary_frame = 100;
     sim.substrate
         .entities
@@ -30,7 +38,33 @@ fn scene(rules: &RuleSet) -> (Simulation, u64, [u64; 2]) {
         .timer_mut_for_test()
         .clear();
     sim.batch_target_scans();
-    (sim, scanner, [east, south])
+    (sim, scanner, riflemen)
+}
+
+/// Put `scanner` on Area Guard at `post`.
+fn area_guard(sim: &mut Simulation, scanner: u64, post: (u16, u16)) {
+    let entity = sim.substrate.entities.get_mut(scanner).unwrap();
+    entity.mission.set_current_for_test(
+        MissionId::from_known(crate::sim::mission::MissionType::AreaGuard),
+        0,
+    );
+    entity.set_archive_target(Some(TargetKind::Cell(post.0, post.1)));
+}
+
+/// Run `scanner`'s mission handler; answers its target.
+fn guard(sim: &mut Simulation, rules: &RuleSet, scanner: u64) -> Option<TargetKind> {
+    super::super::mission_handlers::dispatch_foot_mission(
+        sim,
+        scanner,
+        rules,
+        ObjectAiCtx::default(),
+    );
+    sim.substrate
+        .entities
+        .get(scanner)
+        .unwrap()
+        .attack_target
+        .target()
 }
 
 fn scan(sim: &mut Simulation, rules: &RuleSet, scanner: u64) -> Option<TargetKind> {
@@ -99,6 +133,90 @@ fn an_attack_movers_handler_takes_the_answer() {
     batched.answer_batched_scans(Some(rules), None);
     assert_eq!(scan(&mut batched, rules, scanner), live);
     assert_eq!(batched.batched_scans_used(), 1);
+    assert_eq!(batched.state_hash(), serial.state_hash());
+}
+
+/// An Area Guard rifleman posted at its cell, its handler due: the handler's
+/// scan around the post takes the answer, and a post that moved before its
+/// turn scans live.
+#[test]
+fn an_area_guards_handler_takes_the_answer_for_its_post() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &fixture.rules;
+    let (mut serial, scanner, _) = scene(rules);
+    area_guard(&mut serial, scanner, (12, 12));
+    let live = guard(&mut serial, rules, scanner);
+    assert!(live.is_some(), "the area guard picks a rifleman");
+    let (mut batched, _, _) = scene(rules);
+    area_guard(&mut batched, scanner, (12, 12));
+    batched.answer_batched_scans(Some(rules), None);
+    assert_eq!(guard(&mut batched, rules, scanner), live);
+    assert_eq!(batched.batched_scans_used(), 1);
+    assert_eq!(batched.state_hash(), serial.state_hash());
+
+    let (mut moved, _, _) = scene(rules);
+    area_guard(&mut moved, scanner, (12, 12));
+    moved.answer_batched_scans(Some(rules), None);
+    moved
+        .substrate
+        .entities
+        .get_mut(scanner)
+        .unwrap()
+        .set_archive_target(Some(TargetKind::Cell(12, 13)));
+    assert!(guard(&mut moved, rules, scanner).is_some());
+    assert_eq!(moved.batched_scans_used(), 0);
+}
+
+/// Area Guard picks beyond weapon range, within its doubled radius: a lone
+/// rifleman seven cells out is the answer, and the scan takes it.
+#[test]
+fn an_area_guard_takes_a_pick_beyond_weapon_range() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &fixture.rules;
+    let far = [(19, 12)];
+    let (mut serial, scanner, riflemen) = scene_with(rules, &far);
+    area_guard(&mut serial, scanner, (12, 12));
+    let live = guard(&mut serial, rules, scanner);
+    assert_eq!(live, Some(TargetKind::Entity(riflemen[0])));
+    let (mut batched, _, _) = scene_with(rules, &far);
+    area_guard(&mut batched, scanner, (12, 12));
+    batched.answer_batched_scans(Some(rules), None);
+    assert_eq!(guard(&mut batched, rules, scanner), live);
+    assert_eq!(batched.batched_scans_used(), 1);
+    assert_eq!(batched.state_hash(), serial.state_hash());
+}
+
+/// An Area Guard far from its post walks back first: the leash gives it a
+/// NavCom before its scan, which GetFireError reads, so it scans live.
+#[test]
+fn an_area_guard_sent_back_to_its_post_scans_live() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &fixture.rules;
+    let (mut serial, scanner, _) = scene(rules);
+    area_guard(&mut serial, scanner, (12, 4));
+    let live = guard(&mut serial, rules, scanner);
+    let (mut batched, _, _) = scene(rules);
+    area_guard(&mut batched, scanner, (12, 4));
+    batched.answer_batched_scans(Some(rules), None);
+    assert_eq!(guard(&mut batched, rules, scanner), live);
+    assert!(
+        batched
+            .substrate
+            .entities
+            .get(scanner)
+            .unwrap()
+            .navigation
+            .nav_com()
+            .is_some(),
+        "the leash sends it back"
+    );
+    assert_eq!(batched.batched_scans_used(), 0);
     assert_eq!(batched.state_hash(), serial.state_hash());
 }
 

@@ -144,6 +144,7 @@ fn retained_ground_history_controls_overlapping_atlas_pixels() {
         Some(&shp),
         None,
         batch.default_zshape_bind_group(),
+        None,
     );
     let reads = [gpu.read(&mut encoder, &color)];
     let output = gpu.finish(encoder, &reads, size);
@@ -283,6 +284,7 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         None,
         Some(&palettes),
         batch.default_zshape_bind_group(),
+        None,
     );
     assert_eq!(
         stats.pieces, 0,
@@ -511,6 +513,7 @@ fn tree_transactions_preserve_tmp_shp_voxel_overlap_and_coalesced_order() {
             Some(&shp),
             Some(&palettes),
             batch.default_zshape_bind_group(),
+            None,
         );
         let tree_steps = steps[..count]
             .iter()
@@ -679,6 +682,7 @@ fn destination_batching_layer_fences_do_not_plan_ordinary_unit_instances() {
                     Some(&shp),
                     Some(&palettes),
                     batch.default_zshape_bind_group(),
+                    None,
                 );
                 let encode_us = start.elapsed().as_secs_f64() * 1e6;
                 if sample > 0 {

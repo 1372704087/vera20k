@@ -38,6 +38,8 @@ pub(crate) struct PlannedBuildingPieceInstance {
 pub(crate) enum ObjectTexture {
     /// Ordered DSurface calls before this parent's body, with no sprite data.
     SurfaceLines(usize),
+    /// Initial Building Extras health, sharing the late run's instance range.
+    Health(usize),
     OverlayAtlas,
     /// Per-piece native destination edit; never a texture-only coalesced draw.
     TerrainShp(crate::render::terrain_draw::TerrainPiece),
@@ -64,7 +66,7 @@ pub(crate) struct PlannedObjectInstance {
     pub pieces: Vec<ObjectPieceInstance>,
     pub building_pieces: Option<Vec<PlannedBuildingPieceInstance>>,
     pub brackets: Option<crate::app::presentation::selection_brackets::BuildingBracketLines>,
-    pub health: Option<crate::app::presentation::ui_overlays::UnitHealthStrip>,
+    pub health: Option<crate::app::presentation::ui_overlays::TechnoHealthStrip>,
 }
 
 impl PlannedObjectInstance {
@@ -334,6 +336,21 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                 lowered.extras_instances.extend(strip.fills);
                 let end = lowered.extras_instances.len() as u32;
                 if background.is_some() || start != end {
+                    if matches!(
+                        entry,
+                        crate::render::tactical_draw_plan::LayerEntry::Building(_)
+                    ) {
+                        // Tactical6D9153 calls Building Extras before its body;
+                        //6D9789 calls it again later. One frame-local strip is
+                        // replayed twice, never produced or uploaded twice.
+                        lowered.runs.push(ObjectDrawRun {
+                            target: ObjectTexture::Health(lowered.extras_runs.len()),
+                            render_z: RenderZPolicy::None,
+                            packed_parent: None,
+                            start: lowered.instances.len() as u32,
+                            count: 0,
+                        });
+                    }
                     lowered.extras_runs.push(ObjectExtrasRun::Health {
                         #[cfg(test)]
                         parent: owner,
@@ -488,9 +505,60 @@ mod tests {
     }
 
     #[test]
+    fn building_health_reuses_late_ranges_before_each_parent_body() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoHealthStrip,
+        };
+        let parent = |id, rank| {
+            let mut parent = PlannedObjectInstance::building(
+                ObjectDraw {
+                    id,
+                    layer: TacticalLayer(2),
+                    display_order: rank,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                },
+                vec![PlannedBuildingPieceInstance {
+                    kind: BuildingPieceKind::Body,
+                    z_bias: 0,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                    target: ObjectTexture::OverlayAtlas,
+                    instance: SpriteInstance::default(),
+                }],
+            );
+            parent.brackets = Some(BuildingBracketLines {
+                behind: vec![],
+                extras: vec![],
+            });
+            parent.health = Some(TechnoHealthStrip {
+                background: None,
+                fills: vec![SpriteInstance::default(); 15],
+            });
+            parent
+        };
+        let pass = lower_ground_object_instances(vec![parent(1, 1), parent(900, 0)]);
+        assert_eq!(pass.owners, [900, 1]);
+        assert_eq!(pass.extras_instances.len(), 30);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Health { parent:900, fills:a, .. },
+            ObjectExtrasRun::Health { parent:1, fills:b, .. },
+        ] if *a == (0..15) && *b == (15..30)));
+        assert_eq!(
+            pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
+            [
+                ObjectTexture::SurfaceLines(0),
+                ObjectTexture::Health(0),
+                ObjectTexture::OverlayAtlas,
+                ObjectTexture::SurfaceLines(1),
+                ObjectTexture::Health(1),
+                ObjectTexture::OverlayAtlas,
+            ]
+        );
+    }
+
+    #[test]
     fn late_extras_interleave_brackets_and_whole_health_strips_by_display_parent() {
         use crate::app::presentation::{
-            selection_brackets::BuildingBracketLines, ui_overlays::UnitHealthStrip,
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoHealthStrip,
         };
         use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
         let parent = |id, rank| {
@@ -505,7 +573,7 @@ mod tests {
             )
         };
         let mut first = parent(901, 0);
-        first.health = Some(UnitHealthStrip {
+        first.health = Some(TechnoHealthStrip {
             background: Some(SpriteInstance {
                 position: [1.0, 0.0],
                 ..Default::default()
@@ -526,7 +594,7 @@ mod tests {
             }],
         });
         let mut last = parent(2, 2);
-        last.health = Some(UnitHealthStrip {
+        last.health = Some(TechnoHealthStrip {
             background: None,
             fills: vec![SpriteInstance {
                 position: [3.0, 0.0],

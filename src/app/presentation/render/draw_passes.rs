@@ -395,6 +395,15 @@ pub(super) fn dispatch_draw_passes(
                     state.renderer.batch_renderer.default_zshape_bind_group(),
                     |z| &z.bind_group,
                 ),
+            state
+                .match_state
+                .match_presentation
+                .selection_overlay
+                .as_ref()
+                .zip(
+                    pool.get_page("object_extras", layer)
+                        .map(|(buffer, _)| buffer),
+                ),
         );
     }
 
@@ -461,6 +470,15 @@ pub(super) fn dispatch_draw_passes(
             .map_or(
                 state.renderer.batch_renderer.default_zshape_bind_group(),
                 |z| &z.bind_group,
+            ),
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref()
+            .zip(
+                pool.get_page("object_extras", layer)
+                    .map(|(buffer, _)| buffer),
             ),
     );
 
@@ -573,20 +591,6 @@ pub(super) fn dispatch_draw_passes(
     }
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
     pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
-    // Building health pips: discrete pips from pips.shp atlas.
-    let building_status_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .map(|o| o.pip_texture().unwrap_or_else(|| o.white_texture()));
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        building_status_tex,
-        "status_building",
-    );
     // The Crazy Ivan bomb clock, drawn before the veterancy chevrons that
     // share the occupant pass, as `DrawExtras` orders them.
     let bomb_clock_tex = state

@@ -29,32 +29,66 @@ pub(super) fn draw_object_extras(
         }
         // Adjacent health parents share one attachment pass; each keeps its
         // border->fill order. A line parent fences this pass before using Z.
-        let mut pass = begin_main_load_pass(encoder, color, depth);
-        pass.set_scissor_rect(clip[0], clip[1], clip[2], clip[3]);
-        while let Some(ObjectExtrasRun::Health {
-            background, fills, ..
-        }) = layer.extras_runs.get(next)
-        {
-            if let (Some(overlay), Some(buffer)) = (overlay, buffer) {
-                if let (Some(index), Some(shape)) = (background, overlay.pipbrd()) {
-                    batch.draw_passthrough_range(&mut pass, shape.texture(), buffer, *index, 1);
-                }
-                if let Some(shape) = overlay.pips() {
-                    batch.draw_with_buffer_passthrough_range(
-                        &mut pass,
-                        shape.texture(),
-                        buffer,
-                        fills.start,
-                        fills.end - fills.start,
-                    );
-                }
-            }
+        let start = next;
+        while matches!(
+            layer.extras_runs.get(next),
+            Some(ObjectExtrasRun::Health { .. })
+        ) {
             next += 1;
         }
-        // Empty clipped line batches also fence health groups. Account each
-        // closed pass even when the line renderer emitted none, using the
-        // same bounded submission owner as ordinary object replay.
-        drop(pass);
-        terrain.note_external_passes(encoder, 1);
+        draw_health_runs(
+            encoder,
+            color,
+            depth,
+            terrain,
+            clip,
+            batch,
+            overlay,
+            buffer,
+            &layer.extras_runs[start..next],
+        );
     }
+}
+
+/// Shared material owner for initial Building Extras and the late Techno
+/// sweep. Native6F64A0/4AED70: border E00 reads A, fills600 bypass A; neither
+/// reads or writes Z. The caller retains phase and parent order.
+pub(super) fn draw_health_runs(
+    encoder: &mut wgpu::CommandEncoder,
+    color: &wgpu::TextureView,
+    depth: &wgpu::TextureView,
+    terrain: &mut TerrainDrawRenderer,
+    clip: [u32; 4],
+    batch: &BatchRenderer,
+    overlay: Option<&SelectionOverlay>,
+    buffer: Option<&wgpu::Buffer>,
+    runs: &[ObjectExtrasRun],
+) {
+    let mut pass = begin_main_load_pass(encoder, color, depth);
+    pass.set_scissor_rect(clip[0], clip[1], clip[2], clip[3]);
+    for run in runs {
+        let ObjectExtrasRun::Health {
+            background, fills, ..
+        } = run
+        else {
+            unreachable!("line parents fence health attachment passes");
+        };
+        if let (Some(overlay), Some(buffer)) = (overlay, buffer) {
+            if let (Some(index), Some(shape)) = (background, overlay.pipbrd()) {
+                batch.draw_passthrough_range(&mut pass, shape.texture(), buffer, *index, 1);
+            }
+            if let Some(shape) = overlay.pips() {
+                batch.draw_with_buffer_passthrough_range(
+                    &mut pass,
+                    shape.texture(),
+                    buffer,
+                    fills.start,
+                    fills.end - fills.start,
+                );
+            }
+        }
+    }
+    // Account closed passes even when clipped line batches emitted none.
+    drop(pass);
+    terrain.note_external_passes(encoder, 1);
 }

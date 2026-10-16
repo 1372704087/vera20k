@@ -276,6 +276,7 @@ fn stock_flat_torpedo_pose_upload_and_surface_replay_match_original_pixels() {
                     None,
                     Some(&palettes),
                     batch.default_zshape_bind_group(),
+                    None,
                 );
                 if name == "negative_candidate" {
                     assert!(
@@ -491,6 +492,7 @@ fn kirov_voxel_pose_upload_and_retained_replay_survive_a_changed_second_frame() 
                     None,
                     Some(&palettes),
                     batch.default_zshape_bind_group(),
+                    None,
                 );
                 assert_eq!(
                     stats.passes, 0,
@@ -694,6 +696,7 @@ fn global_voxel_palette_bypasses_theater_and_house_remap_on_both_replay_routes()
                     None,
                     Some(&palettes),
                     batch.default_zshape_bind_group(),
+                    None,
                 );
                 assert_eq!(
                     stats.passes > 0,

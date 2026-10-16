@@ -96,6 +96,7 @@ fn native_sinking_clip_survives_camera_scissor_and_ground_upload() {
                 None,
                 Some(&palettes),
                 batch.default_zshape_bind_group(),
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),
@@ -317,6 +318,7 @@ fn assert_ground_pose_upload_and_replay(
                         None,
                         Some(&palettes),
                         batch.default_zshape_bind_group(),
+                        None,
                     );
                     assert_eq!(
                         stats.passes > 0,

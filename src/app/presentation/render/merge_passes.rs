@@ -33,6 +33,10 @@ pub(super) fn draw_native_object_pass<'a>(
     sprite_atlas: Option<&'a SpriteAtlas>,
     palette_set: Option<&'a PaletteSet>,
     zshape: &'a wgpu::BindGroup,
+    health: Option<(
+        &'a crate::render::selection_overlay::SelectionOverlay,
+        &'a wgpu::Buffer,
+    )>,
 ) -> crate::render::terrain_draw::TerrainBatchStats {
     let mut terrain_stats = crate::render::terrain_draw::TerrainBatchStats::default();
     assert_eq!(
@@ -77,6 +81,21 @@ pub(super) fn draw_native_object_pass<'a>(
         let run = &ground.runs[cursor];
         if let ObjectTexture::SurfaceLines(index) = run.target {
             terrain.draw_surface_lines(encoder, color, ground.line_batches[index]);
+            cursor += 1;
+            continue;
+        }
+        if let ObjectTexture::Health(index) = run.target {
+            super::object_extras::draw_health_runs(
+                encoder,
+                color,
+                depth,
+                terrain,
+                tactical,
+                batch,
+                health.map(|(overlay, _)| overlay),
+                health.map(|(_, buffer)| buffer),
+                &ground.extras_runs[index..index + 1],
+            );
             cursor += 1;
             continue;
         }
@@ -213,6 +232,10 @@ pub(super) fn draw_native_object_pass<'a>(
         while cursor < ground.runs.len()
             && ground.runs[cursor].packed_parent.is_none()
             && destination_edit(ground.runs[cursor].target).is_none()
+            && !matches!(
+                ground.runs[cursor].target,
+                ObjectTexture::SurfaceLines(_) | ObjectTexture::Health(_)
+            )
         {
             let run = &ground.runs[cursor];
             let start = run.start + run_offset;
@@ -229,7 +252,7 @@ pub(super) fn draw_native_object_pass<'a>(
                 break;
             }
             match run.target {
-                ObjectTexture::SurfaceLines(_) => {
+                ObjectTexture::SurfaceLines(_) | ObjectTexture::Health(_) => {
                     unreachable!("surface commands replay before sprite dispatch")
                 }
                 ObjectTexture::TerrainShp(_) | ObjectTexture::ProjectileShp(_, _) => {

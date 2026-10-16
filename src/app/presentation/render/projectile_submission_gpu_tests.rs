@@ -138,6 +138,7 @@ fn many_ordinary_fences_submit_in_order_and_preserve_native_destination_words() 
             Some(&shp),
             Some(&palettes),
             batch.default_zshape_bind_group(),
+            None,
         );
         assert_eq!(stats.pieces, ROUNDS * 2);
         assert_eq!(stats.passes, (ROUNDS + 1) * 4);

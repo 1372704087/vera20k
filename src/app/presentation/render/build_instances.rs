@@ -17,9 +17,9 @@ use crate::app::presentation::sidebar_render::{
 };
 use crate::app::presentation::ui_overlays::{
     build_bomb_clock_instances, build_building_radius_ring_instances,
-    build_building_status_instances, build_control_group_status_instances,
-    build_occupant_pip_instances, build_repair_wrench_instances, build_scale_pip_instances,
-    build_self_heal_pip_instances, build_software_cursor_instances,
+    build_control_group_status_instances, build_occupant_pip_instances,
+    build_repair_wrench_instances, build_scale_pip_instances, build_self_heal_pip_instances,
+    build_software_cursor_instances,
 };
 use crate::map::terrain::TilePlacement;
 use crate::map::theater::TileKey;
@@ -69,7 +69,6 @@ pub(super) struct DebugInstances {
 /// In-game UI overlays: health bars, placement preview, cursor.
 pub(super) struct UiInstances {
     pub radius_ring: Vec<SpriteInstance>,
-    pub building_status: Vec<SpriteInstance>,
     pub bomb_clock: Vec<SpriteInstance>,
     pub repair_wrench: Vec<SpriteInstance>,
     pub occupant_pip: Vec<SpriteInstance>,
@@ -302,20 +301,20 @@ pub(super) fn build_world_instances(
             .as_ref(),
     ) {
         let local_owner = crate::app::input::commands::preferred_local_owner_name(state);
-        let hovered = crate::app::presentation::ui_overlays::unit_health_hover_target(
+        let hovered = crate::app::presentation::ui_overlays::health_hover_target(
             state,
             local_owner.as_deref(),
         );
         for parent in &mut planned_objects {
             parent.health = sim.entities().get(parent.parent.id).map(|entity| {
-                crate::app::presentation::ui_overlays::unit_health_strip_for_parent(
+                crate::app::presentation::ui_overlays::health_strip_for_parent(
                     sim,
                     entity,
                     state.rules(),
                     overlay,
                     hovered,
                     local_owner.as_deref(),
-                    crate::app::presentation::ui_overlays::UnitHealthViewport {
+                    crate::app::presentation::ui_overlays::HealthViewport {
                         camera: [
                             state.match_state.input.camera_x,
                             state.match_state.input.camera_y,
@@ -641,7 +640,6 @@ pub(super) fn update_minimap(state: &mut AppState, local_owner: &Option<String>)
 /// drag rectangle, building placement preview, and software cursor.
 pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstances {
     let radius_ring: Vec<SpriteInstance> = build_building_radius_ring_instances(state, sw, sh);
-    let building_status: Vec<SpriteInstance> = build_building_status_instances(state, sw, sh);
     let bomb_clock = build_bomb_clock_instances(state, sw, sh);
     let repair_wrench = build_repair_wrench_instances(state, sw, sh);
     let occupant_pip = build_occupant_pip_instances(state, sw, sh);
@@ -739,7 +737,6 @@ pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstan
 
     UiInstances {
         radius_ring,
-        building_status,
         bomb_clock,
         repair_wrench,
         occupant_pip,

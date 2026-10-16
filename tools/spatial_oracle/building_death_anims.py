@@ -259,7 +259,8 @@ JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C,
     0x55A965, 0x55A987, 0x7CAA5E))
 
 
-def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound=False):
+def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound=False,
+                  typed_debris=False):
     import hashlib
     from collections import deque
     from types import SimpleNamespace
@@ -353,6 +354,17 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
         m.invoke(0x45DD90, pointer, (m.cstring('CAMISC03'),))
         m.types['CAMISC03'] = pointer
     wanted = {'Dummy', 'BuildingRepaired', 'PowerPlantDie', 'GrizzlyTankAttack'}
+    if typed_debris:
+        # The fatal source is MTNK here. Bind its actual death sounds before
+        # full747620 reads the vectors; unknown registry names are dropped by
+        # the native sound-list reader. Historical building controls omit this
+        # source-death prerequisite and retain their selected registry exactly.
+        for filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'):
+            path = root / filename
+            if path.exists():
+                layer = sections(path.read_bytes()).get('MTNK', {})
+                for key in ('VoiceDie', 'DieSound'):
+                    wanted.update(name.strip() for name in layer.get(key, '').split(','))
     if damage_sound:
         # Select the actual authored per-type and fallback names in layer
         # order; original7510D0/45FE50/6691E0 still own their binding.
@@ -2075,8 +2087,137 @@ def constructed_cancellation_main(argv):
         source_paths=joined_source_paths())
 
 
+def typed_debris_generate():
+    """Actual admitted MTNK fatal receiver and adjacent death-Anim allocation."""
+    import os, hashlib
+    from collections import deque
+    from types import SimpleNamespace
+    from tools import native_oracle as native
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.spatial_oracle.building_body_rules import SP, INI, dwords
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.projectile_oracle.ifv_isolated_tail import impact
+    from tools.spatial_oracle.anim_bouncer_launch import body_fields, constructor_state
+    from tools.procedural_drawing_oracle.electric_bolt import RngTrace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP, UC_X86_REG_ECX, UC_X86_REG_ESI
+    root = Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS'])
+    m = joined_inputs(root, typed_debris=True); u = m.u
+    proxy = SimpleNamespace(m=m, trace=deque(maxlen=40), events=[], pending={}, frame=0, phase='setup')
+    def platform(_u, pc, size, data):
+        if pc in JOINED_TRANSPORT - {0x527AF9, 0x527B0C}:
+            Mission.observe(proxy, _u, pc, size, data)
+        elif pc == 0x7C978A:
+            m.ret(0)
+    hook = u.hook_add(UC_HOOK_CODE, platform)
+    m.invoke(0x4E7660, 0); art = bytes(u.mem_read(INI, 0x40))
+    patch = {'DebrisTypes':'TIRE', 'DebrisMaximums':'4', 'MinDebris':'1', 'MaxDebris':'3'}
+    m.make_ini({'MTNK':patch}); rules=m.alloc(0x40)
+    u.mem_write(rules, bytes(u.mem_read(INI, 0x40)));u.mem_write(INI, art)
+    m.invoke(0x747620, m.types['MTNK'], (rules,))
+    tire=m.read32(m.read32(m.types['MTNK']+0x318))
+    sections,_=lexical((root/'RULESMD.INI').read_bytes(), {'TIRE'})
+    m.make_ini(sections);rules=m.alloc(0x40)
+    u.mem_write(rules, bytes(u.mem_read(INI, 0x40)));u.mem_write(INI, art)
+    u.mem_write(SP,dwords(native.RET_MAGIC,rules));u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_ECX,tire)
+    native.run_checked(u,0x74B050,0x74B56C);u.mem_write(INI,art);u.hook_del(hook)
+    f=joined_fixture(m,38,seed=1,unit_startup=True);u=f.u;read=f.read32
+    bc.invoke(u,0x40EE40,0)
+    scenario=read(0xA8B230)
+    # Attach the existing trace observer without reseeding the admitted world.
+    rng=RngTrace.__new__(RngTrace);rng.u=u
+    rng.streams={'main':0x886B88,'scenario':scenario+0x218,'mapgen':0xABE890}
+    rng.requests=[];rng.pending=[];u.hook_add(UC_HOOK_CODE,rng.observe)
+    before=rng.states();cursor=read(scenario+0x214)
+    def xyz(p):return list(struct.unpack('<3i',u.mem_read(p,12)))
+    def member(p,base):return p in [read(read(base+4)+4*i) for i in range(read(base+16))]
+    owner=read(f.source+0x21C)
+    old_rng=f.rng();owner_human=bool(bc.invoke(u,0x50B6F0,owner)&255)
+    assert old_rng==f.rng()
+    def sound_name(index):
+        if index < 0:return None
+        assert index < read(0xB1D388)
+        return f.string(read(read(read(0xB1D37C)+index*4))+0x6C)
+    sound_vectors={}
+    for key,offset in [('voice_die',0x4BC),('die_sound',0x510)]:
+        t=f.types['MTNK'];indices=[read(read(t+offset+4)+i*4) for i in range(read(t+offset+16))]
+        sound_vectors[key]=dict(count=len(indices),entries=[dict(index=i,name=sound_name(i)) for i in indices])
+    prior=dict(type='MTNK',native_id=read(f.source+0x10),health=read(f.source+0x6C),location=xyz(f.source+0x9C),
+        owner_native_id=read(owner+0x10),owner_human=owner_human,house_human_flags=list(u.mem_read(owner+0x1EC,2)),
+        session_mode=read(0xA8B238),sound_vectors=sound_vectors,logic_registered=member(f.source,0x87F778),
+        alive=u.mem_read(f.source+0x90,1)[0],limbo=u.mem_read(f.source+0x81,1)[0],marked=u.mem_read(f.source+0x74,1)[0])
+    events=[];pending=[];voxels=[];anims=[]
+    def event(kind,**kw):events.append(dict(event=kind,rng_request_count=len(rng.requests),native_cursor=read(scenario+0x214),**kw))
+    def observe(_u,pc,size,data):
+        sp=u.reg_read(UC_X86_REG_ESP);this=u.reg_read(UC_X86_REG_ECX)
+        if pending and (pc,sp)==pending[-1][:2]:
+            _,_,kind,p=pending.pop()
+            if kind=='VoxelCtor':
+                raw=bytes(u.mem_read(p+0xB0,0x50))
+                row=dict(type=f.string(read(p+0x104)+0x24),native_id=read(p+0x10),owner_is_null=read(p+0x10C)==0,
+                    owner_native_id=read(read(p+0x10C)+0x10) if read(p+0x10C) else None,
+                    duration=read(p+0x140),location=xyz(p+0x9C),bounce_hex=raw.hex(),bounce=body_fields(raw),
+                    logic_registered=member(p,0x87F778),registry_registered=member(p,0x887388),
+                    display_layers=[i for i in range(5) if member(p,0x8A0360+24*i)],marked_for_deletion=bool(u.mem_read(p+0x110,1)[0]))
+                voxels.append(row);event('VoxelCtor_return',native_id=row['native_id'],rng_scenario=rng.states()['scenario'])
+            else:
+                row=dict(pointer=p,type=f.string(read(p+0xC8)+0x24),**constructor_state(u,p));anims.append(row)
+                event('AnimCtor_return',native_id=row['native_id'],rng_scenario=rng.states()['scenario'])
+        kinds={0x737C90:'UnitReceiveDamage',0x701900:'TechnoReceiveDamage',0x7493B0:'VoxelCtor',
+            0x749453:'VoxelIdentity',0x410230:'CreateId',0x68BCB0:'NextNativeId',0x421EA0:'AnimCtor',
+            0x70D690:'DeathWeapon',0x466380:'BulletCtor',0x4397E0:'BounceInit',0x7509E0:'Sound',0x517A50:'InfantryCtor',0x707D20:'CrewType'}
+        if pc not in kinds:return
+        kind=kinds[pc];kw=dict(pc=f'{pc:08X}',caller=f'{read(sp):08X}')
+        if kind in ('VoxelCtor','AnimCtor'):
+            kw.update(type=f.string(read(sp+4)+0x24),position=xyz(read(sp+8)),rng_scenario=rng.states()['scenario'])
+            pending.append((read(sp),sp+(16 if kind=='VoxelCtor' else 32),kind,this))
+        if kind=='VoxelIdentity':kw['native_id']=read(u.reg_read(UC_X86_REG_ESI)+0x10)
+        if kind=='Sound':
+            index=struct.unpack('<i',dwords(this))[0];kw.update(index=index,name=sound_name(index))
+        event(kind,**kw)
+    u.hook_add(UC_HOOK_CODE,observe)
+    damage=f.allocate(4);u.mem_write(damage,dwords(1000))
+    result=bc.invoke(u,0x737C90,f.source,damage,0,m.warhead,0,1,0,0)
+    assert not pending and not rng.pending
+    for row in anims:
+        p=row.pop('pointer');row.update(constructor_state(u,p),logic_registered=member(p,0x87F778),
+            display_layers=[i for i in range(5) if member(p,0x8A0360+24*i)],observation='receiver_return')
+    assert [v['native_id'] for v in voxels]==[cursor+1,cursor+2]
+    assert [a['type'] for a in anims]==['S_BRNL58'] and anims[0]['native_id']==cursor+3
+    return dict(native_sha256=native.NATIVE_SHA256,sound_sha256=hashlib.sha256((root/'SOUNDMD.INI').read_bytes()).hexdigest(),rows=[dict(
+        input=dict(name='fatal_mtnk_typed_then_death_anim',seed=1,damage=1000,distance=0,warhead=f.string(m.warhead+0x24),
+            ignore_defenses=True,prevent_passenger_escape=False,attacker_is_null=True,source_house_is_null=True,
+            binary_frame=read(bc.FRAME),debris_types=['TIRE'],debris_maximums=[4],minimum=1,maximum=3),
+        source_before=prior,result=result,damage_after=read(damage),events=events,voxels=voxels,anims=anims,
+        rng_before=before,rng_after=rng.states(),rng_requests=rng.requests,native_cursor_before=cursor,native_cursor_after=read(scenario+0x214),
+        source_after=dict(health=read(f.source+0x6C),alive=u.mem_read(f.source+0x90,1)[0],limbo=u.mem_read(f.source+0x81,1)[0]))])
+
+
+def typed_debris_metadata():
+    return provenance(scope='One whole native MTNK fatal737C90→701900 typed TIRE construction and adjacent S_BRNL58 identity/RNG control',
+        assumptions=[
+            'Existing physical joined_inputs/joined_fixture own all reader/VM/asset/House/map/registry transport. Actual UnitType reader747620 reads authored MTNK DebrisTypes=TIRE/Maximums4/Min1/Max3. Original TIRE scalar reader74B050 stops at74B56C before VXL I/O, with no completed reader return supplied and no model-binding claim.',
+            'Full source MTNK7353C0/Unlimbo737BA0 run in the supplied admitted flat-map/House world. Actual recorded prior is health300, nativeID3, ownerID0, coordinate2944,2176,0, frame0. Direct damage1000/AP/distance0/ignoreDefenses1/null attacker/null sourceHouse enters whole737C90. This is a receiver control, not a full launch or earlier-world identity-prefix claim.',
+            'Actual full fatal body emits TIRE4/TIRE5 before ordinary S_BRNL58 Anim6. CreateID precedes seven Voxel constructor draws. Full three-stream before/after state, ordered original requests/raw words and Bounce bodies are retained. Voxel state is constructor-return; Anim state/membership is receiver-return. No stock MTNK DeathWeapon is reached. Observation ends at receiver return; later Logic/deferred deletion is excluded.',
+            'The typed-only physical selected SoundList includes the actual MTNK VoiceDie/DieSound references before full UnitType read. Retail VoiceDie is empty and DieSound resolves GenVehicleDie; original7021E4 consumes Main2025287381 before the17 Scenario requests. Original7509E0 executes without a supplied playback result; actual sound vectors, owner IsHuman50B6F0 and sound entries are retained.',
+            'All allocations succeed. Null-model TIRE numeric/admission fields are bounded here; actual Rust physical loading and GPU output are independent checks. No Voxel/Anim/ID/RNG/GetCoords/Unlimbo/registry success is supplied.',
+        ], substitutions=joined_metadata()['substitutions'], entry_points={
+            'unit_type_reader':0x747620,'tire_scalar_reader':0x74B050,'model_boundary':0x74B56C,
+            'unit_ctor':0x7353C0,'unit_unlimbo':0x737BA0,'unit_damage':0x737C90,'techno_damage':0x701900,
+            'typed_selector':0x70232B,'voxel_ctor':0x7493B0,'create_id':0x410230,'bounce':0x4397E0,'death_anim_ctor':0x421EA0})
+
+
+def typed_debris_main(argv):
+    finish_vectors(typed_debris_generate,Path(__file__).with_name('building_death_anims_typed_debris.json'),
+                   provenance=typed_debris_metadata,argv=argv)
+
+
 if __name__ == "__main__":
     import sys
+    if '--typed-debris' in sys.argv[1:]:
+        typed_debris_main([arg for arg in sys.argv[1:] if arg!='--typed-debris'])
+        raise SystemExit(0)
     if '--damage-sound-joined' in sys.argv[1:]:
         if {'--joined', '--joined-stock-smudges', '--constructed-cancellation'} & set(sys.argv[1:]):
             raise SystemExit('Select one native corpus mode')

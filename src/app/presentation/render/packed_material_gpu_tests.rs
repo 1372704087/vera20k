@@ -122,6 +122,7 @@ fn retained_mobile_translucency_matches_original_packed_words() {
                             &gpu.device,
                             &gpu.queue,
                             &palette,
+                            &palette,
                             &crate::rules::house_colors::HouseColorRamps::from_schemes(&[]),
                             &[],
                         );

@@ -2392,10 +2392,10 @@ fn bullet_location(
     }
 }
 
-/// Bullet469D06..469EBA's fallback SHP arm. The typed VoxelAnim arm
-/// 469D40..469E18 remains an authored-rule residual: it consumes the budget
-/// request but must never be replaced by a MetallicDebris fallback. Stock
-/// Smashing/TRexWH retain an empty typed list and use this complete SHP path.
+/// Bullet469D06..469EBA: one budget, then the typed VoxelAnim arm or the
+/// MetallicDebris SHP fallback. Both finish constructors synchronously before
+/// the outer cluster successor. Stock Smashing/TRexWH use the empty-list arm;
+/// an authored Smashing TIRE list uses the same typed selector as Techno deaths.
 fn emit_warhead_debris(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -2403,42 +2403,60 @@ fn emit_warhead_debris(
     warhead: &WarheadType,
     out: &mut CombatEmit,
 ) {
-    use crate::sim::voxel_anim::{ShpDebrisSource, debris_budget, throw_shp_debris};
+    use crate::sim::voxel_anim::{
+        ShpDebrisSource, debris_budget, throw_shp_debris, throw_typed_debris,
+    };
 
     let budget = debris_budget(
         warhead.min_debris,
         warhead.max_debris,
         &mut world.scenario_rng,
     );
-    if budget <= 0 || !warhead.debris_types.is_empty() {
+    if budget <= 0 {
         return;
     }
-    let mut host = WarheadShpDebrisHost {
+    let mut host = WarheadDebrisHost {
         world,
         rules,
         detonation: *detonation,
         anims: &mut out.effects.explosion_effects,
+        voxels: &mut out.effects.voxel_debris,
     };
-    if let Err(error) = throw_shp_debris(
-        budget,
-        ShpDebrisSource::RulesMetallicDebris,
-        rules.general.metallic_debris.len(),
-        &mut host,
-    ) {
+    let result = if warhead.debris_types.is_empty() {
+        throw_shp_debris(
+            budget,
+            ShpDebrisSource::RulesMetallicDebris,
+            rules.general.metallic_debris.len(),
+            &mut host,
+        )
+    } else {
+        let types: Vec<_> = warhead
+            .debris_types
+            .iter()
+            .map(|name| {
+                rules
+                    .voxel_anim_type_id_by_name(name)
+                    .map(|id| (id, rules.voxel_anim_type(id)))
+            })
+            .collect();
+        throw_typed_debris(budget, &types, &warhead.debris_maximums, None, &mut host).map(|_| ())
+    };
+    if let Err(error) = result {
         // Preserve earlier synchronous births on unsupported authored launch
         // arithmetic, as the existing Techno debris entry does.
         log::debug!("warhead debris stopped outside verified numeric domain: {error}");
     }
 }
 
-struct WarheadShpDebrisHost<'w, 'r> {
+struct WarheadDebrisHost<'w, 'r> {
     world: &'w mut Simulation,
     rules: &'r RuleSet,
     detonation: ProjectileDetonation,
     anims: &'w mut Vec<ExplosionEffect>,
+    voxels: &'w mut Vec<crate::sim::voxel_anim::VoxelDebrisSpawn>,
 }
 
-impl crate::sim::voxel_anim::ShpDebrisHost for WarheadShpDebrisHost<'_, '_> {
+impl crate::sim::voxel_anim::ShpDebrisHost for WarheadDebrisHost<'_, '_> {
     fn rng(&mut self) -> &mut SimRng {
         &mut self.world.scenario_rng
     }
@@ -2469,6 +2487,33 @@ impl crate::sim::voxel_anim::ShpDebrisHost for WarheadShpDebrisHost<'_, '_> {
                 .map(String::as_str),
             coord,
             self.anims,
+        )
+    }
+}
+
+impl crate::sim::voxel_anim::VoxelDebrisHost for WarheadDebrisHost<'_, '_> {
+    fn voxel_origin(&self) -> glam::IVec3 {
+        // 469DC3..469DCF queries the live Bullet per constructor. Unlike
+        // SHP469E50 it adds no 20; VoxelAnim74950C owns its own 10-lepton lift.
+        let coord = bullet_location(self.world, &self.detonation).0;
+        glam::IVec3::new(coord.x, coord.y, coord.z)
+    }
+
+    fn construct_voxel(
+        &mut self,
+        type_id: crate::rules::voxel_anim_type::VoxelAnimTypeId,
+        voxel_type: &crate::rules::voxel_anim_type::VoxelAnimType,
+        owner_house: Option<InternedId>,
+        origin: glam::IVec3,
+    ) -> Result<(), crate::util::native_x87::NativeX87Error> {
+        let admit_inline = callbacks_enabled(self.world);
+        self.world.emit_debris_voxel(
+            type_id,
+            voxel_type,
+            owner_house,
+            origin,
+            admit_inline,
+            self.voxels,
         )
     }
 }

@@ -62,6 +62,7 @@ fn stock_flat_torpedo_pose_upload_and_surface_replay_match_original_pixels() {
             &gpu.device,
             &gpu.queue,
             &palette,
+            &palette,
             &rules.house_color_ramps,
             &[HouseColorIndex(0)],
         );
@@ -377,6 +378,7 @@ fn kirov_voxel_pose_upload_and_retained_replay_survive_a_changed_second_frame() 
             &gpu.device,
             &gpu.queue,
             &palette,
+            &palette,
             &rules.house_color_ramps,
             &[HouseColorIndex(0)],
         );
@@ -546,6 +548,180 @@ fn kirov_voxel_pose_upload_and_retained_replay_survive_a_changed_second_frame() 
                     }
                 }
                 assert!(drawn > 0, "non-Flat0x800 must draw even over rejecting Z");
+            }
+        }
+    }
+}
+
+/// Plain selector coverage through the same UnitPose replay used by debris.
+/// Physical palettes provide source bytes; the already native-tested shared
+/// PaletteLight kernel supplies expected RGB565. This is GPU integration,
+/// not a new native DrawIt/final-scene golden.
+#[test]
+#[ignore = "requires GPU and retail assets; global UNITSNO selection through ordinary and packed UnitPose replay"]
+fn global_voxel_palette_bypasses_theater_and_house_remap_on_both_replay_routes() {
+    use crate::app::presentation::render::draw_plan_lowering::{
+        ObjectPieceInstance, PlannedObjectInstance,
+    };
+    use crate::render::tactical_draw_plan::{
+        BlitPolicy, ObjectDraw, RenderZPolicy, SpriteEncoding, TacticalLayer,
+    };
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let load =
+        |name| crate::assets::pal_file::Palette::from_bytes(assets.get_ref(name).unwrap()).unwrap();
+    let theater = load("UNITTEM.PAL");
+    let global = load("UNITSNO.PAL");
+    assert_eq!(
+        crate::util::sha256::sha256_hex(assets.get_ref("UNITTEM.PAL").unwrap()),
+        "ed785e62eed291480f3198dd44f6b656ebe3a9b75e9f641944d710abc6bde3e3"
+    );
+    assert_eq!(
+        crate::util::sha256::sha256_hex(assets.get_ref("UNITSNO.PAL").unwrap()),
+        "c5281f05b0039fb8edb6a91dd61c6493d2de9fc90ab3a9acb442a5e203260f7f"
+    );
+    let indices = [16u8, 31, 208, 223, 239, 254];
+    assert!(
+        indices[2..]
+            .iter()
+            .any(|&index| theater.colors[index as usize] != global.colors[index as usize])
+    );
+    let ramps = &battle.rules.house_color_ramps;
+    assert!(
+        indices[..2].iter().any(
+            |&index| ramps.ramp(HouseColorIndex(0))[(index - 16) as usize]
+                != global.colors[index as usize]
+        )
+    );
+    let size = [indices.len() as u32, 1];
+    let gpu = Gpu::new();
+    for format in [
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, format);
+        batch.write_camera(&gpu.queue, camera(size));
+        let fog = crate::render::shroud_buffer::ShroudBuffer::fixture(
+            &gpu.device,
+            &gpu.queue,
+            size,
+            [0.; 2],
+            &vec![127; indices.len()],
+        );
+        batch.bind_shroud(&gpu.device, Some(&fog));
+        let pose = batch.create_unit_atlas_texture_on_device(
+            &gpu.device,
+            &gpu.queue,
+            size[0],
+            size[1],
+            &indices,
+        );
+        let palettes = PaletteSet::new_on_device(
+            &gpu.device,
+            &gpu.queue,
+            &theater,
+            &global,
+            ramps,
+            &[HouseColorIndex(0)],
+        );
+        for source_palette in [0, 1] {
+            let light = if source_palette == 0 {
+                PaletteLight::color_scheme([1000; 3], 1000)
+            } else {
+                PaletteLight::plain(53, 1000)
+            };
+            for manual in [false, true] {
+                let mut instance = crate::render::terrain_draw_gpu_tests::sprite(
+                    [0.; 2],
+                    size.map(|n| n as f32),
+                    if manual { -40000. } else { 0. },
+                );
+                instance.source_palette = source_palette;
+                instance.draw_state.remap_row = 1;
+                instance.palette_light = light;
+                let mut layers = lower_object_instances(vec![PlannedObjectInstance::object(
+                    ObjectDraw {
+                        id: 1,
+                        layer: TacticalLayer(3),
+                        display_order: 0,
+                        policy: BlitPolicy::z_read(SpriteEncoding::Voxel),
+                    },
+                    vec![ObjectPieceInstance {
+                        target: ObjectTexture::UnitPose,
+                        render_z: RenderZPolicy::ReadOnly,
+                        instance,
+                    }],
+                )]);
+                let layer = std::mem::take(&mut layers[3]);
+                let mut pool = InstanceBufferPool::new();
+                pool.upload_on_device(&gpu.device, &gpu.queue, "global-voxel", &layer.instances);
+                let color = gpu.target(size, format);
+                let cv = color.create_view(&Default::default());
+                let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
+                let dv = depth.create_view(&Default::default());
+                let mut terrain = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
+                terrain.prepare(&gpu.device, &color, &dv, batch.camera_uniform());
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                clear(
+                    &mut encoder,
+                    &cv,
+                    &dv,
+                    65535,
+                    wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                );
+                let stats = draw_native_object_pass(
+                    &mut encoder,
+                    &cv,
+                    &dv,
+                    &mut terrain,
+                    [0, 0, size[0], size[1]],
+                    &batch,
+                    pool.get("global-voxel"),
+                    &layer,
+                    None,
+                    None,
+                    Some(&pose),
+                    &crate::render::unit_slope_transition_cache::VxlSlopeTransitionCache::default(),
+                    None,
+                    Some(&palettes),
+                    batch.default_zshape_bind_group(),
+                );
+                assert_eq!(
+                    stats.passes > 0,
+                    manual,
+                    "exercise ordinary and packed replay"
+                );
+                let reads = [
+                    gpu.read(&mut encoder, &color),
+                    gpu.read(&mut encoder, &depth),
+                ];
+                let output = gpu.finish(encoder, &reads, size);
+                for (x, &index) in indices.iter().enumerate() {
+                    let rgb = if source_palette == 1 {
+                        global.colors[index as usize]
+                    } else if (16..32).contains(&index) {
+                        ramps.ramp(HouseColorIndex(0))[(index - 16) as usize]
+                    } else {
+                        theater.colors[index as usize]
+                    };
+                    let expected = encoded(light.rgb565([rgb.r, rgb.g, rgb.b], index, 127), format);
+                    assert_eq!(
+                        &output[0][x * 4..x * 4 + 4],
+                        &expected,
+                        "{format:?} palette{source_palette} manual{manual} index{index}"
+                    );
+                    assert_eq!(
+                        crate::render::native_z::stored_z(f32::from_le_bytes(
+                            output[1][x * 4..x * 4 + 4].try_into().unwrap()
+                        )),
+                        65535,
+                        "read-only debris does not write Z"
+                    );
+                }
             }
         }
     }

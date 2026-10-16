@@ -4647,23 +4647,49 @@ impl Simulation {
         self.substrate.logic.set_order_for_test(order);
     }
 
-    /// Admit the `VoxelAnimClass` debris a death threw.
-    ///
-    /// gamemd-derived: `VoxelAnimClass::Constructor @ 0x007493B0` assigns the
-    /// shared unique id (`AbstractClass::Create_ID`), appends to the
-    /// VoxelAnim registry, then `ObjectClass::Unlimbo` reveals the piece into
-    /// the LogicClass vector. The launch velocity and the physics body were
-    /// already built inside the combat transaction, which consumed the draws in
-    /// native order; only the identity and the registration happen here.
+    /// Common VoxelAnim7493B0 constructor/admission for typed Techno and
+    /// Bullet debris. Create_ID74944E precedes launch74951D..749559 and
+    /// Bounce4397E0 RNG; admission finishes before the next typed selector.
+    /// `admit_inline=false` is the caller's existing no-callback numeric-fixture
+    /// boundary: its packet retains both identities for later registration.
+    pub(crate) fn emit_debris_voxel(
+        &mut self,
+        type_id: crate::rules::voxel_anim_type::VoxelAnimTypeId,
+        voxel_type: &crate::rules::voxel_anim_type::VoxelAnimType,
+        owner_house: Option<InternedId>,
+        origin: glam::IVec3,
+        admit_inline: bool,
+        packets: &mut Vec<crate::sim::voxel_anim::VoxelDebrisSpawn>,
+    ) -> Result<(), crate::util::native_x87::NativeX87Error> {
+        let stable_id = self.allocate_stable_id();
+        let native_unique_id = self.next_native_runtime_id();
+        let object = crate::sim::voxel_anim::spawn_debris_piece(
+            stable_id,
+            native_unique_id,
+            type_id,
+            voxel_type,
+            owner_house,
+            origin,
+            &mut self.scenario_rng,
+        )?;
+        let spawn = crate::sim::voxel_anim::VoxelDebrisSpawn { object };
+        if admit_inline {
+            self.admit_death_debris(std::iter::once(spawn));
+        } else {
+            packets.push(spawn);
+        }
+        Ok(())
+    }
+
+    /// Register already-constructed debris. This also delivers numeric-fixture
+    /// packets; neither stable nor native identity is allocated a second time.
     pub(crate) fn admit_death_debris(
         &mut self,
         spawns: impl IntoIterator<Item = crate::sim::voxel_anim::VoxelDebrisSpawn>,
     ) {
         for spawn in spawns {
-            let stable_id = self.allocate_stable_id();
-            let mut object = spawn.object;
-            object.stable_id = stable_id;
-            self.substrate.voxel_anims.insert(object);
+            let stable_id = spawn.object.stable_id;
+            self.substrate.voxel_anims.insert(spawn.object);
             self.reveal_voxel_anim(stable_id);
         }
     }

@@ -124,7 +124,7 @@ impl TileVariantSelectorCache {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn initialized_for_test(table: [u8; TABLE_LEN]) -> Self {
+    pub fn initialized_for_test(table: [u8; TABLE_LEN]) -> Self {
         Self {
             selector: TileVariantSelector::from_initialized(table),
             ..Self::default()

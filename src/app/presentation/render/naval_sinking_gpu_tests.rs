@@ -30,7 +30,8 @@ fn native_sinking_clip_survives_camera_scissor_and_ground_upload() {
         colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
     };
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
-    let palettes = PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &ramps, &[]);
+    let palettes =
+        PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
     let mut pool = InstanceBufferPool::new();
     let mut visits = 0;
     for row in tests::unit_rows() {

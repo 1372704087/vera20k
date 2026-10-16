@@ -204,7 +204,8 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
     };
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
-    let palettes = PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &ramps, &[]);
+    let palettes =
+        PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
     let parents = (0..2)
         .map(|i| {
             let mut body = sprite([1. + i as f32 * 4., 1.], [4., 4.], -1.);
@@ -360,7 +361,8 @@ fn tree_transactions_preserve_tmp_shp_voxel_overlap_and_coalesced_order() {
         colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
     };
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
-    let palettes = PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &ramps, &[]);
+    let palettes =
+        PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
     let white = rgba([248, 252, 248]);
     let ztex = gpu.device.create_texture_with_data(
         &gpu.queue,
@@ -593,7 +595,8 @@ fn destination_batching_layer_fences_do_not_plan_ordinary_unit_instances() {
         colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
     };
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
-    let palettes = PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &ramps, &[]);
+    let palettes =
+        PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
     let cache = VxlSlopeTransitionCache::default();
     let mut pool = InstanceBufferPool::new();
     for (layer_index, read_only) in [(2usize, false), (3usize, true)] {

@@ -1599,27 +1599,9 @@ impl Simulation {
     /// divergence in the stream itself, even though nothing in the physics
     /// reads them back.
     fn hash_voxel_anims(&self, hasher: &mut impl Hasher) {
-        // An empty store contributes NO bytes. Debris exists only between a
-        // death and the moment the last piece expires, so hashing a length of
-        // zero on every other frame would move every established golden and
-        // every historical schema probe for a plumbing reason rather than a
-        // behavioural one — and would keep doing so at each future store. It
-        // masks nothing: the fold is domain-separated by
-        // `b"voxel-anim-debris-v1"`, so an empty store carries no information a
-        // `0usize` would add.
-        //
-        // Be aware when reading this that it does NOT match its neighbours.
-        // `fold_raw_cell_occupation` is the precedent, but that is a sparse
-        // GRID fold; the two STORE folds this one sits between — `hash_anims`
-        // and `hash_particle_systems` — both write their length
-        // unconditionally. The skip was chosen to avoid a re-baseline, and it
-        // is load-bearing for that reason alone.
-        //
-        // Coverage gap: no parity harness and no replay fixture authors a
-        // positive `MaxDebris=`, so nothing red today exercises either this
-        // fold's populated arm or the producer that fills it. The first fixture
-        // that kills a `MaxDebris>0` type moves the goldens through the RNG
-        // cursor even before a single piece survives to be folded.
+        // Keep the established sparse-store domain: no live debris contributes
+        // no bytes. A live piece includes both independent Rust and native
+        // identities; the latter also advances the shared Scenario cursor.
         if self.substrate.voxel_anims.is_empty() {
             return;
         }
@@ -1627,6 +1609,7 @@ impl Simulation {
         self.substrate.voxel_anims.len().hash(hasher);
         for (id, debris) in self.substrate.voxel_anims.iter() {
             id.hash(hasher);
+            debris.native_unique_id.hash(hasher);
             debris.type_id.0.hash(hasher);
             debris.duration.hash(hasher);
             debris.marked_for_deletion.hash(hasher);

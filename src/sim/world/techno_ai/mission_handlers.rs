@@ -1386,10 +1386,11 @@ fn hunt_scans(sim: &Simulation, id: u64, rules: &RuleSet) -> bool {
 /// Greatest_Threat this frame as the world stands, for the batched target
 /// scans (`techno_ai::scan_batch`): its handler is due, it holds no target
 /// (Retaliate_And_Scan scans only then), its type scans ([`hunt_scans`]),
-/// and it takes neither the Unit deploy arm (`mcv_deploy::hunt_deploys`) nor
-/// a deployed infantryman's (whose computer house undeploys him). A held
-/// target the drop step would drop, and the computer capture arm, are not
-/// foreseen; those objects scan live, if at all.
+/// it does not take the Unit deploy arm (`mcv_deploy::hunt_deploys`), and it
+/// is not a deployed infantryman: a computer house's undeploys, and a human
+/// house's, which scans, is left out with it. A held target the drop step
+/// would drop, and the computer capture arm, are not foreseen; those objects
+/// scan live, if at all.
 pub(super) fn foot_hunt_scans_ahead(sim: &Simulation, id: u64, rules: &RuleSet) -> bool {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;

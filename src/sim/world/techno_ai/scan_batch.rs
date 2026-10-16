@@ -17,9 +17,8 @@
 //! reaches Greatest_Threat this frame as the world stands, and with which
 //! mask and coordinate ([`Simulation::scan_ahead`]: the Area Guard or Hunt
 //! handler's scan, which runs first in a turn, else the targeting slot's),
-//! and runs
-//! their Greatest_Threat (`0x006F8DF0`, through the gated entry) on worker
-//! threads against that frame-start world. At the object's turn a scan with
+//! and runs their Greatest_Threat (`0x006F8DF0`, through the gated entry) on
+//! worker threads against that frame-start world. At the object's turn a scan with
 //! that mask and coordinate takes the answer in place of its own
 //! Greatest_Threat when the object still stands as it did ([`ScannerKey`])
 //! and the pick still stands as the scan saw it
@@ -31,10 +30,11 @@
 //! (`0x007258D0`; a kill's or a cloak's Detach_All, limbo) and the detach
 //! targeting sweep (`0x0070D4A0`; an owner change, a sale). A pick whose
 //! owner changed, or whose owner the scanner's house now allies or no longer
-//! allies, or that GetFireError now refuses (ILLEGAL or CANT; and RANGE for
-//! the slot's scan, whose next drop step would drop a passive pick that left
-//! weapon range: Area Guard and Hunt pick beyond it by design) is not taken
-//! either.
+//! allies, or that GetFireError now refuses is not taken either: ILLEGAL or
+//! CANT, and for the slot's scan RANGE, as its next drop step would drop a
+//! passive pick that left weapon range. Area Guard and Hunt pick beyond
+//! weapon range by design, so their check skips the range test and reaches
+//! the class tests after it.
 //!
 //! Proposed sim-scale deviation from native order (update order and
 //! same-frame effects), pending side-by-side play: an answered scan sees the
@@ -50,25 +50,30 @@
 //! RandomRanged(0, 2) draw, the timer, the drop step, the assignment, the
 //! estimate debit and Foot+688's write. Greatest_Threat draws no random
 //! numbers, so the RNG stream changes only through changed picks. Each answer
-//! reads only the frame-start world, so no result depends on the thread
-//! count. Simulations start without batching; real matches and sim-bench turn
-//! it on ([`Simulation::batch_target_scans`]).
+//! reads only the frame-start world, and its copy of the Dummy (below) starts
+//! from the shared word on whichever thread it runs, so no result depends on
+//! the thread count. Simulations start without batching; real matches and
+//! sim-bench turn it on ([`Simulation::batch_target_scans`]).
 //!
 //! Lookups off the map stamp the shared Dummy, so each answer works on its
-//! own copy of the Dummy's coordinate, and an answer whose lookups left that
-//! copy changed is dropped and its object scans live, stamping as native.
-//! Residuals: an answer whose lookups left the coordinate as they found it is
+//! own copy of the Dummy's coordinate (`SharedCellDummy::detached_stamps`),
+//! and an answer whose lookups changed that copy at any point is dropped and
+//! its object scans live, stamping as native. Residuals: an answer whose
+//! lookups stamped only the coordinate the Dummy held when the pass began is
 //! kept, so its stamps never reach the shared Dummy, and a later read that
 //! does not stamp first sees the last serial stamp; the turn's GetFireError
 //! on the pick runs InRange's line query, whose lookups can stamp where the
 //! serial scan's did not. A `DistributedFire=` scanner (retail `[AEGIS]`)
 //! keeps the candidates its walk collects, so it always scans live. Aircraft
-//! reach Area Guard through their own mission (`aircraft_guard`), and deployed
-//! infantry through the deploy shim (`0x00521320`), so neither is foreseen.
+//! guard areas and hunt through their own missions (`aircraft_guard`,
+//! `aircraft::hunt_mission`), deployed infantry guard areas through the
+//! deploy shim (`0x00521320`), and a computer house's deployed infantryman
+//! undeploys in Hunt, so none of those is foreseen.
 
 use std::collections::BTreeSet;
 
 use super::target_scan::{TargetingSlot, passive_acquire_gate};
+use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -210,7 +215,11 @@ impl Simulation {
         };
         let dummy = terrain.shared_cell_dummy();
         let world: &Simulation = self;
-        let answers = world.substrate.entities.par_filter_map(|id, entity| {
+        // Only the Logic list's objects take a turn.
+        let logic = world.substrate.logic.as_slice();
+        let mut answers = crate::sim::parallel::filter_map_indices(logic.len(), |index| {
+            let id = logic[index];
+            let entity = world.substrate.entities.get(id)?;
             let (answer, stamped) = dummy.detached_stamps(|| {
                 let obj = world.object_type(entity.type_ref(), rules)?;
                 if obj.distributed_fire {
@@ -239,6 +248,7 @@ impl Simulation {
             });
             answer.filter(|_| !stamped).map(|answer| (id, Some(answer)))
         });
+        answers.sort_unstable_by_key(|&(id, _)| id);
         if let Some(batch) = self.scan_batch.as_mut() {
             batch.answers = answers;
         }
@@ -266,7 +276,9 @@ impl Simulation {
     /// stands, as its mask and coordinate (`None`: its own): the Area Guard
     /// or Hunt handler's (`mission_handlers::foot_area_guard_scan_ahead`,
     /// `foot_hunt_scans_ahead`), which runs before the targeting slot, else
-    /// the targeting slot's (mask 1).
+    /// the targeting slot's (mask 1). A frozen object's turn returns at its
+    /// Temporal test and a Unit's or Infantry's in a tube before its Foot
+    /// body (`techno_ai`'s visit), so neither scans.
     /// The slot scans when it runs (`target_scan::targeting_slot`) and
     /// Arrival_Target_Handler scans ([`Simulation::foot_arrival_step`]) with
     /// no target left, or Passive_Target_Acquire's gate passes with none
@@ -279,6 +291,14 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&OverlayTypeRegistry>,
     ) -> Option<(ScanMission, Option<[i32; 3]>)> {
+        if entity.ai_frozen()
+            || (matches!(
+                entity.category(),
+                EntityCategory::Unit | EntityCategory::Infantry
+            ) && entity.low_bridge_tube_state.is_some())
+        {
+            return None;
+        }
         if let Some(post) = super::mission_handlers::foot_area_guard_scan_ahead(self, id, rules) {
             return Some((ScanMission::AreaGuard, Some(post)));
         }
@@ -314,10 +334,11 @@ impl Simulation {
     /// (`None`: its own coordinate) through the gated entry, when this pass
     /// made one for that scan, the object still stands as it did, and its
     /// pick, if any, is unreleased, has the owner and the standing with the
-    /// scanner's house it had, and GetFireError (vt+0x3C0 with range for
-    /// SelectWeapon's weapon) does not refuse it: neither ILLEGAL nor CANT,
-    /// nor RANGE for the slot's in-range scan, whose next drop step
-    /// (`0x007098B9..0x00709912`) would drop it. A scan takes it once.
+    /// scanner's house it had, and GetFireError (vt+0x3C0 for SelectWeapon's
+    /// weapon) refuses it neither ILLEGAL nor CANT. Only the slot's in-range
+    /// scan asks it with range and is refused RANGE too, as its next drop
+    /// step (`0x007098B9..0x00709912`) would drop the pick. A scan takes it
+    /// once.
     pub(super) fn take_batched_scan(
         &mut self,
         rules: &RuleSet,
@@ -358,14 +379,16 @@ impl Simulation {
             if pick_house != answer.pick_house {
                 return None;
             }
+            let check_range = mask == ScanMission::Guard;
             let refused = match self.selected_weapon_fire_error(
                 rules,
                 id,
                 TargetKind::Entity(pick),
+                check_range,
                 overlay_registry,
             ) {
                 FireError::Illegal | FireError::Cant => true,
-                FireError::Range => mask == ScanMission::Guard,
+                FireError::Range => check_range,
                 _ => false,
             };
             if refused {

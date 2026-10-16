@@ -656,17 +656,19 @@ pub(super) fn fire_error_at(
 }
 
 impl Simulation {
-    /// GetFireError (vt+0x3C0, range asked) of the slot SelectWeapon
-    /// (vt+0x2E4) picks for `target`. `TechnoClass::What_Action_OnObject @
-    /// 0x006FFEC0` asks it (`0x0070022D`, `0x00700542`): ILLEGAL ends an
-    /// unforced Attack action (`0x00700548`) unless the Infiltrate arm
-    /// (`0x007004A0..0x00700531`) overrides it. `Coordinate_Attack` asks it
-    /// of the team leader (`0x006EB5B0..0x006EB5CD`).
+    /// GetFireError (vt+0x3C0, range asked when `check_range`) of the slot
+    /// SelectWeapon (vt+0x2E4) picks for `target`.
+    /// `TechnoClass::What_Action_OnObject @ 0x006FFEC0` asks it with range
+    /// (`0x0070022D`, `0x00700542`): ILLEGAL ends an unforced Attack action
+    /// (`0x00700548`) unless the Infiltrate arm (`0x007004A0..0x00700531`)
+    /// overrides it. `Coordinate_Attack` asks it of the team leader with
+    /// range (`0x006EB5B0..0x006EB5CD`).
     pub(crate) fn selected_weapon_fire_error(
         &self,
         rules: &RuleSet,
         id: u64,
         target: TargetKind,
+        check_range: bool,
         overlay_registry: Option<&OverlayTypeRegistry>,
     ) -> FireError {
         let weapon = select_weapon(self, rules, id, Some(target));
@@ -676,7 +678,7 @@ impl Simulation {
             id,
             Some(target),
             weapon,
-            true,
+            check_range,
             overlay_registry,
         )
     }

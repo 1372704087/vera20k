@@ -395,6 +395,38 @@ fn a_save_keeps_the_setting_and_drops_the_answers() {
     );
 }
 
+/// `frames` frames, with scans batched, of a `size` arena that `setup`
+/// fills, on a worker pool of `threads`: each frame's state hash, and the
+/// answers scans took.
+fn batched_frames(
+    rules: &RuleSet,
+    size: u16,
+    threads: usize,
+    frames: usize,
+    setup: impl Fn(&mut Simulation),
+) -> (Vec<u64>, usize) {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("a worker pool");
+    pool.install(|| {
+        let mut sim = crate::sim::arena_fixture::rival_arena_with_size(rules, 626, size);
+        let grid = sim
+            .path_grid_snapshot()
+            .map(|grid| (*grid).clone())
+            .expect("arena grid");
+        setup(&mut sim);
+        sim.batch_target_scans();
+        let hashes = (0..frames)
+            .map(|_| {
+                sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
+                sim.state_hash()
+            })
+            .collect();
+        (hashes, sim.batched_scans_used())
+    })
+}
+
 /// Whole frames do not depend on the thread count: two rifle squads face
 /// each other across the arena, and every frame's state hash is the same on
 /// one worker thread as on four.
@@ -404,34 +436,42 @@ fn whole_frames_do_not_depend_on_the_thread_count() {
         return;
     };
     let rules = &fixture.rules;
-    let run = |threads: usize| {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .expect("a worker pool");
-        pool.install(|| {
-            let mut sim = crate::sim::arena_fixture::rival_arena(rules, 626);
-            let grid = sim
-                .path_grid_snapshot()
-                .map(|grid| (*grid).clone())
-                .expect("arena grid");
-            for i in 0..8u16 {
-                for (house, x) in [("Americans", 10), ("Russians", 15)] {
-                    sim.spawn_object("E1", house, x, 8 + 2 * i, 0, rules)
+    let squads = |sim: &mut Simulation| {
+        for i in 0..8u16 {
+            for (house, x) in [("Americans", 10), ("Russians", 15)] {
+                sim.spawn_object("E1", house, x, 8 + 2 * i, 0, rules)
+                    .unwrap();
+            }
+        }
+    };
+    let (one, used) = batched_frames(rules, 32, 1, 90, squads);
+    assert!(used > 0, "the squads' scans take batched answers");
+    assert_eq!(batched_frames(rules, 32, 4, 90, squads), (one, used));
+}
+
+/// Two hunting companies of 150 riflemen: each Hunt scan walks more objects
+/// than `greatest_threat::flat_scores` scores one by one, so it scores them
+/// side by side inside the batch's side-by-side answers, and every frame's
+/// state hash is still the same on one worker thread as on four.
+#[test]
+fn nested_side_by_side_hunt_scans_do_not_depend_on_the_thread_count() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &fixture.rules;
+    let companies = |sim: &mut Simulation| {
+        for i in 0..15u16 {
+            for j in 0..10u16 {
+                for (house, x) in [("Americans", 4), ("Russians", 30)] {
+                    let id = sim
+                        .spawn_object("E1", house, x + j, 4 + 2 * i, 0, rules)
                         .unwrap();
+                    on_mission(sim, id, crate::sim::mission::MissionType::Hunt);
                 }
             }
-            sim.batch_target_scans();
-            let hashes: Vec<u64> = (0..90)
-                .map(|_| {
-                    sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
-                    sim.state_hash()
-                })
-                .collect();
-            (hashes, sim.batched_scans_used())
-        })
+        }
     };
-    let (one, used) = run(1);
-    assert!(used > 0, "the squads' scans take batched answers");
-    assert_eq!(run(4), (one, used));
+    let (one, used) = batched_frames(rules, 48, 1, 10, companies);
+    assert!(used > 0, "the hunters' scans take batched answers");
+    assert_eq!(batched_frames(rules, 48, 4, 10, companies), (one, used));
 }

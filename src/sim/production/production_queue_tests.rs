@@ -536,8 +536,14 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                 fixture_ini.merge(&IniFile::from_str(&format!("[GAWEAP]\nExitCoord={raw}\n")));
             }
         }
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+        // Uncontrolled rows read the stock rules other tests share.
+        let rules = if control.is_some() {
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
+            rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+            rules
+        } else {
+            crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art().unwrap()
+        };
         if let Some(control) = control {
             let exit = rules.object("GAWEAP").unwrap().exit_coord;
             assert_eq!(

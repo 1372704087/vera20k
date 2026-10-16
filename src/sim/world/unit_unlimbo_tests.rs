@@ -1070,8 +1070,14 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
                 fixture_ini.merge(&IniFile::from_str(&format!("[GAWEAP]\nExitCoord={raw}\n")));
             }
         }
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+        // Uncontrolled rows read the stock rules other tests share.
+        let rules = if control.is_some() {
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
+            rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+            rules
+        } else {
+            crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art().unwrap()
+        };
         let registry = OverlayTypeRegistry::from_ini(&fixture_ini, Some(&art));
         let terrain_rules = TerrainRules::from_ini(&fixture_ini);
         let mut sim = retail_world(&rules, &terrain_rules);

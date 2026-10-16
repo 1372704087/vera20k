@@ -148,7 +148,7 @@ fn ground_command_fixture(
         // The original contrast supplies Type+EC8=0 after retail startup.
         // Reproduce just that type prior through the existing native ReadBool
         // production reader; the original flag store is not an INI-read claim.
-        let mut ini = retail.processed_rules.clone();
+        let mut ini = (*retail.processed_rules).clone();
         ini.merge(&crate::rules::ini_parser::IniFile::from_str(
             "[E1]\nDeployer=no\n",
         ));

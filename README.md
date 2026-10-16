@@ -78,6 +78,10 @@ Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1
 Gameplay is in `src/sim/`, rendering in `src/render/`, and menus and input in `src/app/` and
 `src/ui/`; you don't need the Python tools in `tools/`.
 
+To play-test your changes, run `cargo run --profile fast --bin vera20k`. It's optimized like
+`--release` but rebuilds only what you changed, so you're back in the game sooner. Measure
+performance with `--release`.
+
 Contributions are licensed under the GPLv3, like the rest of the project; there's no CLA.
 
 ## Credits and legal

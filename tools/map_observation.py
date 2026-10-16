@@ -2648,7 +2648,7 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
 
 def capture(*, profile_path: Path, contract_path: Path, output: Path,
             working_directory: Path, executable: Path | None = None,
-            build_label: str | None = None) -> dict[str, Any]:
+            build_label: str | None = None, build_profile: str | None = None) -> dict[str, Any]:
     profile_snapshot, profile = load_json_file(profile_path, 'map observation profile')
     _profile_extensions(profile)
     # Only wrapper resource budgets are interpreted here. Rust owns launch admission.
@@ -2658,16 +2658,17 @@ def capture(*, profile_path: Path, contract_path: Path, output: Path,
     if timeout > contract.document['absolute_max_child_timeout_seconds']:
         raise ValidationError('profile timeout exceeds checked contract maximum')
     cwd = require_directory(working_directory, 'working directory')
-    if executable is not None and build_label is not None:
-        raise ValidationError('executable and build_label are mutually exclusive')
+    if executable is not None and (build_label is not None or build_profile is not None):
+        raise ValidationError('executable is mutually exclusive with build_label and build_profile')
+    build_profile = build_profile or 'release'
     if build_label is not None:
-        executable, _ = resolve_labeled_binary(ROOT, build_label, 'vera20k', 'release')
+        executable, _ = resolve_labeled_binary(ROOT, build_label, 'vera20k', build_profile)
         if executable is None:
-            raise ValidationError(f'no verified release vera20k in build label {build_label!r}')
+            raise ValidationError(f'no verified {build_profile} vera20k in build label {build_label!r}')
     if executable is None:
-        executable, _ = resolve_binary(ROOT, 'vera20k', 'release')
+        executable, _ = resolve_binary(ROOT, 'vera20k', build_profile)
         if executable is None:
-            raise ValidationError('no verified release vera20k; build with tools.cargo_run first')
+            raise ValidationError(f'no verified {build_profile} vera20k; build with tools.cargo_run first')
     snapshots = {'profile': profile_snapshot, 'contract': contract.snapshot,
                  'config': require_regular_file(cwd / 'config.toml', 'config'),
                  'executable': require_regular_file(executable, 'executable')}
@@ -3012,6 +3013,8 @@ def main(argv: list[str] | None = None) -> int:
         binary = parser.add_mutually_exclusive_group()
         binary.add_argument('--executable', type=Path)
         binary.add_argument('--build-label')
+        parser.add_argument('--build-profile', choices=('release', 'fast'),
+                            help='Cargo profile of the recorded or labelled vera20k (default: release)')
     else:
         parser.add_argument('--allow-legacy-inputs', action='store_true')
         parser.add_argument('--allow-legacy-clock', action='store_true',
@@ -3033,7 +3036,8 @@ def main(argv: list[str] | None = None) -> int:
         if operation == 'capture':
             report = capture(profile_path=args.profile, contract_path=args.contract,
                              output=args.output, working_directory=args.cwd,
-                             executable=args.executable, build_label=args.build_label)
+                             executable=args.executable, build_label=args.build_label,
+                             build_profile=args.build_profile)
             result_path = args.output / 'run.json'
             status = 0 if report['status'] == 'VALID' else 1
         else:

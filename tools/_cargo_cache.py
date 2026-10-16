@@ -178,13 +178,14 @@ def _write(path: Path, value):
 
 def _reported_profile(target: Path, source: Path) -> str | None:
     """Only exact host/cross-target executable layouts actually reported by Cargo."""
+    from tools.cargo_run import HOST_PROFILES
     if not source.is_relative_to(target):
         return None
     parts = source.relative_to(target).parts
-    if len(parts) in (2, 3) and parts[0] in {'debug', 'release'}:
+    if len(parts) in (2, 3) and parts[0] in HOST_PROFILES:
         if len(parts) == 2 or parts[1] in {'deps', 'examples'}:
             return parts[0]
-    if len(parts) in (3, 4) and parts[1] in {'debug', 'release'}:
+    if len(parts) in (3, 4) and parts[1] in HOST_PROFILES:
         if len(parts) == 3 or parts[2] in {'deps', 'examples'}:
             return '/'.join(parts[:2])
     return None
@@ -235,7 +236,7 @@ def _owned_root(checkout: str, target: Path, store: Path) -> Path | None:
 
 
 def _inputs(root: Path, store: Path, *, preserved_checks=None, profiles=None, notes=None):
-    from tools.cargo_run import preserved_manifest, build_store
+    from tools.cargo_run import HOST_PROFILES, preserved_manifest, build_store
     roots, binaries, watched = set(), set(), {}
     registry = store / 'cache-roots.json'
     if registry.exists():
@@ -253,7 +254,7 @@ def _inputs(root: Path, store: Path, *, preserved_checks=None, profiles=None, no
                     raise ValueError('Malformed cache profiles')
                 for profile in declared:
                     if (not isinstance(profile, str) or len(profile.split('/')) not in (1, 2)
-                            or profile.split('/')[-1] not in {'debug', 'release'}
+                            or profile.split('/')[-1] not in HOST_PROFILES
                             or any(part in ('', '.', '..') or '\\' in part or ':' in part for part in profile.split('/'))):
                         raise ValueError('Malformed cache profile directory')
                     if profiles is not None:
@@ -297,7 +298,7 @@ def _inputs(root: Path, store: Path, *, preserved_checks=None, profiles=None, no
             if not isinstance(data, dict):
                 raise ValueError(f'Malformed latest build: {record}')
             for profile, entries in data.items():
-                if profile not in {'debug', 'release'} or not isinstance(entries, dict):
+                if profile not in HOST_PROFILES or not isinstance(entries, dict):
                     raise ValueError(f'Malformed latest profile: {record}')
                 for entry in entries.values():
                     if not isinstance(entry, dict) or not isinstance(entry.get('path'), str):
@@ -319,7 +320,7 @@ def _inputs(root: Path, store: Path, *, preserved_checks=None, profiles=None, no
     if path := _owned_root(str(root), default / 'owned-worktrees' / namespace, store):
         roots.add(path)
     if profiles is not None:
-        profiles.update(cache / profile for cache in roots for profile in ('debug', 'release'))
+        profiles.update(cache / profile for cache in roots for profile in HOST_PROFILES)
     return roots, binaries, watched
 
 

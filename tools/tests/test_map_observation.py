@@ -4433,6 +4433,35 @@ class MapObservationTests(unittest.TestCase):
                                 output=self.root / 'conflicting-selector', working_directory=self.root,
                                 executable=self.executable, build_label='before-build')
 
+    def test_fast_build_profile_selects_recorded_or_labelled_fast_game(self):
+        with patch.object(observation, 'resolve_binary', return_value=(self.executable, 'fast')) as latest, \
+             patch.object(observation, 'run_child', side_effect=self.fake_child):
+            report = observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                         output=self.output, working_directory=self.root,
+                                         build_profile='fast')
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        latest.assert_called_once_with(observation.ROOT, 'vera20k', 'fast')
+        with patch.object(observation, 'resolve_labeled_binary', return_value=(None, None)) as labelled, \
+             patch.object(observation, 'resolve_binary') as latest:
+            with self.assertRaisesRegex(ValidationError, 'no verified fast vera20k in build label'):
+                observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                    output=self.root / 'missing-fast-label', working_directory=self.root,
+                                    build_label='missing', build_profile='fast')
+            labelled.assert_called_once_with(observation.ROOT, 'missing', 'vera20k', 'fast')
+            latest.assert_not_called()
+        with self.assertRaisesRegex(ValidationError, 'mutually exclusive'):
+            observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                output=self.root / 'conflicting-profile', working_directory=self.root,
+                                executable=self.executable, build_profile='fast')
+        arguments = ['--output', str(self.output), '--profile', str(self.profile_path),
+                     '--contract', str(self.contract), '--cwd', str(self.root)]
+        for extra, expected in (([], None), (['--build-profile', 'fast'], 'fast')):
+            with self.subTest(extra=extra), \
+                 patch.object(observation, 'capture', return_value={'status': 'VALID'}) as capture, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(observation.main(arguments + extra), 0)
+            self.assertEqual(capture.call_args.kwargs['build_profile'], expected)
+
     def test_cli_checks_have_distinct_verdicts_and_exclusive_outputs(self):
         before = self.valid_capture('cli-before')
         after = self.valid_capture('cli-after')

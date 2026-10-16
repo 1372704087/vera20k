@@ -231,7 +231,7 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
                         target: if i == 0 {
                             ObjectTexture::UnitAtlasPage(0)
                         } else {
-                            ObjectTexture::UnitPose
+                            ObjectTexture::UnitPosePage(0)
                         },
                         render_z: RenderZPolicy::ReadOnly,
                         instance: body,
@@ -265,6 +265,9 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         65535,
         wgpu::LoadOp::Clear(wgpu::Color::WHITE),
     );
+    let poses = crate::render::unit_pose_cache::VxlPoseFrameCache::from_test_textures(vec![
+        batch.create_unit_atlas_texture_on_device(&gpu.device, &gpu.queue, 1, 1, &[33]),
+    ]);
     let stats = draw_native_object_pass(
         &mut encoder,
         &cv,
@@ -276,7 +279,7 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         &ground,
         None,
         Some(&units),
-        Some(&units.page(0).unwrap().texture),
+        Some(&poses),
         None,
         Some(&palettes),
         batch.default_zshape_bind_group(),

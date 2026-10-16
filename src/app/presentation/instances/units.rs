@@ -89,7 +89,7 @@ enum UnitRenderSlopeState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UnitTextureSource {
     Stable(usize),
-    Pose,
+    Pose(usize),
 }
 
 // Original755852..755875 initializes17..20 to identity, so the stable
@@ -856,7 +856,7 @@ fn emit_pose_sprite(
     let bounds = composite_draw_bounds([(entry, [center_x, center_y])]);
     let (composite_rect, split) = bounds.depth_rect(false);
     pieces.push(ObjectPieceInstance {
-        target: ObjectTexture::UnitPose,
+        target: ObjectTexture::UnitPosePage(entry.page),
         render_z: RenderZPolicy::ReadOnly,
         instance: SpriteInstance {
             position: [center_x + entry.offset_x, center_y + entry.offset_y],
@@ -1029,7 +1029,7 @@ fn unit_entry_for_pose(
             key,
             crate::render::unit_atlas::PoseTilt::Ground(pose),
         )?;
-        return Some((entry, UnitTextureSource::Pose));
+        return Some((entry, UnitTextureSource::Pose(entry.page)));
     }
     atlas_get_with_frame_fallback(atlas, key)
         .copied()
@@ -1174,7 +1174,7 @@ fn push_unit_sprite(
     pieces: &mut Vec<ObjectPieceInstance>,
 ) {
     let target = match texture_source {
-        UnitTextureSource::Pose => ObjectTexture::UnitPose,
+        UnitTextureSource::Pose(page) => ObjectTexture::UnitPosePage(page),
         UnitTextureSource::Stable(page) => ObjectTexture::UnitAtlasPage(page),
     };
     pieces.push(ObjectPieceInstance {

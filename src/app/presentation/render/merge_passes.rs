@@ -2,12 +2,13 @@
 //! Adjacent native destination edits share the existing overlap scheduler;
 //! ordinary GPU draw policies fence those spans in the same parent order.
 
-use crate::render::batch::{BatchRenderer, BatchTexture};
+use crate::render::batch::BatchRenderer;
 use crate::render::overlay_atlas::OverlayAtlas;
 use crate::render::palette_textures::PaletteSet;
 use crate::render::sprite_atlas::SpriteAtlas;
 use crate::render::terrain_draw::{PackedComposite, PackedCompositePiece, PackedSpriteKind};
 use crate::render::unit_atlas::UnitAtlas;
+use crate::render::unit_pose_cache::VxlPoseFrameCache;
 
 use super::draw_plan_lowering::{ObjectDrawRun, ObjectLayerPass, ObjectTexture};
 use crate::render::tactical_draw_plan::RenderZPolicy;
@@ -28,7 +29,7 @@ pub(super) fn draw_native_object_pass<'a>(
     ground: &ObjectLayerPass,
     overlay_atlas: Option<&'a OverlayAtlas>,
     unit_atlas: Option<&'a UnitAtlas>,
-    pose_texture: Option<&'a BatchTexture>,
+    pose_cache: Option<&'a VxlPoseFrameCache>,
     sprite_atlas: Option<&'a SpriteAtlas>,
     palette_set: Option<&'a PaletteSet>,
     zshape: &'a wgpu::BindGroup,
@@ -49,13 +50,16 @@ pub(super) fn draw_native_object_pass<'a>(
                     PackedSpriteKind::Voxel,
                 )
             }),
-        ObjectTexture::UnitPose => pose_texture.zip(palette_set).map(|(texture, palette)| {
-            (
-                &texture.bind_group,
-                &palette.bind_group,
-                PackedSpriteKind::Voxel,
-            )
-        }),
+        ObjectTexture::UnitPosePage(page) => pose_cache
+            .and_then(|cache| cache.page_texture(page))
+            .zip(palette_set)
+            .map(|(texture, palette)| {
+                (
+                    &texture.bind_group,
+                    &palette.bind_group,
+                    PackedSpriteKind::Voxel,
+                )
+            }),
         ObjectTexture::ShpPage(page) => sprite_atlas
             .and_then(|atlas| atlas.page(page))
             .map(|page| (&page.texture.bind_group, zshape, PackedSpriteKind::Shp)),
@@ -249,8 +253,11 @@ pub(super) fn draw_native_object_pass<'a>(
                         );
                     }
                 }
-                ObjectTexture::UnitPose => {
-                    if let (Some(texture), Some(palette)) = (pose_texture, palette_set) {
+                ObjectTexture::UnitPosePage(page) => {
+                    if let (Some(texture), Some(palette)) = (
+                        pose_cache.and_then(|cache| cache.page_texture(page)),
+                        palette_set,
+                    ) {
                         batch.draw_voxel_sprites_range(
                             &mut pass,
                             texture,
@@ -375,7 +382,7 @@ fn voxel_needs_manual_depth(
 fn is_voxel_target(target: ObjectTexture) -> bool {
     matches!(
         target,
-        ObjectTexture::UnitAtlasPage(_) | ObjectTexture::UnitPose
+        ObjectTexture::UnitAtlasPage(_) | ObjectTexture::UnitPosePage(_)
     )
 }
 
@@ -457,7 +464,8 @@ mod tests {
         for target in [
             ObjectTexture::UnitAtlasPage(0),
             ObjectTexture::UnitAtlasPage(1),
-            ObjectTexture::UnitPose,
+            ObjectTexture::UnitPosePage(0),
+            ObjectTexture::UnitPosePage(3),
         ] {
             assert!(is_opaque_voxel_run(&ObjectDrawRun {
                 target,
@@ -505,19 +513,19 @@ mod tests {
                 order.object_draw(1, SpriteEncoding::Plain).unwrap(),
                 vec![
                     piece(ObjectTexture::UnitAtlasPage(0), 4),
-                    piece(ObjectTexture::UnitPose, 4),
+                    piece(ObjectTexture::UnitPosePage(2), 4),
                     piece(ObjectTexture::UnitAtlasPage(1), 4),
                     piece(ObjectTexture::ShpPage(0), 4),
-                    piece(ObjectTexture::UnitPose, 4),
+                    piece(ObjectTexture::UnitPosePage(0), 4),
                 ],
             ),
             PlannedObjectInstance::object(
                 order.object_draw(2, SpriteEncoding::Plain).unwrap(),
-                vec![piece(ObjectTexture::UnitPose, 4)],
+                vec![piece(ObjectTexture::UnitPosePage(1), 4)],
             ),
             PlannedObjectInstance::object(
                 order.object_draw(3, SpriteEncoding::Plain).unwrap(),
-                vec![piece(ObjectTexture::UnitPose, 0)],
+                vec![piece(ObjectTexture::UnitPosePage(0), 0)],
             ),
         ]);
         assert_eq!(packed_span_end(&pass.runs, 0), 3);

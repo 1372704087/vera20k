@@ -317,7 +317,7 @@ pub(super) fn dispatch_draw_passes(
             &data.object_layers[layer],
             state.match_state.match_presentation.overlay_atlas.as_ref(),
             state.match_state.match_presentation.unit_atlas.as_ref(),
-            pose_cache.texture(),
+            Some(&pose_cache),
             state.match_state.match_presentation.sprite_atlas.as_ref(),
             state.match_state.match_presentation.palette_set.as_ref(),
             state
@@ -384,7 +384,7 @@ pub(super) fn dispatch_draw_passes(
         &data.object_layers[layer],
         state.match_state.match_presentation.overlay_atlas.as_ref(),
         state.match_state.match_presentation.unit_atlas.as_ref(),
-        pose_cache.texture(),
+        Some(&pose_cache),
         state.match_state.match_presentation.sprite_atlas.as_ref(),
         state.match_state.match_presentation.palette_set.as_ref(),
         state

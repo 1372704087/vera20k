@@ -144,6 +144,7 @@ fn squid_rolled_destroyer_pose_upload_and_replay_match_native_hull_pixels() {
         "DEST",
         crate::render::vxl_raster::ship_pose_tests::native_ship_corpus(),
         2,
+        false,
     );
 }
 
@@ -156,6 +157,20 @@ fn drone_rocked_tank_pose_upload_and_replay_match_native_part_pixels() {
         "MTNK",
         crate::render::vxl_raster::ship_pose_tests::native_drive_corpus(),
         6,
+        false,
+    );
+}
+
+/// Capacity regression through the same production upload/submission owner:
+/// each real GTNK part comes from a nonzero page, on ordinary and packed paths.
+#[test]
+#[ignore = "requires GPU and retail assets; actual GTNK overflow pages through ordinary and packed replay"]
+fn drone_ground_pose_overflow_pages_preserve_native_parts_on_both_replay_routes() {
+    assert_ground_pose_upload_and_replay(
+        "MTNK",
+        crate::render::vxl_raster::ship_pose_tests::native_drive_corpus(),
+        6,
+        true,
     );
 }
 
@@ -163,6 +178,7 @@ fn assert_ground_pose_upload_and_replay(
     type_id: &str,
     native: serde_json::Value,
     expected_parts: usize,
+    overflow: bool,
 ) {
     use crate::render::palette_light::PaletteLight;
     use crate::render::unit_atlas::{PoseTilt, VxlLayer};
@@ -222,121 +238,140 @@ fn assert_ground_pose_upload_and_replay(
                     continue;
                 };
                 cache.begin_frame();
+                if overflow {
+                    assert_eq!(cache.fill_test_page().page, 0);
+                }
                 let name = row["input"]["name"].as_str().unwrap();
                 let (pose, key) = native_ground_part(type_id, row, part_layer);
                 let entry = cache
                     .render(&assets, Some(rules), &key, PoseTilt::Ground(pose))
                     .unwrap();
+                assert_eq!(entry.page > 0, overflow);
                 cache.upload(&gpu.device, &gpu.queue, &batch);
-                let rect: [i32; 6] =
-                    std::array::from_fn(|i| raster["rect"][i].as_i64().unwrap() as i32);
-                // The supplied native visibility page is addressed from its own
-                // source crop; destination-relative bounds remain independent.
-                let anchor = [(rect[2] - rect[0]) as f32, (rect[3] - rect[1]) as f32];
-                let mut instance = sprite(
-                    [anchor[0] + entry.offset_x, anchor[1] + entry.offset_y],
-                    entry.pixel_size,
-                    0.,
-                );
-                instance.uv_origin = entry.uv_origin;
-                instance.uv_size = entry.uv_size;
-                instance.palette_light = light;
-                instance.draw_state.remap_row = 1;
-                instance.z_gradient = crate::render::native_z::pack_voxel_z_gradient(
-                    crate::render::native_z::ZGradient::Vertical,
-                    false,
-                );
-                let layer = lower_ground_object_instances(vec![PlannedObjectInstance::object(
-                    ObjectDraw {
-                        id: 1,
-                        layer: TacticalLayer(2),
-                        display_order: 0,
-                        policy: BlitPolicy::z_read(SpriteEncoding::Voxel),
-                    },
-                    vec![ObjectPieceInstance {
-                        target: ObjectTexture::UnitPose,
-                        render_z: RenderZPolicy::ReadOnly,
-                        instance,
-                    }],
-                )]);
-                let mut pool = InstanceBufferPool::new();
-                pool.upload_on_device(&gpu.device, &gpu.queue, "tilted-ground", &layer.instances);
-                let color = gpu.target(size, format);
-                let cv = color.create_view(&Default::default());
-                let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
-                let dv = depth.create_view(&Default::default());
-                let mut terrain = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
-                terrain.prepare(&gpu.device, &color, &dv, batch.camera_uniform());
-                let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                clear(
-                    &mut encoder,
-                    &cv,
-                    &dv,
-                    65535,
-                    wgpu::LoadOp::Clear(wgpu::Color::BLUE),
-                );
-                draw_native_object_pass(
-                    &mut encoder,
-                    &cv,
-                    &dv,
-                    &mut terrain,
-                    [0, 0, 256, 256],
-                    &batch,
-                    pool.get("tilted-ground"),
-                    &layer,
-                    None,
-                    None,
-                    cache.texture(),
-                    None,
-                    Some(&palettes),
-                    batch.default_zshape_bind_group(),
-                );
-                let reads = [
-                    gpu.read(&mut encoder, &color),
-                    gpu.read(&mut encoder, &depth),
-                ];
-                let output = gpu.finish(encoder, &reads, size);
-                let mut indices = vec![0u8; 65536];
-                for pixel in raster["pixels"].as_array().unwrap() {
-                    indices[pixel[0].as_u64().unwrap() as usize] = pixel[1].as_u64().unwrap() as u8;
-                }
-                let background = if format == wgpu::TextureFormat::Bgra8UnormSrgb {
-                    [255, 0, 0, 255]
-                } else {
-                    [0, 0, 255, 255]
-                };
-                for (at, &index) in indices.iter().enumerate() {
-                    let expected = if index == 0 {
-                        background
-                    } else {
-                        let color = if (16..32).contains(&index) {
-                            rules.house_color_ramps.ramp(house)[(index - 16) as usize]
-                        } else {
-                            palette.colors[index as usize]
-                        };
-                        encoded(
-                            light.rgb565([color.r, color.g, color.b], index, 127),
-                            format,
-                        )
-                    };
-                    assert_eq!(
-                        &output[0][at * 4..at * 4 + 4],
-                        &expected,
-                        "{type_id} {name} {part_name} {format:?} native pixel{at}"
+                for manual in [false, true].into_iter().take(if overflow { 2 } else { 1 }) {
+                    let rect: [i32; 6] =
+                        std::array::from_fn(|i| raster["rect"][i].as_i64().unwrap() as i32);
+                    // The supplied native visibility page is addressed from its own
+                    // source crop; destination-relative bounds remain independent.
+                    let anchor = [(rect[2] - rect[0]) as f32, (rect[3] - rect[1]) as f32];
+                    let mut instance = sprite(
+                        [anchor[0] + entry.offset_x, anchor[1] + entry.offset_y],
+                        entry.pixel_size,
+                        if manual { -40000. } else { 0. },
                     );
-                    assert_eq!(
-                        crate::render::native_z::stored_z(f32::from_le_bytes(
-                            output[1][at * 4..at * 4 + 4].try_into().unwrap()
-                        )),
+                    instance.uv_origin = entry.uv_origin;
+                    instance.uv_size = entry.uv_size;
+                    instance.palette_light = light;
+                    instance.draw_state.remap_row = 1;
+                    instance.z_gradient = crate::render::native_z::pack_voxel_z_gradient(
+                        crate::render::native_z::ZGradient::Vertical,
+                        false,
+                    );
+                    let layer = lower_ground_object_instances(vec![PlannedObjectInstance::object(
+                        ObjectDraw {
+                            id: 1,
+                            layer: TacticalLayer(2),
+                            display_order: 0,
+                            policy: BlitPolicy::z_read(SpriteEncoding::Voxel),
+                        },
+                        vec![ObjectPieceInstance {
+                            target: ObjectTexture::UnitPosePage(entry.page),
+                            render_z: RenderZPolicy::ReadOnly,
+                            instance,
+                        }],
+                    )]);
+                    let mut pool = InstanceBufferPool::new();
+                    pool.upload_on_device(
+                        &gpu.device,
+                        &gpu.queue,
+                        "tilted-ground",
+                        &layer.instances,
+                    );
+                    let color = gpu.target(size, format);
+                    let cv = color.create_view(&Default::default());
+                    let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
+                    let dv = depth.create_view(&Default::default());
+                    let mut terrain =
+                        TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
+                    terrain.prepare(&gpu.device, &color, &dv, batch.camera_uniform());
+                    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                    clear(
+                        &mut encoder,
+                        &cv,
+                        &dv,
                         65535,
-                        "{name}: read-only Z"
+                        wgpu::LoadOp::Clear(wgpu::Color::BLUE),
                     );
+                    let stats = draw_native_object_pass(
+                        &mut encoder,
+                        &cv,
+                        &dv,
+                        &mut terrain,
+                        [0, 0, 256, 256],
+                        &batch,
+                        pool.get("tilted-ground"),
+                        &layer,
+                        None,
+                        None,
+                        Some(&cache),
+                        None,
+                        Some(&palettes),
+                        batch.default_zshape_bind_group(),
+                    );
+                    assert_eq!(
+                        stats.passes > 0,
+                        manual,
+                        "ordinary and packed pose page bindings"
+                    );
+                    let reads = [
+                        gpu.read(&mut encoder, &color),
+                        gpu.read(&mut encoder, &depth),
+                    ];
+                    let output = gpu.finish(encoder, &reads, size);
+                    let mut indices = vec![0u8; 65536];
+                    for pixel in raster["pixels"].as_array().unwrap() {
+                        indices[pixel[0].as_u64().unwrap() as usize] =
+                            pixel[1].as_u64().unwrap() as u8;
+                    }
+                    let background = if format == wgpu::TextureFormat::Bgra8UnormSrgb {
+                        [255, 0, 0, 255]
+                    } else {
+                        [0, 0, 255, 255]
+                    };
+                    for (at, &index) in indices.iter().enumerate() {
+                        let expected = if index == 0 {
+                            background
+                        } else {
+                            let color = if (16..32).contains(&index) {
+                                rules.house_color_ramps.ramp(house)[(index - 16) as usize]
+                            } else {
+                                palette.colors[index as usize]
+                            };
+                            encoded(
+                                light.rgb565([color.r, color.g, color.b], index, 127),
+                                format,
+                            )
+                        };
+                        assert_eq!(
+                            &output[0][at * 4..at * 4 + 4],
+                            &expected,
+                            "{type_id} {name} {part_name} {format:?} native pixel{at}"
+                        );
+                        assert_eq!(
+                            crate::render::native_z::stored_z(f32::from_le_bytes(
+                                output[1][at * 4..at * 4 + 4].try_into().unwrap()
+                            )),
+                            65535,
+                            "{name}: read-only Z"
+                        );
+                    }
+                    comparisons += 1;
                 }
-                comparisons += 1;
             }
         }
         assert_eq!(
-            comparisons, expected_parts,
+            comparisons,
+            expected_parts * if overflow { 2 } else { 1 },
             "native physical parts for opposite rolls on each format"
         );
     }

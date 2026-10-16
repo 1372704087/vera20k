@@ -1052,7 +1052,8 @@ use crate::sim::world::Simulation;
 // 370 -> 371: Parasite retains grapple Anim, phase/stage/delay/invalidation.
 // 371 -> 372: Rocking retains its four binary32 fields without a synthetic
 // ship-rocking flag; tiny impulse rates affect the next native damping branch.
-const SNAPSHOT_VERSION: u32 = 372;
+// 372 -> 373: House retains four class-local last-built type indices.
+const SNAPSHOT_VERSION: u32 = 373;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4575,7 +4576,8 @@ mod tests {
         // 369 -> 370: constructor-assigned VoxelAnim native IDs.
         // 370 -> 371: retained Parasite grapple progress.
         // 371 -> 372: authoritative binary32 body angles/rates.
-        assert_eq!(super::SNAPSHOT_VERSION, 372);
+        // 372 -> 373: retained House last-built type indices.
+        assert_eq!(super::SNAPSHOT_VERSION, 373);
     }
 
     #[test]

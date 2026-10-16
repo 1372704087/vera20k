@@ -167,6 +167,8 @@ mod squid_grapple_tests;
 #[cfg(test)]
 mod drone_rocking_tests;
 #[cfg(test)]
+mod area_rocker_tests;
+#[cfg(test)]
 pub(crate) use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]
 mod team_script_vm_tests;
@@ -2575,8 +2577,7 @@ impl Simulation {
                                 grid,
                                 registry,
                                 self.resolved_terrain.as_mut(),
-                                rx,
-                                ry,
+                                crate::sim::overlay_grid::WallPointerTarget::Real(rx, ry),
                                 raw_ambient_damage,
                                 &mut self.scenario_rng,
                                 Some(&mut host),
@@ -6100,8 +6101,7 @@ impl Simulation {
                 grid,
                 overlay_registry,
                 self.resolved_terrain.as_mut(),
-                event.rx,
-                event.ry,
+                crate::sim::overlay_grid::WallPointerTarget::Real(event.rx, event.ry),
                 event.damage,
                 &mut self.scenario_rng,
                 Some(&mut host),

@@ -2720,3 +2720,79 @@ fn map_colors_keep_existing_identity_and_allocate_new_name() {
         Some("12,200,255")
     );
 }
+
+/// Both stateful readers run through the normal ordered Process owner. Expected
+/// identities come from original reader execution, not a second Rust parser.
+#[test]
+fn secret_lab_readers_match_original_constructor_retention_null_and_case_controls() {
+    use crate::rules::ruleset::RuleSet;
+    use serde_json::{Value, json};
+    let native: Value =
+        serde_json::from_str(crate::test_fixture::text("tools/can_build_secret_lab.json")).unwrap();
+    for section in ["retained_history", "scalar_history"] {
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            // Original reader fixture supplies registered uppercase identities
+            // before any lookup, including U0/B1 not named by its first pass.
+            "[InfantryTypes]\n0=I0\n1=I1\n[VehicleTypes]\n0=U0\n1=U1\n\
+             [BuildingTypes]\n0=B0\n1=B1\n2=LAB\n[LAB]\nStrength=100\n",
+        ));
+        let rows = std::iter::once((&native["readers"]["constructor"], None)).chain(
+            native["readers"][section]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| (&row["state"], Some(row))),
+        );
+        for (expected, row) in rows {
+            if let Some(row) = row {
+                let mut ini = IniFile::empty();
+                for (name, entries) in row["sections"].as_object().unwrap() {
+                    let mut section = IniSection::new(name.to_owned());
+                    for (key, value) in entries.as_object().unwrap() {
+                        section.set(key, value.as_str().unwrap());
+                    }
+                    // Native skips absent sections; an empty [LAB] here is a
+                    // reached body only if entries exist, as in physical INIs.
+                    if !entries.as_object().unwrap().is_empty() {
+                        ini.replace_first_section(section);
+                    }
+                }
+                layers.push(RulesLayerKind::Scenario, ini);
+            }
+            let processed = layers.process().unwrap();
+            let rules = RuleSet::from_processed_rules(&processed).unwrap();
+            let lab = rules.object("LAB").unwrap().secret_lab();
+            let lists = rules.general.secret_lab_choices();
+            let overrides = lab.overrides_for_test();
+            assert_eq!(
+                json!({
+                    "secret_lab": lab.enabled(),
+                    "overrides": { "infantry": overrides[0], "unit": overrides[1], "building": overrides[2] },
+                    "lists": { "infantry": lists[0], "unit": lists[1], "building": lists[2] },
+                    "total": lists.iter().map(Vec::len).sum::<usize>(),
+                }),
+                *expected,
+                "{section}: {row:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn secret_lab_stock_rules_and_mode_use_native_lists_and_unoverridden_lab() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let native = crate::test_fixture::json("tools/can_build_secret_lab.json");
+    let expected = &native["readers"]["physical_layers"][0]["state"];
+    let lists = retail.rules.general.secret_lab_choices();
+    for (slot, key) in ["infantry", "unit", "building"].into_iter().enumerate() {
+        assert_eq!(
+            serde_json::to_value(&lists[slot]).unwrap(),
+            expected["lists"][key]
+        );
+    }
+    let lab = retail.rules.object("CASLAB").unwrap().secret_lab();
+    assert!(lab.enabled());
+    assert_eq!(lab.production_override(), None);
+}

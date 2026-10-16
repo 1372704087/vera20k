@@ -2718,3 +2718,158 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     assert_eq!(sim.main_rng.logical_state(), main);
     assert_eq!(sim.mapgen_rng.logical_state(), mapgen);
 }
+
+/// Bounded production loop: the declared lab's startup pool has one infantry,
+/// so its fallback grants an otherwise unbuildable type without an override.
+/// Existing owners perform capture, payment, save restoration and loss ABANDON.
+#[test]
+fn secret_lab_fallback_capture_paid_queue_snapshot_and_loss_share_the_existing_owners() {
+    use crate::sim::house_state::HouseState;
+    use crate::sim::snapshot::GameSnapshot;
+    use crate::sim::world::{FrameEffects, SnapshotProcessState};
+
+    let mut ini = manager_ini();
+    ini.merge(&IniFile::from_str(
+        "[BuildingTypes]\n7=LAB\n\
+        [LAB]\nStrength=100\nCapturable=yes\nNeedsEngineer=yes\nSecretLab=yes\n\
+        [General]\nSecretInfantry=E1\n[E1]\nTechLevel=-1\n[Clear]\nBuildable=yes\n",
+    ));
+    let (mut sim, rules, owner) = world_with(RuleSet::from_ini(&ini).unwrap(), 0x68c0_5001);
+    let other = sim.interner.intern("Russians");
+    sim.houses
+        .insert(other, HouseState::new(other, 1, Some(other), false, 0, 10));
+    sim.session.house_order.push(other);
+    // Ordinary building Unlimbo needs buildable Clear and a cell inside
+    // the supplied Size diamond. This also publishes its native threat cache.
+    super::tests::install_infantry_delivery_fixture_map(&mut sim);
+    let lab = sim
+        .spawn_object("LAB", "Russians", 30, 20, 0, &rules)
+        .unwrap();
+    sim.assign_secret_lab_production(&rules);
+    let fallback = sim
+        .substrate
+        .entities
+        .get(lab)
+        .unwrap()
+        .secret_lab_fallback()
+        .unwrap();
+    assert_eq!(sim.interner.resolve(fallback.1), "E1");
+    // Native Begin_Production takes already-admitted events and checks the
+    // build limit, so the pre-capture gate belongs to the sidebar/Select owner.
+    assert!(
+        !super::production_tech::build_option_for_owner(&sim, &rules, "Americans", "E1")
+            .unwrap()
+            .enabled
+    );
+    sim.change_owner_with_rules(lab, owner, &rules, None, FrameEffects::default());
+    assert!(
+        super::production_tech::build_option_for_owner(&sim, &rules, "Americans", "E1")
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(sim.houses[&owner].base_projection.secret_labs(), [lab]);
+    assert!(sim.houses[&other].base_projection.secret_labs().is_empty());
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        FrameEffects::default(),
+        false
+    ));
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        FrameEffects::default(),
+        false
+    ));
+    let product = held_id(&sim, owner, ProductionCategory::Infantry);
+    for _ in 0..20 {
+        sim.advance_tick(&[], Some(&rules), None, None, 67);
+    }
+    assert_eq!(held_id(&sim, owner, ProductionCategory::Infantry), product);
+    let progress = sim
+        .production
+        .factories
+        .view(owner, ProductionCategory::Infantry)
+        .unwrap()
+        .progress;
+    assert!(
+        progress > 0 && progress < 54,
+        "actual paid work: {progress}"
+    );
+    assert!(sim.houses[&owner].economy.spent_credits() > 0);
+    let bytes = GameSnapshot::save(&sim, 0, rules.simulation_config_hash(), "secret-lab", 0);
+    let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+    restored.retain_process_state_for_load(SnapshotProcessState::Live(&sim));
+    restored.restore_after_snapshot_load().unwrap();
+    restored.resolve_type_handles(&rules);
+    assert_eq!(
+        restored
+            .substrate
+            .entities
+            .get(lab)
+            .unwrap()
+            .secret_lab_fallback(),
+        Some(fallback)
+    );
+    assert_eq!(restored.houses[&owner].base_projection.secret_labs(), [lab]);
+    assert_eq!(
+        held_id(&restored, owner, ProductionCategory::Infantry),
+        product
+    );
+    assert!(
+        super::production_tech::build_option_for_owner(&restored, &rules, "Americans", "E1")
+            .unwrap()
+            .enabled
+    );
+    let credits = restored.houses[&owner].economy.credits();
+    let spent = restored.houses[&owner].economy.spent_credits();
+    restored.change_owner_with_rules(lab, other, &rules, None, FrameEffects::default());
+    assert!(
+        restored.houses[&owner]
+            .base_projection
+            .secret_labs()
+            .is_empty()
+    );
+    assert_eq!(restored.houses[&other].base_projection.secret_labs(), [lab]);
+    assert_eq!(
+        restored
+            .substrate
+            .entities
+            .get(lab)
+            .unwrap()
+            .secret_lab_fallback(),
+        Some(fallback)
+    );
+    assert!(
+        !super::production_tech::build_option_for_owner(&restored, &rules, "Americans", "E1")
+            .unwrap()
+            .enabled
+    );
+    // The loss recheck reaches ordinary strip cancellation. Both duplicate
+    // requests are removed and the held identity is destroyed, not delivered.
+    for _ in 0..2 {
+        restored.advance_tick(&[], Some(&rules), None, None, 67);
+    }
+    assert!(!restored.substrate.entities.contains(product));
+    assert!(
+        restored
+            .production
+            .factories
+            .view(owner, ProductionCategory::Infantry)
+            .is_none()
+    );
+    assert!(restored.houses[&owner].economy.credits() >= credits);
+    assert!(restored.houses[&owner].economy.spent_credits() >= spent);
+    assert_eq!(restored.houses[&owner].economy.credits(), 50_000);
+    restored.uninit_with_rules(lab, &rules);
+    assert!(
+        restored.houses[&other]
+            .base_projection
+            .secret_labs()
+            .is_empty()
+    );
+}

@@ -65,6 +65,7 @@ pub mod radiation_light;
 pub mod rng;
 pub mod scenario_bootstrap;
 pub mod scenario_post_map;
+pub(crate) mod secret_lab;
 pub mod scenario_session; // app->sim launch descriptor (per-match seed pipeline)
 pub mod score;
 pub mod sensor_lifecycle;

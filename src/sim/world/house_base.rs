@@ -1,6 +1,7 @@
 //! The House's building lists, retained base geometry and FactoryPlant factors.
 //!
-//! House+68 (buildings) and House+140 (FactoryPlants) change membership at
+//! House+68 (buildings), House+110 (SecretLabs) and House+140 (FactoryPlants)
+//! change membership at
 //! Unlimbo, pointer expiry and ChangeOwner; constructor/destructor tracking
 //! (`0x004FF700`/`0x004FF550`, `sim::house_tracking`) counts separately.
 //! The absorbers list (House+0xB0) moves with House+68 under a type gate, so
@@ -20,14 +21,16 @@ const UNIT_FACTORS: CostFactors = [NativeF32Bits::ONE; 5];
 /// lets Unlimbo, ChangeOwner and pointer expiry use the same inputs without a
 /// borrowed RuleSet or per-tick string lookup. Registration order is not list
 /// order.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct RegisteredBuilding {
     id: u64,
     /// The type's cost bonuses when it is a `FactoryPlant=` type.
     plant: Option<CostFactors>,
+    /// Immutable BuildingType+16B0 projection for lifecycle list callbacks.
+    secret_lab: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HouseBaseState {
     registrations: Vec<RegisteredBuilding>,
     /// Native House+68 (DynamicVectorClass, Items `+0x6C`, Count `+0x78`):
@@ -38,9 +41,34 @@ pub(crate) struct HouseBaseState {
     buildings: Vec<u64>,
     /// Native House+140, whose order determines each f32 multiplication/store.
     plants: Vec<u64>,
+    /// House+110, appended441443/44908B, stable-removed448983/4FBB8E.
+    secret_labs: Vec<u64>,
     /// Historical House+5498. Constructor4F5A53 stores zero; `4FD150`
     /// publishes it at Building lifecycle boundaries, not from a list on read.
     radius: i32,
+}
+
+impl std::hash::Hash for RegisteredBuilding {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.plant.hash(state);
+        if self.secret_lab {
+            b"secret-lab-type-v382".hash(state);
+        }
+    }
+}
+
+impl std::hash::Hash for HouseBaseState {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.registrations.hash(state);
+        self.buildings.hash(state);
+        self.plants.hash(state);
+        self.radius.hash(state);
+        if !self.secret_labs.is_empty() {
+            b"house-secret-labs-v382".hash(state);
+            self.secret_labs.hash(state);
+        }
+    }
 }
 
 /// Admitted House+68 entries, with the shared Cost_Of and Building447AC0
@@ -160,6 +188,7 @@ impl RegisteredBuilding {
         Self {
             id,
             plant: object.factory_plant.then_some(object.cost_bonuses),
+            secret_lab: object.secret_lab().enabled(),
         }
     }
 }
@@ -185,6 +214,11 @@ impl HouseBaseState {
     /// House+140 in vector order.
     pub(crate) fn factory_plants(&self) -> &[u64] {
         &self.plants
+    }
+
+    /// House+110 in native vector order; no health/power filter at CanBuild.
+    pub(crate) fn secret_labs(&self) -> &[u64] {
+        &self.secret_labs
     }
 
     /// House+68 in vector order.
@@ -226,6 +260,7 @@ impl HouseBaseState {
 
     fn remove_membership(&mut self, id: u64) {
         //4FB9B0 stable-removes one matching pointer, then50BF60 recomputes.
+        remove_first(&mut self.secret_labs, id);
         remove_first(&mut self.plants, id);
         remove_first(&mut self.buildings, id);
     }
@@ -236,6 +271,9 @@ impl HouseBaseState {
     /// building joins the House+68 tail. The two vectors have independent
     /// lives.
     fn append_membership(&mut self, id: u64) {
+        if self.registration(id).is_some_and(|entry| entry.secret_lab) {
+            self.secret_labs.push(id);
+        }
         if self
             .registration(id)
             .is_some_and(|entry| entry.plant.is_some())
@@ -1107,6 +1145,7 @@ mod tests {
                 house.base_projection.register(RegisteredBuilding {
                     id: u64::MAX,
                     plant: Some(factors),
+                    secret_lab: false,
                 });
                 house.base_projection.plants.push(u64::MAX);
             }
@@ -1468,6 +1507,7 @@ mod tests {
                 state.register(RegisteredBuilding {
                     id,
                     plant: Some(bonus),
+                    secret_lab: false,
                 });
                 state.append_membership(id);
             }

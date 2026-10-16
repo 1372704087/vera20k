@@ -16,12 +16,6 @@
 //! hooked.
 //!
 //! RESIDUALS:
-//! - The house's secret-lab types (`HouseClass+0x114`, each building's
-//!   `0x00459840`) are not kept, so a type a captured Secret Lab grants goes
-//!   through the ordinary gates instead of straight to the build limit.
-//!   Trigger: a computer house owning a Tech Secret Lab whose TaskForces
-//!   need its type. Effect: the type is refused where its TechLevel or
-//!   `RequiredHouses=` would refuse it. Frequency: rare.
 //! - Not a difference: `RequiredHouses=` also admits the countries in the
 //!   house's masks (`+0x2C4..+0x2D0`, `0x004F7A07..0x004F7A51`), but only the
 //!   House constructor writes them (zero; operand census of each offset,
@@ -68,6 +62,7 @@ pub(crate) enum CanBuild {
 ///   (`0x007113CC`);
 /// - a `PrerequisiteOverride=` BuildingType the house has on the map
 ///   (`+0x5550`) skips to the build limit;
+/// - a matching owned Secret Lab grant skips to the build limit;
 /// - `TechLevel=-1` refuses;
 /// - `RequiresStolenThirdTech=`, `RequiresStolenSovietTech=` or
 ///   `RequiresStolenAlliedTech=` (`+0xD9B`, `+0xD9C`, `+0xD9D`) refuses
@@ -108,7 +103,10 @@ pub(crate) fn can_build(
         Prerequisite::Building(index) => buildings_on_map(sim, rules, house, index) > 0,
         Prerequisite::Group(_) => false,
     });
-    if override_on_map {
+    // House4F78E4..4F7925 scans House+110 and calls459840. This
+    // shortcut precedes all ordinary tech/country/prerequisite gates, for
+    // humans and AI alike, and still asks the common build-limit owner.
+    if override_on_map || crate::sim::secret_lab::house_grants(sim, rules, house, obj) {
         return build_limit(sim, owner, obj, count_in_production);
     }
     // `0x004F7976..0x004F79E2`: each `RequiresStolen*Tech=` needs the

@@ -361,6 +361,9 @@ struct GeneralTypeLists {
     /// Rules data+0xFFC/count+0x1008;671D3E uses TerrainType reader67BDD0.
     /// Native reader/identity controls: spatial_oracle/mirage_disguise.
     default_mirage_disguises: Vec<String>,
+    /// Rules+D00/D1C/D38, emptied by666773..6667F8 and read in that
+    /// order at66FA13..66FAD6 through the native ReadString128 list readers.
+    secret_lab_choices: [Vec<String>; 3],
 }
 
 /// The `[General]` keys of [`GeneralTypeLists::paradrop_infantry`], in its
@@ -454,6 +457,23 @@ impl ProcessedRulesLayers {
             .into_iter()
             .flatten()
             .map(|member| (member.native_stored_id.as_str(), &member.projectile_art))
+    }
+
+    /// BuildingType+16B0/EA4/EA8/EAC retained by its original reached body.
+    pub(crate) fn secret_lab_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, &crate::rules::secret_lab::SecretLabRules)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Building)
+            .into_iter()
+            .flatten()
+            .map(|member| (member.native_stored_id.as_str(), &member.secret_lab))
+    }
+
+    pub(crate) fn secret_lab_choices(&self) -> &[Vec<String>; 3] {
+        &self.general_type_lists.secret_lab_choices
     }
 
     /// BuildingType +EF0 after each reached ReadINI body, retained with its
@@ -1372,6 +1392,7 @@ struct ProcessedType {
     building_foundation: u8,
     /// Constructor45DEBC..45DEC8 clears BuildingType+EBC/EC0/EC4.
     building_target_coord_offset: [i32; 3],
+    secret_lab: crate::rules::secret_lab::SecretLabRules,
     /// Unit ctor747167..7471B2 and reached fixed-ART reader7477C1..747AAE.
     unit_shp: crate::rules::shp_vehicle_sequence::UnitShpReadState,
     /// TechnoType ctor71136F/711781, generic flag read71287E and FV pair
@@ -1413,6 +1434,7 @@ impl ProcessedType {
             anim_art_read: false,
             building_foundation: 0,
             building_target_coord_offset: [0; 3],
+            secret_lab: Default::default(),
             unit_shp: Default::default(),
             gunner_turrets: GunnerTurrets::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
@@ -1750,20 +1772,24 @@ impl RulesPassProcessor {
         }
     }
 
-    fn allocate_scalar_from(
+    /// None retains the prior pointer; Some(None) is an authored null.
+    /// ReadString's empty default and FindOrAllocate are shared by scalar
+    /// allocation sites and the fields which retain their resolved identities.
+    fn resolve_scalar_from(
         &mut self,
         section: &IniSection,
         key: &str,
         family: RulesTypeFamily,
         capacity: usize,
-    ) {
-        if !section.is_present(key) {
-            return;
-        }
+    ) -> Option<Option<String>> {
         let incoming = section.read_string(key, "", capacity);
-        if !incoming.is_empty() {
-            self.find_or_allocate(family, &incoming);
+        if incoming.is_empty() {
+            return None;
         }
+        Some(
+            self.find_or_allocate(family, &incoming)
+                .map(|index| self.families[&family][index].native_stored_id.clone()),
+        )
     }
 
     fn allocate_list_from(
@@ -1974,6 +2000,13 @@ impl RulesPassProcessor {
                 if let Some(resolved) = self.resolve_list_from(section, key, family, 0x80) {
                     self.general_type_lists.paradrop_infantry[side] = resolved;
                 }
+            } else if let Some(slot) = ["SecretInfantry", "SecretUnits", "SecretBuildings"]
+                .iter()
+                .position(|&name| name == key)
+            {
+                if let Some(resolved) = self.resolve_list_from(section, key, family, 0x80) {
+                    self.general_type_lists.secret_lab_choices[slot] = resolved;
+                }
             } else if key == "AnimToInfantry" {
                 if let Some(resolved) = self.resolve_list_from(section, key, family, 0x80) {
                     self.general_type_lists.anim_to_infantry = resolved;
@@ -2010,12 +2043,8 @@ impl RulesPassProcessor {
                 // through BuildingType's FindOrAllocate, and
                 // PrerequisiteProcAlternate (`0x0066F787..0x0066F7C9`) through
                 // UnitType's (`0x007480D0`).
-                let incoming = section.read_string(key, "", 0x80);
-                if !incoming.is_empty() {
-                    let resolved = self
-                        .find_or_allocate(family, &incoming)
-                        .map(|index| self.families[&family][index].native_stored_id.clone())
-                        .unwrap_or_default();
+                if let Some(resolved) = self.resolve_scalar_from(section, key, family, 0x80) {
+                    let resolved = resolved.unwrap_or_default();
                     match key {
                         "LightningWarhead" => self.select_anim.lightning_warhead = resolved,
                         "WeatherConBoltExplosion" => {
@@ -2049,7 +2078,7 @@ impl RulesPassProcessor {
             } else if is_list {
                 self.allocate_list_from(section, key, family, 0x80);
             } else {
-                self.allocate_scalar_from(section, key, family, 0x80);
+                let _ = self.resolve_scalar_from(section, key, family, 0x80);
             }
         }
     }
@@ -2197,8 +2226,9 @@ impl RulesPassProcessor {
             if let Some((_id, raw, _effective)) =
                 self.begin_rules_member_read(RulesTypeFamily::SuperWeapon, index, pass)
             {
-                self.allocate_scalar_from(&raw, "WeaponType", RulesTypeFamily::Weapon, 0x80);
-                self.allocate_scalar_from(&raw, "AuxBuilding", RulesTypeFamily::Building, 0x80);
+                let _ = self.resolve_scalar_from(&raw, "WeaponType", RulesTypeFamily::Weapon, 0x80);
+                let _ =
+                    self.resolve_scalar_from(&raw, "AuxBuilding", RulesTypeFamily::Building, 0x80);
             }
             index += 1;
         }
@@ -2227,19 +2257,22 @@ impl RulesPassProcessor {
                     .expect("the live AnimType member exists")[index]
                     .anim_art_read = true;
                 for key in ["Next", "Spawns"] {
-                    self.allocate_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+                    let _ =
+                        self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
                 }
-                self.allocate_scalar_from(
+                let _ = self.resolve_scalar_from(
                     section,
                     "TiberiumSpawnType",
                     RulesTypeFamily::Overlay,
                     0x80,
                 );
                 for key in ["BounceAnim", "ExpireAnim", "TrailerAnim"] {
-                    self.allocate_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+                    let _ =
+                        self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
                 }
-                self.allocate_scalar_from(section, "Warhead", RulesTypeFamily::Warhead, 0x80);
-                self.allocate_scalar_from(
+                let _ =
+                    self.resolve_scalar_from(section, "Warhead", RulesTypeFamily::Warhead, 0x80);
+                let _ = self.resolve_scalar_from(
                     section,
                     "SpawnsParticle",
                     RulesTypeFamily::Particle,
@@ -2317,25 +2350,31 @@ impl RulesPassProcessor {
                                     )
                                 },
                             );
-                        self.allocate_scalar_from(&raw, "FreeUnit", RulesTypeFamily::Vehicle, 0x80);
-                        self.allocate_scalar_from(
+                        let _ = self.resolve_scalar_from(
                             &raw,
-                            "SecretInfantry",
-                            RulesTypeFamily::Infantry,
-                            0x80,
-                        );
-                        self.allocate_scalar_from(
-                            &raw,
-                            "SecretUnit",
+                            "FreeUnit",
                             RulesTypeFamily::Vehicle,
                             0x80,
                         );
-                        self.allocate_scalar_from(
-                            &raw,
-                            "SecretBuilding",
-                            RulesTypeFamily::Building,
-                            0x80,
-                        );
+                        // Building4605BB..460683: three ReadString128 and
+                        // FindOrAllocate calls retain empty reads and clear
+                        // authored none. Their families and order are native.
+                        for (slot, key, target_family) in [
+                            (0, "SecretInfantry", RulesTypeFamily::Infantry),
+                            (1, "SecretUnit", RulesTypeFamily::Vehicle),
+                            (2, "SecretBuilding", RulesTypeFamily::Building),
+                        ] {
+                            if let Some(value) =
+                                self.resolve_scalar_from(&raw, key, target_family, 0x80)
+                            {
+                                self.families.get_mut(&family).unwrap()[index]
+                                    .secret_lab
+                                    .set_override(slot, value);
+                            }
+                        }
+                        self.families.get_mut(&family).unwrap()[index]
+                            .secret_lab
+                            .read_flag(&raw);
                         self.allocate_fixed_art_techno_reference(
                             fixed_art,
                             &native_stored_id,
@@ -2365,13 +2404,13 @@ impl RulesPassProcessor {
                             .read_pass(fixed_art.section_or_empty(&image), has_turret);
                     }
                     RulesTypeFamily::Infantry => {
-                        self.allocate_scalar_from(
+                        let _ = self.resolve_scalar_from(
                             &raw,
                             "OccupyWeapon",
                             RulesTypeFamily::Weapon,
                             0x80,
                         );
-                        self.allocate_scalar_from(
+                        let _ = self.resolve_scalar_from(
                             &raw,
                             "EliteOccupyWeapon",
                             RulesTypeFamily::Weapon,
@@ -2404,7 +2443,7 @@ impl RulesPassProcessor {
         raw: &IniSection,
         effective: &IniSection,
     ) {
-        self.allocate_scalar_from(raw, "DeathWeapon", RulesTypeFamily::Weapon, 0x80);
+        let _ = self.resolve_scalar_from(raw, "DeathWeapon", RulesTypeFamily::Weapon, 0x80);
         self.allocate_list_from(raw, "DebrisTypes", RulesTypeFamily::VoxelAnimation, 0x80);
         self.allocate_list_from(raw, "DebrisAnims", RulesTypeFamily::Animation, 0x80);
 
@@ -2413,13 +2452,13 @@ impl RulesPassProcessor {
         let clear_all_weapons = effective.read_bool("ClearAllWeapons", false);
         if turret_count >= 1 && weapon_count > 0 {
             for slot in 1..=weapon_count {
-                self.allocate_scalar_from(
+                let _ = self.resolve_scalar_from(
                     raw,
                     &format!("Weapon{slot}"),
                     RulesTypeFamily::Weapon,
                     0x80,
                 );
-                self.allocate_scalar_from(
+                let _ = self.resolve_scalar_from(
                     raw,
                     &format!("EliteWeapon{slot}"),
                     RulesTypeFamily::Weapon,
@@ -2428,23 +2467,23 @@ impl RulesPassProcessor {
             }
         } else if turret_count < 1 && !clear_all_weapons {
             for key in ["Primary", "Secondary", "ElitePrimary", "EliteSecondary"] {
-                self.allocate_scalar_from(raw, key, RulesTypeFamily::Weapon, 0x80);
+                let _ = self.resolve_scalar_from(raw, key, RulesTypeFamily::Weapon, 0x80);
             }
         }
 
         self.allocate_list_from(raw, "Dock", RulesTypeFamily::Building, 0x80);
-        self.allocate_scalar_from(raw, "DeploysInto", RulesTypeFamily::Building, 0x80);
-        self.allocate_scalar_from(raw, "UndeploysInto", RulesTypeFamily::Vehicle, 0x80);
-        self.allocate_scalar_from(raw, "PowersUnit", RulesTypeFamily::Vehicle, 0x80);
+        let _ = self.resolve_scalar_from(raw, "DeploysInto", RulesTypeFamily::Building, 0x80);
+        let _ = self.resolve_scalar_from(raw, "UndeploysInto", RulesTypeFamily::Vehicle, 0x80);
+        let _ = self.resolve_scalar_from(raw, "PowersUnit", RulesTypeFamily::Vehicle, 0x80);
         self.allocate_list_from(raw, "Explosion", RulesTypeFamily::Animation, 0x80);
         self.allocate_list_from(raw, "DestroyAnim", RulesTypeFamily::Animation, 0x80);
-        self.allocate_scalar_from(
+        let _ = self.resolve_scalar_from(
             raw,
             "NaturalParticleSystem",
             RulesTypeFamily::ParticleSystem,
             0x80,
         );
-        self.allocate_scalar_from(
+        let _ = self.resolve_scalar_from(
             raw,
             "RefinerySmokeParticleSystem",
             RulesTypeFamily::ParticleSystem,
@@ -2482,10 +2521,10 @@ impl RulesPassProcessor {
                 })
         });
         self.family_mut(family)[index].airstrike = airstrike;
-        self.allocate_scalar_from(raw, "UnloadingClass", RulesTypeFamily::Vehicle, 0x80);
-        self.allocate_scalar_from(raw, "DeployingAnim", RulesTypeFamily::Animation, 0x80);
-        self.allocate_scalar_from(raw, "Enslaves", RulesTypeFamily::Infantry, 0x80);
-        self.allocate_scalar_from(raw, "Spawns", RulesTypeFamily::Aircraft, 0x80);
+        let _ = self.resolve_scalar_from(raw, "UnloadingClass", RulesTypeFamily::Vehicle, 0x80);
+        let _ = self.resolve_scalar_from(raw, "DeployingAnim", RulesTypeFamily::Animation, 0x80);
+        let _ = self.resolve_scalar_from(raw, "Enslaves", RulesTypeFamily::Infantry, 0x80);
+        let _ = self.resolve_scalar_from(raw, "Spawns", RulesTypeFamily::Aircraft, 0x80);
         // Original ReadINI7147B4..7147C8 stores ReadInt5276D0 directly.
         // Missing sections never enter this reader; omitted keys retain the
         // prior value, including across process-resident registry handoffs.
@@ -2507,7 +2546,7 @@ impl RulesPassProcessor {
             return;
         }
         if let Some(section) = fixed_art.section(&image) {
-            self.allocate_scalar_from(section, key, family, 0x80);
+            let _ = self.resolve_scalar_from(section, key, family, 0x80);
         }
     }
 
@@ -2519,15 +2558,15 @@ impl RulesPassProcessor {
             {
                 self.allocate_list_from(&raw, "Anim", RulesTypeFamily::Animation, 0x80);
                 for key in ["AssaultAnim", "OccupantAnim", "OpenToppedAnim"] {
-                    self.allocate_scalar_from(&raw, key, RulesTypeFamily::Animation, 0x80);
+                    let _ = self.resolve_scalar_from(&raw, key, RulesTypeFamily::Animation, 0x80);
                 }
-                self.allocate_scalar_from(
+                let _ = self.resolve_scalar_from(
                     &raw,
                     "AttachedParticleSystem",
                     RulesTypeFamily::ParticleSystem,
                     0x14,
                 );
-                self.allocate_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
+                let _ = self.resolve_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
                 let incoming = raw.read_string("Projectile", "", 0x80);
                 let projectile = (!incoming.is_empty())
                     .then(|| self.find_or_allocate(RulesTypeFamily::Projectile, &incoming));
@@ -2589,8 +2628,10 @@ impl RulesPassProcessor {
                     .get_mut(&RulesTypeFamily::Projectile)
                     .expect("the live BulletType member exists")[index]
                     .projectile_art = art;
-                self.allocate_scalar_from(&raw, "AirburstWeapon", RulesTypeFamily::Weapon, 0x80);
-                self.allocate_scalar_from(&raw, "ShrapnelWeapon", RulesTypeFamily::Weapon, 0x80);
+                let _ =
+                    self.resolve_scalar_from(&raw, "AirburstWeapon", RulesTypeFamily::Weapon, 0x80);
+                let _ =
+                    self.resolve_scalar_from(&raw, "ShrapnelWeapon", RulesTypeFamily::Weapon, 0x80);
             }
             index += 1;
         }
@@ -2602,7 +2643,12 @@ impl RulesPassProcessor {
             if let Some((_id, raw, _effective)) =
                 self.begin_rules_member_read(RulesTypeFamily::Warhead, index, pass)
             {
-                self.allocate_scalar_from(&raw, "Particle", RulesTypeFamily::ParticleSystem, 0x80);
+                let _ = self.resolve_scalar_from(
+                    &raw,
+                    "Particle",
+                    RulesTypeFamily::ParticleSystem,
+                    0x80,
+                );
                 // Warhead ctor75CF89/75CFB3 initializes both false. The
                 // original reader uses the live field as its ReadBool default.
                 let current = &mut self.family_mut(RulesTypeFamily::Warhead)[index].warhead_anim;
@@ -2636,7 +2682,7 @@ impl RulesPassProcessor {
             if let Some((_id, raw, _effective)) =
                 self.begin_rules_member_read(RulesTypeFamily::Particle, index, pass)
             {
-                self.allocate_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
+                let _ = self.resolve_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
             }
             index += 1;
         }
@@ -2662,10 +2708,10 @@ impl RulesPassProcessor {
                 self.begin_rules_member_read(RulesTypeFamily::VoxelAnimation, index, pass)
             {
                 for key in ["BounceAnim", "ExpireAnim", "TrailerAnim"] {
-                    self.allocate_scalar_from(&raw, key, RulesTypeFamily::Animation, 0x80);
+                    let _ = self.resolve_scalar_from(&raw, key, RulesTypeFamily::Animation, 0x80);
                 }
-                self.allocate_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
-                self.allocate_scalar_from(
+                let _ = self.resolve_scalar_from(&raw, "Warhead", RulesTypeFamily::Warhead, 0x80);
+                let _ = self.resolve_scalar_from(
                     &raw,
                     "AttachedSystem",
                     RulesTypeFamily::ParticleSystem,
@@ -2681,9 +2727,9 @@ impl RulesPassProcessor {
             return;
         };
         for key in ["WoodCrateImg", "CrateImg", "WaterCrateImg"] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::Overlay, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Overlay, 0x80);
         }
-        self.allocate_scalar_from(section, "UnitCrateType", RulesTypeFamily::Vehicle, 0x80);
+        let _ = self.resolve_scalar_from(section, "UnitCrateType", RulesTypeFamily::Vehicle, 0x80);
     }
 
     fn allocate_combat_references(&mut self, pass: &IniFile) {
@@ -2719,17 +2765,18 @@ impl RulesPassProcessor {
             "CMislEliteWarhead",
             "IvanWarhead",
         ] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::Warhead, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Warhead, 0x80);
         }
-        self.allocate_scalar_from(section, "DeathWeapon", RulesTypeFamily::Weapon, 0x80);
+        let _ = self.resolve_scalar_from(section, "DeathWeapon", RulesTypeFamily::Weapon, 0x80);
         for key in [
             "DrainAnimationType",
             "ControlledAnimationType",
             "PermaControlledAnimationType",
         ] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
-        self.allocate_scalar_from(section, "IonCannonWarhead", RulesTypeFamily::Warhead, 0x80);
+        let _ =
+            self.resolve_scalar_from(section, "IonCannonWarhead", RulesTypeFamily::Warhead, 0x80);
         for key in [
             "DefaultLargeGreySmokeSystem",
             "DefaultSmallGreySmokeSystem",
@@ -2741,13 +2788,14 @@ impl RulesPassProcessor {
             "DefaultTestParticleSystem",
             "DefaultRepairParticleSystem",
         ] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::ParticleSystem, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::ParticleSystem, 0x80);
         }
     }
 
     fn allocate_radiation_references(&mut self, pass: &IniFile) {
         if let Some(section) = pass.section("Radiation") {
-            self.allocate_scalar_from(section, "RadSiteWarhead", RulesTypeFamily::Warhead, 0x80);
+            let _ =
+                self.resolve_scalar_from(section, "RadSiteWarhead", RulesTypeFamily::Warhead, 0x80);
         }
     }
 
@@ -2765,15 +2813,15 @@ impl RulesPassProcessor {
         self.rules_line_trail_override =
             section.read_color_rgb("LineTrailColorOverride", self.rules_line_trail_override);
         for key in ["DropPodPuff", "VeinAttack", "Dig", "AtmosphereEntry"] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
         for key in ["TreeFire", "OnFire"] {
             self.allocate_list_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
-        self.allocate_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
-        self.allocate_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
+        let _ = self.resolve_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
+        let _ = self.resolve_scalar_from(section, "Smoke", RulesTypeFamily::Animation, 0x80);
         for key in ["SmallFire", "LargeFire"] {
-            self.allocate_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+            let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
     }
 
@@ -2790,7 +2838,7 @@ impl RulesPassProcessor {
             ("EMPulseWarhead", RulesTypeFamily::Warhead),
             ("EMPulseProjectile", RulesTypeFamily::Projectile),
         ] {
-            self.allocate_scalar_from(section, key, family, 0x80);
+            let _ = self.resolve_scalar_from(section, key, family, 0x80);
         }
         self.process_warhead_family(pass);
     }

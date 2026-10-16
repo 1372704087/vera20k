@@ -2,6 +2,8 @@
 
 Run python -m tools.can_build_oracle --check (or explicit --write).
 Rust consumer: src/sim/production/can_build_tests.rs.
+The separate --secret-lab profile also supplies sim::secret_lab and the
+retained rules-reader tests; see can_build_secret_lab.md.
 
 Sections, each case executed in a fresh emulator:
 - can_build: HouseClass::CanBuild 0x4F7870 over its gates, the human
@@ -22,8 +24,11 @@ src/sim/production/can_build.rs); a row may give it stolen-tech bytes
 InfantryType VehicleThief=.
 """
 from pathlib import Path
+import hashlib
+import sys
 
-from tools.ai_base_building_oracle import Emu, FAKE, HOUSE, HOUSE_TYPE, RULES, STUBS
+from tools.ai_base_building_oracle import Emu, FAKE, HOUSE, HOUSE_TYPE, RULES, SCENARIO, STUBS
+from tools import native_oracle as native
 from tools.native_oracle import OracleError, finish_vectors, provenance
 
 from unicorn.x86_const import UC_X86_REG_ECX
@@ -217,6 +222,19 @@ def run(row):
         factories.append(address)
     emu.write32(FACTORY_ARRAY[0], emu.list(factories))
     emu.write32(FACTORY_ARRAY[1], len(factories))
+    labs = []
+    for slot, lab in enumerate(row.get('secret_labs', [])):
+        address = FAKE + 0x600000 + slot * 0x1000
+        lab_type = FAKE + 0x680000 + slot * TYPE_SIZE
+        emu.write32(address + 0x520, lab_type)
+        for family, offset in SECRET_OVERRIDES.items():
+            name = lab.get(family)
+            emu.write32(lab_type + offset, emu.types[name] if name else 0)
+        fallback = lab.get('fallback')
+        emu.write32(address + 0x6F4, emu.types[fallback] if fallback else 0)
+        labs.append(address)
+    if labs:
+        emu.vector(HOUSE + 0x110, labs)
     if row['entry'] == 'can_build':
         skip_tech, count = row['args']
         answer = emu.invoke(CAN_BUILD, ecx=HOUSE, args=(q, int(skip_tech), int(count)))
@@ -408,8 +426,355 @@ def generate():
     return dict(can_build=can_build(), check_build_limit=check_build_limit())
 
 
-if __name__ == '__main__':
-    finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=lambda: provenance(
+# ---------------------------------------------------------- SecretLab profile
+
+ASSIGN_SECRET_PRODUCTION = 0x68C050
+GET_SECRET_PRODUCTION = 0x459840
+SECRET_OVERRIDES = {'infantry': 0xEA4, 'unit': 0xEA8, 'building': 0xEAC}
+SECRET_LISTS = {'infantry': 0xD00, 'unit': 0xD1C, 'building': 0xD38}
+RNG_STREAMS = {'scenario': SCENARIO + 0x218, 'main': 0x886B88, 'mapgen': 0xABE890}
+
+
+def secret_assignment(name, seed, lab_count, counts=(4, 0, 0), override=None,
+                      initial_fallback=None):
+    """Whole assignment/getter, original seed/ranged/raw RNG and vector bodies."""
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP
+
+    emu = Emu()
+    u = emu.uc
+    for pointer in RNG_STREAMS.values():
+        emu.invoke(0x65C6D0, ecx=pointer, args=(seed,))
+    families = []
+    names = {0: None}
+    for family, (offset, count) in enumerate(zip(SECRET_LISTS.values(), counts)):
+        items = FAKE + 0x100000 + family * 0x1000
+        pointers = [FAKE + 0x120000 + family * 0x10000 + index * 0x1000
+                    for index in range(count)]
+        emu.write32(RULES + offset + 4, items)
+        emu.write32(RULES + offset + 0x10, count)
+        for index, pointer in enumerate(pointers):
+            emu.write32(items + index * 4, pointer)
+            names[pointer] = f'{tuple(SECRET_LISTS)[family]}{index}'
+        families.append(pointers)
+    emu.write32(RULES + 0xD54, sum(counts))
+    retained = FAKE + 0x1F0000
+    names[retained] = 'retained'
+    labs = [FAKE + 0x200000 + index * 0x1000 for index in range(lab_count)]
+    emu.write32(0x8B41E4, FAKE + 0x180000)
+    emu.write32(0x8B41F0, lab_count)
+    for index, pointer in enumerate(labs):
+        emu.write32(FAKE + 0x180000 + index * 4, pointer)
+        lab_type = FAKE + 0x300000 + index * TYPE_SIZE
+        emu.write32(pointer + 0x520, lab_type)
+        emu.write32(pointer + 0x6F4, retained if initial_fallback else 0)
+        if override is not None:
+            family, member = override
+            emu.write32(lab_type + tuple(SECRET_OVERRIDES.values())[family],
+                        families[family][member])
+    calls, raw_stores = [], []
+    trace = native.NativeCallTrace(u, emu.read32, calls)
+
+    def observe(_u, pc, _size, _data):
+        sp = u.reg_read(UC_X86_REG_ESP)
+        trace.returned(pc, sp)
+        if pc == 0x65C7E0:
+            trace.entered(pc, sp, ('RandomRanged', 2, 8))
+        elif pc in (0x65C79D, 0x65C84B):
+            raw_stores.append(hex(pc))
+
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    before = {key: bytes(u.mem_read(pointer, 0x3F4))
+              for key, pointer in RNG_STREAMS.items()}
+    emu.invoke(ASSIGN_SECRET_PRODUCTION, ecx=SCENARIO,
+               required=(ASSIGN_SECRET_PRODUCTION,))
+    trace.returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+    after = {key: bytes(u.mem_read(pointer, 0x3F4))
+             for key, pointer in RNG_STREAMS.items()}
+    u.hook_del(hook)
+    assert not trace.pending
+    assert before['main'] == after['main'] and before['mapgen'] == after['mapgen']
+    assignments = [names[emu.read32(pointer + 0x6F4)] for pointer in labs]
+    getters = [names[emu.invoke(GET_SECRET_PRODUCTION, ecx=pointer,
+                               required=(GET_SECRET_PRODUCTION,))]
+               for pointer in labs]
+    return dict(name=name, seed=seed, lab_count=lab_count, counts=list(counts),
+                override=override, initial_fallback=initial_fallback,
+                assignments=assignments, getters=getters,
+                ranged=[dict(low=call['args'][0], high=call['args'][1],
+                             result=call['return_eax'], caller=call['caller'])
+                        for call in calls], raw_store_count=len(raw_stores),
+                raw_stores=raw_stores,
+                rng_before={key: value.hex() for key, value in before.items()},
+                rng_after={key: value.hex() for key, value in after.items()})
+
+
+def secret_getter(name, overrides, fallback):
+    emu = Emu()
+    lab, lab_type = FAKE + 0x200000, FAKE + 0x300000
+    names = {0: None}
+    pointers = {}
+    for value in (*overrides.values(), fallback):
+        if value is not None and value not in pointers:
+            pointer = FAKE + 0x100000 + len(pointers) * 0x1000
+            pointers[value] = pointer
+            names[pointer] = value
+    emu.write32(lab + 0x520, lab_type)
+    for family, offset in SECRET_OVERRIDES.items():
+        emu.write32(lab_type + offset, pointers.get(overrides.get(family), 0))
+    emu.write32(lab + 0x6F4, pointers.get(fallback, 0))
+    result = emu.invoke(GET_SECRET_PRODUCTION, ecx=lab,
+                        required=(GET_SECRET_PRODUCTION,))
+    return dict(name=name, overrides=overrides, fallback=fallback, result=names[result])
+
+
+def secret_admission():
+    rows = []
+    for human in (False, True):
+        for label, spec in (
+            ('negative tech', {'tech': -1}), ('high tech', {'tech': 11}),
+            ('required country', {'required': [2]}),
+            ('forbidden country', {'forbidden': [1]}),
+            ('prerequisite absent', {'prerequisite': ['B3']}),
+            ('stolen tech absent', {'stolen': [True, False, False]}),
+            ('build limit reached', {'limit': 1}),
+        ):
+            for grant in (False, True):
+                rows.append(can_build_row(
+                    f'{"human" if human else "AI"}: {label}, grant {grant}',
+                    cls='infantry', type_=spec, house={'human': human},
+                    owned=[['infantry', 'Q', 1]],
+                    secret_labs=[{'infantry': 'Q'}] if grant else []))
+    for kind, member in (('unit', 'unit'), ('building', 'building')):
+        rows.append(can_build_row(
+            f'{kind}: matching typed override', cls=kind, type_={'tech': -1},
+            secret_labs=[{member: 'Q'}]))
+    rows.append(can_build_row('fallback grants the asked infantry', cls='infantry',
+                              type_={'tech': -1}, secret_labs=[{'fallback': 'Q'}]))
+    rows.append(can_build_row('first lab misses, second lab grants', cls='infantry',
+                              type_={'tech': -1},
+                              secret_labs=[{'infantry': 'I0'}, {'infantry': 'Q'}]))
+    rows.append(can_build_row('higher priority override masks matching fallback',
+                              cls='infantry', type_={'tech': -1},
+                              secret_labs=[{'infantry': 'I0', 'fallback': 'Q'}]))
+    return rows
+
+
+def secret_readers():
+    from tools.rules_oracle.bridge_anim_inputs import Reader
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.rules_oracle.weapon_laser import physical_layers
+    from tools.spatial_oracle.building_body_rules import INI, SP, dwords
+    from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBP,
+                                   UC_X86_REG_EBX, UC_X86_REG_EDI,
+                                   UC_X86_REG_ESI, UC_X86_REG_ESP)
+
+    class SecretReader(Reader):
+        """Only this mechanism's objects and entry slices; shared VM/cache/heap."""
+
+        def __init__(self):
+            super().__init__(Path(__file__).with_name('no-assets'), {})
+            # Declared registered identities. The whole FindOrAllocate searches
+            # execute; none of these controls needs an unknown-type constructor.
+            for array, names, vtable in (
+                (0xA8E348, ('I0', 'I1', 'SNIPE', 'TERROR', 'DESO', 'YURI'), 0x7EAC28),
+                (0xA83CE0, ('U0', 'U1', 'TNKD', 'TTNK', 'DTRUCK'), 0x7EAC48),
+                (0xA83C68, ('B0', 'B1', 'GTGCAN'), 0x7ED90C),
+            ):
+                pointers = []
+                for name in names:
+                    pointer = self.alloc(0x1800)
+                    self.u.mem_write(pointer + 0x24, name.encode('ascii') + b'\0')
+                    pointers.append(pointer)
+                items = self.alloc(4096)
+                self.u.mem_write(items, dwords(*pointers))
+                self.u.mem_write(array, dwords(vtable, items, 1024, 0x0101,
+                                               len(pointers), 10))
+            self.rules = self.alloc(0x2000)
+            self.lab_type = self.alloc(0x1800)
+            self.u.reg_write(UC_X86_REG_ESP, SP)
+            self.u.reg_write(UC_X86_REG_ESI, self.rules)
+            self.u.reg_write(UC_X86_REG_EBX, 0)
+            self.u.reg_write(UC_X86_REG_EDI, 10)
+            native.run_checked(self.u, 0x666773, 0x6667F8)
+            self.u.reg_write(UC_X86_REG_ESI, self.lab_type)
+            native.run_checked(self.u, 0x45DE94, 0x45DEA6)
+            native.run_checked(self.u, 0x45E0EA, 0x45E0F0)
+
+        def secret_state(self):
+            lists = {}
+            for family, offset in SECRET_LISTS.items():
+                items = self.read32(self.rules + offset + 4)
+                count = self.read32(self.rules + offset + 0x10)
+                lists[family] = [self.string(self.read32(items + index * 4) + 0x24)
+                                 for index in range(count)]
+            overrides = {}
+            for family, offset in SECRET_OVERRIDES.items():
+                pointer = self.read32(self.lab_type + offset)
+                overrides[family] = self.string(pointer + 0x24) if pointer else None
+            return dict(lists=lists, total=self.read32(self.rules + 0xD54),
+                        overrides=overrides,
+                        secret_lab=bool(self.u.mem_read(self.lab_type + 0x16B0, 1)[0]))
+
+        def read(self, sections, section='LAB'):
+            self.make_ini(sections)
+            u = self.u
+            u.reg_write(UC_X86_REG_ESP, SP)
+            u.reg_write(UC_X86_REG_ESI, self.rules)
+            u.reg_write(UC_X86_REG_EDI, INI)
+            native.run_checked(u, 0x66FA13, 0x66FAD6,
+                               required_addresses=(0x67BB10, 0x67B720, 0x67B550, 0x528A10))
+            assert u.reg_read(UC_X86_REG_ESP) == SP
+            u.reg_write(UC_X86_REG_EBP, self.lab_type)
+            u.reg_write(UC_X86_REG_EBX, self.cstring(section))
+            u.reg_write(UC_X86_REG_ESI, INI)
+            u.reg_write(UC_X86_REG_EAX, 0)
+            native.run_checked(u, 0x4605BB, 0x460683,
+                               required_addresses=(0x528A10,))
+            native.run_checked(u, 0x4609B6, 0x4609D6,
+                               required_addresses=(0x5295F0,))
+            assert u.reg_read(UC_X86_REG_ESP) == SP
+            return dict(sections=sections, state=self.secret_state())
+
+    reader = SecretReader()
+    constructor = reader.secret_state()
+    history = []
+    for name, keys in (
+        ('seed lists', {'SecretInfantry': 'I0,I1,I0', 'SecretUnits': 'U1',
+                        'SecretBuildings': 'B0'}),
+        ('missing keys retain', {}),
+        ('empty strings retain', {'SecretInfantry': '', 'SecretUnits': '',
+                                   'SecretBuildings': ''}),
+        ('whitespace strings retain', {'SecretInfantry': '   ', 'SecretUnits': '\t',
+                                        'SecretBuildings': '   '}),
+        ('case insensitive identity and duplicates', {'SecretInfantry': 'i1,I0,i1',
+                                                      'SecretUnits': 'u0,U0',
+                                                      'SecretBuildings': 'b1,B0,b1'}),
+        ('none entries dropped', {'SecretInfantry': 'none,I0,<none>,I0',
+                                  'SecretUnits': 'none,U1,<none>',
+                                  'SecretBuildings': '<none>,B0'}),
+        ('wrong case keys retain', {'secretinfantry': 'I1', 'secretunits': 'U0',
+                                    'secretbuildings': 'B1'}),
+        ('commas replace with empty', {'SecretInfantry': ',,,', 'SecretUnits': ',,,',
+                                       'SecretBuildings': ',,,'}),
+        ('empty after clear stays empty', {}),
+    ):
+        history.append(dict(name=name, **reader.read({'General': keys})))
+    scalar_reader = SecretReader()
+    scalar_history = []
+    for name, keys in (
+        ('defaults', {}),
+        ('three overrides and flag', {'SecretInfantry': 'I0', 'SecretUnit': 'U0',
+                                      'SecretBuilding': 'B0', 'SecretLab': 'yes'}),
+        ('missing retains', {}),
+        ('empty retains', {'SecretInfantry': '', 'SecretUnit': '',
+                            'SecretBuilding': '', 'SecretLab': ''}),
+        ('invalid bool retains', {'SecretLab': 'junk'}),
+        ('none clears', {'SecretInfantry': 'none', 'SecretUnit': '<none>',
+                         'SecretBuilding': 'NoNe'}),
+        ('case insensitive references', {'SecretInfantry': 'i1', 'SecretUnit': 'u1',
+                                         'SecretBuilding': 'b1', 'SecretLab': 'no'}),
+        ('wrong case keys retain', {'secretinfantry': 'I0', 'secretunit': 'U0',
+                                    'secretbuilding': 'B0', 'secretlab': 'yes'}),
+        ('whitespace references retain', {'SecretInfantry': '   ', 'SecretUnit': '\t',
+                                          'SecretBuilding': '   '}),
+    ):
+        scalar_history.append(dict(name=name, **scalar_reader.read({'LAB': keys})))
+    physical_reader = SecretReader()
+    physical = []
+    general_keys = ('SecretInfantry', 'SecretUnits', 'SecretBuildings')
+    type_keys = ('SecretLab', 'SecretInfantry', 'SecretUnit', 'SecretBuilding')
+    for filename, archive, raw in physical_layers():
+        if raw is None:
+            physical.append(dict(file=filename, archive=archive, absent=True))
+            continue
+        selected, _ = lexical(raw, {'General', 'CASLAB'})
+        sections = {name: {key: value for key, value in keys.items()
+                            if key in (general_keys if name == 'General' else type_keys)}
+                    for name, keys in selected.items()}
+        physical.append(dict(file=filename, archive=archive, bytes=len(raw),
+                             sha256=hashlib.sha256(raw).hexdigest(),
+                             **physical_reader.read(sections, 'CASLAB')))
+    return dict(constructor=constructor, retained_history=history,
+                scalar_history=scalar_history, physical_layers=physical)
+
+
+def secret_lab_generate():
+    assignments = [
+        secret_assignment('no_labs', 1, 0),
+        secret_assignment('one_lab', 1, 1),
+        secret_assignment('four_labs', 1, 4),
+        secret_assignment('different_seed_four_labs', 0x12345678, 4),
+        secret_assignment('more_labs_than_choices', 1, 5, initial_fallback='retained'),
+        secret_assignment('mixed_family_boundary', 1, 6, (2, 2, 2)),
+        secret_assignment('no_choices', 1, 1, (0, 0, 0), initial_fallback='retained'),
+        secret_assignment('one_choice_equal_bound', 1, 1, (1, 0, 0)),
+        secret_assignment('infantry_override_still_draws', 1, 2, override=(0, 3)),
+        secret_assignment('unit_override_still_draws', 1, 2, (2, 2, 2), override=(1, 1)),
+        secret_assignment('building_override_still_draws', 1, 2, (2, 2, 2), override=(2, 1)),
+    ]
+    getters = [
+        secret_getter('all empty', {}, None),
+        secret_getter('fallback only', {}, 'fallback'),
+        secret_getter('infantry wins all', {'infantry': 'I', 'unit': 'U', 'building': 'B'}, 'fallback'),
+        secret_getter('unit wins building and fallback', {'unit': 'U', 'building': 'B'}, 'fallback'),
+        secret_getter('building wins fallback', {'building': 'B'}, 'fallback'),
+        secret_getter('infantry only', {'infantry': 'I'}, None),
+        secret_getter('unit only', {'unit': 'U'}, None),
+        secret_getter('building only', {'building': 'B'}, None),
+    ]
+    return dict(schema_version=1, native_sha256=native.image_sha256(),
+                assignment=assignments, getter=getters, admission=secret_admission(),
+                readers=secret_readers())
+
+
+def secret_lab_metadata():
+    return provenance(
+        scope='Original SecretLab startup assignment/RNG, grant priority, CanBuild '
+              'early grant with build limits, and retained General/BuildingType key blocks',
+        assumptions=[
+            'Assignment uses declared registered typed lists/counts/total and the global '
+            'lab array, not an on-map House list. Original whole68C050,459840,65C6D0 '
+            'and65C7E0 execute; all three full0x3F4 RNG states and actual ranged/raw '
+            'advance observations are recorded. Initial fallback is declared only in '
+            'the skipped-assignment controls. Whole Post_Map_Init is outside this fixture.',
+            'Admission reuses BuildEmu type identities/counters/factories; supplied '
+            'House+110 membership and override/fallback pointers model prior lab lifecycle. '
+            'Original CanBuild4F7870 and GetSecretProduction459840 execute. This does '
+            'not execute capture, list registration/removal, factory production or sidebar.',
+            'Reader reuses bridge_anim_inputs.Reader cached INI/heap/TLS owners. Original '
+            'General constructors666773..6667F8, list block66FA13..66FAD6, three whole '
+            'typed list readers, scalar override block4605BB..460683 and flag block '
+            '4609B6..4609D6 execute. Registered names are supplied; these controls need '
+            'no unknown-type constructor. Whole Rules Process/BuildingType reader, '
+            'INI file loading and live archive precedence are outside this fixture.',
+            'Physical key strings come from the existing weapon_laser.physical_layers '
+            'archive reader: RULESMD(expandmd01), optional loose LANGRULE, Battle(localmd), '
+            'XMP03T4(multimd), in that retained order. Payload pins file hashes/lengths. '
+            'The existing lexical owner rejects selected duplicate sections/keys; no '
+            'VERA-interpreted scalar or list result supplies a native output.',
+        ],
+        substitutions=[
+            'Existing Emu bounded bump allocator, no-op delete/CRT registration and '
+            'initial adjacent-cell CRT transport; no assignment/getter/RNG answer is supplied.',
+            'Existing BuildEmu type RTTI/index/object-type virtual answers for admission; '
+            'counter growth is excluded by supplied sized arrays.',
+            'Existing Reader cached INI objects, bump allocator/delete and CRT TLS '
+            'transport; no key parser, FindOrAllocate result, list copy or gameplay '
+            'return is substituted.',
+        ],
+        entry_points=dict(assign_secret_production=ASSIGN_SECRET_PRODUCTION,
+                          get_secret_production=GET_SECRET_PRODUCTION,
+                          can_build=CAN_BUILD, check_build_limit=CHECK_BUILD_LIMIT,
+                          random_seed=0x65C6D0, random_ranged=0x65C7E0,
+                          general_lists=0x66FA13, infantry_list=0x67BB10,
+                          unit_list=0x67B720, building_list=0x67B550,
+                          scalar_overrides=0x4605BB, secret_lab_flag=0x4609B6,
+                          read_string=0x528A10, read_bool=0x5295F0))
+
+
+def metadata():
+    return provenance(
         scope=('HouseClass::CanBuild over its gates, the human prerequisite arm and the build '
                'limit with its factory scan; HouseClass::CheckBuildLimit over AirportBound '
                'docks and build limits with the factory of each class. Synthetic fixtures '
@@ -420,4 +785,19 @@ if __name__ == '__main__':
         substitutions=['WhatAmI (vtable +0x2C) and GetArrayIndex (+0x40) of a type, and '
                        'GetTechnoType (+0x84) of a factory\'s object, answer from the case.'],
         entry_points={'can_build': CAN_BUILD, 'check_build_limit': CHECK_BUILD_LIMIT},
-    ))
+    )
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if '--secret-lab' in args:
+        args.remove('--secret-lab')
+        finish_vectors(secret_lab_generate, Path(__file__).with_name('can_build_secret_lab.json'),
+                       provenance=secret_lab_metadata, argv=args)
+    else:
+        finish_vectors(generate, Path(__file__).with_suffix('.json'),
+                       provenance=metadata, argv=args)
+
+
+if __name__ == '__main__':
+    main()

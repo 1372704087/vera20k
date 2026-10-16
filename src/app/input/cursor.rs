@@ -199,9 +199,13 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
-    if selected.is_empty() {
-        return None;
-    }
+    // No early return for an empty selection here. `242c79ad0` carried
+    // `if selected.is_empty() { return None; }` (no comment, no native
+    // backing), which made the no-selection arm below unreachable and showed
+    // the plain arrow over every hovered object. gamemd resolves the object
+    // under the cursor for an empty selection too — DetermineAction's
+    // `0x00692673` arm answers action 7, row 17 (Select) — so the arm below
+    // answers instead. See `no_selection_cursor`.
     // PlanMgr63AC41 selects native action0 over a planning node.
     if crate::app::input::planning_mode::node_at_cursor(state).is_some() {
         return Some(CursorFeedbackKind::Default);

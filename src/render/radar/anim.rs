@@ -306,8 +306,13 @@ impl RadarAnimState {
         height: u32,
     ) -> Option<Self> {
         let presentation = RadarPresentation::new(frames_rgba, width, height)?;
-        let (texture_raw, texture) =
-            batch.create_updatable_texture(gpu, &presentation.surface.rgba, width, height);
+        let (texture_raw, texture) = batch.create_updatable_texture(
+            &gpu.device,
+            &gpu.queue,
+            &presentation.surface.rgba,
+            width,
+            height,
+        );
         Some(Self {
             presentation,
             texture,
@@ -328,8 +333,13 @@ impl RadarAnimState {
             return false;
         }
         if [width, height] != [self.width, self.height] {
-            let (raw, texture) =
-                batch.create_updatable_texture(gpu, &self.presentation.surface.rgba, width, height);
+            let (raw, texture) = batch.create_updatable_texture(
+                &gpu.device,
+                &gpu.queue,
+                &self.presentation.surface.rgba,
+                width,
+                height,
+            );
             self.texture_raw = raw;
             self.texture = texture;
             self.width = width;

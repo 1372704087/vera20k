@@ -5956,6 +5956,777 @@
     ]
   },
   "native_sha256": "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c",
+  "radar": {
+    "depletion": {
+      "boundary": "Full480A80/47D2B0/LAT/6551C0/655250/47C060/6547C0 in the shared ore VM. Sparse Cell/TMP registry, empty-overlay neighbors and raw radar geometry supplied; only Tactical dirtiness remains a sink. No online-radar/viewer, normal harvester or whole-map bounds/bootstrap claim.",
+      "input": {
+        "background_rgb": [
+          0,
+          0,
+          0
+        ],
+        "column_base": 10,
+        "raw_size": [
+          173,
+          113
+        ],
+        "row_base": 100
+      },
+      "overlay": {
+        "cell_anim": 0,
+        "id": 102,
+        "tiberium": 1
+      },
+      "rng_after_sha256": "8a139d8532773f1e0154821fa5d428811b2c625335ac00884e501d40776ae483",
+      "rng_before_sha256": "8a139d8532773f1e0154821fa5d428811b2c625335ac00884e501d40776ae483",
+      "rows": [
+        {
+          "color_pair": [
+            [
+              170,
+              170,
+              130
+            ],
+            [
+              170,
+              170,
+              130
+            ]
+          ],
+          "dirty_rect": [
+            80,
+            45,
+            3,
+            2
+          ],
+          "events": [
+            "0047D2B0",
+            "0047CA80",
+            "006551C0",
+            "0047C060",
+            "00655250",
+            "0047C060",
+            "006547C0"
+          ],
+          "name": "density_1",
+          "output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "fc0ef78d186965f7ce15f2cda9a6889f3d3cb5bd059d9c8a78aa9c1c8a3c929b",
+            "runs": [
+              [
+                80,
+                45,
+                1,
+                2112
+              ],
+              [
+                81,
+                45,
+                1,
+                29611
+              ],
+              [
+                82,
+                45,
+                1,
+                14822
+              ],
+              [
+                81,
+                46,
+                1,
+                4258
+              ],
+              [
+                82,
+                46,
+                1,
+                2113
+              ]
+            ]
+          },
+          "queue_after": 0,
+          "queue_before": 1,
+          "raw_pixels": [
+            [
+              100,
+              56,
+              170,
+              170,
+              130
+            ],
+            [
+              101,
+              56,
+              170,
+              170,
+              130
+            ]
+          ],
+          "raw_rgb_sha256": "ce35a83e058535768058ec77b290da2c8c291f958a93359da0b6565b67c46edf",
+          "rebuild_output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "27ae687fc14bdc8c98669eca2a0fd44b77ce1c117997aadd94f042c3bcca66a8",
+            "runs": [
+              [
+                80,
+                45,
+                1,
+                2113
+              ],
+              [
+                81,
+                45,
+                1,
+                35917
+              ],
+              [
+                82,
+                45,
+                1,
+                19015
+              ]
+            ]
+          },
+          "removed": null,
+          "state": {
+            "data": 1,
+            "land": 5,
+            "level": 5,
+            "overlay_id": 102,
+            "slope": 0,
+            "subtile": 0,
+            "tile": 141
+          }
+        },
+        {
+          "color_pair": [
+            [
+              170,
+              170,
+              130
+            ],
+            [
+              170,
+              170,
+              130
+            ]
+          ],
+          "dirty_rect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "events": [
+            "00480A80",
+            "0047C060",
+            "00655250"
+          ],
+          "name": "density_0",
+          "output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "fc0ef78d186965f7ce15f2cda9a6889f3d3cb5bd059d9c8a78aa9c1c8a3c929b",
+            "runs": [
+              [
+                80,
+                45,
+                1,
+                2112
+              ],
+              [
+                81,
+                45,
+                1,
+                29611
+              ],
+              [
+                82,
+                45,
+                1,
+                14822
+              ],
+              [
+                81,
+                46,
+                1,
+                4258
+              ],
+              [
+                82,
+                46,
+                1,
+                2113
+              ]
+            ]
+          },
+          "queue_after": 0,
+          "queue_before": 0,
+          "raw_pixels": [
+            [
+              100,
+              56,
+              170,
+              170,
+              130
+            ],
+            [
+              101,
+              56,
+              170,
+              170,
+              130
+            ]
+          ],
+          "raw_rgb_sha256": "ce35a83e058535768058ec77b290da2c8c291f958a93359da0b6565b67c46edf",
+          "rebuild_output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "27ae687fc14bdc8c98669eca2a0fd44b77ce1c117997aadd94f042c3bcca66a8",
+            "runs": [
+              [
+                80,
+                45,
+                1,
+                2113
+              ],
+              [
+                81,
+                45,
+                1,
+                35917
+              ],
+              [
+                82,
+                45,
+                1,
+                19015
+              ]
+            ]
+          },
+          "removed": 1,
+          "state": {
+            "data": 0,
+            "land": 5,
+            "level": 5,
+            "overlay_id": 102,
+            "slope": 0,
+            "subtile": 0,
+            "tile": 141
+          }
+        },
+        {
+          "color_pair": [
+            [
+              51,
+              39,
+              24
+            ],
+            [
+              51,
+              39,
+              24
+            ]
+          ],
+          "dirty_rect": [
+            80,
+            45,
+            3,
+            2
+          ],
+          "events": [
+            "00480A80",
+            "0047D2B0",
+            "0047CA80",
+            "006551C0",
+            "0047C060",
+            "00655250",
+            "0047C060",
+            "006547C0"
+          ],
+          "name": "empty",
+          "output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "c3330962342f608d0c1ca4cb3a2a7387501f3654e820f9dbec705e0acf673f5d",
+            "runs": [
+              [
+                81,
+                45,
+                1,
+                8386
+              ],
+              [
+                82,
+                45,
+                1,
+                4193
+              ],
+              [
+                81,
+                46,
+                1,
+                32
+              ]
+            ]
+          },
+          "queue_after": 0,
+          "queue_before": 1,
+          "raw_pixels": [
+            [
+              100,
+              56,
+              51,
+              39,
+              24
+            ],
+            [
+              101,
+              56,
+              51,
+              39,
+              24
+            ]
+          ],
+          "raw_rgb_sha256": "95ad64258a0bf419cecb5d7613e0d0874f541d6f1d5e5661fb45b920dd05df27",
+          "rebuild_output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "baacb3ac422a2a60b57c13748cf84d8355e14d999c34479cdfc1c3ac38c8a596",
+            "runs": [
+              [
+                81,
+                45,
+                1,
+                10466
+              ],
+              [
+                82,
+                45,
+                1,
+                4225
+              ]
+            ]
+          },
+          "removed": 0,
+          "state": {
+            "data": 0,
+            "land": 1,
+            "level": 5,
+            "overlay_id": -1,
+            "slope": 0,
+            "subtile": 0,
+            "tile": 141
+          }
+        },
+        {
+          "color_pair": [
+            [
+              51,
+              39,
+              24
+            ],
+            [
+              51,
+              39,
+              24
+            ]
+          ],
+          "dirty_rect": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "events": [
+            "0047C060",
+            "00655250"
+          ],
+          "name": "unchanged_empty",
+          "output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "c3330962342f608d0c1ca4cb3a2a7387501f3654e820f9dbec705e0acf673f5d",
+            "runs": [
+              [
+                81,
+                45,
+                1,
+                8386
+              ],
+              [
+                82,
+                45,
+                1,
+                4193
+              ],
+              [
+                81,
+                46,
+                1,
+                32
+              ]
+            ]
+          },
+          "queue_after": 0,
+          "queue_before": 0,
+          "raw_pixels": [
+            [
+              100,
+              56,
+              51,
+              39,
+              24
+            ],
+            [
+              101,
+              56,
+              51,
+              39,
+              24
+            ]
+          ],
+          "raw_rgb_sha256": "95ad64258a0bf419cecb5d7613e0d0874f541d6f1d5e5661fb45b920dd05df27",
+          "rebuild_output": {
+            "generated_size": [
+              140,
+              91
+            ],
+            "rgb565_sha256": "baacb3ac422a2a60b57c13748cf84d8355e14d999c34479cdfc1c3ac38c8a596",
+            "runs": [
+              [
+                81,
+                45,
+                1,
+                10466
+              ],
+              [
+                82,
+                45,
+                1,
+                4225
+              ]
+            ]
+          },
+          "removed": null,
+          "state": {
+            "data": 0,
+            "land": 1,
+            "level": 5,
+            "overlay_id": -1,
+            "slope": 0,
+            "subtile": 0,
+            "tile": 141
+          }
+        }
+      ],
+      "terrain": {
+        "boundary": "Original Urban General/ordinal projection and TMP lazy IO; selected141 registration and prefix sum supplied. Physical neighbor tile/levels, but empty-overlay live priors and unused slope0 fields, not a natural GoldSt ore-neighbor/queue or whole map bootstrap claim.",
+        "brightness_bits": "0000803f",
+        "cliff_back_layers": [
+          {
+            "cliff_back": 2,
+            "file": "RULESMD.INI"
+          },
+          {
+            "cliff_back": 2,
+            "file": "MPBATTLEMD.INI"
+          },
+          {
+            "cliff_back": 2,
+            "file": "GOLDST.MMX"
+          }
+        ],
+        "coords": [
+          123,
+          33
+        ],
+        "file_io": [
+          {
+            "bytes": 1872,
+            "kind": "CreateFile",
+            "name": "clat10.urb",
+            "pc": "0x0065CC59",
+            "phase": "ore_radar_tmp_loading",
+            "prepared_physical_winner": true,
+            "result": 1,
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "bytes": 1872,
+            "kind": "CreateFile",
+            "name": "clat10.urb",
+            "pc": "0x0065CC59",
+            "phase": "ore_radar_tmp_loading",
+            "prepared_physical_winner": true,
+            "result": 2,
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "bytes": 1872,
+            "kind": "CreateFile",
+            "name": "clat10.urb",
+            "pc": "0x0065CBBB",
+            "phase": "ore_radar_tmp_loading",
+            "prepared_physical_winner": true,
+            "result": 3,
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "bytes": 1872,
+            "kind": "CreateFile",
+            "name": "clat10.urb",
+            "pc": "0x0065CC59",
+            "phase": "ore_radar_tmp_loading",
+            "prepared_physical_winner": true,
+            "result": 4,
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "bytes": 1872,
+            "kind": "CreateFile",
+            "name": "clat10.urb",
+            "pc": "0x0065CBBB",
+            "phase": "ore_radar_tmp_loading",
+            "prepared_physical_winner": true,
+            "result": 5,
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "kind": "ReadFile",
+            "name": "clat10.urb",
+            "offset_after": 1872,
+            "offset_before": 0,
+            "pc": "0x0065CD5D",
+            "phase": "ore_radar_tmp_loading",
+            "reported_bytes": 1872,
+            "source_sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          }
+        ],
+        "level": 5,
+        "map_section": [
+          [
+            "Theater",
+            "URBAN",
+            664
+          ],
+          [
+            "Size",
+            "0,0,103,82",
+            665
+          ],
+          [
+            "LocalSize",
+            "2,4,99,72",
+            666
+          ]
+        ],
+        "mapping": {
+          "base": 132,
+          "boundary": "Native INI scalar/string reads; prefix accumulation is the supplied selected theater registration boundary.",
+          "file_name": "clat",
+          "section": "TileSet0014",
+          "tile_id": 141,
+          "tiles_in_set": 16
+        },
+        "native_tmp_land": 1,
+        "native_tmp_slope": 0,
+        "neighbors": [
+          {
+            "authored_data": 0,
+            "authored_overlay": null,
+            "coords": [
+              123,
+              32
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 521
+          },
+          {
+            "authored_data": 7,
+            "authored_overlay": 102,
+            "coords": [
+              124,
+              33
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 133
+          },
+          {
+            "authored_data": 7,
+            "authored_overlay": 102,
+            "coords": [
+              123,
+              34
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 140
+          },
+          {
+            "authored_data": 0,
+            "authored_overlay": null,
+            "coords": [
+              122,
+              33
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 518
+          },
+          {
+            "authored_data": 8,
+            "authored_overlay": 102,
+            "coords": [
+              125,
+              35
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 131
+          },
+          {
+            "authored_data": 11,
+            "authored_overlay": 102,
+            "coords": [
+              124,
+              34
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 131
+          },
+          {
+            "authored_data": 0,
+            "authored_overlay": null,
+            "coords": [
+              122,
+              34
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 518
+          },
+          {
+            "authored_data": 0,
+            "authored_overlay": null,
+            "coords": [
+              124,
+              32
+            ],
+            "level": 5,
+            "subtile": 0,
+            "supplied_overlay": -1,
+            "tile": 521
+          }
+        ],
+        "radar_metadata": [
+          102,
+          78,
+          48,
+          101,
+          77,
+          48
+        ],
+        "sources": [
+          {
+            "bytes": 1872,
+            "inner": "isourb.mix",
+            "inner_sha256": "e25899a843243807ce78050c5b9e6a6bb721e69a112c161c270355ab59de55b5",
+            "name": "clat10.urb",
+            "outer": "ra2.mix",
+            "outer_sha256": "896a8b64f9f1bb8ad5e0bc64fc0b8ea8c84112494761ea1a43478d10c5ef9914",
+            "sha256": "b2f5047269319db6026d063d3b0189d04657ffe4be32099986aa7d426ae58725"
+          },
+          {
+            "bytes": 30237,
+            "inner": "localmd.mix",
+            "inner_sha256": "cd181596b2deaeacf7bba77e661ae4438d3f778efc0e38ae2b967c410bf3f931",
+            "name": "URBANMD.INI",
+            "outer": "ra2md.mix",
+            "outer_sha256": "69d886defad9114dd440a013b364c8c004e369b5221d1889957b49d00058559d",
+            "sha256": "d1ac06c81c58d4694009f036d062b10a238caeb19fa8cfac4d96c54342e6cd75"
+          }
+        ],
+        "subtile": 0,
+        "theater_index": 2,
+        "tile": 141
+      }
+    },
+    "fpcw": 3711,
+    "weighted_controls": [
+      {
+        "input": {
+          "pattern": "terrain_tests_coordinate_v1",
+          "raw_size": [
+            173,
+            113
+          ]
+        },
+        "output": {
+          "generated_size": [
+            140,
+            91
+          ],
+          "native_rect": [
+            0,
+            0,
+            140,
+            91
+          ],
+          "rgb565_sha256": "86c81c36fd447a5bc8ef59c59b8af53e43d31ceb04131ba66a4179c50dba0ee9"
+        }
+      },
+      {
+        "input": {
+          "pattern": "terrain_tests_coordinate_v1",
+          "raw_size": [
+            137,
+            149
+          ]
+        },
+        "output": {
+          "generated_size": [
+            99,
+            108
+          ],
+          "native_rect": [
+            0,
+            0,
+            99,
+            108
+          ],
+          "rgb565_sha256": "212c83d86396f9b419f8175474401740fe667c73e408f9375f30ece6a419e754"
+        }
+      }
+    ]
+  },
   "rows": [
     {
       "canvas": [

@@ -61,6 +61,81 @@ def profile(m, raw=None):
     return dict(zip(keys, (struct.unpack('<i', u.mem_read(scenario + off, 4))[0] for off in offsets)))
 
 
+def load_tmp_files(m, files, *, chain=False):
+    """Shared original TMP constructor/lazy IO owner; no host TMP decoding.
+
+    A variant chain constructs all descriptors before loading. Independent
+    registrations preserve the historical construct/load interleave. These
+    are supplied registration boundaries, not a second theater loader.
+    """
+    u = m.u
+    platform = NativeAudioPlatform(m, configured_gamemd().parent)
+    platform.configure_transport(prepared_files=files)
+    u.hook_add(UC_HOOK_CODE, lambda u, pc, n, d: platform.hook(u, pc, n) if pc != 0x7C9430 else None)
+    u.reg_write(UC_X86_REG_ESP, SP)
+    run_checked(u, 0x4E76E0, 0x4E7716)
+    u.mem_write(0xA8ED28, dwords(0x7EB6D4, m.alloc(64), 16, 1, 0, 10))
+    heads = {}
+    def load(name, head):
+        image = m.invoke(0x544CB0, head)
+        assert image == m.read32(head + 0xA4) and m.read32(head + 0xA8) & 255
+        assert bytes(u.mem_read(image, 16)) == files[name][:16]
+    for i, name in enumerate(files):
+        head = m.alloc(0x400)
+        m.invoke(0x5447C0, head, (0, -65, 0, m.cstring(name[:-4]), chain and i != 0))
+        u.mem_write(head + 0x2F4, b'\1' + name.encode() + b'\0')
+        heads[name] = head
+        if not chain:
+            load(name, head)
+    if chain:
+        values = list(heads.values())
+        for i, (name, head) in enumerate(heads.items()):
+            u.mem_write(head + 0x2BC, dwords(values[i + 1] if i + 1 < len(values) else 0))
+            u.mem_write(head + 0x2F0, dwords(len(values) - i))
+            load(name, head)
+    return heads, [{k: v for k, v in event.items() if k not in ('returned_bytes_hex', 'args')}
+                   for event in platform.file_io]
+
+
+def theater_tile_files(m, raw, selected_tile, extension):
+    """Existing original General/ordinal prefix with supplied registration sum.
+
+    FileName/TilesInSet are native reader outputs; Python accumulates the
+    registration prefix, not a second native scalar or ordinal parser.
+    """
+    u = m.u
+    records = lexical_records(raw.decode('latin1'))
+    TheaterReader.prepare_records(m, records)
+    u.mem_write(SP + 0x38, bytes(u.mem_read(INI, 0x40)))
+    u.reg_write(UC_X86_REG_ESP, SP)
+    run_checked(u, BEGIN, END, required_addresses=(0x5276D0,))
+    defined = {name for name, _ in records}
+    base, tiles, mapping = 0, {}, None
+    for ordinal in range(300):
+        section_name = f'TileSet{ordinal:04}'
+        if section_name not in defined:
+            break
+        section = m.cstring(section_name)
+        count = m.invoke(0x5276D0, INI, (section, m.cstring('TilesInSet'), 0))
+        assert 0 <= count < 1000
+        name = m.alloc(64)
+        m.invoke(0x528A10, INI, (section, m.cstring('FileName'), m.cstring('TILE'), name, 64))
+        filename = m.string(name)
+        for n in range(count):
+            tiles[base + n] = f'{filename}{n + 1:02}.{extension}'.lower()
+        if base <= selected_tile < base + count:
+            mapping = dict(section=section_name, base=base, tiles_in_set=count,
+                file_name=filename, tile_id=selected_tile,
+                boundary='Native INI scalar/string reads; prefix accumulation is the supplied selected theater registration boundary.')
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_EDI, ordinal)
+        u.reg_write(UC_X86_REG_EBX, base)
+        run_checked(u, PROJECT_BEGIN, PROJECT_END)
+        base += count
+    assert mapping is not None
+    return tiles, mapping
+
+
 def prepare():
     m, _types, inputs = prepare_shared(body=True)
     u = m.u
@@ -106,30 +181,10 @@ def prepare():
         file_name=m.string(filename), integer_default=-1, string_default='TILE', string_capacity=64)
     assert count == 1 and m.string(filename) == 'Clear'
     m.phase = 'tmp_loading'
-    platform = NativeAudioPlatform(m, configured_gamemd().parent)
-    platform.configure_transport(prepared_files={name: raw for name, raw in files.items() if name.endswith('.tem')})
-    # PaletteReader owns allocation. Existing RawFile owner supplies its free
-    # thunk and Windows byte transport, preserving original destructors.
-    u.hook_add(UC_HOOK_CODE, lambda u, pc, n, d: platform.hook(u, pc, n) if pc != 0x7C9430 else None)
-    u.reg_write(UC_X86_REG_ESP, SP)
-    run_checked(u, 0x4E76E0, 0x4E7716)
-    u.mem_write(0xA8ED28, dwords(0x7EB6D4, m.alloc(64), 16, 1, 0, 10))
-    heads = []
     names = [name for name in files if name.endswith('.tem')]
-    for i, name in enumerate(names):
-        head = m.alloc(0x400)
-        m.invoke(0x5447C0, head, (0, -65, 0, m.cstring(name[:-4]), i != 0))
-        u.mem_write(head + 0x2F4, b'\1' + name.encode() + b'\0')
-        heads.append(head)
-    for i, head in enumerate(heads):
-        u.mem_write(head + 0x2BC, dwords(heads[i + 1] if i + 1 < len(heads) else 0))
-        u.mem_write(head + 0x2F0, dwords(len(heads) - i))
-        image = m.invoke(0x544CB0, head)
-        assert image == m.read32(head + 0xA4) and m.read32(head + 0xA8) & 255
-        assert bytes(u.mem_read(image, 16)) == files[names[i]][:16]
+    _heads, file_io = load_tmp_files(m, {name: files[name] for name in names}, chain=True)
     inputs['tmp_loader'] = dict(names=names, next_absent='clear01h.tem', constructor='005447C0', lazy='00547020',
-        file_io=[{k: v for k, v in event.items() if k not in ('returned_bytes_hex', 'args')}
-                 for event in platform.file_io],
+        file_io=file_io,
         boundary='Original constructors and full lazy loaders; chain/filename/count metadata supplied from physical contiguous filenames, not full tile-set loader.')
     for entry in (0x6D1830, 0x6D18C0, 0x6D1BB0):
         m.invoke(entry, 0)

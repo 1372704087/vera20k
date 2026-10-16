@@ -1755,13 +1755,14 @@ impl BatchRenderer {
     /// without recreating the bind group.
     pub fn create_updatable_texture(
         &self,
-        gpu: &GpuContext,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         rgba_data: &[u8],
         width: u32,
         height: u32,
     ) -> (wgpu::Texture, BatchTexture) {
-        let texture: wgpu::Texture = gpu.device.create_texture_with_data(
-            &gpu.queue,
+        let texture: wgpu::Texture = device.create_texture_with_data(
+            queue,
             &wgpu::TextureDescriptor {
                 label: Some("Updatable Batch Texture"),
                 size: wgpu::Extent3d {
@@ -1781,32 +1782,31 @@ impl BatchRenderer {
         );
 
         let view: wgpu::TextureView = texture.create_view(&Default::default());
-        let sampler: wgpu::Sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Updatable Batch Sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
-        let bind_group: wgpu::BindGroup =
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Updatable Batch Texture BG"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.default_source_indices),
-                    },
-                ],
-            });
+        let bind_group: wgpu::BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Updatable Batch Texture BG"),
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.default_source_indices),
+                },
+            ],
+        });
 
         let batch_tex = BatchTexture {
             bind_group,

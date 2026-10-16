@@ -544,7 +544,7 @@ pub(super) fn update_minimap(state: &mut AppState, local_owner: &Option<String>)
             let (radar_dirty_cells, radar_dirty_generation) = view.radar_terrain_dirty();
             Ok::<_, std::convert::Infallible>(
                 minimap.update_unit_dots(
-                    &state.renderer.gpu,
+                    &state.renderer.gpu.queue,
                     view.entities(),
                     view.logic_order(),
                     view.houses(),

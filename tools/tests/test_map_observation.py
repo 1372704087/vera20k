@@ -805,6 +805,36 @@ class MapObservationTests(unittest.TestCase):
                 observation._sound_state({'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
                                           'actors': [], 'coordinate_requests': rows}, 'sound')
 
+    def test_coordinate_request_rows_accept_current_raw_words_without_rewriting_them(self):
+        # The production SfxPlayer projection also retains original signed
+        # leptons and the u32 caller word. Historical rows omit both.
+        request = {'request_id': 1, 'sound_id': 'Cue', 'source_world_pixels': [30.0, -15.0],
+                   'source_cell': [0, 65535], 'suspend_depth': 0,
+                   'coordinate_leptons': [-(1 << 31), 256, (1 << 31) - 1],
+                   'flags': (1 << 32) - 1}
+        state = {'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
+                 'actors': [], 'coordinate_requests': [request]}
+        retained = deepcopy(state)
+        self.assertEqual(observation._sound_state(state, 'sound'), 3)
+        self.assertEqual(state, retained)
+
+    def test_coordinate_request_raw_words_require_a_complete_bounded_pair(self):
+        request = {'request_id': 1, 'sound_id': 'Cue', 'source_world_pixels': [30.0, -15.0],
+                   'source_cell': [0, 65535], 'suspend_depth': 0,
+                   'coordinate_leptons': [0, 0, 0], 'flags': 0}
+        bad = [{k: v for k, v in request.items() if k != missing}
+               for missing in ('flags', 'coordinate_leptons')]
+        for key, values in (
+                ('coordinate_leptons', ([0, 0], [0, 0, 0, 0], [True, 0, 0],
+                                        [None, 0, 0], [0.5, 0, 0],
+                                        [-(1 << 31) - 1, 0, 0], [0, 0, 1 << 31])),
+                ('flags', (-1, 1 << 32, True, None, 1.0))):
+            bad.extend(dict(request, **{key: value}) for value in values)
+        for row in bad:
+            with self.subTest(row=row), self.assertRaises(ValidationError):
+                observation._sound_state({'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
+                                          'actors': [], 'coordinate_requests': [row]}, 'sound')
+
     def test_audio_export_retains_coordinate_owner_and_observed_pool_count(self):
         self.audio_profile()
         self.audio_receipt['coordinate_request_count_at_finish'] = 0
@@ -1015,8 +1045,12 @@ class MapObservationTests(unittest.TestCase):
 
     def test_audio_profile_budget_presence_and_modifier_keys_are_explicit(self):
         self.audio_profile()
+        # One stock low-power line requests more than sixteen typing cues.
+        # A bounded32-event observation can retain the whole line and insert.
+        self.profile['observe_audio']['max_events'] = 32
+        observation._profile_extensions(self.profile)
         config = deepcopy(self.profile['observe_audio'])
-        for field, value in [('max_events', 17), ('max_events', True), ('max_samples_per_event', 262145),
+        for field, value in [('max_events', 33), ('max_events', True), ('max_samples_per_event', 262145),
                              ('completion_tail_ms', 10001), ('sound_ids', []), ('sound_ids', ['x', 'X'])]:
             profile = deepcopy(self.profile)
             profile['observe_audio'][field] = value

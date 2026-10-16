@@ -16,8 +16,7 @@ use crate::ui::game_screen::GameScreen;
 /// Native Init anchors: x = tactical_x + 3, y = tactical_y, w = tactical_w − 14.
 const MESSAGE_X_INSET: i32 = 3;
 const MESSAGE_WIDTH_INSET: i32 = 14;
-/// Interim system-message color (native rows use a color-scheme index whose
-/// mapping is a plan deferred item).
+/// Fallback while match color schemes are unavailable.
 const MESSAGE_RGB_SYSTEM: [f32; 3] = [1.0, 1.0, 1.0];
 /// `0xF0` native 16 ms timer buckets.
 const TYPE_SELECT_MESSAGE_TIMEOUT_MS: u64 = 3_840;
@@ -58,12 +57,20 @@ pub(crate) fn post_trigger_message(state: &mut AppState, csf_key: &str) {
         .map_or(0, |house| i32::from(house.side_index));
     let rules = &runtime.resources.rules;
     let rgb = trigger_message_rgb(&rules.color_schemes, side);
-    let buckets = trigger_message_buckets(rules.general.message_delay_minutes);
-    let timeout = (buckets != -1).then(|| u64::try_from(buckets).unwrap_or(0) * 16);
-    post_localized_message(state, csf_key, rgb, timeout);
+    let timeout = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    post_localized_message(
+        state,
+        &crate::ui::messages::MessagePost {
+            prefix: None,
+            text: csf_key,
+            rgb,
+            timeout_ms: timeout,
+            silent: false,
+        },
+    );
 }
 
-fn trigger_message_buckets(delay: crate::util::native_x87::NativeF64Bits) -> i32 {
+fn message_delay_buckets(delay: crate::util::native_x87::NativeF64Bits) -> i32 {
     use crate::util::native_x87::{NativeF64Bits, X87Chop53};
     X87Chop53::load_f64(delay)
         .map(|delay| {
@@ -106,19 +113,23 @@ pub(crate) fn post_planning_refusal(state: &mut AppState, csf_key: &str) {
 fn post_silent_house_feedback(state: &mut AppState, csf_key: &str, timeout_ms: u64) {
     sync_view(state);
     let now = message_now_ms(state);
-    let rgb = type_select_message_rgb(
+    let rgb = house_message_rgb(
         crate::app::input::commands::preferred_local_owner_name(state).as_deref(),
         &state.match_state.match_presentation.house_color_map,
-        state.rules().map(|rules| &rules.house_color_ramps),
+        state.rules().map(|rules| rules.color_schemes.as_slice()),
     );
     let font = &state.renderer.bit_font;
     let measure = |s: &str| font.text_width(s) as i32;
-    let outcome = add_silent_house_feedback(
+    let outcome = add_localized_message(
         &mut state.match_state.match_presentation.message_list,
         state.process_assets.csf.as_ref(),
-        csf_key,
-        rgb,
-        timeout_ms,
+        &crate::ui::messages::MessagePost {
+            prefix: None,
+            text: csf_key,
+            rgb,
+            timeout_ms: Some(timeout_ms),
+            silent: true,
+        },
         now,
         &measure,
     );
@@ -137,36 +148,35 @@ fn add_type_select_feedback(
     now_ms: u64,
     measure: &dyn Fn(&str) -> i32,
 ) -> crate::ui::messages::AddOutcome {
-    add_silent_house_feedback(
+    add_localized_message(
         list,
         csf,
-        csf_key,
-        rgb,
-        TYPE_SELECT_MESSAGE_TIMEOUT_MS,
+        &crate::ui::messages::MessagePost {
+            prefix: None,
+            text: csf_key,
+            rgb,
+            timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+            silent: true,
+        },
         now_ms,
         measure,
     )
 }
 
-fn add_silent_house_feedback(
+fn add_localized_message(
     list: &mut crate::ui::messages::MessageList,
     csf: Option<&crate::assets::csf_file::CsfFile>,
-    csf_key: &str,
-    rgb: [f32; 3],
-    timeout_ms: u64,
+    post: &crate::ui::messages::MessagePost<'_>,
     now_ms: u64,
     measure: &dyn Fn(&str) -> i32,
 ) -> crate::ui::messages::AddOutcome {
     let text = csf
-        .map(|table| table.text(csf_key))
-        .unwrap_or(std::borrow::Cow::Borrowed(csf_key));
+        .map(|table| table.text(post.text))
+        .unwrap_or(std::borrow::Cow::Borrowed(post.text));
     list.add_message(
         &crate::ui::messages::MessagePost {
-            prefix: None,
             text: text.as_ref(),
-            rgb,
-            timeout_ms: Some(timeout_ms),
-            silent: true,
+            ..*post
         },
         now_ms,
         measure,
@@ -178,10 +188,10 @@ fn add_silent_house_feedback(
 pub(crate) fn post_selection_navigation_text(state: &mut AppState, text: &str) {
     sync_view(state);
     let now = message_now_ms(state);
-    let rgb = type_select_message_rgb(
+    let rgb = house_message_rgb(
         crate::app::input::commands::preferred_local_owner_name(state).as_deref(),
         &state.match_state.match_presentation.house_color_map,
-        state.rules().map(|rules| &rules.house_color_ramps),
+        state.rules().map(|rules| rules.color_schemes.as_slice()),
     );
     let font = &state.renderer.bit_font;
     state
@@ -201,74 +211,111 @@ pub(crate) fn post_selection_navigation_text(state: &mut AppState, text: &str) {
         );
 }
 
-/// Post one of the Supers' lines (`LightningStorm::Start @ 0x0053A076`,
-/// `Process @ 0x0053AB40`, `LightningStorm::PrintMessage @ 0x0053AE00`,
-/// `PsyDom::PrintMessage @ 0x0053B410`): `MessageListClass::AddMessage(0, 0,
-/// text, PlayerPtr's colour scheme or 3, style, 0x96, not silent)`, so the
-/// line takes the player's colours as TypeSelect's does and plays
-/// IncomingMessage. Its print styles (`0x4046`, `0x46`) are not represented.
-pub(crate) fn post_super_weapon_message(state: &mut AppState, csf_key: &str) {
-    let rgb = type_select_message_rgb(
-        crate::app::input::commands::preferred_local_owner_name(state).as_deref(),
-        &state.match_state.match_presentation.house_color_map,
-        state.rules().map(|rules| &rules.house_color_ramps),
-    );
-    post_localized_message(state, csf_key, rgb, Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS));
+/// Local message facts share one ordered projection with the Supers' lines.
+/// Admission/shortfall guard belongs to House, not to this presentation enum.
+/// Native caller arguments: tools/spatial_oracle/house_power_consumers.py;
+/// shared MessageDelay controls: trigger_action_values.json/localized_message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HudMessage {
+    LowPower,
+    SuperWeapon(&'static str),
 }
 
-fn post_localized_message(
-    state: &mut AppState,
-    csf_key: &str,
-    rgb: [f32; 3],
-    timeout_ms: Option<u64>,
-) {
+impl HudMessage {
+    fn csf_key(self) -> &'static str {
+        match self {
+            Self::LowPower => "TXT_LOW_POWER", // original House4F8D4A
+            Self::SuperWeapon(key) => key,
+        }
+    }
+
+    fn timeout_ms(self, rules: &crate::rules::ruleset::RuleSet) -> Option<u64> {
+        match self {
+            // House4F8D20..31 uses the same MessageDelay*900/ftol as
+            // TAction11; these are 16 ms clock buckets, never speed normalized.
+            Self::LowPower => message_delay_timeout_ms(rules.general.message_delay_minutes),
+            Self::SuperWeapon(_) => Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS),
+        }
+    }
+
+    fn post(
+        self,
+        rules: &crate::rules::ruleset::RuleSet,
+        rgb: [f32; 3],
+    ) -> crate::ui::messages::MessagePost<'static> {
+        crate::ui::messages::MessagePost {
+            prefix: None,
+            text: self.csf_key(),
+            rgb,
+            timeout_ms: self.timeout_ms(rules),
+            silent: false,
+        }
+    }
+}
+
+fn message_delay_timeout_ms(delay: crate::util::native_x87::NativeF64Bits) -> Option<u64> {
+    let buckets = message_delay_buckets(delay);
+    (buckets != -1).then(|| u64::try_from(buckets).unwrap_or(0) * 16)
+}
+
+/// House4F8D5C and the Super print callers use MessageList5D3BA0 with
+/// PlayerPtr's color, no sender, and silent0. Keep the existing list/clock,
+/// localization and IncomingMessage owners; no warning timer/guard lives here.
+/// The callers' text flags still share the existing bitmap-text lane; this
+/// transport does not establish native glyph/style raster equivalence.
+pub(crate) fn post_hud_message(state: &mut AppState, message: HudMessage) {
+    let Some(rules) = state.rules() else {
+        return;
+    };
+    let rgb = house_message_rgb(
+        crate::app::input::commands::preferred_local_owner_name(state).as_deref(),
+        &state.match_state.match_presentation.house_color_map,
+        Some(&rules.color_schemes),
+    );
+    let post = message.post(rules, rgb);
+    post_localized_message(state, &post);
+}
+
+fn post_localized_message(state: &mut AppState, post: &crate::ui::messages::MessagePost<'_>) {
     sync_view(state);
     let now = message_now_ms(state);
-    let text = state.process_assets.csf.as_ref().map_or_else(
-        || csf_key.to_string(),
-        |table| table.text(csf_key).into_owned(),
-    );
     let font = &state.renderer.bit_font;
-    let outcome = state
-        .match_state
-        .match_presentation
-        .message_list
-        .add_message(
-            &crate::ui::messages::MessagePost {
-                prefix: None,
-                text: &text,
-                rgb,
-                timeout_ms,
-                silent: false,
-            },
-            now,
-            &|s| font.text_width(s) as i32,
-        );
+    let outcome = add_localized_message(
+        &mut state.match_state.match_presentation.message_list,
+        state.process_assets.csf.as_ref(),
+        post,
+        now,
+        &|s| font.text_width(s) as i32,
+    );
     if outcome.play_sound {
         let sound = state
             .rules()
-            .and_then(|r| r.general.incoming_message_sound.clone());
+            .and_then(|r| r.general.incoming_message_sound().map(str::to_owned));
         crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
     }
 }
 
-fn type_select_message_rgb(
+/// TextLabel72A4A0 reads scheme+308's original HSV, unlike the unit
+/// palette ramp. Shared by TypeSelect732BF0, HUD730AC3, HealthNav7335A7,
+/// Super prints53AE42/53B452 and House4F8D5C. Native caller-null fallback3
+/// is [Colors] entry1; TextLabel72A4D6's invalid-index fallback is scheme0.
+/// Source: tools/procedural_drawing_oracle/house_color.md, message consumer.
+fn house_message_rgb(
     local_owner: Option<&str>,
     house_colors: &crate::map::houses::HouseColorMap,
-    ramps: Option<&crate::rules::house_colors::HouseColorRamps>,
+    schemes: Option<&[crate::rules::color_scheme::ColorSchemeEntry]>,
 ) -> [f32; 3] {
-    let Some(ramps) = ramps else {
+    let Some(schemes) = schemes else {
         return MESSAGE_RGB_SYSTEM;
     };
-    let scheme = local_owner
+    let mut scheme = local_owner
         .and_then(|owner| house_colors.get(owner).copied())
         .unwrap_or(TYPE_SELECT_FALLBACK_SCHEME_ENTRY);
-    let color = ramps.ramp(scheme)[0];
-    [
-        color.r as f32 / 255.0,
-        color.g as f32 / 255.0,
-        color.b as f32 / 255.0,
-    ]
+    if usize::from(scheme.0) >= schemes.len() {
+        scheme = crate::rules::house_colors::HouseColorIndex(0);
+    }
+    crate::rules::house_colors::house_text_rgb(schemes, scheme)
+        .map(|channel| f32::from(channel) / 255.0)
 }
 
 /// Per-frame: feed the pause edge into the clock, then (unpaused, in-game)
@@ -309,10 +356,28 @@ fn sync_view(state: &mut AppState) {
     );
 }
 
-/// Text instances for the "message_text" pooled buffer (GAME.FNT atlas).
-pub(crate) fn build_message_text_instances(state: &AppState) -> Vec<SpriteInstance> {
+/// Prepare one successful offline TextLabel paint, using raw wall time for
+/// typing and the existing sound owner for every MessageCharTyped request.
+/// Expiry remains on the separate pause-aware clock in update().
+pub(crate) fn build_message_instances(
+    state: &mut AppState,
+) -> (Vec<SpriteInstance>, Vec<SpriteInstance>) {
     if state.frontend.screen != GameScreen::InGame {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
+    }
+    let wall_ms = crate::app::input::tooltips::now_ms(state) as u32;
+    let requests = state
+        .match_state
+        .match_presentation
+        .message_list
+        .advance_reveal(wall_ms);
+    if requests > 0 {
+        let sound = state
+            .rules()
+            .and_then(|rules| rules.general.message_char_typed_sound().map(str::to_owned));
+        for _ in 0..requests {
+            crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
+        }
     }
     message_instances(
         &state.renderer.bit_font,
@@ -322,29 +387,6 @@ pub(crate) fn build_message_text_instances(state: &AppState) -> Vec<SpriteInstan
             state.match_state.input.camera_y,
         ],
     )
-    .1
-}
-
-/// Solid black boxes for the "message_fill" pooled buffer, drawn behind the
-/// message rows. Native `MessageListEntry::Draw` (`0x488520`, entry vtable
-/// `0x7F5B44` + `0x38`) renders every row through the shared text engine with
-/// the row's opaque-background style, which fills a black box one pixel out on
-/// every side of the text rect (`0x4A5EB0` @ `0x4A5F61`: `[x-1, y-1, w+2,
-/// h+2]`, colour 0) before blitting the glyphs — the same box the sidebar
-/// super-weapon timers get.
-pub(crate) fn build_message_fill_instances(state: &AppState) -> Vec<SpriteInstance> {
-    if state.frontend.screen != GameScreen::InGame {
-        return Vec::new();
-    }
-    message_instances(
-        &state.renderer.bit_font,
-        &state.match_state.match_presentation.message_list,
-        [
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-        ],
-    )
-    .0
 }
 
 fn message_instances(
@@ -359,15 +401,14 @@ fn message_instances(
         // Message rows are screen-space, but `draw_pooled_ui` binds the
         // live world camera and the shader subtracts it. Add that camera
         // back here so scrolling cannot displace the HUD text.
-        let text = crate::render::sidebar_text::build_text(
-            font,
+        let text = font.build_text_label(
             &m.text,
             x,
             m.y as f32,
-            1.0,
             0.00022,
-            m.rgb,
             camera_offset,
+            m.rgb.map(|channel| (channel * 255.0).round() as u8),
+            m.reveal_count(),
         );
         let width = font.text_width(&m.text) as f32;
         let height = font.cell_height() as f32;
@@ -436,9 +477,15 @@ mod tests {
             let message = row["calls"].as_array().unwrap().last().unwrap();
             assert_eq!(message["call"], "message_add");
             assert_eq!(
-                i64::from(trigger_message_buckets(delay)),
+                i64::from(message_delay_buckets(delay)),
                 message["duration"].as_i64().unwrap(),
                 "{row} native ftol duration"
+            );
+            let buckets = message["duration"].as_i64().unwrap();
+            assert_eq!(
+                HudMessage::LowPower.timeout_ms(&rules),
+                (buckets != -1).then(|| u64::try_from(buckets).unwrap_or(0) * 16),
+                "House and Action11 share the native conversion"
             );
         }
         // The stock `.6` spelling and the native control's `0.6` both pass
@@ -454,7 +501,7 @@ mod tests {
             original_delay_bits(recorded)
         );
         assert_eq!(
-            i64::from(trigger_message_buckets(stock.general.message_delay_minutes)),
+            i64::from(message_delay_buckets(stock.general.message_delay_minutes)),
             recorded["calls"].as_array().unwrap().last().unwrap()["duration"]
                 .as_i64()
                 .unwrap()
@@ -578,43 +625,154 @@ mod tests {
     }
 
     #[test]
+    fn house_low_power_native_post_reaches_retail_text_and_pause_aware_expiry() {
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let bytes = assets
+            .load_file_from_mix("ra2md.csf")
+            .expect("active-YR CSF");
+        let csf = crate::assets::csf_file::CsfFile::from_bytes(&bytes.bytes).unwrap();
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/house_power_consumers.json",
+        ))
+        .unwrap();
+        let native = corpus["advice_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["input"]["name"] == "local_short_first")
+            .unwrap();
+        let presentation = native["receipt"]["presentation"].as_array().unwrap();
+        let lookup = presentation
+            .iter()
+            .find(|call| call["kind"] == "text_lookup")
+            .unwrap();
+        // Original file-backed label at824714 is TXT_LOW_POWER, not the
+        // synthetic UTF16 pointer the native harness supplies to MessageList.
+        assert_eq!(lookup["key"], 0x824714);
+        let message = presentation
+            .iter()
+            .find(|call| call["kind"] == "message")
+            .unwrap();
+        let args = message["args"].as_array().unwrap();
+        assert_eq!((args[0].as_i64(), args[1].as_i64()), (Some(0), Some(0)));
+        assert_eq!(args[4], 0x4046);
+        let mut colors = crate::map::houses::HouseColorMap::new();
+        colors.insert(
+            "Americans".into(),
+            crate::rules::house_colors::HouseColorIndex(0),
+        );
+        let rgb = house_message_rgb(
+            Some("Americans"),
+            &colors,
+            Some(&retail.rules.color_schemes),
+        );
+        let post = HudMessage::LowPower.post(&retail.rules, rgb);
+        assert!(post.prefix.is_none());
+        assert_eq!(post.text, "TXT_LOW_POWER");
+        assert_eq!(post.silent, args[6] != 0);
+        assert_eq!(post.timeout_ms, Some(args[5].as_u64().unwrap() * 16));
+        assert_ne!(
+            csf.text(post.text).as_ref(),
+            post.text,
+            "physical localized label exists"
+        );
+
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 1_000);
+        let mut clock = crate::ui::messages::PauseAwareClock::default();
+        let now = 1_200;
+        let outcome =
+            add_localized_message(&mut list, Some(&csf), &post, clock.now(now), &|text| {
+                text.chars().count() as i32 * 8
+            });
+        assert_eq!(outcome.added, 1);
+        assert!(
+            outcome.play_sound,
+            "native silent0 requests IncomingMessage"
+        );
+        assert_eq!(list.messages()[0].text, csf.text(post.text));
+        assert_eq!(list.messages()[0].rgb, rgb);
+        let deadline = now + post.timeout_ms.unwrap();
+        assert_eq!(list.messages()[0].deadline_ms, Some(deadline));
+        let font = crate::render::bit_font::tests::make_test_font(
+            &[(b'L' as u16, 6), (b'o' as u16, 6)],
+            4,
+        );
+        assert_eq!(list.advance_reveal(now as u32), 1);
+        assert_eq!(message_instances(&font, &list, [0.0; 2]).1.len(), 1);
+        assert_eq!(list.advance_reveal(now as u32 + 16), 1);
+        assert_eq!(message_instances(&font, &list, [0.0; 2]).1.len(), 2);
+        clock.set_paused(true, now + 100);
+        assert!(!list.manage(clock.now(deadline + 20_000)));
+        clock.set_paused(false, deadline + 20_000);
+        let resumed_deadline = deadline + 20_000 + post.timeout_ms.unwrap() - 100;
+        assert!(
+            !list.manage(clock.now(resumed_deadline)),
+            "deadline equality stays visible"
+        );
+        assert!(list.manage(clock.now(resumed_deadline + 1)));
+        assert!(list.messages().is_empty());
+
+        // Admission failure cannot play the message-insertion sound.
+        list.set_view(3, 0, 0);
+        let rejected = add_localized_message(
+            &mut list,
+            Some(&csf),
+            &post,
+            clock.now(resumed_deadline + 2),
+            &|_| 8,
+        );
+        assert_eq!(rejected.added, 0);
+        assert!(!rejected.play_sound);
+    }
+
+    #[test]
     fn item83_type_select_feedback_uses_local_scheme_color_zero_and_runtime_three_fallback() {
         use crate::rules::color_scheme::ColorSchemeEntry;
-        use crate::rules::house_colors::{HouseColorIndex, HouseColorRamps};
-
-        let ramps = HouseColorRamps::from_schemes(&[
-            ColorSchemeEntry {
-                name: "LightGold".into(),
-                hsv: [25, 255, 255],
-            },
-            ColorSchemeEntry {
-                name: "Gold".into(),
-                hsv: [43, 239, 255],
-            },
-            ColorSchemeEntry {
-                name: "DarkBlue".into(),
-                hsv: [153, 214, 212],
-            },
-        ]);
+        use crate::rules::house_colors::HouseColorIndex;
+        let schemes = [25, 43, 153].map(|hue| ColorSchemeEntry {
+            name: format!("Hue{hue}"),
+            hsv: [hue, 255, 255],
+        });
+        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/color_oracle/hsv_to_rgb.json",
+        ))
+        .unwrap();
+        let row = native["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["saturation"] == 255 && row["value"] == 255)
+            .unwrap();
+        let rgb = row["rgb_by_hue"].as_str().unwrap();
+        let expected = |hue: usize| {
+            std::array::from_fn(|channel| {
+                let at = hue * 6 + channel * 2;
+                f32::from(u8::from_str_radix(&rgb[at..at + 2], 16).unwrap()) / 255.0
+            })
+        };
         let mut house_colors = crate::map::houses::HouseColorMap::new();
         house_colors.insert("Americans".into(), HouseColorIndex(2));
-        let normalized = |index| {
-            let color = ramps.ramp(index)[0];
-            [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-            ]
-        };
-
         assert_eq!(
-            type_select_message_rgb(Some("Americans"), &house_colors, Some(&ramps)),
-            normalized(HouseColorIndex(2))
+            house_message_rgb(Some("Americans"), &house_colors, Some(&schemes)),
+            expected(153)
         );
         assert_eq!(
-            type_select_message_rgb(None, &house_colors, Some(&ramps)),
-            normalized(HouseColorIndex(1)),
-            "runtime scheme 3 addresses undoubled Colors entry 1"
+            house_message_rgb(None, &house_colors, Some(&schemes)),
+            expected(43),
+            "a null House uses runtime3/Colors entry1"
+        );
+        house_colors.insert("Americans".into(), HouseColorIndex(255));
+        assert_eq!(
+            house_message_rgb(Some("Americans"), &house_colors, Some(&schemes)),
+            expected(25),
+            "TextLabel falls back to runtime0 for an invalid scheme"
         );
     }
 

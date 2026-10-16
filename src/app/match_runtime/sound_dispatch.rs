@@ -466,7 +466,7 @@ pub(super) fn dispatch_sim_sound_events(
                 // (`[Rules+0x730]`) through `VocClass::PlayAtPos @
                 // 0x00750920` (`0x0053A044`) with pan `0x2000` and volume
                 // 1.0, centred rather than at the storm cell. Its line
-                // follows through `super_weapon_messages`; the EVA line
+                // follows through `hud_messages`; the EVA line
                 // was spoken at launch, the whole countdown earlier.
                 let Some(sound_id) = rules.general.storm_sound.clone() else {
                     continue;
@@ -482,7 +482,7 @@ pub(super) fn dispatch_sim_sound_events(
                 // @ 0x00752700` of `EVA_LightningStormCreated` on every
                 // client; as for the launch's EVA, an app with no local
                 // player plays none (the line follows through
-                // `super_weapon_messages`).
+                // `hud_messages`).
                 if local_owner_name.is_none() {
                     continue;
                 }
@@ -866,7 +866,7 @@ pub(super) fn dispatch_sim_sound_events(
             // The selection clear is `super_selection`'s; the pass plays
             // nothing.
             SimSoundEvent::SuperWeaponStatusChanged { .. } => continue,
-            // The refusal's line follows through `super_weapon_messages`;
+            // The refusal's line follows through `hud_messages`;
             // its AddMessage plays the only sound.
             SimSoundEvent::LightningStormRefused { .. }
             | SimSoundEvent::PsychicDominatorRefused { .. } => continue,
@@ -1149,30 +1149,43 @@ pub(crate) fn superweapon_launch_cue(
     }
 }
 
-/// The lines a frame's Super events post, as CSF labels. Every client posts
+/// Ordered HUD facts from the existing House/Super producers. Every client posts
 /// `TXT_LIGHTNING_STORM` when a storm starts (`LightningStorm::Start @
 /// 0x0053A067`) and `TXT_LIGHTNING_STORM_APPROACHING` at the countdown's
 /// warnings (`LightningStorm::Process @ 0x0053AB31`). Only the client whose
 /// player owns a refused Super posts ClickFire's line for it:
 /// `Msg:LightningStormActive` (`LightningStorm::PrintMessage @ 0x0053AE00`)
 /// or `Msg:DominatorActive` (`PsyDom::PrintMessage @ 0x0053B410`).
-pub(super) fn super_weapon_messages(
+/// House4F8D5C posts low power only for its local owner, after EVA4F8D14.
+pub(super) fn hud_messages(
     events: &[SimSoundEvent],
     interner: &crate::sim::intern::StringInterner,
     local_owner_name: Option<&str>,
-) -> Vec<&'static str> {
+) -> Vec<crate::app::input::messages::HudMessage> {
+    use crate::app::input::messages::HudMessage;
     events
         .iter()
         .filter_map(|event| match *event {
-            SimSoundEvent::LightningStormBegan => Some("TXT_LIGHTNING_STORM"),
-            SimSoundEvent::LightningStormApproaching => Some("TXT_LIGHTNING_STORM_APPROACHING"),
+            SimSoundEvent::LightningStormBegan => {
+                Some(HudMessage::SuperWeapon("TXT_LIGHTNING_STORM"))
+            }
+            SimSoundEvent::LightningStormApproaching => {
+                Some(HudMessage::SuperWeapon("TXT_LIGHTNING_STORM_APPROACHING"))
+            }
             SimSoundEvent::LightningStormRefused { owner } => {
                 owner_is_local(interner, owner, local_owner_name)
-                    .then_some("Msg:LightningStormActive")
+                    .then_some(HudMessage::SuperWeapon("Msg:LightningStormActive"))
             }
             SimSoundEvent::PsychicDominatorRefused { owner } => {
-                owner_is_local(interner, owner, local_owner_name).then_some("Msg:DominatorActive")
+                owner_is_local(interner, owner, local_owner_name)
+                    .then_some(HudMessage::SuperWeapon("Msg:DominatorActive"))
             }
+            // House4F8D14/4F8D5C emits voice and text at the same admitted
+            // guard edge. Consume the fact even if audio was delivered inline.
+            SimSoundEvent::HouseEva {
+                owner,
+                event: crate::sim::house_eva::EVA_LOW_POWER,
+            } => owner_is_local(interner, owner, local_owner_name).then_some(HudMessage::LowPower),
             _ => None,
         })
         .collect()
@@ -1206,6 +1219,7 @@ fn cloak_sound_for_app(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::input::messages::HudMessage;
     use crate::util::fixed_math::SimFixed;
 
     fn dispatch_rules() -> RuleSet {
@@ -2278,10 +2292,13 @@ mod tests {
             SimSoundEvent::LightningStormRefused { owner: other },
         ];
         assert_eq!(
-            super_weapon_messages(&events, &sim.interner, Some("Local")),
-            ["Msg:LightningStormActive", "Msg:DominatorActive"]
+            hud_messages(&events, &sim.interner, Some("Local")),
+            [
+                HudMessage::SuperWeapon("Msg:LightningStormActive"),
+                HudMessage::SuperWeapon("Msg:DominatorActive")
+            ]
         );
-        assert!(super_weapon_messages(&events, &sim.interner, None).is_empty());
+        assert!(hud_messages(&events, &sim.interner, None).is_empty());
         let mut output = SoundEventQueue::new();
         dispatch_sim_sound_events(
             events.clone(),
@@ -2292,6 +2309,157 @@ mod tests {
             &mut output,
         );
         assert!(output.drain().is_empty());
+    }
+
+    #[test]
+    fn low_power_advice_posts_its_local_message_in_event_order() {
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        let other = sim.interner.intern("Other");
+        let events = [
+            SimSoundEvent::LightningStormBegan,
+            SimSoundEvent::HouseEva {
+                owner: other,
+                event: crate::sim::house_eva::EVA_LOW_POWER,
+            },
+            SimSoundEvent::HouseEva {
+                owner: local,
+                event: crate::sim::house_eva::EVA_LOW_POWER,
+            },
+            SimSoundEvent::HouseEva {
+                owner: local,
+                event: crate::sim::house_eva::EVA_INSUFFICIENT_FUNDS,
+            },
+            SimSoundEvent::PsychicDominatorRefused { owner: local },
+        ];
+        assert_eq!(
+            hud_messages(&events, &sim.interner, Some("local")),
+            [
+                HudMessage::SuperWeapon("TXT_LIGHTNING_STORM"),
+                HudMessage::LowPower,
+                HudMessage::SuperWeapon("Msg:DominatorActive")
+            ],
+            "House4F8D14's admitted EVA also posts4F8D5C's localized row"
+        );
+    }
+
+    /// Stock rules, supplied flat base, and the bound production frame API.
+    /// Admission, power invalidation, guard rearm and Selling all run through
+    /// their live owners; no test writes warning guards or retained power.
+    #[test]
+    fn house_low_power_warning_rearms_after_power_restoration_and_sale() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::house_state::HouseState;
+        use crate::sim::runtime::{SimResources, SimRuntime};
+        use crate::sim::world::{FrameEffects, TickLane};
+
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        crate::map::theater::load_theater(&mut assets, "TEMPERATE")
+            .expect("physical buildup assets for the ordinary sale");
+        let mut rules = retail.rules;
+        rules.bind_building_buildup_assets(&assets, "TEMPERATE");
+        assert!(
+            rules.has_buildup("GAPOWR"),
+            "Sell_Back requires bound buildup art"
+        );
+        let mut sim = Simulation::with_seed(0x4F8D_005C);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.intern("Americans");
+        let mut house = HouseState::new(owner, 0, Some(owner), true, 50_000, 10);
+        house.project_country_mults(&rules, &sim.interner);
+        sim.houses.insert(owner, house);
+        sim.session.house_order.push(owner);
+        sim.session.current_house = Some(owner);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        for (name, x) in [("GACNST", 4), ("GAPILE", 11)] {
+            sim.spawn_object(name, "Americans", x, 4, 0, &rules)
+                .expect("supplied live stock base");
+        }
+        let mut runtime = SimRuntime {
+            simulation: sim,
+            resources: SimResources {
+                rules,
+                overlay_registry: crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+                    &retail.processed_rules,
+                    Some(&retail.fixed_art),
+                ),
+                ..SimResources::empty()
+            },
+        };
+        let frame = |runtime: &mut SimRuntime, commands: &[CommandEnvelope]| {
+            let output = runtime
+                .advance_frame(commands, 67, TickLane::Ordinary, FrameEffects::default())
+                .unwrap();
+            let sim = &runtime.simulation;
+            let hash = sim.state_hash();
+            let messages = hud_messages(&output.sound_events, &sim.interner, Some("Americans"));
+            assert!(hud_messages(&output.sound_events, &sim.interner, Some("Other")).is_empty());
+            let mut sounds = SoundEventQueue::new();
+            dispatch_sim_sound_events(
+                output.sound_events,
+                sim,
+                &runtime.resources.rules,
+                Some("Americans"),
+                &mut |_| false,
+                &mut sounds,
+            );
+            let voice_count = sounds
+                .drain()
+                .iter()
+                .filter(|event| {
+                    matches!(event, GameSoundEvent::Eva { event, .. }
+                    if event == crate::sim::house_eva::EVA_LOW_POWER)
+                })
+                .count();
+            assert_eq!(
+                messages.len(),
+                voice_count,
+                "voice and text share admission"
+            );
+            assert!(
+                messages
+                    .iter()
+                    .all(|message| *message == HudMessage::LowPower)
+            );
+            assert_eq!(
+                sim.state_hash(),
+                hash,
+                "presentation cannot change simulation"
+            );
+            messages.len()
+        };
+        let first: usize = (0..4).map(|_| frame(&mut runtime, &[])).sum();
+        assert_eq!(first, 1, "one warning for the initial shortage");
+        let plant = runtime
+            .simulation
+            .spawn_object("GAPOWR", "Americans", 18, 4, 0, &runtime.resources.rules)
+            .expect("live stock plant restores power");
+        assert_eq!((0..4).map(|_| frame(&mut runtime, &[])).sum::<usize>(), 0);
+        let sell = CommandEnvelope::new(
+            owner,
+            runtime.simulation.session.tick,
+            Command::SellBuilding { entity_id: plant },
+        );
+        let mut second = frame(&mut runtime, &[sell]);
+        for _ in 0..180 {
+            second += frame(&mut runtime, &[]);
+        }
+        assert_eq!(
+            second, 1,
+            "Selling the restored plant admits one new warning"
+        );
+        assert!(
+            runtime.simulation.entities().get(plant).is_none(),
+            "sale completed"
+        );
     }
 
     /// `StormSound` belongs to the storm *beginning*, not to the launch.
@@ -2323,8 +2491,11 @@ mod tests {
             SimSoundEvent::LightningStormApproaching,
         ];
         assert_eq!(
-            super_weapon_messages(&events, &sim.interner, None),
-            ["TXT_LIGHTNING_STORM", "TXT_LIGHTNING_STORM_APPROACHING"]
+            hud_messages(&events, &sim.interner, None),
+            [
+                HudMessage::SuperWeapon("TXT_LIGHTNING_STORM"),
+                HudMessage::SuperWeapon("TXT_LIGHTNING_STORM_APPROACHING")
+            ]
         );
         let mut output = SoundEventQueue::new();
         for local in [Some("Local"), None] {

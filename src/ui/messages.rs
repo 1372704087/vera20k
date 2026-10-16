@@ -34,6 +34,23 @@ pub struct Message {
     pub deadline_ms: Option<u64>,
     /// Screen Y, restacked after every insert/expiry.
     pub y: i32,
+    /// TextLabel+41/+44/+48. The list owns this state through insertion,
+    /// painting, eviction and expiry; renderers only read the current count.
+    reveal: Option<MessageReveal>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct MessageReveal {
+    count: u32,
+    last_wall_ms: u32,
+}
+
+impl Message {
+    /// Original434500: zero draws the whole string; a positive count draws
+    /// that many UTF-16 units, with a trailing eight-unit highlight.
+    pub fn reveal_count(&self) -> u32 {
+        self.reveal.map_or(0, |reveal| reveal.count)
+    }
 }
 
 /// Outcome of an `add_message` call.
@@ -57,7 +74,8 @@ pub struct MessagePost<'a> {
     pub rgb: [f32; 3],
     /// None = never expires (native timeout −1 → deadline 0).
     pub timeout_ms: Option<u64>,
-    /// Silent adds never request the insert sound.
+    /// Silent adds neither request the insert sound nor enable typing reveal
+    /// in the offline MessageList path (GameMode5, original5D3D95..5D3DBD).
     pub silent: bool,
 }
 
@@ -162,6 +180,7 @@ impl MessageList {
             rgb: post.rgb,
             deadline_ms: post.timeout_ms.map(|t| now_ms + t),
             y: 0,
+            reveal: (!silent).then(MessageReveal::default),
         });
         self.restack();
         outcome.added += 1;
@@ -193,6 +212,35 @@ impl MessageList {
             self.restack();
         }
         expired
+    }
+
+    /// Successful TextLabel paint72A5B1..72A609, once per drawn frame.
+    /// Unlike expiry, reveal uses raw wrapping timeGetTime milliseconds,
+    /// including time spent paused. First paint starts at one unit; subsequent
+    /// paints consume complete16ms buckets and discard the remainder only
+    /// when the count changes. Every paint still within the UTF-16 length
+    /// requests MessageCharTyped, even when no new bucket elapsed.
+    /// Returns requests, not admitted audio channels; audio owns admission.
+    pub fn advance_reveal(&mut self, wall_ms: u32) -> usize {
+        let mut sound_requests = 0;
+        for message in &mut self.messages {
+            let Some(reveal) = &mut message.reveal else {
+                continue;
+            };
+            let previous = reveal.count;
+            reveal.count = if previous == 0 {
+                1
+            } else {
+                previous.wrapping_add(wall_ms.wrapping_sub(reveal.last_wall_ms) >> 4)
+            };
+            if previous != reveal.count {
+                reveal.last_wall_ms = wall_ms;
+            }
+            if (reveal.count as i32) <= message.text.encode_utf16().count() as i32 {
+                sound_requests += 1;
+            }
+        }
+        sound_requests
     }
 
     fn restack(&mut self) {
@@ -340,6 +388,13 @@ mod tests {
             );
             assert!(mono(&row.text) <= 200 - MESSAGE_WIDTH_PAD_PX + 20);
         }
+        assert_eq!(
+            l.advance_reveal(100),
+            1,
+            "only the nonsilent first row types"
+        );
+        assert_eq!(l.messages()[0].reveal_count(), 1);
+        assert!(l.messages()[1..].iter().all(|row| row.reveal_count() == 0));
         // All input chars survive across the rows (minus break spaces).
         let joined: String = l
             .messages()
@@ -407,6 +462,47 @@ mod tests {
             l.manage(clock.now(14001)),
             "adjusted 4001 > deadline: expired"
         );
+    }
+
+    #[test]
+    fn typing_counts_utf16_paints_and_raw_wall_time_independently_of_expiry() {
+        let mut l = list(6, 500);
+        let mut clock = PauseAwareClock::default();
+        // Five UTF-16 units, including a surrogate pair and a space.
+        l.add_message(&post(None, "A😀 B", Some(1_000), false), 0, &mono);
+        assert_eq!(l.advance_reveal(100), 1);
+        assert_eq!(l.messages()[0].reveal_count(), 1);
+        assert_eq!(l.advance_reveal(115), 1, "requests every successful paint");
+        assert_eq!(l.messages()[0].reveal_count(), 1);
+        assert_eq!(l.advance_reveal(131), 1);
+        assert_eq!(l.messages()[0].reveal_count(), 2);
+        assert_eq!(l.advance_reveal(147), 1, "31ms remainder was discarded");
+        assert_eq!(l.messages()[0].reveal_count(), 3);
+        assert_eq!(
+            l.advance_reveal(179),
+            1,
+            "count == UTF16 length still types"
+        );
+        assert_eq!(l.messages()[0].reveal_count(), 5);
+        clock.set_paused(true, 180);
+        assert!(!l.manage(clock.now(10_000)), "expiry is frozen");
+        assert_eq!(l.advance_reveal(10_000), 0, "typing uses raw wall time");
+        assert!(l.messages()[0].reveal_count() > 5 + 8);
+        clock.set_paused(false, 10_000);
+        assert!(l.manage(clock.now(11_000)));
+        assert_eq!(l.advance_reveal(11_001), 0, "expired labels own no state");
+    }
+
+    #[test]
+    fn typing_clock_wraps_like_time_get_time_and_eviction_resets_new_rows() {
+        let mut l = list(1, 500);
+        l.add_message(&post(None, "abc", None, false), 0, &mono);
+        assert_eq!(l.advance_reveal(u32::MAX - 7), 1);
+        assert_eq!(l.advance_reveal(8), 1);
+        assert_eq!(l.messages()[0].reveal_count(), 2);
+        l.add_message(&post(None, "new", None, false), 0, &mono);
+        assert_eq!(l.advance_reveal(100_000), 1);
+        assert_eq!(l.messages()[0].reveal_count(), 1);
     }
 
     #[test]

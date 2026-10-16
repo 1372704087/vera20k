@@ -837,7 +837,7 @@ fn advance_one_simulation_frame(
         let mut frame_overlay_removals: Vec<(u16, u16)> = Vec::new();
         let mut trigger_effects: Vec<TriggerEffect> = Vec::new();
         let mut camera_logic_frame: Option<u32> = None;
-        let mut super_weapon_messages: Vec<&'static str> = Vec::new();
+        let mut hud_messages = Vec::new();
         // Carried out of the sim borrow so the census can read `state` freely below.
         let mut census_tick: Option<u64> = None;
         let command_queue_route = state.match_state.session.mode().command_queue_route();
@@ -989,7 +989,7 @@ fn advance_one_simulation_frame(
                 &resources.rules,
                 local_owner_name.as_deref(),
             );
-            super_weapon_messages = super::sound_dispatch::super_weapon_messages(
+            hud_messages = super::sound_dispatch::hud_messages(
                 &frame_sound_events,
                 &sim.interner,
                 local_owner_name.as_deref(),
@@ -1224,8 +1224,8 @@ fn advance_one_simulation_frame(
             crate::app::input::dispatch::report_black_cell_causes(state);
         }
 
-        for csf_key in super_weapon_messages {
-            crate::app::input::messages::post_super_weapon_message(state, csf_key);
+        for message in hud_messages {
+            crate::app::input::messages::post_hud_message(state, message);
         }
 
         // Simulation has already finalized identity, passability, navigation,

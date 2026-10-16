@@ -199,6 +199,45 @@ impl BitFont {
         instances
     }
 
+    /// TextLabel's original434500 emission uses an inclusive UTF-16 count;
+    /// PathA434CD0 uses the next, hidden unit. For positive count C, its
+    /// cutoff and eight-unit gradient are exactly PathA(C+1, range8): both
+    /// blend unit i (zero-based) by (9-C+i)*31 through shared6612C0.
+    /// The white highlight is CRT4E8160's A80220 value, not a side color.
+    /// Executed paired controls: tools/storage_oracle/shell_text_label.json.
+    pub fn build_text_label(
+        &self,
+        text: &str,
+        x: f32,
+        y: f32,
+        depth: f32,
+        camera_offset: [f32; 2],
+        base_rgb: [u8; 3],
+        count: u32,
+    ) -> Vec<SpriteInstance> {
+        // Original cutoff43454D..51 is signed. Ordinary message lifetimes
+        // never approach this boundary, but retain it for wrapping counters.
+        if (count as i32) < 0 {
+            return Vec::new();
+        }
+        self.build_text_path_a(
+            text,
+            x,
+            y,
+            1.0,
+            depth,
+            camera_offset,
+            0,
+            PathAReveal {
+                count: if count == 0 { 0 } else { count + 1 },
+                range: 8,
+                base_rgb,
+                highlight_rgb: [255; 3],
+            },
+        )
+        .0
+    }
+
     /// Glyph emission for the verified BITFONT Path-A UTF-16 reveal/tint path.
     ///
     /// Every UTF-16 code unit consumes a one-based reveal position;
@@ -1229,6 +1268,76 @@ pub(crate) mod tests {
             instances[0].tint,
             [248.0 / 255.0, 252.0 / 255.0, 30.0 / 255.0]
         );
+    }
+
+    #[test]
+    fn text_label_glyph_count_and_colors_match_the_original_paired_paths() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/storage_oracle/shell_text_label.json",
+        ))
+        .unwrap();
+        let font = make_test_font(&[(b'A' as u16, 6)], 4);
+        let format = crate::render::native_surface_format::RGB565;
+        let packed = |instances: Vec<SpriteInstance>| {
+            instances
+                .iter()
+                .map(|glyph| format.pack_rgb8(glyph.tint.map(|c| (c * 255.0).round() as u8)))
+                .collect::<Vec<_>>()
+        };
+        let controls = corpus["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 16);
+        let mut label_controls = 0;
+        for row in controls {
+            let text = row["text"].as_str().unwrap();
+            let base_rgb = format.unpack_rgb8(row["base_rgb565"].as_u64().unwrap() as u16);
+            let highlight_rgb =
+                std::array::from_fn(|i| row["highlight_rgb"][i].as_u64().unwrap() as u8);
+            let expected = |field: &str| {
+                row[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap() as u16)
+                    .collect::<Vec<_>>()
+            };
+            // Both original bodies execute the shared6612C0, including the
+            // decreasing white-to-black signed-division controls. The count
+            // handed to PathA here is recorded from the native fixture.
+            let path_a = font
+                .build_text_path_a(
+                    text,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.5,
+                    [0.0; 2],
+                    0,
+                    PathAReveal {
+                        count: row["path_a_count"].as_u64().unwrap() as u32,
+                        range: 8,
+                        base_rgb,
+                        highlight_rgb,
+                    },
+                )
+                .0;
+            assert_eq!(packed(path_a), expected("path_a_rgb565"), "{row}");
+            // Actual TextLabel always uses the white CRT highlight; its
+            // production adapter must reproduce the other native body too.
+            if highlight_rgb == [255; 3] {
+                let label = font.build_text_label(
+                    text,
+                    0.0,
+                    0.0,
+                    0.5,
+                    [0.0; 2],
+                    base_rgb,
+                    row["native_count"].as_u64().unwrap() as u32,
+                );
+                assert_eq!(packed(label), expected("generic_rgb565"), "{row}");
+                label_controls += 1;
+            }
+        }
+        assert_eq!(label_controls, 8);
     }
 
     #[test]

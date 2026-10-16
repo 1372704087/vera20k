@@ -6091,21 +6091,21 @@ impl RuleSet {
             crate::rules::voxel_asset_catalog::VoxelAssetCatalog::bind(self, asset_manager);
     }
 
-    /// Techno6F9E10's loaded-main-VXL predicate, never an ART declaration or
-    /// renderer-cache query. Unbound/missing/malformed models answer false.
-    pub(crate) fn object_has_loaded_voxel(&self, type_id: &str) -> bool {
-        self.voxel_assets.contains(type_id)
+    /// Techno6F9E10's loaded-main-VXL predicate for the type `object` names,
+    /// never an ART declaration or renderer-cache query. Unbound/missing/
+    /// malformed models answer false.
+    pub(crate) fn object_has_loaded_voxel(&self, object: TypeHandle) -> bool {
+        self.voxel_assets.contains(object)
     }
 
     /// Explicit loaded model prior for headless component fixtures. Production
     /// callers bind immutable admission from the active physical assets.
     #[cfg(test)]
     pub(crate) fn supply_loaded_voxel_for_test(&mut self, type_id: &str) {
-        assert!(
-            self.object(type_id).is_some(),
-            "loaded type fixture must exist"
-        );
-        self.voxel_assets.supply_loaded(type_id);
+        let object = self
+            .type_handle(type_id)
+            .expect("loaded type fixture must exist");
+        self.voxel_assets.supply_loaded(type_id, object);
     }
 
     /// Resolve raw terrain SHP frame counts for authoritative TIBTRE midpoint

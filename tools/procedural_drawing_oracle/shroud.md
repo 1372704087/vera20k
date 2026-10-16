@@ -200,3 +200,76 @@ two command lists alone do not establish that ordering or intervening body
 composition. The bounded original ground/body composition supplies one
 occlusion control. Complete app output, nearby overlap and whole-frame order
 remain validation gates; the synthetic Z rectangle cannot close them.
+
+## Ordinary selected mobile health strip
+
+The independent additive `--unit-health` mode uses one existing
+`bridge_render_inputs_palette.PaletteReader` runtime and the shared
+`bridge_render_shape.prepare_surface` BSurface/A/Z storage. It executes
+unchanged complete original DrawExtras6F5190, DrawHealth6F64A0 and their
+ordinary PipScaleNone709A90/70AA60 tail to normal return. Every physical SHP
+call4AED70 executes frame access, centering, clipping, picker490B90, rowwalker
+and actual pixel leaves; there is no argument-sink substitution in this mode.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --unit-health --check
+```
+
+`unit_health.json` and its sidecar retain the original executable identity and
+command. Normal STOCK_DIGITAL production asset lookup independently resolved
+PIPS.SHP to `ra2md.mix/conqmd.mix` (21frames,1920bytes,
+SHA256`7525b25f80b5b67e9a5c2977b7624c4b3ce7ad9ce332169c4622eddb91c61486`),
+PIPBRD.SHP to `ra2.mix/conquer.mix` (272bytes,
+SHA256`8da08a64beb8c7916a3ae51fc7239d9474ef3366e73e78e893e24e31c119812e`),
+and PALETTE.PAL to `ra2.mix/cache.mix` (768bytes,
+SHA256`e85c535002573b5f95f7c361c4bdb95ee43e4914ddc926afda9ace995c54242b`).
+Loose/expansion/language overrides were excluded by that production lookup;
+the oracle then asserts these same immutable archive-byte identities. It does
+not emulate original archive search. The older19frame RA2 PIPS is excluded.
+ANIM.PAL is an inherited palette-startup input; health uses only the original
+plain PALETTE.PAL Convert87F6C4. Full palette/LUT construction executes.
+
+Whole Rules constructor665650 supplies both Condition thresholds0.5; whole
+UnitType7470D0 supplies Strength0, PixelSelectionBracketDelta0 and PipScale0.
+Original selected scalar/enum caller/read/store ranges consume exact lexical
+RULESMD, optional LANGRULE, MPBattleMD and XMP03T4 layers. The result is
+Strength300, delta0, PipScaleNone0, ConditionYellow0.5 and ConditionRed0.25.
+These are rules keys, not ART. Physical MTNK leaves SpawnsNumber, Passengers
+and Organic unset; their actual constructor values remain the ordinary-tail
+inputs. No Python numeric parse supplies these values.
+
+Prepared original Unit table/type/House linkage, rookie state, no group,
+selfheal, cargo or managers and supplied HP/selection/hover/sinking are
+consumer boundaries. Original5F65A0/6D2140 project actor XYZ through native
+camera`[-380,385]` to point`[80,80]`; the supplied overlap actor projects to
+`[84,80]`. This is not a native Unit lifecycle, occupancy, damage, Display loop,
+MTNK VXL body or shroud-generation execution. The two nearby points prove
+component draw order; legal dense-unit placement is not claimed.
+
+The `raster_controls` share explicit input size/background/A/Z/clip and actors.
+Each `draws` row has actual asset/frame/point/flags, native leaf/vtable and
+half-open `store_range` into ordered `[x,y,u16]` stores. `pixels` contains final
+changed RGB565 words. The existing producer and GPU consumers use these native
+values; no second health/count/raster implementation supplies goldens.
+
+Selected HP300/150/75/1 yields17/8/4/1 filled pips, using16/17/18 at actual
+native threshold comparisons.151/76 distinguish the just-above arms. Selected
+PIPBRD0 uses flagsE00, leaf493DF0/vtable7E57E0 and consumes144A samples without
+Z. PIPS uses flags600, leaf4912B0/vtable7E5A20, bypassing both A and Z. Hover
+omits the border; absent/sinking controls emit no shapes. Original ordinary
+709A90 and70AA60 execute, with no additional shape calls for these priors.
+
+A127, partial63, stock unrevealedA2 and explicitA0 controls preserve the fill
+colors while changing the border. Existing original shroud evidence establishes
+A2 from physical frame15; this mode supplies that downstream A plane rather
+than rerunning its writer. Z0 over the entire strip has identical color output
+to Z65535: both shapes bypass Z and leave it unchanged. One left-edge clipped
+control exercises original shape clipping; one ordered two-parent overlap
+retains each parent's border→fills before the next parent's border→fills.
+
+Original code/vtables, prepared actor bytes, A/Z and buffer guards stay
+unchanged; no raw/ranged RNG entry is observed. Commands are frame-local.
+Selection/hover acquisition, fog/AlphaShapes, active selfheal flashes,
+rank/status/control-group text, other PipScales/classes and whole DrawExtras
+closure remain outside this ordinary selected rookie MTNK evidence. Production
+GPU readback and normal game captures remain separate validation.

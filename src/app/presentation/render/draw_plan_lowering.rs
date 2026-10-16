@@ -64,6 +64,7 @@ pub(crate) struct PlannedObjectInstance {
     pub pieces: Vec<ObjectPieceInstance>,
     pub building_pieces: Option<Vec<PlannedBuildingPieceInstance>>,
     pub brackets: Option<crate::app::presentation::selection_brackets::BuildingBracketLines>,
+    pub health: Option<crate::app::presentation::ui_overlays::UnitHealthStrip>,
 }
 
 impl PlannedObjectInstance {
@@ -73,6 +74,7 @@ impl PlannedObjectInstance {
             pieces,
             building_pieces: None,
             brackets: None,
+            health: None,
         }
     }
 
@@ -82,6 +84,7 @@ impl PlannedObjectInstance {
             pieces: Vec::new(),
             building_pieces: Some(pieces),
             brackets: None,
+            health: None,
         }
     }
 }
@@ -98,6 +101,24 @@ pub(crate) struct ObjectDrawRun {
     pub count: u32,
 }
 
+/// The second Extras sweep (6D9789), in retained Display parent order.
+/// Lines use live Z; ordinary health stores never read or write it. Native
+///6F64A0 submits each parent's border before its pips, not global atlas buckets.
+pub(crate) enum ObjectExtrasRun {
+    Lines {
+        #[cfg(test)]
+        parent: DrawId,
+        lines: std::ops::Range<usize>,
+        batch: crate::render::terrain_draw::SurfaceLineBatch,
+    },
+    Health {
+        #[cfg(test)]
+        parent: DrawId,
+        background: Option<u32>,
+        fills: std::ops::Range<u32>,
+    },
+}
+
 /// One native layer output: exact integer parent order plus flat GPU instances.
 #[derive(Default)]
 pub(crate) struct ObjectLayerPass {
@@ -109,6 +130,8 @@ pub(crate) struct ObjectLayerPass {
     pub line_batches: Vec<crate::render::terrain_draw::SurfaceLineBatch>,
     /// Native6D9789 repeats Extras in the same five retained layer orders.
     pub extras_lines: Vec<crate::render::surface_line::SurfaceLine>,
+    pub extras_instances: Vec<SpriteInstance>,
+    pub extras_runs: Vec<ObjectExtrasRun>,
     /// Aligned with `instances`; retained for executable ordering checks.
     #[cfg(test)]
     pub owners: Vec<DrawId>,
@@ -215,12 +238,16 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
     let mut ordinary = BTreeMap::new();
     let mut buildings = BTreeMap::new();
     let mut brackets = BTreeMap::new();
+    let mut health = BTreeMap::new();
     let mut inputs = Vec::with_capacity(entries.len());
 
     for entry in entries {
         let id = entry.parent.id;
         if let Some(lines) = entry.brackets {
             assert!(brackets.insert(id, lines).is_none());
+        }
+        if let Some(strip) = entry.health {
+            assert!(health.insert(id, strip).is_none());
         }
         if let Some(pieces) = entry.building_pieces {
             let mut resolved = BTreeMap::new();
@@ -285,7 +312,35 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                     start: lowered.instances.len() as u32,
                     count: 0,
                 });
+                let start = lowered.extras_lines.len();
                 lowered.extras_lines.extend(lines.extras);
+                let end = lowered.extras_lines.len();
+                if start != end {
+                    lowered.extras_runs.push(ObjectExtrasRun::Lines {
+                        #[cfg(test)]
+                        parent: owner,
+                        lines: start..end,
+                        batch: Default::default(),
+                    });
+                }
+            }
+            if let Some(strip) = health.remove(&owner) {
+                let background = strip.background.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let start = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.fills);
+                let end = lowered.extras_instances.len() as u32;
+                if background.is_some() || start != end {
+                    lowered.extras_runs.push(ObjectExtrasRun::Health {
+                        #[cfg(test)]
+                        parent: owner,
+                        background,
+                        fills: start..end,
+                    });
+                }
             }
             match entry {
                 crate::render::tactical_draw_plan::LayerEntry::Object(_) => {
@@ -416,6 +471,10 @@ mod tests {
             [vec![line(900), line(901)], vec![line(1), line(2)]]
         );
         assert_eq!(pass.extras_lines, [line(901), line(2)]);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Lines { parent: 900, lines: a, .. },
+            ObjectExtrasRun::Lines { parent: 1, lines: b, .. },
+        ] if *a == (0..1) && *b == (1..2)));
         assert!(matches!(
             pass.runs[0].target,
             ObjectTexture::SurfaceLines(0)
@@ -426,6 +485,70 @@ mod tests {
             ObjectTexture::SurfaceLines(1)
         ));
         assert_eq!((pass.runs[3].start, pass.runs[3].count), (2, 1));
+    }
+
+    #[test]
+    fn late_extras_interleave_brackets_and_whole_health_strips_by_display_parent() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::UnitHealthStrip,
+        };
+        use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
+        let parent = |id, rank| {
+            PlannedObjectInstance::object(
+                ObjectDraw {
+                    id,
+                    layer: TacticalLayer(2),
+                    display_order: rank,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Plain),
+                },
+                vec![],
+            )
+        };
+        let mut first = parent(901, 0);
+        first.health = Some(UnitHealthStrip {
+            background: Some(SpriteInstance {
+                position: [1.0, 0.0],
+                ..Default::default()
+            }),
+            fills: vec![SpriteInstance {
+                position: [2.0, 0.0],
+                ..Default::default()
+            }],
+        });
+        let mut middle = parent(3, 1);
+        middle.brackets = Some(BuildingBracketLines {
+            behind: vec![],
+            extras: vec![SurfaceLine {
+                from: [0, 0],
+                to: [8, 0],
+                z_adjust: [14, 14],
+                blend: SurfaceLineBlend::Replace(65535),
+            }],
+        });
+        let mut last = parent(2, 2);
+        last.health = Some(UnitHealthStrip {
+            background: None,
+            fills: vec![SpriteInstance {
+                position: [3.0, 0.0],
+                ..Default::default()
+            }],
+        });
+        let pass = lower_ground_object_instances(vec![last, middle, first]);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Health { parent: 901, background: Some(0), fills: a },
+            ObjectExtrasRun::Lines { parent: 3, .. },
+            ObjectExtrasRun::Health { parent: 2, background: None, fills: b },
+        ] if *a == (1..2) && *b == (2..3)));
+        assert_eq!(
+            pass.extras_instances
+                .iter()
+                .map(|s| s.position[0])
+                .collect::<Vec<_>>(),
+            [1.0, 2.0, 3.0]
+        );
+        let empty = lower_ground_object_instances(vec![parent(901, 0)]);
+        assert!(empty.extras_runs.is_empty());
+        assert!(empty.extras_instances.is_empty());
     }
 
     #[test]

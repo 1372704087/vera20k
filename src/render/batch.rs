@@ -1906,14 +1906,27 @@ impl BatchRenderer {
         buffer: &'a wgpu::Buffer,
         count: u32,
     ) {
-        if count == 0 {
-            return;
-        }
-        render_pass.set_pipeline(&self.overlay_passthrough_pipeline);
-        render_pass.set_bind_group(0, &self.surface_camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &texture.bind_group, &[]);
-        render_pass.set_vertex_buffer(0, buffer.slice(..));
-        render_pass.draw(0..6, 0..count);
+        self.draw_with_buffer_passthrough_range(render_pass, texture, buffer, 0, count);
+    }
+
+    /// A contiguous direct-store range, bypassing both A and Z. Health pips
+    /// (native flags600 ->4912B0) share this owner with other surface stores.
+    pub(crate) fn draw_with_buffer_passthrough_range<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        texture: &'a BatchTexture,
+        buffer: &'a wgpu::Buffer,
+        start: u32,
+        count: u32,
+    ) {
+        self.draw_passthrough_range_bound(
+            render_pass,
+            texture,
+            buffer,
+            &self.surface_camera_bind_group,
+            start,
+            count,
+        );
     }
 
     /// Draw authoritative child-light mask quads through the native
@@ -2082,11 +2095,30 @@ impl BatchRenderer {
         start: u32,
         count: u32,
     ) {
+        self.draw_passthrough_range_bound(
+            render_pass,
+            texture,
+            buffer,
+            &self.camera_bind_group,
+            start,
+            count,
+        );
+    }
+
+    fn draw_passthrough_range_bound<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        texture: &'a BatchTexture,
+        buffer: &'a wgpu::Buffer,
+        camera: &'a wgpu::BindGroup,
+        start: u32,
+        count: u32,
+    ) {
         if count == 0 {
             return;
         }
         render_pass.set_pipeline(&self.overlay_passthrough_pipeline);
-        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        render_pass.set_bind_group(0, camera, &[]);
         render_pass.set_bind_group(1, &texture.bind_group, &[]);
         render_pass.set_vertex_buffer(0, buffer.slice(..));
         render_pass.draw(0..6, start..start + count);

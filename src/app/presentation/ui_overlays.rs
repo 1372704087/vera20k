@@ -25,9 +25,6 @@ const UNIT_PIPS_INFANTRY: u32 = 8;
 /// Horizontal pixel spacing between unit health pips (each pip drawn 2px apart).
 const UNIT_PIP_STEP_X: f32 = 2.0;
 
-// Health bar offsets are baked into SelectionOverlay at load time
-// (game constant + canvas centering combined).
-
 /// Fixed pip step along the NW isometric edge.
 /// Each pip moves 4px left and 2px down, following the isometric 2:1 slope.
 const PIP_STEP_X: f32 = -4.0;
@@ -49,9 +46,8 @@ fn display_health_ratio(current: i32, strength: i32) -> f32 {
 }
 
 /// Get INI-driven health condition thresholds, falling back to RA2 defaults.
-fn condition_thresholds(state: &AppState) -> (f32, f32) {
-    state
-        .rules()
+fn condition_thresholds(rules: Option<&RuleSet>) -> (f32, f32) {
+    rules
         .map(|r| {
             (
                 r.general.condition_yellow as f32,
@@ -113,7 +109,7 @@ fn building_health_hover_target(state: &AppState, local_owner: Option<&str>) -> 
 }
 
 /// The hovered *unit or infantry*, for the non-building health-bar pass.
-fn unit_health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
+pub(crate) fn unit_health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
     health_bar_hover_target(state, local_owner).and_then(|(id, kind)| {
         matches!(
             kind,
@@ -615,7 +611,7 @@ pub(crate) fn build_building_status_instances(
     let pip_uv_size: [f32; 2] = overlay.pip_uv_size();
     let (pip_adj_x, pip_adj_y) = overlay.pip_canvas_adj();
     let has_pips: bool = overlay.pip_texture().is_some();
-    let (cond_y, cond_r) = condition_thresholds(state);
+    let (cond_y, cond_r) = condition_thresholds(state.rules());
     let hovered_structure_id = building_health_hover_target(state, local_owner.as_deref());
     let mut instances = Vec::new();
     for e in sim.entities().values() {
@@ -1165,248 +1161,119 @@ pub(crate) fn build_repair_wrench_instances(
     instances
 }
 
-/// Non-building health bar backgrounds: pipbrd.shp bracket sprites.
-/// Frame 0 = vehicle/aircraft (36×4), frame 1 = infantry (18×4).
-pub(crate) fn build_unit_status_bg_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-    ) else {
-        return Vec::new();
-    };
-    if overlay.pipbrd_texture().is_none() {
-        return Vec::new();
-    }
-    let local_owner = preferred_local_owner_name(state);
-    let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-    for e in sim.entities().values() {
-        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
-            continue;
-        }
-        if e.passenger_role.is_inside_transport() {
-            continue;
-        }
-        let (draw_background, _) = status_visibility(
-            e.selection.is_selected(),
-            hovered_unit_id == Some(e.stable_id()),
-        );
-        if !draw_background {
-            continue;
-        }
-        if !health_bar_drawable(
-            sim,
-            e,
-            hovered_unit_id,
-            local_owner.as_deref(),
-            state.rules(),
-        ) {
-            continue;
-        }
-        // Already the drawn position, height lift included, so the bar tracks
-        // the sprite for airborne units without repeating the lift here.
-        let (sx, sy) = crate::app::presentation::instances::interpolated_screen_position_entity(e);
-        let is_infantry: bool = e.category() == EntityCategory::Infantry;
-        let (bar_size, uv_origin, uv_size) = if is_infantry {
-            (
-                overlay.pipbrd_infantry_size(),
-                overlay.pipbrd_infantry_uv().0,
-                overlay.pipbrd_infantry_uv().1,
-            )
-        } else {
-            (
-                overlay.pipbrd_vehicle_size(),
-                overlay.pipbrd_vehicle_uv().0,
-                overlay.pipbrd_vehicle_uv().1,
-            )
-        };
-        let bracket_delta: f32 = state
-            .rules()
-            .and_then(|r| sim.interner.object_type(e.type_ref(), r))
-            .map(|obj| obj.pixel_selection_bracket_delta as f32)
-            .unwrap_or(0.0);
-        let (off_x, off_y) = overlay.pipbrd_offset(is_infantry);
-        let (bar_x, bar_y) = (sx + off_x, sy + bracket_delta + off_y);
-        if !in_view(
-            bar_x,
-            bar_y,
-            bar_size[0],
-            bar_size[1],
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-            sw,
-            sh,
-            48.0,
-        ) {
-            continue;
-        }
-        instances.push(SpriteInstance {
-            position: [bar_x, bar_y],
-            size: bar_size,
-            uv_origin,
-            uv_size,
-            depth: 0.0006,
-            tint: [1.0, 1.0, 1.0],
-            alpha: 1.0,
-            ..Default::default()
-        });
-    }
-    instances
+/// Frame-local screen viewport for mobile health emission.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct UnitHealthViewport {
+    pub camera: [f32; 2],
+    pub size: [f32; 2],
 }
 
-/// Non-building health bar fills: colored rectangles drawn over pipbrd.shp backgrounds.
-/// Uses white_texture with per-instance color tint. Falls back to procedural segments
-/// if pipbrd.shp is unavailable.
-pub(crate) fn build_unit_status_fill_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-    ) else {
-        return Vec::new();
-    };
-    let local_owner = preferred_local_owner_name(state);
-    let (cond_y, cond_r) = condition_thresholds(state);
-    let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-    for e in sim.entities().values() {
-        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
-            continue;
-        }
-        if e.passenger_role.is_inside_transport() {
-            continue;
-        }
-        let health = &e.health;
-        if !health_bar_drawable(
-            sim,
-            e,
-            hovered_unit_id,
-            local_owner.as_deref(),
-            state.rules(),
-        ) {
-            continue;
-        }
-        // Already the drawn position, height lift included, so the bar tracks
-        // the sprite for airborne units without repeating the lift here.
-        let (sx, sy) = crate::app::presentation::instances::interpolated_screen_position_entity(e);
-        let Some(obj) = state
-            .rules()
-            .and_then(|rules| sim.interner.object_type(e.type_ref(), rules))
-        else {
-            continue;
-        };
-        let ratio = display_health_ratio(health.current(), obj.strength);
+/// One Display parent's mobile health strip, in background/fill order.
+#[derive(Debug, Default)]
+pub(crate) struct UnitHealthStrip {
+    pub background: Option<SpriteInstance>,
+    pub fills: Vec<SpriteInstance>,
+}
 
-        let is_infantry: bool = e.category() == EntityCategory::Infantry;
-        let num_pips: u32 = if is_infantry {
-            UNIT_PIPS_INFANTRY
-        } else {
-            UNIT_PIPS_VEHICLE
-        };
-        let bracket_delta: f32 = obj.pixel_selection_bracket_delta as f32;
-        let (pip_off_x, pip_off_y) = overlay.pip_offset(is_infantry);
-        let (pip_start_x, pip_start_y) = (sx + pip_off_x, sy + bracket_delta + pip_off_y);
-        // Filled pip count: floor(ratio * maxPips), clamped to [1, maxPips].
-        let raw_filled: u32 = (ratio * num_pips as f32) as u32;
-        let filled: u32 = raw_filled.max(1).min(num_pips);
-        // Map health ratio to unit pip variant: 0=green, 1=yellow, 2=red.
-        let variant: u32 = if ratio > cond_y {
-            0
-        } else if ratio > cond_r {
-            1
-        } else {
-            2
-        };
-
-        if let Some(_unit_pip_tex) = overlay.unit_pip_texture() {
-            // Authentic RA2 style: individual pip sprites from pips.shp frames 16-18.
-            let pip_size: [f32; 2] = overlay.unit_pip_frame_size();
-            let pip_uv_size: [f32; 2] = overlay.unit_pip_uv_size();
-            let total_w: f32 = (num_pips - 1) as f32 * UNIT_PIP_STEP_X + pip_size[0];
-            if !in_view(
-                pip_start_x,
-                pip_start_y,
-                total_w,
-                pip_size[1],
-                state.match_state.input.camera_x,
-                state.match_state.input.camera_y,
-                sw,
-                sh,
-                48.0,
-            ) {
-                continue;
-            }
-            // Only filled pips are drawn (no empty pips — PIPBRD.SHP is the background).
-            let uv_origin: [f32; 2] = overlay.unit_pip_uv_origin(variant);
-            for i in 0..filled {
-                let px: f32 = pip_start_x + i as f32 * UNIT_PIP_STEP_X;
-                let py: f32 = pip_start_y; // Y is constant for all pips in a bar.
-                instances.push(SpriteInstance {
-                    position: [px, py],
-                    size: pip_size,
-                    uv_origin,
-                    uv_size: pip_uv_size,
-                    depth: 0.0005,
-                    tint: [1.0, 1.0, 1.0],
-                    alpha: 1.0,
-                    ..Default::default()
-                });
-            }
-        } else {
-            // Fallback: procedural colored segments when pips.shp unavailable.
-            let seg_w: f32 = 2.0;
-            let seg_h: f32 = 3.0;
-            let total_w: f32 = num_pips as f32 * seg_w;
-            if !in_view(
-                pip_start_x,
-                pip_start_y,
-                total_w,
-                seg_h,
-                state.match_state.input.camera_x,
-                state.match_state.input.camera_y,
-                sw,
-                sh,
-                48.0,
-            ) {
-                continue;
-            }
-            let fill_color = health_fill_color(ratio, cond_y, cond_r);
-            for i in 0..num_pips {
-                let seg_x: f32 = pip_start_x + i as f32 * seg_w;
-                let tint = if i < filled {
-                    fill_color
-                } else {
-                    [0.10, 0.10, 0.10]
-                };
-                instances.push(SpriteInstance {
-                    position: [seg_x, pip_start_y],
-                    size: [seg_w, seg_h],
-                    uv_origin: [0.0, 0.0],
-                    uv_size: [1.0, 1.0],
-                    depth: 0.0005,
-                    tint,
-                    alpha: 1.0,
-                    ..Default::default()
-                });
-            }
-        }
+/// Native mobile DrawHealthBar @0x006F683C for an admitted Display parent.
+///
+/// Infantry (6F6852..68E3) uses 8 pips and PIPBRD frame 1: pip point
+/// (-5,delta-24), background (11,delta-25). Other mobile classes
+/// (6F68E8..6976) use 17 and PIPBRD frame 0: pip (-15,delta-25),
+/// background (1,delta-26). Both use the shared 4AED70 centered-resource owner.
+/// Native producer/pixel controls: procedural_drawing_oracle/unit_health.json.
+/// No RNG, timer, detach or retained presentation state changes here.
+pub(crate) fn unit_health_strip_for_parent(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: Option<&RuleSet>,
+    overlay: &crate::render::selection_overlay::SelectionOverlay,
+    hovered_id: Option<u64>,
+    local_owner: Option<&str>,
+    viewport: UnitHealthViewport,
+) -> UnitHealthStrip {
+    let mut strip = UnitHealthStrip::default();
+    if entity.category() == EntityCategory::Structure
+        || entity.sinking.is_active()
+        || entity.passenger_role.is_inside_transport()
+        || !health_bar_drawable(sim, entity, hovered_id, local_owner, rules)
+    {
+        return strip;
     }
-    instances
+    // Tactical 6D9676 calls vt+48 (Object 5F65A0 for these mobile classes),
+    // then 6D9691..9726 projects integer Location before camera subtraction.
+    // Reuse GetCoords and 6D2140 projection, including signed XY chopping.
+    let coord =
+        crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain.as_ref());
+    let (sx, sy) = crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z);
+    let object = rules.and_then(|rules| sim.interner.object_type(entity.type_ref(), rules));
+    let delta = object.map_or(0.0, |object| object.pixel_selection_bracket_delta as f32);
+    let infantry = entity.category() == EntityCategory::Infantry;
+    let (num_pips, background_frame, background_offset, pip_offset) = if infantry {
+        (UNIT_PIPS_INFANTRY, 1, [11.0, -25.0], [-5.0, -24.0])
+    } else {
+        (UNIT_PIPS_VEHICLE, 0, [1.0, -26.0], [-15.0, -25.0])
+    };
+    let instance = |shape: &crate::render::selection_overlay::CenteredShapeStrip,
+                    frame: usize,
+                    point: (f32, f32),
+                    depth: f32| {
+        let mut instance = shape.instance(frame, point, depth)?;
+        // E00 background reads tactical A; 600 fills bypass A. The renderer
+        // chooses those bindings; both use the same plain N53 Convert.
+        instance.palette_light = crate::render::palette_light::PaletteLight::plain(53, 1000);
+        in_view(
+            instance.position[0],
+            instance.position[1],
+            instance.size[0],
+            instance.size[1],
+            viewport.camera[0],
+            viewport.camera[1],
+            viewport.size[0],
+            viewport.size[1],
+            48.0,
+        )
+        .then_some(instance)
+    };
+    let (draw_background, _) = status_visibility(
+        entity.selection.is_selected(),
+        hovered_id == Some(entity.stable_id()),
+    );
+    if draw_background && let Some(shape) = overlay.pipbrd() {
+        strip.background = instance(
+            shape,
+            background_frame,
+            (sx + background_offset[0], sy + delta + background_offset[1]),
+            0.0006,
+        );
+    }
+    let (Some(object), Some(shape)) = (object, overlay.pips()) else {
+        return strip;
+    };
+    let ratio = display_health_ratio(entity.health.current(), object.strength);
+    let (yellow, red) = condition_thresholds(rules);
+    let filled = ((ratio * num_pips as f32) as u32).clamp(1, num_pips);
+    // 6F69A7..69F3 selects raw PIPS frames 16/17/18 at the threshold ties.
+    let frame = if ratio > yellow {
+        16
+    } else if ratio > red {
+        17
+    } else {
+        18
+    };
+    strip.fills.reserve(filled as usize);
+    for index in 0..filled {
+        strip.fills.extend(instance(
+            shape,
+            frame,
+            (
+                sx + pip_offset[0] + index as f32 * UNIT_PIP_STEP_X,
+                sy + delta + pip_offset[1],
+            ),
+            0.0005,
+        ));
+    }
+    strip
 }
 
 /// The self-heal status pip a non-building's health strip carries.
@@ -1438,7 +1305,7 @@ pub(crate) fn build_self_heal_pip_instances(
     ) else {
         return Vec::new();
     };
-    let Some(pip_art) = overlay.self_heal_pip() else {
+    let Some(pip_art) = overlay.pips() else {
         return Vec::new();
     };
     let local_owner = preferred_local_owner_name(state);

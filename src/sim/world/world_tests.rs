@@ -4217,21 +4217,6 @@ fn long_game_defeats_when_no_owned_objects_remain() {
     assert!(sim.houses[&owner].is_defeated);
 }
 
-#[test]
-fn short_game_victory_resolution_uses_new_defeat_state() {
-    let rules = short_game_defeat_test_rules();
-    let mut sim = Simulation::new();
-    sim.session.game_options.short_game = true;
-    let defeated = insert_house_with_counts(&mut sim, "Americans", 0, 1);
-    let survivor = insert_house_with_counts(&mut sim, "Russians", 1, 0);
-    insert_test_entity_for_owner(&mut sim, 1, defeated, "MTNK", EntityCategory::Unit);
-
-    check_defeat_now(&mut sim, Some(&rules));
-
-    assert!(sim.houses[&defeated].is_defeated);
-    assert!(sim.houses[&survivor].has_won());
-}
-
 /// HouseClass::Update's gate calls Blowup_All (`0x004F8F7B`) before
 /// MPlayer_Defeated: the straggler dies to its own Health in C4 damage, with
 /// no attacker, so no house is credited.

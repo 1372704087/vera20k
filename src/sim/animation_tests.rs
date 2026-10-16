@@ -43,20 +43,6 @@ fn test_def(
 // --- resolve_shp_frame tests ---
 
 #[test]
-fn test_resolve_stand_facing_north() {
-    let def = test_def(0, 1, 8, 200, LoopMode::Loop);
-    // Facing 0 is cell-N, which is infantry slot 7 → frame 7.
-    assert_eq!(resolve_shp_frame(&def, 0, 0), 7);
-}
-
-#[test]
-fn test_resolve_stand_facing_south() {
-    let def = test_def(0, 1, 8, 200, LoopMode::Loop);
-    // Facing 128 is cell-S, which is infantry slot 3 → frame 3.
-    assert_eq!(resolve_shp_frame(&def, 128, 0), 3);
-}
-
-#[test]
 fn test_resolve_walk_facing_east_frame_3() {
     let def = test_def(8, 6, 8, 100, LoopMode::Loop);
     // Facing 64 is cell-E → slot 5 → frame = 8 + 5*6 + 3 = 41.

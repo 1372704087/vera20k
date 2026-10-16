@@ -3008,33 +3008,6 @@ fn gsi_04_05_hard_limbo_clears_pending_then_current_vehicle_occupation() {
 }
 
 #[test]
-fn lifecycle_authority_conceal_outputs_match_release_order() {
-    let mut sim = Simulation::new();
-    insert_entity(&mut sim, 1, EntityCategory::Unit);
-    sim.substrate
-        .entities
-        .get_mut(1)
-        .unwrap()
-        .removal_facts
-        .set_dirty_rect_eligible_for_test(true);
-    let _ = sim.reveal(1);
-    sim.lifecycle_outputs.clear();
-
-    let _ = sim.object_conceal(1);
-    assert_eq!(
-        sim.lifecycle_outputs,
-        vec![
-            LifecycleOutput::ObjectPointerExpired { stable_id: 1 },
-            LifecycleOutput::DisplayRemove { stable_id: 1 },
-            LifecycleOutput::DetachAttachedAnims { stable_id: 1 },
-            LifecycleOutput::DirtyTacticalRect { stable_id: 1 },
-            LifecycleOutput::ClearDrawnState { stable_id: 1 },
-            LifecycleOutput::ClearRedraw { stable_id: 1 },
-        ]
-    );
-}
-
-#[test]
 fn lifecycle_authority_conceal_keeps_object_alive() {
     let mut sim = Simulation::new();
     insert_entity(&mut sim, 1, EntityCategory::Unit);

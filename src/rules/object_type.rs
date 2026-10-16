@@ -886,8 +886,9 @@ pub struct ObjectType {
     /// Native open-hold delay from `GateCloseDelay=` converted as
     /// `trunc(value * 900)`.
     pub gate_close_delay_ticks: u32,
-    /// Bonus credits storage for refineries (Storage= in rules.ini).
-    /// Refineries typically have Storage=300 — added to owner credits on placement.
+    /// Signed `Storage=` capacity from the TechnoType rules reader. Building
+    /// capacity contributes to House+310, read by Available_Storage4F69D0;
+    /// placement does not grant this many credits. Mobile cargo uses it too.
     pub storage: i32,
     /// Free unit spawned when this structure is placed (FreeUnit= in rules.ini).
     pub free_unit: Option<String>,

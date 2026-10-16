@@ -328,7 +328,7 @@ fn collect_area_at<'r>(
 ) -> AreaAtImpact<'r> {
     let (rx, ry, sub_x, sub_y, z_leptons) = projectile_impact_cell(impact);
     let entered = damage != 0 && !world.session.no_damage;
-    let routed_wall = area_routes_to_wall(world, overlay_registry, (rx, ry), warhead);
+    let routed_wall = entered && area_routes_to_wall(world, overlay_registry, (rx, ry), warhead);
     let aoe = collect_area(
         world,
         rules,
@@ -2197,13 +2197,31 @@ pub(crate) fn area_routes_to_wall(
     cell: (u16, u16),
     warhead: &WarheadType,
 ) -> bool {
-    wall_overlay_flags_at(
-        world.overlay_grid.as_ref(),
-        overlay_registry,
-        cell.0,
-        cell.1,
-    )
-    .is_some_and(|flags| warhead_damages_wall(warhead, flags))
+    let (Some(grid), Some(registry)) = (world.overlay_grid.as_ref(), overlay_registry) else {
+        return false;
+    };
+    let overlay_id = if let Some(terrain) = world.resolved_terrain.as_ref() {
+        //489342 retains the primary CellClass, including fixed512 aliases
+        //and the live Dummy. Its overlay, not a rectangular requested key,
+        //decides whether this call skips its later bridge continuation.
+        let query = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        let identity = query.lookup((cell.0 as i16, cell.1 as i16));
+        match identity {
+            crate::map::cell_index::NativeCellIdentity::Real(_) => {
+                let (rx, ry) = query.coord(identity);
+                grid.cell(rx as u16, ry as u16).overlay_id
+            }
+            crate::map::cell_index::NativeCellIdentity::Dummy => {
+                u8::try_from(query.overlay_identity(identity)).ok()
+            }
+        }
+    } else {
+        // Mapless focused hosts have only their supplied rectangular grid.
+        grid.cell(cell.0, cell.1).overlay_id
+    };
+    overlay_id
+        .and_then(|id| registry.flags(id))
+        .is_some_and(|flags| flags.wall && warhead_damages_wall(warhead, flags))
 }
 
 /// Apply_area_damage489B49..48A2C4 resumes after synchronous receivers and
@@ -2867,22 +2885,6 @@ mod ifv_area_receipt_tests;
 #[cfg(test)]
 #[path = "nuke_maker_tests.rs"]
 mod nuke_maker_tests;
-
-/// Return the active wall-overlay flags at a cell, if available.
-fn wall_overlay_flags_at<'a>(
-    overlay_grid: Option<&OverlayGrid>,
-    overlay_registry: Option<&'a OverlayTypeRegistry>,
-    rx: u16,
-    ry: u16,
-) -> Option<&'a crate::rules::overlay_types::OverlayTypeFlags> {
-    let (Some(grid), Some(registry)) = (overlay_grid, overlay_registry) else {
-        return None;
-    };
-    grid.cell(rx, ry)
-        .overlay_id
-        .and_then(|id| registry.flags(id))
-        .filter(|flags| flags.wall)
-}
 
 fn warhead_damages_wall(
     warhead: &WarheadType,

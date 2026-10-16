@@ -835,3 +835,129 @@ fn negative_impact_uses_the_original_signed_cell_for_the_live_49_cell_span() {
         );
     }
 }
+
+#[test]
+fn negative_impact_sweep_wraps_into_cell_zero_and_dispatches_its_real_receiver() {
+    let Some(mut scene) = AreaScene::retail("") else {
+        return;
+    };
+    let victim = scene
+        .sim
+        .spawn_object("MTNK", "Russians", 0, 20, 0, &scene.rules)
+        .expect("ordinary tank in the cell reached by signed-word wrapping");
+    let strength = scene.rules.object("MTNK").unwrap().strength;
+    assert_eq!(scene.health(victim), strength);
+    let position =
+        position_world_coord(&scene.sim.substrate.entities.get(victim).unwrap().position);
+    assert_eq!([position.x, position.y, position.z], [128, 5248, 0]);
+    assert_eq!(scene.rules.warhead("BlimpHE").unwrap().cell_spread_f64, 2.0);
+    //4895D7/4895DC ADD WORD wraps center cell-1 plus dx1 into cell0.
+    // The live actor is385 leptons from the exact impact, inside retail
+    // CellSpread2. The receiver's real nonlethal result must precede any
+    // rocker claim; the separate x2/x3 test covers the larger49-cell scan.
+    scene.apply_at(
+        crate::sim::projectile::ProjectileCoord::new(-257, 5248, 0),
+        "BlimpHE",
+        250,
+        None,
+        false,
+    );
+    assert!(
+        scene.health(victim) > 0 && scene.health(victim) < strength,
+        "packed cell-1+1 must dispatch cell0's actual nonlethal receiver; health={}",
+        scene.health(victim)
+    );
+    assert!(
+        has_rates(scene.words(victim)),
+        "the live receiver is also reached by the post-receiver rocker"
+    );
+}
+
+#[test]
+fn area_entry_zero_and_no_damage_leave_the_live_dummy_coordinate_untouched() {
+    for (damage, no_damage) in [(0, false), (250, true)] {
+        let Some(mut scene) = AreaScene::retail("") else {
+            return;
+        };
+        scene.sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(64, 64));
+        scene.sim.session.no_damage = no_damage;
+        let terrain = scene.sim.resolved_terrain.as_ref().unwrap();
+        // Establish a live fallback coordinate through its actual Map lookup.
+        assert_eq!(
+            terrain.native_cell_identity((-7, -11)),
+            crate::map::cell_index::NativeCellIdentity::Dummy
+        );
+        let dummy = terrain.shared_cell_dummy();
+        let before = dummy.snapshot();
+        //600*512+600 is outside the native fixed grid. An admitted lookup
+        // would stamp600,600, but489280's entry gate precedes that lookup and
+        // even the primary-cell wall-route decision must remain unobserved.
+        scene.apply_at(
+            crate::sim::projectile::ProjectileCoord::new(600 * 256 + 17, 600 * 256 + 23, 0),
+            "BlimpHE",
+            damage,
+            Some(scene.source),
+            false,
+        );
+        assert_eq!(
+            dummy.snapshot(),
+            before,
+            "zero/NoDamage must return before any wall/receiver/rocker Map lookup"
+        );
+    }
+}
+
+#[test]
+fn primary_wall_route_reads_the_fixed_stride_alias_before_the_real_wall_is_removed() {
+    let Some(mut scene) = AreaScene::retail("[BlimpHE]\nWallAbsoluteDestroyer=yes\n") else {
+        return;
+    };
+    let wall = scene.overlays.id_for_name("GAWALL").unwrap();
+    scene.sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(64, 64));
+    scene
+        .sim
+        .overlay_grid
+        .as_mut()
+        .unwrap()
+        .place_overlay(5, 20, wall, 0);
+    // Packed517,19 selects real Cell5,20 by fixed512 indexing. It is neither
+    // rectangular out-of-bounds nor the shared Dummy. The primary route must
+    // read that same Cell before the collector's real WAD removal mutates it.
+    let route_before = crate::sim::combat::world_receiver::area_routes_to_wall(
+        &scene.sim,
+        Some(&scene.overlays),
+        (517, 19),
+        scene.rules.warhead("BlimpHE").unwrap(),
+    );
+    assert!(
+        route_before,
+        "the retained pre-receiver route is the real aliased wall"
+    );
+    scene.apply_at(
+        crate::sim::projectile::ProjectileCoord::new(517 * 256 + 128, 19 * 256 + 128, 0),
+        "BlimpHE",
+        250,
+        None,
+        false,
+    );
+    assert_eq!(
+        scene
+            .sim
+            .overlay_grid
+            .as_ref()
+            .unwrap()
+            .cell(5, 20)
+            .overlay_id,
+        None,
+        "actual area collection must remove the aliased concrete wall"
+    );
+    assert!(
+        !crate::sim::combat::world_receiver::area_routes_to_wall(
+            &scene.sim,
+            Some(&scene.overlays),
+            (517, 19),
+            scene.rules.warhead("BlimpHE").unwrap(),
+        ),
+        "a post-receiver lookup cannot reconstruct the saved primary wall route"
+    );
+}

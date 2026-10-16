@@ -929,18 +929,17 @@ fn techno_ai_shell(
                     ctx.effects,
                 );
                 // A `Factory=` type's own production (`0x004401BB..0x004401CD`).
-                let factory_type = sim
+                let has_factory = sim
                     .substrate
                     .entities
                     .get(id)
                     .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-                    .and_then(|ty| ty.factory);
-                if let Some(factory_type) = factory_type {
+                    .is_some_and(|ty| ty.has_factory());
+                if has_factory {
                     crate::sim::production::factory_ai(
                         sim,
                         rules,
                         id,
-                        factory_type,
                         ctx.overlay_registry,
                         ctx.effects,
                     );
@@ -1377,8 +1376,10 @@ fn techno_common_steps(
     // locomotor Process and the Foot parasite tail; no later global update
     // may erase a parasite's direct sideways-angle write.
     let rocking_type = sim.substrate.entities.get(id).and_then(|entity| {
-        sim.object_type(entity.type_ref(), rules)
-            .filter(|object| rules.object_has_loaded_voxel(&object.id))
+        let object = sim.interner.type_handle(entity.type_ref(), rules)?;
+        rules
+            .object_has_loaded_voxel(object)
+            .then(|| rules.object_by_handle(object))
     });
     if let Some(object) = rocking_type {
         let needs_self_damage = sim.substrate.entities.get_mut(id).is_some_and(|entity| {
@@ -2356,7 +2357,8 @@ mod tests {
                 "unloaded" => {
                     // Replacing ART invalidates the previously supplied model.
                     rules.install_art_fixture(crate::rules::art_data::ArtRegistry::empty());
-                    assert!(!rules.object_has_loaded_voxel("TEST"));
+                    let object = rules.type_handle("TEST").unwrap();
+                    assert!(!rules.object_has_loaded_voxel(object));
                 }
                 "temporal" => {
                     let warper = sim

@@ -19,6 +19,7 @@
 //! | `read_double` (`_bits`, `_to_float`, `_with`, `read_float`) | `CCINIClass::ReadDouble` 0x005283D0 |
 //! | `read_string`, `read_name`, `read_type_name` | `CCINIClass::ReadString` 0x00528A10 |
 //! | `read_movie` | `CCINIClass::ReadMovie` 0x004757D0 |
+//! | `read_pip` | `CCINIClass::ReadPip` 0x004748A0 |
 //! | `read_edge` | `CCINIClass::ReadEdge` 0x00475980 |
 //! | `read_color_scheme` | `CCINIClass::ReadColor` 0x00474A90 |
 //! | `read_list` | ReadString, then `strtok(",")` (every type, house, sound and ability list) |
@@ -150,6 +151,44 @@ const ABSTRACT_TYPES: &[(&str, i32)] = &[
 ];
 
 impl IniSection {
+    /// ReadPip4748A0: the default is a TABLE INDEX; the result is a frame.
+    /// ReadString32 always runs, including missing/empty cache entries, then
+    /// an11-entry case-insensitive scan returns1 for an unknown name. Returned
+    /// frames11/12 index the adjacent Ammo/Tiberium names on the next pass;
+    /// neither name belongs to the11-entry pip scan. Original executable:
+    /// procedural_drawing_oracle/passenger_pips.json/read_pip.
+    pub(crate) fn read_pip(&self, key: &str, current: u32) -> u32 {
+        const PIPS: [(&str, u32); 11] = [
+            ("green", 1),
+            ("yellow", 2),
+            ("white", 3),
+            ("red", 4),
+            ("blue", 5),
+            ("persongreen", 7),
+            ("personyellow", 8),
+            ("personwhite", 9),
+            ("personred", 10),
+            ("personblue", 11),
+            ("personpurple", 12),
+        ];
+        // Constructor1/7 and every mapped frame close over indices0..=12.
+        // The adjacent literal pointers are original81B9B0/81B9B8; their
+        // unrelated numeric table values must not become pip return values.
+        let default = match current {
+            11 => "Ammo",
+            12 => "Tiberium",
+            _ => {
+                PIPS.get(current as usize)
+                    .expect("ReadPip current must be a constructor or returned frame")
+                    .0
+            }
+        };
+        let name = self.read_string(key, default, 0x20);
+        PIPS.iter()
+            .find_map(|&(candidate, frame)| candidate.eq_ignore_ascii_case(&name).then_some(frame))
+            .unwrap_or(1)
+    }
+
     /// ReadFactory474FF0 -> AbstractType_From_Name40DCE0. Each BuildingType
     /// pass460529 supplies its current RTTI name as ReadString32's default;
     /// absent therefore retains it. A present unknown/empty cache value is0.

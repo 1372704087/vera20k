@@ -25,6 +25,9 @@ pub(crate) mod super_timers;
 pub(crate) mod target_lines;
 pub(crate) mod ui_overlays;
 
+#[cfg(test)]
+mod passenger_pip_tests;
+
 pub(crate) mod lighting;
 
 #[cfg(test)]

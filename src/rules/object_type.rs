@@ -134,6 +134,31 @@ impl PipScale {
     }
 }
 
+/// InfantryType+DFC/E00 state, retained by the process-resident type.
+/// Constructors5236BD/5236C7 set1/7; admitted InfantryRead5240D1..524125
+/// unconditionally invokes the shared ReadPip for both current defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct InfantryPips {
+    pip: u32,
+    occupy_pip: u32,
+}
+
+impl Default for InfantryPips {
+    fn default() -> Self {
+        Self {
+            pip: 1,
+            occupy_pip: 7,
+        }
+    }
+}
+
+impl InfantryPips {
+    pub(crate) fn apply_pass(&mut self, section: &IniSection) {
+        self.pip = section.read_pip("Pip", self.pip);
+        self.occupy_pip = section.read_pip("OccupyPip", self.occupy_pip);
+    }
+}
+
 /// What type of objects this building can produce (Factory= in rules.ini).
 ///
 /// RA2 uses this key to determine which production queue a building serves:
@@ -1455,11 +1480,8 @@ pub struct ObjectType {
     /// Parsed from `EliteOccupyWeapon=WeaponName` in rules.ini.
     pub elite_occupy_weapon: Option<String>,
 
-    /// pips.shp frame index for this infantry when garrisoned in a building.
-    /// Parsed from `OccupyPip=PersonGreen` in rules.ini.  Default 7 (PersonGreen).
-    /// Values: 7=PersonGreen, 8=PersonYellow, 9=PersonWhite, 10=PersonRed,
-    /// 11=PersonBlue, 12=PersonPurple.  Empty slots use frame 6.
-    pub occupy_pip: u32,
+    /// Immutable projection of the retained InfantryType Pip/OccupyPip state.
+    infantry_pips: InfantryPips,
 
     /// What pip display to render below the health bar (PipScale= in rules.ini).
     /// `Tiberium` shows per-bale cargo pips for harvesters using pips2.shp.
@@ -1946,6 +1968,47 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    /// InfantryType+DFC: raw PIPS2 frame for this infantry as a passenger.
+    pub const fn pip(&self) -> u32 {
+        self.infantry_pips.pip
+    }
+
+    /// InfantryType+E00: raw PIPS frame for this infantry in a garrison.
+    /// Admitted missing-key passes can produce1..5 as well as person frames.
+    pub const fn occupy_pip(&self) -> u32 {
+        self.infantry_pips.occupy_pip
+    }
+
+    pub(crate) fn project_infantry_pips(&mut self, pips: InfantryPips) {
+        self.infantry_pips = pips;
+    }
+
+    /// TechnoType GetPipMax716290, virtual+74. Signed configuration capacity;
+    /// callers own allocation/fill bounds. Uses the live bound base weapon0,
+    /// not a capture manager's retained admission capacity or elite weapon.
+    pub fn pip_max(&self, rules: &crate::rules::ruleset::RuleSet) -> i32 {
+        match self.pip_scale {
+            PipScale::None => 0,
+            PipScale::Ammo => self.ammo,
+            PipScale::Tiberium => {
+                if self.category == ObjectCategory::Infantry {
+                    3
+                } else {
+                    5
+                }
+            }
+            PipScale::Passengers => self.passengers,
+            PipScale::Power => 10,
+            // Native7162B0 dereferences an admitted primary. Preserve the
+            // existing host's safe0 for an invalid missing binding; stock
+            // MindControl has a bound weapon and follows the original read.
+            PipScale::MindControl => self
+                .weapon_at(0)
+                .and_then(|name| rules.weapon(name))
+                .map_or(0, |weapon| weapon.damage),
+        }
+    }
+
     /// The authoritative BuildingType+EB8 class, including non-production
     /// RTTI names. Consumers must keep their own native comparisons.
     pub const fn factory_rtti(&self) -> i32 {
@@ -2934,18 +2997,15 @@ impl ObjectType {
             elite_occupy_weapon: section
                 .read_name("EliteOccupyWeapon", 0x80)
                 .map(str::to_owned),
-            occupy_pip: section
-                .read_name("OccupyPip", 0x20)
-                .map(|s| match s.to_ascii_lowercase().as_str() {
-                    "persongreen" => 7,
-                    "personyellow" => 8,
-                    "personwhite" => 9,
-                    "personred" => 10,
-                    "personblue" => 11,
-                    "personpurple" => 12,
-                    _ => 7,
-                })
-                .unwrap_or(7),
+            infantry_pips: {
+                let mut pips = InfantryPips::default();
+                // Direct fixtures perform one actual admitted type read.
+                // Production replaces this projection from ProcessedType.
+                if category == ObjectCategory::Infantry {
+                    pips.apply_pass(section);
+                }
+                pips
+            },
             pip_scale: section
                 .read_name("PipScale", 0x20)
                 .map(PipScale::from_ini)
@@ -3294,6 +3354,10 @@ fn building_bool(section: &IniSection, category: ObjectCategory, key: &str) -> b
 #[cfg(test)]
 #[path = "infantry_speed_type_tests.rs"]
 mod infantry_speed_type_tests;
+
+#[cfg(test)]
+#[path = "infantry_pip_tests.rs"]
+mod infantry_pip_tests;
 
 #[cfg(test)]
 mod tests {

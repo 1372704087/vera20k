@@ -17,9 +17,8 @@ use crate::app::presentation::sidebar_render::{
 };
 use crate::app::presentation::ui_overlays::{
     build_bomb_clock_instances, build_building_radius_ring_instances,
-    build_control_group_status_instances, build_occupant_pip_instances,
-    build_repair_wrench_instances, build_scale_pip_instances, build_self_heal_pip_instances,
-    build_software_cursor_instances,
+    build_control_group_status_instances, build_repair_wrench_instances,
+    build_self_heal_pip_instances, build_software_cursor_instances,
 };
 use crate::map::terrain::TilePlacement;
 use crate::map::theater::TileKey;
@@ -71,12 +70,10 @@ pub(super) struct UiInstances {
     pub radius_ring: Vec<SpriteInstance>,
     pub bomb_clock: Vec<SpriteInstance>,
     pub repair_wrench: Vec<SpriteInstance>,
-    pub occupant_pip: Vec<SpriteInstance>,
     pub control_group_status_bg: Vec<SpriteInstance>,
     pub control_group_status_outline: Vec<SpriteInstance>,
     pub control_group_status: Vec<SpriteInstance>,
     pub self_heal_pip: Vec<SpriteInstance>,
-    pub scale_pip: Vec<SpriteInstance>,
     pub software_cursor: Vec<SpriteInstance>,
     pub drag: Vec<SpriteInstance>,
     pub placement: Vec<SpriteInstance>,
@@ -642,10 +639,8 @@ pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstan
     let radius_ring: Vec<SpriteInstance> = build_building_radius_ring_instances(state, sw, sh);
     let bomb_clock = build_bomb_clock_instances(state, sw, sh);
     let repair_wrench = build_repair_wrench_instances(state, sw, sh);
-    let occupant_pip = build_occupant_pip_instances(state, sw, sh);
     let control_group_status = build_control_group_status_instances(state, sw, sh);
     let self_heal_pip = build_self_heal_pip_instances(state, sw, sh);
-    let scale_pip = build_scale_pip_instances(state, sw, sh);
     let software_cursor = build_software_cursor_instances(state);
     let drag = match &state.match_state.match_presentation.selection_overlay {
         Some(o) => o.build_drag_rect(
@@ -739,12 +734,10 @@ pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstan
         radius_ring,
         bomb_clock,
         repair_wrench,
-        occupant_pip,
         control_group_status_bg: control_group_status.background,
         control_group_status_outline: control_group_status.outline,
         control_group_status: control_group_status.text,
         self_heal_pip,
-        scale_pip,
         software_cursor,
         drag,
         placement,

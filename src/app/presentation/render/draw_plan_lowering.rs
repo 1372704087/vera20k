@@ -119,6 +119,7 @@ pub(crate) enum ObjectExtrasRun {
         rank: Option<u32>,
         background: Option<u32>,
         fills: std::ops::Range<u32>,
+        scale: std::ops::Range<u32>,
     },
 }
 
@@ -322,14 +323,16 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                 let start = lowered.extras_instances.len() as u32;
                 lowered.extras_instances.extend(strip.fills);
                 let end = lowered.extras_instances.len() as u32;
-                (rank, background, start..end)
+                lowered.extras_instances.extend(strip.scale);
+                let scale_end = lowered.extras_instances.len() as u32;
+                (rank, background, start..end, end..scale_end)
             });
             // Native6F5382 precedes selected Building lines6F5396..5E10;
             // health6F5E27 follows them. Split only when those lines fence a
             // rank, retaining a single upload for both native Extras sweeps.
             let mut split_rank = None;
             if lines.as_ref().is_some_and(|lines| !lines.extras.is_empty()) {
-                if let Some((Some(rank), _, fills)) = &strip {
+                if let Some((Some(rank), _, fills, _)) = &strip {
                     split_rank = Some(lowered.extras_runs.len());
                     lowered.extras_runs.push(ObjectExtrasRun::Status {
                         #[cfg(test)]
@@ -337,6 +340,7 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                         rank: Some(*rank),
                         background: None,
                         fills: fills.start..fills.start,
+                        scale: fills.start..fills.start,
                     });
                 }
             }
@@ -362,9 +366,10 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                     });
                 }
             }
-            if let Some((rank, background, fills)) = strip {
+            if let Some((rank, background, fills, scale)) = strip {
                 let rank = rank.filter(|_| split_rank.is_none());
-                if rank.is_some() || background.is_some() || !fills.is_empty() {
+                if rank.is_some() || background.is_some() || !fills.is_empty() || !scale.is_empty()
+                {
                     if is_building {
                         // Tactical6D9153 calls Building Extras before its body;
                         //6D9789 calls it again later. One frame-local strip is
@@ -377,6 +382,7 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                         rank,
                         background,
                         fills,
+                        scale,
                     });
                 }
             }
@@ -579,6 +585,7 @@ mod tests {
                 rank: None,
                 background: None,
                 fills: vec![SpriteInstance::default(); 15],
+                scale: Vec::new(),
             });
             parent
         };
@@ -637,6 +644,7 @@ mod tests {
             rank: Some(SpriteInstance::default()),
             background: None,
             fills: vec![SpriteInstance::default(); 15],
+            scale: Vec::new(),
         });
         let pass = lower_ground_object_instances(vec![parent]);
         // Native6D913C Behind,6D9153 Extras:6F5382 rank,6F5396..5E10
@@ -645,9 +653,9 @@ mod tests {
         assert_eq!(pass.before_lines, [vec![line(10)], vec![line(11)]]);
         assert_eq!(pass.extras_instances.len(), 16);
         assert!(matches!(&pass.extras_runs[..], [
-            ObjectExtrasRun::Status { parent: 42, rank: Some(0), background: None, fills: a },
+            ObjectExtrasRun::Status { parent: 42, rank: Some(0), background: None, fills: a, .. },
             ObjectExtrasRun::Lines { parent: 42, lines, .. },
-            ObjectExtrasRun::Status { parent: 42, rank: None, background: None, fills: b },
+            ObjectExtrasRun::Status { parent: 42, rank: None, background: None, fills: b, .. },
         ] if a.is_empty() && *lines == (0..1) && *b == (1..16)));
         assert_eq!(
             pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
@@ -692,6 +700,10 @@ mod tests {
                 position: [2.0, 0.0],
                 ..Default::default()
             }],
+            scale: vec![SpriteInstance {
+                position: [3.0, 0.0],
+                ..Default::default()
+            }],
         });
         let mut middle = parent(3, 1);
         middle.brackets = Some(BuildingBracketLines {
@@ -708,22 +720,23 @@ mod tests {
             rank: None,
             background: None,
             fills: vec![SpriteInstance {
-                position: [3.0, 0.0],
+                position: [4.0, 0.0],
                 ..Default::default()
             }],
+            scale: Vec::new(),
         });
         let pass = lower_ground_object_instances(vec![last, middle, first]);
         assert!(matches!(&pass.extras_runs[..], [
-            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a },
+            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a, scale: s },
             ObjectExtrasRun::Lines { parent: 3, .. },
-            ObjectExtrasRun::Status { parent: 2, rank: None, background: None, fills: b },
-        ] if *a == (2..3) && *b == (3..4)));
+            ObjectExtrasRun::Status { parent: 2, rank: None, background: None, fills: b, .. },
+        ] if *a == (2..3) && *s == (3..4) && *b == (4..5)));
         assert_eq!(
             pass.extras_instances
                 .iter()
                 .map(|s| s.position[0])
                 .collect::<Vec<_>>(),
-            [0.0, 1.0, 2.0, 3.0]
+            [0.0, 1.0, 2.0, 3.0, 4.0]
         );
         let empty = lower_ground_object_instances(vec![parent(901, 0)]);
         assert!(empty.extras_runs.is_empty());

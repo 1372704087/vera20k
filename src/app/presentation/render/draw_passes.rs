@@ -622,40 +622,6 @@ pub(super) fn dispatch_draw_passes(
         repair_wrench_tex,
         "repair_wrenches",
     );
-    // Occupant pips for garrisoned buildings (pips.shp frames 6-12).
-    let occupant_pip_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .map(|o| {
-            o.occupant_pip_texture()
-                .unwrap_or_else(|| o.white_texture())
-        });
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        occupant_pip_tex,
-        "occupant_pips",
-    );
-    // Native709A90 draws the PIPS2 scale strip before self-heal70A6BB
-    // and the control-group tail70A6FD. One atlas serves cargo and MindControl.
-    let scale_pip_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .and_then(|overlay| overlay.scale_pips())
-        .map(|pips| pips.texture());
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        scale_pip_tex,
-        "scale_pips",
-    );
-
     // The self-heal status pip `DrawPipScalePips` draws after the strip
     // (pips.shp frames 0x0D / 0x14).
     let self_heal_pip_tex = state

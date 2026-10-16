@@ -57,6 +57,10 @@ mod building_abandoned_sound_tests;
 mod building_damage_sound_tests;
 
 #[cfg(test)]
+#[path = "message_sound_tests.rs"]
+mod message_sound_tests;
+
+#[cfg(test)]
 #[path = "radial_fire_segments_tests.rs"]
 mod radial_fire_segments_tests;
 
@@ -1205,9 +1209,13 @@ pub struct GeneralRules {
     /// `MenuTab`). The key→tab-click mapping is name-inferred — flagged for a
     /// Ghidra spot-check of the tab-ID consumer before parity sign-off.
     pub gui_tab_sound: Option<String>,
-    /// Message-insert sound from [AudioVisual] IncomingMessage (retail
-    /// `MessageText`). Plays on every non-silent message-list insert.
-    pub incoming_message_sound: Option<String>,
+    /// Rules+6AC, ctor665FB0=-1, reader66A7B3..66A7E9. Fixed SOUNDMD
+    /// reference; missing/unknown later names retain the previous valid ID.
+    incoming_message_sound: Option<String>,
+    /// Rules+6C4, ctor665FD5=-1, reader66A7EF..66A822. Exact
+    /// [AudioVisual] MessageCharTyped via ReadString128/VocFindIndex7514D0;
+    /// drawn nonsilent TextLabels request it at72A609, pan2000/volume1.
+    message_char_typed_sound: Option<String>,
     /// `[AudioVisual] MessageDelay=` native ReadDouble in6691E0 retains
     /// Rules+14C0. Constructor665650 initializes binary64 .6. Action11
     /// 6DE0EF..6DE100 converts MessageDelay*900 through the native ftol into
@@ -2293,6 +2301,7 @@ impl Default for GeneralRules {
             building_slam: None,
             gui_tab_sound: None,
             incoming_message_sound: None,
+            message_char_typed_sound: None,
             message_delay_minutes: crate::util::native_x87::NativeF64Bits::from_bits(
                 0x3FE3_3333_3333_3333,
             ),
@@ -2739,6 +2748,14 @@ pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
 }
 
 impl GeneralRules {
+    pub fn incoming_message_sound(&self) -> Option<&str> {
+        self.incoming_message_sound.as_deref()
+    }
+
+    pub fn message_char_typed_sound(&self) -> Option<&str> {
+        self.message_char_typed_sound.as_deref()
+    }
+
     pub fn wind_direction(&self) -> i32 {
         self.wind_direction
     }
@@ -3338,9 +3355,10 @@ impl GeneralRules {
             gui_tab_sound: audio_visual
                 .read_name("GUITabSound", 0x80)
                 .map(str::to_owned),
-            incoming_message_sound: audio_visual
-                .read_name("IncomingMessage", 0x80)
-                .map(str::to_owned),
+            // The fixed sound registry binds these readers below, including
+            // current-ID retention through the actual Rules pass history.
+            incoming_message_sound: None,
+            message_char_typed_sound: None,
             message_delay_minutes,
             speak_delay_minutes: audio_visual.read_double("SpeakDelay", 0.0),
             gui_combo_open_sound: audio_visual
@@ -4072,6 +4090,14 @@ impl RuleSet {
         ini: &IniFile,
         sounds: &crate::rules::sound_ini::SoundRegistry,
     ) {
+        // Original66A7B3..66A822, in native read order. Use the same fixed
+        // registry and history-aware reader as every other bound Voc ID.
+        self.general.incoming_message_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "IncomingMessage"));
+        self.general.message_char_typed_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "MessageCharTyped"));
         self.general.airstrike_abort_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "AirstrikeAbortSound"));

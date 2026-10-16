@@ -354,12 +354,10 @@ fn upload_to_gpu(
     sidebar: &SidebarInstances,
 ) {
     // A5 chat/system message lines (GAME.FNT atlas) — chat draws before the
-    // tooltip (O10). Built before the pool borrow (it reads &AppState).
-    let message_text = crate::app::input::messages::build_message_text_instances(state);
-    // Native rows draw through the shared text engine with the row's
-    // opaque-background style: a black box one pixel out on every side
-    // (0x4A5EB0 @ 0x4A5F61) behind each message line.
-    let message_fill = crate::app::input::messages::build_message_fill_instances(state);
+    // tooltip (O10). Prepare once: nonsilent TextLabel72A4A0 advances its
+    // raw-wall reveal and requests typing audio once per successful paint.
+    // Keep the row's existing opaque black background behind its glyphs.
+    let (message_fill, message_text) = crate::app::input::messages::build_message_instances(state);
     let (outcome_shape, outcome_text) = crate::app::presentation::outcome_banner::instances(state);
 
     // A4 in-game tooltip: built before the pool borrow (it reads &AppState);

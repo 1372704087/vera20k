@@ -6,13 +6,20 @@ height at its newline (434EC2..434ED7) or wrap (435112..435127) tail. These
 fixtures execute that complete body, including its original glyph lookup and
 horizontal-position setter, but replace surface lock/unlock and glyph raster.
 They establish glyph submission, not clipped raster pixels or complete layout.
+
+The opt-in --text-label corpus reuses this same font and glyph boundary for
+original434500 versus PathA434CD0 count/color controls. The default66 corpus
+and its inputs remain unchanged.
 """
 
 from pathlib import Path
 import struct
+import sys
+
+from tools import native_oracle as native
 
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE
-from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
+from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 from tools.native_oracle import (
     RET_MAGIC, SCRATCH, SCRATCH_SIZE, STACK_BASE, STACK_SIZE,
@@ -20,7 +27,7 @@ from tools.native_oracle import (
 )
 
 
-def native_case(mode, height, line_count, *, text=None, width=None):
+def native_case(mode, height, line_count, *, text=None, width=None, reveal=None):
     uc = Uc(UC_ARCH_X86, UC_MODE_32)
     load_image(uc)
     uc.mem_map(STACK_BASE, STACK_SIZE)
@@ -52,6 +59,23 @@ def native_case(mode, height, line_count, *, text=None, width=None):
     uc.mem_write(stack, struct.pack("<11I", RET_MAGIC, *args))
     uc.reg_write(UC_X86_REG_ESP, stack)
     submissions = []
+    glyph_colors = []
+    if reveal is not None:
+        # Explicit RGB565 pixel-format bindings, also used by the existing
+        # palette/House color fixtures. The original bodies own all blending
+        # and repacking; no expected color is calculated by this fixture.
+        for address, value in ((0x8A0DD0, 11), (0x8A0DD4, 3),
+                               (0x8A0DD8, 0), (0x8A0DDC, 3),
+                               (0x8A0DE0, 5), (0x8A0DE4, 2)):
+            put(address, value)
+        uc.mem_write(font + 0x24, struct.pack("<H", reveal["base_rgb565"]))
+        uc.mem_write(0xA80220, bytes(reveal["highlight_rgb"]))
+        if reveal["path"] == "generic":
+            uc.reg_write(UC_X86_REG_ECX, font)
+            uc.mem_write(stack, struct.pack("<6I", RET_MAGIC, text_address,
+                                           11, 13, 0, reveal["native_count"]))
+        else:
+            uc.mem_write(stack + 36, struct.pack("<2I", reveal["path_a_count"], 8))
 
     def substitute(_uc, address, _size, _data):
         if address not in (0x4348F0, 0x434990, 0x434120):
@@ -63,6 +87,13 @@ def native_case(mode, height, line_count, *, text=None, width=None):
             if char & 0xFFFF != ord("A"):
                 raise RuntimeError(f"Unexpected submitted character: {char:#x}")
             submissions.append({"x": x, "y": y})
+            if reveal is not None:
+                # Generic434500 changes font+24 and passes the -1 sentinel;
+                # PathA434CD0 passes the explicit glyph color. Observe each
+                # original choice before returning at the shared raster seam.
+                color = (struct.unpack("<H", uc.mem_read(font + 0x24, 2))[0]
+                         if _color == 0xFFFFFFFF else _color & 0xFFFF)
+                glyph_colors.append(color)
             uc.reg_write(UC_X86_REG_EAX, x + 6)
             argument_bytes = 16
         else:
@@ -90,11 +121,20 @@ def native_case(mode, height, line_count, *, text=None, width=None):
         required.append(0x434EA1 if mode == "newline" else 0x4350DC)
     else:
         required.append(0x4352B5)
+    begin = 0x434CD0
+    if reveal is not None:
+        begin = 0x434500 if reveal["path"] == "generic" else 0x434CD0
+        required = [begin, 0x434120]
+        if 0 < reveal["native_count"] < len(text.encode("utf-16-le")) // 2 + 8:
+            required.append(0x6612C0)
     try:
-        run_checked(uc, 0x434CD0, RET_MAGIC, count=5000,
+        run_checked(uc, begin, RET_MAGIC, count=5000,
                     required_addresses=required)
     finally:
         uc.hook_del(hook)
+    if reveal is not None:
+        assert struct.unpack("<H", uc.mem_read(font + 0x24, 2))[0] == reveal["base_rgb565"]
+        return glyph_colors
     return {"mode": mode, "cell_height": 17, "height": height,
             "line_count": line_count, "width": width, "text": text,
             "submissions": submissions, "result": uc.reg_read(UC_X86_REG_EAX) & 0xFF}
@@ -115,8 +155,33 @@ def generate():
     return {"source": "unicorn/gamemd.exe", "cases": cases}
 
 
-if __name__ == "__main__":
-    finish_vectors(generate, Path(__file__).with_suffix(".json"),
+def text_label_controls():
+    controls = []
+    for base, highlight in ((0xF800, [255, 255, 255]), (0xFFFF, [0, 0, 0])):
+        for count in (0, 1, 2, 8, 9, 12, 13, 20):
+            row = dict(base_rgb565=base, highlight_rgb=highlight,
+                       native_count=count, path_a_count=0 if count == 0 else count + 1,
+                       text="A" * 12)
+            for path in ("generic", "path_a"):
+                row[path + "_rgb565"] = native_case(
+                    "newline", 100, 1, text=row["text"], width=100,
+                    reveal=dict(row, path=path))
+            assert row["generic_rgb565"] == row["path_a_rgb565"]
+            controls.append(row)
+    return dict(schema_version=1, kind="bounded-original-text-label-path-mapping",
+                controls=controls)
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--text-label" in argv:
+        argv.remove("--text-label")
+        finish_vectors(text_label_controls, Path(__file__).with_name("shell_text_label.json"),
+                       provenance=lambda: {"native_sha256": native.image_sha256()}, argv=argv,
+                       source_paths={"producer": Path(__file__),
+                                     "native_runner": Path(native.__file__)})
+        return
+    finish_vectors(generate, Path(__file__).with_suffix(".json"), argv=argv,
                    provenance=lambda: provenance(
         scope="66 original 434CD0 fixtures: 48 line-admission, six saved-space word-suffix rewinds and 12 no-space hard cuts",
         assumptions=[
@@ -135,3 +200,7 @@ if __name__ == "__main__":
         entry_points={"draw_text": 0x434CD0, "shell_caller": 0x62102E,
                       "newline_height": 0x434EC2, "wrap_height": 0x435112},
     ))
+
+
+if __name__ == "__main__":
+    main()

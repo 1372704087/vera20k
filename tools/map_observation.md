@@ -258,6 +258,18 @@ SFX Players. For example:
 }
 ```
 
+`max_events` accepts1..32, with at most262144 samples per event.32 events
+can retain the stock low-power line's typing requests and insertion sound;
+the maximum PCM hex occupies64MiB within the128MiB receipt limit. End a
+typed-message profile after its reveal settles: the audio completion tail
+freezes the step clock while rendering continues, so a still-revealing
+TextLabel can request its typing cue on every repeated paint.
+
+Current coordinate-sound rows also retain signed XYZ `coordinate_leptons`
+and the u32 caller `flags`. The reader accepts them as a bounded pair and
+does not derive them from projected pixels. Historical rows may omit both;
+their omission supplies no raw coordinate or flags evidence.
+
 The production SfxPlayer enables the recorder at accepted L0. Its existing
 decoder, arbiter, Player, gain/pause/stop processing and device mixer still own
 playback. A forwarding Source observes the Player output that the production

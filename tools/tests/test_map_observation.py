@@ -3730,12 +3730,38 @@ class MapObservationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, 'maximum'):
             self.run_capture()
 
-    def test_release_resolution_has_no_guessed_target_fallback(self):
+    def test_recorded_resolution_has_no_guessed_target_fallback(self):
         with patch.object(observation, 'resolve_binary', return_value=(None, None)) as resolver:
-            with self.assertRaisesRegex(ValidationError, 'verified release'):
+            with self.assertRaisesRegex(ValidationError, 'no verified release or fast vera20k'):
                 observation.capture(profile_path=self.profile_path, contract_path=self.contract,
                                     output=self.output, working_directory=self.root)
-            resolver.assert_called_once_with(observation.ROOT, 'vera20k', 'release')
+            self.assertEqual([call.args for call in resolver.call_args_list],
+                             [(observation.ROOT, 'vera20k', 'release'),
+                              (observation.ROOT, 'vera20k', 'fast')])
+
+    def test_unflagged_capture_runs_the_one_recorded_build_and_refuses_two(self):
+        for recorded in ('release', 'fast'):
+            self.output = self.root / f'only-{recorded}'
+            with self.subTest(recorded=recorded), \
+                 patch.object(observation, 'resolve_binary', side_effect=lambda root, name, profile:
+                              (self.executable, profile) if profile == recorded else (None, None)), \
+                 patch.object(observation, 'run_child', side_effect=self.fake_child):
+                report = observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                             output=self.output, working_directory=self.root)
+                self.assertEqual(report['status'], 'VALID', report['errors'])
+        with patch.object(observation, 'resolve_binary', return_value=(self.executable, 'release')), \
+             patch.object(observation, 'run_child') as child:
+            with self.assertRaisesRegex(ValidationError, 'both recorded'):
+                observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                    output=self.root / 'ambiguous', working_directory=self.root)
+            child.assert_not_called()
+        with patch.object(observation, 'resolve_labeled_binary', return_value=(self.executable, 'debug')), \
+             patch.object(observation, 'run_child') as child:
+            with self.assertRaisesRegex(ValidationError, 'captures need release or fast'):
+                observation.capture(profile_path=self.profile_path, contract_path=self.contract,
+                                    output=self.root / 'debug-label', working_directory=self.root,
+                                    build_label='debug-build')
+            child.assert_not_called()
 
     def test_failed_child_keeps_diagnostics_and_cannot_pass_valid_receipt(self):
         for result in (ChildResult(42, 2, False, b'out', b'failed', ()),
@@ -4453,7 +4479,8 @@ class MapObservationTests(unittest.TestCase):
                                          output=self.output, working_directory=self.root,
                                          build_label='before-build')
         self.assertEqual(report['status'], 'VALID', report['errors'])
-        resolver.assert_called_once_with(observation.ROOT, 'before-build', 'vera20k', 'release')
+        # The label's own profile; it holds one Cargo invocation's build.
+        resolver.assert_called_once_with(observation.ROOT, 'before-build', 'vera20k', None)
         latest.assert_not_called()
         with patch.object(observation, 'resolve_labeled_binary', return_value=(None, None)), \
              patch.object(observation, 'resolve_binary') as latest:

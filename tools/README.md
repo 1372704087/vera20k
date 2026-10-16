@@ -225,7 +225,7 @@ nonzero on inspection/deletion errors. See [retention validation](cargo_cache_va
 
 Saved builds have a separate, explicit lifecycle. Default to unlabelled iteration;
 preserve only binaries needed for active comparisons, captures or debugging.
-Prefer release binaries for ordinary captures and label debug tests selectively.
+Prefer `fast` binaries for ordinary captures and label debug tests selectively.
 Evidence should reference the shared label, manifest, source/binary hashes and
 results instead of creating additional executable copies.
 

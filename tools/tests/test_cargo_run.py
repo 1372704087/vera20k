@@ -431,6 +431,12 @@ class CargoRunTests(unittest.TestCase):
                          (binary, 'fast'))
         with self.assertRaisesRegex(ValueError, 'not a release host bin'):
             cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', 'release')
+        # Without a profile the label's own host profile is returned.
+        self.assertEqual(cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', None),
+                         (binary, 'fast'))
+        self.preserved_label('deps-a', source_suffix='fast/deps')
+        with self.assertRaisesRegex(ValueError, 'not a host bin'):
+            cargo_run.resolve_labeled_binary(self.root, 'deps-a', 'asset', None)
 
     def test_explicit_resolve_never_falls_back_after_missing_or_changed_binary(self):
         debug = self.recorded_binary('debug')

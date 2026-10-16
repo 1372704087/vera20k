@@ -33,7 +33,7 @@ pub(super) fn draw_native_object_pass<'a>(
     sprite_atlas: Option<&'a SpriteAtlas>,
     palette_set: Option<&'a PaletteSet>,
     zshape: &'a wgpu::BindGroup,
-    health: Option<(
+    extras: Option<(
         &'a crate::render::selection_overlay::SelectionOverlay,
         &'a wgpu::Buffer,
     )>,
@@ -84,16 +84,16 @@ pub(super) fn draw_native_object_pass<'a>(
             cursor += 1;
             continue;
         }
-        if let ObjectTexture::Health(index) = run.target {
-            super::object_extras::draw_health_runs(
+        if let ObjectTexture::Status(index) = run.target {
+            super::object_extras::draw_status_runs(
                 encoder,
                 color,
                 depth,
                 terrain,
                 tactical,
                 batch,
-                health.map(|(overlay, _)| overlay),
-                health.map(|(_, buffer)| buffer),
+                extras.map(|(overlay, _)| overlay),
+                extras.map(|(_, buffer)| buffer),
                 &ground.extras_runs[index..index + 1],
             );
             cursor += 1;
@@ -234,7 +234,7 @@ pub(super) fn draw_native_object_pass<'a>(
             && destination_edit(ground.runs[cursor].target).is_none()
             && !matches!(
                 ground.runs[cursor].target,
-                ObjectTexture::SurfaceLines(_) | ObjectTexture::Health(_)
+                ObjectTexture::SurfaceLines(_) | ObjectTexture::Status(_)
             )
         {
             let run = &ground.runs[cursor];
@@ -252,7 +252,7 @@ pub(super) fn draw_native_object_pass<'a>(
                 break;
             }
             match run.target {
-                ObjectTexture::SurfaceLines(_) | ObjectTexture::Health(_) => {
+                ObjectTexture::SurfaceLines(_) | ObjectTexture::Status(_) => {
                     unreachable!("surface commands replay before sprite dispatch")
                 }
                 ObjectTexture::TerrainShp(_) | ObjectTexture::ProjectileShp(_, _) => {

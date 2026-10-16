@@ -17,6 +17,8 @@ pixels execute on either side of an explicit Surface command boundary.
 for ordinary MTNK Extras/health/pip-tail and physical PIPBRD/PIPS color stores.
 The additive ``--building-health`` mode borrows the existing native ground/body
 scene and same health recorder for GAPOWR pips and both Extras phases.
+``--unit-rank`` extends that owner with original rank setters, observer gates,
+rank chevrons and rank-before-health ordering.
 """
 from functools import lru_cache
 import hashlib
@@ -845,6 +847,27 @@ def _prepare_ground_building(m, building, typ, house, location=(2688,5248,0), se
     m.invoke(0x44D6A0, building, (0, 0))
 
 
+def _prepare_flat_cells(m, xs, ys):
+    """Sparse constructed flat/revealed Cell priors shared by draw consumers."""
+    u = m.u
+    table = m.alloc(512 * 512 * 4)
+    u.mem_write(MAP + 0x13C, words(table, 512 * 512))
+    u.mem_write(MAP + 0xF4, words(16, 16))
+    cells = []
+    for y in ys:
+        for x in xs:
+            cell = m.alloc(0x148)
+            m.invoke(0x47BBF0, cell)
+            u.mem_write(cell + 0x24, struct.pack('<hh', x, y))
+            u.mem_write(cell + 0x38, words(0))
+            u.mem_write(cell + 0x48, words(-1))
+            u.mem_write(cell + 0x11A, bytes(4))
+            u.mem_write(cell + 0x12C, words(0x18))
+            u.mem_write(table + (y * 512 + x) * 4, words(cell))
+            cells.append(cell)
+    return table, cells
+
+
 def _building_ground_runtime():
     """Actual flat TMP + placed GAPOWR body depth, on the existing TMP VM.
 
@@ -910,21 +933,7 @@ def _building_ground_runtime():
     u.mem_write(0xB0CD48, struct.pack('<Q', 0x3FC25E5374344960))
     building, house = m.alloc(0x800), m.alloc(0x18000)
     _prepare_ground_building(m, building, typ, house)
-    table = m.alloc(512 * 512 * 4)
-    u.mem_write(MAP + 0x13C, words(table, 512 * 512))
-    u.mem_write(MAP + 0xF4, words(16, 16))
-    cells = []
-    for y in range(17, 26):
-        for x in range(7, 16):
-            cell = m.alloc(0x148)
-            m.invoke(0x47BBF0, cell)
-            u.mem_write(cell + 0x24, struct.pack('<hh', x, y))
-            u.mem_write(cell + 0x38, words(0))
-            u.mem_write(cell + 0x48, words(-1))
-            u.mem_write(cell + 0x11A, bytes(4))
-            u.mem_write(cell + 0x12C, words(0x18))
-            u.mem_write(table + (y * 512 + x) * 4, words(cell))
-            cells.append(cell)
+    table, cells = _prepare_flat_cells(m, range(7,16), range(17,26))
     tactical, point, clip, coord, bounds = (m.alloc(n) for n in (0x200, 8, 16, 12, 16))
     u.mem_write(tactical, words(0x7F4348))
     u.mem_write(tactical + 0xB0, words(-384, 376))
@@ -1102,11 +1111,12 @@ def _building_health_fields(m, typ):
 
 class _HealthRecorder:
     """One observer for ordinary health and phase-aware native composition."""
-    def __init__(self, m, size, shape_names, *, phase_aware=False):
+    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False):
         from tools.projectile_oracle.bridge_render_shape import PIXELS, Z, A
         u = m.u
         self.stores, self.draws, self.entries, self.rng = [], [], [], []
         self.line_calls, self.body_admissions = [], []
+        self.gates, self.callbacks = [], []
         self.actor_index, self.phase = -1, 'health'
         self.return_pc, self.active = None, False
         def finish_draw():
@@ -1119,7 +1129,16 @@ class _HealthRecorder:
                 self.return_pc = None
             if pc in (0x65C780, 0x65C7E0):
                 self.rng.append(pc)
-            if pc in (0x6F5190, 0x6F64A0, 0x709A90, 0x70AA60):
+            if rank:
+                if pc in (0x746750,0x5227F0,0x4DA4E0,0x55ABC0,0x703860,
+                          0x5657A0,0x4870D0,0x4870F0,0x4F9A50):
+                    self.callbacks.append(dict(actor=self.actor_index,entry=f'{pc:08X}'))
+                if pc in (0x6F535F,0x6F536F):
+                    value = u.reg_read(UC_X86_REG_EAX)
+                    self.gates.append(dict(actor=self.actor_index,
+                        gate='disguised_to' if pc==0x6F535F else 'visual_character',
+                        result=value & 255 if pc==0x6F535F else value))
+            if pc in (0x6F5190, 0x6F64A0, 0x709A90, 0x70AA60) or (rank and pc==0x70A990):
                 self.entries.append(dict(actor=self.actor_index, entry=f'{pc:08X}'))
                 if phase_aware:
                     self.entries[-1]['phase'] = self.phase
@@ -1175,7 +1194,114 @@ class _HealthRecorder:
             self.u.hook_del(hook)
 
 
-def generate_unit_health(*, building=False):
+def _prepare_unit_rank(m, typ, actor, house):
+    """Existing original Unit/Foot prefix and Drive constructor, in this VM.
+
+    CoCreate/whole typed Unit constructor and Unlimbo are excluded priors.
+    No visual-character or observer predicate result is supplied.
+    """
+    from tools.spatial_oracle.building_body_rules import SP as READER_SP
+    u = m.u
+    scenario = m.read32(0xA8B230)
+    rngs = (0x886B88,scenario+0x218,0xABE890)
+    for stream in rngs:
+        m.invoke(0x65C6D0,stream,(0,))
+    u.mem_write(0xB0F720,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+    requests=[]
+    def observe_constructor(_u,pc,_size,_data):
+        if pc in (0x65C780,0x65C7E0):
+            sp=u.reg_read(UC_X86_REG_ESP)
+            receiver=u.reg_read(UC_X86_REG_ECX)
+            requests.append(dict(entry=f'{pc:08X}',caller=f'{m.read32(sp):08X}',
+                stream=('main','scenario','mapgen')[rngs.index(receiver)]
+                       if receiver in rngs else 'other',
+                bounds=rally.ints(u,sp+4,2) if pc==0x65C7E0 else []))
+    ctor_hook=u.hook_add(UC_HOOK_CODE,observe_constructor)
+    # Existing astar_mtnk_inputs constructor boundary: stop BEFORE CoCreate.
+    u.mem_write(READER_SP,words(native.RET_MAGIC,typ,0))
+    u.reg_write(UC_X86_REG_ESP,READER_SP)
+    u.reg_write(UC_X86_REG_ECX,actor)
+    native.run_checked(u,0x7353C0,0x7354CE,count=300000,
+                       required_addresses=(0x4D31E0,0x4D3217,0x4D321D))
+    drive = m.alloc(0x100)
+    m.invoke(0x4AF540,drive)
+    u.hook_del(ctor_hook)
+    u.mem_write(drive+0xC,words(actor))
+    u.mem_write(drive+0x14,words(1))
+    u.mem_write(actor+0x674,words(drive+4))
+    enemy = m.alloc(0x18000)
+    u.mem_write(house+0x30,words(0))
+    u.mem_write(enemy+0x30,words(1))
+    table,cells = _prepare_flat_cells(m,range(8,13),range(18,24))
+    by_coord = {tuple(struct.unpack('<2h',u.mem_read(cell+0x24,4))):cell for cell in cells}
+    return dict(enemy=enemy,cells=by_coord,evidence=dict(
+        constructor_begin='007353C0',constructor_stop='007354CE',
+        whole_unit_constructor=False,drive_constructor='004AF540',
+        drive_visual_callback=f'{m.read32(m.read32(drive+4)+0x34):08X}',
+        flags=m.read32(actor+0x14),unit_vtable=f'{m.read32(actor):08X}',
+        control_group=struct.unpack('<i',u.mem_read(actor+0x214,4))[0],
+        ctor_veterancy_raw_bits=m.read32(actor+0x150),flat_cells=len(cells),
+        constructor_rng_requests=requests,passive_scan_timer=rally.ints(u,actor+0x180,3),
+        house_indices=[0,1],mutually_allied=False))
+
+
+def _prepare_rank_actor(m,actor,house,supplied,runtime):
+    """Actual native rank setter and declared per-observer consumer priors."""
+    name = supplied.pop('rank')
+    setter,args = {'rookie':(0x750080,(1,)),'veteran':(0x750090,(1,)),
+                   'elite':(0x7500B0,(1,)),'negative':(0x7500E0,(-100,))}[name]
+    m.invoke(setter,actor+0x150,args)
+    u=m.u
+    u.mem_write(actor+0x21C,words(house if supplied['owner_is_current'] else runtime['enemy']))
+    u.mem_write(actor+0x41A,bytes([supplied['owned_by_current_house']]))
+    u.mem_write(actor+0x220,words(supplied['cloak_state']))
+    u.mem_write(actor+0x224,words(supplied['cloak_progress']))
+    u.mem_write(actor+0x1D8,bytes([supplied['disguised']]))
+    u.mem_write(actor+0x51C,words(house if supplied['disguised_as_current_house'] else 0))
+    for cell in runtime['cells'].values():
+        u.mem_write(cell+0x7C,struct.pack('<h',supplied['sensor_count']))
+        u.mem_write(cell+0xAC,struct.pack('<h',supplied['disguise_detect_count']))
+    return setter,args
+
+
+def _unit_rank_cases(base):
+    cases = [dict(name=name,actors=[dict(base,rank=rank)]) for name,rank in
+             (('rookie','rookie'),('veteran','veteran'),('elite','elite'),('negative','negative'))]
+    cases += [dict(name='selected_veteran',actors=[dict(base,selected=True)]),
+              dict(name='hovered_veteran',actors=[dict(base,hovered=True)]),
+              *[dict(name=f'veteran_a{a}',a_value=a) for a in (63,2,0)],
+              dict(name='veteran_occluding_z',old_z=0),
+              dict(name='sinking',actors=[dict(base,sinking=True)]),
+              dict(name='clipped',actors=[dict(base,location=[2976,4960,0])]),
+              dict(name='ordered_overlap',actors=[dict(base,selected=True),
+                   dict(base,rank='elite',selected=True,health=300,location=[2968,5528,0])]),
+              dict(name='owned_cloaked',actors=[dict(base,cloak_state=2)]),
+              dict(name='enemy_cloaked',actors=[dict(base,cloak_state=2,
+                   owner_is_current=False,owned_by_current_house=False)]),
+              dict(name='enemy_cloaked_sensed',actors=[dict(base,cloak_state=2,
+                   owner_is_current=False,owned_by_current_house=False,sensor_count=1)]),
+              dict(name='enemy_disguised',actors=[dict(base,disguised=True,
+                   disguised_as_current_house=True,owner_is_current=False,
+                   owned_by_current_house=False)]),
+              dict(name='enemy_disguised_detected',actors=[dict(base,disguised=True,
+                   disguised_as_current_house=True,owner_is_current=False,
+                   owned_by_current_house=False,disguise_detect_count=1)])]
+    return cases
+
+
+def _rank_vtable_bindings(m):
+    """Actual active RTTI slots, not a second class-specific draw implementation."""
+    rows=[]
+    for kind,table in VTABLES.items():
+        slots={name:f'{m.read32(table+offset):08X}' for name,offset in
+               (('extras',0x110),('rank',0x454),('visual_character',0x68),
+                ('is_disguised_to',0xC8),('what_am_i',0x2C))}
+        assert slots['extras']=='006F5190' and slots['rank']=='0070A990'
+        rows.append(dict(kind=kind,vtable=f'{table:08X}',slots=slots))
+    return rows
+
+
+def generate_unit_health(*, building=False, rank=False):
     """Original ordinary Unit/Building health through shared physical SHP stores.
 
     PaletteReader owns the one VM, native INI caches and palette constructors;
@@ -1187,6 +1313,7 @@ def generate_unit_health(*, building=False):
     from tools.rules_oracle.weapon_laser import physical_layers
     from tools.spatial_oracle.building_body_rules import RULES, SP as READER_SP
 
+    assert not (building and rank)
     # These named archive bytes are the normal STOCK_DIGITAL AssetManager
     # winners, independently resolved before admitting this selected corpus.
     winners = (
@@ -1229,6 +1356,8 @@ def generate_unit_health(*, building=False):
         base = (_building_health_fields(m, typ) if building else
                 dict(strength=m.read32(typ + 0xA0), delta=m.read32(typ + 0x3E0),
                      pip_scale=m.read32(typ + 0x3D4)))
+        if rank:
+            base['invisible'] = bool(u.mem_read(typ+0xC9A,1)[0])
         return dict(base, condition_yellow=yellow, condition_red=red)
 
     def tail_type():
@@ -1257,6 +1386,10 @@ def generate_unit_health(*, building=False):
         # These ordinary-tail keys are absent in the selected physical stack.
         # Keep native constructor values; don't invent a partial full reader.
         assert not {'SpawnsNumber', 'Passengers', 'Organic'}.intersection(sections.get(section_name, {}))
+        if rank:
+            # The visual predicate consumes this retained native ctor default.
+            # No physical selected layer may silently override an unread key.
+            assert 'Invisible' not in sections.get(section_name,{})
         m.rules_cache(sections)
         mark = len(reads)
         admitted = bool(m.invoke(0x526810, RULES, (typ + 0x24,)) & 255)
@@ -1286,7 +1419,7 @@ def generate_unit_health(*, building=False):
                                ('Strength', 'PixelSelectionBracketDelta', 'PipScale',
                                 'ConditionRed', 'ConditionYellow',
                                 *(['PipsDrawForAll','CanBeOccupied','Pip','SpawnsNumber']
-                                  if building else []))}
+                                  if building else []), *(['Invisible'] if rank else []))}
                                for s, keys in sections.items()},
                            reads=reads[mark:], after=fields()))
     u.hook_del(hook)
@@ -1313,6 +1446,9 @@ def generate_unit_health(*, building=False):
         u.mem_map(MEM, 0x200000)
         house, actor, tactical, coord, point, clip = (m.alloc(n) for n in
                                                       (0x18000, 0x900, 0x200, 12, 8, 16))
+    if rank:
+        rank_runtime = _prepare_unit_rank(m, typ, actor, house)
+        actor_template = bytes(u.mem_read(actor,0x900))
     u.mem_write(0xA83D4C, words(house))
     u.mem_write(0x887324, words(tactical))
     u.mem_write(tactical, words(0x7F4348))
@@ -1338,6 +1474,12 @@ def generate_unit_health(*, building=False):
               dict(name='clipped', actors=[dict(base_actor, location=([2364,5572,0] if not building else [2368,5568,0]))]),
               dict(name='ordered_overlap', actors=[base_actor,
                   dict(base_actor, health=187 if building else 75, location=[2705,5231,0])])]
+    if rank:
+        base_actor.update(rank='veteran',selected=False,owner_is_current=True,
+                          owned_by_current_house=True,cloak_state=0,cloak_progress=0,
+                          disguised=False,disguised_as_current_house=False,
+                          sensor_count=0,disguise_detect_count=0)
+        cases = _unit_rank_cases(base_actor)
     rows = []
     original_code = sha(u.mem_read(0x401000, 0x3E0000))
     original_vtables = bytes(u.mem_read(0x7F5C70, 0x750))
@@ -1346,22 +1488,28 @@ def generate_unit_health(*, building=False):
                     old_z=65535, depth_baseline=32768, clip=[0, 0, *size],
                     actors=[base_actor]) | case
         spec.pop('name')
+        if rank:
+            spec['actors'] = [dict(actor) for actor in spec['actors']]
         u.mem_write(clip, words(*spec['clip']))
         buffers = prepare_surface(u, spec, size=tuple(size))
         guard = bytes([0xA5]) * 16
         for buffer in (PIXELS, Z, A):
             u.mem_write(buffer - 16, guard)
             u.mem_write(buffer + size[0] * size[1] * 2, guard)
-        recorder = _HealthRecorder(m, size, shape_names, phase_aware=building)
+        recorder = _HealthRecorder(m, size, shape_names, phase_aware=building or rank,rank=rank)
         stores, draws, entries, rng, actors = (recorder.stores, recorder.draws,
                                              recorder.entries, recorder.rng, [])
         for actor_index, supplied in enumerate(spec['actors']):
             recorder.actor_index = actor_index
-            u.mem_write(actor, actor_template if building else bytes(0x900))
-            if not building:
+            u.mem_write(actor, actor_template if building or rank else bytes(0x900))
+            if not building and not rank:
                 u.mem_write(actor, words(0x7F5C70))
                 u.mem_write(actor + 0x6C4, words(typ))
-            u.mem_write(actor + 0x21C, words(house))
+            if rank:
+                setter, args = _prepare_rank_actor(m, actor, house, supplied, rank_runtime)
+                supplied['veterancy_raw_bits'] = m.read32(actor+0x150)
+            else:
+                u.mem_write(actor + 0x21C, words(house))
             # Techno ctor6F2B99/6F2D0F stores-1: no control-group assignment.
             u.mem_write(actor + 0x214, words(-1))
             u.mem_write(actor + 0x6C, words(supplied['health']))
@@ -1376,13 +1524,15 @@ def generate_unit_health(*, building=False):
             before = bytes(u.mem_read(actor, actor_size))
             direct_health = building and case['name'] not in ('hover_only', 'absent', 'sinking')
             entry = 0x6F64A0 if direct_health else 0x6F5190
-            if building:
+            if building or rank:
                 actors[-1].update(coords=rally.ints(u, coord, 3), entry=f'{entry:08X}')
+            if rank:
+                actors[-1].update(rank_setter=dict(entry=f'{setter:08X}',args=list(args)))
             m.invoke(entry, actor, (point, clip, 0) if direct_health else (point, clip))
             recorder.finish()
             assert bytes(u.mem_read(actor, actor_size)) == before
         recorder.close()
-        if building:
+        if building or rank:
             assert not recorder.line_calls
         raw = bytes(u.mem_read(PIXELS, size[0] * size[1] * 2))
         pixels = [[i % size[0], i // size[0], value[0]] for i, value in
@@ -1396,11 +1546,20 @@ def generate_unit_health(*, building=False):
         rows.append(dict(name=case['name'], input=spec, actor_results=actors,
                          draws=draws, entries=entries, stores=stores, pixels=pixels,
                          a_unchanged=True, z_unchanged=True, rng_entries=rng))
-        if building:
+        if rank and case['name']=='ordered_overlap':
+            first_rank=next(draw for draw in draws if draw['actor']==0 and draw['frame']==14)
+            rows[-1]['overwritten_rank_pixels']=sorted({(x,y,value,
+                struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0])
+                for x,y,value in stores[slice(*first_rank['store_range'])]
+                if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},
+                key=lambda p:(p[1],p[0]))
+        if building or rank:
             rows[-1]['store_count'] = len(rows[-1].pop('stores'))
             for draw in draws:
                 begin, end = draw.pop('store_range')
                 draw['color_stores'] = end - begin
+        if rank:
+            rows[-1].update(gates=recorder.gates,callbacks=recorder.callbacks)
     assert original_code == sha(u.mem_read(0x401000, 0x3E0000))
     assert original_vtables == bytes(u.mem_read(0x7F5C70, 0x750))
     assert tail_defaults == tail_type()
@@ -1408,6 +1567,9 @@ def generate_unit_health(*, building=False):
                   readers=dict(constructor=constructor, layers=layers, result=fields(),
                                ordinary_tail_constructor=tail_defaults),
                   palette=palette_result, raster_controls=rows, original_code_unchanged=True)
+    if rank:
+        result['rank_runtime'] = rank_runtime['evidence']
+        result['vtable_bindings'] = _rank_vtable_bindings(m)
     if building:
         dims = m.alloc(12)
         m.invoke(0x464AF0, typ, (dims,))
@@ -1536,6 +1698,29 @@ def building_health_metadata():
             can_be_occupied_ctor=0x45E07D,can_be_occupied_reader=0x4600DA))
 
 
+def unit_rank_metadata():
+    return native.provenance(
+        scope='Ordinary MTNK rank prefix through complete DrawExtras and physical PIPS14/15/19 pixels',
+        assumptions=[
+            'One existing selected-health generator and _HealthRecorder own the Unit-rank mode. Existing PaletteReader owns original image/allocator/native INI cache, palette constructors and file transports; existing bridge_render_shape owns Surface/circular A/Z storage. No second VM, INI parser, rank state, palette, SHP decoder or rasterizer produces expected output.',
+            'Whole Rules665650/UnitType7470D0 constructors and the unchanged selected native Strength/PipScale/PixelSelectionBracketDelta/ConditionRed/Yellow reader blocks consume physical RULESMD, optional LANGRULE, MPBattleMD and XMP03T4. Selected physical layers leave Invisible unset; the visual predicate consumes its recorded native constructorfalse. Fixed ART supplies no rank keys;70A990 has no Trainable or tunable frame/threshold key. Existing physical PIPS21frame/PIPBRD/PALETTE winners and palette initialize52BE61..52BFCE execute in this owner.',
+            'The established original Unit7353C0->Foot4D31E0 constructor prefix stops7354CE before the unrelated typed COM activation. Original Drive4AF540/base constructor executes; supplied owner/link/active fields expose its real virtual55ABC0, not a supplied callback return. Spare native registry capacity and seeded Main/Scenario/MapGen streams are fixture priors. Constructor RNG requests and actual retained fields are recorded. Whole Unit constructor, CoCreate, Unlimbo, movement, damage/kill/promotion and whole Scenario/Display are excluded.',
+            'Original750080/750090/7500B0 and signed-percent7500E0(-100) initialize raw rank bits. Actor input.veterancy_raw_bits is the actual after-setter single, not a host rank calculation. Prepared health, selected/hover/sinking, raw Location, owner/current-house-owned, cloak state/progress, disguise/fake-house and cell counter values are explicit consumer priors. Ordinary stock MTNK does not produce the prepared cloak/disguise negatives in this oracle.',
+            'Every row runs complete6F5190. Native746750/41C010/4F9A50 and4DA4E0->realDrive55ABC0->703860 observer predicates execute unchanged. Sparse flat/revealed47BBF0 Cells share the existing ground fixture owner; currentHouse index0, enemyHouse index1, no mutual alliance, supplied Cell+7C sensor and+AC disguise-detection signed counters feed original4870D0/4870F0. No observer result, body gate, rank admission or pixel leaf is substituted.',
+            'Complete70A990 executes before selected/hover health dispatch. Veteran PIPS14, elite15 and negative19 use flagsE00, remap0, signed zAdjust-2, gradient0, brightness1000 and Convert87F6C4. Original4AED70/picker/rowwalker/493DF0 run; actual A reads, zero Z accesses, ordered shapes and final sparse RGB565 pixels are recorded. A127/63/2/0 and Z0 are consumer controls; A2 is already established physical SHROUD frame15 output, not regenerated vision lifecycle.',
+            'Owned/sensed fully cloaked actors have visual character3 but retain the same opaque rank material: body cloak opacity/tint is not inherited by70A990. Selected and hover cases continue through actual6F64A0/709A90/70AA60 tails. Ordered two-parent rank+health, real viewport clip and prepared sinking are bounded drawing controls. Whole original code/vtable and actor bytes, A/Z remain unchanged; no drawing RNG request is observed. Rank interval has no timer update or detach. Native VT bindings prove Infantry/Aircraft use the same6F5190/70A990 bodies; their different RTTI anchor and observer-gate dispatch are instruction evidence, not full constructor/shape controls for those classes.',
+        ], substitutions=[
+            'Inherited successful allocation/delete/CRT TLS, immutable physical archive/file transport and Surface memory replace platform services. Actor admission/lifecycle and sparse Map traversal are supplied priors. No reached rank/predicate/Drive/palette/shape function result or original instruction is replaced.',
+        ], entry_points=dict(unit_type_ctor=0x7470D0,unit_ctor_begin=0x7353C0,
+            unit_ctor_stop=0x7354CE,foot_ctor=0x4D31E0,drive_ctor=0x4AF540,
+            drive_visual=0x55ABC0,rookie_setter=0x750080,veteran_setter=0x750090,
+            elite_setter=0x7500B0,percent_setter=0x7500E0,extras=0x6F5190,
+            disguised_to=0x746750,visual_character=0x4DA4E0,techno_visual=0x703860,
+            cell_sensor=0x4870D0,cell_disguise_detect=0x4870F0,rank=0x70A990,
+            veteran_test=0x74FF90,elite_test=0x750010,negative_test=0x74FFF0,
+            shape=0x4AED70,picker=0x490B90,rank_leaf=0x493DF0))
+
+
 def unit_health_metadata():
     return native.provenance(
         scope='Ordinary rookie MTNK selected/hover health strip through original Extras/health/pip-tail and physical SHP pixels',
@@ -1561,6 +1746,19 @@ def unit_health_metadata():
 
 if __name__=='__main__':
     import sys
+    if '--unit-rank' in sys.argv[1:]:
+        native.finish_vectors(lambda: generate_unit_health(rank=True),
+            Path(__file__).with_name('unit_rank.json'),
+            argv=[arg for arg in sys.argv[1:] if arg != '--unit-rank'],
+            provenance=unit_rank_metadata,
+            source_paths={'oracle':Path(__file__),
+                          'palette_owner':Path('tools/projectile_oracle/bridge_render_inputs_palette.py'),
+                          'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
+                          'reader_owner':Path('tools/projectile_oracle/bridge_render_inputs.py'),
+                          'constructor_boundary':Path('tools/spatial_oracle/astar_mtnk_inputs.py'),
+                          'physical_layers':Path('tools/rules_oracle/weapon_laser.py'),
+                          'stock_owner':Path(stock.__file__)})
+        raise SystemExit(0)
     if '--building-health' in sys.argv[1:]:
         native.finish_vectors(lambda: generate_unit_health(building=True),
             Path(__file__).with_name('building_health.json'),

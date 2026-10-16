@@ -53,7 +53,7 @@ pub struct SelectionOverlay {
     bomb_clock: Option<CenteredShapeStrip>,
     /// WRENCH.SHP, the repairing building's wrench.
     repair_wrench: Option<CenteredShapeStrip>,
-    /// Full PIPS frame table: Building health0/1/2/4, mobile16..18, self-heal13/20.
+    /// Full PIPS: health0/1/2/4/16..18, rank14/15/19, self-heal13/20.
     /// Native LoadPipAssets 5F76B0 binds AC147C; both use Convert 87F6C4.
     pips: Option<CenteredShapeStrip>,
 }
@@ -348,7 +348,7 @@ impl SelectionOverlay {
             )
         });
         // Original 5F76B0 /52BF26..52BFC1: one PIPS.SHP/PALETTE.PAL
-        // resource serves Building6F66BA/mobile6F6A4A health and self-heal70A6BB.
+        // resource serves health6F66BA/6F6A4A, rank70AA4F and self-heal70A6BB.
         // Keep every frame's native origin and original index plane.
         let pips = assets.and_then(|assets| {
             CenteredShapeStrip::from_assets_on_device(
@@ -389,7 +389,7 @@ impl SelectionOverlay {
         self.repair_wrench.as_ref()
     }
 
-    /// Physical PIPS.SHP: Building health0/1/2/4, mobile16..18, self-heal13/20.
+    /// Physical PIPS.SHP shared by health, rank14/15/19 and self-heal13/20.
     pub fn pips(&self) -> Option<&CenteredShapeStrip> {
         self.pips.as_ref()
     }
@@ -499,22 +499,8 @@ impl SelectionOverlay {
         self.occupant_pip_texture.as_ref()
     }
 
-    /// Number of pip variants in the shared occupant/veterancy atlas.
+    /// Number of garrison pip frames in the occupant atlas.
     const OCCUPANT_PIP_VARIANTS: u32 = OCCUPANT_PIP_FRAMES.len() as u32;
-
-    /// UV origin for a veterancy chevron. `rank` is 0 rookie, 1 veteran, 2 elite.
-    pub fn veterancy_pip_uv_origin(&self, rank: u32) -> [f32; 2] {
-        let frame: usize = match rank {
-            2 => 15,
-            1 => 14,
-            _ => 19,
-        };
-        let slot = OCCUPANT_PIP_FRAMES
-            .iter()
-            .position(|f| *f == frame)
-            .unwrap_or(0) as u32;
-        [slot as f32 / Self::OCCUPANT_PIP_VARIANTS as f32, 0.0]
-    }
 
     /// UV origin for an occupant pip by pips.shp frame index (6-12).
     /// Frame 6 → slot 0, frame 7 → slot 1, ..., frame 12 → slot 6.
@@ -560,23 +546,12 @@ fn generate_solid_color(color: [u8; 4]) -> Vec<u8> {
     rgba
 }
 
-/// Load pips.shp frames 6-12 for occupant (garrison) pips into a 7-variant atlas.
-///
-/// pips.shp frame indices:
-///   6 = empty occupant slot (gray)
-///   7 = PersonGreen, 8 = PersonYellow, 9 = PersonWhite
-///   10 = PersonRed, 11 = PersonBlue, 12 = PersonPurple
-///
-/// Returns (Some(texture), frame_w, frame_h, canvas_adj_x, canvas_adj_y) on success.
-/// pips.shp frames packed into the shared occupant/veterancy strip.
-///
-/// 6 is the empty garrison slot and 7-12 are PersonGreen..PersonPurple. 14, 15
-/// and 19 are the veterancy chevrons: `DrawVeterancyPips` 0x0070A990 (TechnoClass
-/// vtable +0x454) blits frame 14 for veteran, 15 for elite and 19 for the
-/// rookie-flagged variant. They ride the same atlas so they cost no extra
-/// texture and no extra draw pass.
-const OCCUPANT_PIP_FRAMES: [usize; 10] = [6, 7, 8, 9, 10, 11, 12, 14, 15, 19];
+/// Only garrison frames6..12 are uploaded. Rank uses the shared centered PIPS
+/// resource. The existing garrison consumer retains its old slot padding below.
+const OCCUPANT_PIP_FRAMES: [usize; 7] = [6, 7, 8, 9, 10, 11, 12];
 
+/// Load garrison frames6..12 into seven slots: empty6, PersonGreen..Purple7..12.
+/// Returns texture, slot size and canvas adjustment for the garrison consumer.
 fn load_occupant_pip_atlas(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -588,7 +563,7 @@ fn load_occupant_pip_atlas(
     let shp = ShpFile::from_bytes(&shp_data).ok()?;
     if shp.frames.len() <= OCCUPANT_PIP_FRAMES[OCCUPANT_PIP_FRAMES.len() - 1] {
         log::warn!(
-            "pips.shp has too few frames ({}), cannot load the occupant/veterancy pip atlas",
+            "pips.shp has too few frames ({}), cannot load the occupant pip atlas",
             shp.frames.len()
         );
         return Some((None, 0, 0, 0.0, 0.0));
@@ -602,15 +577,17 @@ fn load_occupant_pip_atlas(
     let frame_indices = OCCUPANT_PIP_FRAMES;
     let mut max_w: u32 = 0;
     let mut max_h: u32 = 0;
-    for &fi in &frame_indices {
-        let fw: u32 = shp.frames[fi].frame_width as u32;
-        let fh: u32 = shp.frames[fi].frame_height as u32;
-        if fw > max_w {
-            max_w = fw;
-        }
-        if fh > max_h {
-            max_h = fh;
-        }
+    // The old garrison consumer centers its6..12 pixels inside the maximum
+    // header rectangle previously shared with chevrons. Preserve that layout
+    // while removing the rank uploads: stock remains8x14, not7x14 (which
+    // would shift colored occupants1px). Only available physical headers are
+    // consulted; missing unrelated rank frames do not prevent garrison loading.
+    for fi in frame_indices.into_iter().chain([14, 15, 19]) {
+        let Some(frame) = shp.frames.get(fi) else {
+            continue;
+        };
+        max_w = max_w.max(u32::from(frame.frame_width));
+        max_h = max_h.max(u32::from(frame.frame_height));
     }
 
     let atlas_w: u32 = max_w * VARIANT_COUNT;
@@ -650,7 +627,7 @@ fn load_occupant_pip_atlas(
     let texture: BatchTexture =
         batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
     log::info!(
-        "Occupant/veterancy pip atlas: {}x{} (frame {}x{}, {} variants, frames {:?}, adj ({:.0},{:.0}))",
+        "Occupant pip atlas: {}x{} (frame {}x{}, {} variants, frames {:?}, adj ({:.0},{:.0}))",
         atlas_w,
         atlas_h,
         max_w,

@@ -125,9 +125,21 @@ fn health_bar_drawable(
         entity.selection.is_selected(),
         hovered_id == Some(entity.stable_id()),
     );
-    if !draw_pips || sim.display_layers().layer_of(entity.stable_id()).is_none() {
+    if !draw_pips {
         return false;
     }
+    admitted_techno_observer(sim, entity, local_owner, rules).is_some()
+}
+
+/// Retained Display membership and the shared tactical draw admission.
+/// Return the already derived observer facts for native Extras queries.
+fn admitted_techno_observer(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    local_owner: Option<&str>,
+    rules: Option<&RuleSet>,
+) -> Option<crate::render::draw_state::ObserverDrawContext> {
+    sim.display_layers().layer_of(entity.stable_id())?;
     let local_owner_id = local_owner.and_then(|owner| sim.interner.get(owner));
     let observer = crate::app::presentation::instances::observer_draw_context(
         sim,
@@ -147,8 +159,8 @@ fn health_bar_drawable(
         sim.session.binary_frame,
         0,
         observer,
-    )
-    .is_some()
+    )?;
+    Some(observer)
 }
 
 /// Native `DrawHealthBar @0x006F64A0` guards its class `vt+0x450` pip/status
@@ -576,8 +588,6 @@ pub(crate) fn build_occupant_pip_instances(
     let pip_uv_size: [f32; 2] = overlay.occupant_pip_uv_size();
     let (adj_x, adj_y) = overlay.occupant_pip_canvas_adj();
     let local_owner = preferred_local_owner_name(state);
-    let local_owner_id = local_owner.as_deref().and_then(|n| sim.interner.get(n));
-    let ignore_visibility = state.match_state.sandbox_full_visibility;
     let rules = state.rules();
     // Occupant pips are NOT free-standing: `DrawPipScalePips` 0x00709A90 has
     // exactly two callsites, 0x006F682C and 0x006F6AB0, and both are inside
@@ -679,71 +689,6 @@ pub(crate) fn build_occupant_pip_instances(
                 ..Default::default()
             });
         }
-    }
-
-    // Veterancy chevrons ride this same atlas and pass.
-    //
-    // `DrawVeterancyPips` 0x0070A990 (TechnoClass vtable +0x454) has a single
-    // callsite, 0x006F5382 in `DrawExtras`, and it sits BEFORE the selected test
-    // at 0x006F5388-0x006F5390 — so unlike the health bar and the garrison pips,
-    // rank draws for every visible object, selected or not. It blits at
-    // `pLoc + (5, 2)` for infantry and `pLoc + (10, 6)` otherwise.
-    for e in sim.entities().values() {
-        // Techno6F5190 returns before every DrawExtras consumer while +3CD
-        // is set (naval_sinking_clip.json). ObjectSelect remains permitted.
-        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
-            continue;
-        }
-        // Rookie draws nothing: native's rookie frame is the flagged variant,
-        // reached only from the veterancy < 0 branch, which a freshly built unit
-        // is not in.
-        let rank: u32 = if e.veterancy.rank() >= 200 {
-            2
-        } else if e.veterancy.rank() >= 100 {
-            1
-        } else {
-            continue;
-        };
-        if !status_entity_visible_plain(
-            local_owner_id,
-            &sim.fog,
-            &e.position,
-            e.owner(),
-            ignore_visibility,
-        ) {
-            continue;
-        }
-        let (sx, sy) = crate::render::locomotor_visual::screen_position(e);
-        let (dx, dy) = if e.category() == EntityCategory::Infantry {
-            (5.0, 2.0)
-        } else {
-            (10.0, 6.0)
-        };
-        let px: f32 = sx + dx + adj_x;
-        let py: f32 = sy + dy + adj_y;
-        if !in_view(
-            px,
-            py,
-            pip_size[0],
-            pip_size[1],
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-            sw,
-            sh,
-            48.0,
-        ) {
-            continue;
-        }
-        instances.push(SpriteInstance {
-            position: [px, py],
-            size: [pip_size[0], pip_size[1]],
-            uv_origin: overlay.veterancy_pip_uv_origin(rank),
-            uv_size: pip_uv_size,
-            depth: 0.0006,
-            tint: [1.0, 1.0, 1.0],
-            alpha: 1.0,
-            ..Default::default()
-        });
     }
 
     instances
@@ -926,22 +871,27 @@ pub(crate) fn build_repair_wrench_instances(
     instances
 }
 
-/// Frame-local screen viewport for Techno health emission.
+/// Frame-local screen viewport for Techno status emission.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct HealthViewport {
+pub(crate) struct StatusViewport {
     pub camera: [f32; 2],
     pub size: [f32; 2],
 }
 
-/// One Display parent's health strip, in background/fill order.
+/// One Display parent's rank and health commands, in native Extras order.
 #[derive(Debug, Default)]
-pub(crate) struct TechnoHealthStrip {
+pub(crate) struct TechnoExtras {
+    pub rank: Option<SpriteInstance>,
     pub background: Option<SpriteInstance>,
     /// Raw PIPS commands, including the Building branch's empty slots.
     pub fills: Vec<SpriteInstance>,
 }
 
-/// Native Techno DrawHealthBar @0x006F64A0 for one admitted Display parent.
+/// One Techno DrawExtras6F5190 parent, rank prefix then health6F64A0.
+/// Rank70A990 precedes the selected/hovered health gate at6F5388. It uses
+/// the shared cloak/disguise and raw Veterancy owners, with opaque status art.
+/// Ordinary MTNK is executed in procedural_drawing_oracle/unit_rank.json;
+/// other locomotor +68 overrides and promoted-Building lifecycle remain open.
 ///
 /// Building6F64A0..6839 projects Dimension2's upper edge and draws raw PIPS
 /// frames1/2/4 followed by frame0. Infantry6F6852..68E3 uses8 pips and PIPBRD1:
@@ -952,24 +902,24 @@ pub(crate) struct TechnoHealthStrip {
 /// and unit_health.json. Stock selected/hovered GAPOWR and mobile coverage;
 /// conditional pip/status tails remain with their existing owners.
 /// No RNG, timer, detach or retained presentation state changes here.
-pub(crate) fn health_strip_for_parent(
+pub(crate) fn techno_extras_for_parent(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     rules: Option<&RuleSet>,
     overlay: &crate::render::selection_overlay::SelectionOverlay,
     hovered_id: Option<u64>,
     local_owner: Option<&str>,
-    viewport: HealthViewport,
-) -> TechnoHealthStrip {
-    let mut strip = TechnoHealthStrip::default();
-    // DrawExtras6F51AA suppresses sinking before either health arm. Passenger
-    // and tactical admission retain their existing authoritative owners.
-    if entity.sinking.is_active()
-        || entity.passenger_role.is_inside_transport()
-        || !health_bar_drawable(sim, entity, hovered_id, local_owner, rules)
-    {
+    viewport: StatusViewport,
+) -> TechnoExtras {
+    let mut strip = TechnoExtras::default();
+    // DrawExtras6F51AA precedes every status family. Display/lifecycle/body
+    // admission remains the existing shared owner, independent of selection.
+    if entity.sinking.is_active() || entity.passenger_role.is_inside_transport() {
         return strip;
     }
+    let Some(observer) = admitted_techno_observer(sim, entity, local_owner, rules) else {
+        return strip;
+    };
     // Tactical6D9676 dispatches Object5F65A0/Building447AC0 GetCoords;
     //6D9691..9726 projects integer XYZ before subtracting the camera.
     let coord =
@@ -981,7 +931,7 @@ pub(crate) fn health_strip_for_parent(
                     point: (f32, f32),
                     depth: f32| {
         let mut instance = shape.instance(frame, point, depth)?;
-        // E00 background reads tactical A; 600 fills bypass A. The renderer
+        // E00 rank/background reads tactical A; 600 fills bypass A. The renderer
         // chooses those bindings; both use the same plain N53 Convert.
         instance.palette_light = crate::render::palette_light::PaletteLight::plain(53, 1000);
         in_view(
@@ -997,6 +947,66 @@ pub(crate) fn health_strip_for_parent(
         )
         .then_some(instance)
     };
+    //6F534E..5382: +C8's canonical observer-disguise query is distinct
+    // from drawing disguise art; +68 uses VisualCharacter's screen(0,NULL)
+    // query. The first screen argument means graphical client, not force_sensor.
+    let observer_id = local_owner.and_then(|owner| sim.interner.get(owner));
+    let disguised = observer_id.is_some_and(|viewer| {
+        entity.is_disguised_to(
+            viewer,
+            Some(&sim.fog),
+            Some(&sim.house_alliances),
+            &sim.interner,
+        )
+    });
+    let character = entity.visual_character(
+        observer.cloaking_stages,
+        observer.invisible,
+        crate::sim::cloak_disguise::VisualCharacterQuery::screen(
+            true,
+            observer.observer_present,
+            observer.detects_cloak,
+            observer.owner_is_mutually_allied,
+            observer.is_campaign,
+            false,
+        ),
+    );
+    if !disguised && character != 5 {
+        use crate::sim::combat::veterancy::{raw_is_elite, raw_is_negative, raw_is_veteran};
+        //70A999's +88 getter is discarded (Unit741490, Building459EE0);
+        // there is no Trainable gate.70A9B2/C2/D2 tests the raw accumulator,
+        // not the cached/quantized rank. A negative value selects frame19.
+        let raw = entity.veterancy.raw();
+        let frame = if raw_is_veteran(raw) {
+            Some(14)
+        } else if raw_is_elite(raw) {
+            Some(15)
+        } else if raw_is_negative(raw) {
+            Some(19)
+        } else {
+            None
+        };
+        if let (Some(frame), Some(shape)) = (frame, overlay.pips()) {
+            let (dx, dy) = if entity.category() == EntityCategory::Infantry {
+                (5.0, 2.0)
+            } else {
+                (10.0, 6.0)
+            };
+            //70AA20..AA4F: opaque PIPS E00, plain53/1000, A-consuming/no-Z.
+            // Its -2 Z-adjust is unused by this leaf; do not inherit body FX.
+            strip.rank = instance(shape, frame, (sx + dx, sy + dy), 0.0006).map(|mut rank| {
+                rank.z_adjust = -2.0;
+                rank
+            });
+        }
+    }
+    let (draw_background, draw_health) = status_visibility(
+        entity.selection.is_selected(),
+        hovered_id == Some(entity.stable_id()),
+    );
+    if !draw_health {
+        return strip;
+    }
     // Both6F65D7 and6F697C use Object5F5C60 then multiply/ftol7C5F00.
     // Keep the shared health/numeric owners and the signed [1,N] clamp.
     let filled_count = |strength: i32, count: i32| {
@@ -1063,10 +1073,6 @@ pub(crate) fn health_strip_for_parent(
     } else {
         (UNIT_PIPS_VEHICLE, 0, [1.0, -26.0], [-15.0, -25.0])
     };
-    let (draw_background, _) = status_visibility(
-        entity.selection.is_selected(),
-        hovered_id == Some(entity.stable_id()),
-    );
     if draw_background && let Some(shape) = overlay.pipbrd() {
         strip.background = instance(
             shape,

@@ -1,10 +1,10 @@
-//! Original ordinary Techno health calls through the actual shared
+//! Original ordinary Techno status calls through the actual shared
 //! producer, retail resources and production replay. Location, HP, selection,
 //! hover and surface planes are consumer inputs, not lifecycle parity claims.
 use super::draw_plan_lowering::{
     NativeDisplayOrder, PlannedObjectInstance, lower_ground_object_instances,
 };
-use crate::app::presentation::ui_overlays::{HealthViewport, health_strip_for_parent};
+use crate::app::presentation::ui_overlays::{StatusViewport, techno_extras_for_parent};
 use crate::assets::asset_manager::{AssetManager, MediaArchiveMode};
 use crate::map::entities::EntityCategory;
 use crate::render::batch::{BatchRenderer, InstanceBufferPool};
@@ -21,7 +21,7 @@ use serde_json::Value;
 #[test]
 #[ignore = "requires retail assets and GPU; original MTNK health strip A/Z and Display replay"]
 fn native_mobile_health_strips_preserve_color_a_and_z() {
-    native_health_controls(
+    native_status_controls(
         "tools/procedural_drawing_oracle/unit_health.json",
         "MTNK",
         EntityCategory::Unit,
@@ -31,14 +31,24 @@ fn native_mobile_health_strips_preserve_color_a_and_z() {
 #[test]
 #[ignore = "requires retail assets and GPU; original GAPOWR health colors, phases and unchanged A/Z"]
 fn native_building_health_strips_preserve_color_a_and_z() {
-    native_health_controls(
+    native_status_controls(
         "tools/procedural_drawing_oracle/building_health.json",
         "GAPOWR",
         EntityCategory::Structure,
     );
 }
 
-fn native_health_controls(fixture: &'static str, type_name: &str, category: EntityCategory) {
+#[test]
+#[ignore = "requires retail assets and GPU; original MTNK rank prefix A/Z and parent order"]
+fn native_mobile_rank_pips_preserve_color_a_and_z() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/unit_rank.json",
+        "MTNK",
+        EntityCategory::Unit,
+    );
+}
+
+fn native_status_controls(fixture: &'static str, type_name: &str, category: EntityCategory) {
     let native = crate::test_fixture::json(fixture);
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
         .expect("physical Battle INIs");
@@ -81,6 +91,9 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
             ];
             let mut sim = Simulation::new();
             let owner = sim.interner.intern("Owner");
+            let enemy = sim.interner.intern("Enemy");
+            sim.fog = crate::sim::vision::FogState::new(64, 64);
+            sim.fog.reveal_all_for_owner(owner);
             let type_ref = sim.interner.intern(type_name);
             let mut parents = Vec::new();
             let ids = if composed {
@@ -106,7 +119,11 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                     (xyz[1] / 256) as u16,
                     0,
                     0,
-                    owner,
+                    if actor["owner_is_current"].as_bool().unwrap_or(true) {
+                        owner
+                    } else {
+                        enemy
+                    },
                     Health::new(
                         actor["health"]
                             .as_i64()
@@ -131,19 +148,56 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                 entity
                     .selection
                     .set_selected_for_test(actor["selected"].as_bool().unwrap());
+                entity.discovery.set_owned_by_current_house_for_test(
+                    actor["owned_by_current_house"].as_bool().unwrap_or(true),
+                );
+                if let Some(state) = actor["cloak_state"].as_i64() {
+                    assert_eq!(
+                        actor["cloak_progress"].as_i64().unwrap_or(0),
+                        0,
+                        "bounded cloak prior"
+                    );
+                    let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
+                    cloak.set_state_for_test(state as i32);
+                    entity.cloak = Some(cloak);
+                }
+                if actor["disguised"].as_bool().unwrap_or(false) {
+                    let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
+                    disguise.acquire(
+                        0,
+                        None,
+                        actor["disguised_as_current_house"]
+                            .as_bool()
+                            .unwrap_or(false)
+                            .then_some(owner),
+                    );
+                    entity.disguise = Some(disguise);
+                }
+                let cell = ((xyz[0] / 256) as u16, (xyz[1] / 256) as u16);
+                for _ in 0..actor["sensor_count"].as_u64().unwrap_or(0) {
+                    sim.fog.increment_sensor_at(owner, cell.0, cell.1);
+                }
+                for _ in 0..actor["disguise_detect_count"].as_u64().unwrap_or(0) {
+                    sim.fog.disguise_detect_add_at(owner, cell, 1);
+                }
+                entity.veterancy.set_raw_for_test(
+                    crate::util::native_x87::NativeF32Bits::from_bits(
+                        actor["veterancy_raw_bits"].as_u64().unwrap_or(0) as u32,
+                    ),
+                );
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);
                 if actor["sinking"].as_bool().unwrap_or(false) {
                     sim.begin_ship_sinking(id, rules, crate::sim::world::FrameEffects::default());
                 }
-                let strip = health_strip_for_parent(
+                let strip = techno_extras_for_parent(
                     &sim,
                     sim.entities().get(id).unwrap(),
                     Some(rules),
                     &overlay,
                     actor["hovered"].as_bool().unwrap_or(false).then_some(id),
                     Some("Owner"),
-                    HealthViewport {
+                    StatusViewport {
                         camera: cam.camera_pos,
                         size: size.map(|x| x as f32),
                     },
@@ -154,6 +208,7 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                     .iter()
                     .filter(|draw| {
                         draw["asset"] == "PIPS.SHP"
+                            && !matches!(draw["frame"].as_i64(), Some(14 | 15 | 19))
                             && draw["actor"].as_u64() == Some(index as u64)
                             && (!composed || draw["phase"] == "first_extras")
                     })
@@ -189,13 +244,59 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                         row["name"]
                     );
                 }
+                let ranks: Vec<_> = row["draws"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|draw| {
+                        draw["asset"] == "PIPS.SHP"
+                            && draw["actor"].as_u64() == Some(index as u64)
+                            && matches!(draw["frame"].as_i64(), Some(14 | 15 | 19))
+                    })
+                    .collect();
+                assert_eq!(
+                    usize::from(strip.rank.is_some()),
+                    ranks.len(),
+                    "{} actor{index} rank admission",
+                    row["name"]
+                );
+                if let (Some(instance), Some(draw)) = (&strip.rank, ranks.first()) {
+                    assert_eq!(draw["flags"], 0xE00);
+                    let expected = overlay
+                        .pips()
+                        .unwrap()
+                        .instance(
+                            draw["frame"].as_u64().unwrap() as usize,
+                            (
+                                draw["point"][0].as_i64().unwrap() as f32 + cam.camera_pos[0],
+                                draw["point"][1].as_i64().unwrap() as f32 + cam.camera_pos[1],
+                            ),
+                            instance.depth,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        instance.position, expected.position,
+                        "{} rank native point",
+                        row["name"]
+                    );
+                    assert_eq!(
+                        instance.uv_origin, expected.uv_origin,
+                        "{} rank native frame",
+                        row["name"]
+                    );
+                    assert_eq!(instance.z_adjust, draw["z_adjust"].as_i64().unwrap() as f32);
+                    assert_eq!(
+                        instance.alpha, 1.0,
+                        "rank does not inherit body cloak opacity"
+                    );
+                }
                 let draw = display.object_draw(id, SpriteEncoding::Plain).unwrap();
                 let mut parent = if category == EntityCategory::Structure {
                     PlannedObjectInstance::building(draw, vec![])
                 } else {
                     PlannedObjectInstance::object(draw, vec![])
                 };
-                parent.health = Some(strip);
+                parent.status = Some(strip);
                 parents.push(parent);
             }
             let a_input =
@@ -313,8 +414,11 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                 if row["name"] == "healthy_a127" {
                     use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
                     let mut fenced = ObjectLayerPass::default();
-                    let ObjectExtrasRun::Health {
-                        background, fills, ..
+                    let ObjectExtrasRun::Status {
+                        rank,
+                        background,
+                        fills,
+                        ..
                     } = &layer.extras_runs[0]
                     else {
                         panic!("native healthy strip must retain its parent run");
@@ -325,8 +429,9 @@ fn native_health_controls(fixture: &'static str, type_name: &str, category: Enti
                     // These opaque native stores are idempotent; final color/A/Z
                     // must still match the same original healthy control.
                     for parent in 0..129 {
-                        fenced.extras_runs.push(ObjectExtrasRun::Health {
+                        fenced.extras_runs.push(ObjectExtrasRun::Status {
                             parent,
+                            rank: *rank,
                             background: *background,
                             fills: fills.clone(),
                         });

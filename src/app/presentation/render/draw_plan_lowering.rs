@@ -38,8 +38,8 @@ pub(crate) struct PlannedBuildingPieceInstance {
 pub(crate) enum ObjectTexture {
     /// Ordered DSurface calls before this parent's body, with no sprite data.
     SurfaceLines(usize),
-    /// Initial Building Extras health, sharing the late run's instance range.
-    Health(usize),
+    /// Initial Building Extras status, sharing the late run's instance range.
+    Status(usize),
     OverlayAtlas,
     /// Per-piece native destination edit; never a texture-only coalesced draw.
     TerrainShp(crate::render::terrain_draw::TerrainPiece),
@@ -66,7 +66,7 @@ pub(crate) struct PlannedObjectInstance {
     pub pieces: Vec<ObjectPieceInstance>,
     pub building_pieces: Option<Vec<PlannedBuildingPieceInstance>>,
     pub brackets: Option<crate::app::presentation::selection_brackets::BuildingBracketLines>,
-    pub health: Option<crate::app::presentation::ui_overlays::TechnoHealthStrip>,
+    pub status: Option<crate::app::presentation::ui_overlays::TechnoExtras>,
 }
 
 impl PlannedObjectInstance {
@@ -76,7 +76,7 @@ impl PlannedObjectInstance {
             pieces,
             building_pieces: None,
             brackets: None,
-            health: None,
+            status: None,
         }
     }
 
@@ -86,7 +86,7 @@ impl PlannedObjectInstance {
             pieces: Vec::new(),
             building_pieces: Some(pieces),
             brackets: None,
-            health: None,
+            status: None,
         }
     }
 }
@@ -105,7 +105,7 @@ pub(crate) struct ObjectDrawRun {
 
 /// The second Extras sweep (6D9789), in retained Display parent order.
 /// Lines use live Z; ordinary health stores never read or write it. Native
-///6F64A0 submits each parent's border before its pips, not global atlas buckets.
+///6F5190 submits each parent's rank before its health border and pips.
 pub(crate) enum ObjectExtrasRun {
     Lines {
         #[cfg(test)]
@@ -113,9 +113,10 @@ pub(crate) enum ObjectExtrasRun {
         lines: std::ops::Range<usize>,
         batch: crate::render::terrain_draw::SurfaceLineBatch,
     },
-    Health {
+    Status {
         #[cfg(test)]
         parent: DrawId,
+        rank: Option<u32>,
         background: Option<u32>,
         fills: std::ops::Range<u32>,
     },
@@ -240,7 +241,7 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
     let mut ordinary = BTreeMap::new();
     let mut buildings = BTreeMap::new();
     let mut brackets = BTreeMap::new();
-    let mut health = BTreeMap::new();
+    let mut status = BTreeMap::new();
     let mut inputs = Vec::with_capacity(entries.len());
 
     for entry in entries {
@@ -248,8 +249,8 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
         if let Some(lines) = entry.brackets {
             assert!(brackets.insert(id, lines).is_none());
         }
-        if let Some(strip) = entry.health {
-            assert!(health.insert(id, strip).is_none());
+        if let Some(strip) = entry.status {
+            assert!(status.insert(id, strip).is_none());
         }
         if let Some(pieces) = entry.building_pieces {
             let mut resolved = BTreeMap::new();
@@ -302,18 +303,53 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
         let lowered = &mut layers[usize::from(layer.layer.0)];
         for entry in layer.entries {
             let owner = entry.object().id;
-            if let Some(lines) = brackets.remove(&owner) {
-                let index = lowered.before_lines.len();
-                let mut before = lines.behind;
-                before.extend_from_slice(&lines.extras);
-                lowered.before_lines.push(before);
-                lowered.runs.push(ObjectDrawRun {
-                    target: ObjectTexture::SurfaceLines(index),
-                    render_z: RenderZPolicy::ReadOnly,
-                    packed_parent: None,
-                    start: lowered.instances.len() as u32,
-                    count: 0,
+            let is_building = matches!(
+                entry,
+                crate::render::tactical_draw_plan::LayerEntry::Building(_)
+            );
+            let lines = brackets.remove(&owner);
+            let strip = status.remove(&owner).map(|strip| {
+                let rank = strip.rank.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
                 });
+                let background = strip.background.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let start = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.fills);
+                let end = lowered.extras_instances.len() as u32;
+                (rank, background, start..end)
+            });
+            // Native6F5382 precedes selected Building lines6F5396..5E10;
+            // health6F5E27 follows them. Split only when those lines fence a
+            // rank, retaining a single upload for both native Extras sweeps.
+            let mut split_rank = None;
+            if lines.as_ref().is_some_and(|lines| !lines.extras.is_empty()) {
+                if let Some((Some(rank), _, fills)) = &strip {
+                    split_rank = Some(lowered.extras_runs.len());
+                    lowered.extras_runs.push(ObjectExtrasRun::Status {
+                        #[cfg(test)]
+                        parent: owner,
+                        rank: Some(*rank),
+                        background: None,
+                        fills: fills.start..fills.start,
+                    });
+                }
+            }
+            if let Some(lines) = lines {
+                if let Some(index) = split_rank.filter(|_| is_building) {
+                    push_before_lines(lowered, lines.behind);
+                    push_initial_status(lowered, index);
+                    push_before_lines(lowered, lines.extras.clone());
+                } else {
+                    let mut before = lines.behind;
+                    before.extend_from_slice(&lines.extras);
+                    push_before_lines(lowered, before);
+                }
                 let start = lowered.extras_lines.len();
                 lowered.extras_lines.extend(lines.extras);
                 let end = lowered.extras_lines.len();
@@ -326,36 +362,21 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                     });
                 }
             }
-            if let Some(strip) = health.remove(&owner) {
-                let background = strip.background.map(|instance| {
-                    let index = lowered.extras_instances.len() as u32;
-                    lowered.extras_instances.push(instance);
-                    index
-                });
-                let start = lowered.extras_instances.len() as u32;
-                lowered.extras_instances.extend(strip.fills);
-                let end = lowered.extras_instances.len() as u32;
-                if background.is_some() || start != end {
-                    if matches!(
-                        entry,
-                        crate::render::tactical_draw_plan::LayerEntry::Building(_)
-                    ) {
+            if let Some((rank, background, fills)) = strip {
+                let rank = rank.filter(|_| split_rank.is_none());
+                if rank.is_some() || background.is_some() || !fills.is_empty() {
+                    if is_building {
                         // Tactical6D9153 calls Building Extras before its body;
                         //6D9789 calls it again later. One frame-local strip is
                         // replayed twice, never produced or uploaded twice.
-                        lowered.runs.push(ObjectDrawRun {
-                            target: ObjectTexture::Health(lowered.extras_runs.len()),
-                            render_z: RenderZPolicy::None,
-                            packed_parent: None,
-                            start: lowered.instances.len() as u32,
-                            count: 0,
-                        });
+                        push_initial_status(lowered, lowered.extras_runs.len());
                     }
-                    lowered.extras_runs.push(ObjectExtrasRun::Health {
+                    lowered.extras_runs.push(ObjectExtrasRun::Status {
                         #[cfg(test)]
                         parent: owner,
+                        rank,
                         background,
-                        fills: start..end,
+                        fills,
                     });
                 }
             }
@@ -383,6 +404,31 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
         }
     }
     layers
+}
+
+fn push_before_lines(
+    pass: &mut ObjectLayerPass,
+    lines: Vec<crate::render::surface_line::SurfaceLine>,
+) {
+    let index = pass.before_lines.len();
+    pass.before_lines.push(lines);
+    pass.runs.push(ObjectDrawRun {
+        target: ObjectTexture::SurfaceLines(index),
+        render_z: RenderZPolicy::ReadOnly,
+        packed_parent: None,
+        start: pass.instances.len() as u32,
+        count: 0,
+    });
+}
+
+fn push_initial_status(pass: &mut ObjectLayerPass, index: usize) {
+    pass.runs.push(ObjectDrawRun {
+        target: ObjectTexture::Status(index),
+        render_z: RenderZPolicy::None,
+        packed_parent: None,
+        start: pass.instances.len() as u32,
+        count: 0,
+    });
 }
 
 #[cfg(test)]
@@ -507,7 +553,7 @@ mod tests {
     #[test]
     fn building_health_reuses_late_ranges_before_each_parent_body() {
         use crate::app::presentation::{
-            selection_brackets::BuildingBracketLines, ui_overlays::TechnoHealthStrip,
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
         };
         let parent = |id, rank| {
             let mut parent = PlannedObjectInstance::building(
@@ -529,7 +575,8 @@ mod tests {
                 behind: vec![],
                 extras: vec![],
             });
-            parent.health = Some(TechnoHealthStrip {
+            parent.status = Some(TechnoExtras {
+                rank: None,
                 background: None,
                 fills: vec![SpriteInstance::default(); 15],
             });
@@ -539,26 +586,85 @@ mod tests {
         assert_eq!(pass.owners, [900, 1]);
         assert_eq!(pass.extras_instances.len(), 30);
         assert!(matches!(&pass.extras_runs[..], [
-            ObjectExtrasRun::Health { parent:900, fills:a, .. },
-            ObjectExtrasRun::Health { parent:1, fills:b, .. },
+            ObjectExtrasRun::Status { parent:900, fills:a, .. },
+            ObjectExtrasRun::Status { parent:1, fills:b, .. },
         ] if *a == (0..15) && *b == (15..30)));
         assert_eq!(
             pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
             [
                 ObjectTexture::SurfaceLines(0),
-                ObjectTexture::Health(0),
+                ObjectTexture::Status(0),
                 ObjectTexture::OverlayAtlas,
                 ObjectTexture::SurfaceLines(1),
-                ObjectTexture::Health(1),
+                ObjectTexture::Status(1),
                 ObjectTexture::OverlayAtlas,
             ]
         );
     }
 
     #[test]
-    fn late_extras_interleave_brackets_and_whole_health_strips_by_display_parent() {
+    fn selected_nonrookie_building_keeps_rank_between_behind_and_extras_lines() {
         use crate::app::presentation::{
-            selection_brackets::BuildingBracketLines, ui_overlays::TechnoHealthStrip,
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
+        };
+        use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
+        let line = |color| SurfaceLine {
+            from: [0, 0],
+            to: [8, 0],
+            z_adjust: [14, 14],
+            blend: SurfaceLineBlend::Replace(color),
+        };
+        let mut parent = PlannedObjectInstance::building(
+            ObjectDraw {
+                id: 42,
+                layer: TacticalLayer(2),
+                display_order: 0,
+                policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+            },
+            vec![PlannedBuildingPieceInstance {
+                kind: BuildingPieceKind::Body,
+                z_bias: 0,
+                policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                target: ObjectTexture::OverlayAtlas,
+                instance: SpriteInstance::default(),
+            }],
+        );
+        parent.brackets = Some(BuildingBracketLines {
+            behind: vec![line(10)],
+            extras: vec![line(11)],
+        });
+        parent.status = Some(TechnoExtras {
+            rank: Some(SpriteInstance::default()),
+            background: None,
+            fills: vec![SpriteInstance::default(); 15],
+        });
+        let pass = lower_ground_object_instances(vec![parent]);
+        // Native6D913C Behind,6D9153 Extras:6F5382 rank,6F5396..5E10
+        // selected Building lines,6F5E27 health, then the body.6D9789 repeats
+        // rank->Extras-lines->health, using the same uploaded instances.
+        assert_eq!(pass.before_lines, [vec![line(10)], vec![line(11)]]);
+        assert_eq!(pass.extras_instances.len(), 16);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Status { parent: 42, rank: Some(0), background: None, fills: a },
+            ObjectExtrasRun::Lines { parent: 42, lines, .. },
+            ObjectExtrasRun::Status { parent: 42, rank: None, background: None, fills: b },
+        ] if a.is_empty() && *lines == (0..1) && *b == (1..16)));
+        assert_eq!(
+            pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
+            [
+                ObjectTexture::SurfaceLines(0),
+                ObjectTexture::Status(0),
+                ObjectTexture::SurfaceLines(1),
+                ObjectTexture::Status(2),
+                ObjectTexture::OverlayAtlas,
+            ]
+        );
+    }
+
+    #[test]
+    fn late_extras_interleave_rank_health_and_brackets_by_display_parent() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
         };
         use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
         let parent = |id, rank| {
@@ -573,7 +679,11 @@ mod tests {
             )
         };
         let mut first = parent(901, 0);
-        first.health = Some(TechnoHealthStrip {
+        first.status = Some(TechnoExtras {
+            rank: Some(SpriteInstance {
+                position: [0.0, 0.0],
+                ..Default::default()
+            }),
             background: Some(SpriteInstance {
                 position: [1.0, 0.0],
                 ..Default::default()
@@ -594,7 +704,8 @@ mod tests {
             }],
         });
         let mut last = parent(2, 2);
-        last.health = Some(TechnoHealthStrip {
+        last.status = Some(TechnoExtras {
+            rank: None,
             background: None,
             fills: vec![SpriteInstance {
                 position: [3.0, 0.0],
@@ -603,16 +714,16 @@ mod tests {
         });
         let pass = lower_ground_object_instances(vec![last, middle, first]);
         assert!(matches!(&pass.extras_runs[..], [
-            ObjectExtrasRun::Health { parent: 901, background: Some(0), fills: a },
+            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a },
             ObjectExtrasRun::Lines { parent: 3, .. },
-            ObjectExtrasRun::Health { parent: 2, background: None, fills: b },
-        ] if *a == (1..2) && *b == (2..3)));
+            ObjectExtrasRun::Status { parent: 2, rank: None, background: None, fills: b },
+        ] if *a == (2..3) && *b == (3..4)));
         assert_eq!(
             pass.extras_instances
                 .iter()
                 .map(|s| s.position[0])
                 .collect::<Vec<_>>(),
-            [1.0, 2.0, 3.0]
+            [0.0, 1.0, 2.0, 3.0]
         );
         let empty = lower_ground_object_instances(vec![parent(901, 0)]);
         assert!(empty.extras_runs.is_empty());

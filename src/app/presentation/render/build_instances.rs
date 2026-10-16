@@ -306,15 +306,15 @@ pub(super) fn build_world_instances(
             local_owner.as_deref(),
         );
         for parent in &mut planned_objects {
-            parent.health = sim.entities().get(parent.parent.id).map(|entity| {
-                crate::app::presentation::ui_overlays::health_strip_for_parent(
+            parent.status = sim.entities().get(parent.parent.id).map(|entity| {
+                crate::app::presentation::ui_overlays::techno_extras_for_parent(
                     sim,
                     entity,
                     state.rules(),
                     overlay,
                     hovered,
                     local_owner.as_deref(),
-                    crate::app::presentation::ui_overlays::HealthViewport {
+                    crate::app::presentation::ui_overlays::StatusViewport {
                         camera: [
                             state.match_state.input.camera_x,
                             state.match_state.input.camera_y,

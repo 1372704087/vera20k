@@ -2107,8 +2107,7 @@ impl Simulation {
                 .as_ref()
                 .is_some_and(|d| d.house().is_none())
             && self.session.current_house.is_some_and(|house| {
-                crate::sim::cloak_disguise::object_disguised_to(
-                    entity,
+                entity.is_disguised_to(
                     house,
                     Some(&self.fog),
                     Some(&self.house_alliances),

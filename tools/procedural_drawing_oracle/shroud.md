@@ -343,3 +343,68 @@ runtime capture remain separate integration gates.
 The Building component corpus retains `store_count` and per-draw `color_stores`
 instead of ordered color-store arrays; no consumer needs a second bulk write
 trace. Historical unit/bracket payloads retain their original schema and bytes.
+
+## Ordinary mobile rank prefix
+
+`--unit-rank` extends the existing health generator and `_HealthRecorder`; the
+same physical PIPS/PIPBRD/PALETTE, native INI caches, palette initialization,
+Surface and shape leaves produce `unit_rank.json`. No second VM, rank state,
+SHP atlas, palette or raster implementation produces expected output.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --unit-rank --check
+```
+
+The18 `raster_controls` use the health corpus input/pixels/draws schema and
+compact store counts. Actual native setters750080/750090/7500B0 and
+7500E0(-100) produce `input.actors[].veterancy_raw_bits`; these bits are canonical
+consumer inputs. The corresponding setter entry/arguments and original
+GetCoords5F65A0/Tactical6D2140 point are recorded in `actor_results`. No host
+rank formula supplies expected frames or colors.
+
+Every row executes whole DrawExtras6F5190. Native sinking admission precedes
+bomb/repair, then IsDisguisedTo(CurrentHouse) and VisualCharacter(false,NULL)
+gate rank before the selected/hover health branches. Complete70A990 uses
+PIPS14 veteran,15 elite,19 negative; ordinary rookie0 draws nothing. The
+non-Infantry anchor is point+[10,6], flagsE00, remap0, signed Z-adjust-2,
+gradient0, brightness1000 and PALETTE Convert87F6C4. Native493DF0/7E57E0
+consumes A and bypasses Z. A127/63/2/0 and occluding Z0 controls retain original
+code, actor bytes and both A/Z planes. A2/A0 make black stores rather than
+skipping the chevron. Selected/hover rows continue through full health and
+ordinary709A90/70AA60. The two-parent `ordered_overlap` includes eight actual
+first-rank pixels overwritten by the later parent's health; the native values
+are retained in `overwritten_rank_pixels`. `clipped` uses raw Location2976,4960,0
+and original projection point148,80, producing18 visible rank pixels through
+the full viewport clip.
+
+The explicit constructor boundary follows the existing MTNK input owner:
+Unit7353C0→Foot4D31E0 prefix stops7354CE before typed COM activation, followed
+by original Drive4AF540. Supplied owner/link/active priors expose the actual
+Drive55ABC0 callback to Foot4DA4E0; its zero result is executed, not stubbed.
+Whole typed Unit construction, Unlimbo, placement, movement and promotion
+lifecycle remain excluded. The prefix consumes one original Scenario RNG draw
+at6F3259 and initializes the recorded passive scan timer; the measured drawing
+intervals consume no RNG, update no timer and detach nothing.
+
+Observer controls reuse the existing constructed flat Cell setup in the same
+owner, with explicit local/enemy House indices0/1, no mutual alliance, Cell+7C
+sensor and+AC disguise-detection counters. Native746750/41C010/4F9A50,
+4DA4E0→55ABC0→703860 and4870D0/4870F0 execute. Inputs spell out
+`owner_is_current`, `owned_by_current_house`, `cloak_state`, `cloak_progress`,
+`disguised`, `disguised_as_current_house`, `sensor_count` and
+`disguise_detect_count`. Enemy cloak state2/no sensor yields visual5 and
+suppresses rank; own or sensed state2 yields3 and draws. Enemy disguise as the
+observer suppresses rank until its detection counter is positive. These are
+prepared consumer states, not claims that stock MTNK intrinsically produces
+cloak/disguise. Rank material remains opaque and does not inherit body cloak
+opacity/tint. `gates` records original results and `callbacks` records reached
+native dependencies.
+
+`vtable_bindings` reads active Unit7F5C70, Infantry7EB058 and Aircraft7E22A4
+slots: all+110 use6F5190 and+454 use70A990. Their visual entry is shared
+Foot4DA4E0; Unit/Infantry disguise queries differ and Aircraft returnsfalse.
+Original70A990 selects point+[5,2] for Infantry RTTI15 and+[10,6] otherwise.
+These bindings and instructions protect the shared production consumers;
+full Infantry/Aircraft constructors, bodies and scenario compositions are not
+established by the MTNK component corpus. All historical health/bracket/default
+modes retain their schema and outputs.

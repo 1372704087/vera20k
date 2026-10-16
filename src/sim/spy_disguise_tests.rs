@@ -6,7 +6,7 @@
 
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cloak_disguise::{DisguiseRuntime, object_disguised_to};
+use crate::sim::cloak_disguise::DisguiseRuntime;
 use crate::sim::combat::TargetKind;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::{MissionId, MissionType};
@@ -168,8 +168,7 @@ fn a_spy_takes_the_look_of_the_infantryman_its_makeup_kit_hits() {
     );
     let spy = sim.substrate.entities.get(spy).unwrap();
     let seen_by = |house: &str| {
-        object_disguised_to(
-            spy,
+        spy.is_disguised_to(
             id(&sim, house),
             Some(&sim.fog),
             Some(&sim.house_alliances),

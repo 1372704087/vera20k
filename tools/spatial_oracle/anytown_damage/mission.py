@@ -238,10 +238,11 @@ class Mission:
   self.command_bytes=bytes(u.mem_read(self.command,0x6F)).hex();m.invoke(0x4C6CB0,self.command);self.after_command=self.state()
   self.rng_after_command={k:base.sr.rng_state(u,p) for k,p in self.resident.rngs.items()}
   self.phase='logic'
- def tick(self):
+ def tick(self,*,snapshot_cell=(87,54)):
+  # Observation target only; composed physical maps reuse this same driver.
   m=self.m;u=self.u;self.frame=m.read32(0xA8ED84);self.phase='logic';start=len(self.events);resident_start=len(self.resident.trace)
   u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_EDI,0x87F778);run_checked(u,0x55B5FF,0x55B61B,count=5000000)
-  self.frames.append(dict(state=self.state(),target=self.resident.snapshot(self.resident.ptrs[87,54]),event_range=[start,len(self.events)],resident_range=[resident_start,len(self.resident.trace)],logic_count=m.read32(0x87F788),anim_count=m.read32(0xA8E9B8),deferred_count=m.read32(0xB0F6A8)))
+  self.frames.append(dict(state=self.state(),target=self.resident.snapshot(self.resident.ptrs[snapshot_cell]),event_range=[start,len(self.events)],resident_range=[resident_start,len(self.resident.trace)],logic_count=m.read32(0x87F788),anim_count=m.read32(0xA8E9B8),deferred_count=m.read32(0xB0F6A8)))
   # Original Main_Tick increments the frame before deferred physical finalization.
   # Other Logic/global phases are deliberately outside this isolated object pass.
   u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_EDI,0);run_checked(u,0x55DE73,0x55DE87)

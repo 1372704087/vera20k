@@ -190,8 +190,10 @@ impl Simulation {
             }
             self.unit_per_cell_factory_clearance(id, rules, registry, effects);
         }
-        // 0x0073AC52..0x0073AC74: ReReveal then UpdateReveal, after the
-        // clearance arms and before Ready/Commence. RESIDUAL: native returns
+        // 0x0073AC52..0x0073ACAE: ReReveal then UpdateReveal and the
+        // current-XYZ/cached-radius+3 Map567DA0 border, after clearance and
+        // before Ready/Commence. Evidence: shroud_frontier_moving.json.
+        // RESIDUAL: native returns
         // before them from arms VERA runs elsewhere or not at all: the
         // `Grinding=`, `UnitAbsorb=` and transport entries, their failure
         // tail (`0x0073A796`), and Guard's map exit (`0x0073AC0E..
@@ -201,6 +203,7 @@ impl Simulation {
         // and its cells stay revealed.
         if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
             self.refresh_object_sight(id, rules, 0);
+            self.refresh_object_sight_border(id, UninitContext::new(rules, registry));
         }
         // Unit PerCell2 739EC0: after MCV retry, +6D1==0 admits
         // Ready(+200)73ACC2 -> Commence(+1EC)73ACD1, BEFORE full-cell

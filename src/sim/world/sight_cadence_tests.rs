@@ -378,6 +378,12 @@ fn retail_goldst_initial_scenario() -> crate::headless_scenario::HeadlessScenari
 #[test]
 #[ignore = "requires RA2_DIR with installed retail RA2/YR assets and stock GoldSt.mmx"]
 fn retail_goldst_initial_amcv_matches_native_before_presentation() {
+    let scenario = retail_goldst_initial_scenario();
+    let _ = assert_retail_goldst_initial_amcv(scenario.sim());
+}
+
+/// Shared native1777 prerequisites, before either normal-map experiment runs.
+fn assert_retail_goldst_initial_amcv(sim: &Simulation) -> (u64, Vec<(u16, u16)>) {
     use serde_json::json;
     let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/procedural_drawing_oracle/shroud_frontier.json",
@@ -386,8 +392,6 @@ fn retail_goldst_initial_amcv_matches_native_before_presentation() {
     assert_eq!(corpus["inputs"]["startup"]["b0cd48"], "60493474535ec23f");
     let history = &corpus["histories"][0];
     assert_eq!(history["name"], "initial_amcv");
-    let scenario = retail_goldst_initial_scenario();
-    let sim = scenario.sim();
     assert_eq!(
         sim.session.tick, 0,
         "no Logic frame supplies initial knowledge"
@@ -442,11 +446,13 @@ fn retail_goldst_initial_amcv_matches_native_before_presentation() {
     let view = &sim.fog.by_owner[&owner];
     let rows = history["before_draw_cells"].as_array().unwrap();
     assert_eq!(rows.len(), 8);
+    let mut witnesses = Vec::with_capacity(rows.len());
     for row in rows {
         let cell = (
             row["cell"][0].as_u64().unwrap() as u16,
             row["cell"][1].as_u64().unwrap() as u16,
         );
+        witnesses.push(cell);
         let index = usize::from(cell.1) * usize::from(sim.fog.width) + usize::from(cell.0);
         let state = view.shroud_knowledge_raw()[index];
         let (frames, flags) = view.map_cell_edge_cache_for_test(cell);
@@ -497,6 +503,470 @@ fn retail_goldst_initial_amcv_matches_native_before_presentation() {
     }
     // No refresh, terrain edits, visibility hooks, commands or presentation
     // ran between normal load and these producer/cache observations.
+    (id, witnesses)
+}
+
+/// Ordinary runtime Move -> two Unit arrivals -> Stop/idle on stock GoldSt.
+/// Native1777 supplies the initial prerequisites; the independently executed
+/// moving corpus supplies event-relative Drive/Unit cache and Cell witnesses.
+/// Prepared native startup timing is not a whole-match timing golden.
+#[test]
+#[ignore = "requires RA2_DIR with installed retail RA2/YR assets and stock GoldSt.mmx"]
+fn retail_goldst_amcv_sight_follows_arrivals_then_survives_stop() {
+    use crate::sim::components::{DriveCoord, TrackProgress};
+    use crate::sim::intern::InternedId;
+    use crate::sim::movement::ground_pose::object_location;
+    use crate::sim::movement::track_process::TrackFamily;
+    use crate::sim::world::TickLane;
+    let native =
+        crate::test_fixture::json("tools/procedural_drawing_oracle/shroud_frontier_moving.json");
+    assert_eq!(native["flight_queries"]["height"], 0);
+    assert_eq!(native["flight_queries"]["high"], 0);
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct CellObservation {
+        cell: (u16, u16),
+        counter: i32,
+        gap: i32,
+        local_sources: u32,
+        allied_sources: u32,
+        open: bool,
+        pending: bool,
+        ground: u8,
+        edge: ([i8; 2], u32),
+    }
+
+    #[derive(Debug)]
+    struct Observation {
+        tick: u64,
+        xyz: DriveCoord,
+        physical_cell: (u16, u16),
+        admission: vision::SightAdmission,
+        head: Option<DriveCoord>,
+        destination: Option<DriveCoord>,
+        progress: Option<TrackProgress>,
+        moving: Option<bool>,
+        cells: Vec<CellObservation>,
+    }
+
+    fn observe(
+        sim: &Simulation,
+        id: u64,
+        owner: InternedId,
+        selected: &[(u16, u16)],
+    ) -> Observation {
+        let source = sim.entities().get(id).expect("starting AMCV survives");
+        assert!(source.lifecycle.object_alive());
+        assert!(!source.lifecycle.in_limbo());
+        assert!(source.in_playfield());
+        assert_eq!(source.owner(), owner);
+        let admission = sim.fog.sight_admissions[&(id, owner)].clone();
+        assert!(admission.latched);
+        assert_eq!(admission.owner, owner);
+        assert!(!admission.cells.is_empty());
+        let local_sources: Vec<_> = sim
+            .fog
+            .sight_admissions
+            .iter()
+            .filter(|&(&(_, viewer), admission)| viewer == owner && admission.latched)
+            .map(|(&(source, _), _)| source)
+            .collect();
+        assert_eq!(local_sources, [id], "one ordinary local sustained source");
+        assert!(
+            sim.fog
+                .alternate_sight_admissions
+                .keys()
+                .all(|&(_, viewer)| viewer != owner),
+            "this control has no alternate local sight source"
+        );
+        let view = &sim.fog.by_owner[&owner];
+        // The normal frame already validates the whole derived source
+        // index. Keep this integration observation on named Cell controls.
+        let cells = selected
+            .iter()
+            .copied()
+            .map(|cell| {
+                let index = usize::from(cell.1) * usize::from(sim.fog.width) + usize::from(cell.0);
+                let state = view.shroud_knowledge_raw()[index];
+                assert_eq!(
+                    state.local_sources,
+                    u32::from(admission.cells.contains(&cell)),
+                    "tick{}: retained source index at{cell:?}",
+                    sim.session.tick,
+                );
+                assert_eq!(state.allied_sources, 0, "no allied source at{cell:?}");
+                if state.local_sources == 1 {
+                    assert_eq!(state.counter, -1, "one Cell487630 contribution at{cell:?}");
+                    assert_eq!(state.gap_counter, 0);
+                    assert!(state.open);
+                }
+                CellObservation {
+                    cell,
+                    counter: state.counter,
+                    gap: state.gap_counter,
+                    local_sources: state.local_sources,
+                    allied_sources: state.allied_sources,
+                    open: state.open,
+                    pending: state.pending,
+                    ground: view.ground_flags_raw()[index],
+                    edge: view.map_cell_edge_cache_for_test(cell),
+                }
+            })
+            .collect();
+        let loco = source.locomotor.as_ref().expect("retail AMCV Drive");
+        Observation {
+            tick: sim.session.tick,
+            xyz: object_location(source, sim.resolved_terrain.as_ref()),
+            physical_cell: (source.position.rx(), source.position.ry()),
+            admission,
+            head: loco.track_head(TrackFamily::Drive),
+            destination: loco.track_destination(TrackFamily::Drive),
+            progress: loco.track_progress(TrackFamily::Drive),
+            moving: crate::sim::movement::motion_query::is_moving(source),
+            cells,
+        }
+    }
+
+    let mut scene = retail_goldst_initial_scenario();
+    let (id, mut selected) = assert_retail_goldst_initial_amcv(scene.sim());
+    let owner = scene.sim().session.current_house.unwrap();
+    let cache = &scene.sim().fog.sight_admissions[&(id, owner)];
+    let left = *cache.cells.iter().min().unwrap();
+    let right = *cache.cells.iter().max().unwrap();
+    // Probe two departure/entry fringes around the loaded footprint. These
+    // choose observation cells only: actual cache membership below decides
+    // whether each probe left/entered. No expected footprint is computed.
+    selected.extend([
+        left,
+        (left.0 + 1, left.1),
+        (right.0 + 1, right.1),
+        (right.0 + 2, right.1),
+        (108, 18),
+    ]);
+    selected.sort_unstable();
+    selected.dedup();
+    let initial = observe(scene.sim(), id, owner, &selected);
+    assert_eq!(initial.physical_cell, (109, 27));
+    assert_eq!(
+        (initial.admission.origin.0, initial.admission.origin.1),
+        (109, 27)
+    );
+    let radius = initial.admission.radius;
+    let z = initial.xyz.z;
+    let order = CommandEnvelope::new(
+        owner,
+        scene.sim().session.tick + 1,
+        Command::Move {
+            entity_id: id,
+            target_rx: 111,
+            target_ry: 27,
+        },
+    );
+    let mut observations = vec![initial];
+    let mut origins = vec![(109, 27)];
+    let mut crossings = std::collections::BTreeSet::new();
+    let mut completed = false;
+    let mut release_witnesses = 0;
+    let mut new_witnesses = 0;
+    // This is an exploration bound, not an expected native arrival frame.
+    // Game-speed1 captures use22ms; HeadlessScenario::tick defaults to66ms.
+    for step in 0..160 {
+        let commands = if step == 0 {
+            std::slice::from_ref(&order)
+        } else {
+            &[]
+        };
+        let (output, calls) = trace_reveal_calls(|| {
+            scene
+                .runtime
+                .advance_frame(commands, 22, TickLane::Ordinary, FrameEffects::default())
+                .expect("normal AMCV movement frame")
+        });
+        assert!(output.tick.frame_committed);
+        let current = observe(scene.sim(), id, owner, &selected);
+        let previous = observations.last().unwrap();
+        assert_eq!(current.admission.radius, radius);
+        assert_eq!(current.admission.origin.2, z);
+        assert_eq!(current.xyz.z, z, "selected ordinary level ground");
+        let origin = (current.admission.origin.0, current.admission.origin.1);
+        if current.physical_cell != origin {
+            if crossings.insert(current.physical_cell) {
+                eprintln!(
+                    "AMCV crossing tick{} XYZ{:?} cell{:?} retained{:?} head{:?} track{:?}",
+                    current.tick,
+                    current.xyz,
+                    current.physical_cell,
+                    current.admission.origin,
+                    current.head,
+                    current.progress,
+                );
+            }
+            assert_eq!(
+                current.admission, previous.admission,
+                "physical cell crossing alone does not refresh retained sight"
+            );
+        }
+        if current.admission.origin != previous.admission.origin {
+            assert_eq!(origin, current.physical_cell);
+            let arrival = &native["arrivals"][origins.len() - 1];
+            let expected = &arrival["after_border"];
+            let cache = &expected["cache"];
+            assert_eq!(
+                current.admission.radius,
+                cache["radius"].as_i64().unwrap() as i32
+            );
+            assert_eq!(
+                current.admission.origin,
+                (
+                    (cache["xyz"][0].as_i64().unwrap() >> 8) as u16,
+                    (cache["xyz"][1].as_i64().unwrap() >> 8) as u16,
+                    cache["xyz"][2].as_i64().unwrap() as i32,
+                )
+            );
+            assert_eq!(
+                serde_json::json!([current.xyz.x, current.xyz.y, current.xyz.z]),
+                arrival["after_pass"]["actor"]["position"],
+                "event-relative postpass pose"
+            );
+            for row in expected["cells"].as_array().unwrap() {
+                let cell = (
+                    row["cell"][0].as_u64().unwrap() as u16,
+                    row["cell"][1].as_u64().unwrap() as u16,
+                );
+                let Some(actual) = current.cells.iter().find(|state| state.cell == cell) else {
+                    continue;
+                };
+                assert_eq!(
+                    actual.counter,
+                    row["counter"].as_i64().unwrap() as i32,
+                    "native counter {cell:?}"
+                );
+                assert_eq!(
+                    actual.gap,
+                    row["gap"].as_i64().unwrap() as i32,
+                    "native gap {cell:?}"
+                );
+                assert_eq!(actual.ground, (row["alt"].as_u64().unwrap() & 0x18) as u8);
+                assert_eq!(
+                    actual.edge.0[0],
+                    row["cache"][0].as_i64().unwrap() as i8,
+                    "arrival updates native ground edge immediately at {cell:?}"
+                );
+                // Native warm drawing also refreshes fog-edge cache. This
+                // pre-presentation test compares the shared ground channel.
+            }
+            // End-of-frame XYZ may already include the next paid points;
+            // do not equate it with a subframe arrival's exact coordinate.
+            assert!(calls.walks.len() >= 2, "release and update reach Map5678E0");
+            // Trace walks are aggregate: no source/final-pass tag is claimed.
+            // Cell state and retained geometry independently guard the source
+            // handoff; the native producer must still establish exact order.
+            let released: Vec<_> = previous
+                .admission
+                .cells
+                .iter()
+                .filter(|cell| !current.admission.cells.contains(cell))
+                .collect();
+            let added: Vec<_> = current
+                .admission
+                .cells
+                .iter()
+                .filter(|cell| !previous.admission.cells.contains(cell))
+                .collect();
+            assert!(!released.is_empty(), "arrival releases an old-only fringe");
+            assert!(!added.is_empty(), "arrival adds a new-only fringe");
+            let released_before = release_witnesses;
+            let added_before = new_witnesses;
+            for before in &previous.cells {
+                let cell = before.cell;
+                if !previous.admission.cells.contains(&cell)
+                    || current.admission.cells.contains(&cell)
+                {
+                    continue;
+                }
+                let after = current
+                    .cells
+                    .iter()
+                    .find(|state| state.cell == cell)
+                    .unwrap();
+                assert_eq!(before.counter, -1);
+                assert_eq!(before.local_sources, 1);
+                assert_eq!(after.local_sources, 0);
+                assert_eq!(after.counter, 0, "released ordinary Cell487690 at{cell:?}");
+                assert_eq!(after.gap, 0);
+                release_witnesses += 1;
+            }
+            for after in &current.cells {
+                let cell = after.cell;
+                if !current.admission.cells.contains(&cell)
+                    || previous.admission.cells.contains(&cell)
+                {
+                    continue;
+                }
+                let before = previous
+                    .cells
+                    .iter()
+                    .find(|state| state.cell == cell)
+                    .unwrap();
+                assert_eq!(before.local_sources, 0);
+                assert_eq!(after.local_sources, 1);
+                assert_eq!(after.counter, -1, "one ordinary Cell487630 at{cell:?}");
+                assert_eq!(after.gap, 0);
+                assert!(after.open);
+                new_witnesses += 1;
+            }
+            assert!(
+                release_witnesses > released_before,
+                "observed departure fringe at each arrival"
+            );
+            assert!(
+                new_witnesses > added_before,
+                "observed entry fringe at each arrival"
+            );
+            let changed_cells = previous
+                .cells
+                .iter()
+                .zip(&current.cells)
+                .filter(|(before, after)| before != after)
+                .count();
+            eprintln!(
+                "AMCV sight tick{} XYZ{:?} origin{:?}->{:?} head{:?} track{:?} walks{} notifications{} changed_cells{} released{} added{}",
+                current.tick,
+                current.xyz,
+                previous.admission.origin,
+                current.admission.origin,
+                current.head,
+                current.progress,
+                calls.walks.len(),
+                calls.notifications.len(),
+                changed_cells,
+                released.len(),
+                added.len(),
+            );
+            let before = previous
+                .cells
+                .iter()
+                .find(|state| {
+                    previous.admission.cells.contains(&state.cell)
+                        && !current.admission.cells.contains(&state.cell)
+                })
+                .unwrap();
+            let after = current
+                .cells
+                .iter()
+                .find(|state| state.cell == before.cell)
+                .unwrap();
+            eprintln!("AMCV released Cell{:?}: {before:?}->{after:?}", before.cell);
+            origins.push(origin);
+        } else {
+            assert_eq!(
+                current.admission, previous.admission,
+                "an unchanged arrival cache keeps its footprint"
+            );
+        }
+        let arrived = current.physical_cell == (111, 27)
+            && origin == (111, 27)
+            && current.head.is_none()
+            && current.destination.is_none()
+            && current.moving == Some(false);
+        observations.push(current);
+        if arrived {
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed, "ordinary Move did not finish within160 frames");
+    assert_eq!(origins, [(109, 27), (110, 27), (111, 27)]);
+    assert!(
+        crossings.contains(&(110, 27)),
+        "first crossing precedes its reveal arrival"
+    );
+    assert!(
+        crossings.contains(&(111, 27)),
+        "second crossing precedes its reveal arrival"
+    );
+    assert!(release_witnesses > 0 && new_witnesses > 0);
+    let settled = observations.last().unwrap();
+    // Original Drive -> Unit739EC0 ->567DA0 changes this ground frame
+    // immediately, before Logic578100 can repair a missed suffix at120.
+    let native_border = native["arrivals"][1]["after_border"]["cells"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["cell"] == serde_json::json!([108, 18]))
+        .unwrap();
+    let border = settled
+        .cells
+        .iter()
+        .find(|state| state.cell == (108, 18))
+        .unwrap();
+    assert_eq!(
+        border.edge,
+        (
+            [
+                native_border["cache"][0].as_i64().unwrap() as i8,
+                native_border["cache"][1].as_i64().unwrap() as i8
+            ],
+            native_border["flags"].as_u64().unwrap() as u32 & 3
+        ),
+        "original Unit arrival border, before Stop/120"
+    );
+    assert_eq!(
+        border.counter,
+        native_border["counter"].as_i64().unwrap() as i32
+    );
+    assert_eq!(
+        border.ground,
+        native_border["alt"].as_u64().unwrap() as u8 & 0x18
+    );
+    let stop = CommandEnvelope::new(
+        owner,
+        scene.sim().session.tick + 1,
+        Command::Stop { entity_id: id },
+    );
+    let until_boundary = (120 - scene.sim().session.binary_frame % 120) % 120;
+    let idle_frames = (until_boundary + 2).max(8);
+    let mut crossed_boundary = false;
+    for idle in 0..idle_frames {
+        let binary_frame = scene.sim().session.binary_frame;
+        crossed_boundary |= binary_frame % 120 == 0;
+        let commands = if idle == 0 {
+            std::slice::from_ref(&stop)
+        } else {
+            &[]
+        };
+        let (output, _calls) = trace_reveal_calls(|| {
+            scene
+                .runtime
+                .advance_frame(commands, 22, TickLane::Ordinary, FrameEffects::default())
+                .expect("ordinary Stop then idle frame")
+        });
+        assert!(output.tick.frame_committed);
+        let current = observe(scene.sim(), id, owner, &selected);
+        assert_eq!(
+            current.xyz, settled.xyz,
+            "Stop after completion does not move the source"
+        );
+        assert_eq!(
+            current.admission, settled.admission,
+            "Stop/idle retains the last admitted footprint"
+        );
+        assert_eq!(current.cells.len(), settled.cells.len());
+        for (after, before) in current.cells.iter().zip(&settled.cells) {
+            assert_eq!(
+                after, before,
+                "Stop/idle tick{} prebinary{binary_frame} idle{idle} Cell{:?}: no duplicate contribution or cache change",
+                current.tick, after.cell,
+            );
+        }
+        assert!(current.head.is_none());
+        assert!(current.destination.is_none());
+        assert_eq!(current.moving, Some(false));
+    }
+    assert!(
+        crossed_boundary,
+        "Stop/idle includes the real Logic120 boundary"
+    );
 }
 
 /// A supplied callback changes PlayerPtr during a native source event. The

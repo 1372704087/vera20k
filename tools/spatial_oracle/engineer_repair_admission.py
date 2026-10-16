@@ -376,7 +376,7 @@ class NativeAudioPlatform:
             self.owner.ret(0, 12)
             return True
         if pc == 0x4068E0:
-            self.owner.ret()  # cdecl debug-log transport.
+            self.owner.ret(0)  # cdecl debug-log transport.
             return True
         if pc not in self.methods:
             return False

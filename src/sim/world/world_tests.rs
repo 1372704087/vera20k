@@ -11413,7 +11413,7 @@ fn gsi_05_14_death_debris_joins_the_live_order_the_hash_and_the_snapshot() {
     assert_eq!(
         sim.voxel_anims()
             .iter()
-            .map(|(_, piece)| piece.native_unique_id)
+            .map(|(_, piece)| piece.native_unique_id())
             .collect::<Vec<_>>(),
         [1001, 1002, 1003],
         "constructor native IDs are independent of stable handles"
@@ -11437,28 +11437,6 @@ fn gsi_05_14_death_debris_joins_the_live_order_the_hash_and_the_snapshot() {
         empty_hash,
         "the store folds into the state hash"
     );
-
-    // Identity remains authority after construction, independently of the
-    // cursor and type: hashing only the cursor would miss a corrupted piece.
-    let original_id = sim
-        .substrate
-        .voxel_anims
-        .get(ids[0])
-        .unwrap()
-        .native_unique_id;
-    let before_identity = sim.state_hash();
-    sim.substrate
-        .voxel_anims
-        .get_mut(ids[0])
-        .unwrap()
-        .native_unique_id = 99;
-    assert_ne!(sim.state_hash(), before_identity);
-    sim.substrate
-        .voxel_anims
-        .get_mut(ids[0])
-        .unwrap()
-        .native_unique_id = original_id;
-    assert_eq!(sim.state_hash(), before_identity);
 
     // The fold reads the physics body, not just the identity: a single tick of
     // the duration has to move the hash.
@@ -11931,7 +11909,7 @@ fn deferred_voxel_delivery_keeps_constructor_identity_without_spending_again() {
         .unwrap();
     assert_eq!(packets.len(), 1);
     let id = packets[0].object.stable_id;
-    let native_id = packets[0].object.native_unique_id;
+    let native_id = packets[0].object.native_unique_id();
     assert_eq!(sim.native_identity_cursor(), Some(native_id as u32));
     assert!(sim.voxel_anims().is_empty());
     assert!(sim.live_object_order_snapshot().is_empty());
@@ -11942,7 +11920,7 @@ fn deferred_voxel_delivery_keeps_constructor_identity_without_spending_again() {
     let stable_cursor = sim.substrate.next_stable_object_id;
     sim.admit_death_debris(packets);
     assert_eq!(
-        sim.voxel_anims().get(id).unwrap().native_unique_id,
+        sim.voxel_anims().get(id).unwrap().native_unique_id(),
         native_id
     );
     assert_eq!(sim.native_identity_cursor(), cursor);

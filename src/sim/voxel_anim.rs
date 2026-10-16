@@ -37,7 +37,7 @@ pub struct VoxelAnimObject {
     pub stable_id: u64,
     /// Abstract74944E ->410230: assigned before constructor launch RNG.
     /// Separate from the Rust stable handle and retained across save/load.
-    pub native_unique_id: i32,
+    native_unique_id: i32,
     pub type_id: VoxelAnimTypeId,
     /// `+0x140`, seeded from the type's `Duration=` (`+0x29C`) by the
     /// constructor. Ticks remaining. `VoxelAnimClass::AI @ 0x00749F30`
@@ -57,6 +57,11 @@ pub struct VoxelAnimObject {
 }
 
 impl VoxelAnimObject {
+    /// Constructor-assigned AbstractClass identity, separate from the stable handle.
+    pub const fn native_unique_id(&self) -> i32 {
+        self.native_unique_id
+    }
+
     /// The world coordinate the draw and the damage arms read, in leptons.
     ///
     /// `VoxelAnimClass::AI` refreshes `ObjectClass`'s own coordinate from the
@@ -707,6 +712,42 @@ mod tests {
             debris_anim_count,
             metallic_debris_count,
         }
+    }
+
+    /// Each live identity contributes to the world hash independently of the
+    /// shared constructor cursor. Only this owner may mutate it for the check.
+    #[test]
+    fn native_identity_changes_world_hash_without_advancing_the_cursor() {
+        let mut sim = crate::sim::world::Simulation::new();
+        let mut deferred = Vec::new();
+        sim.emit_debris_voxel(
+            VoxelAnimTypeId(0),
+            &tire(),
+            None,
+            IVec3::new(1280, 2560, 0),
+            true,
+            &mut deferred,
+        )
+        .expect("in domain");
+        assert!(deferred.is_empty());
+        let id = *sim.voxel_anims().iter().next().unwrap().0;
+        let original_id = sim.voxel_anims().get(id).unwrap().native_unique_id();
+        let cursor = sim.native_identity_cursor();
+        let before = sim.state_hash();
+        sim.substrate
+            .voxel_anims
+            .get_mut(id)
+            .unwrap()
+            .native_unique_id = 99;
+        assert_eq!(sim.native_identity_cursor(), cursor);
+        assert_ne!(sim.state_hash(), before);
+        sim.substrate
+            .voxel_anims
+            .get_mut(id)
+            .unwrap()
+            .native_unique_id = original_id;
+        assert_eq!(sim.native_identity_cursor(), cursor);
+        assert_eq!(sim.state_hash(), before);
     }
 
     struct NumericDebrisHost<'a> {

@@ -1609,7 +1609,7 @@ impl Simulation {
         self.substrate.voxel_anims.len().hash(hasher);
         for (id, debris) in self.substrate.voxel_anims.iter() {
             id.hash(hasher);
-            debris.native_unique_id.hash(hasher);
+            debris.native_unique_id().hash(hasher);
             debris.type_id.0.hash(hasher);
             debris.duration.hash(hasher);
             debris.marked_for_deletion.hash(hasher);

@@ -144,7 +144,7 @@ fn ordinary_lethal_fire_commits_debris_animations_and_sparks_once() {
     // Rust fingerprint that changes whenever its wire layout gains a field.
     assert_eq!(sim.scenario_rng.state(), 3954386809370758752);
     assert_eq!(sim.main_rng.state(), 8272706873942388551);
-    let debris_native = sim.voxel_anims().get(ids[0]).unwrap().native_unique_id;
+    let debris_native = sim.voxel_anims().get(ids[0]).unwrap().native_unique_id();
     let death_native = sim
         .anims()
         .find(|(id, _)| **id == ids[1])

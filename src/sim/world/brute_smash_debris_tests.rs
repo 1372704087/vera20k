@@ -821,7 +821,7 @@ fn compare_native_smashing_tail(retired: bool, typed: bool) {
                     native["type"].as_str().unwrap()
                 );
                 assert_eq!(
-                    json!(piece.native_unique_id),
+                    json!(piece.native_unique_id()),
                     native["native_id"],
                     "{context}: constructor identity order"
                 );
@@ -1124,7 +1124,7 @@ fn original_fatal_mtnk_tires_precede_the_concrete_death_anim_identity() {
         let mut ordered_births = Vec::new();
         for ((id, piece), native) in pieces.iter().zip(row["voxels"].as_array().unwrap()) {
             assert_eq!(piece.type_id, tire_id);
-            assert_eq!(json!(piece.native_unique_id), native["native_id"]);
+            assert_eq!(json!(piece.native_unique_id()), native["native_id"]);
             assert_eq!(
                 piece.owner_house,
                 Some(owner),
@@ -1157,7 +1157,7 @@ fn original_fatal_mtnk_tires_precede_the_concrete_death_anim_identity() {
                 native["bounce"],
                 "{context}: complete constructor body"
             );
-            ordered_births.push((**id, piece.native_unique_id));
+            ordered_births.push((**id, piece.native_unique_id()));
         }
         let anims: Vec<_> = world.anims().collect();
         assert_eq!(anims.len(), row["anims"].as_array().unwrap().len());

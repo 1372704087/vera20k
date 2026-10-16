@@ -44,7 +44,6 @@ pub(super) struct WorldInstances {
     pub smudge: Vec<SpriteInstance>,
     pub bridge_body: Vec<SpriteInstance>,
     pub bridge_body_shadow: Vec<SpriteInstance>,
-    pub bridge_railing: Vec<SpriteInstance>,
     /// Actual particle pieces observed by the existing map diagnostic policy.
     pub particle_draws: Option<Vec<instances::ParticleDrawObservation>>,
     /// PixelFX water/ore sparkles — 1-pixel cell dots emitted per frame.
@@ -215,17 +214,14 @@ pub(super) fn build_world_instances(state: &mut AppState, sw: f32, sh: f32) -> W
         &mut planned_objects,
         &display_order,
     );
-    // Bridge body, shadow, and railing emission live in instances::bridges
+    // Bridge body and shadow emission live in instances::bridges
     // (Phase D). Read live CellClass bridge fields post-tick (NOT OverlayGrid).
     let mut bridge_body: Vec<SpriteInstance> = Vec::new();
     let mut bridge_body_shadow: Vec<SpriteInstance> = Vec::new();
-    let mut bridge_railing: Vec<SpriteInstance> = Vec::new();
     instances::bridges::build_bridge_body_instances(state, sw, sh, &mut bridge_body);
     instances::bridges::build_bridge_shadow_instances(state, sw, sh, &mut bridge_body_shadow);
-    instances::bridges::build_bridge_railing_instances(state, sw, sh, &mut bridge_railing);
     sort_by_depth_desc(&mut bridge_body);
     // Shadow emission retains the native cell sweep; its accepted pixels write Z.
-    sort_by_depth_desc(&mut bridge_railing);
 
     // Smudges: static crater/scorch decals on top of terrain, under entities.
     // Atlas registration for SmudgeType SHPs is a deferred follow-up; until it
@@ -312,7 +308,6 @@ pub(super) fn build_world_instances(state: &mut AppState, sw: f32, sh: f32) -> W
         smudge,
         bridge_body,
         bridge_body_shadow,
-        bridge_railing,
         particle_draws,
         cell_sparkles,
         weapon_waves,

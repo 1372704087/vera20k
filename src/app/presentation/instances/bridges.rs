@@ -1,7 +1,7 @@
-//! Bridge instance emission — body, shadow, railings, deck-variant overrides.
+//! Bridge instance emission — body, shadow, deck-variant overrides.
 //!
 //! Reads live CellClass bridge fields post-tick (NOT `OverlayGrid`) and emits sprite
-//! instances for the bridge body, body shadow, and railing passes per the
+//! instances for the bridge body and body shadow passes per the
 //! per-frame draw chain in `BRIDGE_DISPLAY_TABLE_GHIDRA_REPORT.md` §3.3, §3.4.
 //!
 //! Shadow caller/raster execution: `tools/spatial_oracle/bridge_shadow_render.md`.
@@ -13,12 +13,11 @@
 use std::collections::BTreeMap;
 
 use crate::app::AppState;
-use crate::map::lighting::{self, CellLightGrid};
+use crate::map::lighting::CellLightGrid;
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::map::terrain::{self, TILE_HEIGHT, TILE_WIDTH};
 use crate::render::batch::SpriteInstance;
 use crate::render::bridge_atlas::{BridgeAtlasLookup, is_high_bridge_body_identity};
-use crate::render::bridge_railing_atlas::BridgeKind;
 use crate::render::draw_state::DrawState;
 use crate::sim::bridge_state::{Axis, DamageState, cell_render_state};
 
@@ -392,131 +391,6 @@ pub(crate) fn build_bridge_shadow_instances(
         sh,
         out,
     );
-}
-
-/// Build sprite instances for the bridge railing pass (RE doc §3.4.1, Step 7).
-/// Drawn after the unit/ground merge and before debug — see
-/// `draw_passes.rs` ordering. Skips cells where the railing-table entry is
-/// `None` (`shp_frame_1based == 0` means no railing for this table slot).
-pub(crate) fn build_bridge_railing_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-    out: &mut Vec<SpriteInstance>,
-) {
-    let Some(sim) = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .map(|rt| &rt.simulation)
-    else {
-        return;
-    };
-    let Some(terrain) = sim.resolved_terrain.as_ref() else {
-        return;
-    };
-    let Some(atlas) = state
-        .match_state
-        .match_presentation
-        .bridge_railing_atlas
-        .as_ref()
-    else {
-        return;
-    };
-    let (origin_y, world_height) = state
-        .match_state
-        .match_presentation
-        .terrain_grid
-        .as_ref()
-        .map(|g| (g.origin_y, g.world_height))
-        .unwrap_or((0.0, 1.0));
-    let (cam_x, cam_y) = (
-        state.match_state.input.camera_x,
-        state.match_state.input.camera_y,
-    );
-
-    for cell in terrain.iter() {
-        let (rx, ry) = (cell.rx, cell.ry);
-        if !bridge_deck_present(cell) || cell_render_state(cell.bridge_facts).is_none() {
-            continue;
-        }
-        let Some((kind, tile_index, caller_sub_tile)) =
-            resolve_bridge_kind_and_sub_idx(state, rx, ry, cell)
-        else {
-            continue;
-        };
-        let Some(entry) = atlas.entry_for_tile(kind, tile_index, caller_sub_tile) else {
-            continue;
-        };
-
-        let z: u8 = state
-            .height_map()
-            .get(&(rx, ry))
-            .copied()
-            .unwrap_or(cell.bridge_deck_level);
-        let (sx, sy) = terrain::iso_to_screen(rx, ry, z);
-        let final_x = sx + entry.dx as f32 + TILE_WIDTH / 2.0;
-        let final_y = sy + entry.dy as f32 + TILE_HEIGHT / 2.0;
-        if !in_view(final_x, final_y, 60.0, 60.0, cam_x, cam_y, sw, sh, 60.0) {
-            continue;
-        }
-
-        let depth_z = z.saturating_add(BRIDGE_HEIGHT_BONUS);
-        let depth = compute_sprite_depth_params(origin_y, world_height, final_y, depth_z);
-        // Railings use neutral tint per ledger #20.
-        let tint: [f32; 3] = lighting::DEFAULT_TINT;
-        out.push(SpriteInstance {
-            position: [final_x + entry.offset_x, final_y + entry.offset_y],
-            size: entry.pixel_size,
-            uv_origin: entry.uv_origin,
-            uv_size: entry.uv_size,
-            depth,
-            tint,
-            alpha: 1.0,
-            ..Default::default()
-        });
-    }
-}
-
-/// Resolve `(BridgeKind, tile_index, caller_sub_tile)` for a bridge cell.
-///
-/// Mapping per RE doc §3.4.1 + verified against the codebase
-/// (src/map/resolved_terrain.rs:48-55, `map::bridge_facts::high_bridge_stamp_for_overlay`):
-/// - `BRIDGE1`, `BRIDGEB1`, `BRIDGE2`, `BRIDGEB2` → Concrete (HIGH bridges).
-///   The `1` vs `2` suffix is axis (EW vs NS), not material — all four are
-///   concrete.
-/// - `LOBRDG*` → Wood (LOW bridges).
-///
-/// `final_tile_index` maps to the binary `CellClass+0x38` input for the current
-/// static renderer path; `final_sub_tile` maps to `CellClass+0x11A`, the
-/// required-sub-tile comparator. See
-/// `BRIDGE_RAILING_SLOT_SUBTILE_SOURCE_GHIDRA_REPORT.md`.
-fn resolve_bridge_kind_and_sub_idx(
-    state: &AppState,
-    rx: u16,
-    ry: u16,
-    cell: &ResolvedTerrainCell,
-) -> Option<(BridgeKind, i32, u8)> {
-    let name = state
-        .match_state
-        .match_presentation
-        .overlay_names
-        .get(&cell.bridge_facts.overlay_id?)?
-        .to_ascii_uppercase();
-    let kind = if matches!(
-        name.as_str(),
-        "BRIDGE1" | "BRIDGEB1" | "BRIDGE2" | "BRIDGEB2"
-    ) {
-        BridgeKind::Concrete
-    } else if name.starts_with("LOBRDG") {
-        BridgeKind::Wood
-    } else {
-        return None;
-    };
-    let terrain_cell = state.terrain_template()?.cell(rx, ry)?;
-    let tile_index = terrain_cell.final_tile_index;
-    let caller_sub_tile = terrain_cell.final_sub_tile;
-    Some((kind, tile_index, caller_sub_tile))
 }
 
 #[cfg(test)]

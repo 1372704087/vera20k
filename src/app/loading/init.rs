@@ -56,7 +56,6 @@ use crate::map::triggers::TriggerMap;
 use crate::map::waypoints;
 use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::BridgeAtlas;
-use crate::render::bridge_railing_atlas::{BridgeRailingAtlas, BridgeRailingTileBases};
 use crate::render::gpu::GpuContext;
 use crate::render::overlay_atlas::OverlayAtlas;
 use crate::render::sidebar_cameo_atlas::SidebarCameoAtlas;
@@ -1590,7 +1589,6 @@ pub struct PresentationLoadAssets {
     pub sprite_atlas: Option<SpriteAtlas>,
     pub overlay_atlas: Option<OverlayAtlas>,
     pub bridge_atlas: Option<BridgeAtlas>,
-    pub bridge_railing_atlas: Option<BridgeRailingAtlas>,
     pub sidebar_cameo_atlas: Option<SidebarCameoAtlas>,
     pub sidebar_chrome: Option<SidebarChromeSet>,
     pub(crate) software_cursor: Option<crate::app::presentation::render::SoftwareCursor>,
@@ -3114,15 +3112,6 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(63);
     progress.milestone(65);
     progress.milestone(67);
-    let bridge_railing_tile_bases = theater_result
-        .as_ref()
-        .and_then(|td| td.bridge_railing_slope_starts())
-        .map(
-            |(slope_set_pieces_start, slope_set_pieces2_start)| BridgeRailingTileBases {
-                slope_set_pieces_start,
-                slope_set_pieces2_start,
-            },
-        );
     let (unit_palette, overlay_iso_palette, overlay_tiberium_palette) = match theater_result {
         Some(td) => (
             Some(td.unit_palette),
@@ -3294,7 +3283,6 @@ pub(crate) fn load_map_from_initial(
         overlay_iso_palette.as_ref(),
         unit_palette.as_ref(),
         overlay_tiberium_palette.as_ref(),
-        bridge_railing_tile_bases,
     );
 
     // F09: the shared post-funnel finalization — spawner seed, map-wall owner

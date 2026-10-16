@@ -403,11 +403,6 @@ fn upload_to_gpu(
         "overlay_bridge_body_shadow",
         &world.bridge_body_shadow,
     );
-    pool.upload(
-        &state.renderer.gpu,
-        "overlay_bridge_railing",
-        &world.bridge_railing,
-    );
     // Smudges: drawn inside the terrain layer, before the bridge body and
     // before overlays, matching the native per-cell tile-then-smudge dispatch.
     pool.upload(&state.renderer.gpu, "smudge", &world.smudge);

@@ -19,8 +19,7 @@ use crate::app::presentation::ui_overlays::{
     build_bomb_clock_instances, build_building_radius_ring_instances,
     build_building_status_instances, build_control_group_status_instances,
     build_occupant_pip_instances, build_repair_wrench_instances, build_scale_pip_instances,
-    build_self_heal_pip_instances, build_software_cursor_instances, build_unit_status_bg_instances,
-    build_unit_status_fill_instances,
+    build_self_heal_pip_instances, build_software_cursor_instances,
 };
 use crate::map::terrain::TilePlacement;
 use crate::map::theater::TileKey;
@@ -74,8 +73,6 @@ pub(super) struct UiInstances {
     pub bomb_clock: Vec<SpriteInstance>,
     pub repair_wrench: Vec<SpriteInstance>,
     pub occupant_pip: Vec<SpriteInstance>,
-    pub unit_status_bg: Vec<SpriteInstance>,
-    pub unit_status_fill: Vec<SpriteInstance>,
     pub control_group_status_bg: Vec<SpriteInstance>,
     pub control_group_status_outline: Vec<SpriteInstance>,
     pub control_group_status: Vec<SpriteInstance>,
@@ -287,6 +284,46 @@ pub(super) fn build_world_instances(
             );
         for parent in &mut planned_objects {
             parent.brackets = brackets.remove(&parent.parent.id);
+        }
+    }
+    // The same admitted Display parents feed native6D9789's later sweep.
+    // Shared health admission/selection/hover owners derive frame-local strips;
+    // storage order and atlas identity never determine their submission order.
+    if let (Some(sim), Some(overlay)) = (
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref(),
+    ) {
+        let local_owner = crate::app::input::commands::preferred_local_owner_name(state);
+        let hovered = crate::app::presentation::ui_overlays::unit_health_hover_target(
+            state,
+            local_owner.as_deref(),
+        );
+        for parent in &mut planned_objects {
+            parent.health = sim.entities().get(parent.parent.id).map(|entity| {
+                crate::app::presentation::ui_overlays::unit_health_strip_for_parent(
+                    sim,
+                    entity,
+                    state.rules(),
+                    overlay,
+                    hovered,
+                    local_owner.as_deref(),
+                    crate::app::presentation::ui_overlays::UnitHealthViewport {
+                        camera: [
+                            state.match_state.input.camera_x,
+                            state.match_state.input.camera_y,
+                        ],
+                        size: [sw, sh],
+                    },
+                )
+            });
         }
     }
     let object_layers = super::draw_plan_lowering::lower_object_instances(planned_objects);
@@ -608,8 +645,6 @@ pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstan
     let bomb_clock = build_bomb_clock_instances(state, sw, sh);
     let repair_wrench = build_repair_wrench_instances(state, sw, sh);
     let occupant_pip = build_occupant_pip_instances(state, sw, sh);
-    let unit_status_bg = build_unit_status_bg_instances(state, sw, sh);
-    let unit_status_fill = build_unit_status_fill_instances(state, sw, sh);
     let control_group_status = build_control_group_status_instances(state, sw, sh);
     let self_heal_pip = build_self_heal_pip_instances(state, sw, sh);
     let scale_pip = build_scale_pip_instances(state, sw, sh);
@@ -708,8 +743,6 @@ pub(super) fn build_ui_instances(state: &AppState, sw: f32, sh: f32) -> UiInstan
         bomb_clock,
         repair_wrench,
         occupant_pip,
-        unit_status_bg,
-        unit_status_fill,
         control_group_status_bg: control_group_status.background,
         control_group_status_outline: control_group_status.outline,
         control_group_status: control_group_status.text,

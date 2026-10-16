@@ -24,8 +24,11 @@
 mod bridge_shadow_gpu_tests;
 #[cfg(test)]
 mod building_bracket_gpu_tests;
+#[cfg(test)]
+mod unit_health_gpu_tests;
 mod build_instances;
 mod draw_passes;
+mod object_extras;
 #[cfg(test)]
 mod placement_gpu_tests;
 #[cfg(test)]
@@ -365,21 +368,22 @@ pub(crate) fn render_game(
             })
             .collect();
     }
-    let extras: Vec<_> = world
-        .object_layers
-        .iter()
-        .flat_map(|layer| layer.extras_lines.iter().copied())
-        .collect();
-    let bracket_extras = terrain.prepare_surface_lines(
-        &gpu.device,
-        &gpu.queue,
-        std::iter::empty(),
-        &extras,
-        &[],
-        viewport,
-        || false,
-        &mut alpha,
-    );
+    for layer in &mut world.object_layers {
+        for run in &mut layer.extras_runs {
+            if let draw_plan_lowering::ObjectExtrasRun::Lines { lines, batch, .. } = run {
+                *batch = terrain.prepare_surface_lines(
+                    &gpu.device,
+                    &gpu.queue,
+                    std::iter::empty(),
+                    &layer.extras_lines[lines.clone()],
+                    &[],
+                    viewport,
+                    || false,
+                    &mut alpha,
+                );
+            }
+        }
+    }
 
     let ion_blasts = crate::app::presentation::ion_blasts::draws(state);
     state.renderer.terrain_draw_renderer.prepare_ion_blasts(
@@ -398,7 +402,6 @@ pub(crate) fn render_game(
             overlay_render_z: &world.overlay_render_z,
             bridge_shadows: &world.bridge_body_shadow,
             object_layers: &world.object_layers,
-            bracket_extras,
             surface_effects,
             sidebar_unavailable: &sidebar.unavailable,
             sidebar_flash: &sidebar.flash,
@@ -463,6 +466,12 @@ fn upload_to_gpu(
             layer,
             &objects.instances,
         );
+        pool.upload_page(
+            &state.renderer.gpu,
+            "object_extras",
+            layer,
+            &objects.extras_instances,
+        );
     }
     pool.upload(
         &state.renderer.gpu,
@@ -500,12 +509,6 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "bomb_clocks", &ui.bomb_clock);
     pool.upload(&state.renderer.gpu, "repair_wrenches", &ui.repair_wrench);
     pool.upload(&state.renderer.gpu, "occupant_pips", &ui.occupant_pip);
-    pool.upload(&state.renderer.gpu, "status_unit_bg", &ui.unit_status_bg);
-    pool.upload(
-        &state.renderer.gpu,
-        "status_unit_fill",
-        &ui.unit_status_fill,
-    );
     pool.upload(
         &state.renderer.gpu,
         "control_group_status_bg",

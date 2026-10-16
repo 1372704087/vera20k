@@ -27,7 +27,6 @@ pub(super) struct DrawPassData<'a> {
     pub overlay_render_z: &'a [RenderZPolicy],
     pub bridge_shadows: &'a [SpriteInstance],
     pub object_layers: &'a [super::draw_plan_lowering::ObjectLayerPass; 5],
-    pub bracket_extras: crate::render::terrain_draw::SurfaceLineBatch,
     pub surface_effects: crate::render::terrain_draw::SurfaceLineBatch,
     pub sidebar_unavailable: &'a [SpriteInstance],
     pub sidebar_flash: &'a [SpriteInstance],
@@ -554,10 +553,24 @@ pub(super) fn dispatch_draw_passes(
     // Native6D9789: the later Extras sweep uses the same Display order,
     // completed body destination and live Z;4BFD30 never writes that Z.
     drop(pass);
-    state
-        .renderer
-        .terrain_draw_renderer
-        .draw_surface_lines(encoder, view, data.bracket_extras);
+    for (layer, objects) in data.object_layers.iter().enumerate() {
+        super::object_extras::draw_object_extras(
+            encoder,
+            view,
+            &state.renderer.depth_view,
+            &mut state.renderer.terrain_draw_renderer,
+            [tac_x, tac_y, tac_w, tac_h],
+            &state.renderer.batch_renderer,
+            state
+                .match_state
+                .match_presentation
+                .selection_overlay
+                .as_ref(),
+            pool.get_page("object_extras", layer)
+                .map(|(buffer, _)| buffer),
+            objects,
+        );
+    }
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
     pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
     // Building health pips: discrete pips from pips.shp atlas.
@@ -622,34 +635,6 @@ pub(super) fn dispatch_draw_passes(
         occupant_pip_tex,
         "occupant_pips",
     );
-    // Non-building health bar backgrounds: pipbrd.shp bracket sprites.
-    let unit_bg_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .and_then(|o| o.pipbrd_texture());
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        unit_bg_tex,
-        "status_unit_bg",
-    );
-    // Non-building health bar fills: individual pip sprites from pips.shp (or white_texture fallback).
-    let unit_fill_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .map(|o| o.unit_pip_texture().unwrap_or_else(|| o.white_texture()));
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        unit_fill_tex,
-        "status_unit_fill",
-    );
     // Native709A90 draws the PIPS2 scale strip before self-heal70A6BB
     // and the control-group tail70A6FD. One atlas serves cargo and MindControl.
     let scale_pip_tex = state
@@ -674,7 +659,7 @@ pub(super) fn dispatch_draw_passes(
         .match_presentation
         .selection_overlay
         .as_ref()
-        .and_then(|o| o.self_heal_pip())
+        .and_then(|o| o.pips())
         .map(|pip| pip.texture());
     draw_pooled_no_depth(
         &mut pass,
@@ -1216,7 +1201,7 @@ mod tests {
         let combat_lights = source_offset(".combat_light_renderer");
         let second_rally = source_offset("\"factory_rally_second\"");
         let target_lines = source_offset("\"target_lines\"");
-        let status = source_offset("\"status_unit_fill\"");
+        let status = source_offset("super::object_extras::draw_object_extras(");
         let placement = source_offset("pool.get(\"placement\")");
         let sparkle = source_offset("pool.get(\"cell_sparkles\")");
         let timer_fill = source_offset("\"super_timer_fill\"");

@@ -222,22 +222,13 @@ pub(super) fn dispatch_draw_passes(
     // irrelevant either
     // way — this pass neither reads nor writes the depth buffer.)
 
-    // Native 0x547230 railing draw is reached through 0x4802A0 / 0x6D7C00
-    // in the cell-content layer (0x6D3040), before the object loop (0x6D3D10).
-    // This separate tile-shadow/railing path retains its existing policy.
-    // It does not select the bridge overlay shadow frames handled above.
-    // Its C_SHADOW/RAILBRDG binding remains a separate rendering residual.
-    draw_pooled_bridge_railing(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .bridge_railing_atlas
-            .as_ref(),
-        "overlay_bridge_railing",
-    );
+    // CellClass::DrawTileShadow4802A0 -> IsometricTileTypeClass547230 is
+    // separate from overlay shadows: tile+2E1 starts false at544880 and is
+    // enabled only by TileSet ShadowCaster && ShadowTiles!=0 (5464A6/546AF8).
+    // All six stock MD theater INIs leave it disabled. Its literal resource is
+    // C_SHADOW.SHP (545214..54524D), never RAILBRDG. Do not synthesize a bridge
+    // railing pass from its tables. Retail gate/resource regression:
+    // map::theater::theater_tests::active_retail_tile_shadow_route_is_dormant.
 
     let bracket_tex = state
         .match_state
@@ -1143,20 +1134,6 @@ pub(super) fn draw_bridge_shadows(
         ),
         tactical,
     )
-}
-
-/// Draw a pooled buffer using the bridge railing atlas with passthrough
-/// (Z-test ON, Z-write OFF).
-fn draw_pooled_bridge_railing<'a>(
-    pass: &mut wgpu::RenderPass<'a>,
-    batch: &'a BatchRenderer,
-    pool: &'a InstanceBufferPool,
-    atlas: Option<&'a crate::render::bridge_railing_atlas::BridgeRailingAtlas>,
-    key: &'static str,
-) {
-    if let (Some(a), Some((buf, count))) = (atlas, pool.get(key)) {
-        batch.draw_passthrough_range(pass, &a.texture, buf, 0, count);
-    }
 }
 
 #[cfg(test)]

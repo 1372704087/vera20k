@@ -143,6 +143,9 @@ pub struct GameEntity {
     /// Later report-selection consumers read this persistent value; placement
     /// failure never refunds the draw.
     techno_ctor_random_word: u16,
+    /// Building+6F4, constructor43B9B5 null; startup68C1B5 assigns a type
+    /// pointer and Load453FB0 swizzles it. Capture never rerolls the reward.
+    secret_lab_fallback: Option<(crate::rules::object_type::ObjectCategory, InternedId)>,
     /// One native Techno stage clock. Class receivers mutate through this
     /// owner; animation, miner and buildup components carry no competing copy.
     stage: crate::sim::stage::StageClass,
@@ -1174,6 +1177,19 @@ impl GameEntity {
         self.type_ref
     }
 
+    pub(crate) fn secret_lab_fallback(
+        &self,
+    ) -> Option<(crate::rules::object_type::ObjectCategory, InternedId)> {
+        self.secret_lab_fallback
+    }
+
+    pub(in crate::sim) fn assign_secret_lab_fallback(
+        &mut self,
+        production: (crate::rules::object_type::ObjectCategory, InternedId),
+    ) {
+        self.secret_lab_fallback = Some(production);
+    }
+
     /// A VXL/HVA model (true) or an SHP sprite.
     pub const fn is_voxel(&self) -> bool {
         self.is_voxel
@@ -1394,6 +1410,7 @@ impl GameEntity {
             native_unique_id,
             native_cloak_displacement: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
             techno_ctor_random_word,
+            secret_lab_fallback: None,
             stage: crate::sim::stage::StageClass::constructed(construction_frame as i32),
             discovery: Default::default(),
             structure_upgrade_link: None,

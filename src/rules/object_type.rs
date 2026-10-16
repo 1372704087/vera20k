@@ -566,6 +566,8 @@ pub struct ObjectType {
     /// retaining the last valid fixed-catalog ID through reached rules passes.
     /// House RecordLastBuilt4FB7CA overrides its class cue with this scalar.
     create_sound: Option<String>,
+    /// Retained BuildingType+16B0 and EA4/EA8/EAC; Process owns reached reads.
+    secret_lab: crate::rules::secret_lab::SecretLabRules,
     /// `DamageSound=` — `TechnoTypeClass+0x538`, the type's own struck cue.
     ///
     /// Original gamemd (SHA2561cdd1180e490...) inherited constructor710AF0
@@ -2002,6 +2004,14 @@ impl ObjectType {
         self.damage_sound.as_deref()
     }
 
+    pub fn secret_lab(&self) -> &crate::rules::secret_lab::SecretLabRules {
+        &self.secret_lab
+    }
+
+    pub(crate) fn set_secret_lab(&mut self, rules: crate::rules::secret_lab::SecretLabRules) {
+        self.secret_lab = rules;
+    }
+
     pub fn create_sound(&self) -> Option<&str> {
         self.create_sound.as_deref()
     }
@@ -2542,6 +2552,7 @@ impl ObjectType {
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_default(),
             create_sound: None,
+            secret_lab: Default::default(),
             damage_sound: None,
             move_sound: section
                 .read_sound_list("MoveSound")

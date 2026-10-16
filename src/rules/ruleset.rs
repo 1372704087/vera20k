@@ -775,6 +775,8 @@ pub struct GeneralRules {
     pub attack_cursor_on_disguise: bool,
     /// `[General] DefaultMirageDisguises=` selection pool, in source order.
     pub default_mirage_disguises: Vec<String>,
+    /// General SecretInfantry/SecretUnits/SecretBuildings, retained native identities.
+    secret_lab_choices: [Vec<String>; 3],
     /// `[General] InfantryBlinkDisguiseTime=` reveal duration in frames.
     pub infantry_blink_disguise_time: i32,
     /// Whether the attack cursor appears on trees/terrain
@@ -2226,6 +2228,7 @@ impl Default for GeneralRules {
             ],
             attack_cursor_on_disguise: false,
             default_mirage_disguises: Vec::new(),
+            secret_lab_choices: Default::default(),
             infantry_blink_disguise_time: 0,
             tree_targeting: false,
             tree_strength: 25,
@@ -2763,6 +2766,12 @@ pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
 }
 
 impl GeneralRules {
+    /// Original Rules+D00/D1C/D38 in Infantry, Unit, Building order.
+    /// Retained canonical identities, including duplicate entries.
+    pub fn secret_lab_choices(&self) -> &[Vec<String>; 3] {
+        &self.secret_lab_choices
+    }
+
     pub fn incoming_message_sound(&self) -> Option<&str> {
         self.incoming_message_sound.as_deref()
     }
@@ -3226,6 +3235,7 @@ impl GeneralRules {
             // Filled from the native ordered TerrainType list owner after
             // processing, including allocation/none-token/retention semantics.
             default_mirage_disguises: Vec::new(),
+            secret_lab_choices: Default::default(),
             // Rules671D80: signed ReadInt, constructor665650 defaults0.
             infantry_blink_disguise_time: general.read_int("InfantryBlinkDisguiseTime", 0),
             tree_targeting: combat_damage.read_bool("TreeTargeting", false),
@@ -3994,6 +4004,7 @@ impl RuleSet {
         rules.general.sov_paradrop.infantry = sov;
         rules.general.yuri_paradrop.infantry = yuri;
         rules.general.anim_to_infantry = processed.anim_to_infantry().to_vec();
+        rules.general.secret_lab_choices = processed.secret_lab_choices().clone();
         rules.general.default_mirage_disguises = processed.default_mirage_disguises().to_vec();
         rules.bridge_rules.explosions = processed.bridge_explosions().to_vec();
         rules.general.gravity = processed.gravity();
@@ -4100,6 +4111,15 @@ impl RuleSet {
         // Building ctor45DF13 / ReadINI461225..46125D: the process-resident
         // owner retained +EF0 across reached rules passes and exact ART reads.
         // Projection receives its result; RULES Foundation is not an input.
+        for (name, config) in processed.secret_lab_states() {
+            if let Some(building) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == ObjectCategory::Building && object.id == name)
+            {
+                building.set_secret_lab(config.clone());
+            }
+        }
         for (name, foundation_id) in processed.building_foundation_states() {
             if let Some(building) = rules
                 .object_list
@@ -5302,6 +5322,26 @@ impl RuleSet {
         self.general.prism_support.hash(&mut hasher);
         self.general.patrol_scan_minutes.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);
+        if self
+            .general
+            .secret_lab_choices
+            .iter()
+            .any(|list| !list.is_empty())
+        {
+            b"secret-production-choices-v1".hash(&mut hasher);
+            self.general.secret_lab_choices.hash(&mut hasher);
+        }
+        for building in self
+            .object_list
+            .iter()
+            .filter(|object| object.category == ObjectCategory::Building)
+        {
+            if building.secret_lab() != &crate::rules::secret_lab::SecretLabRules::default() {
+                b"secret-lab-type-v1".hash(&mut hasher);
+                building.id.hash(&mut hasher);
+                building.secret_lab().hash(&mut hasher);
+            }
+        }
         self.general.infantry_blink_disguise_time.hash(&mut hasher);
         // The native type reader retains these flags through missing keys
         // and later process passes. Equal current source text can therefore

@@ -228,13 +228,13 @@ impl TrackingFacts {
     }
 
     /// Install a fixture's `DontScore=`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_dont_score_for_test(&mut self, value: bool) {
         self.dont_score = value;
     }
 
     /// An `Insignificant=` object's facts.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insignificant_for_test() -> Self {
         Self {
             insignificant: true,
@@ -290,12 +290,12 @@ impl InfantryTrackingLatches {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn is_counted(&self) -> bool {
         self.counted_infantry_total
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn is_absorbed(&self) -> bool {
         self.skip_infantry_total_on_add
     }
@@ -788,7 +788,7 @@ impl HouseTracking {
     }
 
     /// `+0x2F0`, the tracked buildings.
-    pub(crate) fn buildings(&self) -> i32 {
+    pub fn buildings(&self) -> i32 {
         self.buildings
     }
 
@@ -896,10 +896,10 @@ fn wrapping_total(counts: &BTreeMap<InternedId, i32>) -> i32 {
         .fold(0, |total, &count| total.wrapping_add(count))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl HouseTracking {
     /// Stand in for tracked buildings a fixture places without the lifecycle.
-    pub(crate) fn set_buildings_for_test(&mut self, buildings: i32) {
+    pub fn set_buildings_for_test(&mut self, buildings: i32) {
         self.buildings = buildings;
     }
 

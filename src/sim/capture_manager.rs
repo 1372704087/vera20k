@@ -196,7 +196,7 @@ impl CaptureManagerState {
         self.nodes.retain(|node| node.victim != stable_id);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_victims_for_test(max_control: i32, infinite: bool, victims: &[u64]) -> Self {
         let mut state = Self::constructed(max_control, infinite);
         state.nodes = victims
@@ -209,13 +209,13 @@ impl CaptureManagerState {
         state
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn reverse_nodes_for_test(&mut self) {
         self.nodes.reverse();
     }
 
     /// A manager holding these `(victim, original owner)` nodes in order.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_nodes_for_test(nodes: &[(u64, InternedId)]) -> Self {
         let mut state = Self::constructed(3, false);
         state.nodes = nodes
@@ -271,7 +271,7 @@ impl MindControlLink {
         self.permanent
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn controlled_by_for_test(controller: u64) -> Self {
         Self {
             controller: Some(controller),
@@ -280,7 +280,7 @@ impl MindControlLink {
     }
 
     /// The Dominator's hold (`+0x2C4`) with no controller or ring.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn permanent_for_test() -> Self {
         Self {
             permanent: true,

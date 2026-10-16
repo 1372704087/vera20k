@@ -50,7 +50,7 @@ priors and actual audible output are not native audio equivalence. Native
 flash counter+44 is compared by the existing Rust manager consumer at each
 retained boundary (including positive decrements on countdown-return visits).
 This component excludes pip drawing; the production PIPS2 submission and GPU
-readbacks cover that path separately. Capture link lines remain unported. The ordinary world tests own real shots/captures and the following
+readbacks cover that path separately. Capture link lines remain unported. The ordinary production tests own real shots/captures and the following
 Techno update; connected release captures own visible MIND output.
 
 ## Reproduce

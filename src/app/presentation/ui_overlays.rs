@@ -1900,6 +1900,10 @@ pub(crate) fn health_fill_color(ratio: f32, condition_yellow: f32, condition_red
 }
 
 #[cfg(test)]
+#[path = "mind_control_pip_tests.rs"]
+mod mind_control_pip_tests;
+
+#[cfg(test)]
 mod tests {
     /// `tools/spatial_oracle/building_repair.json` `wrench` rows: the frame
     /// DrawExtras picks over every stored game speed.

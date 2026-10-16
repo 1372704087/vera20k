@@ -1359,3 +1359,7 @@ mod tests {
         assert!(fill < border);
     }
 }
+
+#[cfg(test)]
+#[path = "tmp_clear_gpu_tests.rs"]
+mod tmp_clear_gpu_tests;

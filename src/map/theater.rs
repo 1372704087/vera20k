@@ -43,8 +43,8 @@ pub struct TileKey {
 pub struct TileImage {
     pub rgba: Vec<u8>,
     /// Per-pixel Z-depth from TMP file (same dimensions as rgba, one byte per pixel).
-    /// Non-zero values indicate depth offset for occlusion (cliffs, ramps).
-    /// Flat tiles have all zeros.
+    /// Added to the native tile base Z for pixel admission and storage.
+    /// Stock flat Clear01 diamonds also carry nonzero values (1..29).
     pub depth: Vec<u8>,
     pub width: u32,
     pub height: u32,

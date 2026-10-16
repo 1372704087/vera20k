@@ -11,7 +11,7 @@ use crate::assets::asset_manager::AssetManager;
 use crate::assets::hva_file::HvaFile;
 use crate::assets::vxl_file::VxlFile;
 use crate::rules::object_type::ObjectCategory;
-use crate::rules::ruleset::RuleSet;
+use crate::rules::ruleset::{RuleSet, TypeHandle};
 use crate::rules::voxel_frame_catalog::{
     VxlLayer, indexed_turret_count, voxel_gun_basename, voxel_image_id,
 };
@@ -112,28 +112,48 @@ pub(crate) fn load_main_voxel(
     Some((body, guns))
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct VoxelAssetCatalog {
+    /// Each loaded type's uppercase id and its main body's tilt half sizes
+    /// (binary32 bits): what the catalog hashes.
     loaded: BTreeMap<String, Option<[u32; 2]>>,
+    /// Derived: whether each object handle's type is in `loaded`, so the
+    /// per-frame question reads no name.
+    by_handle: Vec<bool>,
+}
+
+impl std::hash::Hash for VoxelAssetCatalog {
+    /// `loaded` alone: `by_handle` derives from it, so the rules hash that
+    /// saves carry stays the same.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.loaded.hash(state);
+    }
 }
 
 impl VoxelAssetCatalog {
     pub(crate) fn bind(rules: &RuleSet, assets: &AssetManager) -> Self {
+        let bodies: Vec<Option<Option<[u32; 2]>>> = rules
+            .all_objects()
+            .map(|object| {
+                let (body, _) = load_main_voxel(assets, &object.id, Some(rules))?;
+                Some(voxel_tilt_half_sizes(body.vxl()).map(|sizes| sizes.map(f32::to_bits)))
+            })
+            .collect();
         Self {
             loaded: rules
                 .all_objects()
-                .filter_map(|object| {
-                    let (body, _) = load_main_voxel(assets, &object.id, Some(rules))?;
-                    let half_sizes =
-                        voxel_tilt_half_sizes(body.vxl()).map(|sizes| sizes.map(f32::to_bits));
-                    Some((object.id.to_ascii_uppercase(), half_sizes))
-                })
+                .zip(&bodies)
+                .filter_map(|(object, &body)| Some((object.id.to_ascii_uppercase(), body?)))
                 .collect(),
+            by_handle: bodies.iter().map(Option::is_some).collect(),
         }
     }
 
-    pub(crate) fn contains(&self, type_id: &str) -> bool {
-        self.body(type_id).is_some()
+    pub(crate) fn contains(&self, object: TypeHandle) -> bool {
+        self.by_handle
+            .get(object.0 as usize)
+            .copied()
+            .unwrap_or(false)
     }
 
     fn body(&self, type_id: &str) -> Option<&Option<[u32; 2]>> {
@@ -149,8 +169,13 @@ impl VoxelAssetCatalog {
     }
 
     #[cfg(test)]
-    pub(crate) fn supply_loaded(&mut self, type_id: &str) {
+    pub(crate) fn supply_loaded(&mut self, type_id: &str, object: TypeHandle) {
         self.loaded.insert(type_id.to_ascii_uppercase(), None);
+        let index = object.0 as usize;
+        if self.by_handle.len() <= index {
+            self.by_handle.resize(index + 1, false);
+        }
+        self.by_handle[index] = true;
     }
 }
 
@@ -170,6 +195,12 @@ mod tests {
         rules
     }
 
+    fn loaded(rules: &RuleSet, type_id: &str) -> bool {
+        rules
+            .type_handle(type_id)
+            .is_some_and(|object| rules.object_has_loaded_voxel(object))
+    }
+
     #[test]
     fn main_voxel_binding_requires_declared_valid_complete_pair_and_rebuilds() {
         let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
@@ -186,12 +217,9 @@ mod tests {
         }
         let load_assets = || AssetManager::from_loose_root_for_test(directory.path());
         let mut rules = body_rules(true);
-        assert!(
-            !rules.object_has_loaded_voxel("TEST"),
-            "unbound is explicit"
-        );
+        assert!(!loaded(&rules, "TEST"), "unbound is explicit");
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
-        assert!(rules.object_has_loaded_voxel("test"));
+        assert!(loaded(&rules, "test"));
         // Original loaded DEST postpass in naval_draw_squid_tilt.json.
         assert_eq!(rules.object_voxel_half_sizes("test"), Some([23.5, 51.]));
         let bound_hash = rules.simulation_config_hash();
@@ -207,29 +235,23 @@ mod tests {
             .unwrap();
         }
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
-        assert!(rules.object_has_loaded_voxel("TEST"));
+        assert!(loaded(&rules, "TEST"));
         assert_eq!(rules.object_voxel_half_sizes("TEST"), Some([15.5, 20.5]));
         assert_ne!(rules.simulation_config_hash(), bound_hash);
         rules.install_art_fixture(ArtRegistry::from_ini(&IniFile::from_str(
             "[BODY]\nVoxel=no\n",
         )));
-        assert!(
-            !rules.object_has_loaded_voxel("TEST"),
-            "ART replacement invalidates"
-        );
+        assert!(!loaded(&rules, "TEST"), "ART replacement invalidates");
         assert!(rules.object_voxel_half_sizes("TEST").is_none());
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
         assert!(
-            !rules.object_has_loaded_voxel("TEST"),
+            !loaded(&rules, "TEST"),
             "a physical VXL is not a declaration"
         );
         rules = body_rules(true);
         std::fs::remove_file(directory.path().join("BODY.HVA")).unwrap();
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
-        assert!(
-            !rules.object_has_loaded_voxel("TEST"),
-            "failed HVA unloads B0"
-        );
+        assert!(!loaded(&rules, "TEST"), "failed HVA unloads B0");
         std::fs::write(
             directory.path().join("BODY.HVA"),
             assets.get_ref("DEST.HVA").unwrap(),
@@ -237,9 +259,6 @@ mod tests {
         .unwrap();
         std::fs::write(directory.path().join("BODY.VXL"), b"invalid VXL").unwrap();
         rules.bind_effect_assets(&load_assets(), "TEM", "TEMPERATE");
-        assert!(
-            !rules.object_has_loaded_voxel("TEST"),
-            "malformed VXL is not loaded"
-        );
+        assert!(!loaded(&rules, "TEST"), "malformed VXL is not loaded");
     }
 }

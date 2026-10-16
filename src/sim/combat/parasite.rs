@@ -625,7 +625,8 @@ impl Simulation {
             //62A21C: the victim's actual ApplyRocker70B280. Its single
             // owner retains loaded-model admission, Weight and rate stores.
             let request = self.substrate.entities.get(victim).and_then(|entity| {
-                let object = self.object_type(entity.type_ref(), rules)?;
+                let handle = self.interner.type_handle(entity.type_ref(), rules)?;
+                let object = rules.object_by_handle(handle);
                 Some(crate::sim::rocking::RockerImpulse {
                     position: [location.x, location.y, location.z],
                     origin: [x, y, location.z],
@@ -633,7 +634,7 @@ impl Simulation {
                     force: NativeF32Bits::from_bits(0x3fc0_0000),
                     weight: object.weight,
                     no_dampen: false,
-                    has_loaded_voxel: rules.object_has_loaded_voxel(&object.id),
+                    has_loaded_voxel: rules.object_has_loaded_voxel(handle),
                 })
             });
             if let Some(request) = request {

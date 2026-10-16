@@ -408,3 +408,79 @@ These bindings and instructions protect the shared production consumers;
 full Infantry/Aircraft constructors, bodies and scenario compositions are not
 established by the MTNK component corpus. All historical health/bracket/default
 modes retain their schema and outputs.
+
+## Ordinary IFV passenger pips and affected shared scales
+
+`--passenger-pips` extends the same health generator, recorder, PaletteReader,
+Surface and SHP owners. It writes `passenger_pips.json` and its sidecar; all
+historical modes retain their output and provenance bytes.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --passenger-pips --check
+```
+
+The root health schema remains `readers`, `physical_inputs`, `palette` and
+`raster_controls`. Actors declare `type_name`, passenger/unload, canonical rank
+bits and ordinary selected/hover/sinking/Location priors. Original FV type
+readers establish Strength200, Passengers1, PipScale3, Gunnertrue, Size3 and
+SizeLimit1. Original E1/ENGINEER readers supply transport Pip3/5. Complete
+6F5190→6F64A0→709A90/70AA60 executes, including actual716290 capacity,
+473460 current-type-size walk,473450 head and the native frame array. The
+one-slot FV draws PIPS2 frame0 empty,3 GI,5 engineer at point+[−15,+10].
+Native4AED70 flags600 reach4912B0/7E5A20: no A/Z access or depth writes.
+A127/63/2/0, oldZ0, clipping and ordered parent controls retain native stores.
+The overlap has points[80,80] then[80,115]; twelve earlier scale pixel values
+are overwritten by the later health strip, recorded in
+`overwritten_scale_pixels`. This is a positive ordering witness for migrating
+the former global scale bucket into the shared parent Extras owner.
+
+The original Unit/Foot/Drive prefix is reused. Infantry517A50 stops517AE6
+before ID/COM activation; original Walk75AA90 and explicit interface linkage
+expose real callbacks. Constructor Limbo1 permits whole Cargo4733A0→51DF10→
+4DB260→6F6AC0 and473430. Thus count/head/link values come from native cargo
+operations. Full typed construction, placement, boarding/unloading missions
+and passenger cleanup remain production lifecycle validation, not oracle
+claims. Constructor Scenario RNG requests/passive timers are separate from
+zero measured drawing RNG, timer updates and detach calls.
+
+`read_pip` contains constructor defaults, the original table, direct native
+controls and sequential admitted-section cases. Both Pip5240E3 and
+OccupyPip5240FD always call4748A0 after base section admission. Missing names
+use the current frame as a table index, so admitted unrelated-key passes
+change fields; absent sections retain them. The recorded pairs are1/7→3/11,
+absent3/11, then4/1→5/2→7/3, then explicit3/11. Indices11/12 read adjacent
+Ammo/Tiberium default names and return1. Explicit empty-cache controls are
+separate from physical INI empty-value omission. These controls are consumed
+by the existing retained type/INI reader owner, not a new parser.
+
+Affected MIND controls reuse original4717D0 construction and declared retained
+manager vector/count; native Primary/Damage/InfiniteMindControl readers and
+4722D0/4726C0 execute. HARV controls supply authoritative consumer storage
+slots and execute6C9650/6C9680 and independent ore/gem counts. Ambient0E7F
+matters: Storage40 amount4 yields0, amount5 yields1, while20 yields3. Gems
+are drawn first, then ore, with exactly five slots even when rounded counts
+sum above five. `numeric_results` captures the actual native post-ftol counts.
+Neither capture/overload nor harvest lifecycle is established by those priors.
+
+`garrison_controls` borrows the existing Building health runtime in an
+additive NABNKR health-only configuration. Full original BuildingType45FE50
+reads stock RULES layers/fixed ART; original Building constructor/idle,
+GetCoords447AC0 and Dimension2464AF0 supply geometry. Direct full6F64A0
+consumer calls reach709C27..709D17 with a declared one-E1 occupant vector:
+raw OccupyPip11 and reader-evolved1 are followed by four emptyframe6 pips,
+flags600 and step[4,2]. This tests the shared full-PIPS resource/material;
+whole Building Extras admission, bunker body and garrison-entry lifecycle
+are excluded. Stock battle bunker is NABNKR; no CABUNK section is invented.
+
+RULESMD, optional LANGRULE, selected MPBattleMD/map and fixed ART inputs are
+recorded separately. Original5F76B0 pushes the literal `PIPS2.SHP` at5F7758
+through CCFile65CA80/loader4A3890, retainsAC1480 at5F7776, and709AEF consumes
+that same asset. Independent normal STOCK_DIGITAL AssetManager lookup selects
+`ra2md.mix/conqmd.mix/PIPS2.SHP`:1,384bytes,19frames, SHA256
+`0afe9935160c04bdabed5bfefd0d55aad645ae38ec7dddeb5b3f4f2b2d2712d4`,
+with no loose override or catalog-only hit. The older RA2 conquer copy is
+shadowed. The oracle supplies these selected immutable physical bytes;
+the native archive search itself is outside this runtime boundary.
+Stock size-one infantry match the current integer cargo owner. Fractional
+Size/SizeLimit and per-type reload behavior remain explicit residuals; the
+oracle adds no competing size, cargo, palette or raster implementation.

@@ -272,3 +272,52 @@ fn native_zones(
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod mastermind;
+
+/// Explicit drawing-consumer prior, using the existing private cargo setter.
+/// It establishes no harvesting, movement, deposit or full native lifecycle.
+pub fn install_status_miner_cargo(
+    entity: &mut crate::sim::game_entity::GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+    rules: &RuleSet,
+    ore: usize,
+    gems: usize,
+) {
+    use crate::sim::miner::{CargoBale, Miner, MinerConfig, ResourceType, miner_kind_for_object};
+    let config = MinerConfig::from_rules(rules);
+    let kind = miner_kind_for_object(object).expect("native prior is a miner");
+    let mut miner = Miner::new(kind, &config, object.storage.max(0) as u16);
+    miner.set_cargo_for_test(
+        std::iter::repeat_n(
+            CargoBale {
+                resource_type: ResourceType::Ore,
+                value: config.ore_bale_value,
+            },
+            ore,
+        )
+        .chain(std::iter::repeat_n(
+            CargoBale {
+                resource_type: ResourceType::Gem,
+                value: config.gem_bale_value,
+            },
+            gems,
+        ))
+        .collect(),
+    );
+    entity.miner = Some(miner);
+}
+
+/// Explicit retained-count prior for a drawing comparison. Capture and release
+/// gameplay remains covered by the production Mastermind fixture.
+pub fn install_status_capture_count(
+    entity: &mut crate::sim::game_entity::GameEntity,
+    capacity: i32,
+    infinite: bool,
+    count: u32,
+) {
+    let victims: Vec<_> = (0..count).map(|index| u64::from(index) + 10_000).collect();
+    entity.capture_manager = Some(
+        crate::sim::capture_manager::CaptureManagerState::with_victims_for_test(
+            capacity, infinite, &victims,
+        ),
+    );
+}

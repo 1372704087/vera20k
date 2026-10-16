@@ -48,6 +48,16 @@ fn native_mobile_rank_pips_preserve_color_a_and_z() {
     );
 }
 
+#[test]
+#[ignore = "requires retail assets and GPU; original FV passenger PIPS2 and affected scale consumers"]
+fn native_passenger_pips_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/passenger_pips.json",
+        "FV",
+        EntityCategory::Unit,
+    );
+}
+
 fn native_status_controls(fixture: &'static str, type_name: &str, category: EntityCategory) {
     let native = crate::test_fixture::json(fixture);
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -72,15 +82,35 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
         let overlay =
             SelectionOverlay::new_on_device(&gpu.device, &gpu.queue, &batch, Some(&assets));
         let mut pool = InstanceBufferPool::new();
-        for row in native["raster_controls"].as_array().unwrap().iter().chain(
-            native["composition_controls"]
-                .as_array()
-                .into_iter()
-                .flatten(),
-        ) {
+        for row in [
+            "raster_controls",
+            "composition_controls",
+            "garrison_controls",
+        ]
+        .into_iter()
+        .flat_map(|key| native[key].as_array().into_iter().flatten())
+        {
             let composed = row.get("before_body_pixels").is_some();
             let input = &row["input"];
+            let missing_e1_pass = input["actors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|actor| actor["unrelated_e1_pass"].as_bool().unwrap_or(false));
+            let patched = input["scenario_patch"]
+                .as_str()
+                .or(missing_e1_pass.then_some("[E1]\nStrength=125\n"))
+                .map(|source| {
+                    crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch(
+                        "XMP03T4.MAP",
+                        &crate::rules::ini_parser::IniFile::from_str(source),
+                    )
+                    .expect("native admitted scenario section")
+                });
+            let rules = patched.as_ref().map_or(rules, |retail| &retail.rules);
             let size = pair(&input["size"]);
+            let tactical_clip: [u32; 4] =
+                std::array::from_fn(|index| input["clip"][index].as_u64().unwrap() as u32);
             let mut cam = camera(size);
             // The shared projection's world-row origin is +15. Native camera
             // and original Location are supplied independently in the corpus.
@@ -94,8 +124,8 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             let enemy = sim.interner.intern("Enemy");
             sim.fog = crate::sim::vision::FogState::new(64, 64);
             sim.fog.reveal_all_for_owner(owner);
-            let type_ref = sim.interner.intern(type_name);
             let mut parents = Vec::new();
+            let mut row_has_building = false;
             let ids = if composed {
                 row["body_admissions"]
                     .as_array()
@@ -111,6 +141,18 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             let display = NativeDisplayOrder::new(&ids);
             for (index, actor) in input["actors"].as_array().unwrap().iter().enumerate() {
                 let id = if index == 0 { 901 } else { 2 };
+                let name = actor["type_name"].as_str().unwrap_or(type_name);
+                let object = rules.object(name).expect("native actor type");
+                let type_ref = sim.interner.intern(name);
+                let actor_category = match object.category {
+                    crate::rules::object_type::ObjectCategory::Infantry => EntityCategory::Infantry,
+                    crate::rules::object_type::ObjectCategory::Vehicle => EntityCategory::Unit,
+                    crate::rules::object_type::ObjectCategory::Aircraft => EntityCategory::Aircraft,
+                    crate::rules::object_type::ObjectCategory::Building => {
+                        EntityCategory::Structure
+                    }
+                };
+                row_has_building |= actor_category == EntityCategory::Structure;
                 let xyz: [i32; 3] =
                     std::array::from_fn(|i| actor["location"][i].as_i64().unwrap() as i32);
                 let mut entity = GameEntity::new_at_frame_zero_for_test(
@@ -127,18 +169,17 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     Health::new(
                         actor["health"]
                             .as_i64()
-                            .unwrap_or(i64::from(rules.object(type_name).unwrap().strength))
-                            as i32,
+                            .unwrap_or(i64::from(object.strength)) as i32,
                     ),
                     type_ref,
-                    category,
+                    actor_category,
                     0,
                     5,
                     false,
                 );
                 entity
                     .type_facts
-                    .set_foundation_for_test(rules.object(type_name).unwrap().foundation.clone());
+                    .set_foundation_for_test(object.foundation.clone());
                 entity.position.put_location(DriveCoord {
                     x: xyz[0],
                     y: xyz[1],
@@ -185,6 +226,69 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         actor["veterancy_raw_bits"].as_u64().unwrap_or(0) as u32,
                     ),
                 );
+                if object.passengers > 0 || object.max_number_occupants > 0 {
+                    use crate::sim::passenger::{PassengerCargo, PassengerRole};
+                    let capacity = if actor_category == EntityCategory::Structure {
+                        object.max_number_occupants
+                    } else {
+                        object.passengers as u32
+                    };
+                    let mut cargo = PassengerCargo::new(capacity, object.size_limit);
+                    if !actor["unload"].as_bool().unwrap_or(false) {
+                        if let Some(name) = actor["passenger"].as_str() {
+                            let passenger_type = rules.object(name).unwrap();
+                            if let Some(native) = actor["occupy_pip_override"].as_u64() {
+                                assert_eq!(
+                                    passenger_type.occupy_pip(),
+                                    native as u32,
+                                    "admitted native reader state reaches the garrison consumer",
+                                );
+                            }
+                            let passenger_ref = sim.interner.intern(name);
+                            let passenger_id = 1_000 + index as u64;
+                            let passenger = GameEntity::new_at_frame_zero_for_test(
+                                passenger_id,
+                                0,
+                                0,
+                                0,
+                                0,
+                                owner,
+                                Health::new(passenger_type.strength),
+                                passenger_ref,
+                                EntityCategory::Infantry,
+                                0,
+                                5,
+                                false,
+                            );
+                            sim.entities_mut().insert(passenger);
+                            assert!(cargo.board(passenger_id, passenger_type.size));
+                        }
+                    }
+                    // Explicit drawing-consumer hold prior. Actual command,
+                    // Limbo and departure lifecycle has separate production tests.
+                    entity.passenger_role = PassengerRole::transport(cargo);
+                }
+                if let Some(count) = actor["capture_count"].as_u64() {
+                    let weapon = object
+                        .weapon_at(0)
+                        .and_then(|name| rules.weapon(name))
+                        .unwrap();
+                    crate::sim::arena_fixture::install_status_capture_count(
+                        &mut entity,
+                        weapon.damage,
+                        weapon.infinite_mind_control,
+                        count as u32,
+                    );
+                }
+                if actor.get("ore_bales").is_some() || actor.get("gem_bales").is_some() {
+                    crate::sim::arena_fixture::install_status_miner_cargo(
+                        &mut entity,
+                        object,
+                        rules,
+                        actor["ore_bales"].as_u64().unwrap_or(0) as usize,
+                        actor["gem_bales"].as_u64().unwrap_or(0) as usize,
+                    );
+                }
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);
                 if actor["sinking"].as_bool().unwrap_or(false) {
@@ -244,6 +348,45 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         row["name"]
                     );
                 }
+                let scales: Vec<_> = row["draws"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|draw| {
+                        draw["asset"] == "PIPS2.SHP" && draw["actor"].as_u64() == Some(index as u64)
+                    })
+                    .collect();
+                assert_eq!(
+                    strip.scale.len(),
+                    scales.len(),
+                    "{} PIPS2 commands",
+                    row["name"]
+                );
+                for (instance, draw) in strip.scale.iter().zip(scales) {
+                    assert_eq!(draw["flags"], 0x600);
+                    let expected = overlay
+                        .scale_pips()
+                        .unwrap()
+                        .instance(
+                            draw["frame"].as_u64().unwrap() as usize,
+                            (
+                                draw["point"][0].as_i64().unwrap() as f32 + cam.camera_pos[0],
+                                draw["point"][1].as_i64().unwrap() as f32 + cam.camera_pos[1],
+                            ),
+                            instance.depth,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        instance.position, expected.position,
+                        "{} scale point",
+                        row["name"]
+                    );
+                    assert_eq!(
+                        instance.uv_origin, expected.uv_origin,
+                        "{} scale frame",
+                        row["name"]
+                    );
+                }
                 let ranks: Vec<_> = row["draws"]
                     .as_array()
                     .unwrap()
@@ -291,7 +434,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     );
                 }
                 let draw = display.object_draw(id, SpriteEncoding::Plain).unwrap();
-                let mut parent = if category == EntityCategory::Structure {
+                let mut parent = if actor_category == EntityCategory::Structure {
                     PlannedObjectInstance::building(draw, vec![])
                 } else {
                     PlannedObjectInstance::object(draw, vec![])
@@ -341,7 +484,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             }
             let mut terrain = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
             terrain.prepare(&gpu.device, &color, &dv, batch.camera_uniform());
-            if category == EntityCategory::Structure {
+            if row_has_building {
                 // Replay the actual initial Building Extras marker with the
                 // same instance range used by the app's later Extras sweep.
                 super::merge_passes::draw_native_object_pass(
@@ -349,7 +492,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     &cv,
                     &dv,
                     &mut terrain,
-                    [0, 0, size[0], size[1]],
+                    tactical_clip,
                     &batch,
                     None,
                     &layer,
@@ -404,7 +547,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 &cv,
                 &dv,
                 &mut terrain,
-                [0, 0, size[0], size[1]],
+                tactical_clip,
                 &batch,
                 Some(&overlay),
                 pool.get("object_extras").map(|(buffer, _)| buffer),
@@ -418,6 +561,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         rank,
                         background,
                         fills,
+                        scale,
                         ..
                     } = &layer.extras_runs[0]
                     else {
@@ -434,6 +578,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             rank: *rank,
                             background: *background,
                             fills: fills.clone(),
+                            scale: scale.clone(),
                         });
                         fenced.extras_runs.push(ObjectExtrasRun::Lines {
                             parent: parent + 1000,
@@ -446,7 +591,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         &cv,
                         &dv,
                         &mut terrain,
-                        [0, 0, size[0], size[1]],
+                        tactical_clip,
                         &batch,
                         Some(&overlay),
                         pool.get("object_extras").map(|(buffer, _)| buffer),

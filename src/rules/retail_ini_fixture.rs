@@ -435,6 +435,17 @@ pub fn retail_battle_rules_for_map(map_name: &str) -> Option<RetailBattleRules> 
     retail_mode_rules_for_map(1, map_name)
 }
 
+/// A named retail Battle map with explicit scenario input, through the same
+/// startup/mode/map owner. Used by native reader and drawing comparisons whose
+/// scenario introduces a later admitted type section.
+#[cfg(any(test, feature = "test-support"))]
+pub fn retail_battle_rules_for_map_with_patch(
+    map_name: &str,
+    patch: &IniFile,
+) -> Option<RetailBattleRules> {
+    retail_mode_rules_for_map_impl(1, map_name, Some(patch))
+}
+
 /// An explicit authored override merged into Hills' map before the existing
 /// production pass. Keep startup, mode and map chronology intact: reparsing
 /// a projected merged INI loses the startup AudioVisual defaults/postpass.

@@ -11,7 +11,7 @@ use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
 
 use crate::rules::missile_spawn::MissileSpawnRules;
-use crate::rules::object_type::ObjectCategory;
+use crate::rules::object_type::{InfantryPips, ObjectCategory};
 use crate::rules::powerups::{PowerupTable, PowerupsAccumulator};
 use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequisites};
 use crate::rules::projectile_type::ProjectileArtState;
@@ -529,6 +529,18 @@ impl ProcessedRulesLayers {
                     )
                 })
         })
+    }
+
+    /// Final retained InfantryType state; the merged present-key history cannot
+    /// represent admitted missing-Pip calls. Projection performs no new read.
+    pub(crate) fn infantry_pip_states(&self) -> impl Iterator<Item = (&str, InfantryPips)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Infantry)
+            .into_iter()
+            .flatten()
+            .map(|member| (member.native_stored_id.as_str(), member.infantry_pips))
     }
 
     /// Native715320 recopies the turret controls on every reached rules pass.
@@ -1377,6 +1389,10 @@ struct ProcessedType {
     /// TechnoType ctor71136F/711781, generic flag read71287E and FV pair
     /// reads747BBD..747E90, retained across every reached Rules pass.
     gunner_turrets: GunnerTurrets,
+    /// Infantry ctor5236BD/C7 and unconditional ReadPip5240D1..524125.
+    /// Missing type sections skip the whole reader; missing keys do not.
+    #[serde(default)]
+    infantry_pips: InfantryPips,
     recoil: crate::rules::recoil::RecoilConfig,
     airstrike: crate::rules::airstrike::AirstrikeSettings,
     /// TechnoType constructor711134 and current-default ReadInt7147B4.
@@ -1415,6 +1431,7 @@ impl ProcessedType {
             building_target_coord_offset: [0; 3],
             unit_shp: Default::default(),
             gunner_turrets: GunnerTurrets::default(),
+            infantry_pips: InfantryPips::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
             airstrike: crate::rules::airstrike::AirstrikeSettings::default(),
             radial_fire_segments: 0,
@@ -2291,6 +2308,11 @@ impl RulesPassProcessor {
                         &raw,
                         family.object_category().expect("TechnoType family"),
                     );
+                if family == RulesTypeFamily::Infantry {
+                    self.families.get_mut(&family).unwrap()[index]
+                        .infantry_pips
+                        .apply_pass(&raw);
+                }
                 match family {
                     RulesTypeFamily::Building => {
                         // Native ObjectType5F933B copies Rules Image into its

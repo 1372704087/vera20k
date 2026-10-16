@@ -70,17 +70,6 @@ pub(crate) fn health_hover_target(state: &AppState, local_owner: Option<&str>) -
     health_bar_hover_target(state, local_owner).map(|(id, _)| id)
 }
 
-/// The hovered *structure*, for the building pip pass.
-fn building_health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
-    health_bar_hover_target(state, local_owner).and_then(|(id, kind)| {
-        matches!(
-            kind,
-            HoverTargetKind::FriendlyStructure | HoverTargetKind::EnemyStructure
-        )
-        .then_some(id)
-    })
-}
-
 /// The hovered *unit or infantry*, for the non-building health-bar pass.
 pub(crate) fn unit_health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
     health_bar_hover_target(state, local_owner).and_then(|(id, kind)| {
@@ -541,16 +530,10 @@ pub(crate) fn self_heal_pip(
 // handle from `DAT_00AC147C` (PIPS.SHP) to `DAT_00AC1480` (PIPS2.SHP) at
 // 0x00709AEF for every non-building.
 //
-// * **`PipScale=Passengers` and `PipScale=Ammo`.** `build_scale_pip_instances`
-//   handles Tiberium cargo and MindControl count/overload feedback; these
-//   separate Ammo/Passengers arms remain unported. 38
-//   stock rulesmd.ini sections set one of the two (34 Passengers, 4 Ammo).
-//   Their separate ammo/passenger display branches remain required work;
-//   MindControl is native case5 (manager+2BC), handled by the shared strip.
-//   Trigger:
-//   selecting a loaded IFV, Flak Track, Battle Fortress, Nighthawk or any
-//   transport. Player effect: no passenger or ammo readout at all. Frequency:
-//   common — transports are ordinary play. Downstream risk: none.
+// * **`PipScale=Ammo`.** Selecting a finite-ammo aircraft/unit still has no
+//   ammunition readout. The ordinary stock FV passenger path now uses the
+//   shared parent strip; fractional/mixed passenger sizes and other transport
+//   lifecycle paths retain their existing owner and explicit residuals.
 //
 // * **Spawn pips**, from `TypeClass+0xD5C` via
 //   `SpawnManagerClass__CountDockedSpawns`. Trigger: a selected Kirov/carrier
@@ -559,141 +542,6 @@ pub(crate) fn self_heal_pip(
 //   through the live input membership in `build_control_group_status_instances`
 //   above; the self-heal status pip is ported below.
 //
-/// Occupant pips for garrisoned buildings (pips.shp frames 6-12).
-///
-/// Drawn for every visible building with `ShowOccupantPips=yes` and `MaxNumberOccupants > 0`.
-/// One pip per slot: filled slots use the infantry's `OccupyPip` color, empty slots use
-/// frame 6 (gray). Starts at (screen_x+6, screen_y-1), step (+4, +2) per pip along
-/// the isometric NW edge.
-pub(crate) fn build_occupant_pip_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-    ) else {
-        return Vec::new();
-    };
-    let has_tex = overlay.occupant_pip_texture().is_some();
-    if !has_tex {
-        return Vec::new();
-    }
-    let pip_size: [f32; 2] = overlay.occupant_pip_frame_size();
-    let pip_uv_size: [f32; 2] = overlay.occupant_pip_uv_size();
-    let (adj_x, adj_y) = overlay.occupant_pip_canvas_adj();
-    let local_owner = preferred_local_owner_name(state);
-    let rules = state.rules();
-    // Occupant pips are NOT free-standing: `DrawPipScalePips` 0x00709A90 has
-    // exactly two callsites, 0x006F682C and 0x006F6AB0, and both are inside
-    // `TechnoClass__DrawHealthBar`. So they are reachable only through the same
-    // selected-or-hovered arms that gate the health bar — the same rule that
-    // stopped VERA drawing a bar over every damaged unit. Without it every
-    // garrisoned building on a city map wears its pip strip permanently.
-    let hovered_structure_id = building_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-
-    for e in sim.entities().values() {
-        if e.category() != EntityCategory::Structure {
-            continue;
-        }
-        if !health_bar_drawable(
-            sim,
-            e,
-            hovered_structure_id,
-            local_owner.as_deref(),
-            state.rules(),
-        ) {
-            continue;
-        }
-        let type_str = sim.interner.resolve(e.type_ref());
-        let Some(obj) = rules.and_then(|r| r.object(type_str)) else {
-            continue;
-        };
-        if !obj.show_occupant_pips || obj.max_number_occupants == 0 {
-            continue;
-        }
-        let cargo = match e.passenger_role.cargo() {
-            Some(c) => c,
-            None => continue,
-        };
-        let (sx, sy) = crate::render::locomotor_visual::screen_position(e);
-        // The (+6, -1) offset is applied to the point `DrawHealthBar`'s BUILDING
-        // branch hands the pip routine, which is the entity anchor plus the
-        // projected foundation edge — not the raw anchor. Dropping that term put
-        // the strip on the building's art instead of at its west corner, a miss
-        // of (-60, +15) px on a 2-deep footprint and (-90, +30) on a 3-deep one.
-        // Same pair the health pips above already use.
-        let (fw, fh) = {
-            let (w, h) = crate::rules::foundation::foundation_dimensions(&obj.foundation);
-            (w as f32, h as f32)
-        };
-        let anchor_x = sx + (fw - fh) * 15.0 - (fw + fh) * 15.0;
-        let anchor_y = sy + (fw + fh) * 7.5 - 15.0 + (fh - fw) * 7.5;
-        let start_x: f32 = anchor_x + 6.0 + adj_x;
-        let start_y: f32 = anchor_y - 1.0 + adj_y;
-        let count: u32 = obj.max_number_occupants;
-        // Occupant pip step: +4 right, +2 down (isometric NW edge, same as health pips but positive X).
-        const STEP_X: f32 = 4.0;
-        const STEP_Y: f32 = 2.0;
-
-        // Bounding box culling.
-        let end_x: f32 = start_x + (count.saturating_sub(1)) as f32 * STEP_X;
-        let end_y: f32 = start_y + (count.saturating_sub(1)) as f32 * STEP_Y;
-        let min_x: f32 = start_x.min(end_x);
-        let min_y: f32 = start_y.min(end_y);
-        let total_w: f32 = (end_x - start_x).abs() + pip_size[0];
-        let total_h: f32 = (end_y - start_y).abs() + pip_size[1];
-        if !in_view(
-            min_x,
-            min_y,
-            total_w,
-            total_h,
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-            sw,
-            sh,
-            48.0,
-        ) {
-            continue;
-        }
-
-        for i in 0..count {
-            // Determine pip frame: occupied slot → occupant's OccupyPip, empty → frame 6.
-            let frame_index: u32 = if (i as usize) < cargo.passengers().len() {
-                let pax_id = cargo.passengers()[i as usize];
-                sim.entities()
-                    .get(pax_id)
-                    .and_then(|pax| rules.and_then(|r| sim.interner.object_type(pax.type_ref(), r)))
-                    .map(|pax_obj| pax_obj.occupy_pip)
-                    .unwrap_or(7) // default PersonGreen
-            } else {
-                6 // empty slot
-            };
-            let px: f32 = start_x + i as f32 * STEP_X;
-            let py: f32 = start_y + i as f32 * STEP_Y;
-            let uv_origin: [f32; 2] = overlay.occupant_pip_uv_origin(frame_index);
-            instances.push(SpriteInstance {
-                position: [px, py],
-                size: [pip_size[0], pip_size[1]],
-                uv_origin,
-                uv_size: pip_uv_size,
-                depth: 0.0006,
-                tint: [1.0, 1.0, 1.0],
-                alpha: 1.0,
-                ..Default::default()
-            });
-        }
-    }
-
-    instances
-}
-
 /// The Crazy Ivan bomb clock, `TechnoClass::DrawExtras @ 0x006F5190`
 /// (0x006F519B..0x006F524E): over a carrier being drawn (DrawExtras is reached
 /// only from the tactical render loop, `0x006D9153`, so never in limbo or a
@@ -878,13 +726,15 @@ pub(crate) struct StatusViewport {
     pub size: [f32; 2],
 }
 
-/// One Display parent's rank and health commands, in native Extras order.
+/// One Display parent's rank, health and pip commands in native Extras order.
 #[derive(Debug, Default)]
 pub(crate) struct TechnoExtras {
     pub rank: Option<SpriteInstance>,
     pub background: Option<SpriteInstance>,
-    /// Raw PIPS commands, including the Building branch's empty slots.
+    /// Plain600 PIPS commands: health followed by any garrison occupants.
     pub fills: Vec<SpriteInstance>,
+    /// Plain600 PIPS2 scale commands, after this parent's health.
+    pub scale: Vec<SpriteInstance>,
 }
 
 /// One Techno DrawExtras6F5190 parent, rank prefix then health6F64A0.
@@ -1064,6 +914,39 @@ pub(crate) fn techno_extras_for_parent(
                 0.0006,
             ));
         }
+        //6F659E projects the foundation edge with Z=0;6F682C hands it to
+        //709A90. Garrison709C27..D17 reads raw OccupyPip, including frames1..5
+        // produced by the shared native reader, not just person frames6..12.
+        // Building6F67DC additionally admits CanBeOccupied regardless of
+        // relationship. Type+157B defaults false45E07D;4600DA reads exact
+        // CanBeOccupied81ADBC through ReadBool5295F0 with the current default.
+        // Preserve this separate native Building policy.
+        if (object.can_be_occupied
+            || entity_status_pips_drawable(sim, entity, hovered_id, observer_id, Some(rules)))
+            && object.show_occupant_pips
+            && object.max_number_occupants > 0
+        {
+            let occupants = entity
+                .passenger_role
+                .cargo()
+                .map(|cargo| cargo.passengers());
+            for slot in 0..object.max_number_occupants {
+                let frame = occupants
+                    .and_then(|ids| ids.get(slot as usize))
+                    .and_then(|id| sim.entities().get(*id))
+                    .and_then(|passenger| sim.interner.object_type(passenger.type_ref(), rules))
+                    .map_or(6, |passenger| passenger.occupy_pip() as usize);
+                strip.fills.extend(instance(
+                    shape,
+                    frame,
+                    (
+                        sx + ax as f32 + 6.0 + (slot * 4) as f32,
+                        sy + ay as f32 - 1.0 + (slot * 2) as f32,
+                    ),
+                    0.0006,
+                ));
+            }
+        }
         return strip;
     }
     let delta = object.map_or(0.0, |object| object.pixel_selection_bracket_delta as f32);
@@ -1114,6 +997,27 @@ pub(crate) fn techno_extras_for_parent(
             ),
             0.0005,
         ));
+    }
+    //709B0F/6F6A8E: nonbuilding scale starts at health anchor(-15,+10),
+    //with the Infantry-only+11 X. The shared raw-frame owner retains cargo
+    //and native relationship admission; no global scale bucket remains.
+    if let Some(art) = overlay.scale_pips() {
+        let frames = scale_pip_frames(sim, entity, hovered_id, local_owner, rules);
+        for (slot, frame) in frames.into_iter().enumerate() {
+            //709F50..A06F: Gunner draws slot0 normally, then advances an extra
+            //two steps before slot1. Stock FV has one slot; shared callers
+            //still preserve the literal later-slot displacement.
+            let gunner_step = if object.passengers > 0 && object.gunner && slot > 0 {
+                2
+            } else {
+                0
+            };
+            let x =
+                sx - 15.0 + if infantry { 11.0 } else { 0.0 } + ((slot + gunner_step) * 4) as f32;
+            strip
+                .scale
+                .extend(instance(art, frame, (x, sy + delta + 10.0), 0.0004));
+        }
     }
     strip
 }
@@ -1235,13 +1139,57 @@ pub(crate) fn scale_pip_frames(
     let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
         return Vec::new();
     };
+    //709D1D tests positive Passengers before the non-passenger PipScale arms.
+    //GetPipMax716290 remains the shared type query, never cargo-vector length.
+    if object.passengers > 0 {
+        let slots = usize::try_from(object.pip_max(rules)).unwrap_or(0);
+        let mut frames = vec![0; slots];
+        let Some(cargo) = entity.passenger_role.cargo() else {
+            return frames;
+        };
+        //473460 normally rereads current binary64 Size and truncates each sum.
+        //The existing cargo owner retains integer admission-time sizes. Stock
+        //FV+size-one infantry are equivalent; fractional/mixed sizes and type
+        //reloads remain an explicit transport-owner residual, not a new cache.
+        let total = cargo.total_size() as usize;
+        if total > slots {
+            return Vec::new();
+        }
+        let mut next = total;
+        for &id in cargo.passengers() {
+            let Some(passenger) = sim.entities().get(id) else {
+                break;
+            };
+            let Some(kind) = sim.interner.object_type(passenger.type_ref(), rules) else {
+                break;
+            };
+            let frame = match passenger.category() {
+                EntityCategory::Infantry => kind.pip() as usize,
+                EntityCategory::Unit => 5,
+                _ => 1,
+            };
+            //709E65..F4A fills from the last occupied slot toward zero, cargo
+            //head first. Extra Size slots use frame3. Malformed links/sizes
+            //cannot address outside this frame-local vector in Rust.
+            let Some(index) = next.checked_sub(1) else {
+                break;
+            };
+            frames[index] = frame;
+            next = index;
+            for _ in 1..kind.size {
+                let Some(index) = next.checked_sub(1) else {
+                    break;
+                };
+                frames[index] = 3;
+                next = index;
+            }
+        }
+        return frames;
+    }
     if object.pip_scale == crate::rules::object_type::PipScale::MindControl {
-        // GetPipMax716290 case5 -> current primary Weapon.Damage+A4,
-        // independent of the manager's retained admission capacity.
-        let maximum = object
-            .weapon_at(0)
-            .and_then(|weapon| rules.weapon(weapon))
-            .map_or(0, |weapon| weapon.damage);
+        //716290 case5 reads current primary Weapon.Damage, independently of
+        //the manager's retained admission capacity.
+        let maximum = object.pip_max(rules);
         let slots = usize::try_from(maximum).unwrap_or(0);
         let manager = entity.capture_manager.as_ref();
         let count = manager.map_or(0, |manager| manager.count());
@@ -1264,80 +1212,37 @@ pub(crate) fn scale_pip_frames(
     let Some(miner) = &entity.miner else {
         return Vec::new();
     };
-    let filled = usize::from(miner.cargo_pips());
-    let total = miner.cargo().len();
     let gems = miner
         .cargo()
         .iter()
         .filter(|bale| bale.resource_type == crate::sim::miner::ResourceType::Gem)
         .count();
-    let gem_pips = if total > 0 {
-        (gems * filled).div_ceil(total).min(filled)
-    } else {
-        0
+    let ore = miner.cargo().len() - gems;
+    let maximum = object.pip_max(rules);
+    let slots = usize::try_from(maximum).unwrap_or(0);
+    //70A26C/70A29C record independently rounded Storage slot1 (gems) and slots0/2/3
+    //(ore) through amount / current Type.Storage * GetPipMax + binary64 0.5.
+    //Ambient0E7F is PC53/chop: stock4/40 remains just below0.5 after the
+    //multiply, so rational half-up is wrong. Reuse the existing numeric owner;
+    //original executable controls: passenger_pips.json/numeric_results.
+    let count = |amount: usize| {
+        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
+        let rounded = X87::ftol_i32_low_masked(X87::add(
+            X87::mul(
+                X87::div(X87::load_i32(amount as i32), X87::load_i32(object.storage)),
+                X87::load_i32(maximum),
+            ),
+            X87::load_f64(NativeF64Bits::from_bits(0x3fe0_0000_0000_0000)),
+        ));
+        usize::try_from(rounded).unwrap_or(0).min(slots)
     };
-    let mut frames = Vec::with_capacity(5);
+    let gem_pips = count(gems);
+    let ore_pips = count(ore).min(slots - gem_pips);
+    let mut frames = Vec::with_capacity(slots);
     frames.extend(std::iter::repeat_n(5, gem_pips));
-    frames.extend(std::iter::repeat_n(2, filled - gem_pips));
-    frames.resize(5, 0);
+    frames.extend(std::iter::repeat_n(2, ore_pips));
+    frames.resize(slots, 0);
     frames
-}
-
-/// Native nonbuilding scale strip709B0F: anchor(-15,+10), step(4,0).
-/// CenteredShapeStrip owns the physical SHP origin/canvas adjustment.
-pub(crate) fn build_scale_pip_instances(state: &AppState, sw: f32, sh: f32) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay), Some(rules)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-        state.rules(),
-    ) else {
-        return Vec::new();
-    };
-    let Some(art) = overlay.scale_pips() else {
-        return Vec::new();
-    };
-    let local_owner = preferred_local_owner_name(state);
-    let hovered = unit_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-    for stable_id in crate::app::presentation::instances::tactical_entity_encounter_order(sim) {
-        let Some(entity) = sim.entities().get(stable_id) else {
-            continue;
-        };
-        let frames = scale_pip_frames(sim, entity, hovered, local_owner.as_deref(), rules);
-        if frames.is_empty() {
-            continue;
-        }
-        let object = sim.interner.object_type(entity.type_ref(), rules).unwrap();
-        let (sx, sy) =
-            crate::app::presentation::instances::interpolated_screen_position_entity(entity);
-        for (slot, frame) in frames.into_iter().enumerate() {
-            let point = (
-                sx - 15.0 + slot as f32 * 4.0,
-                sy + object.pixel_selection_bracket_delta as f32 + 10.0,
-            );
-            let Some(instance) = art.instance(frame, point, 0.0004) else {
-                continue;
-            };
-            if in_view(
-                instance.position[0],
-                instance.position[1],
-                instance.size[0],
-                instance.size[1],
-                state.match_state.input.camera_x,
-                state.match_state.input.camera_y,
-                sw,
-                sh,
-                48.0,
-            ) {
-                instances.push(instance);
-            }
-        }
-    }
-    instances
 }
 
 /// Radius rings for selected sensor/gap buildings. This is Tactical action-visual

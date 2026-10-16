@@ -28,7 +28,7 @@ import struct
 from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX,
                               UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_EIP, UC_X86_REG_ESI,
-                              UC_X86_REG_ESP)
+                              UC_X86_REG_ESP, UC_X86_REG_FPCW)
 
 from tools import native_oracle as native
 from tools.bridge_click_oracle import MATRIX_INITIALIZER
@@ -868,7 +868,7 @@ def _prepare_flat_cells(m, xs, ys):
     return table, cells
 
 
-def _building_ground_runtime():
+def _building_ground_runtime(*, type_name='GAPOWR', render_ground=True):
     """Actual flat TMP + placed GAPOWR body depth, on the existing TMP VM.
 
     Only the native depth plane's row runs cross to the line-consumer control.
@@ -907,26 +907,34 @@ def _building_ground_runtime():
     m.invoke(0x665650, m.rules)
     m.invoke(0x4E7CF0, 0)
     typ = m.alloc(0x2000)
-    m.invoke(0x45DD90, typ, (m.cstring('GAPOWR'),))
+    m.invoke(0x45DD90, typ, (m.cstring(type_name),))
     constructor_fields = _building_health_fields(m, typ)
+    if not render_ground:
+        constructor_fields.update(max_number_occupants=m.read32(typ+0x1580),
+                                  show_occupant_pips=bool(u.mem_read(typ+0x1584,1)[0]))
     type_layer_fields = []
-    art, _ = lexical(m.assets['ARTMD.INI'], {'GAPOWR', 'GAPOWR_A', 'GAPOWR_AD', 'GAPOWRMK'})
+    art, _ = lexical(m.assets['ARTMD.INI'],
+                     {type_name,type_name+'_A',type_name+'_AD',type_name+'MK'})
     m.make_ini(art)
     layer_reads = []
     for name, archive, raw in layers:
         if raw is None:
             layer_reads.append(dict(file=name, archive=archive, absent=True))
             continue
-        sections, _ = lexical(raw, {'GAPOWR'})
+        sections, _ = lexical(raw, {type_name})
         m.rules_cache(sections)
         mark = len(m.asset_loaded)
         admitted = m.invoke(0x45FE50, typ, (INI_RULES,)) & 255
         layer_reads.append(dict(file=name, archive=archive, sha256=sha(raw),
                                 admitted=bool(admitted), loads=m.asset_loaded[mark:]))
         type_layer_fields.append(dict(file=name, after=_building_health_fields(m, typ)))
-    m.invoke(0x45E8F0, 0)  # original physical BUILDNGZ load and byte remap
-    assert m.read32(typ + 0xA4) and m.read32(0x89DDBC)
-    assert m.read32(typ + 0x1518) == 0  # no GAPOWR BibShape, no invented bib
+        if not render_ground:
+            type_layer_fields[-1]['after'].update(max_number_occupants=m.read32(typ+0x1580),
+                show_occupant_pips=bool(u.mem_read(typ+0x1584,1)[0]))
+    if render_ground:
+        m.invoke(0x45E8F0, 0)  # original physical BUILDNGZ load and byte remap
+        assert m.read32(typ + 0xA4) and m.read32(0x89DDBC)
+        assert m.read32(typ + 0x1518) == 0  # no GAPOWR BibShape, no invented bib
     for entry in (0x561710, 0x5617A0, 0x5617C0, 0x5617E0):
         m.invoke(entry, 0)
     u.mem_write(0x89DDB8, words(104))
@@ -953,7 +961,7 @@ def _building_ground_runtime():
     # Original flat bounds supply each Cell's draw point. Registration and
     # traversal are prepared; no host formula supplies a TMP pixel or depth.
     ground_cells = 0
-    for cell in cells:
+    for cell in cells if render_ground else ():
         m.invoke(0x47FF80, cell, (bounds,))
         x, y, w, h = rally.ints(u, bounds, 4)
         if x < 160 and y < 160 and x + w > 0 and y + h > 0:
@@ -1111,12 +1119,13 @@ def _building_health_fields(m, typ):
 
 class _HealthRecorder:
     """One observer for ordinary health and phase-aware native composition."""
-    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False):
+    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False, scales=False):
         from tools.projectile_oracle.bridge_render_shape import PIXELS, Z, A
         u = m.u
         self.stores, self.draws, self.entries, self.rng = [], [], [], []
         self.line_calls, self.body_admissions = [], []
         self.gates, self.callbacks = [], []
+        self.numeric=[]
         self.actor_index, self.phase = -1, 'health'
         self.return_pc, self.active = None, False
         def finish_draw():
@@ -1129,7 +1138,7 @@ class _HealthRecorder:
                 self.return_pc = None
             if pc in (0x65C780, 0x65C7E0):
                 self.rng.append(pc)
-            if rank:
+            if rank or scales:
                 if pc in (0x746750,0x5227F0,0x4DA4E0,0x55ABC0,0x703860,
                           0x5657A0,0x4870D0,0x4870F0,0x4F9A50):
                     self.callbacks.append(dict(actor=self.actor_index,entry=f'{pc:08X}'))
@@ -1138,7 +1147,15 @@ class _HealthRecorder:
                     self.gates.append(dict(actor=self.actor_index,
                         gate='disguised_to' if pc==0x6F535F else 'visual_character',
                         result=value & 255 if pc==0x6F535F else value))
-            if pc in (0x6F5190, 0x6F64A0, 0x709A90, 0x70AA60) or (rank and pc==0x70A990):
+            if scales and pc in (0x70A26C,0x70A29C):
+                value=struct.unpack('<i',words(u.reg_read(UC_X86_REG_EAX)))[0]
+                self.numeric.append(dict(actor=self.actor_index,
+                    result='ore_pips' if pc==0x70A26C else 'gem_pips',value=value,
+                    fpcw=u.reg_read(UC_X86_REG_FPCW)))
+            if (pc in (0x6F5190, 0x6F64A0, 0x709A90, 0x70AA60)
+                    or ((rank or scales) and pc==0x70A990)
+                    or (scales and pc in (0x716290,0x473460,0x473450,0x708C30,
+                                          0x4722D0,0x4726C0,0x6C9650,0x6C9680))):
                 self.entries.append(dict(actor=self.actor_index, entry=f'{pc:08X}'))
                 if phase_aware:
                     self.entries[-1]['phase'] = self.phase
@@ -1161,7 +1178,8 @@ class _HealthRecorder:
                 if phase_aware:
                     self.draws[-1].update(phase=self.phase, has_zshape=bool(args[10]),
                         zshape_frame=args[11], zshape_offset=args[12:14])
-            elif pc in (0x493DF0, 0x4912B0, 0x4990E0, 0x497390) and self.active:
+            elif (pc in (0x493DF0, 0x4912B0, 0x4990E0, 0x497390)
+                  or (scales and pc==0x4960A0)) and self.active:
                 vt = m.read32(u.reg_read(UC_X86_REG_ECX))
                 leaf = dict(entry=f'{pc:08X}', vtable=f'{vt:08X}')
                 if leaf not in self.draws[-1]['leaves']:
@@ -1301,7 +1319,155 @@ def _rank_vtable_bindings(m):
     return rows
 
 
-def generate_unit_health(*, building=False, rank=False):
+def _status_reader_block(m, begin, end, registers):
+    """One unchanged caller block in the existing native reader owner."""
+    from tools.spatial_oracle.building_body_rules import SP as reader_sp
+    u = m.u
+    u.mem_write(reader_sp, words(native.RET_MAGIC))
+    u.reg_write(UC_X86_REG_ESP, reader_sp)
+    for register, value in registers.items():
+        u.reg_write(register, value)
+    native.run_checked(u, begin, end)
+    assert u.reg_read(UC_X86_REG_ESP) == reader_sp
+
+
+def _passenger_type_fields(m, typ, infantry=False, building=False):
+    u = m.u
+    result = dict(strength=m.read32(typ+0xA0), delta=m.read32(typ+0x3E0),
+        pip_scale=m.read32(typ+0x3D4), passengers=m.read32(typ+0x5E0),
+        size=struct.unpack('<d',u.mem_read(typ+0x380,8))[0],
+        size_limit=struct.unpack('<d',u.mem_read(typ+0x388,8))[0],
+        gunner=bool(u.mem_read(typ+0x805,1)[0]), storage=m.read32(typ+0x800))
+    if infantry:
+        result.update(pip=m.read32(typ+0xDFC),occupy_pip=m.read32(typ+0xE00))
+    if building:
+        result.update(max_number_occupants=m.read32(typ+0x1580),
+            show_occupant_pips=bool(u.mem_read(typ+0x1584,1)[0]),
+            can_be_occupied=bool(u.mem_read(typ+0x157B,1)[0]),
+            height=m.read32(typ+0xEF4),foundation=m.read32(typ+0xEF0))
+    primary=m.read32(typ+0x898)
+    if primary:
+        result.update(primary=m.string(primary+0x24),weapon_damage=m.read32(primary+0xA4),
+                      infinite_mind_control=bool(u.mem_read(primary+0x140,1)[0]))
+    return result
+
+
+def _passenger_pip_reads(m, typ):
+    from tools.spatial_oracle.building_body_rules import RULES
+    registers = {UC_X86_REG_ESI:typ,UC_X86_REG_EBP:RULES,UC_X86_REG_EDI:typ+0x24}
+    _status_reader_block(m,0x5240D1,0x5240EE,registers)
+    _status_reader_block(m,0x5240EE,0x524102,registers)
+    # Preserve original EAX from the second reader, skip only unrelated
+    # following ReadString argument preparation, and execute its actual store.
+    _status_reader_block(m,0x52411F,0x524125,registers)
+
+
+def _read_pip_controls(m, typ, constructor):
+    """Both original Infantry callers, including admitted missing-key passes."""
+    from tools.spatial_oracle.building_body_rules import RULES, SP as reader_sp
+    u = m.u
+    table = []
+    for index in range(13):
+        pointer=m.read32(0x81B958+index*8)
+        table.append(dict(index=index,name=m.string(pointer),
+                          value=m.read32(0x81B95C+index*8),in_pip_table=index<11))
+    controls=[]
+    requests=[(1,name) for name in [row['name'] for row in table[:11]]]
+    requests += [(default,None) for default in range(13)]
+    requests += [(1,raw) for raw in ('','unknown','WHITE','  Blue\t','3','white suffix',
+                                   ' '*26+'white',' '*27+'white')]
+    for default,raw in requests:
+        keys={'Strength':'125'}
+        if raw is not None:
+            keys['Pip']=raw
+        sections={'PipProbe':keys}
+        m.rules_cache(sections)
+        result=m.invoke(0x4748A0,RULES,(m.cstring('PipProbe'),m.cstring('Pip'),default))
+        controls.append(dict(input=dict(section='PipProbe',key='Pip',raw=raw,
+                                        default=default,sections=sections),result=result))
+    u.mem_write(typ+0xDFC,words(constructor['pip'],constructor['occupy_pip']))
+    passes=[]
+    for name,sections in (
+            ('base',{'E1':{'Pip':'white','OccupyPip':'PersonBlue'}}),
+            ('absent_section',{}),('unrelated_map_section',{'E1':{'Strength':'125'}}),
+            ('unrelated_later_section',{'E1':{'Strength':'130'}}),
+            ('unrelated_third_section',{'E1':{'Strength':'135'}}),
+            ('explicit_again',{'E1':{'Pip':'white','OccupyPip':'PersonBlue'}})):
+        m.rules_cache(sections)
+        before=dict(pip=m.read32(typ+0xDFC),occupy_pip=m.read32(typ+0xE00))
+        u.mem_write(reader_sp,words(native.RET_MAGIC,RULES))
+        u.reg_write(UC_X86_REG_ESP,reader_sp)
+        u.reg_write(UC_X86_REG_ECX,typ)
+        stop=native.run_checked(u,0x410A60,(0x410A8C,0x410B7D))
+        admitted=stop==0x410A8C
+        if admitted:
+            _passenger_pip_reads(m,typ)
+        passes.append(dict(name=name,input=dict(sections=sections),admitted=admitted,
+            admission_stop=f'{stop:08X}',before=before,
+            after=dict(pip=m.read32(typ+0xDFC),occupy_pip=m.read32(typ+0xE00))))
+    return dict(constructor={key:constructor[key] for key in ('pip','occupy_pip')},
+                table=table,controls=controls,section_passes=passes)
+
+
+def _prepare_status_passengers(m, types):
+    """Existing Infantry/Walk prefix with genuine Cargo add/remove receivers.
+
+    The initial Limbo1 is native constructor output; placement/boarding and
+    whole typed COM construction remain separate production prerequisites.
+    """
+    from tools.spatial_oracle.building_body_rules import SP as reader_sp
+    u=m.u
+    passengers={}
+    for name in ('E1','ENGINEER'):
+        actor,walk=m.alloc(0x900),m.alloc(0x100)
+        requests=[]
+        def rng(_u,pc,_size,_data):
+            if pc in (0x65C780,0x65C7E0):
+                sp=u.reg_read(UC_X86_REG_ESP)
+                requests.append(dict(entry=f'{pc:08X}',caller=f'{m.read32(sp):08X}'))
+        hook=u.hook_add(UC_HOOK_CODE,rng)
+        u.mem_write(reader_sp,words(native.RET_MAGIC,types[name],0))
+        u.reg_write(UC_X86_REG_ESP,reader_sp)
+        u.reg_write(UC_X86_REG_ECX,actor)
+        native.run_checked(u,0x517A50,0x517AE6,required_addresses=(0x4D31E0,))
+        m.invoke(0x75AA90,walk)
+        u.hook_del(hook)
+        u.mem_write(walk+0xC,words(actor))
+        u.mem_write(walk+0x14,words(1))
+        u.mem_write(actor+0x674,words(walk+4))
+        passengers[name]=dict(actor=actor,template=bytes(u.mem_read(actor,0x900)),
+            evidence=dict(constructor_begin='00517A50',constructor_stop='00517AE6',
+                whole_infantry_constructor=False,walk_constructor='0075AA90',
+                limbo=bool(u.mem_read(actor+0x81,1)[0]),vtable=f'{m.read32(actor):08X}',
+                constructor_rng_requests=requests,passive_scan_timer=rally.ints(u,actor+0x180,3)))
+        assert passengers[name]['evidence']['limbo']
+    return passengers
+
+
+def _passenger_cases(base):
+    return [dict(name='empty',actors=[dict(base,passenger=None)]),
+        *[dict(name=f'loaded_a{a}',a_value=a) for a in (127,63,2,0)],
+        dict(name='loaded_occluding_z',old_z=0),
+        dict(name='engineer',actors=[dict(base,passenger='ENGINEER')]),
+        dict(name='unload_empty',actors=[dict(base,unload=True)]),
+        dict(name='hover_only',actors=[dict(base,selected=False,hovered=True)]),
+        dict(name='absent',actors=[dict(base,selected=False)]),
+        dict(name='sinking',actors=[dict(base,sinking=True)]),
+        dict(name='clipped',actors=[dict(base,location=[2416,5520,0])]),
+        dict(name='ordered_overlap',actors=[dict(base,rank='veteran'),
+             dict(base,rank='elite',passenger='ENGINEER',health=75,location=[2987,5547,0])]),
+        dict(name='affected_mind_control',actors=[dict(base,type_name='MIND',passenger=None,
+                                                      health=500,capture_count=4)]),
+        *[dict(name=name,actors=[dict(base,type_name='HARV',passenger=None,health=1000,
+                                    ore_bales=ore,gem_bales=gems,storage=[ore,gems,0,0])]) for name,ore,gems in
+          (('tiberium_ore_tie',4,0),('tiberium_gem_tie',0,4),
+           ('tiberium_below_tie',3,0),('tiberium_mixed_ties',4,4),
+           ('tiberium_ore_above_tie',5,0),('tiberium_gem_above_tie',0,5),
+           ('tiberium_mixed_above_tie',5,5),
+           ('tiberium_full_mixed',20,20),('tiberium_mixed_partial',16,8))]]
+
+
+def generate_unit_health(*, building=False, rank=False, passenger=False):
     """Original ordinary Unit/Building health through shared physical SHP stores.
 
     PaletteReader owns the one VM, native INI caches and palette constructors;
@@ -1313,7 +1479,8 @@ def generate_unit_health(*, building=False, rank=False):
     from tools.rules_oracle.weapon_laser import physical_layers
     from tools.spatial_oracle.building_body_rules import RULES, SP as READER_SP
 
-    assert not (building and rank)
+    assert sum((building,rank,passenger))<=1
+    mobile_status=rank or passenger
     # These named archive bytes are the normal STOCK_DIGITAL AssetManager
     # winners, independently resolved before admitting this selected corpus.
     winners = (
@@ -1325,6 +1492,11 @@ def generate_unit_health(*, building=False, rank=False):
          'e85c535002573b5f95f7c361c4bdb95ee43e4914ddc926afda9ace995c54242b'),
         ('ANIM.PAL', 'ra2.mix', 'cache.mix', None),
     )
+    if passenger:
+        # Native5F7758 asks for PIPS2.SHP through normal filename lookup.
+        # Independent STOCK_DIGITAL AssetManager lookup selects the YR copy.
+        winners += (('PIPS2.SHP','ra2md.mix','conqmd.mix',
+                     '0afe9935160c04bdabed5bfefd0d55aad645ae38ec7dddeb5b3f4f2b2d2712d4'),)
     physical, assets = [], {}
     for name, outer_name, inner_name, expected in winners:
         outer = (native.configured_gamemd().parent / outer_name).read_bytes()
@@ -1335,9 +1507,10 @@ def generate_unit_health(*, building=False, rank=False):
         assets[name] = raw
         physical.append(dict(name=name, archive=f'{outer_name}/{inner_name}',
                              bytes=len(raw), sha256=sha(raw)))
-    scene = _building_ground_runtime() if building else None
-    m = scene['m'] if building else palette.PaletteReader({})
-    if building:
+    scene = (_building_ground_runtime(type_name='NABNKR',render_ground=False) if passenger
+             else _building_ground_runtime() if building else None)
+    m = scene['m'] if scene else palette.PaletteReader({})
+    if scene:
         m.assets.update(assets)
     else:
         m.assets = assets
@@ -1345,19 +1518,37 @@ def generate_unit_health(*, building=False, rank=False):
     if building:
         rules, typ = m.rules, scene['typ']
     else:
-        rules, typ = m.alloc(0x3000), m.alloc(0x1900)
-        m.invoke(0x665650, rules)
-        u.mem_write(0x8871E0, words(rules))
+        rules, typ = m.rules if passenger else m.alloc(0x3000), m.alloc(0x1900)
+        if not passenger:
+            m.invoke(0x665650, rules)
+            u.mem_write(0x8871E0, words(rules))
         u.mem_write(0xA8EB00, words(0x7EB6D4, m.alloc(4096), 1024, 1, 0, 10))
-        m.invoke(0x7470D0, typ, (m.cstring('MTNK'),))
+        m.invoke(0x7470D0, typ, (m.cstring('FV' if passenger else 'MTNK'),))
+    if passenger:
+        types={'FV':typ,'NABNKR':scene['typ']}
+        u.mem_write(0x887568,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+        u.mem_write(0xA8E348,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+        for name in ('MIND','HARV','E1','ENGINEER'):
+            types[name]=m.alloc(0x2000)
+            m.invoke(0x5236A0 if name in ('E1','ENGINEER') else 0x7470D0,
+                     types[name],(m.cstring(name),))
+        type_constructors={name:_passenger_type_fields(m,p,name in ('E1','ENGINEER'))
+                           for name,p in types.items() if name!='NABNKR'}
+        type_constructors['NABNKR']=scene['constructor_fields']
+        pip_controls=_read_pip_controls(m,types['E1'],type_constructors['E1'])
+        # Restore exact constructor fields before physical-layer reads.
+        u.mem_write(types['E1']+0xDFC,words(type_constructors['E1']['pip'],
+                                         type_constructors['E1']['occupy_pip']))
 
     def fields():
         yellow, red = struct.unpack('<2d', u.mem_read(rules + 0x1700, 16))
         base = (_building_health_fields(m, typ) if building else
                 dict(strength=m.read32(typ + 0xA0), delta=m.read32(typ + 0x3E0),
                      pip_scale=m.read32(typ + 0x3D4)))
-        if rank:
+        if mobile_status:
             base['invisible'] = bool(u.mem_read(typ+0xC9A,1)[0])
+        if passenger:
+            base.update(_passenger_type_fields(m,typ))
         return dict(base, condition_yellow=yellow, condition_red=red)
 
     def tail_type():
@@ -1369,7 +1560,7 @@ def generate_unit_health(*, building=False, rank=False):
     if building:
         constructor.update(scene['constructor_fields'])
     def read_observer(_u, pc, _size, _data):
-        if pc in (0x5276D0, 0x5283D0, 0x474940):
+        if pc in (0x5276D0, 0x5283D0, 0x474940) or (passenger and pc in (0x4748A0,0x5295F0)):
             sp = u.reg_read(UC_X86_REG_ESP)
             section, key = [m.read32(sp + n) for n in (4, 8)]
             default = (struct.unpack('<d', u.mem_read(sp + 12, 8))[0]
@@ -1381,12 +1572,14 @@ def generate_unit_health(*, building=False, rank=False):
         if raw is None:
             layers.append(dict(file=name, archive=archive, absent=True))
             continue
-        section_name = 'GAPOWR' if building else 'MTNK'
-        sections, _ = lexical(raw, {section_name, 'AudioVisual'})
+        section_name = 'GAPOWR' if building else 'FV' if passenger else 'MTNK'
+        sections, _ = lexical(raw, {*types,'MultipleMindControlTank','AudioVisual'} if passenger
+                                      else {section_name,'AudioVisual'})
         # These ordinary-tail keys are absent in the selected physical stack.
         # Keep native constructor values; don't invent a partial full reader.
-        assert not {'SpawnsNumber', 'Passengers', 'Organic'}.intersection(sections.get(section_name, {}))
-        if rank:
+        assert not ({'SpawnsNumber','Organic'} if passenger else
+                    {'SpawnsNumber','Passengers','Organic'}).intersection(sections.get(section_name,{}))
+        if mobile_status:
             # The visual predicate consumes this retained native ctor default.
             # No physical selected layer may silently override an unread key.
             assert 'Invisible' not in sections.get(section_name,{})
@@ -1398,13 +1591,43 @@ def generate_unit_health(*, building=False, rank=False):
                     (0x5F94D3, 0x5F94F3, {UC_X86_REG_EBX:typ, UC_X86_REG_EBP:typ+0x24}),
                     (0x714111, 0x71412B, {UC_X86_REG_EBP:typ, UC_X86_REG_EBX:typ+0x24}),
                     (0x71415F, 0x714179, {UC_X86_REG_EBP:typ, UC_X86_REG_EBX:typ+0x24})):
-                u.mem_write(READER_SP, words(native.RET_MAGIC))
-                u.reg_write(UC_X86_REG_ESP, READER_SP)
-                u.reg_write(UC_X86_REG_ESI, RULES)
-                for reg, value in regs.items():
-                    u.reg_write(reg, value)
-                native.run_checked(u, begin, end)
-                assert u.reg_read(UC_X86_REG_ESP) == READER_SP
+                _status_reader_block(m,begin,end,{UC_X86_REG_ESI:RULES}|regs)
+        if passenger:
+            type_results={}
+            for type_name,p in types.items():
+                if type_name=='NABNKR':
+                    continue  # Complete original reader already ran in scene.
+                present=bool(m.invoke(0x526810,RULES,(p+0x24,))&255)
+                if present:
+                    blocks=[(0x712511,0x712553), (0x714A49,0x714A63),
+                            (0x714B35,0x714B56), (0x713129,0x713143)]
+                    if type_name!='FV':
+                        blocks += [(0x5F94D3,0x5F94F3),(0x714111,0x71412B),
+                                   (0x71415F,0x714179)]
+                    for begin,end in blocks:
+                        registers={UC_X86_REG_EBP:p,UC_X86_REG_EBX:p+0x24,
+                                   UC_X86_REG_ESI:RULES,UC_X86_REG_EDI:RULES}
+                        if begin==0x5F94D3:
+                            registers.update({UC_X86_REG_EBX:p,UC_X86_REG_EBP:p+0x24})
+                        _status_reader_block(m,begin,end,registers)
+                    if type_name in ('E1','ENGINEER'):
+                        _passenger_pip_reads(m,p)
+                type_results[type_name]=dict(admitted=present,
+                    after=_passenger_type_fields(m,p,type_name in ('E1','ENGINEER')))
+            if type_results['MIND']['admitted']:
+                _status_reader_block(m,0x7129AB,0x712A1D,
+                    {UC_X86_REG_EBP:types['MIND'],UC_X86_REG_EBX:types['MIND']+0x24,
+                     UC_X86_REG_ESI:RULES})
+            weapon=m.read32(types['MIND']+0x898)
+            if weapon and m.invoke(0x526810,RULES,(weapon+0x24,)):
+                _status_reader_block(m,0x7722D4,0x7722EE,
+                    {UC_X86_REG_ESI:weapon,UC_X86_REG_EBX:weapon+0x24,UC_X86_REG_EDI:RULES})
+                _status_reader_block(m,0x772204,0x77221E,
+                    {UC_X86_REG_ESI:weapon,UC_X86_REG_EBX:weapon+0x24,UC_X86_REG_EDI:RULES})
+            if weapon:
+                type_results['MIND']['after'].update(primary=m.string(weapon+0x24),
+                    weapon_damage=m.read32(weapon+0xA4),
+                    infinite_mind_control=bool(u.mem_read(weapon+0x140,1)[0]))
         av_admitted = bool(m.invoke(0x526810, RULES, (m.cstring('AudioVisual'),)) & 255)
         if av_admitted:
             for begin, end in ((0x66B337, 0x66B35E), (0x66B35E, 0x66B385)):
@@ -1419,18 +1642,23 @@ def generate_unit_health(*, building=False, rank=False):
                                ('Strength', 'PixelSelectionBracketDelta', 'PipScale',
                                 'ConditionRed', 'ConditionYellow',
                                 *(['PipsDrawForAll','CanBeOccupied','Pip','SpawnsNumber']
-                                  if building else []), *(['Invisible'] if rank else []))}
+                                  if building else []), *(['Invisible'] if mobile_status else []),
+                                *(['Passengers','Size','SizeLimit','Gunner','Pip','OccupyPip',
+                                   'Storage','Damage','Primary','InfiniteMindControl'] if passenger else []))}
                                for s, keys in sections.items()},
                            reads=reads[mark:], after=fields()))
+        if passenger:
+            layers[-1]['types']=type_results
     u.hook_del(hook)
-    if not building:
+    if not scene:
         palette.initialize(m)
     convert = m.read32(0x87F6C4)
     table, count = m.read32(convert + 0x170), m.read32(convert + 0x16C)
     palette_result = dict(global_address='0x87F6C4', bytes_per_pixel=m.read32(convert + 4),
                           shade_count=count, table_sha256=sha(u.mem_read(table, count * 512)))
     shape_names = {}
-    for name, global_ in (('PIPBRD.SHP', 0xAC1478), ('PIPS.SHP', 0xAC147C)):
+    for name, global_ in (('PIPBRD.SHP',0xAC1478),('PIPS.SHP',0xAC147C),
+                         *([('PIPS2.SHP',0xAC1480)] if passenger else [])):
         pointer = m.alloc(len(assets[name]))
         u.mem_write(pointer, assets[name])
         u.mem_write(global_, words(pointer))
@@ -1443,12 +1671,28 @@ def generate_unit_health(*, building=False, rank=False):
         ground_planes = {name:bytes(u.mem_read(address, 51200))
                          for name,address in (('color',PIXELS),('z',Z),('a',A))}
     else:
-        u.mem_map(MEM, 0x200000)
+        if not passenger:
+            u.mem_map(MEM, 0x200000)
         house, actor, tactical, coord, point, clip = (m.alloc(n) for n in
                                                       (0x18000, 0x900, 0x200, 12, 8, 16))
     if rank:
         rank_runtime = _prepare_unit_rank(m, typ, actor, house)
         actor_template = bytes(u.mem_read(actor,0x900))
+    if passenger:
+        status_runtimes,actor_templates={},{}
+        for name in ('FV','MIND','HARV'):
+            status_runtimes[name]=_prepare_unit_rank(m,types[name],actor,house)
+            actor_templates[name]=bytes(u.mem_read(actor,0x900))
+        passengers=_prepare_status_passengers(m,types)
+        _prepare_ground_building(m,actor,types['NABNKR'],house,selected=False)
+        actor_templates['NABNKR']=bytes(u.mem_read(actor,0x900))
+        manager=m.alloc(0x60)
+        u.mem_write(0x89E0F0,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+        maximum=m.read32(m.read32(types['MIND']+0x898)+0xA4)
+        infinite=u.mem_read(m.read32(types['MIND']+0x898)+0x140,1)[0]
+        m.invoke(0x4717D0,manager,(actor,maximum,infinite))
+        manager_nodes=m.alloc(16)
+        manager_template=bytes(u.mem_read(manager,0x60))
     u.mem_write(0xA83D4C, words(house))
     u.mem_write(0x887324, words(tactical))
     u.mem_write(tactical, words(0x7F4348))
@@ -1480,6 +1724,17 @@ def generate_unit_health(*, building=False, rank=False):
                           disguised=False,disguised_as_current_house=False,
                           sensor_count=0,disguise_detect_count=0)
         cases = _unit_rank_cases(base_actor)
+    if passenger:
+        base_actor.update(health=m.read32(typ+0xA0),type_name='FV',kind='unit',
+            passenger='E1',unload=False,rank='rookie',owner_is_current=True,
+            owned_by_current_house=True,cloak_state=0,cloak_progress=0,
+            disguised=False,disguised_as_current_house=False,sensor_count=0,
+            disguise_detect_count=0)
+        cases=_passenger_cases(base_actor)
+        cases += [dict(name='garrison_'+name,actors=[dict(base_actor,type_name='NABNKR',
+            kind='building',health=m.read32(types['NABNKR']+0xA0),passenger='E1',
+            occupants=['E1'],occupy_pip_override=frame,unrelated_e1_pass=frame==1)])
+            for name,frame in (('physical',m.read32(types['E1']+0xE00)),('missing_pass',1))]
     rows = []
     original_code = sha(u.mem_read(0x401000, 0x3E0000))
     original_vtables = bytes(u.mem_read(0x7F5C70, 0x750))
@@ -1488,7 +1743,7 @@ def generate_unit_health(*, building=False, rank=False):
                     old_z=65535, depth_baseline=32768, clip=[0, 0, *size],
                     actors=[base_actor]) | case
         spec.pop('name')
-        if rank:
+        if mobile_status:
             spec['actors'] = [dict(actor) for actor in spec['actors']]
         u.mem_write(clip, words(*spec['clip']))
         buffers = prepare_surface(u, spec, size=tuple(size))
@@ -1496,17 +1751,21 @@ def generate_unit_health(*, building=False, rank=False):
         for buffer in (PIXELS, Z, A):
             u.mem_write(buffer - 16, guard)
             u.mem_write(buffer + size[0] * size[1] * 2, guard)
-        recorder = _HealthRecorder(m, size, shape_names, phase_aware=building or rank,rank=rank)
+        recorder = _HealthRecorder(m,size,shape_names,phase_aware=building or mobile_status,
+                                   rank=rank,scales=passenger)
         stores, draws, entries, rng, actors = (recorder.stores, recorder.draws,
                                              recorder.entries, recorder.rng, [])
         for actor_index, supplied in enumerate(spec['actors']):
             recorder.actor_index = actor_index
-            u.mem_write(actor, actor_template if building or rank else bytes(0x900))
-            if not building and not rank:
+            is_garrison=passenger and supplied['type_name']=='NABNKR'
+            u.mem_write(actor,actor_templates[supplied['type_name']] if passenger else
+                        actor_template if building or rank else bytes(0x900))
+            if not building and not mobile_status:
                 u.mem_write(actor, words(0x7F5C70))
                 u.mem_write(actor + 0x6C4, words(typ))
-            if rank:
-                setter, args = _prepare_rank_actor(m, actor, house, supplied, rank_runtime)
+            if mobile_status and not is_garrison:
+                setter,args=_prepare_rank_actor(m,actor,house,supplied,
+                    status_runtimes[supplied['type_name']] if passenger else rank_runtime)
                 supplied['veterancy_raw_bits'] = m.read32(actor+0x150)
             else:
                 u.mem_write(actor + 0x21C, words(house))
@@ -1517,22 +1776,74 @@ def generate_unit_health(*, building=False, rank=False):
             u.mem_write(actor + 0x431, bytes([supplied['hovered']]))
             u.mem_write(actor + 0x3CD, bytes([supplied['sinking']]))
             u.mem_write(actor + 0x9C, words(*supplied['location']))
-            m.invoke(0x447AC0 if building else 0x5F65A0, actor, (coord,))
+            cargo_events=[]
+            if passenger:
+                cargo_entries=[]
+                def cargo_calls(_u,pc,_size,_data):
+                    if pc in (0x4733A0,0x473430,0x51DF10,0x4DB260,0x6F6AC0):
+                        cargo_entries.append(f'{pc:08X}')
+                cargo_hook=u.hook_add(UC_HOOK_CODE,cargo_calls)
+                if supplied['passenger'] and not is_garrison:
+                    prepared=passengers[supplied['passenger']]
+                    u.mem_write(prepared['actor'],prepared['template'])
+                    m.invoke(0x4733A0,actor+0x114,(prepared['actor'],))
+                    cargo_events.append(dict(operation='add',count=m.read32(actor+0x114),
+                        head_type=m.string(m.read32(m.read32(actor+0x118)+0x6C0)+0x24)))
+                    if supplied['unload']:
+                        removed=m.invoke(0x473430,actor+0x114)
+                        assert removed==prepared['actor']
+                        cargo_events.append(dict(operation='remove',count=m.read32(actor+0x114),
+                                                 head_is_null=m.read32(actor+0x118)==0))
+                u.hook_del(cargo_hook)
+                if 'capture_count' in supplied:
+                    u.mem_write(manager,manager_template)
+                    # Explicit retained manager vector prior, not captures or Update.
+                    u.mem_write(manager+0x28,words(manager_nodes,supplied['capture_count']))
+                    u.mem_write(manager+0x34,words(supplied['capture_count'],4))
+                    u.mem_write(actor+0x2BC,words(manager))
+                if 'storage' in supplied:
+                    # Storage values are explicit render-consumer priors. Actual
+                    #6C9650/6C9680 and independent70A2xx rounding read them.
+                    u.mem_write(actor+0x33C,struct.pack('<4f',*supplied['storage']))
+                if is_garrison:
+                    e1=types['E1']
+                    e1_before_pips=bytes(u.mem_read(e1+0xDFC,8))
+                    if supplied['unrelated_e1_pass']:
+                        m.rules_cache({'E1':{'Strength':'125'}})
+                        _passenger_pip_reads(m,e1)
+                    assert m.read32(e1+0xE00)==supplied['occupy_pip_override']
+                    occupants=m.alloc(4*len(supplied['occupants']))
+                    for index,name in enumerate(supplied['occupants']):
+                        u.mem_write(occupants+index*4,words(passengers[name]['actor']))
+                    u.mem_write(actor+0x688,words(occupants,len(supplied['occupants'])))
+                    u.mem_write(actor+0x694,words(len(supplied['occupants'])))
+            m.invoke(0x447AC0 if building or is_garrison else 0x5F65A0, actor, (coord,))
             projected = bool(m.invoke(0x6D2140, tactical, (coord, point)) & 255)
             actors.append(dict(point=rally.ints(u, point, 2), projection_admitted=projected))
             actor_size = 0x800 if building else 0x900
             before = bytes(u.mem_read(actor, actor_size))
-            direct_health = building and case['name'] not in ('hover_only', 'absent', 'sinking')
+            direct_health = is_garrison or (building and case['name'] not in ('hover_only','absent','sinking'))
             entry = 0x6F64A0 if direct_health else 0x6F5190
-            if building or rank:
+            if building or mobile_status:
                 actors[-1].update(coords=rally.ints(u, coord, 3), entry=f'{entry:08X}')
-            if rank:
+            if mobile_status and not is_garrison:
                 actors[-1].update(rank_setter=dict(entry=f'{setter:08X}',args=list(args)))
+            if passenger:
+                current_type=types[supplied['type_name']]
+                actors[-1].update(cargo_operations=cargo_events,cargo_entries=cargo_entries,
+                    cargo_count=m.read32(actor+0x114),
+                    pip_max=m.invoke(0x716290,current_type))
+                if is_garrison:
+                    actors[-1].update(garrison_slots=m.read32(current_type+0x1580),
+                        show_occupant_pips=bool(u.mem_read(current_type+0x1584,1)[0]))
+            draw_fpcw=u.reg_read(UC_X86_REG_FPCW)
             m.invoke(entry, actor, (point, clip, 0) if direct_health else (point, clip))
             recorder.finish()
             assert bytes(u.mem_read(actor, actor_size)) == before
+            if is_garrison:
+                u.mem_write(types['E1']+0xDFC,e1_before_pips)
         recorder.close()
-        if building or rank:
+        if building or mobile_status:
             assert not recorder.line_calls
         raw = bytes(u.mem_read(PIXELS, size[0] * size[1] * 2))
         pixels = [[i % size[0], i // size[0], value[0]] for i, value in
@@ -1553,16 +1864,31 @@ def generate_unit_health(*, building=False, rank=False):
                 for x,y,value in stores[slice(*first_rank['store_range'])]
                 if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},
                 key=lambda p:(p[1],p[0]))
-        if building or rank:
+        if passenger and case['name']=='ordered_overlap':
+            rows[-1]['overwritten_scale_pixels']=sorted({(x,y,value,
+                struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0])
+                for draw in draws if draw['actor']==0 and draw['asset']=='PIPS2.SHP'
+                for x,y,value in stores[slice(*draw['store_range'])]
+                if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},key=lambda p:(p[1],p[0]))
+        if building or mobile_status:
             rows[-1]['store_count'] = len(rows[-1].pop('stores'))
             for draw in draws:
                 begin, end = draw.pop('store_range')
                 draw['color_stores'] = end - begin
-        if rank:
+        if mobile_status:
             rows[-1].update(gates=recorder.gates,callbacks=recorder.callbacks)
+        if passenger:
+            rows[-1].update(numeric_results=recorder.numeric,drawing_fpcw=draw_fpcw)
+            assert all(draw['flags']==0x600 and not any(draw[key] for key in
+                ('a_reads','z_reads','a_writes','z_writes')) for draw in draws
+                if draw['asset']=='PIPS2.SHP' or is_garrison)
     assert original_code == sha(u.mem_read(0x401000, 0x3E0000))
     assert original_vtables == bytes(u.mem_read(0x7F5C70, 0x750))
-    assert tail_defaults == tail_type()
+    if passenger:
+        assert tail_defaults['spawns_number']==tail_type()['spawns_number']==0
+        assert tail_defaults['organic']==tail_type()['organic']==False
+    else:
+        assert tail_defaults == tail_type()
     result = dict(schema_version=1, native_sha256=native.image_sha256(), physical_inputs=physical,
                   readers=dict(constructor=constructor, layers=layers, result=fields(),
                                ordinary_tail_constructor=tail_defaults),
@@ -1570,6 +1896,28 @@ def generate_unit_health(*, building=False, rank=False):
     if rank:
         result['rank_runtime'] = rank_runtime['evidence']
         result['vtable_bindings'] = _rank_vtable_bindings(m)
+    if passenger:
+        result['read_pip']=pip_controls
+        result['readers'].update(type_constructors=type_constructors,
+            type_results={name:_passenger_type_fields(m,p,name in ('E1','ENGINEER'))
+                          for name,p in types.items()},building_layers=scene['layer_reads'],
+            building_layer_fields=scene['type_layer_fields'])
+        result['status_runtime']={name:runtime['evidence'] for name,runtime in status_runtimes.items()}
+        result['passenger_runtime']={name:prepared['evidence'] for name,prepared in passengers.items()}
+        result['garrison_controls']=[row for row in rows if row['name'].startswith('garrison_')]
+        result['raster_controls']=[row for row in rows if not row['name'].startswith('garrison_')]
+        result['physical_inputs'].append(dict(name='ARTMD.INI',archive='ra2md.mix/localmd.mix',
+            bytes=len(m.assets['ARTMD.INI']),sha256=sha(m.assets['ARTMD.INI'])))
+        result['readers']['type_results']['NABNKR']=_passenger_type_fields(
+            m,types['NABNKR'],building=True)
+        for name,p in types.items():
+            result['readers']['type_results'][name]['pip_max']=m.invoke(0x716290,p)
+        dims=m.alloc(12)
+        m.invoke(0x464AF0,types['NABNKR'],(dims,))
+        result['readers']['building_dimensions']=rally.ints(u,dims,3)
+        assert all(row['admitted'] for row in scene['layer_reads'] if row['file']=='RULESMD.INI')
+        assert result['readers']['type_results']['NABNKR']['max_number_occupants']>0
+        assert next(row for row in rows if row['name']=='ordered_overlap')['overwritten_scale_pixels']
     if building:
         dims = m.alloc(12)
         m.invoke(0x464AF0, typ, (dims,))
@@ -1721,6 +2069,34 @@ def unit_rank_metadata():
             shape=0x4AED70,picker=0x490B90,rank_leaf=0x493DF0))
 
 
+def passenger_pips_metadata():
+    return native.provenance(
+        scope='Stock FV passenger status through whole Extras, shared ReadPip passes and affected PIPS2/PIPS consumers',
+        assumptions=[
+            'The existing selected-health generator and _HealthRecorder have one additive passenger mode. Existing Building-health PaletteReader, native allocator/cache/physical transports and shape Surface/A/Z owners are reused in the same VM; no copied VM, INI/parser, cargo/manager/storage owner, palette, SHP decoder or rasterizer generates outputs.',
+            'The existing Building type/runtime has an optional NABNKR health-only mode: complete BuildingType45DD90/45FE50 consumes physical RULESMD, absent LANGRULE, MPBattleMD and XMP03T4, with fixed ART. Actual Building43B740/44D6A0, GetCoords447AC0 and Dimension2464AF0 supply the affected garrison health consumer. Its body/ground drawing is disabled; no NABNKR body, placement or garrison-entry lifecycle is claimed.',
+            'Complete UnitType7470D0/InfantryType5236A0 constructors and unchanged selected Strength/PipScale/delta/Passengers/Gunner/Storage/Size/SizeLimit/Pip/OccupyPip native read/store blocks consume the same selected physical layer stack. Original MIND Primary7129AB..712A1D resolves its physical weapon; Damage7722D4..7722EE consumes that weapon section. Full Unit/Infantry type file readers and unrelated keys do not run.',
+            'ReadPip4748A0 and both actual Infantry call/store blocks execute on explicit strings/current constructor defaults. Original Abstract410A60 admission distinguishes absent sections from admitted unrelated-key passes. Missing defaults use native table indexes, including adjacent Ammo/Tiberium names at11/12. Explicit empty cache values are separate from physical empty INI omission. These controls expose the required existing retained-type pass-owner behavior, not a second INI implementation.',
+            'Existing Unit7353C0->Foot4D31E0 prefix stops7354CE before typed COM activation, followed by real Drive4AF540. Infantry517A50 prefix stops517AE6 before ID/COM, followed by real Walk75AA90. Supplied interface owner/link/active priors expose their original virtuals. Original constructor Limbo1 permits whole Cargo4733A0->51DF10->4DB260->6F6AC0 and473430 without gameplay sinks. Whole typed construction, Unlimbo, boarding and unloading missions remain separate production tests. Selected mobile prefix RNG requests/passive timers are recorded separately from drawing; inherited Building/type/palette startup is outside that recorded initialization interval.',
+            'Every mobile row executes complete6F5190, original rank/observer gates,6F64A0 and actual709A90/70AA60 tails. Native716290/473460/473450 and passenger array fill choose physical PIPS2 frames, centered origins and flags600. Garrison rows enter full6F64A0 directly with explicit prepared occupant vector/count, then actual709C27..709D17 uses raw OccupyPip11 or reader-evolved1 and emptyframe6. These direct-health rows do not establish whole Building Extras admission.',
+            'MIND uses the original4717D0 manager constructor with retained count/vector and overload-counter priors, not captures/Update; original4722D0/4726C0 and708C30 execute. HARV receives explicit four native float storage slots; original6C9650/6C9680 and independent ore/gem rounding execute. Stock positive Storage40 and size-one infantry match the existing gameplay state owners. Fractional size/reload behavior, manager lifecycle, harvest lifecycle and other PipScales remain open.',
+            'PIPS/PIPBRD/PALETTE retain established normal STOCK_DIGITAL winners. Original5F76B0 pushes literal PIPS2.SHP at5F7758 through CCFile65CA80/loader4A3890, retainsAC1480 at5F7776 and709AEF consumes that same asset. Independent normal STOCK_DIGITAL AssetManager lookup selects ra2md.mix/conqmd.mix PIPS2,1384bytes/19frames, no loose override or catalog-only hit; ra2.mix/conquer.mix1280bytes/18frames is shadowed. The oracle pins the selected physical bytes while archive/cache transport remains supplied. Native palette/Convert constructors,4AED70/pickers/rowwalkers/leaves execute unchanged. A127/63/2/0, oldZ0, clip, sinking and ordered overlapping parents are render-consumer controls. Sparse pixels/draws and counts are native stores; no VERA scalar or host palette/raster/count formula supplies expected output.',
+            'Original code/vtables, prepared actor bytes and A/Z remain unchanged across measured draws; no drawing RNG, timer write or detach occurs. The component does not run mobile bodies, whole Display/Scenario/Map, selection generation, damage/promotion or a whole native frame.',
+        ],substitutions=[
+            'Inherited bounded allocation/delete/CRT TLS and immutable physical archive/file transports; BSurface/circular A/Z memory replaces DirectDraw. Constructor/interface/cargo/count/storage/occupant scene priors are explicit inputs. No reached render/predicate/Drive/Walk/cargo/palette/shape function result or native instruction is replaced.',
+        ],entry_points=dict(unit_type_ctor=0x7470D0,infantry_type_ctor=0x5236A0,
+            building_type_ctor=0x45DD90,building_type_reader=0x45FE50,
+            infantry_ctor_begin=0x517A50,infantry_ctor_stop=0x517AE6,walk_ctor=0x75AA90,
+            unit_ctor_begin=0x7353C0,unit_ctor_stop=0x7354CE,drive_ctor=0x4AF540,
+            pip_ctor=0x5236BD,occupy_pip_ctor=0x5236C7,read_pip=0x4748A0,
+            pip_caller=0x5240E3,occupy_pip_caller=0x5240FD,section_gate=0x410A60,
+            cargo_add=0x4733A0,cargo_remove=0x473430,cargo_head=0x473450,cargo_size=0x473460,
+            pip_max=0x716290,fill_count=0x708C30,manager_ctor=0x4717D0,
+            storage_sum=0x6C9650,storage_get=0x6C9680,extras=0x6F5190,health=0x6F64A0,
+            pip_tail=0x709A90,status_tail=0x70AA60,shape=0x4AED70,picker=0x490B90,
+            plain_leaf=0x4912B0,rank_border_leaf=0x493DF0))
+
+
 def unit_health_metadata():
     return native.provenance(
         scope='Ordinary rookie MTNK selected/hover health strip through original Extras/health/pip-tail and physical SHP pixels',
@@ -1746,6 +2122,19 @@ def unit_health_metadata():
 
 if __name__=='__main__':
     import sys
+    if '--passenger-pips' in sys.argv[1:]:
+        native.finish_vectors(lambda:generate_unit_health(passenger=True),
+            Path(__file__).with_name('passenger_pips.json'),
+            argv=[arg for arg in sys.argv[1:] if arg!='--passenger-pips'],
+            provenance=passenger_pips_metadata,
+            source_paths={'oracle':Path(__file__),
+                          'palette_owner':Path('tools/projectile_oracle/bridge_render_inputs_palette.py'),
+                          'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
+                          'reader_owner':Path('tools/projectile_oracle/bridge_render_inputs.py'),
+                          'physical_layers':Path('tools/rules_oracle/weapon_laser.py'),
+                          'tmp_owner':Path('tools/spatial_oracle/tmp_clear_render.py'),
+                          'stock_owner':Path(stock.__file__)})
+        raise SystemExit(0)
     if '--unit-rank' in sys.argv[1:]:
         native.finish_vectors(lambda: generate_unit_health(rank=True),
             Path(__file__).with_name('unit_rank.json'),

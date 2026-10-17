@@ -293,6 +293,10 @@ impl RetailBridgeFixture {
             assert_eq!(u64::from(id), index);
             names.insert(id, registry.name(id).unwrap().to_owned());
         }
+        if packet["inputs"]["crate_overlay"].is_object() {
+            let id = registry.id_for_name("CRATE").unwrap();
+            names.insert(id, registry.name(id).unwrap().to_owned());
+        }
         Self {
             assets,
             theater,
@@ -337,14 +341,16 @@ impl RetailBridgeFixture {
         let coords = |cell: &Value, axis: usize| cell["coords"][axis].as_u64().unwrap() as u16;
         let first = cells[0];
         let (rx, ry) = (coords(first, 0), coords(first, 1));
-        let is_rubble = self
+        let flags = self
             .registry
             .flags(
                 self.registry
                     .id_for_name(first["type"].as_str().unwrap())
                     .unwrap(),
             )
-            .is_some_and(|flags| flags.is_rubble);
+            .unwrap();
+        let is_rubble = flags.is_rubble && !flags.crate_type;
+        let is_crate = flags.crate_type;
         let mut terrain = test_grid(
             cells.iter().map(|c| coords(c, 0)).max().unwrap() + 1,
             cells.iter().map(|c| coords(c, 1)).max().unwrap() + 1 + u16::from(is_rubble),
@@ -399,6 +405,32 @@ impl RetailBridgeFixture {
                 assert_eq!(grid.clear_overlay(rx, ry), Some(overlay_id));
             }
             live_grid = Some(grid);
+        } else if is_crate {
+            for cell in &cells {
+                overlay_entries.push(crate::map::overlay::OverlayEntry {
+                    rx: coords(cell, 0),
+                    ry: coords(cell, 1),
+                    overlay_id: self
+                        .registry
+                        .id_for_name(cell["type"].as_str().unwrap())
+                        .unwrap(),
+                    frame: cell["state"].as_u64().unwrap() as u8,
+                });
+            }
+            let mut grid = crate::sim::overlay_grid::OverlayGrid::from_overlay_entries(
+                &overlay_entries,
+                terrain.width(),
+                terrain.height(),
+            );
+            for cell in &cells {
+                if cell["overlay_id"].as_i64() == Some(-1) {
+                    assert!(
+                        grid.clear_overlay(coords(cell, 0), coords(cell, 1))
+                            .is_some()
+                    );
+                }
+            }
+            live_grid = Some(grid);
         }
         // These original caller cases supply the unraised cell screen point.
         // Align the existing isometric projection with that seam. The actual
@@ -421,7 +453,7 @@ impl RetailBridgeFixture {
                 &self.names,
                 &overlay_entries,
                 live_grid.as_ref(),
-                is_rubble.then_some(&self.registry),
+                (is_rubble || is_crate).then_some(&self.registry),
                 is_rubble.then_some((&self.rules, &interner)),
                 camera.world_origin_y,
                 camera.world_height,
@@ -616,6 +648,212 @@ fn retail_bridge_caller_matches_native_color_and_depth_attachments() {
     );
 }
 
+/// Physical stock loader and the ordinary Mark FF byte, with no BuildingType
+/// supplied. This is a production-owner regression, not an RGB/Z oracle.
+#[test]
+#[ignore = "requires GPU and retail assets; ordinary CRATE live FF shadow admission and removal"]
+fn retail_crate_live_mark_ff_emits_shadow_and_live_removal_wins() {
+    let packet = crate::test_fixture::json("tools/spatial_oracle/crate_shadow_render.json");
+    let mut fixture = RetailBridgeFixture::load(packet);
+    let id = fixture.registry.id_for_name("CRATE").unwrap();
+    let flags = fixture.registry.flags(id).unwrap();
+    assert!(flags.crate_type && !flags.wall && !flags.is_rubble);
+    assert_eq!(
+        crate::rules::overlay_types::native_mark_overlay_data(flags),
+        255
+    );
+    fixture.names.insert(id, "CRATE".to_owned());
+    let bytes = fixture
+        .assets
+        .get_ref("CRATE.TEM")
+        .expect("activated physical temperate crate");
+    let shp = crate::assets::shp_file::ShpFile::from_bytes(bytes).unwrap();
+    assert_eq!(shp.frames.len(), 2);
+    let frame = &shp.frames[1];
+    assert_eq!(
+        [
+            frame.frame_x,
+            frame.frame_y,
+            frame.frame_width,
+            frame.frame_height
+        ],
+        [29, 37, 30, 18]
+    );
+    assert_eq!(frame.pixels.iter().filter(|&&v| v != 0).count(), 199);
+    let gpu = Gpu::new();
+    let batch = BatchRenderer::new_with_device(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
+    let atlas = fixture.atlas(&gpu, &batch);
+    let mut input = packet["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "live_ff")
+        .unwrap()["input"]
+        .clone();
+    assert_eq!(
+        input["state"],
+        crate::rules::overlay_types::native_mark_overlay_data(flags)
+    );
+    let (_, instances) = fixture.instances(&input, &atlas, [192, 160], BridgeFrameKind::Shadow);
+    assert_eq!(
+        instances.len(),
+        1,
+        "native Crate forces data0 despite live Mark FF"
+    );
+    let entry = atlas
+        .shadow_entry("CRATE", 0)
+        .expect("own-image half plus forced zero");
+    assert_eq!(entry.pixel_size, [30.0, 18.0]);
+    assert!(
+        atlas.body_entry("CRATE", 0).is_none(),
+        "body retains the existing OverlayAtlas owner"
+    );
+    input["overlay_id"] = Value::from(-1);
+    let (_, removed) = fixture.instances(&input, &atlas, [192, 160], BridgeFrameKind::Shadow);
+    assert!(
+        removed.is_empty(),
+        "live clear defeats the retained published anchor"
+    );
+}
+
+fn assert_native_shadow_rows(
+    fixture: &RetailBridgeFixture,
+    gpu: &Gpu,
+    batch: &BatchRenderer,
+    atlas: &BridgeAtlas,
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+    rows: &[&Value],
+    building_type: Option<&str>,
+) {
+    let mut renderer = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, batch);
+    let color = gpu.target(size, format);
+    let cv = color.create_view(&Default::default());
+    let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
+    let dv = depth.create_view(&Default::default());
+    let mut pool = InstanceBufferPool::new();
+    for row in rows {
+        let mut input = row["input"].clone();
+        if let Some(building_type) = building_type {
+            input["building_type"] = Value::from(building_type);
+        }
+        let (camera, instances) = fixture.instances(&input, atlas, size, BridgeFrameKind::Shadow);
+        if row["name"] == "repeat" {
+            assert_eq!(instances.len(), 2);
+            assert_eq!(row["steps"].as_array().unwrap().len(), 2);
+        }
+        batch.write_camera(&gpu.queue, camera);
+        renderer.prepare(&gpu.device, &color, &dv, camera);
+        pool.upload_on_device(
+            &gpu.device,
+            &gpu.queue,
+            "cell-shadow-native-row",
+            &instances,
+        );
+        let background = input["background"].as_u64().unwrap() as u16;
+        let old_z = input["old_z"].as_u64().unwrap() as u16;
+        let initial = encoded(background, format).repeat((size[0] * size[1]) as usize);
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &color,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &initial,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size[0] * 4),
+                rows_per_image: Some(size[1]),
+            },
+            extent(size),
+        );
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        clear(&mut encoder, &cv, &dv, old_z, wgpu::LoadOp::Load);
+        let clip = std::array::from_fn(|i| input["clip"][i].as_u64().unwrap() as u32);
+        draw_bridge_shadows(
+            &mut encoder,
+            &cv,
+            &dv,
+            &mut renderer,
+            clip,
+            batch,
+            pool.get("cell-shadow-native-row"),
+            &instances,
+            Some(&atlas.texture),
+        );
+        let reads = [
+            gpu.read(&mut encoder, &color),
+            gpu.read(&mut encoder, &depth),
+        ];
+        let output = gpu.finish(encoder, &reads, size);
+        crate::render::terrain_draw_gpu_tests::assert_native_color_and_depth(
+            &output, row, format, size,
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires GPU and retail assets; native CRATE live FF and data0 through Cell shadow atlas and submission"]
+fn retail_crate_shadow_matches_native_color_depth_and_clear_controls() {
+    let packet = crate::test_fixture::json("tools/spatial_oracle/crate_shadow_render.json");
+    let size = [
+        packet["surface"]["width"].as_u64().unwrap() as u32,
+        packet["surface"]["height"].as_u64().unwrap() as u32,
+    ];
+    let fixture = RetailBridgeFixture::load(packet);
+    let rows: Vec<_> = packet["rows"].as_array().unwrap().iter().collect();
+    assert_eq!(rows.len(), 12);
+    let ff = rows.iter().find(|row| row["name"] == "live_ff").unwrap();
+    let zero = rows.iter().find(|row| row["name"] == "data_zero").unwrap();
+    assert_eq!(
+        ff["draws"], zero["draws"],
+        "native Crate overrides FF before frame selection"
+    );
+    assert_eq!(ff["output"], zero["output"]);
+    for key in ["calls", "rectangles"] {
+        assert_eq!(
+            packet["outer_admission"]["positive"][key],
+            packet["outer_admission"]["supplied_zero_data"][key],
+            "native outer Crate data0 selection: {key}"
+        );
+    }
+    let gpu = Gpu::new();
+    for format in [
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, format);
+        let atlas = fixture.atlas(&gpu, &batch);
+        assert!(atlas.shadow_entry("CRATE", 0).is_some());
+        assert!(atlas.body_entry("CRATE", 0).is_none());
+        assert_native_shadow_rows(&fixture, &gpu, &batch, &atlas, format, size, &rows, None);
+        // The original outer sweep demands a positive-area intersection. Put
+        // its observed own-image shadow rectangle exactly at the right edge.
+        let rect = packet["outer_admission"]["positive"]["rectangles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rect| rect["piece"] == "shadow")
+            .unwrap();
+        let mut edge = ff["input"].clone();
+        edge["cell_point"][0] = Value::from(
+            edge["cell_point"][0].as_i64().unwrap() + i64::from(size[0])
+                - rect["rect"][0].as_i64().unwrap(),
+        );
+        edge["expect_clipped"] = Value::Bool(true);
+        let (_, instances) = fixture.instances(&edge, &atlas, size, BridgeFrameKind::Shadow);
+        assert!(
+            instances.is_empty(),
+            "touching viewport boundary has zero area"
+        );
+    }
+}
+
 #[test]
 #[ignore = "requires GPU and retail assets; native CAHSE05 rubble through production catalog, Cell shadow atlas and submission"]
 fn retail_rubble_shadow_matches_native_color_depth_and_clear_controls() {
@@ -675,65 +913,16 @@ fn retail_rubble_shadow_matches_native_color_depth_and_clear_controls() {
         assert!(atlas.shadow_entry(&image_name, art.shadow_frame).is_some());
         assert!(atlas.shadow_entry("RUBBLE_OVERLAY", 0).is_some());
         assert!(atlas.shadow_entry("RUBBLE_OVERLAY", 255).is_none());
-        let mut renderer = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
-        let color = gpu.target(size, format);
-        let cv = color.create_view(&Default::default());
-        let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
-        let dv = depth.create_view(&Default::default());
-        let mut pool = InstanceBufferPool::new();
-        for row in &supported {
-            let mut input = row["input"].clone();
-            input["building_type"] = Value::from(building_type);
-            let (camera, instances) =
-                fixture.instances(&input, &atlas, size, BridgeFrameKind::Shadow);
-            if row["name"] == "repeat" {
-                assert_eq!(instances.len(), 2);
-                assert_eq!(row["steps"].as_array().unwrap().len(), 2);
-            }
-            batch.write_camera(&gpu.queue, camera);
-            renderer.prepare(&gpu.device, &color, &dv, camera);
-            pool.upload_on_device(&gpu.device, &gpu.queue, "rubble-native-row", &instances);
-            let background = input["background"].as_u64().unwrap() as u16;
-            let old_z = input["old_z"].as_u64().unwrap() as u16;
-            let initial = encoded(background, format).repeat((size[0] * size[1]) as usize);
-            gpu.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &color,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &initial,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(size[0] * 4),
-                    rows_per_image: Some(size[1]),
-                },
-                extent(size),
-            );
-            let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            clear(&mut encoder, &cv, &dv, old_z, wgpu::LoadOp::Load);
-            let clip = std::array::from_fn(|i| input["clip"][i].as_u64().unwrap() as u32);
-            draw_bridge_shadows(
-                &mut encoder,
-                &cv,
-                &dv,
-                &mut renderer,
-                clip,
-                &batch,
-                pool.get("rubble-native-row"),
-                &instances,
-                Some(&atlas.texture),
-            );
-            let reads = [
-                gpu.read(&mut encoder, &color),
-                gpu.read(&mut encoder, &depth),
-            ];
-            let output = gpu.finish(encoder, &reads, size);
-            crate::render::terrain_draw_gpu_tests::assert_native_color_and_depth(
-                &output, row, format, size,
-            );
-        }
+        assert_native_shadow_rows(
+            &fixture,
+            &gpu,
+            &batch,
+            &atlas,
+            format,
+            size,
+            &supported,
+            Some(building_type),
+        );
 
         let mut input = own_image["input"].clone();
         input["building_type"] = Value::from(building_type);

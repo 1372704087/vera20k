@@ -280,8 +280,8 @@ pub(crate) fn build_bridge_shadow_instances_inner(
         let Some(cell) = terrain.cell(entry.rx, entry.ry) else {
             continue;
         };
-        // Native47F5DA tests Crate before IsRubble. The ordinary crate
-        // shadow remains a separate chain; it must not enter the rubble arm.
+        // Native47F5DA tests Crate before IsRubble. A crate uses its own
+        // image, independently of any recorded BuildingType.
         if flags.is_rubble && !flags.crate_type {
             let Some(type_id) = live_cell.and_then(|cell| cell.rubble_building_type) else {
                 continue;
@@ -306,11 +306,14 @@ pub(crate) fn build_bridge_shadow_instances_inner(
                 frame,
                 Some(proxy),
             ));
-        } else if flags.wall {
+        } else if flags.wall || flags.crate_type {
             cells.push((
                 cell,
                 overlay,
                 Cow::Borrowed(name.as_str()),
+                // BOTH drawing47F5E2 and outer bounds47FE3F force0 for
+                // Crate, despite live Mark dataFF; this same selected entry
+                // supplies the crop for viewport admission and drawing.
                 u16::from(if flags.crate_type { 0 } else { frame }),
                 frame,
                 None,
@@ -339,35 +342,24 @@ pub(crate) fn build_bridge_shadow_instances_inner(
                 sy += BRIDGE_SHADOW_EW_DY as f32;
             }
         }
-        if let Some(proxy) = proxy {
-            let x = sx + TILE_WIDTH / 2.0 + proxy.offset_x;
-            let y = sy + TILE_HEIGHT / 2.0 + proxy.offset_y;
-            // 421B60 intersection must have strictly positive width/height.
-            if x + proxy.pixel_size[0] <= cam_x
-                || x >= cam_x + sw
-                || y + proxy.pixel_size[1] <= cam_y
-                || y >= cam_y + sh
-            {
-                continue;
-            }
+        // Tactical6D70D0 -> 47FDE0 -> 421B60 requires positive intersection.
+        // A crate uses the same forced-data0 crop for this gate and drawing;
+        // rubble additionally has an independent overlay-image proxy.
+        let intersects_view = |entry: &crate::render::overlay_atlas::OverlaySpriteEntry| {
+            let x = sx + TILE_WIDTH / 2.0 + entry.offset_x;
+            let y = sy + TILE_HEIGHT / 2.0 + entry.offset_y;
+            x + entry.pixel_size[0] > cam_x
+                && x < cam_x + sw
+                && y + entry.pixel_size[1] > cam_y
+                && y < cam_y + sh
+        };
+        if proxy.is_some_and(|proxy| !intersects_view(proxy)) || !intersects_view(spr) {
+            continue;
         }
         let position = [
             sx + TILE_WIDTH / 2.0 + spr.offset_x,
             sy + TILE_HEIGHT / 2.0 + spr.offset_y,
         ];
-        if !in_view(
-            position[0],
-            position[1],
-            spr.pixel_size[0],
-            spr.pixel_size[1],
-            cam_x,
-            cam_y,
-            sw,
-            sh,
-            0.0,
-        ) {
-            continue;
-        }
         let z_adjust = crate::render::native_z::ground_anchored_z_adjust(
             i32::from(cell.level as i8),
             crate::render::native_z::SHP_DRAW_Z_ADJUST_PX,

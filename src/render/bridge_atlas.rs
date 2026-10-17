@@ -141,7 +141,7 @@ pub fn build_bridge_atlas(
     names.extend(overlay_names.values().filter(|name| {
         overlay_registry
             .flags_by_name(name)
-            .is_some_and(|flags| flags.wall || flags.is_rubble)
+            .is_some_and(|flags| flags.wall || flags.is_rubble || flags.crate_type)
     }));
     let mut rendered = Vec::new();
     for name in names {
@@ -169,13 +169,20 @@ pub fn build_bridge_atlas(
             .filter(|key| &key.name == name)
             .cloned()
             .collect();
-        // CellClass::DrawOverlay_Shadow @ 0047F510 uses raw state + SHP count/2
-        // for Walls too. IsRubble also needs this overlay-image rectangle for
-        // the outer 47FDE0 gate, before the building image supplies its stencil.
+        // Cell47F5E2 and outer bounds47FE3F force Crate data0, even though
+        // Mark5FD105 writes FF. Walls retain raw state + SHP count/2.
+        // IsRubble needs this overlay-image rectangle for the outer47FDE0
+        // gate, before the building image supplies its stencil.
         // DamageLevels does not bound that material domain.
         // Native body+shadow execution: concrete_wall_render.json.
-        if flags.wall || flags.is_rubble {
-            for frame in 0..(shp.frames.len() - shp.frames.len() / 2).min(256) {
+        // Original callers/raster: bridge_shadow_render.py --crate.
+        if flags.wall || flags.is_rubble || flags.crate_type {
+            let frame_count = if flags.crate_type {
+                1
+            } else {
+                (shp.frames.len() - shp.frames.len() / 2).min(256)
+            };
+            for frame in 0..frame_count {
                 keys.insert(BridgeAtlasKey {
                     name: name.clone(),
                     frame: frame as u16,

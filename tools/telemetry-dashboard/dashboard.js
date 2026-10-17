@@ -631,14 +631,14 @@ function fmtPhase(ms) {
     return fmt(ms, 2);
 }
 /** The slice of the render wedge `render_game` does not own: surface
- *  acquisition, encoder creation, submit, present and the loop around them. */
+ *  acquisition, encoder creation, submit, present and the loop around them.
+ *  Always emitted, so the render group keeps a fixed row count. */
 function outsideRow(ms, frameTotal) {
-    if (ms <= 0.01)
-        return "";
+    const percent = ms > 0.01 ? `${fmt((ms / Math.max(frameTotal, 0.0001)) * 100, 1)}%` : "—";
     return (`<tr><td class="ph-name">${t("rnd.outside")}</td>` +
         `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
         `<td class="ph-pct">—</td>` +
-        `<td class="ph-pct">${fmt((ms / Math.max(frameTotal, 0.0001)) * 100, 1)}%</td></tr>`);
+        `<td class="ph-pct">${percent}</td></tr>`);
 }
 /**
  * The full frame ledger: every stamped subsystem, heaviest first.
@@ -650,6 +650,9 @@ function outsideRow(ms, frameTotal) {
 function renderPhaseTable(table, profile, render, simTotal, frameTotal) {
     if (!table)
         return;
+    // Rebuilding the table must not move the reader's scroll position.
+    const scroller = table.closest(".table-wrap");
+    const scrollTop = scroller?.scrollTop ?? 0;
     const values = profile.phases_ms ?? [];
     // Engine and dashboard disagree on the ledger: say so rather than drawing
     // rows under the wrong names.
@@ -662,13 +665,21 @@ function renderPhaseTable(table, profile, render, simTotal, frameTotal) {
     const rows = PHASE_KEYS.map((key, index) => ({
         label: t(`phase.${key}`),
         ms: values[index] ?? 0,
+        order: index,
     }));
-    // Aborted frames leave a residue the phases never stamped. Listing it keeps
-    // the rows adding up to the simulation total the footer prints.
-    if (profile.unmarked_ms > 0.001) {
-        rows.push({ label: t("rep.unmarked"), ms: profile.unmarked_ms });
-    }
-    rows.sort((a, b) => b.ms - a.ms);
+    // Aborted frames leave a residue the phases never stamped. The row is always
+    // present — letting it appear and vanish resizes the table under the reader —
+    // and reads "—" when there is nothing to report.
+    rows.push({ label: t("rep.unmarked"), ms: profile.unmarked_ms, order: PHASE_KEYS.length });
+    // Heaviest first, but rows below a hundredth of a millisecond are all noise:
+    // keep those in their declared order so they stop trading places on every
+    // refresh, which is what the eye reads as jitter.
+    rows.sort((a, b) => {
+        const quiet = 0.01;
+        if (a.ms < quiet && b.ms < quiet)
+            return a.order - b.order;
+        return b.ms - a.ms;
+    });
     const share = (ms, total) => total > 0 ? Math.min(100, (ms / total) * 100) : 0;
     const body = rows
         .map(({ label, ms }) => {
@@ -737,6 +748,8 @@ function renderPhaseTable(table, profile, render, simTotal, frameTotal) {
         `<thead><tr><th>${t("th.phase")}</th><th>${t("th.ms")}</th>` +
             `<th>${t("th.shareSim")}</th><th>${t("th.shareFrame")}</th></tr></thead>` +
             `<tbody>${body}</tbody>${renderBody}${foot}`;
+    if (scroller)
+        scroller.scrollTop = scrollTop;
 }
 const EXPORT_FONT = "'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif";
 /** Read the rendered ledger back out of the DOM. Both the standalone snapshot
@@ -1758,6 +1771,27 @@ function setupViews() {
  * disagree — at report size, and pairs it with the house table so the numbers
  * can be read against who is on the map while they are being measured.
  */
+/** The stream arrives ~11×/s. Rebuilding a forty-row table that often reads as
+ *  flicker rather than as live data, so the wall redraws at most four times a
+ *  second and coalesces whatever arrived in between. */
+const REPORT_RENDER_INTERVAL_MS = 250;
+let reportRenderedAt = 0;
+let reportRenderTimer = null;
+function renderReportSoon() {
+    const wait = REPORT_RENDER_INTERVAL_MS - (performance.now() - reportRenderedAt);
+    if (wait <= 0) {
+        reportRenderedAt = performance.now();
+        renderReport();
+        return;
+    }
+    if (reportRenderTimer !== null)
+        return;
+    reportRenderTimer = window.setTimeout(() => {
+        reportRenderTimer = null;
+        reportRenderedAt = performance.now();
+        renderReport();
+    }, wait);
+}
 function renderReport() {
     const facts = document.getElementById("report-facts");
     const table = document.getElementById("report-houses");
@@ -1836,10 +1870,13 @@ function renderReport() {
     // One line of whole-match facts above the pies: how far the match has run,
     // how fast ticks are actually committing, and what a frame costs.
     const tickHz = snapshot.timing?.tick_hz ?? 0;
+    const fps = snapshot.timing?.fps ?? 0;
     if (headLine) {
         const parts = [
             `${t("rep.frames")} <b>${thousands(snapshot.tick)}</b>`,
             `${t("rep.duration")} <b>${tickHz > 0 ? thousands(snapshot.tick / tickHz) : "-"}</b> s`,
+            // Both rates side by side: the render loop's and the committed tick's.
+            `${t("rep.fps")} <b>${fmt(fps, 0)}</b> fps`,
             `<b>${fmt(tickHz, 1)}</b> tick/s`,
             `${t("rep.frame")} <b>${fmt(frameMs, 1)}</b> ms`,
             `${t("rep.sim")} <b>${fmt(profile.mean_frame_ms, 1)}</b> ms (${fmt(share, 0)}%)`,
@@ -1922,7 +1959,7 @@ function connect() {
         // Live snapshots, so the report wall just rides the stream: no polling,
         // and no waiting for a match to end before it has anything to show.
         if (currentView === "report")
-            renderReport();
+            renderReportSoon();
     };
 }
 // ------------------------------------------------------------------ menu
@@ -1976,7 +2013,7 @@ onLocaleChange(() => {
     if (currentView === "detail" && lastSnapshot)
         renderDetailCards(lastSnapshot);
     if (currentView === "report")
-        renderReport();
+        renderReportSoon();
     if (!lastSnapshot)
         return;
     updateTerrain(lastSnapshot.debug);

@@ -668,7 +668,13 @@
   /* Phase ledger: one row per stamped subsystem — the densest table on the
      wall. The bar behind the milliseconds is that phase's share of the whole
      frame, so the expensive row is visible before its number is read. */
-  .phase-table { font-size: 11.5px; }
+  /* Fixed columns: with auto layout the percentage column grows and shrinks as
+     `9.2%` becomes `100.0%`, which shifts every cell to its left on refresh. */
+  .phase-table { font-size: 11.5px; table-layout: fixed; }
+  .phase-table th:nth-child(1) { width: auto; }
+  .phase-table th:nth-child(2) { width: 84px; }
+  .phase-table th:nth-child(3) { width: 62px; }
+  .phase-table th:nth-child(4) { width: 66px; }
   .phase-table th, .phase-table td { padding: 2px 8px; }
   .phase-table td { border-bottom: 1px solid rgba(0, 190, 255, 0.09); }
   .phase-table td.ph-name { white-space: nowrap; }

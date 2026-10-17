@@ -2142,12 +2142,10 @@ function renderReport(): void {
   const share = frameTotal > 0 ? (simTotal / frameTotal) * 100 : 0;
   const rows: [string, string][] = [
     [t("hdr.map"), `${snapshot.map_width}x${snapshot.map_height}`],
-    [t("rep.tickNow"), fmt(snapshot.tick, 0)],
     [t("rep.frame"), `${fmt(frameMs, 2)} ms`],
     [t("rep.tickP50"), `${fmt(snapshot.timing?.p50_ms ?? 0, 2)} ms`],
     [t("rep.sim"), `${fmt(profile.mean_frame_ms, 2)} ms`],
     [t("rep.peak"), `${fmt(profile.peak_frame_ms, 2)} ms`],
-    [t("rep.frames"), fmt(profile.frames, 0)],
     [t("rep.share"), `${fmt(share, 0)} %`],
   ];
   facts.innerHTML = rows
@@ -2180,14 +2178,14 @@ function renderReport(): void {
   const tickHz = snapshot.timing?.tick_hz ?? 0;
   const fps = snapshot.timing?.fps ?? 0;
   if (headLine) {
+    // Scale and rates only: the cost figures each appear once, in the facts
+    // row under the pies.
     const parts = [
-      `${t("rep.frames")} <b>${thousands(snapshot.tick)}</b>`,
+      `tick <b>${thousands(snapshot.tick)}</b>`,
       `${t("rep.duration")} <b>${tickHz > 0 ? thousands(snapshot.tick / tickHz) : "-"}</b> s`,
       // Both rates side by side: the render loop's and the committed tick's.
       `${t("rep.fps")} <b>${fmt(fps, 0)}</b> fps`,
       `<b>${fmt(tickHz, 1)}</b> tick/s`,
-      `${t("rep.frame")} <b>${fmt(frameMs, 1)}</b> ms`,
-      `${t("rep.sim")} <b>${fmt(profile.mean_frame_ms, 1)}</b> ms (${fmt(share, 0)}%)`,
     ];
     headLine.innerHTML = parts.join(`<span class="sep">·</span>`);
   }
@@ -2198,7 +2196,7 @@ function renderReport(): void {
     note.innerHTML = `${t("rep.note")} ≈ <b>${fmt(renderMs, 1)}</b> ms ${t("rep.noteTail")}`;
   }
 
-  foot.textContent = `${t("rep.source")} · ${t("rep.tickNow")} ${fmt(snapshot.tick, 0)}`;
+  foot.textContent = t("rep.source");
 }
 
 // ---------------------------------------------------------------- socket

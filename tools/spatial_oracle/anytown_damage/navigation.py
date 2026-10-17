@@ -46,7 +46,7 @@ class Navigation(Geometry):
   call(0x42A6D0,this=0x87E8B8)
   call(0x42AC00,this=0x87E8B8,args=(MAP+0xEC,))
   call(0x42C1C0,this=0x87E8B8)
- def __init__(self,r,t,tiles,*,case=None,create_actor=True,actor_coord=(87,53),actor_height=4,admission_cells=None,stages=None,scenario_theater=None,cell_inputs_only=False,terrain_inputs_only=False):
+ def __init__(self,r,t,tiles,*,case=None,create_actor=True,actor_coord=(87,53),actor_height=4,admission_cells=None,stages=None,scenario_theater=None,cell_inputs_only=False,terrain_inputs_only=False,ore_lifecycle=False):
   assert not (cell_inputs_only and terrain_inputs_only)
   self.create_actor=create_actor;self.actor_coord=actor_coord;self.actor_height=actor_height
   self.admission_cells=admission_cells if admission_cells is not None else [(87,53),(86,54),(87,54),(88,54),(87,55),(85,54),(89,54)]
@@ -100,6 +100,21 @@ class Navigation(Geometry):
    self.cell_inputs_rng=dict(before=cell_rng_before,after={k:sr.rng_state(u,p) for k,p in self.rngs.items()})
    self.initial_cells=self.cell_plane();self.trace.clear();self.writes.clear();self.pending.clear();self.reached={};self.activity='cell_inputs'
    return
+  if ore_lifecycle:
+   # Opt-in live ore prerequisites, before any Terrain/Object registration.
+   # Keep the populated IsoTile/Abstract owner; initialize only missing vectors.
+   from tools.spatial_oracle.bridge_constructor import OriginalBridgeConstructor
+   abstract=bytes(u.mem_read(0xB0F670,24))
+   OriginalBridgeConstructor.empty_registries(u,self.allocate,capacity=4096,preserve=(0xB0F670,))
+   assert bytes(u.mem_read(0xB0F670,24))==abstract
+   u.mem_write(0x87F5D8,dwords(0x7E17CC))
+   self.call(0x5FC310,this=0)
+   # Original Resize stores produce MapRect from the physical Size. The full
+   # resize allocator is outside this already-allocated physical-map fixture.
+   geometry=self.allocate(16);u.mem_write(geometry,dwords(0,0,*case['size']))
+   sp=STACK_BASE+STACK_SIZE-0x1000
+   u.mem_write(sp+0x64,dwords(geometry));u.reg_write(UC_X86_REG_ESP,sp);u.reg_write(UC_X86_REG_EBX,MAP)
+   run_checked(u,0x5662AC,0x56633E,count=100000)
   self.activity='terrain_place';self.terrain_placement=[]
   u.mem_write(0xA8E988,dwords(0x7EB6D4,self.allocate(1024*4),1024,1,0,10))
   for key,name,line in sections['Terrain']:
@@ -180,6 +195,8 @@ class Navigation(Geometry):
    self.counters[f'{self.activity}:{a:08X}']+=1
    if a==0x47D2B0:return
   if a==0x421EA0:
+   if getattr(self,'ore_live',False):
+    self.ore_animation_reached=True;raise AssertionError(('uncovered live ore animation',hex(a)))
    sp=u.reg_read(UC_X86_REG_ESP);self.counters[f'{self.activity}:animation_constructor_boundary']+=1;self.ret(28,u.reg_read(UC_X86_REG_ECX));return
   if a in (0x547020,0x727FD0):raise AssertionError(('uncovered dependency',self.activity,hex(a)))
   if a in (0x56C510,0x586990,0x584550,0x581F90,0x5824A0,0x42C1C0,0x578460,0x56CB90,0x56C6CB):

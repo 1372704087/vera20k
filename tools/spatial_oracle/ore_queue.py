@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 import struct
 
-from unicorn import UC_HOOK_CODE
-from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_ESI, UC_X86_REG_ESP
+from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_EDX
 
 from tools.native_oracle import finish_vectors, provenance, run_checked
 from tools.spatial_oracle.harvest_field import (
@@ -447,6 +447,169 @@ def output_state(u, read32, capacity, bitmap_coordinates, lifecycle=False):
     return result
 
 
+def trace_queue_execution(u, read32, *, natural, scenario=SCENARIO, type_pointers=None,
+                          coordinate=cell_xy, include_object_mark=False):
+    """One observer for both supplied and physical native queue histories."""
+    type_ids = {pointer: kind for kind, pointer in enumerate(
+        type_pointers if type_pointers is not None else [TIBS + kind * 0x200 for kind in range(4)])}
+    events, pending_random, pending_ranged, pending_can_place = [], [], [], []
+    ranged_draw_index = None
+    pending_constructor, pending_serial = [], []
+    pending_growth_guard, pending_germinate = [], []
+    constructed = {}
+
+    pending_marks = []
+
+    def mark_state(obj):
+        return dict(on_map=u.mem_read(obj + 0x74, 1)[0], redraw=u.mem_read(obj + 0x80, 1)[0],
+                    limbo=u.mem_read(obj + 0x81, 1)[0])
+
+    def observe(_u, address, _size, _data):
+        nonlocal ranged_draw_index
+        sp, this = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        event_start = len(events)
+        if pending_marks and address == pending_marks[-1][0]:
+            _, index, obj = pending_marks.pop()
+            events[index].update(after=mark_state(obj), returned_low_byte=u.reg_read(UC_X86_REG_EAX) & 255)
+        if include_object_mark and address == 0x5F5850:
+            events.append(dict(kind='object_mark', object_index=constructed.get(this),
+                               argument=read32(sp + 4), before=mark_state(this)))
+            pending_marks.append((read32(sp), len(events) - 1, this))
+        if pending_random and address == pending_random[-1][0]:
+            _, index = pending_random.pop()
+            events[index]['raw'] = u.reg_read(UC_X86_REG_EAX)
+            events[index]['rng_after'] = [read32(scenario + 0x21C), read32(scenario + 0x220)]
+        if pending_ranged and address == pending_ranged[-1][0]:
+            _, index = pending_ranged.pop()
+            events[index]['result'] = struct.unpack('<i', dwords(u.reg_read(UC_X86_REG_EAX)))[0]
+        if pending_can_place and address == pending_can_place[-1][0]:
+            _, index = pending_can_place.pop()
+            events[index]['result'] = bool(u.reg_read(UC_X86_REG_EAX) & 0xFF)
+        if pending_constructor and address == pending_constructor[-1][0]:
+            _, index, obj = pending_constructor.pop()
+            assert u.reg_read(UC_X86_REG_EAX) == obj
+            events[index].update(native_id=read32(obj + 0x10),
+                                 scenario_serial=read32(scenario + 0x214),
+                                 alive=bool(u.mem_read(obj + 0x90, 1)[0]),
+                                 limbo=bool(u.mem_read(obj + 0x81, 1)[0]),
+                                 on_map=bool(u.mem_read(obj + 0x74, 1)[0]))
+        if pending_serial and address == pending_serial[-1][0]:
+            _, index = pending_serial.pop()
+            events[index].update(result=u.reg_read(UC_X86_REG_EAX),
+                                 serial_after=read32(scenario + 0x214))
+        if pending_germinate and address == pending_germinate[-1][0]:
+            _, index, obj = pending_germinate.pop()
+            events[index].update(density=u.mem_read(obj + 0x11E, 1)[0],
+                                 result=u.reg_read(UC_X86_REG_EAX))
+        if address == RANDOM:
+            events.append(dict(kind='random', rng_before=[read32(scenario + 0x21C),
+                                                         read32(scenario + 0x220)]))
+            pending_random.append((read32(sp), len(events) - 1))
+        elif address in (ADD_GROWTH, ADD_SPREAD):
+            events.append(dict(kind='enqueue_growth' if address == ADD_GROWTH else 'enqueue_spread',
+                               receiver=type_ids[this],
+                               cell=list(struct.unpack('<hh', u.mem_read(read32(sp + 4), 4)))))
+            if natural and address == ADD_GROWTH:
+                pending_growth_guard.append(len(events) - 1)
+        elif natural and address == GROWTH_DENSITY_GUARD:
+            # EAX is the original Get_CellClass result used by this CMP,
+            # including any resident dummy. This is the density admission
+            # sees after Mark, before Place's final amount store.
+            index = pending_growth_guard.pop()
+            obj = u.reg_read(UC_X86_REG_EAX)
+            assert list(struct.unpack('<hh', u.mem_read(obj + 0x24, 4))) == events[index]['cell']
+            events[index].update(density=u.mem_read(obj + 0x11E, 1)[0],
+                                 overlay=struct.unpack('<i', u.mem_read(obj + 0x44, 4))[0])
+        elif natural and address == SPREAD_GERMINATE:
+            events.append(dict(kind='germinate_cell',
+                               cell=list(struct.unpack('<hh', u.mem_read(this + 0x24, 4))),
+                               caller=f'{read32(sp):08x}', randomize=bool(read32(sp + 4) & 0xFF),
+                               before_density=u.mem_read(this + 0x11E, 1)[0],
+                               overlay=struct.unpack('<i', u.mem_read(this + 0x44, 4))[0]))
+            pending_germinate.append((read32(sp), len(events) - 1, this))
+        elif natural and address == 0x4819CA:
+            # The original IDIV consumes the completed matching-class count
+            # in EAX and the native class's MaxDensity through ECX.
+            events[pending_germinate[-1][1]].update(
+                matching_neighbors=u.reg_read(UC_X86_REG_EAX), max_density=read32(this + 0xE4))
+        elif address in (REBUILD_GROWTH, REBUILD_SPREAD):
+            events.append(dict(kind='rebuild_growth' if address == REBUILD_GROWTH else 'rebuild_spread',
+                               receiver=type_ids[this]))
+        elif address == GROW_CELL:
+            events.append(dict(kind='grow_cell', cell=coordinate(this)))
+        elif address == GROWTH_PROCESSOR:
+            events.append(dict(kind='growth_processor', receiver=type_ids[this]))
+        elif natural and address == SPREAD_PROCESSOR:
+            events.append(dict(kind='spread_processor', receiver=type_ids[this]))
+        elif natural and address in (SPREAD_DRIVER, GROWTH_DRIVER):
+            events.append(dict(kind='spread_driver' if address == SPREAD_DRIVER else 'growth_driver'))
+        elif natural and address == SPREAD_CELL:
+            events.append(dict(kind='spread_cell', cell=coordinate(this), force=read32(sp + 4)))
+        elif natural and address == PLACE:
+            events.append(dict(kind='place', cell=coordinate(this), type_id=read32(sp + 4),
+                               amount=read32(sp + 8)))
+        elif natural and address == CAN_PLACE:
+            # Read the original Cell coordinate so the resident shared Dummy
+            # Cell is observable when neighbor lookup leaves the diamond.
+            events.append(dict(kind='can_place', cell=list(struct.unpack('<hh', u.mem_read(this + 0x24, 4))),
+                               caller=f'{read32(sp):08x}', argument=read32(sp + 4)))
+            pending_can_place.append((read32(sp), len(events) - 1))
+        elif natural and address == 0x5FC380:
+            assert this not in constructed
+            constructed[this] = len(constructed)
+            events.append(dict(kind='overlay_constructor',
+                               cell=list(struct.unpack('<hh', u.mem_read(read32(sp + 8), 4))),
+                               overlay=read32(read32(sp + 4) + 0x294), object_index=constructed[this]))
+            if include_object_mark:
+                events[-1]['cell_anim_null'] = read32(read32(sp + 4) + 0x29C) == 0
+            pending_constructor.append((read32(sp), len(events) - 1, this))
+        elif natural and address == 0x410230:
+            events.append(dict(kind='create_id', object_index=constructed[read32(sp + 4) - 4],
+                               serial_before=read32(scenario + 0x214)))
+        elif natural and address == 0x68BCB0:
+            assert this == scenario
+            events.append(dict(kind='next_unique_id', serial_before=read32(scenario + 0x214)))
+            pending_serial.append((read32(sp), len(events) - 1))
+        elif natural and address in (0x5FC570, 0x5F65F0, 0x7258D0, 0x5FDF70, 0x5F3B80):
+            if this in constructed:
+                events.append(dict(kind={0x5FC570: 'overlay_mark', 0x5F65F0: 'object_uninit',
+                                         0x7258D0: 'announce_expired', 0x5FDF70: 'overlay_destructor',
+                                         0x5F3B80: 'object_destructor'}[address],
+                                   object_index=constructed[this], native_id=read32(this + 0x10),
+                                   pending_deletes=read32(0xB0F6A8)))
+        elif natural and address == 0x725C70:
+            events.append(dict(kind='drain_deferred', pending_deletes=read32(0xB0F6A8)))
+        elif natural and address == RANGED:
+            events.append(dict(kind='ranged', lo=read32(sp + 4), hi=read32(sp + 8)))
+            pending_ranged.append((read32(sp), len(events) - 1))
+        elif natural and address == 0x65C837:
+            # RandomRanged owns an inline Random::Next copy and may reject
+            # several words. Observe each original draw, never infer a count
+            # from the final selection or substitute its result.
+            events.append(dict(kind='random', ranged=True,
+                               rng_before=[read32(scenario + 0x21C), read32(scenario + 0x220)]))
+            ranged_draw_index = len(events) - 1
+        elif natural and address == 0x65C87E and ranged_draw_index is not None:
+            events[ranged_draw_index]['raw'] = u.reg_read(UC_X86_REG_EAX)
+            events[ranged_draw_index]['rng_after'] = [read32(scenario + 0x21C), read32(scenario + 0x220)]
+            ranged_draw_index = None
+        if natural:
+            for event in events[event_start:]:
+                event['address'] = f'{address:08x}'
+                if include_object_mark and event['kind'] in ('random', 'ranged'):
+                    stream = u.reg_read(UC_X86_REG_EDX) if address == 0x65C837 else this
+                    assert stream == scenario + 0x218, ('uncovered RNG stream', hex(stream))
+                    event['stream'] = 'scenario'
+
+    def assert_complete():
+        assert not pending_random and not pending_ranged and not pending_can_place and ranged_draw_index is None
+        assert not pending_constructor and not pending_serial and not pending_marks
+        assert not pending_growth_guard and not pending_germinate
+
+    u.hook_add(UC_HOOK_CODE, observe)
+    return events, assert_complete, constructed
+
+
 def execute(case):
     inherited = dict(case, west_building=False,
                      ore=[[*c['cell'], c['type_id'], c['variant'], c['density']]
@@ -541,135 +704,7 @@ def execute(case):
         a, b = SCENARIO + 0x224 + first * 4, SCENARIO + 0x224 + second * 4
         u.mem_write(a, dwords(case['next_raw'] ^ read32(b)))
     before = output_state(u, read32, capacity, bitmap_coordinates, lifecycle=natural)
-    events, pending_random, pending_ranged, pending_can_place = [], [], [], []
-    ranged_draw_index = None
-    pending_constructor, pending_serial = [], []
-    pending_growth_guard, pending_germinate = [], []
-    constructed = {}
-
-    def observe(_u, address, _size, _data):
-        nonlocal ranged_draw_index
-        sp, this = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
-        event_start = len(events)
-        if pending_random and address == pending_random[-1][0]:
-            _, index = pending_random.pop()
-            events[index]['raw'] = u.reg_read(UC_X86_REG_EAX)
-            events[index]['rng_after'] = [read32(SCENARIO + 0x21C), read32(SCENARIO + 0x220)]
-        if pending_ranged and address == pending_ranged[-1][0]:
-            _, index = pending_ranged.pop()
-            events[index]['result'] = struct.unpack('<i', dwords(u.reg_read(UC_X86_REG_EAX)))[0]
-        if pending_can_place and address == pending_can_place[-1][0]:
-            _, index = pending_can_place.pop()
-            events[index]['result'] = bool(u.reg_read(UC_X86_REG_EAX) & 0xFF)
-        if pending_constructor and address == pending_constructor[-1][0]:
-            _, index, obj = pending_constructor.pop()
-            assert u.reg_read(UC_X86_REG_EAX) == obj
-            events[index].update(native_id=read32(obj + 0x10),
-                                 scenario_serial=read32(SCENARIO + 0x214),
-                                 alive=bool(u.mem_read(obj + 0x90, 1)[0]),
-                                 limbo=bool(u.mem_read(obj + 0x81, 1)[0]),
-                                 on_map=bool(u.mem_read(obj + 0x74, 1)[0]))
-        if pending_serial and address == pending_serial[-1][0]:
-            _, index = pending_serial.pop()
-            events[index].update(result=u.reg_read(UC_X86_REG_EAX),
-                                 serial_after=read32(SCENARIO + 0x214))
-        if pending_germinate and address == pending_germinate[-1][0]:
-            _, index, obj = pending_germinate.pop()
-            events[index].update(density=u.mem_read(obj + 0x11E, 1)[0],
-                                 result=u.reg_read(UC_X86_REG_EAX))
-        if address == RANDOM:
-            events.append(dict(kind='random', rng_before=[read32(SCENARIO + 0x21C),
-                                                         read32(SCENARIO + 0x220)]))
-            pending_random.append((read32(sp), len(events) - 1))
-        elif address in (ADD_GROWTH, ADD_SPREAD):
-            events.append(dict(kind='enqueue_growth' if address == ADD_GROWTH else 'enqueue_spread',
-                               receiver=(this - TIBS) // 0x200,
-                               cell=list(struct.unpack('<hh', u.mem_read(read32(sp + 4), 4)))))
-            if natural and address == ADD_GROWTH:
-                pending_growth_guard.append(len(events) - 1)
-        elif natural and address == GROWTH_DENSITY_GUARD:
-            # EAX is the original Get_CellClass result used by this CMP,
-            # including any resident dummy. This is the density admission
-            # sees after Mark, before Place's final amount store.
-            index = pending_growth_guard.pop()
-            obj = u.reg_read(UC_X86_REG_EAX)
-            assert list(struct.unpack('<hh', u.mem_read(obj + 0x24, 4))) == events[index]['cell']
-            events[index].update(density=u.mem_read(obj + 0x11E, 1)[0],
-                                 overlay=struct.unpack('<i', u.mem_read(obj + 0x44, 4))[0])
-        elif natural and address == SPREAD_GERMINATE:
-            events.append(dict(kind='germinate_cell',
-                               cell=list(struct.unpack('<hh', u.mem_read(this + 0x24, 4))),
-                               caller=f'{read32(sp):08x}', randomize=bool(read32(sp + 4) & 0xFF),
-                               before_density=u.mem_read(this + 0x11E, 1)[0],
-                               overlay=struct.unpack('<i', u.mem_read(this + 0x44, 4))[0]))
-            pending_germinate.append((read32(sp), len(events) - 1, this))
-        elif natural and address == 0x4819CA:
-            # The original IDIV consumes the completed matching-class count
-            # in EAX and the native class's MaxDensity through ECX.
-            events[pending_germinate[-1][1]].update(
-                matching_neighbors=u.reg_read(UC_X86_REG_EAX), max_density=read32(this + 0xE4))
-        elif address in (REBUILD_GROWTH, REBUILD_SPREAD):
-            events.append(dict(kind='rebuild_growth' if address == REBUILD_GROWTH else 'rebuild_spread',
-                               receiver=(this - TIBS) // 0x200))
-        elif address == GROW_CELL:
-            events.append(dict(kind='grow_cell', cell=cell_xy(this)))
-        elif address == GROWTH_PROCESSOR:
-            events.append(dict(kind='growth_processor', receiver=(this - TIBS) // 0x200))
-        elif natural and address == SPREAD_PROCESSOR:
-            events.append(dict(kind='spread_processor', receiver=(this - TIBS) // 0x200))
-        elif natural and address in (SPREAD_DRIVER, GROWTH_DRIVER):
-            events.append(dict(kind='spread_driver' if address == SPREAD_DRIVER else 'growth_driver'))
-        elif natural and address == SPREAD_CELL:
-            events.append(dict(kind='spread_cell', cell=cell_xy(this), force=read32(sp + 4)))
-        elif natural and address == PLACE:
-            events.append(dict(kind='place', cell=cell_xy(this), type_id=read32(sp + 4),
-                               amount=read32(sp + 8)))
-        elif natural and address == CAN_PLACE:
-            # Read the original Cell coordinate so the resident shared Dummy
-            # Cell is observable when neighbor lookup leaves the diamond.
-            events.append(dict(kind='can_place', cell=list(struct.unpack('<hh', u.mem_read(this + 0x24, 4))),
-                               caller=f'{read32(sp):08x}', argument=read32(sp + 4)))
-            pending_can_place.append((read32(sp), len(events) - 1))
-        elif natural and address == 0x5FC380:
-            assert this not in constructed
-            constructed[this] = len(constructed)
-            events.append(dict(kind='overlay_constructor',
-                               cell=list(struct.unpack('<hh', u.mem_read(read32(sp + 8), 4))),
-                               overlay=read32(read32(sp + 4) + 0x294), object_index=constructed[this]))
-            pending_constructor.append((read32(sp), len(events) - 1, this))
-        elif natural and address == 0x410230:
-            events.append(dict(kind='create_id', object_index=constructed[read32(sp + 4) - 4],
-                               serial_before=read32(SCENARIO + 0x214)))
-        elif natural and address == 0x68BCB0:
-            assert this == SCENARIO
-            events.append(dict(kind='next_unique_id', serial_before=read32(SCENARIO + 0x214)))
-            pending_serial.append((read32(sp), len(events) - 1))
-        elif natural and address in (0x5FC570, 0x5F65F0, 0x7258D0, 0x5FDF70, 0x5F3B80):
-            if this in constructed:
-                events.append(dict(kind={0x5FC570: 'overlay_mark', 0x5F65F0: 'object_uninit',
-                                         0x7258D0: 'announce_expired', 0x5FDF70: 'overlay_destructor',
-                                         0x5F3B80: 'object_destructor'}[address],
-                                   object_index=constructed[this], native_id=read32(this + 0x10),
-                                   pending_deletes=read32(0xB0F6A8)))
-        elif natural and address == 0x725C70:
-            events.append(dict(kind='drain_deferred', pending_deletes=read32(0xB0F6A8)))
-        elif natural and address == RANGED:
-            events.append(dict(kind='ranged', lo=read32(sp + 4), hi=read32(sp + 8)))
-            pending_ranged.append((read32(sp), len(events) - 1))
-        elif natural and address == 0x65C837:
-            # RandomRanged owns an inline Random::Next copy and may reject
-            # several words. Observe each original draw, never infer a count
-            # from the final selection or substitute its result.
-            events.append(dict(kind='random', ranged=True,
-                               rng_before=[read32(SCENARIO + 0x21C), read32(SCENARIO + 0x220)]))
-            ranged_draw_index = len(events) - 1
-        elif natural and address == 0x65C87E and ranged_draw_index is not None:
-            events[ranged_draw_index]['raw'] = u.reg_read(UC_X86_REG_EAX)
-            events[ranged_draw_index]['rng_after'] = [read32(SCENARIO + 0x21C), read32(SCENARIO + 0x220)]
-            ranged_draw_index = None
-        if natural:
-            for event in events[event_start:]:
-                event['address'] = f'{address:08x}'
+    events, assert_trace_complete, _constructed = trace_queue_execution(u, read32, natural=natural)
 
     observed_coordinates = sorted(map(tuple, bitmap_coordinates.values())) if natural else [tuple(c['cell']) for c in case['cells']]
 
@@ -681,7 +716,6 @@ def execute(case):
                 row['land'] = struct.unpack('<i', u.mem_read(cell(*row['cell']) + 0xEC, 4))[0]
         return result
 
-    u.hook_add(UC_HOOK_CODE, observe)
     steps, after_drains = [], []
     if natural:
         for frame in case.get('frames', [case['frame']]):
@@ -697,9 +731,7 @@ def execute(case):
             else:
                 u.mem_write(SP - 0x100, bytes(0x100))
                 call(SPREAD_DRIVER, 0, [])
-            assert not pending_random and not pending_ranged and not pending_can_place and ranged_draw_index is None
-            assert not pending_constructor and not pending_serial
-            assert not pending_growth_guard and not pending_germinate
+            assert_trace_complete()
             step_events = events[first:]
             steps.append(dict(frame=frame, state=output_state(u, read32, capacity, bitmap_coordinates, lifecycle=True),
                               cells=cell_state(), events=step_events,
@@ -711,7 +743,7 @@ def execute(case):
                 u.mem_write(0xA8ED84, dwords(drain_frame))
                 first = len(events)
                 call(0x725C70, 0, [])
-                assert not pending_constructor and not pending_serial
+                assert_trace_complete()
                 after_drains.append(dict(frame=drain_frame,
                                          state=output_state(u, read32, capacity, bitmap_coordinates, lifecycle=True),
                                          cells=cell_state(), events=events[first:]))
@@ -726,7 +758,7 @@ def execute(case):
         entry = ADD_GROWTH if case['queue'] == 'growth' else ADD_SPREAD
         call(entry, TIBS + case['receiver'] * 0x200, [cell(*case['target']) + 0x24])
         returned = None
-    assert not pending_random
+    assert_trace_complete()
     final = output_state(u, read32, capacity, bitmap_coordinates, lifecycle=natural)
     observed_events = list(events)
     next_random = []
@@ -750,7 +782,7 @@ def generate():
                 timer_reader_cases=timer_reader_cases())
 
 
-def generate_authored_init():
+def generate_authored_init(*, natural_context=False):
     """Original queue allocation/rebuild on independently physical authored cells.
 
     The full-map owner provides its existing pre-final Terrain phase. This
@@ -790,7 +822,8 @@ def generate_authored_init():
                          boundary='Selected physical extraction bundle; production consumer also checks its actual asset source.'))
     tiles, tile_receipt = extract_tiles(theater)
     native_map = Navigation(reader, theater, tiles, create_actor=False,
-                            scenario_theater=scenario_theater, terrain_inputs_only=True)
+                            scenario_theater=scenario_theater, terrain_inputs_only=True,
+                            ore_lifecycle=natural_context)
     u = native_map.uc
     read32 = lambda pointer: sr.u32(u, pointer)
     signed = lambda value: struct.unpack('<i', dwords(value))[0]
@@ -909,7 +942,7 @@ def generate_authored_init():
         pointer = reader.overlay_ptrs[index]
         flat_overlays.append(dict(index=index, name=reader.names[index],
                                   cell_anim_null=reader.read32(pointer + 0x29C) == 0))
-    return dict(source='unicorn/gamemd.exe', native_sha256=image_sha256(),
+    result = dict(source='unicorn/gamemd.exe', native_sha256=image_sha256(),
         native_rect=native_map.case['size'], capacity=capacity,
         inputs=dict(manifest=manifest, type_readers=reader.tiberium_timer_layers,
             effective_types=effective_types, gates=gates, scenario_theater=scenario_theater,
@@ -924,6 +957,161 @@ def generate_authored_init():
         final_sweep=dict(entry='00568BB0', argument=0, queues_timers_unchanged=initialized == final,
             source_records_unchanged=True, tiberium_value=total_value,
             rng_after=rng_hashes(rng_after_final)), patch=patch)
+    if natural_context:
+        return result, dict(native_map=native_map, reader=reader, pointers=pointers, scenario=scenario,
+                            state=state, cell_state=cell_state, rng_bytes=rng_bytes, rng_hashes=rng_hashes)
+    return result
+
+
+def generate_authored_natural():
+    """Continue the sole physical authored-map VM through ordinary ore phases."""
+    from tools.native_oracle import STACK_BASE, STACK_SIZE
+    from tools.spatial_oracle.bridge_constructor import OriginalBridgeConstructor, REGISTRIES
+    initialized, context = generate_authored_init(natural_context=True)
+    native_map, reader = context['native_map'], context['reader']
+    u, scenario, pointers = native_map.uc, context['scenario'], context['pointers']
+    read32 = lambda p: struct.unpack('<I', u.mem_read(p, 4))[0]
+    sp = STACK_BASE + STACK_SIZE - 0x1000
+    rng_bytes, queue_state = context['rng_bytes'], context['state']
+    # Independent UI/session data priors; execute the ordinary skirmish producer
+    # and later FullInit overwrite, never supply the final gameplay flags.
+    session_prior = dict(special_flags=0, ui_a8b260=0, ui_a8b31d=0, game_speed=1, game_mode=1)
+    u.mem_write(0xA8E960, dwords(session_prior['special_flags']))
+    u.mem_write(0xA8B260, bytes([session_prior['ui_a8b260']]))
+    u.mem_write(0xA8B31D, bytes([session_prior['ui_a8b31d']]))
+    u.mem_write(0xA8B268, dwords(session_prior['game_speed']))
+    u.mem_write(0xA8B238, dwords(session_prior['game_mode']))
+    u.reg_write(UC_X86_REG_ESP, sp)
+    flags_rng = rng_bytes()
+    run_checked(u, 0x5E7490, 0x6B8B10, count=10000,
+                required_addresses=(0x5E74CD, 0x5E74D4))
+    u.reg_write(UC_X86_REG_ESI, 0)
+    run_checked(u, 0x687C16, 0x687C2B, count=10000,
+                required_addresses=(0x687C23, 0x687C29))
+    assert flags_rng == rng_bytes()
+    session = dict(prior=session_prior, session_flags=read32(0xA8E960),
+                   scenario_flags=read32(scenario), game_speed=read32(0xA8EB60),
+                   basic_growth_enabled=bool(u.mem_read(scenario + 0x34A6, 1)[0]))
+    # The existing shared owner supplies only Windows SEH/IsBadReadPtr services.
+    OriginalBridgeConstructor.prepare_deferred_services(u)
+    native_map.ore_live = True
+    events, complete, constructed = trace_queue_execution(
+        u, read32, natural=True, scenario=scenario, type_pointers=pointers,
+        coordinate=native_map.coord, include_object_mark=True)
+    addresses = {p: xy for xy, p in native_map.ptrs.items()}
+    dirty = set()
+    write_count = 0
+
+    def observe_write(_u, _access, address, size, _value, _data):
+        nonlocal write_count
+        # Observe writes only; original Cell memory remains authoritative.
+        base = address & ~0x1FF
+        if base in addresses:
+            dirty.add(addresses[base])
+            write_count += 1
+
+    hook = u.hook_add(UC_HOOK_MEM_WRITE, observe_write)
+
+    def cells(coordinates):
+        return [context['cell_state'](xy) for xy in sorted(coordinates, key=lambda c: (c[1], c[0]))]
+
+    def snapshot():
+        return dict(**queue_state(), rng_states={k: v.hex() for k, v in rng_bytes().items()},
+                    runtime_id_cursor=read32(scenario + 0x214),
+                    registry_counts={f'{p:08X}': read32(p + 16) for p in (*REGISTRIES, 0xB0F698)},
+                    dummy=native_map.dummy_snapshot())
+
+    before = snapshot()
+    initial_cells = {xy: row for xy, row in zip(
+        sorted(native_map.ptrs, key=lambda c: (c[1], c[0])), cells(native_map.ptrs))}
+    steps, noops = [], []
+    for frame in range(661):
+        u.mem_write(0xA8ED84, dwords(frame))
+        first, write_before, rng_before = len(events), write_count, rng_bytes()
+        dirty.clear()
+        for entry in (GROWTH_DRIVER, SPREAD_DRIVER):
+            # Original timer+4 copies opaque caller-local padding; zero is an
+            # explicit storage prior, not a gameplay timer field interpretation.
+            u.mem_write(sp - 0x100, bytes(0x100))
+            native_map.call(entry, this=0, count=100000000)
+            complete()
+        driver_end = len(events)
+        changed = [dict(before=initial_cells[tuple(row['cell'])], after=row)
+                   for row in cells(dirty) if row != initial_cells[tuple(row['cell'])]]
+        for row in changed:
+            initial_cells[tuple(row['after']['cell'])] = row['after']
+        # Actual MainTick increments BinaryFrame before deferred725C70.
+        pending = read32(0xB0F6A8)
+        cursor = read32(scenario + 0x214)
+        u.mem_write(0xA8ED84, dwords(frame + 1))
+        cells_before_drain = cells(dirty)
+        native_map.call(0x725C70, this=0, count=100000000)
+        complete()
+        assert cells_before_drain == cells(dirty), 'deferred drain changed retained Cell material/state'
+        relevant = [e for e in events[first:] if e['kind'] not in ('growth_driver', 'spread_driver', 'drain_deferred')]
+        if relevant or frame in (0, 658, 659, 660):
+            rows = events[first:]
+            steps.append(dict(frame=frame, events=rows, changed=changed,
+                              draw_count=sum(e['kind'] == 'random' for e in rows),
+                              pending_before_drain=pending, runtime_id_cursor_before_drain=cursor,
+                              driver_event_count=driver_end - first, after=snapshot(),
+                              drain_cells_unchanged=True))
+        else:
+            assert not changed and write_before == write_count and rng_before == rng_bytes()
+            noops.append(frame)
+    u.hook_del(hook)
+    # All live new-cell animations must remain absent; Navigation fails closed
+    # at the original constructor before its historical bootstrap substitution.
+    assert not getattr(native_map, 'ore_animation_reached', False)
+    ranges = []
+    for frame in noops:
+        if ranges and frame == ranges[-1][1] + 1:
+            ranges[-1][1] = frame
+        else:
+            ranges.append([frame, frame])
+    # Existing physical MAP decoder owns lexical fields; no parallel parser.
+    from tools.spatial_oracle.anytown_damage.navigation_inputs import map_inputs
+    _, sections, _ = map_inputs(reader.map_file)
+    fields = {key: value for key, value, _line in sections['Map']}
+    geometry = dict(size=native_map.case['size'], raw_local_size=fields['LocalSize'],
+                    local_size=list(struct.unpack('<4i', u.mem_read(MAP + 0xFC, 16))),
+                    map_rect=list(struct.unpack('<4i', u.mem_read(MAP + 0x124, 16))),
+                    allocated_cells=len(native_map.ptrs),
+                    allocated_min=[min(c[i] for c in native_map.ptrs) for i in range(2)],
+                    allocated_max=[max(c[i] for c in native_map.ptrs) for i in range(2)])
+    previous_after, previous_frame = None, None
+    for step in steps:
+        actual = step['after']
+        if actual == previous_after:
+            del step['after']
+            step['same_after_as_frame'] = previous_frame
+        else:
+            previous_after, previous_frame = actual, step['frame']
+    assert snapshot() == previous_after
+    return dict(source=initialized['source'], native_sha256=initialized['native_sha256'],
+                inputs=dict(**initialized['inputs'], geometry=geometry, session=session,
+                            seed=0, actors_present=False, frames=[0, 660],
+                            runtime_registry_setup='original startup vtables/spare4096; populated B0F670 preserved'),
+                init_order=initialized['init_order'], initial=before, steps=steps,
+                no_op_ranges=ranges, constructed_overlays=len(constructed),
+                final_same_after_as_frame=previous_frame)
+
+
+def authored_natural_metadata():
+    return provenance(scope='Physical XMP03T4 existing Riparius natural densification and same-frame spread, original ordered ore drivers frames0..660, native queue/RNG/timer/Mark/deferred lifecycle observations; not whole skirmish startup or full-frame RNG parity.',
+        assumptions=[
+            'Same Inputs/Navigation physical readers, assets, Cell/TMP/Recalc/Terrain, seed0 and InitGrowth/InitSpread/final568BB0 setup as authored-init. No actors or other Logic systems; authored OverlayPack object lifetime and full Terrain Unlimbo/discovery remain excluded.',
+            'Opt-in original Resize5662AC..56633E field stores derive MapRect before Terrain placement. Physical raw LocalSize passes the existing original normalization owner. Original missing runtime registry vtables with4096 spare slots are supplied before Terrain; populated Abstract/IsoTile vector B0F670 is preserved.',
+            'Independent zero UI/session prior flags, selected speed1 and GameMode1 feed original5E7490..6B8B10; original687C16..687C2B copies its result into Scenario. Map pre-init flags and Basic growth reader remain distinct recorded inputs.',
+            'Actual722C40 then7221B0 run every frame0..660; frame increments before original725C70. All reached numeric RNG/heap/Cell/Overlay/ObjectMark/admission and destruction instructions execute. Timer padding+4 has explicit zero caller-stack prior. Live ore fails closed if the historical authored-bootstrap Anim421EA0 boundary is reached.',
+            'Full queue states retained only for selected due/boundary phases; intervening frames are internally asserted free of Cell writes, relevant gameplay calls and all3 RNG changes. Original target queries in observations are pure and retain no supplied gameplay result.',
+        ], substitutions=[
+            'Existing bounded successful allocator/free, CRT/TLS/cache transport, rectangle/projection/radar/screen/shroud sinks; Windows SEH and checked IsBadReadPtr services. Authored pre-live tile animation constructor remains an inherited explicit bootstrap boundary, never accepted for live ore.',
+        ], entry_points=dict(growth_driver=GROWTH_DRIVER, spread_driver=SPREAD_DRIVER,
+            growth_processor=GROWTH_PROCESSOR, spread_processor=SPREAD_PROCESSOR,
+            grow_cell=GROW_CELL, place=PLACE, object_mark=0x5F5850, overlay_mark=0x5FC570,
+            resize_fields=0x5662AC, session_flags=0x5E7490, scenario_flags=0x687C16,
+            deferred_drain=0x725C70, random=RANDOM, ranged=RANGED))
 
 
 def authored_init_metadata():
@@ -948,7 +1136,25 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--authored-init', action='store_true')
+    parser.add_argument('--authored-natural', action='store_true')
     selected, remaining = parser.parse_known_args()
+    if selected.authored_natural:
+        finish_vectors(generate_authored_natural, Path(__file__).with_name('ore_authored_natural.json'),
+                       provenance=authored_natural_metadata, argv=remaining,
+                       source_paths={name: Path('tools') / name for name in (
+                           'native_oracle.py', 'oracle_sources.py', 'spatial_oracle/ore_queue.py',
+                           'spatial_oracle/bridge_constructor.py', 'spatial_oracle/bridge_shadow_render.py',
+                           'spatial_oracle/bridge_rim.py', 'spatial_oracle/map_queries.py',
+                           'spatial_oracle/mapgen_range.py', 'spatial_oracle/anytown_damage/navigation.py',
+                           'spatial_oracle/anytown_damage/navigation_inputs.py',
+                           'spatial_oracle/anytown_damage/anytown_geometry.py',
+                           'spatial_oracle/anytown_damage/next_family_native.py',
+                           'spatial_oracle/shrapnel_repair/shrapnel_repair.py',
+                           'spatial_oracle/shrapnel_repair/retail_inputs.py',
+                           'spatial_oracle/shrapnel_repair/zone_composition.py',
+                           'rules_oracle/bridge_landing_inputs.py', 'rules_oracle/bridge_child_sound.py',
+                           'rules_oracle/bridge_anim_inputs.py', 'rules_oracle/theater_general_reader.py')})
+        raise SystemExit(0)
     if selected.authored_init:
         finish_vectors(generate_authored_init, Path(__file__).with_name('ore_authored_init.json'),
                        provenance=authored_init_metadata, argv=remaining)

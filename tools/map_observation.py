@@ -88,7 +88,7 @@ PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
-                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_crates',
+                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_spawns', 'observe_crates',
                               'observe_audio', 'allow_load_segments',
                               'camera_cell', 'cursor_position', 'terrain_cells',
                               'observe_super_weapons', 'observe_diplomacy', 'observe_sidebar_steps'))
@@ -574,7 +574,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         raise ValidationError('profile.observe_action_line_inputs must be a boolean')
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
-    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_crates'):
+    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_spawns', 'observe_crates'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
     if 'observe_electric_bolt_steps' in profile:
@@ -1310,10 +1310,49 @@ def _fire(value: Any, label: str) -> None:
         _bounded_int(rearm[key], f'{label}.rearm.{key}', -(1 << 31), (1 << 31) - 1)
 
 
+def _spawns(value: Any, label: str) -> int:
+    if value is None:
+        return 0
+    row = require_object(value, label)
+    require_exact_keys(row, ('type_spawns_number', 'spawn_type', 'count_docked', 'count_alive',
+                             'mode', 'regen_rate', 'reload_rate', 'current_target', 'queued_target',
+                             'update_timer', 'spawn_timer', 'slots'), label)
+    _bounded_int(row['type_spawns_number'], f'{label}.type_spawns_number', -(1 << 31), (1 << 31) - 1)
+    if not require_string(row['spawn_type'], f'{label}.spawn_type'):
+        raise ValidationError(f'{label}.spawn_type is empty')
+    for key in ('count_docked', 'count_alive'):
+        _bounded_int(row[key], f'{label}.{key}', 0, (1 << 64) - 1)
+    if row['mode'] not in ('Idle', 'Launching', 'Returning'):
+        raise ValidationError(f'{label}.mode is unknown')
+    for key in ('regen_rate', 'reload_rate'):
+        _bounded_int(row[key], f'{label}.{key}', 0, (1 << 32) - 1)
+    for key in ('current_target', 'queued_target'):
+        _target_reference(row[key], f'{label}.{key}')
+    for key in ('update_timer', 'spawn_timer'):
+        _timer(row[key], f'{label}.{key}')
+    slots = require_array(row['slots'], f'{label}.slots')
+    for index, value in enumerate(slots):
+        slot_label = f'{label}.slots[{index}]'
+        slot = require_object(value, slot_label)
+        require_exact_keys(slot, ('child', 'state', 'timer', 'is_missile'), slot_label)
+        if slot['child'] is not None:
+            _bounded_int(slot['child'], f'{slot_label}.child', 1, (1 << 64) - 1)
+        if slot['state'] not in ('ReadyDocked', 'KamikazeWait', 'InFlight', 'Attacking',
+                                 'ComingHome', 'Reloading', 'Regenerating'):
+            raise ValidationError(f'{slot_label}.state is unknown')
+        _timer(slot['timer'], f'{slot_label}.timer')
+        if type(slot['is_missile']) is not bool:
+            raise ValidationError(f'{slot_label}.is_missile must be boolean')
+    # Preserve the two native queries independently of the ordered slot reads;
+    # validation must not replace their recorded values with another counter.
+    return 1 + len(slots)
+
+
 def _actor(value: Any, label: str, *, building_state: bool = True,
            docking_state: bool = True, walk_state: bool = True,
            action_line_inputs: bool = False, disguise_inputs: bool = False,
-           lasers: bool = False, bombs: bool = False, damage_smoke: bool = False) -> tuple[int, str]:
+           lasers: bool = False, bombs: bool = False, spawns: bool = False,
+           damage_smoke: bool = False) -> tuple[int, str]:
     actor = require_object(value, label)
     require_exact_keys(actor, ('stable_id', 'owner', 'type_id', 'category', 'cell',
                               'physical_leptons', 'on_bridge', 'health', 'active',
@@ -1335,6 +1374,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('prism',) if lasers else ()),
                               *(('damage_smoke_system_id',) if damage_smoke and 'damage_smoke_system_id' in actor else ()),
                               *(('fire',) if bombs else ()),
+                              *(('spawns',) if spawns else ()),
                               *(('miner', 'radio') if docking_state else ())), label)
     identity = _bounded_int(actor['stable_id'], f'{label}.stable_id', 1, (1 << 64) - 1)
     owner = require_string(actor['owner'], f'{label}.owner')
@@ -1353,6 +1393,8 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
         _bounded_int(actor['damage_smoke_system_id'], f'{label}.damage_smoke_system_id', 1, (1 << 64) - 1)
     if bombs:
         _fire(actor['fire'], f'{label}.fire')
+    if spawns:
+        _spawns(actor['spawns'], f'{label}.spawns')
     if docking_state:
         _docking_state(actor, label)
     if building_state:
@@ -2466,6 +2508,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                      disguise_inputs=profile.get('observe_disguise_inputs', False),
                                      lasers=profile.get('observe_lasers', False) or profile.get('observe_electric_bolts', False),
                                      bombs=profile.get('observe_bombs', False),
+                                     spawns=profile.get('observe_spawns', False),
                                      damage_smoke=profile.get('observe_electric_bolts', False))
             if identity <= previous_id:
                 raise ValidationError(f'{actor_label}.stable_id is repeated or out of order')
@@ -2513,6 +2556,9 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         if building_state:
             sample_count += sum(len(actor['building']['animation_slots']) for actor in actors
                                 if actor['category'] == 'Structure')
+        if profile.get('observe_spawns', False):
+            sample_count += sum(1 + len(actor['spawns']['slots']) for actor in actors
+                                if actor['spawns'] is not None)
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
     if profile.get('observe_electric_bolts', False):

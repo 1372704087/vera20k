@@ -761,13 +761,6 @@ pub(crate) fn self_heal_pip(
 //   not proven unreachable. Passenger fractional/mixed sizes and other
 //   transport lifecycle paths retain their explicit owner residuals.
 //
-// * **Spawn pips**, from `TypeClass+0xD5C` via
-//   `SpawnManagerClass__CountDockedSpawns`. Trigger: a selected Kirov/carrier
-//   with docked spawns. Player effect: spawned aircraft count is absent.
-//   Frequency: rare. Downstream risk: none. The group-number tail is projected
-//   through the live input membership in `build_control_group_status_instances`
-//   above; the self-heal status pip is ported below.
-//
 /// The repair wrench's WRENCH.SHP frame at `frame`
 /// (`TechnoClass::DrawExtras 0x006F52D8..0x006F532B`): a cycle of
 /// `SpeedNormalize(14) / 4` frames (at least 2) spread over frames 0..=6,
@@ -1149,33 +1142,17 @@ pub(crate) fn techno_extras_for_parent(
         ));
     }
     //709B0F/6F6A8E: nonbuilding scale starts at health anchor(-15,+10),
-    //with the Infantry-only+11 X. The shared raw-frame owner retains cargo
-    //and native relationship admission; no global scale bucket remains.
+    //with the Infantry-only+11 X. The shared draw owner retains each arm's
+    //origin independently, cargo and native relationship admission.
     if let Some(art) = overlay.scale_pips() {
-        let frames = scale_pip_frames(sim, entity, hovered_id, local_owner, rules);
-        //70A3B7: unwrapped Ammo sits three pixels above the ordinary scale
-        //anchor. Positive Passengers takes its earlier arm, even with Ammo.
-        let scale_y = if object.passengers <= 0
-            && object.pip_scale == crate::rules::object_type::PipScale::Ammo
-        {
-            7.0
-        } else {
-            10.0
-        };
-        for (slot, frame) in frames.into_iter().enumerate() {
-            //709F50..A06F: Gunner draws slot0 normally, then advances an extra
-            //two steps before slot1. Stock FV has one slot; shared callers
-            //still preserve the literal later-slot displacement.
-            let gunner_step = if object.passengers > 0 && object.gunner && slot > 0 {
-                2
-            } else {
-                0
-            };
-            let x =
-                sx - 15.0 + if infantry { 11.0 } else { 0.0 } + ((slot + gunner_step) * 4) as f32;
-            strip
-                .scale
-                .extend(instance(art, frame, (x, sy + delta + scale_y), 0.0004));
+        for pip in scale_pip_draws(sim, entity, hovered_id, local_owner, rules) {
+            let x = sx - 15.0 + if infantry { 11.0 } else { 0.0 } + pip.offset_pixels[0] as f32;
+            strip.scale.extend(instance(
+                art,
+                pip.frame,
+                (x, sy + delta + pip.offset_pixels[1] as f32),
+                0.0004,
+            ));
         }
     }
     //70A50C..6BB: House admission precedes signed frame division, even for
@@ -1210,16 +1187,24 @@ pub(crate) fn techno_extras_for_parent(
     strip
 }
 
-/// Raw PIPS2 frames after selected/hovered body admission and the shared
-/// native pip-tail relationship gate. DrawHealthBar6F6A58 ->709A90.
+/// One PIPS2 frame and pixel offset from the shared nonbuilding X anchor and
+/// projected Y. Independent native arms restart their slot origins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScalePipDraw {
+    pub frame: usize,
+    pub offset_pixels: [i32; 2],
+}
+
+/// PIPS2 draws after selected/hovered body admission and the shared native
+/// pip-tail relationship gate. DrawHealthBar6F6A58 ->709A90.
 /// Rendering only reads retained state; it never advances timers or RNG.
-pub(crate) fn scale_pip_frames(
+pub(crate) fn scale_pip_draws(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     hovered_id: Option<u64>,
     local_owner: Option<&str>,
     rules: &RuleSet,
-) -> Vec<usize> {
+) -> Vec<ScalePipDraw> {
     if entity.category() == EntityCategory::Structure
         || entity.sinking.is_active()
         || entity.passenger_role.is_inside_transport()
@@ -1236,13 +1221,38 @@ pub(crate) fn scale_pip_frames(
     let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
         return Vec::new();
     };
+    let pip = |slot: usize, frame: usize, y: i32| ScalePipDraw {
+        frame,
+        offset_pixels: [(slot * 4) as i32, y],
+    };
+    let mut pips = Vec::new();
+    //709B73..C25 is independent of Passengers/PipScale. Current type+D5C
+    //sets capacity; canonical6B7D50 counts retained states0 OR6, including
+    //reloading children. Empty slots still draw frame0. Consumed original
+    //instructions/readers/raster: procedural_drawing_oracle/spawn_pips.
+    //Valid InitManagers creates the owner. An absent/broken manager is not
+    //inferred to be an empty pool; suppress that invalid-state row safely.
+    if object.spawns_number > 0
+        && let Some(manager) = entity.spawn_manager.as_ref()
+    {
+        let docked = manager.count_docked_spawns();
+        pips.extend(
+            (0..object.spawns_number as usize)
+                .map(|slot| pip(slot, usize::from(slot < docked), 10)),
+        );
+    }
     //709D1D tests positive Passengers before the non-passenger PipScale arms.
     //GetPipMax716290 remains the shared type query, never cargo-vector length.
     if object.passengers > 0 {
         let slots = usize::try_from(object.pip_max(rules)).unwrap_or(0);
-        let mut frames = vec![0; slots];
+        let row_start = pips.len();
+        pips.extend((0..slots).map(|slot| {
+            //709F50..A06F: later Gunner slots advance two extra steps.
+            let gunner_step = if object.gunner && slot > 0 { 2 } else { 0 };
+            pip(slot + gunner_step, 0, 10)
+        }));
         let Some(cargo) = entity.passenger_role.cargo() else {
-            return frames;
+            return pips;
         };
         //473460 normally rereads current binary64 Size and truncates each sum.
         //The existing cargo owner retains integer admission-time sizes. Stock
@@ -1250,7 +1260,8 @@ pub(crate) fn scale_pip_frames(
         //reloads remain an explicit transport-owner residual, not a new cache.
         let total = cargo.total_size() as usize;
         if total > slots {
-            return Vec::new();
+            pips.truncate(row_start);
+            return pips;
         }
         let mut next = total;
         for &id in cargo.passengers() {
@@ -1277,17 +1288,17 @@ pub(crate) fn scale_pip_frames(
                     let Some(index) = next.checked_sub(1) else {
                         break;
                     };
-                    frames[index] = 3;
+                    pips[row_start + index].frame = 3;
                     next = index;
                 }
             }
             let Some(index) = next.checked_sub(1) else {
                 break;
             };
-            frames[index] = frame;
+            pips[row_start + index].frame = frame;
             next = index;
         }
-        return frames;
+        return pips;
     }
     if object.pip_scale == crate::rules::object_type::PipScale::Ammo {
         //709A90/70A345..41C: ordinary stock ORCA reaches the unwrapped
@@ -1296,12 +1307,15 @@ pub(crate) fn scale_pip_frames(
         //are owned by the existing per-parent scale replay.
         //Nonzero PipWrap70A421..4E6 remains a separate dormant configuration.
         if object.pip_wrap() != 0 {
-            return Vec::new();
+            return pips;
         }
         let filled = entity
             .techno_pip_fill_level(object, rules)
             .clamp(0, object.pip_max(rules).max(0));
-        return vec![13; filled as usize];
+        //70A3B7 resets this arm three pixels above the ordinary Y anchor,
+        //even after a preceding spawn row. No empty Ammo outlines are drawn.
+        pips.extend((0..filled as usize).map(|slot| pip(slot, 13, 7)));
+        return pips;
     }
     if object.pip_scale == crate::rules::object_type::PipScale::MindControl {
         //716290 case5 reads current primary Weapon.Damage, independently of
@@ -1312,21 +1326,21 @@ pub(crate) fn scale_pip_frames(
         let count = entity.techno_pip_fill_level(object, rules);
         //Canonical708C30 owns count/max rounding, including signed numeric
         //boundaries. Draw70A0B5 uses frame1 below fill, frame0 afterward.
-        let mut frames: Vec<_> = (0..slots)
-            .map(|index| usize::from((index as i64) < i64::from(count)))
-            .collect();
+        pips.extend(
+            (0..slots).map(|slot| pip(slot, usize::from((slot as i64) < i64::from(count)), 10)),
+        );
         // IsOverloading4726C0 owns infinite/capacity/counter policy;
         //70A17F..1C2 adds exactly one frame3 (positive) or4 (idle).
         if let Some(active) = manager.and_then(|manager| manager.overload_pip_state()) {
-            frames.push(if active { 3 } else { 4 });
+            pips.push(pip(slots, if active { 3 } else { 4 }, 10));
         }
-        return frames;
+        return pips;
     }
     if object.pip_scale != crate::rules::object_type::PipScale::Tiberium {
-        return Vec::new();
+        return pips;
     }
     let Some(miner) = &entity.miner else {
-        return Vec::new();
+        return pips;
     };
     let gems = miner
         .cargo()
@@ -1348,11 +1362,17 @@ pub(crate) fn scale_pip_frames(
     };
     let gem_pips = count(gems);
     let ore_pips = count(ore).min(slots - gem_pips);
-    let mut frames = Vec::with_capacity(slots);
-    frames.extend(std::iter::repeat_n(5, gem_pips));
-    frames.extend(std::iter::repeat_n(2, ore_pips));
-    frames.resize(slots, 0);
-    frames
+    pips.extend((0..slots).map(|slot| {
+        let frame = if slot < gem_pips {
+            5
+        } else if slot < gem_pips + ore_pips {
+            2
+        } else {
+            0
+        };
+        pip(slot, frame, 10)
+    }));
+    pips
 }
 
 /// Radius rings for selected sensor/gap buildings. This is Tactical action-visual

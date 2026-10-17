@@ -59,6 +59,16 @@ fn native_passenger_pips_preserve_color_a_z_and_parent_order() {
 }
 
 #[test]
+#[ignore = "requires retail assets and GPU; original Carrier docked/empty PIPS2, independent rows and parent order"]
+fn native_carrier_spawn_pips_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/spawn_pips.json",
+        "CARRIER",
+        EntityCategory::Unit,
+    );
+}
+
+#[test]
 #[ignore = "requires retail assets and GPU; original ORCA ammo pips and native Aircraft projection"]
 fn native_aircraft_ammo_pips_preserve_color_a_z_and_parent_order() {
     native_status_controls(
@@ -1076,6 +1086,45 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         actor["veterancy_raw_bits"].as_u64().unwrap_or(0) as u32,
                     ),
                 );
+                if let Some(states) = actor["node_states"].as_array() {
+                    use crate::sim::spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState};
+                    let spawn_type = sim.interner.intern(object.spawns.as_deref().unwrap());
+                    let slots = states
+                        .iter()
+                        .enumerate()
+                        .map(|(slot, state)| {
+                            let state = match state.as_i64().expect("native node state") {
+                                0 => SpawnSlotState::ReadyDocked,
+                                1 => SpawnSlotState::KamikazeWait,
+                                2 => SpawnSlotState::InFlight,
+                                3 => SpawnSlotState::Attacking,
+                                4 => SpawnSlotState::ComingHome,
+                                6 => SpawnSlotState::Reloading,
+                                7 => SpawnSlotState::Regenerating,
+                                other => panic!("unsupported native node prior {other}"),
+                            };
+                            SpawnSlot::for_test(
+                                (state != SpawnSlotState::Regenerating)
+                                    .then_some(10_000 + index as u64 * 100 + slot as u64),
+                                state,
+                                crate::sim::timer::CdTimer::default(),
+                                false,
+                            )
+                        })
+                        .collect();
+                    // Explicit consumer node priors; real constructor/flight/
+                    // recall/reload run in presentation::spawn_pip_tests.
+                    let manager = SpawnManagerState::for_test(spawn_type, slots);
+                    assert_eq!(
+                        manager.count_docked_spawns() as u64,
+                        row["actor_results"][index]["spawn_count_docked"]
+                            .as_u64()
+                            .unwrap(),
+                        "{} original CountDockedSpawns6B7D50",
+                        row["name"]
+                    );
+                    entity.spawn_manager = Some(manager);
+                }
                 if object.passengers > 0 || object.max_number_occupants > 0 {
                     use crate::sim::passenger::{PassengerCargo, PassengerRole};
                     let capacity = if actor_category == EntityCategory::Structure {
@@ -1958,6 +2007,47 @@ fn assert_z(actual: &[u8], expected: &[u16], row: &Value) {
 
 fn pair(value: &Value) -> [u32; 2] {
     std::array::from_fn(|i| value[i].as_u64().unwrap() as u32)
+}
+
+#[test]
+fn retail_carrier_spawn_fields_match_original_layered_readers() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/spawn_pips.json");
+    let defaults = crate::rules::ruleset::RuleSet::from_ini(
+        &crate::rules::ini_parser::IniFile::from_str("[VehicleTypes]\n0=CARRIER\n[CARRIER]\n"),
+    )
+    .unwrap();
+    for (object, expected) in [
+        (
+            defaults.object("CARRIER").unwrap(),
+            &native["readers"]["constructor"],
+        ),
+        (
+            retail.rules.object("CARRIER").unwrap(),
+            &native["readers"]["result"],
+        ),
+    ] {
+        //710AF0 constructor and714E97..714F16 read Spawns, Regen, Number,
+        //then Reload, retaining current signed defaults. Stock positive rates
+        //do not certify the existing negative-rate configuration projection.
+        assert_eq!(
+            serde_json::json!({
+                "spawns": object.spawns,
+                "spawns_number": object.spawns_number,
+                "spawn_regen_rate": object.spawn_regen_rate,
+                "spawn_reload_rate": object.spawn_reload_rate,
+            }),
+            serde_json::json!({
+                "spawns": expected["spawns"],
+                "spawns_number": expected["spawns_number"],
+                "spawn_regen_rate": expected["spawn_regen_rate"],
+                "spawn_reload_rate": expected["spawn_reload_rate"],
+            })
+        );
+    }
 }
 
 #[test]

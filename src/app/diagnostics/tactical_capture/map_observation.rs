@@ -447,6 +447,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_bombs: Option<bool>,
+    /// Read the existing spawn manager's ordered pool and count queries.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_spawns: Option<bool>,
     /// Read occupied slots from the existing MapClass crate authority.
     #[serde(
         default,
@@ -536,6 +543,7 @@ impl MapCaptureProfile {
                     && self.observe_electric_bolts.is_none()
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
+                    && self.observe_spawns.is_none()
                     && self.observe_crates.is_none()
                     && self.camera_cell.is_none()
                     && self.cursor_position.is_none()
@@ -1877,6 +1885,43 @@ fn fire_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) ->
             "remaining": entity.rearm_timer.remaining(frame)}})
 }
 
+fn spawn_observation(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: &crate::rules::ruleset::RuleSet,
+) -> Result<Value> {
+    let Some(manager) = entity.spawn_manager.as_ref() else {
+        return Ok(Value::Null);
+    };
+    let object = rules
+        .object(sim.interner.resolve(entity.type_ref()))
+        .context("spawn observation owner type absent")?;
+    // Independent immutable owner reads. In particular current type capacity
+    // is not the retained slot count, and diagnostics never run manager AI.
+    let slots: Vec<_> = manager
+        .slots()
+        .iter()
+        .map(|slot| {
+            json!({"child": slot.spawn(), "state": slot.state(),
+                "timer": slot.timer(), "is_missile": slot.is_missile_spawn()})
+        })
+        .collect();
+    Ok(json!({"type_spawns_number": object.spawns_number,
+        "spawn_type": sim.interner.resolve(manager.spawn_type()),
+        "count_docked": manager.count_docked_spawns(),
+        "count_alive": manager.count_alive_spawns(), "mode": manager.mode(),
+        "regen_rate": manager.regen_rate(), "reload_rate": manager.reload_rate(),
+        "current_target": manager.current_target(), "queued_target": manager.queued_target(),
+        "update_timer": manager.update_timer(), "spawn_timer": manager.spawn_timer(),
+        "slots": slots}))
+}
+
+fn spawn_sample_count(snapshot: &Value) -> usize {
+    snapshot["slots"]
+        .as_array()
+        .map_or(0, |slots| 1 + slots.len())
+}
+
 fn bomb_sample_count(snapshot: &crate::sim::bomb::BombObservation) -> usize {
     // Count the owner snapshot and both independent collections, including
     // index entries whose carrier record may be missing in a broken owner.
@@ -2313,11 +2358,13 @@ impl MapObservation {
             .checked_add(frame.actors.len())
             .and_then(|count| {
                 frame.actors.iter().try_fold(count, |count, actor| {
-                    count.checked_add(
-                        actor["building"]["animation_slots"]
-                            .as_array()
-                            .map_or(0, Vec::len),
-                    )
+                    count
+                        .checked_add(
+                            actor["building"]["animation_slots"]
+                                .as_array()
+                                .map_or(0, Vec::len),
+                        )
+                        .and_then(|count| count.checked_add(spawn_sample_count(&actor["spawns"])))
                 })
             })
             .and_then(|count| count.checked_add(frame.houses.len()))
@@ -3455,6 +3502,10 @@ impl TacticalCaptureSession {
                 if profile.observe_bombs == Some(true) {
                     observation["fire"] = fire_observation(entity, sim.session.binary_frame as i32);
                 }
+                if profile.observe_spawns == Some(true) {
+                    observation["spawns"] =
+                        spawn_observation(sim, entity, &runtime.resources.rules)?;
+                }
                 if profile.observe_action_line_inputs == Some(true) {
                     let inputs = if entity.category()
                         == crate::map::entities::EntityCategory::Structure
@@ -4271,6 +4322,149 @@ mod tests {
     }
 
     #[test]
+    fn spawn_snapshots_preserve_current_type_and_ordered_pool_without_advancing_state() {
+        use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+        use crate::sim::{
+            combat::{Health, TargetKind},
+            game_entity::GameEntity,
+            spawn_manager::{SpawnManagerState, SpawnSlot, SpawnSlotState},
+            timer::CdTimer,
+            world::Simulation,
+        };
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=CARRIER\n[CARRIER]\nStrength=800\nSpawnsNumber=3\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let owner = sim.interner.intern("Player");
+        let carrier_type = sim.interner.intern("CARRIER");
+        let hornet_type = sim.interner.intern("HORNET");
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            1,
+            10,
+            10,
+            0,
+            0,
+            owner,
+            Health::new(800),
+            carrier_type,
+            crate::map::entities::EntityCategory::Unit,
+            0,
+            5,
+            true,
+        );
+        assert_eq!(
+            spawn_observation(&sim, &entity, &rules).unwrap(),
+            Value::Null
+        );
+        assert_eq!(spawn_sample_count(&Value::Null), 0);
+        let states = [
+            SpawnSlotState::ReadyDocked,
+            SpawnSlotState::Reloading,
+            SpawnSlotState::InFlight,
+            SpawnSlotState::KamikazeWait,
+            SpawnSlotState::Attacking,
+            SpawnSlotState::ComingHome,
+            SpawnSlotState::Regenerating,
+        ];
+        // Supplied consumer priors: type capacity and retained node count are
+        // deliberately different, and handles preserve the vector's order.
+        let slots = states
+            .iter()
+            .enumerate()
+            .map(|(index, &state)| {
+                SpawnSlot::for_test(
+                    (state != SpawnSlotState::Regenerating).then_some(100 - index as u64),
+                    state,
+                    CdTimer::from_raw(-1, index as i32),
+                    state == SpawnSlotState::KamikazeWait,
+                )
+            })
+            .collect();
+        let mut manager = SpawnManagerState::for_test(hornet_type, slots);
+        manager.set_rates_for_test(600, 150);
+        manager.set_update_timer_for_test(CdTimer::from_raw(i32::MIN, 10));
+        manager.set_target(Some(TargetKind::Entity(42)));
+        entity.spawn_manager = Some(manager.clone());
+        let hash = sim.state_hash();
+        let rng = sim.rng_state();
+        let snapshot = spawn_observation(&sim, &entity, &rules).unwrap();
+        assert_eq!(snapshot["type_spawns_number"], 3);
+        assert_eq!(snapshot["spawn_type"], "HORNET");
+        assert_eq!(snapshot["mode"], "Idle");
+        assert_eq!(snapshot["count_docked"], 2);
+        assert_eq!(snapshot["count_alive"], 6);
+        assert_eq!(snapshot["regen_rate"], 600);
+        assert_eq!(snapshot["reload_rate"], 150);
+        assert_eq!(snapshot["current_target"], Value::Null);
+        assert_eq!(snapshot["queued_target"], json!({"Entity": 42}));
+        assert_eq!(
+            snapshot["update_timer"],
+            json!({"start_frame": i32::MIN, "duration": 10})
+        );
+        assert_eq!(
+            snapshot["spawn_timer"],
+            json!({"start_frame": -1, "duration": 0})
+        );
+        assert_eq!(snapshot["slots"][0]["child"], 100);
+        assert_eq!(snapshot["slots"][1]["child"], 99);
+        assert_eq!(snapshot["slots"][6]["child"], Value::Null);
+        for (index, state) in states.into_iter().enumerate() {
+            assert_eq!(snapshot["slots"][index]["state"], json!(state));
+            assert_eq!(
+                snapshot["slots"][index]["timer"],
+                json!({"start_frame": -1, "duration": index})
+            );
+            assert_eq!(snapshot["slots"][index]["is_missile"], index == 3);
+        }
+        assert_eq!(spawn_sample_count(&snapshot), 8);
+        assert_eq!(entity.spawn_manager.as_ref(), Some(&manager));
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+
+    #[test]
+    fn spawn_snapshots_charge_manager_and_slots_and_commit_only_within_budget() {
+        for available in [4, 5] {
+            let mut map = MapObservation {
+                sample_count: MAX_OBSERVATION_SAMPLES - available,
+                ..Default::default()
+            };
+            let result = map.observe_frame(
+                MapFrameObservation {
+                    completed_steps: 0,
+                    simulation_tick: 0,
+                    binary_frame: 0,
+                    total_simulation_ms: 0,
+                    actors: vec![json!({"spawns": {"slots": [{}, {}, {}]}})],
+                    houses: vec![],
+                    missing_actor_ids: vec![],
+                    terrain: vec![],
+                    effects: None,
+                    lasers: None,
+                    electric_bolts: None,
+                    bombs: None,
+                    crates: None,
+                    input: None,
+                    audio_state: None,
+                },
+                BTreeSet::new(),
+            );
+            assert_eq!(result.is_ok(), available == 5);
+            assert_eq!(map.frames.len(), usize::from(available == 5));
+            assert_eq!(
+                map.sample_count,
+                if available == 5 {
+                    MAX_OBSERVATION_SAMPLES
+                } else {
+                    MAX_OBSERVATION_SAMPLES - available
+                }
+            );
+        }
+    }
+
+    #[test]
     fn bomb_snapshots_charge_index_and_records_and_commit_only_within_budget() {
         for available in [2, 3] {
             let mut map = MapObservation {
@@ -4657,6 +4851,9 @@ mod tests {
         legacy.observe_bombs = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
+        legacy.observe_spawns = Some(false);
+        assert!(legacy.validate().is_err());
+        let mut legacy = example();
         legacy.cursor_position = Some([720, 556]);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
@@ -4687,6 +4884,7 @@ mod tests {
         modern["observe_electric_bolts"] = json!(true);
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
+        modern["observe_spawns"] = json!(true);
         modern["observe_crates"] = json!(true);
         modern["cursor_position"] = json!([720, 556]);
         modern["gestures"] = json!([]);
@@ -4709,6 +4907,7 @@ mod tests {
             "observe_electric_bolts",
             "observe_electric_bolt_steps",
             "observe_bombs",
+            "observe_spawns",
             "observe_crates",
             "camera_cell",
             "cursor_position",
@@ -4725,13 +4924,16 @@ mod tests {
             );
         }
         modern["observe_action_line_inputs"] = json!(false);
+        modern["observe_spawns"] = json!(false);
         let disabled: MapCaptureProfile = serde_json::from_value(modern.clone()).unwrap();
         disabled.validate().unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap(), modern);
-        for value in [json!(0), json!(1), json!("true"), json!([])] {
-            let mut invalid = modern.clone();
-            invalid["observe_action_line_inputs"] = value;
-            assert!(serde_json::from_value::<MapCaptureProfile>(invalid).is_err());
+        for key in ["observe_action_line_inputs", "observe_spawns"] {
+            for value in [json!(0), json!(1), json!("true"), json!([])] {
+                let mut invalid = modern.clone();
+                invalid[key] = value;
+                assert!(serde_json::from_value::<MapCaptureProfile>(invalid).is_err());
+            }
         }
         for (key, value) in [("ignored", json!(true)), ("entity_id", json!(1.0))] {
             let mut invalid = modern.clone();

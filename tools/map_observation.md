@@ -252,6 +252,49 @@ entry and each carried record count toward the shared 100000-sample budget;
 the 128 MiB receipt limit is unchanged. False/absent adds no frame or actor
 fields, v1 rejects any presence, and present null/nonboolean values are invalid.
 
+Optional v2/v3 `observe_spawns: true` adds `spawns` to every observed actor at L0
+and each committed frame. It is `null` when the actor has no spawn manager.
+Otherwise it reads current rules `type_spawns_number`, retained `spawn_type`,
+`count_docked`, `count_alive`, `mode`, `regen_rate`, `reload_rate`,
+`current_target`, `queued_target`, `update_timer`, `spawn_timer` and ordered
+`slots`. Slot rows contain nullable `child`, `state`, `timer` and `is_missile`.
+Mode and state use the existing enum names; targets use the ordinary tagged
+target shape. Timers retain signed `{start_frame,duration}` values without
+advancing or inferring a countdown. Current type capacity, the two count queries
+and retained slot sequence are independent reads, so analysis can detect a
+disagreement. The observer never launches, recalls, docks, refills or retires a
+child. It includes managers and limbo children already admitted by the ordinary
+actor filter; removed actors use the existing `missing_actor_ids` history.
+One present manager and every retained slot count toward the shared sample
+budget, in addition to the actor. False/absent adds no actor fields; v1 rejects
+any presence, and present null/nonboolean profile values are invalid. These
+snapshots support a real Carrier sortie/reload/removal observation, not native
+flight scheduling or rendered parity by themselves.
+
+The [Carrier profile](map_observation.carrier-spawn-pips.example.json) selects a
+map-placed stock CARRIER, clicks an unarmed enemy LCRF, then orders Stop after
+the first damage. Materialize its scratch map with the existing
+[Aegis adaptation recipe](#human-guard-aegis-distributed-fire-observation) and
+the same Dreadnought water terrain. In that recipe use this profile, retain the
+empty Structures/Infantry/AITriggerTypes sections, set Waypoints to
+`0=48040` and `1=62062`, and replace the Units body with:
+
+```ini
+0=VERA-OBSERVER,CARRIER,256,40,48,64,Guard,None,0,-1,0,-1,1,1
+1=Computer1,LCRF,256,52,48,64,Sleep,None,0,-1,0,-1,1,1
+2=Computer1,LCRF,256,55,52,64,Sleep,None,0,-1,0,-1,1,1
+```
+
+Replace `launch.selected_map_file` with that map's absolute path. The second
+craft preserves an opponent after target loss; neither type nor weapon rules
+are changed. At 800×600, camera cell(43,46), Normal sidebar and zoom1, the
+selection/attack clicks are(166,269)/(526,449). Check actual camera and picker
+receipts before reusing them with another layout. Read `spawns` alongside the
+Hornets' ordinary limbo, Ammo, target/nav and missing-ID observations; docking
+fills a slot while it is still Reloading, and ReadyDocked does not add another
+filled pip. The example's ending step bounds a production witness, not a native
+timing golden. A parent-removal witness needs a separate ordinary damage case.
+
 Optional v2 `observe_audio` records device-mixer queue pulls from requested ordinary
 SFX Players. For example:
 

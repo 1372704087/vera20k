@@ -837,3 +837,64 @@ health/location, palette and retained House totals are declared priors. Full
 House construction/assessment, selection, Display traversal, device output,
 nonallied+210 production, arbitrary strings/locales and whole functions/classes
 remain OPEN/PARTIAL.
+
+## Ordinary CARRIER spawn-count pips
+
+`--spawn-pips` adds the independent spawn row to the existing status generator,
+Unit/Ship and Aircraft/Infantry prefixes, INI/palette and packed-shape owners.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --spawn-pips --check
+```
+
+`spawn_pips.json` retains the shared `readers`, `physical_inputs`, `palette`,
+`status_runtime` and `raster_controls` schema. Original Unit/TechnoType
+constructors initialize Spawns/count/regen/reload to null/0/0/0. Original
+714E97..714F1C reads Spawns through the Aircraft factory, then regen, count and
+reload through current-default signed ReadInt. Physical RULESMD, optional
+LANGRULE, Battle and XMP03T4 produce CARRIER HORNET/3/600/150, Strength800,
+PipScaleNone and Passengers0. The selected native HORNET fields and type
+constructor/layer outputs are recorded; archive/cache transport supplies strings
+without replacing scalar readers.
+
+`manager_constructor` executes complete6B6C90 with count0, proving native member,
+UpdateTimer20/SpawnTimer0 and null-target/mode defaults without entering child
+CreateObject/Limbo. The existing prefixes create typed retained HORNET inputs;
+their constructor RNG/passive timers remain separate from drawing. Each actor
+declares `node_states` for three retained nodes: states0/6 use docked/reloading
+live children,2/3/4 live launched children and7 a null regenerating child, with
+explicit node timers. These are render-consumer priors. The independently
+consumed `tools/rocket_oracle/spawn_manager.json` and `sim::spawn_manager` retain
+the actual launch/return/reload/expiry/cleanup authority; no second manager runs.
+
+Every raster row executes complete DrawExtras6F5190, actual selected/hover and
+observer/sinking gates, health6F64A0 and admitted pips709A90. The independent
+709B73..709C25 arm loops current type SpawnsNumber, queries retained manager
+6B7D50 and emits PIPS2 frame1 for docked count, frame0 otherwise. Each
+`actor_results[].spawn_count_docked` is a direct native query output. Only0/6
+count; reloading is filled and zero docked children still draws three outlines.
+The ordinary row begins at projection-relative(-15,+10), four-pixel steps,
+before the later PipScale arms. Original calls, frame origins and clipping
+produce the expected pixels, rather than a host coordinate or count formula.
+
+Physical PIPS2 and PALETTE use the existing original N53 Convert. Spawn flags600
+execute the plain4912B0 material, bypassingA/Z at brightness1000. Controls cover
+counts3/2/1/0, all reloading, A127/63/2/0, oldZ0, selected/hover/unselected,
+nonallied-zero-mask/sinking, partial left/right clip and parent ordering. Native
+frame0 stores12 outline pixels and frame1 stores16. Ordered overlap retains
+positive first-parent overwrites; actor/manager/node bytes and A/Z stay unchanged.
+
+`current_capacity_two` reads an authored SpawnsNumber2 with an explicit retained
+three-node pool: native count3 still emits only two slots. In
+`independent_passenger_row`, original readers apply Passengers2, SizeLimit2 and
+PipScalePassengers, and native Cargo adds one E1. Original pips emits1/1/1,
+then3/0 starting at the same origin. `independent_row_overwrites` records actual
+overwritten stores, and `scenario_reader` records before/after native fields.
+Original readers restore the physical fields afterward. Neither control claims
+that stock construction produced a changed-capacity pool or carried infantry.
+
+Measured drawing requests no RNG, writes no timer and calls no detach. Actor
+prefixes, placement/selection/House, health and retained node states are supplied
+inputs. Full Display/body, paid naval exit/placement, spawn flight/combat/audio
+and removal, arbitrary types/PipScales and whole function/class coverage remain
+OPEN/PARTIAL.

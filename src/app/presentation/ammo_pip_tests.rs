@@ -9,13 +9,16 @@ use crate::sim::world::Simulation;
 fn frames(sim: &Simulation, rules: &RuleSet, id: u64, hover: Option<u64>) -> Vec<usize> {
     let before = sim.state_hash();
     let entity = sim.entities().get(id).expect("Harrier survives");
-    let result = super::ui_overlays::scale_pip_frames(
+    let result = super::ui_overlays::scale_pip_draws(
         sim,
         entity,
         hover,
         Some(sim.interner.resolve(entity.owner())),
         rules,
-    );
+    )
+    .into_iter()
+    .map(|pip| pip.frame)
+    .collect();
     assert_eq!(
         before,
         sim.state_hash(),

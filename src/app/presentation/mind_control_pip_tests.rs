@@ -12,13 +12,16 @@ fn pip_frames(scene: &MindScene, hovered: Option<u64>) -> Vec<usize> {
     let Some(controller) = sim.entities().get(scene.mind()) else {
         return Vec::new();
     };
-    super::scale_pip_frames(
+    super::scale_pip_draws(
         sim,
         controller,
         hovered,
         Some(sim.interner.resolve(controller.owner())),
         scene.rules(),
     )
+    .into_iter()
+    .map(|pip| pip.frame)
+    .collect()
 }
 
 #[test]
@@ -68,13 +71,16 @@ fn stock_selected_mastermind_submits_real_capture_count_and_overload_pips() {
     // three ordinary slots, then IsOverloading4726C0 adds exactly one idle
     // overload slot. Exercise the same status submission used by rendering,
     // after actual FireAt/CaptureUnit and ordinary selection/body admission.
-    let frames = crate::app::presentation::ui_overlays::scale_pip_frames(
+    let frames: Vec<_> = crate::app::presentation::ui_overlays::scale_pip_draws(
         scene.simulation(),
         controller,
         None,
         Some(scene.simulation().interner.resolve(owner)),
         scene.rules(),
-    );
+    )
+    .into_iter()
+    .map(|pip| pip.frame)
+    .collect();
     assert_eq!(frames, [1, 1, 1, 4]);
 
     scene.queue_command(CommandEnvelope::new(

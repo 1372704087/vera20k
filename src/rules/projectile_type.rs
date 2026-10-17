@@ -284,7 +284,8 @@ impl ProjectileArtState {
             // Constructor5F7090 defaults; original executable controls:
             // tools/projectile_oracle/line_trail.json reader_controls.
             self.use_line_trail = section.read_bool("UseLineTrail", self.use_line_trail);
-            self.line_trail_color = section.read_color_rgb("LineTrailColor", self.line_trail_color);
+            self.line_trail_color =
+                section.read_color_rgb("LineTrailColor", self.line_trail_color, None);
             self.line_trail_color_decrement =
                 section.read_int("LineTrailColorDecrement", self.line_trail_color_decrement);
         }

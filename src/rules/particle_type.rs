@@ -214,8 +214,8 @@ impl ParticleType {
 
             color_list: section.read_color_list("ColorList").unwrap_or_default(),
             color_speed: NativeF64Bits::from_bits(section.read_double("ColorSpeed", 0.0).to_bits()),
-            start_color_1: section.read_color_rgb("StartColor1", [0, 0, 0]),
-            start_color_2: section.read_color_rgb("StartColor2", [0, 0, 0]),
+            start_color_1: section.read_color_rgb("StartColor1", [0, 0, 0], None),
+            start_color_2: section.read_color_rgb("StartColor2", [0, 0, 0], None),
 
             x_velocity: section.read_int("XVelocity", 0),
             y_velocity: section.read_int("YVelocity", 0),

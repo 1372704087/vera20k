@@ -352,22 +352,21 @@ pub(crate) fn build_unit_instances(
         // own intensity (`0x0073D283`). Every other voxel body, such as an
         // aircraft's, takes TechnoClass::Draw's arm (`0x0070678D..
         // 0x007067E2`), the same scale.
-        //
-        // RESIDUAL: the rest of DrawVoxelBody's block
-        // (`0x0073BF7B..0x0073C15F`). The curtain ORs the `IronCurtainColor=`
-        // `[ColorAdd]` colour, and a Berzerk unit the `BerserkColor=` one,
-        // into the colour word the composite's blit ORs into each pixel
-        // (retail IronCurtainColor=0 selects None, whose OR is zero); VERA
-        // hands that blit no colour word. A deactivated unit then draws at
-        // half the intensity.
+        // Unit's remaining colour/deactivation phase is shared by all
+        // stable and posed hull/turret/barrel consumers below. The harvest
+        // overlay continues to receive the original light.
         let (body_tint, body_light) = crate::app::presentation::lighting::techno_effect_light(
             entity,
             tint,
             palette_light,
             sim,
         );
-        let (body_tint, body_light) = crate::app::presentation::lighting::deactivated_unit_light(
-            entity, body_tint, body_light,
+        let (body_tint, body_light) = crate::app::presentation::lighting::unit_voxel_effect_light(
+            entity,
+            body_tint,
+            body_light,
+            state.rules(),
+            sim.session.binary_frame,
         );
         let center_x: f32 = sx;
         let center_y: f32 = sy;
@@ -1794,19 +1793,11 @@ mod tests {
         );
     }
 
-    /// Each `curtain_draw_arm` row (DrawVoxelBody `0x0073BF7B..0x0073C166`
-    /// run natively) whose colour arms are idle: not Berzerk, no caller
-    /// colour word and retail's IronCurtainColor=0 in the active RGB565
-    /// format. The intensity the composite takes, at the row's frame as the
-    /// committed `binary_frame`, is the brightness
-    /// [`crate::app::presentation::lighting::techno_effect_light`] gives the body,
-    /// halved for a Deactivated row
-    /// ([`crate::app::presentation::lighting::deactivated_unit_light`]),
-    /// and the colour word VERA does
-    /// not draw has no bit in its 16-bit pixel lane (above it the conversion
-    /// leaves stale ECX bits, `0x0073BFFD`). VERA's compatibility tint takes
-    /// the intensity's ratio. The other rows are the block's residuals (on
-    /// the call site).
+    /// All51 active RGB565 rows execute original Unit73BF7B..73C166.
+    /// Production Rules readers supply the stock table and per-row Iron index;
+    /// the same material phase used by build_unit_instances must preserve the
+    /// native intensity, palette rows and low16 caller/Iron/Berserk OR word.
+    /// Native formats0/1 remain outside the active RGB565 renderer's scope.
     #[test]
     fn the_curtain_arm_matches_native() {
         let oracle: serde_json::Value =
@@ -1817,16 +1808,29 @@ mod tests {
         let int = |value: &serde_json::Value| value.as_i64().unwrap() as i32;
         let mut sim = Simulation::new();
         let tint = [0.6, 0.9, 1.2];
+        let mut rules_by_iron_index = std::collections::BTreeMap::new();
+        for index in [0, 4, 9] {
+            let patch = crate::rules::ini_parser::IniFile::from_str(&format!(
+                "[AudioVisual]\nIronCurtainColor={index}\n"
+            ));
+            let Some(battle) =
+                crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch(
+                    "XMP03T4.MAP",
+                    &patch,
+                )
+            else {
+                return;
+            };
+            rules_by_iron_index.insert(index, battle.rules);
+        }
         let mut compared = 0;
         for row in rows {
-            if row["berzerk"].as_bool().unwrap()
-                || int(&row["word"]) != 0
-                || int(&row["iron_color"]) != 0
-                || int(&row["pixel_format"]) != 2
-            {
+            if int(&row["pixel_format"]) != 2 {
                 continue;
             }
             let mut unit = GameEntity::test_default(1, "HTNK", "Russians", 10, 10);
+            unit.berserk
+                .set_active_for_test(row["berzerk"].as_bool().unwrap());
             unit.flashing.start(int(&row["flash"]));
             unit.deactivated
                 .set_for_test(row["deactivated"].as_bool().unwrap());
@@ -1840,21 +1844,67 @@ mod tests {
             );
             let intensity = int(&row["intensity"]);
             let light =
-                crate::render::palette_light::PaletteLight::color_scheme([1000; 3], intensity);
+                crate::render::palette_light::PaletteLight::color_scheme([1000; 3], intensity)
+                    .with_colour_word(int(&row["word"]) as u16);
             sim.session.binary_frame = int(&row["frame"]) as u32;
             let (lit_tint, lit) =
                 crate::app::presentation::lighting::techno_effect_light(&unit, tint, light, &sim);
-            let (lit_tint, lit) =
-                crate::app::presentation::lighting::deactivated_unit_light(&unit, lit_tint, lit);
+            let (lit_tint, lit) = crate::app::presentation::lighting::unit_voxel_effect_light(
+                &unit,
+                lit_tint,
+                lit,
+                Some(&rules_by_iron_index[&int(&row["iron_color"])]),
+                sim.session.binary_frame,
+            );
             let out = int(&row["out_intensity"]);
             assert_eq!(lit.brightness(), out, "{row}");
             assert_eq!(lit.rows(), light.rows(), "{row}");
             let ratio = out as f32 / intensity as f32;
             assert_eq!(lit_tint, tint.map(|channel| channel * ratio), "{row}");
-            assert_eq!(row["out_word"].as_u64().unwrap() & 0xFFFF, 0, "{row}");
+            assert_eq!(
+                u64::from(lit.colour_word()),
+                row["out_word"].as_u64().unwrap() & 0xFFFF,
+                "{row}"
+            );
             compared += 1;
         }
-        assert_eq!(compared, 46);
+        assert_eq!(compared, 51);
+    }
+
+    #[test]
+    fn voxel_aircraft_does_not_take_unit_colour_arms() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[ColorAdd]\nBlue=0,0,24\n[AudioVisual]\nBerserkColor=0\nIronCurtainColor=0\n",
+            ))
+            .unwrap();
+        let mut aircraft = GameEntity::test_default_of_category(
+            1,
+            "ORCA",
+            "Americans",
+            10,
+            10,
+            crate::map::entities::EntityCategory::Aircraft,
+        );
+        aircraft.berserk.set_active_for_test(true);
+        aircraft.invulnerability = Some(
+            crate::sim::superweapon::invulnerability::InvulnerabilityState::new(
+                CdTimer::from_raw(4990, 750),
+                crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain,
+            ),
+        );
+        let light = crate::render::palette_light::PaletteLight::color_scheme([1000; 3], 1000)
+            .with_colour_word(0x1234);
+        let (tint, lit) = crate::app::presentation::lighting::unit_voxel_effect_light(
+            &aircraft,
+            [1.0; 3],
+            light,
+            Some(&rules),
+            5000,
+        );
+        assert_eq!(lit.colour_word(), 0x1234);
+        assert_eq!(lit.brightness(), 1000);
+        assert_eq!(tint, [1.0; 3]);
     }
 
     /// Retail `[AudioVisual] IronCurtainColor=0;4` reads 0 through ReadInt
@@ -1872,8 +1922,8 @@ mod tests {
             .read_int("IronCurtainColor", i32::MIN);
         assert_eq!(index, 0);
         let colors = crate::rules::color_add::ColorAddTable::from_ini(&ini);
-        assert_eq!(colors.slots[0].name.as_deref(), Some("None"));
-        assert_eq!(colors.slots[0].rgb, [0, 0, 0]);
+        assert_eq!(colors.entries()[0].name.as_deref(), Some("None"));
+        assert_eq!(colors.entries()[0].rgb, [0, 0, 0]);
     }
 
     #[test]

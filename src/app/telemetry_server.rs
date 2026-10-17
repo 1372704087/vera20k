@@ -201,6 +201,13 @@ impl TelemetryServer {
             .retain(|client| client.try_send(json.clone()).is_ok());
     }
 
+    /// Whether a browser is listening right now. Capture leaves the log ring
+    /// untouched while nobody is, so a reader that connects later still finds
+    /// the backlog instead of an empty console.
+    pub fn has_clients(&self) -> bool {
+        !self.shared.clients().is_empty()
+    }
+
     /// Take the browser commands that arrived since the last call. Called
     /// from the game thread once per frame; never blocks.
     pub fn drain_commands(&self) -> Vec<DebugCommand> {

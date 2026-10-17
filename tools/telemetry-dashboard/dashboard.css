@@ -607,11 +607,10 @@
      their DOM so a switch back is a redraw, not a rebuild. */
   main { display: grid; }
   body[data-view="wall"] main#detail,
-  body[data-view="wall"] main#report,
-  body[data-view="detail"] main#wall,
-  body[data-view="detail"] main#report,
-  body[data-view="report"] main#wall,
-  body[data-view="report"] main#detail { display: none; }
+  body[data-view="wall"] main:not(#wall),
+  body[data-view="detail"] main:not(#detail),
+  body[data-view="report"] main:not(#report),
+  body[data-view="logs"] main:not(#logs) { display: none; }
 
   /* ===================================================== player detail wall */
   main.detail {
@@ -767,6 +766,77 @@
     border-bottom: 0; padding: 0;
   }
   .table-wrap { overflow-y: auto; min-height: 0; flex: 1; }
+
+  /* ======================================================== log console */
+  main.logs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 10px 12px 12px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  main.logs .panel { min-height: 0; }
+  .log-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    margin-bottom: 8px;
+  }
+  .log-select, .log-search {
+    background: rgba(0, 40, 80, 0.4);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 3px 8px;
+    font: inherit;
+    font-size: 11.5px;
+  }
+  .log-search { flex: 1; min-width: 120px; }
+  .log-search::placeholder { color: #47708c; }
+  .log-follow {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .log-count {
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--dim);
+    text-transform: none;
+  }
+  .log-dropped { font-size: 11px; color: var(--amber); white-space: nowrap; }
+  .log-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border-top: 1px solid var(--line);
+    font: 11.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: 66px 44px 210px minmax(0, 1fr);
+    gap: 10px;
+    padding: 1px 8px;
+    border-bottom: 1px solid rgba(0, 190, 255, 0.05);
+    white-space: nowrap;
+  }
+  .log-row > span { overflow: hidden; text-overflow: ellipsis; }
+  .log-row .t { color: var(--dim); text-align: right; }
+  .log-row .lv { font-weight: 600; }
+  .log-row .tg { color: #6fa8c8; }
+  .log-row .msg { color: var(--text); }
+  .log-row.lv1 .lv, .log-row.lv1 .msg { color: var(--red); }
+  .log-row.lv1 { background: rgba(255, 90, 110, 0.06); }
+  .log-row.lv2 .lv { color: var(--amber); }
+  .log-row.lv2 { background: rgba(255, 182, 72, 0.04); }
+  .log-row.lv4 .lv, .log-row.lv4 .msg { color: #7fa8bf; }
+  .log-row.lv5 .lv, .log-row.lv5 .msg { color: #5b7b90; }
 
   /* ------------------------------------------------ cost-panel pagination */
   /* The cost panel carries two readings that share a column but not a shape:

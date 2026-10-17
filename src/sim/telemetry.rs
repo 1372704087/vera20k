@@ -57,7 +57,8 @@ use crate::sim::world::Simulation;
 /// v13: `profile` gained `phases_ms`, the per-subsystem frame ledger the report
 /// table lists. The four pie buckets are derived from it, not added alongside.
 /// v14: `render` — the per-phase breakdown of one in-game render.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 14;
+/// v15: `logs` — incremental log records for the dashboard's log view.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 15;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -359,6 +360,30 @@ pub struct RenderTimingReport {
     pub other_ms: f32,
 }
 
+/// One log record on the wire.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LogRecord {
+    /// Monotonic record number; the dashboard uses it to drop duplicates.
+    pub seq: u64,
+    /// 1 = error, 2 = warn, 3 = info, 4 = debug, 5 = trace.
+    pub level: u8,
+    pub target: String,
+    pub message: String,
+    /// Milliseconds since logging started.
+    pub t_ms: u64,
+}
+
+/// Log records captured since the previous snapshot.
+///
+/// Incremental on purpose: the file log runs to hundreds of megabytes during
+/// map load, so the wire carries only what the reader has not seen.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LogBatch {
+    /// Records the ring evicted before they could be sent.
+    pub dropped: u64,
+    pub lines: Vec<LogRecord>,
+}
+
 /// One dashboard sample: the whole wire payload per snapshot.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TelemetrySnapshot {
@@ -393,6 +418,8 @@ pub struct TelemetrySnapshot {
     /// App-filled per-phase render breakdown; `None` until the app has rendered
     /// a game frame.
     pub render: Option<RenderTimingReport>,
+    /// App-filled log records since the previous snapshot.
+    pub logs: Option<LogBatch>,
 }
 
 impl Simulation {
@@ -489,6 +516,7 @@ impl Simulation {
             process: None,
             profile: None,
             render: None,
+            logs: None,
         }
     }
 }

@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -188,6 +188,23 @@ export interface RenderTimingReport {
   other_ms: number;
 }
 
+/** One log record on the wire (schema v15). */
+export interface LogRecord {
+  seq: number;
+  /** 1 = error, 2 = warn, 3 = info, 4 = debug, 5 = trace. */
+  level: number;
+  target: string;
+  message: string;
+  t_ms: number;
+}
+
+/** Records captured since the previous snapshot. */
+export interface LogBatch {
+  /** Records the ring evicted before they could be sent. */
+  dropped: number;
+  lines: LogRecord[];
+}
+
 export interface TelemetrySnapshot {
   version: number;
   tick: number;
@@ -202,4 +219,5 @@ export interface TelemetrySnapshot {
   process: ProcessStats | null;
   profile: FrameProfileReport | null;
   render: RenderTimingReport | null;
+  logs: LogBatch | null;
 }

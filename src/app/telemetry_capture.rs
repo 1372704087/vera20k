@@ -66,6 +66,31 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
     // Render phases are process wall time, so they come from the app's meter
     // rather than the simulation's profile.
     snapshot.render = state.diag.render_timing.report();
+    // Log records since the previous snapshot. A map load can emit thousands a
+    // second; the newest win, and the rest are counted as dropped so the view
+    // never silently claims to be complete.
+    let subscribed = state
+        .diag
+        .telemetry_server
+        .as_ref()
+        .is_none_or(|server| server.has_clients());
+    if subscribed && let Some(ring) = crate::util::logging::ring() {
+        const MAX_PER_SNAPSHOT: usize = 300;
+        let (lines, evicted) = ring.take_since_last(MAX_PER_SNAPSHOT);
+        snapshot.logs = Some(crate::sim::telemetry::LogBatch {
+            dropped: evicted,
+            lines: lines
+                .into_iter()
+                .map(|line| crate::sim::telemetry::LogRecord {
+                    seq: line.seq,
+                    level: line.level,
+                    target: line.target,
+                    message: line.message,
+                    t_ms: line.t_ms,
+                })
+                .collect(),
+        });
+    }
     Some(snapshot)
 }
 

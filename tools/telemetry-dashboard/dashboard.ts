@@ -25,6 +25,8 @@ import {
   EntityDesc,
   FrameProfileReport,
   HousePopulation,
+  LogBatch,
+  LogRecord,
   OverlayFlags,
   ProcessStats,
   RenderTimingReport,
@@ -38,7 +40,7 @@ import {
 const CHART_WINDOW = 240;
 
 /** The three walls the header tabs pick between. */
-type AppView = "wall" | "detail" | "report";
+type AppView = "wall" | "detail" | "report" | "logs";
 
 let map3d: Map3D | null = null;
 /** Latest snapshot, kept so a language switch can re-render every panel. */
@@ -2049,10 +2051,34 @@ function setupViews(): void {
     document.getElementById("view-report")?.classList.toggle("on", view === "report");
     if (view === "detail" && lastSnapshot) renderDetail(lastSnapshot);
     if (view === "report") renderReport();
+    if (view === "logs") rebuildLogView();
   };
   document.getElementById("view-wall")?.addEventListener("click", () => show("wall"));
   document.getElementById("view-detail")?.addEventListener("click", () => show("detail"));
   document.getElementById("view-report")?.addEventListener("click", () => show("report"));
+  document.getElementById("view-logs")?.addEventListener("click", () => show("logs"));
+  document.getElementById("log-pause")?.addEventListener("click", toggleLogPause);
+  document.getElementById("log-clear")?.addEventListener("click", clearLogs);
+  document.getElementById("log-follow")?.addEventListener("change", (event) => {
+    logFollow = (event.target as HTMLInputElement).checked;
+    if (logFollow) rebuildLogView();
+  });
+  document.getElementById("log-level")?.addEventListener("change", (event) => {
+    logLevel = Number((event.target as HTMLSelectElement).value) || 3;
+    rebuildLogView();
+  });
+  const logSearch = document.getElementById("log-search") as HTMLInputElement | null;
+  if (logSearch) {
+    logSearch.placeholder = t("log.search");
+    logSearch.addEventListener("input", () => {
+      if (logSearchTimer !== null) window.clearTimeout(logSearchTimer);
+      logSearchTimer = window.setTimeout(() => {
+        logSearchTimer = null;
+        logQuery = logSearch.value.trim().toLowerCase();
+        rebuildLogView();
+      }, 160);
+    });
+  }
   document.getElementById("make-report")?.addEventListener("click", () => openShotPreview("report"));
   document.getElementById("export-phases")?.addEventListener("click", () => openShotPreview("ledger"));
   document.getElementById("shot-close")?.addEventListener("click", closeShot);
@@ -2077,6 +2103,122 @@ function setupViews(): void {
  * disagree — at report size, and pairs it with the house table so the numbers
  * can be read against who is on the map while they are being measured.
  */
+// ------------------------------------------------------------ log console
+
+/** Rows kept in memory and in the DOM. The engine's ring holds more, but this
+ *  is what the browser renders without stuttering. */
+const LOG_LIMIT = 3000;
+const LOG_LEVEL_NAMES = ["", "ERR", "WRN", "INF", "DBG", "TRC"];
+
+let logLines: LogRecord[] = [];
+let logPaused = false;
+let logFollow = true;
+let logLevel = 3;
+let logQuery = "";
+let logDropped = 0;
+let logSearchTimer: number | null = null;
+
+function logVisible(line: LogRecord): boolean {
+  if (line.level > logLevel) return false;
+  if (logQuery.length === 0) return true;
+  return (
+    line.message.toLowerCase().includes(logQuery) ||
+    line.target.toLowerCase().includes(logQuery)
+  );
+}
+
+function logRow(line: LogRecord): HTMLElement {
+  const row = document.createElement("div");
+  row.className = `log-row lv${line.level}`;
+  const time = document.createElement("span");
+  time.className = "t";
+  time.textContent = `${(line.t_ms / 1000).toFixed(3)}s`;
+  const level = document.createElement("span");
+  level.className = "lv";
+  level.textContent = LOG_LEVEL_NAMES[line.level] ?? "?";
+  const target = document.createElement("span");
+  target.className = "tg";
+  target.textContent = line.target;
+  target.title = line.target;
+  const message = document.createElement("span");
+  message.className = "msg";
+  message.textContent = line.message;
+  message.title = line.message;
+  row.append(time, level, target, message);
+  return row;
+}
+
+function updateLogCount(): void {
+  const count = document.getElementById("log-count");
+  if (!count) return;
+  const list = document.getElementById("log-list");
+  count.textContent = t("log.count", {
+    shown: thousands(list ? list.childElementCount : 0),
+    total: thousands(logLines.length),
+  });
+}
+
+function appendLogRows(lines: LogRecord[]): void {
+  const list = document.getElementById("log-list");
+  if (!list) return;
+  const fragment = document.createDocumentFragment();
+  for (const line of lines) {
+    if (logVisible(line)) fragment.append(logRow(line));
+  }
+  if (fragment.childElementCount === 0) return;
+  list.append(fragment);
+  // Trim from the top: the tail is what a reader is watching.
+  while (list.childElementCount > LOG_LIMIT) list.firstElementChild?.remove();
+  if (logFollow) list.scrollTop = list.scrollHeight;
+  updateLogCount();
+}
+
+/** Redraw every visible row from the buffer: filter changes, view entry, resume. */
+function rebuildLogView(): void {
+  const list = document.getElementById("log-list");
+  if (!list) return;
+  const fragment = document.createDocumentFragment();
+  for (const line of logLines) {
+    if (logVisible(line)) fragment.append(logRow(line));
+  }
+  list.replaceChildren(fragment);
+  if (logFollow) list.scrollTop = list.scrollHeight;
+  updateLogCount();
+}
+
+/** Take one snapshot's worth of records. Paused only stops the drawing; the
+ *  buffer keeps filling so resuming shows what arrived meanwhile. */
+function acceptLogs(batch: LogBatch | null): void {
+  if (!batch) return;
+  if (batch.dropped > 0) {
+    logDropped += batch.dropped;
+    const marker = document.getElementById("log-dropped");
+    if (marker) marker.textContent = t("log.dropped", { n: thousands(logDropped) });
+  }
+  if (batch.lines.length === 0) return;
+  logLines.push(...batch.lines);
+  if (logLines.length > LOG_LIMIT) {
+    logLines.splice(0, logLines.length - LOG_LIMIT);
+  }
+  if (!logPaused && currentView === "logs") appendLogRows(batch.lines);
+  else updateLogCount();
+}
+
+function toggleLogPause(): void {
+  logPaused = !logPaused;
+  const button = document.getElementById("log-pause");
+  if (button) button.textContent = t(logPaused ? "log.resume" : "log.pause");
+  if (!logPaused) rebuildLogView();
+}
+
+function clearLogs(): void {
+  logLines = [];
+  logDropped = 0;
+  const marker = document.getElementById("log-dropped");
+  if (marker) marker.textContent = "";
+  rebuildLogView();
+}
+
 /** The stream arrives ~11×/s. Rebuilding a forty-row table that often reads as
  *  flicker rather than as live data, so the wall redraws at most four times a
  *  second and coalesces whatever arrived in between. */
@@ -2246,6 +2388,7 @@ function connect(): void {
       return;
     }
     lastSnapshot = snapshot;
+    acceptLogs(snapshot.logs);
     setStatus(true);
     // The detail view's history must keep flowing while the data wall shows,
     // or its charts restart at every switch.

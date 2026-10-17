@@ -45,6 +45,10 @@
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h5.2L13 5.3V14.5H4z"/><path d="M9 1.8V5.5h3.4"/><path d="M6 9h5M6 11.5h5"/></svg>
       <span data-i18n="nav.report">current match</span>
     </button>
+    <button id="view-logs" class="nav-item" data-view="logs">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h8"/></svg>
+      <span data-i18n="nav.logs">logs</span>
+    </button>
   </nav>
 
   <div class="head-meta">
@@ -227,6 +231,30 @@
       <table id="report-houses"></table>
     </div>
     <p class="hint" id="report-foot"></p>
+  </section>
+</main>
+
+<main id="logs" class="logs">
+  <section class="panel">
+    <h2><span data-i18n="nav.logs">日志</span>
+      <span id="log-count" class="log-count"></span>
+      <button id="log-clear" class="panel-btn" type="button" data-i18n="log.clear">清空</button>
+      <button id="log-pause" class="panel-btn" type="button" data-i18n="log.pause">暂停</button>
+    </h2>
+    <div class="log-tools">
+      <select id="log-level" class="log-select">
+        <option value="1" data-i18n="log.error">error</option>
+        <option value="2" data-i18n="log.warn">warn+</option>
+        <option value="3" selected data-i18n="log.info">info+</option>
+        <option value="4" data-i18n="log.debug">debug+</option>
+        <option value="5" data-i18n="log.trace">trace</option>
+      </select>
+      <input id="log-search" class="log-search" type="search" placeholder="filter target or text">
+      <label class="log-follow"><input id="log-follow" type="checkbox" checked>
+        <span data-i18n="log.follow">auto-scroll</span></label>
+      <span id="log-dropped" class="log-dropped"></span>
+    </div>
+    <div class="log-list" id="log-list"></div>
   </section>
 </main>
 

@@ -679,7 +679,19 @@ impl Simulation {
                         || (object.movement_zone == MovementZone::CrusherAll
                             && (wall
                                 || (call.family == TrackFamily::Drive
-                                    && self.cell_first_unit(next_cell).is_some())))
+                                    && next_cell.0 >= 0
+                                    && next_cell.1 >= 0
+                                    && self
+                                        .substrate
+                                        .occupancy
+                                        .first_category_on_layer(
+                                            next_cell.0 as u16,
+                                            next_cell.1 as u16,
+                                            MovementLayer::Ground,
+                                            EntityCategory::Unit,
+                                            &self.substrate.entities,
+                                        )
+                                        .is_some())))
                 }
                 None => false,
             }
@@ -1036,24 +1048,6 @@ impl Simulation {
             (cell.0 as u16, cell.1 as u16),
             road,
         );
-    }
-
-    /// CellClass::FindFirstUnit(0) 0x47EBA0: the first Unit of the ground list.
-    fn cell_first_unit(&self, cell: (i16, i16)) -> Option<u64> {
-        if cell.0 < 0 || cell.1 < 0 {
-            return None;
-        }
-        self.substrate
-            .occupancy
-            .get(cell.0 as u16, cell.1 as u16)?
-            .iter_layer(MovementLayer::Ground)
-            .map(|entry| entry.entity_id)
-            .find(|&id| {
-                self.substrate
-                    .entities
-                    .get(id)
-                    .is_some_and(|entity| entity.category() == EntityCategory::Unit)
-            })
     }
 
     fn clear_track_head_of(&mut self, id: u64) {

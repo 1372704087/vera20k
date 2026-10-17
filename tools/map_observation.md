@@ -402,6 +402,25 @@ The export records a final incomplete channel frame, if present, as
 `unframed_tail_samples`; those samples remain intact in the original receipt.
 Neither export nor validation writes into a retained run.
 
+The [GI damage-feedback profile](map_observation.e1-feedback.example.json)
+uses a full-health local GI, one initial tank and four supporting stock tanks.
+Generate its clear-ground placement map before capturing:
+
+```sh
+python tools/render_depth_fixture.py target/stock-e1-feedback-removal.map --damage-feedback removal
+```
+
+Copy the profile and set `launch.selected_map_file` to the generated map's
+absolute path; relative map names are searched in the retail install.
+
+The first ForceAttack admits ordinary damage; the later volley can remove the
+GI while its unbound `GIFear` event is playing. Inspect the actual health crossing,
+submission/start/completion contexts, null owner, physical sample and retirement.
+The `single` fixture variant supplies only the initial tank for a natural-end
+control. Both variants retain full map health and retail weapons/rules. A launch
+seed does not specify the later percent draw after loading and audio service;
+absence of a submission alone cannot establish the exact rejected value.
+
 Literal `key` gestures may optionally include a unique `modifiers` list containing
 `Ctrl`, `Shift`, `Alt`, and/or `Super`. These use the shared modifier-key owner and
 ordinary key edges, and release every modifier before rendering. Bare historical

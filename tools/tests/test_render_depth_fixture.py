@@ -72,6 +72,26 @@ def decode_iso_cells(section):
 
 
 class RenderDepthFixtureTests(unittest.TestCase):
+    def test_damage_feedback_keeps_full_health_stock_actors_on_clear_ground(self):
+        for mode, tanks in [('single', 1), ('removal', 5)]:
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(damage_feedback=mode))
+                gi = ini['Infantry']['0'].split(',')
+                self.assertEqual(gi[:5], ['Americans', 'E1', '256', '52', '48'])
+                units = [entry.split(',') for entry in ini['Units'].values()]
+                self.assertEqual(len(units), tanks)
+                self.assertTrue(all(entry[:3] == ['Americans', 'MTNK', '256'] for entry in units))
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                actors = units + [gi]
+                positions = [tuple(map(int, entry[3:5])) for entry in actors]
+                self.assertEqual(len(set(positions)), len(actors))
+                self.assertTrue(all(cells[cell] == (0, 0, 0) for cell in positions))
+                self.assertEqual(set(decode_overlay_section(ini['OverlayPack'])), {255})
+                for section in ('General', 'E1', 'MTNK', '105mm', 'AP', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(damage_feedback='single', house_self_heal='recovery')
+
     def test_house_self_heal_uses_stock_grant_and_damage_actors(self):
         for mode, fraction in [('recovery', '256'), ('removal', '32')]:
             with self.subTest(mode=mode):

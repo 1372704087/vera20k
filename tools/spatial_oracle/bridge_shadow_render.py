@@ -42,7 +42,7 @@ def ints(u, address, count):
 
 
 def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar=False,
-                    frontier=False, tmp_names=(), smudge=False, hills=False):
+                    frontier=False, tmp_names=(), smudge=False, hills=False, ore_natural=False):
     root = configured_gamemd().parent
     sources, assets = [], {}
     containers = (
@@ -63,6 +63,9 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
                          'cache.mix': ('palette.pal', 'anim.pal', 'temperat.pal', 'urban.pal')}),
             ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini')}),
         )
+    if ore_natural:
+        assert ore
+        containers += (('multimd.mix', {None: ('XMP03T4.MAP',)}),)
     if tile:
         containers = (
             ('ra2.mix', {'isotemp.mix': tuple(tmp_names) or tuple(f'clear01{s}.tem' for s in ('', 'a', 'b', 'c', 'd', 'e', 'f', 'g')),
@@ -129,9 +132,10 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
     return assets, sources
 
 
-def prepare(*, body=False, ore=False, placement=False):
+def prepare(*, body=False, ore=False, placement=False, ore_natural=False):
     assert sum((body, ore, placement)) <= 1
-    assets, sources = physical_assets(body=body, ore=ore, placement=placement)
+    assets, sources = physical_assets(body=body, ore=ore, placement=placement, ore_natural=ore_natural)
+    map_filename = 'XMP03T4.MAP' if ore_natural else 'GoldSt.mmx'
     shadow_bytes, shape_aliases = {}, []
     for name, raw in assets.items():
         image_name = name.split('.')[0]
@@ -178,7 +182,7 @@ def prepare(*, body=False, ore=False, placement=False):
         types[name] = typ
     m.make_ini(art)
     layers = []
-    for filename in ('RULESMD.INI', 'MPBattleMD.ini', *(('GoldSt.mmx',) if ore else ())):
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', *((map_filename,) if ore else ())):
         sections, lines = lexical(assets[filename.upper()], set(selected_types))
         m.rules_cache(sections)
         for name in selected_types:
@@ -212,12 +216,12 @@ def prepare(*, body=False, ore=False, placement=False):
         inputs['cell_convert'] = initialize_cell_convert(m)
     if ore:
         inputs['ordinary_convert'] = ordinary_convert_state(m)
-        inputs['tiberium'] = prepare_tiberium(m, assets)
+        inputs['tiberium'] = prepare_tiberium(m, assets, map_filename=map_filename)
         from tools.spatial_oracle.shrapnel_repair.map_facts import decode_cells
-        parsed, cells = decode_cells(assets['GOLDST.MMX'])
-        inputs['map'] = dict(name='GoldSt.mmx', physical_map_section=parsed['Map'],
+        parsed, cells = decode_cells(assets[map_filename.upper()])
+        inputs['map'] = dict(name=map_filename, physical_map_section=parsed['Map'],
                              cells=[dict(coords=list(xy), **cells[xy])
-                                    for xy in ((123, 33), (124, 33))],
+                                    for xy in (((72, 25),) if ore_natural else ((123, 33), (124, 33)))],
                              boundary='Authored pack data only; live slope0/flags0 are supplied component inputs, not native map-loader results.')
         assert all(assets[f'{name}.TEM'] == assets[f'{name}.URB'] for name in ORE_TYPES)
         assert assets['TEMPERAT.PAL'] == assets['URBAN.PAL']
@@ -238,14 +242,14 @@ def ordinary_convert_state(m):
                 table_sha256=hashlib.sha256(bytes(m.u.mem_read(table, count * 512))).hexdigest())
 
 
-def prepare_tiberium(m, assets):
+def prepare_tiberium(m, assets, *, map_filename='GoldSt.mmx'):
     """Full original Tiberium constructor and physical selected layer readers."""
     u = m.u
     u.mem_write(0xB0F4E8, dwords(0x7EB6D4, m.alloc(4096), 1024, 1, 0, 10))
     typ = m.alloc(0x200)
     m.invoke(0x7216C0, typ, (m.cstring('Riparius'),))
     layers = []
-    for filename in ('RULESMD.INI', 'MPBattleMD.ini', 'GoldSt.mmx'):
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', map_filename):
         sections, lines = lexical(assets[filename.upper()], {'Riparius'})
         m.rules_cache(sections)
         admitted = m.invoke(0x721A50, typ, (RULES,)) & 255
@@ -811,6 +815,57 @@ def generate_ore():
                 rows=rows, controls=controls, lifecycle=sequence, radar=generate_radar(m, types))
 
 
+def generate_ore_natural():
+    """Two original raster components at the native physical growth witness."""
+    import json
+    cpu = json.loads(Path(__file__).with_name('ore_authored_natural.json').read_text())
+    assert cpu['native_sha256'] == NATIVE_SHA256
+    source = next(row for row in cpu['steps'][0]['changed'] if row['before']['cell'] == [72, 25])
+    m, types, inputs = prepare(ore=True, ore_natural=True)
+    map_source = next(row for row in inputs['sources'] if row['name'] == 'XMP03T4.MAP')
+    cpu_map = next(row for row in cpu['inputs']['manifest'] if row['name'] == 'XMP03T4.MAP')
+    assert map_source['sha256'] == cpu_map['sha256']
+    # Link actual native reader outputs, not the former GoldSt layer assumptions.
+    native_type, cpu_type = inputs['tiberium']['layers'][-1], cpu['inputs']['effective_types'][0]
+    keys = dict(index='type_id', base_overlay_id='base_overlay', num_images='images',
+                num_slopes='extra', value='value', growth='growth', spread='spread',
+                growth_percentage_bits='growth_percentage_bits', spread_percentage_bits='spread_percentage_bits')
+    assert all(native_type[key] == cpu_type[other] for key, other in keys.items())
+    physical = inputs['map']['cells'][0]
+    assert physical['coords'] == source['before']['cell']
+    assert physical['overlay'] == source['before']['overlay']
+    assert physical['frame'] == source['before']['density']
+    assert physical['level'] == source['before']['level']
+    rows = []
+    for name in ('before', 'after'):
+        cell = source[name]
+        assert cell['slope'] == 0 and cell['flags'] == 0
+        typ = next(name for name, pointer in types.items() if m.read32(pointer + 0x294) == cell['overlay'])
+        rows.append(execute(m, types, dict(name=f'natural_growth_{name}', type=typ,
+            coords=cell['cell'], level=cell['level'], flags=cell['flags'], state=cell['density']), ore=True))
+    inputs['native_cpu_source'] = dict(before=source['before'], after=source['after'],
+                                       reader_fields_match=True, map_payload_match=True)
+    # Read the supplied A plane from the existing native surface owner. This
+    # records a component prior, not a native tactical/shroud producer claim.
+    a_values = set(struct.unpack('<' + 'H' * COUNT, m.u.mem_read(A, COUNT * 2)))
+    assert len(a_values) == 1, 'natural raster requires a uniform supplied A prior'
+    return dict(native_sha256=NATIVE_SHA256, inputs=inputs,
+                surface=dict(width=WIDTH, height=HEIGHT, baseline=32768, bytes_per_pixel=2,
+                             a_value=a_values.pop(), a_uniform=True), rows=rows)
+
+
+def ore_natural_metadata():
+    return provenance(scope='Two original flat Riparius rasters at physical XMP03T4 source72,25, level4/slope0/flags0, density4 then5. Native CPU and raster are separate bounded components; no whole Tactical/frame/GPU claim.',
+        assumptions=[
+            'Existing physical archive/OverlayType/Tiberium/ART/image/ordinary Convert/shape/surface owner, selecting XMP03T4.MAP in the existing layer loop instead of GoldSt. Actual physical map hash, source identity/data/level and effective type fields are compared to consumed ore_authored_natural native outputs. No Rust inputs or expected pixels.',
+            'Existing original47F6A0,480110,5FDCC0,4AED70,490E50,437A10 and4990E0 raster pipeline executes. Cell data4 and5 come from independently executed native growth; live map loader, normal Tactical projection and World AI are excluded.',
+            'Existing VM A plane is read back after the rows and required uniform; surface.a_value records its supplied neutral prior, not native shroud generation. Projected local cell_point66,141, clip192x160, viewport0, A127, backgroundFFFF and oldZ65535 remain explicit raster priors. Actual selected image/frame/rect/color/Z runs are native outputs. Original surface numeric comparison does not itself prove production fog/A upload.',
+        ], substitutions=['Existing PaletteReader successful allocator/TLS/archive transport and supplied Cell/A/Z/surface inputs. Original caller, display selector, shape/raster and palette generation are not substituted.'],
+        entry_points=dict(cell_body=0x47F6A0, draw_offset=0x480110, selector=0x5FDCC0,
+                          shape=0x4AED70, rle_selector=0x490E50, rowwalker=0x437A10,
+                          opaque=0x4990E0, type_reader=0x721A50))
+
+
 def ore_metadata():
     return provenance(
         scope='Original flat Riparius Cell body on physical TIB01..12 and global ordinary Convert, reduction1→0→empty, physical current-TMP radar color/dirty/generated stores, and two full weighted radar samplers; bounded RGB565/Z rows and signed image controls. No whole map loader, online radar or normal harvest scheduling claim.',
@@ -873,11 +928,22 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--body', action='store_true')
     modes.add_argument('--ore', action='store_true')
+    modes.add_argument('--ore-natural', action='store_true')
     modes.add_argument('--tile', action='store_true')
     modes.add_argument('--placement', action='store_true')
     modes.add_argument('--smudge', action='store_true')
     modes.add_argument('--cliff', action='store_true')
     selected, remaining = parser.parse_known_args()
+    if selected.ore_natural:
+        finish_vectors(generate_ore_natural, Path(__file__).with_name('ore_render_natural.json'),
+                       provenance=ore_natural_metadata, argv=remaining,
+                       source_paths={name: Path('tools') / name for name in (
+                           'native_oracle.py', 'oracle_sources.py', 'spatial_oracle/bridge_shadow_render.py',
+                           'spatial_oracle/bridge_constructor.py', 'palette_oracle/oracle.py',
+                           'projectile_oracle/bridge_render_inputs.py',
+                           'projectile_oracle/bridge_render_inputs_palette.py',
+                           'projectile_oracle/bridge_render_shape.py')})
+        raise SystemExit(0)
     if selected.cliff:
         from tools.spatial_oracle.cliff_render import generate as generate_cliff, metadata as cliff_metadata
         finish_vectors(generate_cliff, Path(__file__).with_name('cliff_render.json'),

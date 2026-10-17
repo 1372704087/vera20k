@@ -2146,6 +2146,23 @@ in [`spatial_oracle/ore_queue.md`](spatial_oracle/ore_queue.md) and its
 
 ## Ordinary scheduled commands and actor trajectories
 
+The [paid concrete-wall profile](map_observation.concrete-wall.example.json)
+uses stock Battle/AnyTown, America and ordinary starting forces. It deploys
+the MCV, pays for GAPOWR and GAPILE, then places two paid GAWALL endpoints
+at `(33,87)` and `(33,90)`. The production placement owner supplies the two
+intervening wall cells through its regular autofill. It moves the starting
+MTNK to `(37,88)` and orders ForceAttackCell at `(33,88)`; the profile supplies
+no ready product, overlay state, damage stage or random result. The defense
+tab samples retain the normal queue view. Numeric command handles belong to
+this launch; rediscover bindings with v3 named commands after changing it.
+
+The original-executable [wall component](spatial_oracle/anytown_damage/navigation.md)
+separately establishes three-stage AP damage, inline cardinal damage200,
+connectivity and removal. Its decoded Overlay construction inputs and
+independent RNG entry seeds are explicit component boundaries. The paid
+profile observes the normal producer and its consumers; `VALID` alone does
+not establish successful orders, native factory timing or whole-frame parity.
+
 [`map_observation.engineer-repair.example.json`](map_observation.engineer-repair.example.json)
 uses ordinary Battle/AnyTown orders to deploy the MCV, construct GAPOWR/GAPILE,
 deliver an ENGINEER, damage the power plant by MTNK ForceAttack, stop the tank,

@@ -422,15 +422,18 @@ fn repair_ordinary_bridge(
                 .then_some(e.stable_id())
         })
         .unwrap();
+    // The bank can carry ordinary ore. Foot's class-entry query needs the
+    // live type table even for Infantry; a registry-less spawn rejects it.
     let engineer = runtime
         .simulation
-        .spawn_object(
+        .spawn_object_with_overlay_registry(
             "ENGINEER",
             &owner_name,
             start.0,
             start.1,
             0,
             &runtime.resources.rules,
+            &runtime.resources.overlay_registry,
         )
         .expect("ordinary Engineer bank placement");
     let orders = producer(&runtime.simulation, &runtime.resources.rules, engineer, hut);

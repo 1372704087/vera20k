@@ -1504,6 +1504,11 @@ pub struct ObjectType {
     /// `Tiberium` shows per-bale cargo pips for harvesters using pips2.shp.
     pub pip_scale: PipScale,
 
+    /// TechnoType+3D8. Constructor710D22 clears this; the exact
+    /// PipsDrawForAll ReadBool71412B..714145 retains its current default.
+    /// Only the Building health caller uses this relationship bypass.
+    pips_draw_for_all: bool,
+
     /// TechnoType+3E4: signed PipWrap. Constructor710D40 seeds0;
     /// ReadInt714179..714198 uses the retained field as its default.
     pip_wrap: i32,
@@ -2003,7 +2008,18 @@ impl ObjectType {
         self.pip_wrap
     }
 
-    /// InfantryType+DFC: raw PIPS2 frame for this infantry as a passenger.
+    /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
+    /// Class-specific entry and lifecycle admission remain with each caller.
+    /// Original instructions/readers: procedural_drawing_oracle/absorber_pips.
+    pub const fn absorbs_passengers(&self) -> bool {
+        self.unit_absorb || self.infantry_absorb
+    }
+
+    pub const fn pips_draw_for_all(&self) -> bool {
+        self.pips_draw_for_all
+    }
+
+    /// InfantryType+DFC: passenger frame in Building PIPS or mobile PIPS2.
     pub const fn pip(&self) -> u32 {
         self.infantry_pips.pip
     }
@@ -3094,9 +3110,10 @@ impl ObjectType {
                 .read_name("PipScale", 0x20)
                 .map(PipScale::from_ini)
                 .unwrap_or_default(),
+            pips_draw_for_all: section.read_bool("PipsDrawForAll", false),
             pip_wrap: section.read_int("PipWrap", 0),
-            infantry_absorb: section.read_bool("InfantryAbsorb", false),
             unit_absorb: section.read_bool("UnitAbsorb", false),
+            infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),
             hospital,
             bunkerable: section.read_bool("Bunkerable", category == ObjectCategory::Vehicle),
@@ -3448,6 +3465,10 @@ mod infantry_pip_tests;
 #[cfg(test)]
 #[path = "ammo_pip_tests.rs"]
 mod ammo_pip_tests;
+
+#[cfg(test)]
+#[path = "absorber_pip_tests.rs"]
+mod absorber_pip_tests;
 
 #[cfg(test)]
 mod tests {

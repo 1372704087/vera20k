@@ -1124,6 +1124,7 @@ impl Simulation {
             house.eva_funds_timer.duration().hash(hasher);
             house.eva_low_power_guard.hash(hasher);
             house.hash_event_notifications(hasher);
+            house.hash_production_history(hasher);
             house.hash_lost_building(hasher);
             house.hash_spy_gains(hasher);
             house.hash_powered_unit_centers(hasher);

@@ -37,6 +37,8 @@ use crate::ui::sidebar::{
 
 #[path = "ready_building_placement_tests/pending_production_tests.rs"]
 mod pending_production_tests;
+#[path = "ready_building_placement_tests/produced_build_limit_tests.rs"]
+mod produced_build_limit_tests;
 
 struct Fixture {
     sim: Simulation,
@@ -53,6 +55,15 @@ fn stock_base_fixture(
     bind_buildup: bool,
 ) -> Option<Fixture> {
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")?;
+    stock_base_fixture_from_retail(owner_name, buildings, bind_buildup, retail)
+}
+
+fn stock_base_fixture_from_retail(
+    owner_name: &str,
+    buildings: &[(&str, u16)],
+    bind_buildup: bool,
+    retail: crate::rules::retail_ini_fixture::RetailBattleRules,
+) -> Option<Fixture> {
     let overlays = OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
     let mut rules = retail.rules;
     if bind_buildup {
@@ -86,6 +97,50 @@ fn stock_base_fixture(
         input: MatchInputState::new(HotkeyBindings::default()),
         projection: SidebarProjectionState::default(),
     })
+}
+
+/// The supplied arena has no saved retail-map resource record. Its bound
+/// terrain/rules enter the existing fixture adapter to the same fallible
+/// world preparation and commit used by the app's resource loader.
+fn roundtrip_fixture_save(fixture: &mut Fixture, label: &str) {
+    let saved_order = fixture.projection.saved_order();
+    let bytes = crate::sim::snapshot::GameSnapshot::save_validated_with_presentation(
+        &fixture.sim,
+        0,
+        fixture.rules.simulation_config_hash(),
+        label,
+        0,
+        &[],
+        saved_order.as_ref(),
+        None,
+        None,
+        None,
+    );
+    let directory = crate::map::source::test_support::TestDirectory::new(label);
+    let repository = crate::app::persistence::SaveRepository::at(directory.path());
+    let path = repository.write_named("fixture.bin", &bytes).unwrap();
+    let terrain = fixture.sim.resolved_terrain.as_ref().unwrap().clone();
+    let mut runtime = crate::sim::runtime::SimRuntime {
+        simulation: std::mem::replace(&mut fixture.sim, Simulation::new()),
+        resources: crate::sim::runtime::SimResources {
+            rules: fixture.rules.clone(),
+            overlay_registry: fixture.overlays.clone(),
+            terrain_template: Some(terrain),
+            ..crate::sim::runtime::SimResources::empty()
+        },
+    };
+    let prepared = crate::app::persistence::PreparedLoad::from_repository(
+        crate::app::persistence::LoadPreparationView::from_runtime(
+            &repository,
+            Some(&runtime),
+            Some(0),
+        ),
+        &path,
+    )
+    .expect("paid production world restores through the app owner");
+    let committed = prepared.commit_into(&mut runtime);
+    fixture.projection.restore_order(committed.sidebar_order);
+    fixture.sim = runtime.simulation;
 }
 
 fn paid_ready_fixture() -> Option<Fixture> {
@@ -1201,51 +1256,11 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         assert!(step < 1023, "real power-building sale must finish");
         frame = advance_commands(&mut fixture, &[]);
     }
-    // Use the same fallible world preparation and commit as the app resource
-    // loader. This supplied arena does not have a saved retail-map resource
-    // record; its already-bound terrain/rules enter the existing fixture adapter.
     fixture.sim.session.map_name = "HOLD-RESUME.MAP".into();
     fixture.sim.session.set_started(true);
-    let saved_order = fixture.projection.saved_order();
     let before_factories = fixture.sim.production.factories.clone();
     let before_wallet = fixture.sim.houses[&owner].economy.clone();
-    let bytes = crate::sim::snapshot::GameSnapshot::save_validated_with_presentation(
-        &fixture.sim,
-        0,
-        fixture.rules.simulation_config_hash(),
-        "paid infantry hold",
-        0,
-        &[],
-        saved_order.as_ref(),
-        None,
-        None,
-        None,
-    );
-    let directory = crate::map::source::test_support::TestDirectory::new("paid-user-hold");
-    let repository = crate::app::persistence::SaveRepository::at(directory.path());
-    let path = repository.write_named("held.bin", &bytes).unwrap();
-    let terrain = fixture.sim.resolved_terrain.as_ref().unwrap().clone();
-    let mut runtime = crate::sim::runtime::SimRuntime {
-        simulation: std::mem::replace(&mut fixture.sim, Simulation::new()),
-        resources: crate::sim::runtime::SimResources {
-            rules: fixture.rules.clone(),
-            overlay_registry: fixture.overlays.clone(),
-            terrain_template: Some(terrain),
-            ..crate::sim::runtime::SimResources::empty()
-        },
-    };
-    let prepared = crate::app::persistence::PreparedLoad::from_repository(
-        crate::app::persistence::LoadPreparationView::from_runtime(
-            &repository,
-            Some(&runtime),
-            Some(0),
-        ),
-        &path,
-    )
-    .expect("held Factory and paid limbo identity restore through the app owner");
-    let committed = prepared.commit_into(&mut runtime);
-    fixture.projection.restore_order(committed.sidebar_order);
-    fixture.sim = runtime.simulation;
+    roundtrip_fixture_save(&mut fixture, "paid-user-hold");
     assert_eq!(
         fixture.sim.production.factories, before_factories,
         "saved Factory authorities"

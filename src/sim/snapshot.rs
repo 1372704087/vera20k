@@ -1093,7 +1093,10 @@ use crate::sim::world::Simulation;
 // House prediction gates; NoInit resets only their predicted clocks.
 // Bumped 394 -> 395: retained General.MaximumCheerRate in Rules/registry
 // serialization; Cheer command appended without renumbering existing variants.
-const SNAPSHOT_VERSION: u32 = 395;
+// 395 -> 396: House retains per-family/type successful-production history.
+// Older saves contain its score total only and cannot reconstruct lifetime
+// BuildLimit admission from the currently owned objects.
+const SNAPSHOT_VERSION: u32 = 396;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1348,6 +1351,11 @@ pub enum SnapshotRestoreError {
     InvalidInfantryTerminalState { object_id: u64 },
     #[error("house {owner} has invalid serialized outcome state: {reason}")]
     InvalidHouseOutcomeState {
+        owner: crate::sim::intern::InternedId,
+        reason: &'static str,
+    },
+    #[error("house {owner} has invalid produced history: {reason}")]
+    InvalidHouseProductionHistory {
         owner: crate::sim::intern::InternedId,
         reason: &'static str,
     },
@@ -2671,6 +2679,9 @@ impl Simulation {
             }
         }
         for (&owner, house) in &self.houses {
+            house.validate_production_history().map_err(|reason| {
+                SnapshotRestoreError::InvalidHouseProductionHistory { owner, reason }
+            })?;
             let Some(outcome) = house.outcome() else {
                 if house.is_defeated || house.has_won() || house.has_lost() {
                     return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
@@ -4673,7 +4684,8 @@ mod tests {
         // 392 -> 393: reject cargo with the old mid-track boarding semantics.
         // 393 -> 394: saved requests/gates, with NoInit clock reset.
         // 394 -> 395: retained Cheer rate and the appended Cheer command.
-        assert_eq!(super::SNAPSHOT_VERSION, 395);
+        // 395 -> 396: per-family/type produced history for lifetime limits.
+        assert_eq!(super::SNAPSHOT_VERSION, 396);
     }
 
     #[test]

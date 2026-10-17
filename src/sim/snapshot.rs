@@ -1078,7 +1078,10 @@ use crate::sim::world::Simulation;
 // 386 -> 387: combine retained Weapon, Drive and Building primary layouts.
 // 387 -> 388: RadSite retains its independent light countdown, activation
 // tint/decrement and current source. Loading must not reconstruct lifetime age.
-const SNAPSHOT_VERSION: u32 = 388;
+// 388 -> 389: particle-system offsets retain constructor-relative coordinates.
+// Older saves stored zero even for an offset smoke source; resuming their new
+// follow behavior would snap it to the owner, so reject that continuation.
+const SNAPSHOT_VERSION: u32 = 389;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4617,7 +4620,8 @@ mod tests {
         // 385 -> 386: retained primary flags include matching limbo peers.
         // 386 -> 387: combined Weapon, Drive and Building primary layouts.
         // 387 -> 388: independent RadSite light clock and source parameters.
-        assert_eq!(super::SNAPSHOT_VERSION, 388);
+        // 388 -> 389: particle owner-relative offsets have native semantics.
+        assert_eq!(super::SNAPSHOT_VERSION, 389);
     }
 
     #[test]

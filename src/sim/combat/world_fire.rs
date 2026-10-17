@@ -889,77 +889,134 @@ fn fireat_damage(
     )
 }
 
-/// FireAt's RevealOnFire (`0x006FF66C..0x006FF743`, reached only by a
-/// launched shot). The target's owner, when it is the local player
-/// (`0x0050B6F0`), has radius 3 around the firer revealed on its own map
-/// (`MapClass::RevealShroud @ 0x005673A0`). When that player owns the firer
-/// (`+0x41A`) or has discovered it (`+0x41B`, set for every placed object in a
-/// multiplayer game), the firer's own coordinate must still be shrouded for it
-/// (`MapClass::IsShrouded @ 0x00586360`), and an aircraft it owns never
-/// reveals. A cell target reveals nothing.
-///
-/// VERA keeps a map per house, so every human house takes the reveal its own
-/// client would take; computer houses keep no shroud.
-fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target: TargetKind) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FireDisclosurePath {
+    Shot,
+    Spawner,
+}
+
+/// FireAt6FDE73..6FDF5A /6FF66C..6FF73D. Both routes share the
+/// victim's Map5673A0(radius3, final0) and its shifted-XYZ border6.
+/// Spawner's fresh-XYZ border4 also runs when the victim/weapon leaf gates
+/// fail; normal fire requires those gates for both calls. Each human map
+/// represents that client's PlayerPtr; computer Houses have no client shroud.
+fn reveal_on_fire(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    firer_id: u64,
+    target: TargetKind,
+    enabled: bool,
+    path: FireDisclosurePath,
+) {
     let TargetKind::Entity(target_id) = target else {
         return;
     };
-    let Some(house) = world
-        .substrate
-        .entities
-        .get(target_id)
-        .map(|target| target.owner())
-    else {
+    let victim = if let Some(target) = world.substrate.entities.get(target_id) {
+        Some(target.owner())
+    } else if world.production.terrain_objects.contains_key(&target_id) {
+        // Terrain ctor71BBFF installs7F522C; slot+3C=4104A0 returnsNULL.
+        // This is a real Object target: Spawner still reaches its border.
+        None
+    } else {
         return;
     };
-    if !world.owner_is_human(house) {
-        return;
-    }
-    let Some(firer) = world.substrate.entities.get(firer_id) else {
+    let mut viewers = if path == FireDisclosurePath::Spawner {
+        // No callback or RNG occurs in this border. Use stable House order
+        // for the logical client planes and the shared canonical Dummy.
+        let mut viewers: Vec<_> = world
+            .session
+            .house_order
+            .iter()
+            .copied()
+            .filter(|&house| world.owner_is_human(house))
+            .collect();
+        let mut extra: Vec<_> = world
+            .houses
+            .keys()
+            .copied()
+            .filter(|house| {
+                !world.session.house_order.contains(house) && world.owner_is_human(*house)
+            })
+            .collect();
+        extra.sort_unstable();
+        viewers.extend(extra);
+        viewers
+    } else if let Some(victim) = victim.filter(|&victim| enabled && world.owner_is_human(victim)) {
+        vec![victim]
+    } else {
         return;
     };
-    let coord = crate::sim::movement::ground_pose::position_world_coord(&firer.position);
-    let owned = firer.owner() == house;
-    let discovered = world.session.game_mode_nonzero
-        || (world.session.current_house == Some(house)
-            && firer.discovery.discovered_by_current_house());
-    if owned || discovered {
-        if owned && firer.category() == EntityCategory::Aircraft {
-            return;
-        }
-        // `0x006FF692..0x006FF6B4`: IsShrouded, else `0x005865E0`, which is
-        // `XOR AL,AL; RET 4` and never admits, so IsShrouded alone decides.
-        let shrouded = match world.resolved_terrain.as_ref() {
-            Some(terrain) => {
-                let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
-                crate::sim::vision::coordinate_is_shrouded(&cells, coord, &|cell| {
-                    Ok(match cell {
-                        crate::map::cell_index::NativeCellIdentity::Real(index) => {
-                            let cell = &terrain.cells()[index];
-                            world.fog.is_cell_revealed(house, cell.rx, cell.ry)
-                        }
-                        crate::map::cell_index::NativeCellIdentity::Dummy => false,
-                    })
-                })
-                .unwrap_or(false)
-            }
-            None => !world
-                .fog
-                .is_cell_revealed(house, firer.position.rx(), firer.position.ry()),
-        };
-        if !shrouded {
-            return;
-        }
-    }
+    viewers.dedup();
+    let context = crate::sim::world::UninitContext::new(Some(rules), None);
     let config = world.sight_reveal_config(Some(rules));
-    let height_grid = world.sight_height_grid(&config);
-    crate::sim::vision::reveal_shroud_on_fire(
-        &mut world.fog,
-        house,
-        coord,
-        &config,
-        height_grid.levels(),
-    );
+    let heights = world.sight_height_grid(&config);
+    for house in viewers {
+        let Some(firer) = world.substrate.entities.get(firer_id) else {
+            return;
+        };
+        // Both fire tails and their admission query dispatch virtual+48:
+        // Object5F65A0 / Building447AC0, through the existing coordinate owner.
+        let coord = crate::sim::movement::ground_pose::object_get_coords(
+            firer,
+            world.resolved_terrain.as_ref(),
+        );
+        let owned = firer.owner() == house;
+        let discovered = world.session.game_mode_nonzero
+            || (world.session.current_house == Some(house)
+                && firer.discovery.discovered_by_current_house());
+        if owned || discovered {
+            if owned && firer.category() == EntityCategory::Aircraft {
+                continue;
+            }
+            //6FDE9A/6FF692: IsShrouded, else5865E0 (constant false).
+            let shrouded = match world.resolved_terrain.as_ref() {
+                Some(terrain) => {
+                    let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+                    crate::sim::vision::coordinate_is_shrouded(&cells, coord, &|cell| {
+                        Ok(match cell {
+                            crate::map::cell_index::NativeCellIdentity::Real(index) => {
+                                let cell = &terrain.cells()[index];
+                                world.fog.is_cell_revealed(house, cell.rx, cell.ry)
+                            }
+                            crate::map::cell_index::NativeCellIdentity::Dummy => false,
+                        })
+                    })
+                    .unwrap_or(false)
+                }
+                None => {
+                    !world
+                        .fog
+                        .is_cell_revealed(house, firer.position.rx(), firer.position.ry())
+                }
+            };
+            if !shrouded {
+                continue;
+            }
+        }
+        // Existing area/spiral geometry accepts cell-centred coordinates.
+        // Subcell/negative raw XYZ correspondence remains the surrounding
+        // Map geometry residual, rather than a second FireAt arithmetic port.
+        let origin = ((coord.x / 256) as u16, (coord.y / 256) as u16, coord.z);
+        if enabled && victim == Some(house) {
+            let local_origin = world.reveal_area(
+                &[house],
+                (origin.0, origin.1),
+                origin.2,
+                3,
+                heights.levels(),
+                false,
+                &config,
+                context,
+                crate::sim::vision::MapRevealProjection::Fire,
+                Some(house),
+            );
+            if let Some(local_origin) = local_origin {
+                world.refresh_sight_border(house, local_origin, 6, context);
+            }
+        }
+        //6FDF4D/6FF738: independent of Map's center/radius admission.
+        world.refresh_sight_border(house, origin, 4, context);
+    }
 }
 
 /// `TechnoClass::GetROF` (vt+0x318) for a shot: of the weapon GetWeapon
@@ -1154,6 +1211,16 @@ pub(super) fn emit_admitted_fire(
         if alive > 0 {
             out.spawn_target_updates.push((snap.stable_id, snap.target));
         }
+        //6FDF30/4D occurs even though this path returns no Bullet. It adds
+        // no Scenario draw, rearm write or detach; SetTarget keeps its owner.
+        reveal_on_fire(
+            world,
+            rules,
+            snap.stable_id,
+            snap.target,
+            weapon.reveal_on_fire,
+            FireDisclosurePath::Spawner,
+        );
         return None;
     }
 
@@ -1719,9 +1786,14 @@ pub(super) fn emit_admitted_fire(
     // `0x006FF656`: DecreaseAmmo (vt+0x390). Only an aircraft holds Ammo here,
     // and `AircraftClass`'s slot is a bare RET (`0x0041B900`).
     // `0x006FF66C`, after DecreaseAmmo (`0x006FF656`): RevealOnFire.
-    if weapon.reveal_on_fire {
-        reveal_on_fire(world, rules, snap.stable_id, snap.target);
-    }
+    reveal_on_fire(
+        world,
+        rules,
+        snap.stable_id,
+        snap.target,
+        weapon.reveal_on_fire,
+        FireDisclosurePath::Shot,
+    );
 
     fireat_tail(
         world,
@@ -2683,7 +2755,14 @@ mod reveal_on_fire_tests {
     #[test]
     fn a_shot_from_shroud_reveals_the_firer_to_its_human_victim() {
         let (mut sim, rules) = world();
-        reveal_on_fire(&mut sim, &rules, 1, TargetKind::Entity(2));
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            1,
+            TargetKind::Entity(2),
+            true,
+            FireDisclosurePath::Shot,
+        );
         assert!(revealed(&sim, "Americans", 10, 10));
         assert!(revealed(&sim, "Americans", 10, 13), "radius 3");
         assert!(!revealed(&sim, "Americans", 10, 14));
@@ -2696,22 +2775,172 @@ mod reveal_on_fire_tests {
     #[test]
     fn no_reveal_for_a_computer_victim_or_a_mapped_firer_cell() {
         let (mut sim, rules) = world();
-        reveal_on_fire(&mut sim, &rules, 2, TargetKind::Entity(1));
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            2,
+            TargetKind::Entity(1),
+            true,
+            FireDisclosurePath::Shot,
+        );
         assert!(!revealed(&sim, "Soviet", 12, 10), "a computer victim");
 
         let (mut sim, rules) = world();
         let americans = sim.interner.get("Americans").unwrap();
         crate::sim::vision::reveal_radius(&mut sim.fog, americans, 10, 10, 1);
         assert!(!revealed(&sim, "Americans", 10, 12));
-        reveal_on_fire(&mut sim, &rules, 1, TargetKind::Entity(2));
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            1,
+            TargetKind::Entity(2),
+            true,
+            FireDisclosurePath::Shot,
+        );
         assert!(
             !revealed(&sim, "Americans", 10, 12),
             "the firer's own cell is already mapped: IsShrouded is false"
         );
 
         let (mut sim, rules) = world();
-        reveal_on_fire(&mut sim, &rules, 1, TargetKind::Cell(12, 10));
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            1,
+            TargetKind::Cell(12, 10),
+            true,
+            FireDisclosurePath::Shot,
+        );
         assert!(!revealed(&sim, "Americans", 10, 10), "a cell target");
+    }
+
+    #[test]
+    fn spawner_border_survives_disabled_leaf_but_shot_border_does_not() {
+        for path in [FireDisclosurePath::Shot, FireDisclosurePath::Spawner] {
+            let (mut sim, rules) = world();
+            let viewer = sim.interner.get("Americans").unwrap();
+            // A visible neighboring cell with an unwritten ground frame;
+            // the source itself remains shrouded, admitting the native tail.
+            crate::sim::vision::reveal_radius(&mut sim.fog, viewer, 10, 12, 1);
+            assert!(!revealed(&sim, "Americans", 10, 10));
+            assert_eq!(
+                sim.fog.by_owner[&viewer]
+                    .map_cell_edge_cache_for_test((10, 11))
+                    .0[0],
+                -2
+            );
+            reveal_on_fire(&mut sim, &rules, 1, TargetKind::Entity(2), false, path);
+            assert!(!revealed(&sim, "Americans", 10, 10), "disabled leaf");
+            let frame = sim.fog.by_owner[&viewer]
+                .map_cell_edge_cache_for_test((10, 11))
+                .0[0];
+            assert_eq!(frame != -2, path == FireDisclosurePath::Spawner);
+        }
+    }
+
+    #[test]
+    fn spawner_computer_victim_still_refreshes_the_current_clients_border() {
+        let (mut sim, rules) = world();
+        let viewer = sim.interner.get("Americans").unwrap();
+        let computer = sim.interner.get("Soviet").unwrap();
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .set_owner_for_test(computer);
+        crate::sim::vision::reveal_radius(&mut sim.fog, viewer, 10, 12, 1);
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            1,
+            TargetKind::Entity(2),
+            true,
+            FireDisclosurePath::Spawner,
+        );
+        assert!(!revealed(&sim, "Americans", 10, 10), "no human victim leaf");
+        assert_ne!(
+            sim.fog.by_owner[&viewer]
+                .map_cell_edge_cache_for_test((10, 11))
+                .0[0],
+            -2
+        );
+        assert!(
+            !sim.fog.by_owner.contains_key(&computer),
+            "no computer client projection"
+        );
+    }
+
+    #[test]
+    fn terrain_object_target_keeps_the_spawner_border_without_a_victim_house() {
+        let (mut sim, rules) = world();
+        let viewer = sim.interner.get("Americans").unwrap();
+        let tree = sim.interner.intern("TREE01");
+        let ini = crate::rules::ini_parser::IniFile::from_str("[TREE01]\nStrength=100\n");
+        let ty = crate::rules::terrain_object_type::TerrainObjectType::from_ini_section(
+            "TREE01",
+            ini.section("TREE01").unwrap(),
+        );
+        sim.production.terrain_objects.insert(
+            3,
+            crate::sim::terrain_object::TerrainObjectState::new(
+                3,
+                tree,
+                (12, 10),
+                &ty,
+                false,
+                None,
+            ),
+        );
+        crate::sim::vision::reveal_radius(&mut sim.fog, viewer, 10, 12, 1);
+        reveal_on_fire(
+            &mut sim,
+            &rules,
+            1,
+            TargetKind::Entity(3),
+            true,
+            FireDisclosurePath::Spawner,
+        );
+        assert!(!revealed(&sim, "Americans", 10, 10));
+        assert_ne!(
+            sim.fog.by_owner[&viewer]
+                .map_cell_edge_cache_for_test((10, 11))
+                .0[0],
+            -2
+        );
+    }
+
+    #[test]
+    fn mapped_source_and_owned_aircraft_skip_the_complete_spawner_tail() {
+        for aircraft in [false, true] {
+            let (mut sim, rules) = world();
+            let viewer = sim.interner.get("Americans").unwrap();
+            let cell = if aircraft { (10, 11) } else { (10, 10) };
+            // Seed a single ordinary observation without refreshing its frame.
+            sim.fog
+                .by_owner
+                .entry(viewer)
+                .or_insert_with(|| crate::sim::vision::OwnerVisibility::new(32, 32))
+                .mark_visible(cell.0, cell.1);
+            if aircraft {
+                let firer = sim.substrate.entities.get_mut(1).unwrap();
+                firer.set_owner_for_test(viewer);
+                firer.set_category_for_test(EntityCategory::Aircraft);
+            }
+            reveal_on_fire(
+                &mut sim,
+                &rules,
+                1,
+                TargetKind::Entity(2),
+                true,
+                FireDisclosurePath::Spawner,
+            );
+            assert_eq!(
+                sim.fog.by_owner[&viewer]
+                    .map_cell_edge_cache_for_test(cell)
+                    .0[0],
+                -2
+            );
+        }
     }
 }
 

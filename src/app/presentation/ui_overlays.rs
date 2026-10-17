@@ -453,12 +453,17 @@ pub(crate) fn build_control_group_status_render_instances(
         // surface, then expands the clipped result one pixel to the left for
         // its opaque black fill and House-color outline. All rectangles here
         // use the shared xywh owner; the GPU scissor remains the final clip.
-        let measure_rect = [
-            (x - camera[0]).round() as i32 - 2,
-            (y - camera[1]).round() as i32 + 2,
-            font.text_width(&text) as i32 + 4,
-            13,
-        ];
+        //70A75E..70A776 calls the same4A59E0 owner as PRIMARY, with
+        // flags49 and signed margins[2,-2] (GAME.FNT cell17 -> height13).
+        let measure_rect = font.compute_text_rect(
+            &text,
+            [
+                (x - camera[0]).round() as i32,
+                (y - camera[1]).round() as i32,
+            ],
+            0x49,
+            [2, -2],
+        );
         let mut clipped = crate::util::rect::clip_rect(measure_rect, tactical_clip);
         if clipped[2] > 0 && clipped[3] > 0 {
             clipped[0] -= 1;

@@ -42,7 +42,7 @@ use crate::sim::intern::InternedId;
 ///   add-to-selection action, which the object click handler has no case for and
 ///   therefore sends no mission; on a cell it returns the plain Move action, an
 ///   ordinary immediate move that every Foot's Cell resolver receives. Retail
-///   Planning Mode has its own event opcodes and remains unimplemented.
+///   Planning Mode uses its existing shared path owner and separate event opcodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrderModifier {
     /// No modifier held — the object/cell context action stands.
@@ -857,71 +857,72 @@ fn finish_order(
     queued: Vec<CommandEnvelope>,
     speaker_id: Option<u64>,
 ) -> bool {
-    if state.match_state.input.planning.active() {
+    let admitted = if state.match_state.input.planning.active() {
         let mut queued = queued;
-        restore_selection_dispatch_order(
-            &mut queued,
-            &selected_stable_ids_in_order(
-                state
-                    .match_state
-                    .sim_runtime
-                    .as_ref()
-                    .map(|rt| &rt.simulation),
-                state.rules(),
-                &state.match_state.input.selection_order,
-                state.match_state.input.selection_order_pending,
-            ),
+        let selected = selected_stable_ids_in_order(
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .map(|rt| &rt.simulation),
+            state.rules(),
+            &state.match_state.input.selection_order,
+            state.match_state.input.selection_order_pending,
         );
-        crate::app::input::planning_mode::queue_orders(state, queued);
-        return true;
-    }
-    let mut queued = if let Some(sim) = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .map(|rt| &rt.simulation)
-    {
-        queued
-            .into_iter()
-            .filter_map(|envelope| {
-                crate::app::input::commands::roundtrip_ordinary_local_megamission(sim, envelope)
-            })
-            .collect::<Vec<_>>()
+        restore_selection_dispatch_order(&mut queued, &selected);
+        crate::app::input::planning_mode::queue_orders(state, &selected, queued)
     } else {
-        queued
-    };
-    let queued_any = !queued.is_empty();
-    if queued_any {
-        restore_selection_dispatch_order(
-            &mut queued,
-            &selected_stable_ids_in_order(
-                state
-                    .match_state
-                    .sim_runtime
-                    .as_ref()
-                    .map(|rt| &rt.simulation),
-                state.rules(),
-                &state.match_state.input.selection_order,
-                state.match_state.input.selection_order_pending,
-            ),
-        );
-        if let Some(speaker_id) = speaker_id {
-            emit_resolved_order_voice(state, speaker_id, &queued);
-        }
-        if let Some(sim) = state
+        let mut queued = if let Some(sim) = state
             .match_state
             .sim_runtime
-            .as_mut()
-            .map(|rt| &mut rt.simulation)
+            .as_ref()
+            .map(|rt| &rt.simulation)
         {
-            sim.queue_commands(queued);
+            queued
+                .into_iter()
+                .filter_map(|envelope| {
+                    crate::app::input::commands::roundtrip_ordinary_local_megamission(sim, envelope)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            queued
+        };
+        if !queued.is_empty() {
+            restore_selection_dispatch_order(
+                &mut queued,
+                &selected_stable_ids_in_order(
+                    state
+                        .match_state
+                        .sim_runtime
+                        .as_ref()
+                        .map(|rt| &rt.simulation),
+                    state.rules(),
+                    &state.match_state.input.selection_order,
+                    state.match_state.input.selection_order_pending,
+                ),
+            );
+            if let Some(speaker_id) = speaker_id {
+                emit_resolved_order_voice(state, speaker_id, &queued);
+            }
+            if let Some(sim) = state
+                .match_state
+                .sim_runtime
+                .as_mut()
+                .map(|rt| &mut rt.simulation)
+            {
+                sim.queue_commands(queued);
+            }
         }
-    }
-    if let Some(frame) = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .map(|rt| rt.simulation.session.binary_frame)
+        true
+    };
+    //4ABF94's admitted planning route joins the same70D150 suffix at
+    //4ABFAE;4ABF8E's refusal exits4AC294 without restarting this timer.
+    if admitted
+        && let Some(frame) = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| rt.simulation.session.binary_frame)
     {
         state
             .match_state

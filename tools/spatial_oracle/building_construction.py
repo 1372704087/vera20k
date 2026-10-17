@@ -392,7 +392,7 @@ def manual_primary_type_state(u, pointer):
 
 def joined_inputs(root, *, layers=None, building_names=JOINED_NAMES,
                   art_names=JOINED_ART_NAMES, country_names=(), unit_names=(),
-                  primary_field_names=()):
+                  primary_field_names=(), planning_admission=False):
     """Original constructors and scalar readers; lexical caches/file IO supplied.
 
     Sound owns the source-order INI links; Reader owns the signed-CRC caches,
@@ -406,8 +406,13 @@ def joined_inputs(root, *, layers=None, building_names=JOINED_NAMES,
     m = Sound.__new__(Sound)
     m.samples, m.calls = [], []
     sound = sections((root / 'SOUNDMD.INI').read_bytes())
-    selected = {n: sound[n] for n in ('Defaults', 'Dummy')}
-    selected['SoundList'] = {k: v for k, v in sound['SoundList'].items() if v == 'Dummy'}
+    sound_names = ('Dummy', 'MenuScold') if planning_admission else ('Dummy',)
+    selected = {n: sound[n] for n in ('Defaults',) + sound_names}
+    selected['SoundList'] = {k: v for k, v in sound['SoundList'].items() if v in sound_names}
+    if planning_admission:
+        # Original Sound reader requests the physical MenuScold sample name.
+        # Its immutable sample-catalog identity is supplied; playback is not.
+        m.sample_ids = {'umenscol': 0}
     Reader.__init__(m, root, selected)
     u = m.u
     m.selected = selected
@@ -420,6 +425,7 @@ def joined_inputs(root, *, layers=None, building_names=JOINED_NAMES,
     m.rules = m.alloc(0x5000)
     u.mem_write(0x8871E0, dwords(m.rules))
     m.invoke(0x665650, m.rules)
+    m.scold_constructor_default = struct.unpack('<i', u.mem_read(m.rules + 0x700, 4))[0]
     m.invoke(0x4E7CF0, 0)  # all original MissionControl static constructors.
     scene = m.alloc(0x1500)
     u.mem_write(0xA8B230, dwords(scene))
@@ -459,6 +465,7 @@ def joined_inputs(root, *, layers=None, building_names=JOINED_NAMES,
         m.invoke(0x7470D0, pointer, (m.cstring(name),))
         m.unit_types[name] = pointer
     m.layers = []
+    m.scold_layers = []
     # Prior selected AnimTypes from the real rules list, in its source order.
     # Whole Rules::Process/other registry entries remain outside this fixture.
     animations = sections((root / 'RULESMD.INI').read_bytes())['Animations']
@@ -491,6 +498,19 @@ def joined_inputs(root, *, layers=None, building_names=JOINED_NAMES,
             # 66A96A includes the previous sound's retained store/push prefix.
             u.reg_write(UC_X86_REG_EAX, m.read32(m.rules + 0x6C0))
             run_checked(u, begin, end, count=2_000_000)
+        if planning_admission:
+            # Same retained-default ScoldSound block used by foot_scold_latch;
+            # the real 7514D0 lookup resolves the selected native registry.
+            before = struct.unpack('<i', u.mem_read(m.rules + 0x700, 4))[0]
+            u.mem_write(SP, bytes(0x200))
+            u.reg_write(UC_X86_REG_ESP, SP)
+            u.reg_write(UC_X86_REG_ESI, m.rules)
+            u.reg_write(UC_X86_REG_EDI, rules_ini)
+            run_checked(u, 0x66ABCD, 0x66AC18)
+            m.scold_layers.append(dict(file=filename,
+                physical_value=physical.get('AudioVisual', {}).get('ScoldSound'),
+                native_buffer=m.string(SP + 0x14), before=before,
+                after=struct.unpack('<i', u.mem_read(m.rules + 0x700, 4))[0]))
         reads = {n: bool(m.invoke(0x45FE50, p, (rules_ini,)) & 255)
                  for n, p in m.types.items() if n not in primary_field_names}
         for name in primary_field_names:
@@ -1036,6 +1056,15 @@ def manual_primary_cases():
     ]
 
 
+def manual_primary_admission_cases():
+    """Supplied prior path counts; original admission decides the outcomes."""
+    return [dict(name=f'planning_prior_{count}_selected_no_path',
+                 planning_admission=dict(prior_house_nonempty_paths=count),
+                 actors=[dict(type='GAWEAP', primary=1), dict(type='GAWEAP')],
+                 operations=[dict(op='click', actor=2, planning=True)])
+            for count in (0, 127, 128)]
+
+
 def manual_primary_case(inputs, case):
     """One JoinedFixture history; no action/event/selection decision is supplied."""
     from tools.native_oracle import (NativeCallTrace, initialize_empty_windows_seh,
@@ -1119,6 +1148,20 @@ def manual_primary_case(inputs, case):
     u.mem_write(0xB0E84C, b'\1')
     u.mem_write(0xB0E850, dwords(0))
     u.mem_write(0xB78828, dwords(0))
+    admission = case.get('planning_admission')
+    if admission is not None:
+        # Explicit scene prior: other actors already have nonempty paths. The
+        # original counter increment helper, not a supplied decision, records
+        # that prior. Constructing/playing those other paths is outside this VM.
+        u.mem_write(0xAC4B84, bytes(24 * 4))
+        for _ in range(admission['prior_house_nonempty_paths']):
+            invoke(u, 0x639F60, 0)
+        u.mem_write(0xAC4C08, b'\0')
+        u.mem_write(0xB0EA80, dwords(-1, 0, 0))
+        u.mem_write(HOUSE + 0x16054, dwords(0))  # supplied local message color.
+        text = inputs.planner_csf['text'].encode('utf-16-le') + b'\0\0'
+        localized_text = f.allocate(len(text))
+        u.mem_write(localized_text, text)
     identities = {p: index + 1 for index, p in enumerate(actors)}
     trace, effects, imports = NativeCallTrace(u, read), [], []
     entries = {0x447210: ('building_what_action', 2, 8),
@@ -1137,6 +1180,12 @@ def manual_primary_case(inputs, case):
                0x50DB00: ('determine_edge', 1, 4),
                0x5F7900: ('find_factory', 4, 16),
                0x70D4A0: ('detach', 1, 4), 0x7258D0: ('pointer_expiry', 2, 8)}
+    if admission is not None:
+        entries.update({0x734E60: ('localized_string', 2, 8),
+                        0x730A90: ('planning_message', 0, 0),
+                        0x5D3BA0: ('message_list_add', 7, 28),
+                        0x750920: ('planning_scold', 2, 8),
+                        0x70D150: ('action_line_timer_start', 0, 0)})
 
     def hook(uc, pc, _size, _data):
         sp, this = uc.reg_read(UC_X86_REG_ESP), uc.reg_read(UC_X86_REG_ECX)
@@ -1148,6 +1197,28 @@ def manual_primary_case(inputs, case):
         if pc == clock:
             imports.append(dict(event='OS_timeGetTime', supplied_result=100000))
             f.ret(100000)
+        elif admission is not None and pc == 0x734E60:
+            key = bytes(uc.mem_read(this, 128)).split(b'\0', 1)[0].decode('latin1')
+            assert key == inputs.planner_csf['key']
+            imports.append(dict(event='localized_string', key=key,
+                                text=inputs.planner_csf['text']))
+            f.ret(localized_text, 8)
+        elif admission is not None and pc == 0x5D3BA0:
+            args = list(struct.unpack('<7I', uc.mem_read(sp + 4, 28)))
+            assert args[2] == localized_text
+            effects.append(dict(event='planning_refusal_message',
+                                key=inputs.planner_csf['key'],
+                                text=inputs.planner_csf['text'],
+                                color=args[3], flags=args[4], duration=args[5],
+                                force=args[6]))
+            f.ret(0, 28)
+        elif admission is not None and pc == 0x750920:
+            effects.append(dict(event='planning_scold',
+                sound_index=struct.unpack('<i', dwords(this))[0],
+                pan=uc.reg_read(UC_X86_REG_EDX),
+                volume_f32_hex=bytes(uc.mem_read(sp + 4, 4)).hex(),
+                handle=read(sp + 8)))
+            f.ret(0, 8)
         elif pc == 0x752700:
             key = bytes(uc.mem_read(this, 128)).split(b'\0', 1)[0].decode('latin1')
             effects.append(dict(event='eva', key=key,
@@ -1167,7 +1238,7 @@ def manual_primary_case(inputs, case):
 
     def state():
         selected = call(0x5F7900, inputs.unit_types['MTNK'], 0, 0, 0, HOUSE)
-        return dict(primary=[u.mem_read(p + 0x3D3, 1)[0] for p in actors],
+        observed = dict(primary=[u.mem_read(p + 0x3D3, 1)[0] for p in actors],
             find_factory=identities.get(selected),
             actors=[dict(id=i + 1, uid=read(p + 0x10),
                          coords=list(struct.unpack('<3i', u.mem_read(p + 0x9C, 12))),
@@ -1184,6 +1255,13 @@ def manual_primary_case(inputs, case):
                          factory_slots=[read(p + off) for off in
                                         (0x53AC, 0x53B0, 0x53B4, 0x53B8, 0x53BC, 0x53CC)])
                     for i, p in enumerate(houses)])
+        if admission is not None:
+            observed['planning'] = dict(
+                house_nonempty_paths=[read(0xAC4B84 + i * 4) for i in range(len(houses))],
+                actor_path_present=[bool(read(p + 0x514)) for p in actors],
+                refusal_latch=u.mem_read(0xAC4C08, 1)[0],
+                action_line_timer=list(struct.unpack('<3i', u.mem_read(0xB0EA80, 12))))
+        return observed
 
     issued, phases = [], []
     initial = state()
@@ -1212,9 +1290,18 @@ def manual_primary_case(inputs, case):
                 u.reg_write(UC_X86_REG_ESP, SP)
                 stop = run_checked(u, 0x4ABF78, (0x4ABF94, 0x4AC294))
                 result['planning_admission_stop'] = f'{stop:08X}'
-                assert stop == 0x4ABF94, ('ordinary empty-planning control refused', stop)
+                if admission is None:
+                    assert stop == 0x4ABF94, ('ordinary empty-planning control refused', stop)
+                else:
+                    result['admitted'] = stop == 0x4ABF94
             prior_count, prior_tail = read(0xA802C8), read(0xA802D0)
-            call(0x443410, pointer, action, pointer, 0)
+            if result.get('admitted', True):
+                call(0x443410, pointer, action, pointer, 0)
+                if admission is not None:
+                    # Actual LeftUp4ABFAE suffix, only after admitted click.
+                    # The timer's unused middle word inherits caller scratch.
+                    u.mem_write(SP - 0x200, bytes(0x200))
+                    call(0x70D150, 0)
             records = []
             for index in range(read(0xA802C8) - prior_count):
                 record = 0xA802D4 + ((prior_tail + index) & 127) * 0x6F
@@ -1274,6 +1361,20 @@ def manual_primary_generate():
         buffer = m.alloc(256)
         m.invoke(0x528A10, INI, (m.cstring(cue), m.cstring(key), m.cstring(''), buffer, 256))
         cue_fields[key] = m.string(buffer)
+    # A separate input run leaves all six original histories/address mappings
+    # untouched while registering the physical refusal sound for these controls.
+    a = joined_inputs(JOINED_ROOT,
+        layers=('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'),
+        building_names=JOINED_NAMES + ('GAWEAP',), art_names=JOINED_ART_NAMES + ('GAWEAP',),
+        country_names=tuple(physical['Countries'].values()), unit_names=('MTNK',),
+        primary_field_names=('GAWEAP',), planning_admission=True)
+    from tools.storage_oracle.keyboard_bindings import stock_csf
+    csf, csf_hash = stock_csf()
+    a.planner_csf = dict(file='langmd.mix/ra2md.csf', sha256=csf_hash,
+                        key='MSG:PlannerMaximum', text=csf['MSG:PLANNERMAXIMUM'])
+    admission_controls = [manual_primary_case(a, case)
+                          for case in manual_primary_admission_cases()]
+    scold_index = a.invoke(0x7514D0, a.cstring('MenuScold'))
     return dict(schema_version=1, source='unicorn/gamemd.exe', native_sha256=NATIVE_SHA256,
                 seed=31, layers=m.layers, country_catalog=m.country_catalog,
                 retail_files=[dict(name=name, size=(JOINED_ROOT / name).stat().st_size,
@@ -1289,7 +1390,13 @@ def manual_primary_generate():
                                 naval=m.u.mem_read(m.unit_types['MTNK'] + 0xCCE, 1)[0],
                                 rtti=m.invoke(m.read32(m.read32(m.unit_types['MTNK']) + 0x2C),
                                               m.unit_types['MTNK'])),
-                cases=cases)
+                cases=cases,
+                planning_admission=dict(csf=a.planner_csf,
+                    scold_sound=dict(key='ScoldSound', section='AudioVisual',
+                        constructor_default=a.scold_constructor_default, layers=a.scold_layers,
+                        name='MenuScold', registry_index=scold_index,
+                        selected_registry=list(a.selected['SoundList'].values())),
+                    controls=admission_controls))
 
 
 def manual_primary_metadata():
@@ -1303,20 +1410,27 @@ def manual_primary_metadata():
                           building_mark=0x43F180, determine_edge=0x50DB00,
                           primary_ctor_store=0x6F2F4F, create_id=0x410230,
                           next_id=0x68BCB0, local_house=0x50B6F0,
-                          eva_request=0x752700),
+                          eva_request=0x752700, planning_compatible=0x639040,
+                          planning_capacity=0x639130, increment_plan_count=0x639F60,
+                          scold_sound_read=0x66ABCD, string_lookup=0x734E60,
+                          planning_message=0x730A90, message_list_add=0x5D3BA0,
+                          centered_scold_sound=0x750920, action_line_timer=0x70D150),
         assumptions=[
             'Extends the existing JoinedFixture/Reader/Lists/Sound owners, not a new VM or parser. Full original BuildingType constructors execute. GACNST/GAPOWR/GAPILE keep the existing complete readers. GAWEAP executes exact Image5F92F9..5F9340, Strength5F94D3..5F94F3, BuildCat45FE78..45FE97, Factory46051A..46054B, GapGenerator713F92..713FAC, ConstructionYard460A24..460A44, Owner7149E1..7149FB, Naval714A63..714A7D, Passengers714B35..714B56, absorb460988..4609D6 and InvisibleInGame460DEB..460E07 blocks, then fixed ART Foundation461225..46125D/table binding46152C..461547 after original45B1C0 table initialization. UnitAbsorb is+16AE/key81AABC; InfantryAbsorb is+16AF/key81AAAC. The demand-loaded buildup/image/animation lifecycle is excluded.',
             'Source-order lexical strings from physical RULESMD.INI, absent LANGRULE.INI, MPBattleMD.ini and Hills.map feed original native scalar/enum readers with their retained constructor defaults. Country vector capacity/physical [Countries] name order are supplied; full5113F0 enrolls/indexes each country before original Owner lookup. Country inherited metadata and full Rules/Process are outside this selected catalog.',
             'MTNK uses its full UnitType constructor7470D0 and original Owner/Naval read blocks. FindFactory(0,0,0,House) executes unchanged with its actual RTTI; CanBuild/online-required/aircraft contact/paid production/delivery are excluded.',
             'Building/House/map admission and ordered House building vectors are supplied. Existing Mission/stage constructor stores and sound-handle constructors execute; primary byte store6F2F4F and UID producer410230/68BCB0 execute. Runtime ID catalog publication is supplied sorted storage; original token binary search/RTTI and empty-planning cleanup execute. Cached keyboard is supplied settled with one selected actor. No normal input result is answered.',
             'The ordinary history executes whole447210,443410, native OutList copy,4C65E0 and4C6CB0. The final empty-planning click also runs actual LeftUp4ABF78..4ABF94 compatibility/capacity gates639040/639130 on one selected actor with null+514 and zero House plan count. Earlier Display geometry/picking/selection and full LeftUp/4AE750 scheduling remain supplied. Event transport/scheduling supplies actual issued record pointers immediately to the original receiver. Direct event controls execute original constructor/receiver without claiming their supplied stale/foreign/limbo/zero-health priors arise from normal clicking.',
+            'Separate planning_admission controls retain the six original histories and supply0/127/128 other nonempty paths as House0 counter priors through original639F60 increments. They select one no-path GAWEAP, execute actual639040/639130 and LeftUp4ABF78 branch, and only on actual acceptance continue the original click/event and70D150 timer suffix. They do not construct128 other paths or execute whole Display/PlanMgr ticks. AC4B84 counts nonempty paths: append638470 increments empty-to-nonempty; consume636718..636760 releases the count at zero remaining commands, before an empty executing path is acknowledged. Dispatch6386E0 and ownership-change701585->638840 clear nonempty paths before owner replacement; capture does not transfer an existing count. Delayed old-issuer appends after capture, arbitrary compatibility and counter corruption are outside these three controls.',
+            'Admission sound inputs use the same Sound/Reader owners, with physical Dummy/MenuScold entries and supplied immutable sample identityumenscol=0. Rules ctor666027 suppliesScoldSound=-1; exact66ABCD..66AC18 ReadString128/7514D0 blocks run in physical RULESMD, optional LANGRULE, MPBattleMD and Hills.map order. Unlayered langmd.mix/ra2md.csf bytes are read by existing keyboard_bindings.stock_csf, without another CSF/INI parser. The native refusal itself selects MSG:PlannerMaximum, sets AC4C08, and calls original730A90 duration480 then750920 centered pan8192/volume1/null handle. No decision result is supplied.',
             'Each actual per-Building primary byte is observed independently from live FindFactory. A supplied alive+Limbo+primary prior is a representability/control bound, not established stock GAWEAP producer reachability. Factory0, liveness, exact raw Factory/Naval grouping, foreign/local EVA and stale duplicate controls retain original body gates only.',
             'Scenario/Main/MapGen seed31 use original65C6D0 and retain full1012-byte buffers continuously across each case, with original shared request/advance tracing. Building/House mission, stage and House timer bytes are observed. Native constructor/admission before supplied scene priors, whole frame scheduling and downstream audio cue/device RNG are outside this boundary.',
-            'Original BuildingMark(2) entry/switch body and DetermineEdge execute. Mark2 uses existing705D70 presentation-getter transport, reached8 times across these histories; its palette/tint/attached-Anim outputs are not claimed unsubstituted. The ordinary untethered scene takes redraw/cache propagation, not occupancy/PlaceUp/PlaceDown. Native executable PE sections compare byte-for-byte before/after. No gameplay, Mark entry, timer, random, factory or peer-loop return or instruction is replaced.'],
+            'Original BuildingMark(2) entry/switch body and DetermineEdge execute. Mark2 uses existing705D70 presentation-getter transport, reached8 times in the original six histories and once in each admitted capacity control; its palette/tint/attached-Anim outputs are not claimed unsubstituted. The ordinary untethered scene takes redraw/cache propagation, not occupancy/PlaceUp/PlaceDown. Native executable PE sections compare byte-for-byte before/after. No gameplay, Mark entry, timer, random, factory or peer-loop return or instruction is replaced.'],
         substitutions=[
             'Inherited native-input lexical caches, immutable file/image IO, successful shared bump allocation/delete and CRT TLS transports remain. Scene/registry/selection priors are explicit inputs.',
             'Existing initialize_empty_windows_seh and checked_is_bad_read_ptr_transport supply Windows exception/readability boundaries for original RTTI. timeGetTime IAT7E1530 supplies100000 milliseconds for original OutList transport; no simulation timer result is supplied.',
-            'Vox752700 records actual literal EVA_PrimaryBuildingSelected, priority/type and returns0 with RET4; audible playback, queue/device state and downstream audio RNG are not certified. Existing JoinedFixture705D70 palette getter returns0 when Mark2 reaches it (8 recorded presentation_boundary entries). Other inherited UpdateAnimation presentation sinks remain installed but unreached. Common primary toggles change no palette/tint/cloak input; wider cloak/flash/attached-Anim refresh and pixels need their existing presentation owners.'])
+            'Only the separate planning_admission controls supply physical localized text at734E60 (RET8), sink the final MessageList5D3BA0 insertion (RET28) after original730A90, and record centered Voc750920 (RET8) before downstream playback/device/RNG. HUD queue layout, pixels and audible playback are not certified. Action-line70D150 executes with zero caller scratch below ESP; its raw middle timer word is unused storage, not a gameplay comparison claim. Existing cases do not install these reached transports.',
+            'Vox752700 records actual literal EVA_PrimaryBuildingSelected, priority/type and returns0 with RET4; audible playback, queue/device state and downstream audio RNG are not certified. Existing JoinedFixture705D70 palette getter returns0 when Mark2 reaches it (8 recorded presentation_boundary entries in the original histories, plus2 in the admission controls). Other inherited UpdateAnimation presentation sinks remain installed but unreached. Common primary toggles change no palette/tint/cloak input; wider cloak/flash/attached-Anim refresh and pixels need their existing presentation owners.'])
 
 
 def joined_generate():
@@ -1410,6 +1524,8 @@ def main(argv=None):
                    'tools/spatial_oracle/unit_scatter_state.py', 'tools/spatial_oracle/unit_source_scatter.py',
                    'tools/spatial_oracle/building_body_rules.py', 'tools/spatial_oracle/anim_bouncer_launch.py',
                    'tools/spatial_oracle/building_slot_replacement.py')
+        if manual:
+            sources += ('tools/storage_oracle/keyboard_bindings.py', 'tools/sidebar_oracle/stock.py')
         finish_vectors(manual_primary_generate if manual else joined_generate,
                        Path(__file__).with_name('building_manual_primary.json' if manual else
                                                 'building_construction_joined.json'),

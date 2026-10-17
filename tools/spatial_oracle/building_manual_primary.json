@@ -7884,6 +7884,1681 @@
       "unit_absorb": 0
     }
   },
+  "planning_admission": {
+    "controls": [
+      {
+        "actor_addresses": [
+          671244336,
+          671246400
+        ],
+        "constructor_primary": [
+          0,
+          0
+        ],
+        "events": [
+          {
+            "event": 17,
+            "frame": 1,
+            "issuer": 0,
+            "target_kind": 52,
+            "uid": 2
+          }
+        ],
+        "initial": {
+          "actors": [
+            {
+              "coords": [
+                1664,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 1,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 1
+            },
+            {
+              "coords": [
+                2432,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 2,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 2
+            }
+          ],
+          "find_factory": 1,
+          "houses": [
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 0,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            },
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 1,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            }
+          ],
+          "planning": {
+            "action_line_timer": [
+              -1,
+              0,
+              0
+            ],
+            "actor_path_present": [
+              false,
+              false
+            ],
+            "house_nonempty_paths": [
+              0,
+              0
+            ],
+            "refusal_latch": 0
+          },
+          "primary": [
+            1,
+            0
+          ]
+        },
+        "input": {
+          "actors": [
+            {
+              "primary": 1,
+              "type": "GAWEAP"
+            },
+            {
+              "type": "GAWEAP"
+            }
+          ],
+          "name": "planning_prior_0_selected_no_path",
+          "operations": [
+            {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            }
+          ],
+          "planning_admission": {
+            "prior_house_nonempty_paths": 0
+          }
+        },
+        "original_executable_sections_unchanged": true,
+        "phases": [
+          {
+            "action": 4,
+            "admitted": true,
+            "calls": [
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x30000000",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x447210",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "building_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff00c"
+              },
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x44726c",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x6ffec0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefdc",
+                "name": "techno_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x44726c",
+                "return_sp": "0x100fefe8"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf7d",
+                "cleanup": 0,
+                "ecx": "0x240246c0",
+                "entry": "0x639040",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_compatible",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf7d",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf84",
+                "cleanup": 0,
+                "ecx": "0x10246c0",
+                "entry": "0x639130",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_capacity",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf84",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [
+                  4,
+                  671246400,
+                  0
+                ],
+                "caller": "0x30000000",
+                "cleanup": 12,
+                "ecx": "0x28026840",
+                "entry": "0x443410",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "building_click",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff010"
+              },
+              {
+                "args": [
+                  671246400
+                ],
+                "caller": "0x443477",
+                "cleanup": 4,
+                "ecx": "0x100fef74",
+                "entry": "0x6e6ab0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fef60",
+                "name": "target_pack",
+                "return_eax": 269479796,
+                "return_fpcw": 3711,
+                "return_pc": "0x443477",
+                "return_sp": "0x100fef68"
+              },
+              {
+                "args": [
+                  0,
+                  17,
+                  2,
+                  671246388
+                ],
+                "caller": "0x443499",
+                "cleanup": 16,
+                "ecx": "0x100fef90",
+                "entry": "0x4c65e0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fef54",
+                "name": "target_event_ctor",
+                "return_eax": 269479824,
+                "return_fpcw": 3711,
+                "return_pc": "0x443499",
+                "return_sp": "0x100fef68"
+              },
+              {
+                "args": [],
+                "caller": "0x30000000",
+                "cleanup": 0,
+                "ecx": "0x0",
+                "entry": "0x70d150",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "action_line_timer_start",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff004"
+              },
+              {
+                "args": [],
+                "caller": "0x30000000",
+                "cleanup": 0,
+                "ecx": "0xa802d4",
+                "entry": "0x4c6cb0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "event_execute",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff004"
+              },
+              {
+                "args": [],
+                "caller": "0x4c7194",
+                "cleanup": 0,
+                "ecx": "0xa802db",
+                "entry": "0x6e7a80",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "target_as_building",
+                "return_eax": 671246400,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c7194",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [],
+                "caller": "0x4c719f",
+                "cleanup": 0,
+                "ecx": "0x28026840",
+                "entry": "0x6386e0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "clear_planning_tokens",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c719f",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [],
+                "caller": "0x4c71bf",
+                "cleanup": 0,
+                "ecx": "0x28026840",
+                "entry": "0x448160",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "manual_primary",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c71bf",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [
+                  2
+                ],
+                "caller": "0x448252",
+                "cleanup": 4,
+                "ecx": "0x28026840",
+                "entry": "0x43f180",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec6c",
+                "name": "building_mark",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x448252",
+                "return_sp": "0x100fec74"
+              },
+              {
+                "args": [
+                  0,
+                  0,
+                  0,
+                  537526272
+                ],
+                "caller": "0x30000000",
+                "cleanup": 16,
+                "ecx": "0x24028400",
+                "entry": "0x5f7900",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "find_factory",
+                "return_eax": 671246400,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff014"
+              }
+            ],
+            "effects": [
+              {
+                "event": "eva",
+                "key": "EVA_PrimaryBuildingSelected",
+                "priority": -1,
+                "type": -1
+              },
+              {
+                "actor": 2,
+                "argument": 2,
+                "event": "building_mark"
+              }
+            ],
+            "frame": 1,
+            "imports": [
+              {
+                "event": "OS_timeGetTime",
+                "supplied_result": 100000
+              }
+            ],
+            "input": {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            },
+            "issued": 1,
+            "joined_events": [
+              {
+                "event": "mark",
+                "frame": 1,
+                "this": 671246400
+              },
+              {
+                "address": 7363952,
+                "event": "presentation_boundary",
+                "frame": 1
+              }
+            ],
+            "planning_admission_stop": "004ABF94",
+            "rng": {
+              "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+            },
+            "state": {
+              "actors": [
+                {
+                  "coords": [
+                    1664,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 1,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 0,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 1
+                },
+                {
+                  "coords": [
+                    2432,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 2,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 1,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 2
+                }
+              ],
+              "find_factory": 2,
+              "houses": [
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 0,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                },
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 1,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                }
+              ],
+              "planning": {
+                "action_line_timer": [
+                  1,
+                  0,
+                  25
+                ],
+                "actor_path_present": [
+                  false,
+                  false
+                ],
+                "house_nonempty_paths": [
+                  0,
+                  0
+                ],
+                "refusal_latch": 0
+              },
+              "primary": [
+                0,
+                1
+              ]
+            }
+          }
+        ],
+        "rng_advances": [],
+        "rng_before": {
+          "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+        },
+        "rng_requests": []
+      },
+      {
+        "actor_addresses": [
+          671244336,
+          671246400
+        ],
+        "constructor_primary": [
+          0,
+          0
+        ],
+        "events": [
+          {
+            "event": 17,
+            "frame": 1,
+            "issuer": 0,
+            "target_kind": 52,
+            "uid": 2
+          }
+        ],
+        "initial": {
+          "actors": [
+            {
+              "coords": [
+                1664,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 1,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 1
+            },
+            {
+              "coords": [
+                2432,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 2,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 2
+            }
+          ],
+          "find_factory": 1,
+          "houses": [
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 0,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            },
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 1,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            }
+          ],
+          "planning": {
+            "action_line_timer": [
+              -1,
+              0,
+              0
+            ],
+            "actor_path_present": [
+              false,
+              false
+            ],
+            "house_nonempty_paths": [
+              127,
+              0
+            ],
+            "refusal_latch": 0
+          },
+          "primary": [
+            1,
+            0
+          ]
+        },
+        "input": {
+          "actors": [
+            {
+              "primary": 1,
+              "type": "GAWEAP"
+            },
+            {
+              "type": "GAWEAP"
+            }
+          ],
+          "name": "planning_prior_127_selected_no_path",
+          "operations": [
+            {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            }
+          ],
+          "planning_admission": {
+            "prior_house_nonempty_paths": 127
+          }
+        },
+        "original_executable_sections_unchanged": true,
+        "phases": [
+          {
+            "action": 4,
+            "admitted": true,
+            "calls": [
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x30000000",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x447210",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "building_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff00c"
+              },
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x44726c",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x6ffec0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefdc",
+                "name": "techno_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x44726c",
+                "return_sp": "0x100fefe8"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf7d",
+                "cleanup": 0,
+                "ecx": "0x240246c0",
+                "entry": "0x639040",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_compatible",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf7d",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf84",
+                "cleanup": 0,
+                "ecx": "0x10246c0",
+                "entry": "0x639130",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_capacity",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf84",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [
+                  4,
+                  671246400,
+                  0
+                ],
+                "caller": "0x30000000",
+                "cleanup": 12,
+                "ecx": "0x28026840",
+                "entry": "0x443410",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "building_click",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff010"
+              },
+              {
+                "args": [
+                  671246400
+                ],
+                "caller": "0x443477",
+                "cleanup": 4,
+                "ecx": "0x100fef74",
+                "entry": "0x6e6ab0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fef60",
+                "name": "target_pack",
+                "return_eax": 269479796,
+                "return_fpcw": 3711,
+                "return_pc": "0x443477",
+                "return_sp": "0x100fef68"
+              },
+              {
+                "args": [
+                  0,
+                  17,
+                  2,
+                  671246388
+                ],
+                "caller": "0x443499",
+                "cleanup": 16,
+                "ecx": "0x100fef90",
+                "entry": "0x4c65e0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fef54",
+                "name": "target_event_ctor",
+                "return_eax": 269479824,
+                "return_fpcw": 3711,
+                "return_pc": "0x443499",
+                "return_sp": "0x100fef68"
+              },
+              {
+                "args": [],
+                "caller": "0x30000000",
+                "cleanup": 0,
+                "ecx": "0x0",
+                "entry": "0x70d150",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "action_line_timer_start",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff004"
+              },
+              {
+                "args": [],
+                "caller": "0x30000000",
+                "cleanup": 0,
+                "ecx": "0xa802d4",
+                "entry": "0x4c6cb0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "event_execute",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff004"
+              },
+              {
+                "args": [],
+                "caller": "0x4c7194",
+                "cleanup": 0,
+                "ecx": "0xa802db",
+                "entry": "0x6e7a80",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "target_as_building",
+                "return_eax": 671246400,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c7194",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [],
+                "caller": "0x4c719f",
+                "cleanup": 0,
+                "ecx": "0x28026840",
+                "entry": "0x6386e0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "clear_planning_tokens",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c719f",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [],
+                "caller": "0x4c71bf",
+                "cleanup": 0,
+                "ecx": "0x28026840",
+                "entry": "0x448160",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec7c",
+                "name": "manual_primary",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4c71bf",
+                "return_sp": "0x100fec80"
+              },
+              {
+                "args": [
+                  2
+                ],
+                "caller": "0x448252",
+                "cleanup": 4,
+                "ecx": "0x28026840",
+                "entry": "0x43f180",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fec6c",
+                "name": "building_mark",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x448252",
+                "return_sp": "0x100fec74"
+              },
+              {
+                "args": [
+                  0,
+                  0,
+                  0,
+                  537526272
+                ],
+                "caller": "0x30000000",
+                "cleanup": 16,
+                "ecx": "0x24028400",
+                "entry": "0x5f7900",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "find_factory",
+                "return_eax": 671246400,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff014"
+              }
+            ],
+            "effects": [
+              {
+                "event": "eva",
+                "key": "EVA_PrimaryBuildingSelected",
+                "priority": -1,
+                "type": -1
+              },
+              {
+                "actor": 2,
+                "argument": 2,
+                "event": "building_mark"
+              }
+            ],
+            "frame": 1,
+            "imports": [
+              {
+                "event": "OS_timeGetTime",
+                "supplied_result": 100000
+              }
+            ],
+            "input": {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            },
+            "issued": 1,
+            "joined_events": [
+              {
+                "event": "mark",
+                "frame": 1,
+                "this": 671246400
+              },
+              {
+                "address": 7363952,
+                "event": "presentation_boundary",
+                "frame": 1
+              }
+            ],
+            "planning_admission_stop": "004ABF94",
+            "rng": {
+              "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+            },
+            "state": {
+              "actors": [
+                {
+                  "coords": [
+                    1664,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 1,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 0,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 1
+                },
+                {
+                  "coords": [
+                    2432,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 2,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 1,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 2
+                }
+              ],
+              "find_factory": 2,
+              "houses": [
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 0,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                },
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 1,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                }
+              ],
+              "planning": {
+                "action_line_timer": [
+                  1,
+                  0,
+                  25
+                ],
+                "actor_path_present": [
+                  false,
+                  false
+                ],
+                "house_nonempty_paths": [
+                  127,
+                  0
+                ],
+                "refusal_latch": 0
+              },
+              "primary": [
+                0,
+                1
+              ]
+            }
+          }
+        ],
+        "rng_advances": [],
+        "rng_before": {
+          "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+        },
+        "rng_requests": []
+      },
+      {
+        "actor_addresses": [
+          671244336,
+          671246400
+        ],
+        "constructor_primary": [
+          0,
+          0
+        ],
+        "events": [],
+        "initial": {
+          "actors": [
+            {
+              "coords": [
+                1664,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 1,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 1
+            },
+            {
+              "coords": [
+                2432,
+                2432,
+                0
+              ],
+              "flags": {
+                "alive": 1,
+                "health": 1000,
+                "limbo": 0,
+                "mission": 5,
+                "online": 1,
+                "queued_mission": -1
+              },
+              "id": 2,
+              "marked": 1,
+              "mission_timer": [
+                0,
+                0,
+                0
+              ],
+              "selected": 0,
+              "stage_timer": [
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              "uid": 2
+            }
+          ],
+          "find_factory": 1,
+          "houses": [
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 0,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            },
+            {
+              "edge": 0,
+              "factory_slots": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "index": 1,
+              "recheck": 0,
+              "timer": [
+                -1,
+                0,
+                0
+              ]
+            }
+          ],
+          "planning": {
+            "action_line_timer": [
+              -1,
+              0,
+              0
+            ],
+            "actor_path_present": [
+              false,
+              false
+            ],
+            "house_nonempty_paths": [
+              128,
+              0
+            ],
+            "refusal_latch": 0
+          },
+          "primary": [
+            1,
+            0
+          ]
+        },
+        "input": {
+          "actors": [
+            {
+              "primary": 1,
+              "type": "GAWEAP"
+            },
+            {
+              "type": "GAWEAP"
+            }
+          ],
+          "name": "planning_prior_128_selected_no_path",
+          "operations": [
+            {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            }
+          ],
+          "planning_admission": {
+            "prior_house_nonempty_paths": 128
+          }
+        },
+        "original_executable_sections_unchanged": true,
+        "phases": [
+          {
+            "action": 4,
+            "admitted": false,
+            "calls": [
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x30000000",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x447210",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "building_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff00c"
+              },
+              {
+                "args": [
+                  671246400,
+                  0
+                ],
+                "caller": "0x44726c",
+                "cleanup": 8,
+                "ecx": "0x28026840",
+                "entry": "0x6ffec0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefdc",
+                "name": "techno_what_action",
+                "return_eax": 4,
+                "return_fpcw": 3711,
+                "return_pc": "0x44726c",
+                "return_sp": "0x100fefe8"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf7d",
+                "cleanup": 0,
+                "ecx": "0x240246c0",
+                "entry": "0x639040",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_compatible",
+                "return_eax": 1,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf7d",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [],
+                "caller": "0x4abf84",
+                "cleanup": 0,
+                "ecx": "0x10246c0",
+                "entry": "0x639130",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feffc",
+                "name": "planning_capacity",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x4abf84",
+                "return_sp": "0x100ff000"
+              },
+              {
+                "args": [
+                  8612820,
+                  3233
+                ],
+                "caller": "0x6391d7",
+                "cleanup": 8,
+                "ecx": "0x836c6c",
+                "entry": "0x734e60",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefec",
+                "name": "localized_string",
+                "return_eax": 671248512,
+                "return_fpcw": 3711,
+                "return_pc": "0x6391d7",
+                "return_sp": "0x100feff8"
+              },
+              {
+                "args": [],
+                "caller": "0x6391e3",
+                "cleanup": 0,
+                "ecx": "0x28027080",
+                "entry": "0x730a90",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100feff4",
+                "name": "planning_message",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x6391e3",
+                "return_sp": "0x100feff8"
+              },
+              {
+                "args": [
+                  0,
+                  0,
+                  671248512,
+                  0,
+                  16454,
+                  480,
+                  1
+                ],
+                "caller": "0x730ac8",
+                "cleanup": 28,
+                "ecx": "0xa8bc60",
+                "entry": "0x5d3ba0",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefd0",
+                "name": "message_list_add",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x730ac8",
+                "return_sp": "0x100feff0"
+              },
+              {
+                "args": [
+                  1065353216,
+                  0
+                ],
+                "caller": "0x6391ff",
+                "cleanup": 8,
+                "ecx": "0x1",
+                "entry": "0x750920",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100fefec",
+                "name": "planning_scold",
+                "return_eax": 0,
+                "return_fpcw": 3711,
+                "return_pc": "0x6391ff",
+                "return_sp": "0x100feff8"
+              },
+              {
+                "args": [
+                  0,
+                  0,
+                  0,
+                  537526272
+                ],
+                "caller": "0x30000000",
+                "cleanup": 16,
+                "ecx": "0x24028400",
+                "entry": "0x5f7900",
+                "entry_fpcw": 3711,
+                "entry_sp": "0x100ff000",
+                "name": "find_factory",
+                "return_eax": 671244336,
+                "return_fpcw": 3711,
+                "return_pc": "0x30000000",
+                "return_sp": "0x100ff014"
+              }
+            ],
+            "effects": [
+              {
+                "color": 0,
+                "duration": 480,
+                "event": "planning_refusal_message",
+                "flags": 16454,
+                "force": 1,
+                "key": "MSG:PlannerMaximum",
+                "text": "You have exceeded the maximum number of units allowed for all waypoint paths."
+              },
+              {
+                "event": "planning_scold",
+                "handle": 0,
+                "pan": 8192,
+                "sound_index": 1,
+                "volume_f32_hex": "0000803f"
+              }
+            ],
+            "frame": 1,
+            "imports": [
+              {
+                "event": "localized_string",
+                "key": "MSG:PlannerMaximum",
+                "text": "You have exceeded the maximum number of units allowed for all waypoint paths."
+              }
+            ],
+            "input": {
+              "actor": 2,
+              "op": "click",
+              "planning": true
+            },
+            "issued": 0,
+            "joined_events": [],
+            "planning_admission_stop": "004AC294",
+            "rng": {
+              "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+              "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+            },
+            "state": {
+              "actors": [
+                {
+                  "coords": [
+                    1664,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 1,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 0,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 1
+                },
+                {
+                  "coords": [
+                    2432,
+                    2432,
+                    0
+                  ],
+                  "flags": {
+                    "alive": 1,
+                    "health": 1000,
+                    "limbo": 0,
+                    "mission": 5,
+                    "online": 1,
+                    "queued_mission": -1
+                  },
+                  "id": 2,
+                  "marked": 1,
+                  "mission_timer": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "selected": 1,
+                  "stage_timer": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "uid": 2
+                }
+              ],
+              "find_factory": 1,
+              "houses": [
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 0,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                },
+                {
+                  "edge": 0,
+                  "factory_slots": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "index": 1,
+                  "recheck": 0,
+                  "timer": [
+                    -1,
+                    0,
+                    0
+                  ]
+                }
+              ],
+              "planning": {
+                "action_line_timer": [
+                  -1,
+                  0,
+                  0
+                ],
+                "actor_path_present": [
+                  false,
+                  false
+                ],
+                "house_nonempty_paths": [
+                  128,
+                  0
+                ],
+                "refusal_latch": 1
+              },
+              "primary": [
+                1,
+                0
+              ]
+            }
+          }
+        ],
+        "rng_advances": [],
+        "rng_before": {
+          "main": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "mapgen": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49",
+          "scenario": "0000000000000000670000007d8d3bb774572455b434a5f30ce9e4f005a0e3b4758cdee8a6bbbcc84508d168b73af1642547b1baa1f60a2bee68538bb5c0422d7371cdea5cd358054a832e0b2513295b2fa6c22ddebf08382d79e5590794753d08a63e9f81a42283e74aee997f69b520dde807ff718dfb6e36926ec78425ae2e85e645ac85f787b5fc95b15362269ce187ca057a03f779933bcb1c6e207782d8ad5a4d904c590afb1b8d491b7996901ef35ad76acbf963ea662f651f59a2b7c0935cfb3e714bdcfabb9fc0bc485677c09a8b78a9baae0c3c44a06c2de7c3320a0e238449f12a0fb0494ce64229262e65fc3a05dc5c3106a80d7662e4fa0e825879ef2b335f641a63c47cbc47cc076256f953aa0fc5b6ee6a143abe13f4f838ec925e06a2e86fd641be52f5c9f0fa224e4572d4aa75f3bf2e89568d90e2d5ce80ed080c147de64a410eac7e76ae1d40d7d5c0d5a498705ed9d4f7a366265fb40a884bfa3b2f52bb09d2363fa82ec68b26f914a2264818e776c84f631235c25530493f97055f97f6749a66bb5822c2d8842e72d06ab30490581a17f48b767f9ff2e17257f9a6896eeb2ef4f8cfe1fe7dddac1f0277aa9577a9ee7585b21518b6cabfe9f3a1e895bce9b4cde34b0943ea94850845280bbeea4dbcee783a7fc96867bf456cf26ad773bee474d851d17ea98be8d5c502cba200fd8a144ac8ca52223203574ff1f74b8175b98f937916f85049919d4ab1fe175d98569828d29836f3e362496b458584bf80b2a6abd08935d9bfae3247fe3731a19951e89a09f583cd24b33fc310f5acbbac56615cc6f5a4e5b32b91a769e34d6be26bd1e11edb2e397109862492c9412e4a79fe6ee0ae98df206f7b94d559a2485b6f57589f631fc6265c040896cb81f8ffc789c16eabb99d80939e64fa257641dc2cba6e7ff47b640517f85cd89f41b8f6476b8a17714969bf7c900f0e9eb6e81f672d0140803403302739e4c708113faa50152f09cd9349c15e15c4882ec108a0eba147524827c1397100c787ac53db5a626ae2b2055c4182a7ddc0665e0dfc6ba9ec12b9d509a86b1be4c61c8d0ecfe1025617b35a13a7ff5158d8b0399b7708ab07724738060a6fb9cfc3f02c8e18c12c84c45380378305b44513d23ab0e97aafa0edd10d0da130b9edda65a3785144a37bbead9a326c05585309ee3c0e3be6b9ecf8fdce1a1ddef39f181d9cfd8f52177bc90d2ac6f9b89d7e1763be0e61ce30418bddde52e4df6e98046dfd0ff036f03a1af83be02c34c0e78b1480aaba74da45871d1d18f3c65059ec2ef905a09b62fb796f8996c3f9081f445e6c28119e2d72223bb105a063cc9f438de40254f6b99c237b928a10dcb6f25f93400b1222bc2f1f91197c70336006f15798cf23b09a7820b123e71776aab17a49"
+        },
+        "rng_requests": []
+      }
+    ],
+    "csf": {
+      "file": "langmd.mix/ra2md.csf",
+      "key": "MSG:PlannerMaximum",
+      "sha256": "f3382231d7eb3bd713bf3908ecdba175a1b2e20d9d80fa2702e9ab84c3a79deb",
+      "text": "You have exceeded the maximum number of units allowed for all waypoint paths."
+    },
+    "scold_sound": {
+      "constructor_default": -1,
+      "key": "ScoldSound",
+      "layers": [
+        {
+          "after": 1,
+          "before": -1,
+          "file": "RULESMD.INI",
+          "native_buffer": "MenuScold",
+          "physical_value": "MenuScold"
+        },
+        {
+          "after": 1,
+          "before": 1,
+          "file": "MPBattleMD.ini",
+          "native_buffer": "",
+          "physical_value": null
+        },
+        {
+          "after": 1,
+          "before": 1,
+          "file": "Hills.map",
+          "native_buffer": "",
+          "physical_value": null
+        }
+      ],
+      "name": "MenuScold",
+      "registry_index": 1,
+      "section": "AudioVisual",
+      "selected_registry": [
+        "Dummy",
+        "MenuScold"
+      ]
+    }
+  },
   "query_unit": {
     "name": "MTNK",
     "naval": 0,

@@ -438,6 +438,20 @@ queued/head voice actions, physical sample/finite PCM and event/channel
 retirement. Loading and service can advance Main before the order, so a launch
 seed alone does not determine which entry a multi-entry list chooses.
 
+The [building power-status profile](map_observation.building-power-status.example.json)
+selects an ordinary full-health owned GAPOWR in the existing clear-ground scene:
+
+```sh
+python tools/render_depth_fixture.py target/building-power-status.map --building-brackets
+```
+
+Copy the profile and set the generated map's absolute path. Its three owned
+plants keep their retail Power, health and rules. Inspect the selected building's
+localized House power/drain text, then the same scene after an ordinary right-click
+deselect. The text reads the House's retained totals; it does not sum buildings or
+assess power during drawing. The existing Building-array text pass draws after
+Ground2, with the same physical GAME.FNT and House color as PRIMARY labels.
+
 Literal `key` gestures may optionally include a unique `modifiers` list containing
 `Ctrl`, `Shift`, `Alt`, and/or `Super`. These use the shared modifier-key owner and
 ordinary key edges, and release every modifier before rendering. Bare historical

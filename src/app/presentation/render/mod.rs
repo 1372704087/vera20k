@@ -402,7 +402,7 @@ pub(crate) fn render_game(
             overlay_render_z: &world.overlay_render_z,
             bridge_shadows: &world.bridge_body_shadow,
             object_layers: &world.object_layers,
-            primary_factory_status: &world.primary_factory_status,
+            building_status_text: &world.building_status_text,
             surface_effects,
             sidebar_unavailable: &sidebar.unavailable,
             sidebar_flash: &sidebar.flash,
@@ -462,8 +462,8 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "overlay", &world.overlay);
     pool.upload(
         &state.renderer.gpu,
-        "primary_factory_status",
-        &world.primary_factory_status.instances,
+        "building_status_text",
+        &world.building_status_text.instances,
     );
     for (layer, objects) in world.object_layers.iter().enumerate() {
         pool.upload_page(

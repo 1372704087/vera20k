@@ -27,9 +27,9 @@ mod cell_content;
 mod crash;
 #[cfg(test)]
 pub(crate) mod entry_test_fixture;
+mod frame_effects;
 mod object_entry;
 mod sinking;
-mod frame_effects;
 mod time_warp;
 mod trigger_chrono;
 mod type_tech_levels;
@@ -104,11 +104,10 @@ mod projectile_collision;
 mod substrate;
 mod techno_ai;
 mod trigger_camera;
-mod trigger_explosion;
-mod trigger_nuke;
 #[cfg(test)]
 mod trigger_camera_tests;
-pub(crate) use techno_ai::DamageSpark;
+mod trigger_explosion;
+mod trigger_nuke;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
 #[cfg(any(test, feature = "test-support"))]
@@ -153,8 +152,6 @@ mod damage_consequence_tests;
 #[cfg(test)]
 mod drone_rocking_tests;
 #[cfg(test)]
-mod suicide_fire_tests;
-#[cfg(test)]
 mod engineer_building_repair_tests;
 #[cfg(test)]
 mod engineer_power_consumer_tests;
@@ -176,6 +173,8 @@ mod mastermind_overload_tests;
 mod projectile_trailer_tests;
 #[cfg(test)]
 mod squid_grapple_tests;
+#[cfg(test)]
+mod suicide_fire_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]

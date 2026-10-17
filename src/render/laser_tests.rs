@@ -173,7 +173,7 @@ fn production_laser_pixels_match_original_software_surface() {
                     &gpu.device,
                     &gpu.queue,
                     draws(row),
-                    &[],
+                    std::iter::empty(),
                     &[],
                     &[],
                     viewport(input),

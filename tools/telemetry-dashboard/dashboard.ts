@@ -866,7 +866,7 @@ function renderPhaseTable(
         renderRows
           .map(
             ({ label, ms }) =>
-              `<tr><td class="ph-name">${label}</td>` +
+              `<tr><td class="ph-name" title="${label}">${label}</td>` +
               `<td class="ph-bar" style="--share:${share(ms, renderTotal).toFixed(2)}%">` +
               `<span class="ph-fill"></span></td>` +
               `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
@@ -1127,7 +1127,8 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   const groupH = 30;
   const ledgerH = ledger.reduce((sum, row) => sum + (row.group ? groupH : rowH), 0);
   const partiesH = parties.length === 0 ? 0 : 48 + parties.length * 26;
-  const footerH = 34;
+  // Leaves room between the last participant row and the colophon.
+  const footerH = 52;
   const height = headerH + pieH + tableHeadH + ledgerH + 26 + partiesH + footerH;
 
   const dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
@@ -1334,7 +1335,7 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   ctx.fillText(
     `VERA20k · schema v${SCHEMA_VERSION} · ${new Date().toLocaleString()}`,
     pad,
-    height - 16,
+    height - 18,
   );
 
   return canvas;

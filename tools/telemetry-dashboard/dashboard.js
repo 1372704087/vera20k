@@ -718,7 +718,7 @@ function renderPhaseTable(table, profile, render, simTotal, frameTotal) {
         ? ""
         : `<tbody><tr class="ph-group"><td colspan="5">${t("rnd.group")}</td></tr>` +
             renderRows
-                .map(({ label, ms }) => `<tr><td class="ph-name">${label}</td>` +
+                .map(({ label, ms }) => `<tr><td class="ph-name" title="${label}">${label}</td>` +
                 `<td class="ph-bar" style="--share:${share(ms, renderTotal).toFixed(2)}%">` +
                 `<span class="ph-fill"></span></td>` +
                 `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
@@ -932,7 +932,8 @@ function buildReportCanvas() {
     const groupH = 30;
     const ledgerH = ledger.reduce((sum, row) => sum + (row.group ? groupH : rowH), 0);
     const partiesH = parties.length === 0 ? 0 : 48 + parties.length * 26;
-    const footerH = 34;
+    // Leaves room between the last participant row and the colophon.
+    const footerH = 52;
     const height = headerH + pieH + tableHeadH + ledgerH + 26 + partiesH + footerH;
     const dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
     const canvas = document.createElement("canvas");
@@ -1102,7 +1103,7 @@ function buildReportCanvas() {
     ctx.textAlign = "left";
     ctx.font = `10.5px ${EXPORT_FONT}`;
     ctx.fillStyle = "#8b9aab";
-    ctx.fillText(`VERA20k · schema v${SCHEMA_VERSION} · ${new Date().toLocaleString()}`, pad, height - 16);
+    ctx.fillText(`VERA20k · schema v${SCHEMA_VERSION} · ${new Date().toLocaleString()}`, pad, height - 18);
     return canvas;
 }
 /**

@@ -28,9 +28,6 @@ oyuncular söylüyor.
 3. Eski ve yeni bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
 4. Entegre çok oyunculu istemci
 
-İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
-ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
-
 ## Mevcut durum
 
 **Geliştirmenin orta aşamalarında.** Windows'ta basit bir yapay zekâya karşı yerel çatışmalar
@@ -71,6 +68,11 @@ cargo run --release --bin vera20k
 Kodun büyük bölümünü yapay zekâ kodlama ajanları yazıyor. Ajanlar özgün motoru Ghidra ile
 inceliyor, ardından davranışını Rust'a aktarıyor ve [karşılaştırma araçları](tools/native_oracle.md)
 ile oyun testleri kullanarak kontrol ediyor. Ajanlar [AGENTS.md](AGENTS.md) dosyasını izler.
+
+## Modlama
+
+İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
+ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
 
 ## Katkıda bulunma
 

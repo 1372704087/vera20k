@@ -28,9 +28,6 @@ VERA20k is made by gamers, for gamers, and gamers have the final say in where it
 3. Incorporate known RTS features, old and new, and some never seen before.
 4. Integrated multiplayer client
 
-Optional features (e.g. Ares) should be configurable through INI files, with client toggles
-where appropriate.
-
 ## Current status
 
 **Mid development.** Local skirmish is playable on Windows against a basic AI. Retail and
@@ -71,6 +68,11 @@ builds are too slow. The log is in `logs/ra2.log`.
 Most of the code is written by AI coding agents. They use Ghidra to study the original
 engine, then port its behavior to Rust and check it with [comparison tools](tools/native_oracle.md)
 and playtesting. Agents follow [AGENTS.md](AGENTS.md).
+
+## Modding
+
+Optional features (e.g. Ares) should be configurable through INI files, with client toggles
+where appropriate.
 
 ## Contributing
 

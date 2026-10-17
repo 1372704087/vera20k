@@ -27,9 +27,6 @@ ska gå.
 3. Integrera kända RTS-funktioner, gamla som nya, och några som aldrig setts förut.
 4. Integrerad flerspelarklient
 
-Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
-att slå på och av dem i klienten där det är lämpligt.
-
 ## Aktuellt läge
 
 **Mitt i utvecklingen.** Lokala skirmishmatcher går att spela på Windows mot en enkel AI.
@@ -72,6 +69,11 @@ Större delen av koden skrivs av AI-agenter. De använder Ghidra för att studer
 portar sedan dess beteende till Rust och kontrollerar det med
 [jämförelseverktyg](tools/native_oracle.md) och speltester. Agenterna följer
 [AGENTS.md](AGENTS.md).
+
+## Moddning
+
+Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
+att slå på och av dem i klienten där det är lämpligt.
 
 ## Bidra
 

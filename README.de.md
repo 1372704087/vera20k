@@ -28,6 +28,9 @@ das Projekt entwickelt.
 3. Bekannte RTS-Funktionen integrieren, alte wie neue, und einige, die es noch nie gab.
 4. Integrierter Mehrspieler-Client
 
+Optionale Funktionen (z. B. aus Ares) sollen sich über INI-Dateien konfigurieren und,
+wo sinnvoll, im Client ein- und ausschalten lassen.
+
 ## Aktueller Stand
 
 **Mitten in der Entwicklung.** Lokale Gefechte gegen eine einfache KI sind unter Windows

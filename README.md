@@ -28,6 +28,9 @@ VERA20k is made by gamers, for gamers, and gamers have the final say in where it
 3. Incorporate known RTS features, old and new, and some never seen before.
 4. Integrated multiplayer client
 
+Optional features (e.g. Ares) should be configurable through INI files, with client toggles
+where appropriate.
+
 ## Current status
 
 **Mid development.** Local skirmish is playable on Windows against a basic AI. Retail and

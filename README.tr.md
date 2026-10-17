@@ -28,6 +28,9 @@ oyuncular söylüyor.
 3. Eski ve yeni bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
 4. Entegre çok oyunculu istemci
 
+İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
+ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
+
 ## Mevcut durum
 
 **Geliştirmenin orta aşamalarında.** Windows'ta basit bir yapay zekâya karşı yerel çatışmalar

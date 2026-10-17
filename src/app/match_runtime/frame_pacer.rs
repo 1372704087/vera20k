@@ -285,7 +285,7 @@ mod tests {
         let after = wall_clock_ms() as u32;
         assert!(output.status.success(), "{output:?}");
         let stdout = String::from_utf8(output.stdout).unwrap();
-        let child: u32 = stdout
+        let child: u64 = stdout
             .split_once("VERA20K_PACING_CLOCK_MS=")
             .expect("child clock sample")
             .1
@@ -294,6 +294,7 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
+        let child = child as u32;
         assert!(
             child.wrapping_sub(before) <= after.wrapping_sub(before),
             "new process clock {child} outside parent samples {before}..{after}"

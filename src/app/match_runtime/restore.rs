@@ -106,15 +106,9 @@ pub(crate) fn commit_prepared_load(
     // rearms only slide. Sample after world adoption so diagnostic time uses
     // the incoming tick too. Rejected preparation never reaches this commit.
     let power_ms = state.radar_presentation_ms();
-    let power_budget = crate::app::presentation::building_anim::power_bar_budget_px(state);
     let mut power = committed.power_bar_anim;
-    power.set_max_segments(power_budget);
     power.reanchor_after_load(power_ms);
     state.match_state.match_presentation.power_bar_anim = power;
-    log::debug!(
-        "Load: restored Power at {power_ms}ms: {:?}",
-        state.match_state.match_presentation.power_bar_anim,
-    );
 
     crate::app::audio_runtime::bind_match_theme_context(state);
     let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
@@ -177,5 +171,18 @@ pub(crate) fn commit_prepared_load(
     state.platform.frame_pacer.reset_for_immediate_frame();
     state.persistence.last_loaded_save_path = Some(path.to_path_buf());
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+    // The incoming chrome owns the footer allowance; refresh its layout
+    // before initializing derived geometry, including on a cold/different-side
+    // load. No Power AI visit or retained-band clamp belongs in this phase.
+    let power_budget = crate::app::presentation::building_anim::power_bar_budget_px(state);
+    state
+        .match_state
+        .match_presentation
+        .power_bar_anim
+        .set_max_segments(power_budget);
+    log::debug!(
+        "Load: restored Power at {power_ms}ms: {:?}",
+        state.match_state.match_presentation.power_bar_anim,
+    );
     log::info!("Load: restored simulation from {}", path.display());
 }

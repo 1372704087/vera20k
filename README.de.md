@@ -114,7 +114,7 @@ Beiträge stehen wie das übrige Projekt unter der GPLv3; ein CLA gibt es nicht.
 gemäß dem [TIBTRE-Beitragsverzeichnis](https://github.com/YuriPlanet/tibtre-ledger) an externe
 Mitwirkende verteilt.
 
-Der Gründer von VERA20k kann Auszahlungen über PayPal, SEPA-Überweisung, Bitcoin, UnionPay
+Der Gründer von VERA20k kann Auszahlungen über PayPal, Vipps, SEPA-Überweisung, Bitcoin, UnionPay
 (China) oder Alipay vornehmen. Mitwirkende sollten [Discord](https://discord.gg/kmjRUn5m5F)
 oder der QQ-Gruppe (1097193563) beitreten, damit der Gründer sie kontaktieren und die
 Auszahlungen vereinbaren kann.

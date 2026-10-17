@@ -106,7 +106,7 @@ cargo run --release --bin vera20k
 [สนับสนุน VERA20k ผ่าน PayPal](https://paypal.me/vera20k) เงินบริจาคทั้งหมดที่ได้รับจะจัดสรรให้
 ผู้มีส่วนร่วมจากภายนอกตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)
 
-ผู้ก่อตั้ง VERA20k สามารถจ่ายเงินผ่าน PayPal การโอนเงินผ่านธนาคารแบบ SEPA, Bitcoin, UnionPay
+ผู้ก่อตั้ง VERA20k สามารถจ่ายเงินผ่าน PayPal, Vipps, การโอนเงินผ่านธนาคารแบบ SEPA, Bitcoin, UnionPay
 (จีน) หรือ Alipay ผู้มีส่วนร่วมควรเข้าร่วม [Discord](https://discord.gg/kmjRUn5m5F) หรือกลุ่ม QQ
 (1097193563) เพื่อให้ผู้ก่อตั้งติดต่อและนัดหมายการจ่ายเงินได้
 

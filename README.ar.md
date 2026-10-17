@@ -107,6 +107,15 @@ cargo run --release --bin vera20k
 
 تُرخَّص المساهمات بموجب GPLv3 مثل بقية المشروع؛ ولا توجد اتفاقية CLA.
 
+## الدعم
+
+[ادعم VERA20k عبر PayPal](https://paypal.me/vera20k). تُوزَّع جميع التبرعات المستلمة على
+المساهمين الخارجيين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
+
+يمكن لمؤسس VERA20k إرسال الدفعات عبر PayPal أو التحويل البنكي SEPA أو Bitcoin أو UnionPay
+(الصين) أو Alipay. يُرجى من المساهمين الانضمام إلى [Discord](https://discord.gg/kmjRUn5m5F)
+أو مجموعة QQ (1097193563) حتى يتمكن المؤسس من التواصل معهم لترتيب الدفعات.
+
 ## شكر ومعلومات قانونية
 
 نشكر OpenRA وXCC Mixer وويكي ModEnc وProject Perfect Mod، وشركة EA على نشر الكود المصدري

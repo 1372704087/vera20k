@@ -106,6 +106,15 @@ Mät prestanda med `--release`.
 
 Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
 
+## Stöd projektet
+
+[Stöd VERA20k via PayPal](https://paypal.me/vera20k). Alla mottagna donationer fördelas till
+externa medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
+
+VERA20k:s grundare kan betala ut pengar via PayPal, SEPA-banköverföring, Bitcoin, UnionPay
+(Kina) eller Alipay. Medverkande bör gå med i [Discord](https://discord.gg/kmjRUn5m5F) eller
+QQ-gruppen (1097193563) så att grundaren kan kontakta dem för att ordna utbetalningar.
+
 ## Tack och juridisk information
 
 Tack till OpenRA, XCC Mixer, ModEnc-wikin, Project Perfect Mod, EA:s GPL-utgåva av källkoden till

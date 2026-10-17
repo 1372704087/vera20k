@@ -898,3 +898,95 @@ prefixes, placement/selection/House, health and retained node states are supplie
 inputs. Full Display/body, paid naval exit/placement, spawn flight/combat/audio
 and removal, arbitrary types/PipScales and whole function/class coverage remain
 OPEN/PARTIAL.
+
+## Ordinary Bio-Reactor absorber passenger pips
+
+`--absorber-pips` extends the same status/Building/TMP/reader/palette/Surface
+owner. It adds no VM, cargo implementation, palette expansion or rasterizer.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --absorber-pips --check
+```
+
+`absorber_pips.json` retains the shared `readers`, `physical_inputs`, `palette`,
+`raster_controls` and `composition_controls` schema. Its original BuildingType
+constructor45DD90 and full reader45FE50 consume physical RULESMD, optional
+LANGRULE, Battle and XMP03T4. Fixed ARTMD supplies Foundation/Height and image
+metadata. The stock result is YAPOWR Strength700, Foundation2x2, Height4,
+Passengers5, PipScalePassengers, InfantryAbsorbtrue, UnitAbsorbfalse,
+Gunnerfalse, PipsDrawForAllfalse, MaxNumberOccupants0 and ShowOccupantPipstrue.
+Selected original INIT/YENGINEER/MTNK constructors and type scalar/Pip reads
+share that VM. INIT uses Pipwhite3; the Yuri Engineer uses Pipblue5. OccupyPip
+is a different field and is not substituted for absorber cargo.
+
+The new `reader_controls` object contains an original probe `constructor` and
+eight linked `controls`, each with `input.sections`, native `admitted`, `before`
+and `after`. Original section admission and scalar read/store blocks execute;
+no expected bool, enum or integer is computed by a second parser. Defaults are
+PipScale0/PipsDrawForAllfalse/Passengers0/UnitAbsorbfalse/InfantryAbsorbfalse/
+CanBeOccupiedfalse/ShowOccupantPipstrue/MaxNumberOccupants0. Every read uses its
+current field as the next default. Histories cover explicit yes/no, absent
+section, admitted missing keys, unknown and mixed-case scale, and an explicit
+cached empty string. PipScale474940 maps the original table; Infantry4748A0
+and its default-table-index trap stay with the existing passenger corpus and
+retained `InfantryPips` production reader.
+
+Selected raster controls enter6F64A0 after the separately established selected
+dispatch. Hover/unselected/sinking controls execute complete6F5190. Building
+health6F659E derives the Z=0 foundation-corner projection;6F682C adds it to
+the caller point and invokes709A90. Its Building policy admits the ordinary
+relationship/+210 arm, CanBeOccupied or **PipsDrawForAll**. This exact key
+and Type+3D8 are separate from PixelSelectionBracketDelta. The mobile caller
+6F6A58..6F6AB0 does not read3D8; the authored bypass is not a general mobile
+visibility rule. Ctor-zero210 and supplied nonallied House/index priors do not
+establish a nonallied display-mask producer.
+
+For Buildings the row uses physical **PIPS.SHP**, `(input.x+6,input.y-1)` and
+step`(4,2)`. Only mobiles replace this with PIPS2 and stepY0. Positive
+Passengers invokes canonical GetPipMax716290. Native4598A0 tests UnitAbsorb
+OR InfantryAbsorb. Its absorber arm709DD4..9E43 walks the Cargo head forward,
+writes one slot per passenger using InfantryType+DFC Pip, and creates no Size
+fillers. A Unit gets frame4 and another non-Infantry class frame1. The ordinary
+nonabsorber path instead reverses into high slots and uses Unitframe5 plus
+Size−1 frame3 fillers. All allocated slots draw, including empty0 outlines.
+
+`input.actors[].passengers` is additive and lists **boarding order**; historical
+singular `passenger` remains unchanged. Existing native4733A0 performs the
+actual prepend, and473430 performs removal. `actor_results[].cargo_types`
+records the native linked head order, alongside count, GetPipMax and the actual
+4598A0 query result. INIT then YENGINEER becomes YENGINEER then INIT, drawing
+5/3/0/0/0. Full loading uses distinct prefix-constructed native actors rather
+than linking one actor repeatedly. Their constructor boundaries, RNG requests
+and passive timers are retained separately; this is not original movement,
+radio, admission or placement execution.
+
+The18 raster controls cover empty/one/mixed/full cargo and actual head removal;
+selected/hover/unselected/sinking/nonallied; authored Building bypasses;
+Tiberium's whole-tail suppression; Unit4 versus ordinary Unit5/Size fillers;
+independent empty garrison and passenger origins; ShowOccupantPipsfalse;
+partial caller clip, A0/Z0, A63 and positive parent overlap. Both native
+containers in the authored dual-row control are empty: garrison6/6 and
+passenger0×5 restart at the same origin. Distinct occupied dual-list lifecycle
+is outside the current shared Cargo representation and is not claimed here.
+`draws[].pip_tail` is observed from original709A90 entry/return, distinguishing
+those PIPS calls from health PIPS without deriving frames in the oracle.
+
+Two composition controls execute original first Extras, the physical
+temperate **YGPOWR.SHP** base body and late Extras, with an optional earlier
+neighbor. `body_asset` names that actual loaded shape; its bytes are checked
+against the normal ra2md.mix/genermd.mix payload. Existing TMP ground/Z and
+palette setup are reused. The input actor retains the same actual Cargo
+construction. Only status-addressed pixels are retained; full body planes are
+hashed. `body_overwritten_absorber_pixels` distinguishes the new row from
+health and reports the actual composition witness, including empty outcomes.
+Slot animations and a full native Display/device frame remain separate bounds.
+
+Every shape center, clip, picker, row walker and packed pixel executes original
+4AED70/4912B0. Tail flags600 use THEATER_PAL at1000 and bypass A/Z; no generic
+alpha or depth material is substituted. Raster actor bytes/A/Z and executable
+code/vtables stay unchanged. Drawing/query intervals draw no RNG, write no
+timers and call no detach. Constructor requests/passive timers are separate
+from entry/unload/animation/audio/removal RNG, clocks and pointer expiry under
+their existing owners. The corpus does not reproduce those whole lifecycles,
+custom independent dual lists, malformed/overfull links, arbitrary types or
+whole functions/classes.

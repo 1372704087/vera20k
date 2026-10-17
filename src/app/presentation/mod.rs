@@ -34,6 +34,9 @@ mod ammo_pip_tests;
 #[cfg(test)]
 mod spawn_pip_tests;
 
+#[cfg(test)]
+mod absorber_pip_tests;
+
 pub(crate) mod lighting;
 
 #[cfg(test)]

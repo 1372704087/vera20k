@@ -148,7 +148,10 @@ fn admitted_techno_observer(
 /// other arm tests the object's current-player display bit at Techno+0x210.
 /// That bit has no Rust owner yet, so this covers the common current-owned /-
 /// allied path and leaves the non-allied display-bit arm as a bounded residual.
-/// Keep this gate separate from health-strip admission.
+/// Building6F67DC..67FE also admits CanBeOccupied/PipsDrawForAll; the
+/// mobile caller never reads the latter.709B61 suppresses the complete
+/// Building Tiberium tail. All pip/group consumers share these decisions.
+/// Source: procedural_drawing_oracle/absorber_pips; +210 remains unresolved.
 fn entity_status_pips_drawable(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
@@ -159,18 +162,30 @@ fn entity_status_pips_drawable(
     let Some(current_house_id) = current_house_id else {
         return false;
     };
-    // House4F9A50 reads the ASKING owner's ally bits (6F6A58..8C).
-    health_bar_drawable(
+    if !health_bar_drawable(
         sim,
         entity,
         hovered_entity_id,
         Some(sim.interner.resolve(current_house_id)),
         rules,
-    ) && crate::map::houses::is_allied_with(
-        &sim.house_alliances,
-        sim.interner.resolve(entity.owner()),
-        sim.interner.resolve(current_house_id),
-    )
+    ) {
+        return false;
+    }
+    let building_type = (entity.category() == EntityCategory::Structure)
+        .then(|| rules.and_then(|rules| sim.interner.object_type(entity.type_ref(), rules)))
+        .flatten();
+    if building_type
+        .is_some_and(|object| object.pip_scale == crate::rules::object_type::PipScale::Tiberium)
+    {
+        return false;
+    }
+    // House4F9A50 reads the ASKING owner's ally bits (6F6A58..8C).
+    building_type.is_some_and(|object| object.can_be_occupied || object.pips_draw_for_all())
+        || crate::map::houses::is_allied_with(
+            &sim.house_alliances,
+            sim.interner.resolve(entity.owner()),
+            sim.interner.resolve(current_house_id),
+        )
 }
 
 /// Project the input-owned control-group membership onto the live objects that
@@ -210,16 +225,8 @@ pub(crate) fn control_group_status_labels(
         .into_iter()
         .filter_map(|stable_id| {
             let entity = sim.entities().get(stable_id)?;
-            let building_tiberium_tail = entity.category() == EntityCategory::Structure
-                && rules
-                    .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
-                    .is_some_and(|object| {
-                        object.pip_scale == crate::rules::object_type::PipScale::Tiberium
-                    });
             if entity.sinking.is_active()
                 || entity.passenger_role.is_inside_transport()
-                //709B61 skips the entire Building status tail for Tiberium2.
-                || building_tiberium_tail
                 || !entity_status_pips_drawable(
                     sim,
                     entity,
@@ -1057,38 +1064,19 @@ pub(crate) fn techno_extras_for_parent(
                 0.0006,
             ));
         }
-        //6F659E projects the foundation edge with Z=0;6F682C hands it to
-        //709A90. Garrison709C27..D17 reads raw OccupyPip, including frames1..5
-        // produced by the shared native reader, not just person frames6..12.
-        // Building6F67DC additionally admits CanBeOccupied regardless of
-        // relationship. Type+157B defaults false45E07D;4600DA reads exact
-        // CanBeOccupied81ADBC through ReadBool5295F0 with the current default.
-        // Preserve this separate native Building policy.
-        if (object.can_be_occupied
-            || entity_status_pips_drawable(sim, entity, hovered_id, observer_id, Some(rules)))
-            && object.show_occupant_pips
-            && object.max_number_occupants > 0
-        {
-            let occupants = entity
-                .passenger_role
-                .cargo()
-                .map(|cargo| cargo.passengers());
-            for slot in 0..object.max_number_occupants {
-                let frame = occupants
-                    .and_then(|ids| ids.get(slot as usize))
-                    .and_then(|id| sim.entities().get(*id))
-                    .and_then(|passenger| sim.interner.object_type(passenger.type_ref(), rules))
-                    .map_or(6, |passenger| passenger.occupy_pip() as usize);
-                strip.fills.extend(instance(
-                    shape,
-                    frame,
-                    (
-                        sx + ax as f32 + 6.0 + (slot * 4) as f32,
-                        sy + ay as f32 - 1.0 + (slot * 2) as f32,
-                    ),
-                    0.0006,
-                ));
-            }
+        //6F659E projects the foundation edge at Z=0;6F682C passes it to
+        //the shared709A90 owner. Building rows use PIPS, (+6,-1), step(4,2).
+        //Garrison and passenger arms restart at that origin independently.
+        for pip in scale_pip_draws(sim, entity, hovered_id, local_owner, rules) {
+            strip.fills.extend(instance(
+                shape,
+                pip.frame,
+                (
+                    sx + ax as f32 + 6.0 + pip.offset_pixels[0] as f32,
+                    sy + ay as f32 - 1.0 + pip.offset_pixels[1] as f32,
+                ),
+                0.0006,
+            ));
         }
         return strip;
     }
@@ -1187,16 +1175,17 @@ pub(crate) fn techno_extras_for_parent(
     strip
 }
 
-/// One PIPS2 frame and pixel offset from the shared nonbuilding X anchor and
-/// projected Y. Independent native arms restart their slot origins.
+/// One709A90 pip command relative to the caller's class-specific row anchor.
+/// Buildings use PIPS and step(4,2); mobiles use PIPS2 and step(4,0).
+/// Independent native arms restart their slot origins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScalePipDraw {
     pub frame: usize,
     pub offset_pixels: [i32; 2],
 }
 
-/// PIPS2 draws after selected/hovered body admission and the shared native
-/// pip-tail relationship gate. DrawHealthBar6F6A58 ->709A90.
+/// Building6F682C/mobile6F6A58 ->709A90 after shared health/tail admission.
+/// This one owner emits spawn, garrison and passenger/PipScale rows.
 /// Rendering only reads retained state; it never advances timers or RNG.
 pub(crate) fn scale_pip_draws(
     sim: &crate::sim::world::Simulation,
@@ -1205,8 +1194,7 @@ pub(crate) fn scale_pip_draws(
     local_owner: Option<&str>,
     rules: &RuleSet,
 ) -> Vec<ScalePipDraw> {
-    if entity.category() == EntityCategory::Structure
-        || entity.sinking.is_active()
+    if entity.sinking.is_active()
         || entity.passenger_role.is_inside_transport()
         || !entity_status_pips_drawable(
             sim,
@@ -1221,9 +1209,14 @@ pub(crate) fn scale_pip_draws(
     let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
         return Vec::new();
     };
+    let building = entity.category() == EntityCategory::Structure;
+    let row_y = if building { 0 } else { 10 };
     let pip = |slot: usize, frame: usize, y: i32| ScalePipDraw {
         frame,
-        offset_pixels: [(slot * 4) as i32, y],
+        offset_pixels: [
+            (slot * 4) as i32,
+            y + if building { (slot * 2) as i32 } else { 0 },
+        ],
     };
     let mut pips = Vec::new();
     //709B73..C25 is independent of Passengers/PipScale. Current type+D5C
@@ -1238,8 +1231,24 @@ pub(crate) fn scale_pip_draws(
         let docked = manager.count_docked_spawns();
         pips.extend(
             (0..object.spawns_number as usize)
-                .map(|slot| pip(slot, usize::from(slot < docked), 10)),
+                .map(|slot| pip(slot, usize::from(slot < docked), row_y)),
         );
+    }
+    //709C27..D17 precedes passengers and uses raw OccupyPip, including
+    //reader-produced1..5 as well as person frames6..12. Keep its own origin.
+    if building && object.show_occupant_pips && object.max_number_occupants > 0 {
+        let occupants = entity
+            .passenger_role
+            .cargo()
+            .map(|cargo| cargo.passengers());
+        pips.extend((0..object.max_number_occupants as usize).map(|slot| {
+            let frame = occupants
+                .and_then(|ids| ids.get(slot))
+                .and_then(|id| sim.entities().get(*id))
+                .and_then(|passenger| sim.interner.object_type(passenger.type_ref(), rules))
+                .map_or(6, |passenger| passenger.occupy_pip() as usize);
+            pip(slot, frame, row_y)
+        }));
     }
     //709D1D tests positive Passengers before the non-passenger PipScale arms.
     //GetPipMax716290 remains the shared type query, never cargo-vector length.
@@ -1249,11 +1258,32 @@ pub(crate) fn scale_pip_draws(
         pips.extend((0..slots).map(|slot| {
             //709F50..A06F: later Gunner slots advance two extra steps.
             let gunner_step = if object.gunner && slot > 0 { 2 } else { 0 };
-            pip(slot + gunner_step, 0, 10)
+            pip(slot + gunner_step, 0, row_y)
         }));
         let Some(cargo) = entity.passenger_role.cargo() else {
             return pips;
         };
+        //4598A0/709DD4..9E43: absorbers walk the head forward, consuming
+        //one slot per passenger, not Size. Unit frame4 differs from ordinary
+        //transport5; Infantry reads Pip, not the garrison OccupyPip above.
+        //Consumed original readers/raster: procedural_drawing_oracle/absorber_pips.
+        //A malformed overfull list cannot overrun this frame-local array.
+        if building && object.absorbs_passengers() {
+            for (slot, &id) in cargo.passengers().iter().take(slots).enumerate() {
+                let Some(passenger) = sim.entities().get(id) else {
+                    break;
+                };
+                let Some(kind) = sim.interner.object_type(passenger.type_ref(), rules) else {
+                    break;
+                };
+                pips[row_start + slot].frame = match passenger.category() {
+                    EntityCategory::Infantry => kind.pip() as usize,
+                    EntityCategory::Unit => 4,
+                    _ => 1,
+                };
+            }
+            return pips;
+        }
         //473460 normally rereads current binary64 Size and truncates each sum.
         //The existing cargo owner retains integer admission-time sizes. Stock
         //FV+size-one infantry are equivalent; fractional/mixed sizes and type
@@ -1314,7 +1344,7 @@ pub(crate) fn scale_pip_draws(
             .clamp(0, object.pip_max(rules).max(0));
         //70A3B7 resets this arm three pixels above the ordinary Y anchor,
         //even after a preceding spawn row. No empty Ammo outlines are drawn.
-        pips.extend((0..filled as usize).map(|slot| pip(slot, 13, 7)));
+        pips.extend((0..filled as usize).map(|slot| pip(slot, 13, row_y - 3)));
         return pips;
     }
     if object.pip_scale == crate::rules::object_type::PipScale::MindControl {
@@ -1327,12 +1357,12 @@ pub(crate) fn scale_pip_draws(
         //Canonical708C30 owns count/max rounding, including signed numeric
         //boundaries. Draw70A0B5 uses frame1 below fill, frame0 afterward.
         pips.extend(
-            (0..slots).map(|slot| pip(slot, usize::from((slot as i64) < i64::from(count)), 10)),
+            (0..slots).map(|slot| pip(slot, usize::from((slot as i64) < i64::from(count)), row_y)),
         );
         // IsOverloading4726C0 owns infinite/capacity/counter policy;
         //70A17F..1C2 adds exactly one frame3 (positive) or4 (idle).
         if let Some(active) = manager.and_then(|manager| manager.overload_pip_state()) {
-            pips.push(pip(slots, if active { 3 } else { 4 }, 10));
+            pips.push(pip(slots, if active { 3 } else { 4 }, row_y));
         }
         return pips;
     }
@@ -1370,7 +1400,7 @@ pub(crate) fn scale_pip_draws(
         } else {
             0
         };
-        pip(slot, frame, 10)
+        pip(slot, frame, row_y)
     }));
     pips
 }

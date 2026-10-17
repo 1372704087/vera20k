@@ -14,6 +14,7 @@ pub(crate) mod line_trails;
 pub(crate) mod outcome_banner;
 pub(crate) mod overlay_index;
 pub(crate) mod render;
+pub(crate) mod radial_indicators;
 pub(crate) mod selection_brackets;
 pub(crate) mod sidebar_build;
 pub(crate) mod sidebar_gadgets;

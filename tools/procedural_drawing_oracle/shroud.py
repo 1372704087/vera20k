@@ -29,6 +29,8 @@ complete Extras on MTNK, plus the shared GAPOWR body/late composition.
 through the same native status, palette and packed-shape owners.
 ``--absorber-pips`` extends that owner with stock YAPOWR Building health,
 ordered INIT/YENGINEER Cargo and the native absorber passenger-pip arm.
+``--radial-indicator`` executes selected GAGAP range geometry, original
+ellipse/DSurface cubic rays and their shared primary A/Z admission.
 """
 from functools import lru_cache
 import hashlib
@@ -3918,8 +3920,512 @@ def unit_health_metadata():
             background_leaf=0x493DF0, fill_leaf=0x4912B0))
 
 
+def _radial_type_fields(m, typ):
+    u = m.u
+    return dict(image=m.string(typ+0x1F8), foundation=m.read32(typ+0xEF0),
+        has_radial_indicator=bool(u.mem_read(typ+0x238,1)[0]),
+        concentric=bool(u.mem_read(typ+0x1708,1)[0]),
+        psychic_radius=struct.unpack('<i',u.mem_read(typ+0x170C,4))[0],
+        gap_generator=bool(u.mem_read(typ+0xCD1,1)[0]),
+        gap_radius=struct.unpack('<b',u.mem_read(typ+0xCD2,1))[0],
+        super_gap_radius=struct.unpack('<b',u.mem_read(typ+0xCD3,1))[0],
+        cloak_generator=bool(u.mem_read(typ+0x16C7,1)[0]),
+        sensor_array=bool(u.mem_read(typ+0x16C8,1)[0]),
+        cloak_radius=struct.unpack('<b',u.mem_read(typ+0x1707,1))[0])
+
+
+def _radial_type_inputs():
+    """One existing native constructor/cache owner, selected real read stores.
+
+    The whole Building->Techno->Object reader prefix establishes the supplied
+    file/receiver at HasRadialIndicator. Later scalar and ART ranges are
+    explicit cuts; no complete type/Scenario/resource-loading claim follows.
+    """
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.rules_oracle.weapon_laser import physical_layers
+    from tools.spatial_oracle.engineer_bridge_cursor_caller import HutTypeReader, READER_INI
+    from tools.spatial_oracle.building_body_rules import SP as reader_sp
+
+    m = HutTypeReader()
+    u = m.u
+    types = {name:m.construct(name) for name in
+             ('GAGAP','NAPSIS','RadialProbe','RadialOne','NoRadialProbe','SensorProbe')}
+    constructors = {name:_radial_type_fields(m,p) for name,p in types.items()}
+    reads = []
+    keys = {'HasRadialIndicator','GapGenerator','GapRadiusInCells',
+            'SuperGapRadiusInCells','CloakGenerator','SensorArray',
+            'CloakRadiusInCells','PsychicDetectionRadius','ConcentricRadialIndicator',
+            'Foundation','Image'}
+
+    def observe(_u,pc,_size,_data):
+        if pc not in (0x5295F0,0x5276D0,0x474DA0,0x528A10):
+            return
+        sp = u.reg_read(UC_X86_REG_ESP)
+        section, key, default = [m.read32(sp+n) for n in (4,8,12)]
+        key = m.string(key)
+        if key in keys:
+            reads.append(dict(reader=f'{pc:08X}',caller=f'{m.read32(sp):08X}',
+                ini='fixed_art' if u.reg_read(UC_X86_REG_ECX)==READER_INI else 'rules_pass',
+                section=m.string(section),key=key,
+                default=m.string(default) if pc==0x528A10 else
+                        default&255 if pc==0x5295F0 else
+                        struct.unpack('<i',words(default))[0]))
+
+    hook = u.hook_add(UC_HOOK_CODE,observe)
+    # Keep ART's actual singleton distinct from each supplied rules-pass INI.
+    rules_ini = m.alloc(0x40)
+    layers = []
+    for filename,archive,raw in physical_layers():
+        if raw is None:
+            layers.append(dict(file=filename,archive=archive,absent=True))
+            continue
+        sections,_ = lexical(raw,{'GAGAP','NAPSIS'})
+        m.make_ini(sections)
+        u.mem_write(rules_ini,bytes(u.mem_read(READER_INI,0x40)))
+        u.mem_write(READER_INI,bytes(0x40))
+        rows = []
+        for name in ('GAGAP','NAPSIS'):
+            typ = types[name]
+            mark = len(reads)
+            u.mem_write(reader_sp,words(native.RET_MAGIC,rules_ini))
+            u.reg_write(UC_X86_REG_ESP,reader_sp)
+            u.reg_write(UC_X86_REG_ECX,typ)
+            end = native.run_checked(u,0x45FE50,(0x5F954F,native.RET_MAGIC),
+                                     count=2000000)
+            admitted = end==0x5F954F
+            if admitted:
+                registers = {UC_X86_REG_ESI:rules_ini,UC_X86_REG_ECX:rules_ini,
+                             UC_X86_REG_EBP:typ,UC_X86_REG_EBX:typ+0x24}
+                _status_reader_block(m,0x713F92,0x713FE2,registers)
+                _status_reader_block(m,0x460BDD,0x460C4C,
+                    registers|{UC_X86_REG_EAX:m.read32(typ+0x16F4)})
+                _status_reader_block(m,0x461030,0x46104A,registers)
+            rows.append(dict(type=name,admitted=admitted,
+                has_radial_prefix_endpoint=f'{end:08X}',reads=reads[mark:],
+                after=_radial_type_fields(m,typ)))
+        layers.append(dict(file=filename,archive=archive,bytes=len(raw),sha256=sha(raw),
+                           sections={s:{k:v for k,v in d.items() if k in keys}
+                                     for s,d in sections.items()},types=rows))
+
+    yr = stock.mix((native.configured_gamemd().parent/'ra2md.mix').read_bytes())
+    raw = stock.mix(yr[stock.mix_hash('localmd.mix')])[stock.mix_hash('artmd.ini')]
+    names = {'GAGAP','NAPSIS'}|{m.string(types[n]+0x1F8) for n in ('GAGAP','NAPSIS')}
+    art,_ = lexical(raw,names)
+    m.make_ini(art)
+    art_rows = []
+    for name in ('GAGAP','NAPSIS'):
+        typ = types[name]
+        mark = len(reads)
+        _status_reader_block(m,0x461225,0x46125D,
+            {UC_X86_REG_EBP:typ,UC_X86_REG_EBX:typ+0x24,
+             UC_X86_REG_EDI:typ+0x1F8})
+        art_rows.append(dict(type=name,reads=reads[mark:],after=_radial_type_fields(m,typ)))
+    fixed_art = dict(file='ARTMD.INI',archive='ra2md.mix/localmd.mix',bytes=len(raw),
+                     sha256=sha(raw),types=art_rows)
+
+    history = []
+    probes = [('RadialProbe',values) for values in
+                  ({'HasRadialIndicator':'yes','GapGenerator':'yes','GapRadiusInCells':'1'},
+                   {'PsychicDetectionRadius':'3'}, {},
+                   {'HasRadialIndicator':'junk','GapRadiusInCells':'128'},
+                   {'hasradialindicator':'no','gapradiusincells':'9'},
+                   {'HasRadialIndicator':'no','GapRadiusInCells':'-1'},
+                   {'HasRadialIndicator':'yes','PsychicDetectionRadius':'0',
+                    'GapRadiusInCells':'3'})]
+    probes += [('RadialOne',{'HasRadialIndicator':'yes','GapGenerator':'yes',
+                             'GapRadiusInCells':'1'}),
+               ('NoRadialProbe',{'GapGenerator':'yes','GapRadiusInCells':'3'})]
+    probes += [('SensorProbe',{'HasRadialIndicator':'yes','SensorArray':'yes'})]
+    range_actor = m.alloc(0x800)
+    u.mem_write(range_actor,words(0x7E3EBC))
+    for name,values in probes:
+        typ = types[name]
+        sections = {name:values} if values else {}
+        m.make_ini(sections)
+        u.mem_write(rules_ini,bytes(u.mem_read(READER_INI,0x40)))
+        u.mem_write(READER_INI,bytes(0x40))
+        mark = len(reads)
+        u.mem_write(reader_sp,words(native.RET_MAGIC,rules_ini))
+        u.reg_write(UC_X86_REG_ESP,reader_sp);u.reg_write(UC_X86_REG_ECX,typ)
+        end = native.run_checked(u,0x45FE50,(0x5F954F,native.RET_MAGIC),count=2000000)
+        if end==0x5F954F:
+            registers = {UC_X86_REG_ESI:rules_ini,UC_X86_REG_ECX:rules_ini,
+                         UC_X86_REG_EBP:typ,UC_X86_REG_EBX:typ+0x24}
+            _status_reader_block(m,0x713F92,0x713FE2,registers)
+            _status_reader_block(m,0x460BDD,0x460C4C,
+                registers|{UC_X86_REG_EAX:m.read32(typ+0x16F4)})
+            _status_reader_block(m,0x461030,0x46104A,registers)
+        u.mem_write(range_actor+0x520,words(typ))
+        radii = []
+        for selector in (0,1):
+            u.mem_write(range_actor+0x268,bytes([selector]))
+            radii.append(struct.unpack('<i',words(m.invoke(0x4566B0,range_actor)))[0])
+        history.append(dict(type=name,sections=sections,admitted=end==0x5F954F,
+                            reads=reads[mark:],after=_radial_type_fields(m,typ),
+                            range_by_268=radii))
+    u.hook_del(hook)
+    m.unchanged()
+    return m,types,dict(constructors=constructors,layers=layers,fixed_art=fixed_art,
+                        retained_history=history,
+                        final={n:_radial_type_fields(m,p) for n,p in types.items()})
+
+
+class _RadialIndicator:
+    """Existing native reader VM plus shared BSurface/circular-plane transport.
+
+    Only the memory-surface +3C dispatch selects DSurface's original body;
+    the established LaserPixels transport supplies the same platform seam.
+    """
+    def __init__(self,m,types):
+        from tools.projectile_oracle import bridge_render_shape as surface
+        self.m,self.u,self.types,self.surface = m,m.u,types,surface
+        self.size = (160,160)
+        self.u.mem_map(MEM,0x200000)
+        self.vtable = m.alloc(0x100)
+        self.u.mem_write(self.vtable,bytes(self.u.mem_read(0x7E2070,0x100)))
+        self.u.mem_write(self.vtable+0x3C,words(0x4BC750))
+        self.tactical,self.house,self.other,self.selected = (m.alloc(n) for n in (0xE20,0x6000,0x6000,32))
+        self.actors = [m.alloc(0x800) for _ in range(2)]
+        self.coords,self.point = m.alloc(12),m.alloc(8)
+        self.clock = m.alloc(16)
+        self.u.mem_write(0x7E1530,words(self.clock))
+        self.u.mem_write(0x887324,words(self.tactical))
+        self.u.mem_write(0xB0CD48,struct.pack('<Q',0x3FC25E5374344960))
+        self.u.mem_write(0xB0CE30,words(*self.size))
+        for pointer,value in ((0x8A0DD0,11),(0x8A0DD4,3),(0x8A0DD8,0),
+                              (0x8A0DDC,3),(0x8A0DE0,5),(0x8A0DE4,2)):
+            self.u.mem_write(pointer,words(value))
+        self.active = False
+        self.u.hook_add(UC_HOOK_CODE,self.observe)
+        self.u.hook_add(UC_HOOK_MEM_WRITE,self.store)
+        self.u.hook_add(UC_HOOK_MEM_READ,self.read_plane)
+
+    def observe(self,u,pc,_size,_data):
+        if not self.active:
+            return
+        m,sp = self.m,u.reg_read(UC_X86_REG_ESP)
+        if pc==self.clock:
+            self.os_calls.append(dict(kind='timeGetTime',caller=f'{m.read32(sp):08X}',
+                milliseconds=self.clock_ms))
+            m.ret(self.clock_ms)
+            return
+        if pc==0x7C978A:
+            self.os_calls.append(dict(kind='CRT_atexit',callback=f'{m.read32(sp+4):08X}'))
+            m.ret(0)
+            return
+        if self.pending and pc==self.pending['return_pc'] and sp==self.pending['after_sp']:
+            command = self.pending['command']
+            command['store_count'] = self.pending['stores']
+            command['touched_pixels'] = len(self.pending['points'])
+            self.pending = None
+        if pc in (0x65C780,0x65C7E0,0x70D4A0):
+            self.side_effects.append(f'{pc:08X}')
+        if pc==0x456750:
+            self.actor_order.append(self.actors.index(u.reg_read(UC_X86_REG_ECX)))
+        if pc==0x45675C:
+            self.ranges.append(struct.unpack('<i',words(u.reg_read(UC_X86_REG_EAX)))[0])
+        if pc==0x456980:
+            args = rally.ints(u,sp+4,7)
+            self.radials.append(dict(draw_line=bool(u.reg_read(UC_X86_REG_ECX)&255),
+                adjust_color=bool(u.reg_read(UC_X86_REG_EDX)&255),coord=args[:3],
+                rgb=list(u.mem_read(sp+16,3)),radius_f32_bits=f'{args[4]&0xFFFFFFFF:08X}',
+                pixel_radius=bool(args[5]),truncate_radius=bool(args[6])))
+        if pc in (0x7BB350,0x4BC750):
+            assert self.pending is None
+            if pc==0x7BB350:
+                args = rally.ints(u,sp+4,9)
+                command = dict(kind='ellipse',center=args[:2],radius=args[2:4],
+                               clip=args[4:8],color=args[8]&0xFFFF)
+                cleanup = 36
+            else:
+                args = rally.ints(u,sp+4,11)
+                command = dict(kind='ray',clip=rally.ints(u,args[0],4),
+                    start=rally.ints(u,args[1],2),end=rally.ints(u,args[2],2),
+                    rgb=list(u.mem_read(args[3],3)),z=args[4:6],write_z=bool(args[6]),
+                    channels=[bool(n) for n in args[7:10]],strength_f32_bits=f'{args[10]&0xFFFFFFFF:08X}')
+                cleanup = 44
+            command['actor'] = self.actor_order[-1] if self.actor_order else None
+            self.commands.append(command)
+            self.pending = dict(command=command,return_pc=m.read32(sp),after_sp=sp+4+cleanup,
+                                points=set(),stores=0)
+
+    def read_plane(self,u,_access,address,size,_value,_data):
+        if not self.active:
+            return
+        for name,base in (('z',self.surface.Z),('a',self.surface.A)):
+            if base<=address<base+51200:
+                self.plane_reads[name].append((address-base)//2)
+
+    def store(self,u,_access,address,size,value,_data):
+        if not self.active or not self.surface.PIXELS<=address<self.surface.PIXELS+51200:
+            return
+        for offset in range(0,size,2):
+            index=(address+offset-self.surface.PIXELS)//2
+            if index in self.points:
+                before = struct.unpack('<H',u.mem_read(address+offset,2))[0]
+                after = (value>>(offset*8))&0xFFFF
+                if before!=after:
+                    self.overwritten.add(index)
+                    if len(self.overwrite_witnesses)<8:
+                        self.overwrite_witnesses.append(dict(point=[index%160,index//160],
+                            before=before,after=after,command=len(self.commands)-1))
+                    actor = self.pending['command']['actor'] if self.pending else None
+                    previous = self.point_actor.get(index)
+                    if actor is not None and previous is not None and actor!=previous:
+                        self.cross_actor_overwritten.add(index)
+                        if len(self.cross_actor_witnesses)<8:
+                            self.cross_actor_witnesses.append(dict(point=[index%160,index//160],
+                                before=before,after=after,actor=actor,previous_actor=previous))
+            self.points.add(index)
+            self.point_actor[index] = self.pending['command']['actor'] if self.pending else None
+            self.store_order.append(index)
+            if self.pending:
+                self.pending['points'].add(index)
+        if self.pending:
+            self.pending['stores'] += 1
+
+    def reset(self,case):
+        self.active = False
+        u,s = self.u,self.surface
+        prior = dict(depth_baseline=32768,old_z=case.get('old_z',65535),
+                     a_value=case.get('a_value',127),background=case.get('background',0x39E7),
+                     a_patches=case.get('a_patches',[]),z_patches=case.get('z_patches',[]))
+        self.priors = prior
+        self.before = s.prepare_surface(u,prior,size=self.size,initialize_buffer_height=True)
+        self.guard = b'\xA5'*32
+        u.mem_write(s.PIXELS-32,self.guard);u.mem_write(s.PIXELS+51200,self.guard)
+        u.mem_write(s.SURFACE,words(self.vtable))
+        u.mem_write(0x886FA0,words(*case.get('clip',[0,0,*self.size])))
+        u.mem_write(self.tactical+0xB0,words(*case.get('camera',[-80,300])))
+        u.mem_write(0xA8ED84,words(case.get('frame',0)))
+        u.mem_write(0xA8B238,words(1));u.mem_write(0xA83D4C,words(self.house))
+        u.mem_write(0xA8EB7E,b'\0')
+        self.commands,self.radials,self.actor_order,self.ranges = [],[],[],[]
+        self.points,self.store_order,self.side_effects = set(),[],[]
+        self.overwritten,self.overwrite_witnesses = set(),[]
+        self.point_actor,self.cross_actor_overwritten,self.cross_actor_witnesses = {},set(),[]
+        self.plane_reads = dict(z=[],a=[])
+        self.pending = None
+        self.clock_ms = case.get('time_get_time_ms',0)
+        self.os_calls = []
+        self.rng = [bytes(u.mem_read(p,0x3F4)) for p in (0x886B88,0xABE890)]
+        self.fp_before = u.reg_read(UC_X86_REG_FPCW)
+
+    def result(self,case):
+        self.active = False
+        # Unicorn's terminal address can end before invoking code hooks there.
+        # Check the actual native RET/stack outcome for a direct leaf control.
+        if self.pending:
+            assert self.u.reg_read(UC_X86_REG_EIP)==self.pending['return_pc']
+            assert self.u.reg_read(UC_X86_REG_ESP)==self.pending['after_sp']
+            self.pending['command']['store_count'] = self.pending['stores']
+            self.pending['command']['touched_pixels'] = len(self.pending['points'])
+            self.pending = None
+        assert self.pending is None
+        u,s = self.u,self.surface
+        raw = bytes(u.mem_read(s.PIXELS,51200))
+        assert bytes(u.mem_read(s.Z,51200))==self.before['depths']
+        assert bytes(u.mem_read(s.A,51200))==self.before['lighting']
+        assert bytes(u.mem_read(s.PIXELS-32,32))==self.guard
+        assert bytes(u.mem_read(s.PIXELS+51200,32))==self.guard
+        assert self.rng==[bytes(u.mem_read(p,0x3F4)) for p in (0x886B88,0xABE890)]
+        assert not self.side_effects
+        self.m.unchanged()
+        return dict(input=case,planes=self.priors,commands=self.commands,
+            radials=self.radials,actor_order=self.actor_order,ranges=self.ranges,
+            pixels=[[i%160,i//160,struct.unpack_from('<H',raw,i*2)[0]] for i in sorted(self.points)],
+            first_stores=self.store_order[:8],color_sha256=sha(raw),
+            overwritten_pixel_count=len(self.overwritten),overwrite_witnesses=self.overwrite_witnesses,
+            cross_actor_overwritten_pixel_count=len(self.cross_actor_overwritten),
+            cross_actor_overwrite_witnesses=self.cross_actor_witnesses,
+            fp_control_before=f'{self.fp_before:04X}',fp_control_after=f'{u.reg_read(UC_X86_REG_FPCW):04X}',
+            plane_reads={name:dict(count=len(indices),first_points=[[i%160,i//160] for i in indices[:8]])
+                         for name,indices in self.plane_reads.items()},
+            a_unchanged=True,z_unchanged=True,rng_unchanged=True,guard_unchanged=True,
+            rng_detach_entries=self.side_effects,original_code_unchanged=True)
+
+    def scene(self,case):
+        case = dict(camera=[-80,300],clip=[0,0,*self.size],frame=0,time_get_time_ms=0)|case
+        supplied = case.get('actors',[{}])
+        case['actors'] = [dict(type='GAGAP',location=[3200,3200,0],online=True,
+                               other_owner=False,super_gap=False,rgb=[240,248,64])|actor
+                          for actor in supplied]
+        case.setdefault('selected',list(range(len(supplied))))
+        self.reset(case)
+        u,m = self.u,self.m
+        supplied = case['actors']
+        geometries = []
+        for index,actor in enumerate(supplied):
+            p,typ = self.actors[index],self.types[actor.get('type','GAGAP')]
+            u.mem_write(p,words(0x7E3EBC));u.mem_write(p+0x520,words(typ))
+            u.mem_write(p+0x9C,words(*actor.get('location',[3200,3200,0])))
+            u.mem_write(p+0x21C,words(self.other if actor.get('other_owner') else self.house))
+            u.mem_write(p+0x660,bytes([actor.get('online',True)]))
+            u.mem_write(p+0x268,bytes([actor.get('super_gap',False)]))
+            u.mem_write(self.house+0x56F9,bytes(actor.get('rgb',[240,248,64])))
+            u.mem_write(self.other+0x56F9,bytes([32,180,240]))
+            m.invoke(0x447AC0,p,(self.coords,))
+            coord = rally.ints(u,self.coords,3)
+            m.invoke(0x6D2140,self.tactical,(self.coords,self.point))
+            geometries.append(dict(actor=index,type=actor.get('type','GAGAP'),
+                                   coords=coord,projected=rally.ints(u,self.point,2),
+                                   radius=m.invoke(0x4566B0,p)))
+        selected = case.get('selected',list(range(len(supplied))))
+        u.mem_write(self.selected,words(*(self.actors[i] for i in selected)))
+        u.mem_write(0xA8ECBC,words(self.selected));u.mem_write(0xA8ECC8,words(len(selected)))
+        self.active = True
+        actor_bytes = [bytes(u.mem_read(p,0x800)) for p in self.actors[:len(supplied)]]
+        m.invoke(0x6DBE20,self.tactical,instruction_limit=12000000)
+        result = self.result(case)
+        assert actor_bytes==[bytes(u.mem_read(p,0x800)) for p in self.actors[:len(supplied)]]
+        result['actor_bytes_unchanged'] = True
+        result['geometry'] = geometries
+        result['os_calls'] = self.os_calls
+        return result
+
+    def ray(self,case):
+        case = dict(clip=[0,0,*self.size],rgb=[240,248,64],z=[-500,-500],
+                    strength_f32_bits='3F800000')|case
+        self.reset(case)
+        m,u = self.m,self.u
+        clip,start,end,color = (m.alloc(n) for n in (16,8,8,4))
+        u.mem_write(clip,words(*case.get('clip',[0,0,*self.size])))
+        u.mem_write(start,words(*case['start']));u.mem_write(end,words(*case['end']))
+        u.mem_write(color,bytes(case.get('rgb',[240,248,64]))+b'\0')
+        self.active = True
+        m.invoke(0x4BC750,self.surface.SURFACE,
+            (clip,start,end,color,*case.get('z',[-500,-500]),0,1,1,1,
+             int(case.get('strength_f32_bits','3F800000'),16)),instruction_limit=12000000)
+        result = self.result(case)
+        return result
+
+
+def generate_radial_indicator():
+    m,types,readers = _radial_type_inputs()
+    u = m.u
+    from tools.spatial_oracle.building_body_rules import SP as reader_sp
+    fp_before = u.reg_read(UC_X86_REG_FPCW)
+    guard_before = u.mem_read(0x8A0DF1,1)[0]
+    assert guard_before==0
+    u.reg_write(UC_X86_REG_ESP,reader_sp);u.reg_write(UC_X86_REG_ECX,0)
+    native.run_checked(u,0x4BC750,0x4BC7C2,count=3000000,
+        required_addresses=(0x4BC780,0x7C8FB0,0x7C5F00,0x4BC7AC))
+    table = bytes(u.mem_read(0x8A0980,257*4))
+    lut = dict(entry='004BC750',end_exclusive='004BC7C2',
+        fp_control_before=f'{fp_before:04X}',initialization_guard_before=guard_before,
+        fp_control=f'{u.reg_read(UC_X86_REG_FPCW):04X}',
+        constants_f64_bits={f'{p:08X}':f'{struct.unpack("<Q",u.mem_read(p,8))[0]:016X}'
+                            for p in (0x7E8670,0x7E1718,0x7E3D90,0x7E2808)},
+        values=list(struct.unpack('<257i',table)),sha256=sha(table))
+    assert lut['sha256']=='c5e88231f605a69d7a266d34cd198ab12a85a2b648a740470f36b35d11b2709c'
+    tangent_raw = native.file_span(native.image_bytes(),0x85D0A4,4096*4)[1]
+    tangent_controls = []
+    for angle in (-20.,-6.3,-3.2,-1.6,-0.1,-0.001,0.,0.001,0.1,1.6,3.2,6.3,20.):
+        bits = struct.pack('<d',angle)
+        output = native.call(0x4CAD50,stack_args=list(struct.unpack('<2I',bits)),
+            capture_st0=True,fpcw=native.NATIVE_FPCW,
+            required_addresses=(0x4CAD54,0x4CAD5F,0x4CAD74))
+        tangent_controls.append(dict(angle_f64_bits=f'{struct.unpack("<Q",bits)[0]:016X}',
+            table_index=output['eax'],returned_f64_bits=f'{output["st0_bits"]:016X}'))
+    tangent = dict(address='0085D0A4',u32_bits=list(struct.unpack('<4096I',tangent_raw)),
+        sha256=sha(tangent_raw),entry='004CAD50',
+        fp_control=f'{native.NATIVE_FPCW:04X}',controls=tangent_controls)
+    draw = _RadialIndicator(m,types)
+    scenes = [dict(name='stock_center_frame0'),dict(name='stock_center_frame628',frame=628),
+        dict(name='stock_center_frame314',frame=314),
+        dict(name='stock_left_arc',camera=[360,300]),
+        dict(name='stock_top_arc',camera=[-80,520]),
+        dict(name='stock_clip_origin',camera=[360,300],clip=[12,9,120,135]),
+        dict(name='stock_a0',a_value=0),dict(name='stock_a63',a_value=63),
+        dict(name='stock_z0',old_z=0),dict(name='empty',actors=[],selected=[]),
+        dict(name='stock_arc_a0_z0',camera=[360,300],a_value=0,old_z=0),
+        dict(name='deselected',selected=[]),
+        dict(name='other_owner',actors=[dict(other_owner=True)]),
+        dict(name='offline',actors=[dict(online=False)]),
+        dict(name='probe_radius3',actors=[dict(type='RadialProbe')]),
+        dict(name='probe_radius1',actors=[dict(type='RadialOne')]),
+        dict(name='no_indicator',actors=[dict(type='NoRadialProbe')]),
+        dict(name='stock_overlap',actors=[{},dict(location=[3264,3136,0])]),
+        dict(name='stock_overlap_reverse',actors=[{},dict(location=[3264,3136,0])],selected=[1,0])]
+    scene_rows = [draw.scene(case) for case in scenes]
+    assert scene_rows[-2]['color_sha256']!=scene_rows[-1]['color_sha256']
+    assert scene_rows[-2]['cross_actor_overwritten_pixel_count']>0
+    for name,milliseconds,camera in (
+        ('napsis_phase0_outer',0,[600,300]),
+        ('napsis_phase51_threshold',102,[-80,300]),
+        ('napsis_phase52_threshold',104,[-80,300]),
+        ('napsis_phase256',512,[100,300]),
+        ('napsis_phase512',1024,[260,300]),
+        ('napsis_phase768',1536,[420,300])):
+        scene_rows.append(draw.scene(dict(name=name,actors=[dict(type='NAPSIS')],
+            time_get_time_ms=milliseconds,camera=camera)))
+    rays = []
+    for name,start,end in (
+        ('horizontal',[20,20],[50,20]),('vertical',[20,20],[20,50]),
+        ('x_positive',[20,20],[50,28]),('x_negative',[20,40],[50,28]),
+        ('y_positive',[20,20],[28,50]),('y_negative',[20,50],[28,20]),
+        ('reversed',[50,28],[20,20]),('clip_left',[-20,20],[50,28]),
+        ('same_point',[20,20],[20,20])):
+        rays.append(draw.ray(dict(name=name,start=start,end=end)))
+    for strength in ('3D4CCCCD','3E4CCCCD','3ECCCCCD'):
+        rays.append(draw.ray(dict(name='strength_'+strength,start=[20,20],end=[50,28],
+                                  strength_f32_bits=strength)))
+    baseline = draw.ray(dict(name='pair_baseline',start=[20,20],end=[21,20]))
+    rays.append(baseline)
+    primary,secondary = baseline['first_stores'][:2]
+    rays.append(draw.ray(dict(name='pair_secondary_blocked',start=[20,20],end=[21,20],
+        a_patches=[[secondary,0]],z_patches=[[secondary,0]],derived_from='pair_baseline.first_stores')))
+    rays.append(draw.ray(dict(name='pair_primary_blocked',start=[20,20],end=[21,20],
+        z_patches=[[primary,0]],derived_from='pair_baseline.first_stores')))
+    assert secondary in rays[-2]['first_stores'] and not rays[-1]['pixels']
+    transport = dict(size=list(draw.size),bytes_per_pixel=2,pitch_bytes=320,
+        surface_u32_by_offset={'04':160,'08':160,'0C':0,'10':2,'18':51200,'1C':0},
+        surface_backing_pointer_offset='14',
+        vtable=dict(memory_surface='007E2070',cubic_slot='3C',cubic_body='004BC750'),
+        rgb565_globals={'008A0DD0':11,'008A0DD4':3,'008A0DD8':0,
+                       '008A0DDC':3,'008A0DE0':5,'008A0DE4':2},
+        circular_planes=dict(scroll_bytes=0,row_width=160,height=160),
+        projection_factor_f64_bits='3FC25E5374344960',session_mode=1,placement_preview=False,
+        selected_ray=dict(z=[-500,-500],write_z=False,channels=[True,True,True]))
+    return dict(schema_version=1,native_sha256=native.image_sha256(),size=list(draw.size),
+        transport=transport,
+        reader_inputs=readers,cubic_lut=lut,tangent=tangent,
+        scenes=scene_rows,ray_controls=rays)
+
+
+def radial_indicator_metadata():
+    return native.provenance(
+        scope='Selected stock GAGAP radial indicator, bounded NAPSIS concentric drawing and shared DSurface cubic-line controls',
+        assumptions=[
+            'Original BuildingType45DD90 constructors and Building45FE50->Techno712170->Object5F92D0 prefix execute to5F954F, after current-default HasRadialIndicator read/store. Later named original scalar/read-store cuts and fixed ART Foundation execute. Physical archive/INI lexical cache transport is supplied; whole type/Scenario/resource loading is excluded.',
+            'Actual selected-list6DBE20 traverses prepared CurrentObjects and real Building+130=456750;4566B0, House50B6F0, Building447AC0 and Tactical6D2140 execute. Location, online660, owner/current-house, alternate268, camera, frame, House56F9 RGB and selected vector are declared consumer priors, not their gameplay lifecycle.',
+            'Existing bridge_render_shape.prepare_surface owns160x160 RGB565 BSurface/circular A/Z storage. A copied original memory-surface vtable changes only+3C to original DSurface4BC750, matching the established LaserPixels platform-lock transport. Original ellipse7BB350 and complete4BC750 execute, including original257-entry cubic initialization under FPCW0E7F; BSurface no-op7BAB70 supplies no ray evidence.',
+            'Sparse final pixels include every actually stored address, including overwritten/background-valued stores. Geometry/commands, clipping, primary-gated paired writes, A/Z invariance and Main/Mapgen RNG snapshots are original outputs on supplied planes. Reached RNG65C780/65C7E0 and detach70D4A0 are observed; drawing actor bytes stay identical, with no timer write/call in the selected bodies. Constructor timers are not a lifecycle claim. Component crops are not whole native frames or production GPU comparisons; no positive overlap claim is inferred without an actual store witness.',
+            'Original tangent4096 float bytes at85D0A4 are retained in full. Thirteen signed input-bit controls execute4CAD50/MathFTOL and the real index/lookup. Existing native.call captures ST0 with its declared six-byte FSTP64 return observation outside original memory; it does not replace the lookup or supply a tangent result.',
+            'Every direct ray uses the selected caller constant Z=-500/-500, all three RGB channels and no Z write. Octant/clipping/strength/paired-gate controls do not prove varying-Z, channel-disabled, WriteZ or explicit-color Laser callers. NAPSIS scenes execute actual456750 concentric color/radius/order at declared timeGetTime milliseconds0/102/104/512/1024/1536, cropping outer/expanding contours. This supplies bounded shared-consumer coverage, without world lifecycle or native wall-clock scheduling. Placement remains separate.',
+            'Techno+268 defaults false at6F2DA2; original Mission_Unload44E29D..44E36B toggles it with gap removal/recreation, operational state and House dirty flag, and operational-off454B91..454BEB clears it. That gap/action lifecycle is not executed here. GAGAP physical normal/super radii10/10 make the selected radius invariant; controls declare the retained selector instead of inventing its lifecycle.',
+        ],substitutions=[
+            'Existing HutTypeReader supplies allocator/delete/CRT TLS and native INI cache objects. Shared BSurface virtual memory locks/pitch/unlock replace DirectDraw OS storage; original drawing bodies, type predicates, projection, table lookups, conversions and pixel stores are unchanged.',
+            'Only imported timeGetTime IAT7E1530 returns each declared u32 millisecond input through the existing Reader return transport. Original456750 consumes it. CRT atexit7C978A returns0 for original white-color lazy initialization process-exit registration; no color or branch result is supplied.',
+        ],entry_points=dict(type_ctor=0x45DD90,type_prefix=0x45FE50,has_radial=0x5F9521,
+            selected_caller=0x6DBE20,building_ring=0x456750,range=0x4566B0,
+            ring=0x456980,coords=0x447AC0,projection=0x6D2140,
+            ellipse=0x7BB350,cubic_line=0x4BC750,cubic_end=0x4BC7C2,tangent=0x4CAD50))
+
+
 if __name__=='__main__':
     import sys
+    if '--radial-indicator' in sys.argv[1:]:
+        native.finish_vectors(generate_radial_indicator,
+            Path(__file__).with_name('radial_indicator.json'),
+            argv=[arg for arg in sys.argv[1:] if arg!='--radial-indicator'],
+            provenance=radial_indicator_metadata,
+            source_paths={'oracle':Path(__file__),
+                'reader_owner':Path('tools/spatial_oracle/engineer_bridge_cursor_caller.py'),
+                'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
+                'physical_layers':Path('tools/rules_oracle/weapon_laser.py'),
+                'stock_owner':Path(stock.__file__)})
+        raise SystemExit(0)
     if '--absorber-pips' in sys.argv[1:]:
         native.finish_vectors(lambda:generate_unit_health(absorber=True),
             Path(__file__).with_name('absorber_pips.json'),

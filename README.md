@@ -25,7 +25,7 @@ VERA20k is made by gamers, for gamers, and gamers have the final say in where it
 
 1. Keep the gameplay, visuals and atmosphere of the original Red Alert 2: Yuri's Revenge.
 2. Support bigger battles: up to **30 players** and **20,000 units** on 500×500 maps.
-3. Incorporate known RTS features, old and new, and some never seen before.
+3. Incorporate known RTS features and some never seen before.
 4. Integrated multiplayer client
 
 ## Current status

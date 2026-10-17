@@ -14,6 +14,10 @@ mod campaign_house_bootstrap_tests;
 #[path = "scenario_house_name_retail_tests.rs"]
 mod scenario_house_name_retail_tests;
 
+#[cfg(test)]
+#[path = "scenario_special_money_retail_tests.rs"]
+mod scenario_special_money_retail_tests;
+
 use std::collections::HashMap;
 
 use crate::map::entities::EntityCategory;
@@ -1568,12 +1572,15 @@ pub fn populate_special_houses(sim: &mut Simulation, house_roster: &HouseRoster,
             declared_side,
             crate::sim::house_state::side_index_from_name(declared_side),
         );
+        // Original gamemd CreateHouses6882C2..68837E constructs this fixed
+        // tail without participant SetCreditsAndColor4FCE00. House ctor
+        // 4F58D8 leaves cash0; launch credits belong to participants.
         let mut house = HouseState::new(
             name_id,
             side_idx,
             country_id,
             false,
-            sim.session.game_options.starting_credits,
+            0,
             sim.session.game_options.tech_level,
         );
         // The House constructor builds its whole Supers vector.

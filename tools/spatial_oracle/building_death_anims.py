@@ -2559,8 +2559,424 @@ def grapple_fixture(inputs, root, *, seed=1, drone=False):
     assert f.code_unchanged()
     return f
 
+
+
+# Selected Suicide controls reuse this module's joined readers/runtime.
+
+
+def suicide_fire_inputs(root, scenario_map):
+    """Original stock TERROR readers on the existing joined input VM.
+
+    Native: InfantryType5236A0/5240A0, Weapon772080, C4 block66C304 and
+    fixed ART427D00. Existing IO/parser/registry owners remain authoritative.
+    """
+    import hashlib
+    from collections import deque
+    from types import SimpleNamespace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP, UC_X86_REG_ESI, UC_X86_REG_EDI
+    from tools import native_oracle as native
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.spatial_oracle.building_body_rules import INI, SP
+    from tools.rules_oracle.bridge_child_sound import sections
+    from tools.rules_oracle.weapon_speed_order import RetailRulesInputs
+    from tools.rules_oracle.weapon_laser import physical_layers
+
+    m = joined_inputs(root, damage_sound=True)
+    m.reserve_arena(0x1000000)
+    u, read = m.u, m.read32
+    rules = sections((root / 'RULESMD.INI').read_bytes())
+    art = sections((root / 'ARTMD.INI').read_bytes())
+    sound = sections((root / 'SOUNDMD.INI').read_bytes())
+    catalog = RetailRulesInputs(native.configured_gamemd().parent)
+    # The shared world still owns its historical Hills input projection. Check
+    # that replacing the scenario's selected rules with this map is identical
+    # for all shared fields; no map geometry/loading answer is supplied here.
+    shared_names = ('General', 'AudioVisual', 'CombatDamage', 'GAPOWR', 'E1',
+        'MTNK', '105mm', '105mmE', 'Cannon', 'AP', 'Americans', 'ElevationModel', 'Radiation')
+    base_map = sections((root / 'Hills.map').read_bytes())
+    selected_map = sections(scenario_map.read_bytes())
+    assert {n: base_map.get(n) for n in shared_names} == {
+        n: selected_map.get(n) for n in shared_names}
+    asset_rows = []
+    corpse_names = [m.string(read(read(m.rules + 0x124) + i * 4) + 0x24)
+                    for i in range(read(m.rules + 0x130))]
+    for name in ('TRST', 'MININUKE', *corpse_names):
+        filename = name + '.SHP'
+        raw = catalog.lookup(filename)
+        assert raw is not None, filename
+        m.assets[filename] = raw
+        source = catalog.requests[filename][0]
+        asset_rows.append(dict(file=filename, bytes=len(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+            sources=[v['source'] for v in source['candidates']]))
+    wanted = set()
+    for key, value in rules['TERROR'].items():
+        if key.startswith('Voice') or key in ('DieSound', 'CrushSound'):
+            wanted.update(v.strip() for v in value.split(','))
+    wanted.update(art['MININUKE'].get('Report', '').split(','))
+    wanted.discard('')
+    selected_sound = {n: sound[n] for n in ('Defaults', *sorted(wanted)) if n in sound}
+    selected_sound['SoundList'] = {k: v for k, v in sound['SoundList'].items() if v in wanted}
+    m.make_ini(selected_sound)
+    m.invoke(0x7510D0, INI)
+    selected_art = {n: art[n] for n in ('TRST', art['TRST']['Sequence'],
+                    'MININUKE', *corpse_names) if n in art}
+    m.make_ini(selected_art)
+    art_cache = bytes(u.mem_read(INI, 0x40))
+    actor_type = m.alloc(0x1900)
+    m.invoke(0x5236A0, actor_type, (m.cstring('TERROR'),))
+    m.types['TERROR'] = actor_type
+    weapon = m.invoke(0x772FA0, m.cstring('TerrorBomb'))
+    ctor = dict(strength=read(actor_type + 0xA0),
+                suicide=u.mem_read(weapon + 0x144, 1)[0])
+    country = next(v['pointer'] for v in m.death_country_sides['countries']
+                   if v['name'] == 'Confederation')
+    proxy = SimpleNamespace(m=m, trace=deque(maxlen=40), events=[], pending={}, frame=0, phase='setup')
+
+    def transport(_u, pc, size, data):
+        if pc in JOINED_TRANSPORT - {0x527AF9, 0x527B0C}:
+            Mission.observe(proxy, _u, pc, size, data)
+
+    hook = u.hook_add(UC_HOOK_CODE, transport)
+    layers = physical_layers()
+    layers[-1] = (scenario_map.name, 'declared_scenario_file', scenario_map.read_bytes())
+    rows = []
+    consumed_keys = dict(TERROR=('Image', 'Strength', 'Primary', 'DeathWeapon', 'Explodes',
+        'DeathWeaponDamageModifier', 'DieSound', 'VoiceFeedback', 'RequiredHouses'),
+        TerrorBomb=('Damage', 'ROF', 'Range', 'Projectile', 'Warhead', 'Suicide', 'Anim'),
+        TerrorBombWH=('CellSpread', 'PercentAtMax', 'InfDeath', 'Fire', 'Bright', 'AnimList', 'Verses'),
+        Super=('InfDeath', 'ProneDamage', 'Verses'), CombatDamage=('C4Warhead',))
+    try:
+        for filename, archive, raw in layers:
+            if raw is None:
+                assert not (root / filename).exists()
+                rows.append(dict(file=filename, absent=True))
+                continue
+            if filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini'):
+                assert (root / filename).read_bytes() == raw
+            physical = sections(raw)
+            selected = {n: physical[n] for n in ('TERROR', 'TerrorBomb', 'TerrorBombWH',
+                        'Super', 'Invisible', 'Confederation', 'CombatDamage') if n in physical}
+            m.make_ini(selected)
+            ini = m.alloc(0x40)
+            u.mem_write(ini, bytes(u.mem_read(INI, 0x40)))
+            u.mem_write(INI, art_cache)
+            admitted = dict(infantry=m.invoke(0x5240A0, actor_type, (ini,)) & 255,
+                            weapon=m.invoke(0x772080, weapon, (ini,)) & 255)
+            admitted['projectile'] = m.invoke(0x46BEE0, read(weapon + 0xA0), (ini,)) & 255
+            if 'CombatDamage' in selected:
+                u.mem_write(SP, bytes(0x300))
+                for reg, value in ((UC_X86_REG_ESP, SP), (UC_X86_REG_ESI, m.rules), (UC_X86_REG_EDI, ini)):
+                    u.reg_write(reg, value)
+                native.run_checked(u, 0x66C304, 0x66C34C)
+            for wh in sorted({read(m.rules + 0xFA8), read(weapon + 0xAC)}):
+                if wh:
+                    m.invoke(0x75D3A0, wh, (ini,))
+            m.invoke(0x7729F0, weapon)
+            m.invoke(0x511850, country, (ini,))
+            rows.append(dict(file=filename, archive=archive, bytes=len(raw),
+                sha256=hashlib.sha256(raw).hexdigest(), admitted=admitted,
+                physical={n: {k: physical[n][k] for k in keys if k in physical[n]}
+                          for n, keys in consumed_keys.items() if n in physical},
+                native_after=dict(strength=read(actor_type + 0xA0),
+                    suicide=u.mem_read(weapon + 0x144, 1)[0],
+                    death_weapon=m.string(read(actor_type + 0xD18) + 0x24))))
+        u.mem_write(INI, art_cache)
+        animation_rows = []
+        for name in ('MININUKE', *corpse_names):
+            pointer = m.invoke(0x428B80, m.cstring(name))
+            admitted = m.invoke(0x427D00, pointer, (INI,)) & 255
+            shape = read(pointer + 0xA4)
+            assert shape
+            animation_rows.append(dict(name=name, admitted=admitted,
+                frames=struct.unpack('<H', u.mem_read(shape + 6, 2))[0], art=art[name]))
+    finally:
+        u.hook_del(hook)
+    bank = read(actor_type + 0xE3C)
+    m.suicide_country, m.suicide_weapon = country, weapon
+    m.suicide_inputs = dict(layers=rows, constructor=ctor, assets=asset_rows,
+        shared_map_rules_projection_equal=True, shared_map_sections=list(shared_names),
+        native=dict(image=m.string(actor_type + 0x1F8), strength=read(actor_type + 0xA0),
+            primary=m.string(read(actor_type + 0x898) + 0x24),
+            death_weapon=m.string(read(actor_type + 0xD18) + 0x24),
+            explodes=u.mem_read(actor_type + 0xD15, 1)[0],
+            death_modifier_f32_bits=bytes(u.mem_read(actor_type + 0xD1C, 4)).hex(),
+            suicide=u.mem_read(weapon + 0x144, 1)[0], damage=read(weapon + 0xA4),
+            rof=read(weapon + 0xB0), range_leptons=read(weapon + 0xB4),
+            projectile=m.string(read(weapon + 0xA0) + 0x24),
+            warhead=m.string(read(weapon + 0xAC) + 0x24),
+            c4_warhead=m.string(read(m.rules + 0xFA8) + 0x24),
+            fire_up=read(actor_type + 0xE40),
+            die2=list(struct.unpack('<9i', u.mem_read(bank + 12 * 36, 36))),
+            corpse_names=corpse_names), fixed_art={name:{k:v for k,v in values.items()
+                if name not in ('TRST',art['TRST']['Sequence']) or k in
+                ('Sequence','FireUp','Crawls','Ready','Guard','Die2')}
+                for name,values in selected_art.items()},
+        fixed_inis=[dict(file=name,bytes=(root/name).stat().st_size,
+            sha256=hashlib.sha256((root/name).read_bytes()).hexdigest())
+            for name in ('ARTMD.INI','SOUNDMD.INI')],
+        sound_names=sorted(n for n in wanted if n in sound))
+    return m
+
+
+def suicide_fire_execute(inputs, *, ordinary=False, wounded=False, seed=31):
+    """Actual whole source receivers/FireAt/AI on the shared admitted world.
+
+    Native self-call6FDDFD uses Strength, not Health; the75/17 controls share
+    one original receiver. No gameplay result, RNG word or sequence is supplied.
+    """
+    from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESP, UC_X86_REG_EDI, UC_X86_REG_EIP
+    from tools import native_oracle as native
+    from tools.spatial_oracle import building_construction as bc, engineer_repair_admission as er
+    from tools.input_oracle.unit_voice_playback import VoiceHistory
+    from tools.procedural_drawing_oracle.electric_bolt import RngTrace
+
+    f = joined_fixture(inputs, 750, seed=seed, building_ai=True, unit_startup=True)
+    u, read = f.u, f.read32
+    bc.invoke(u, 0x561910, 0)  # Original369-pair CellSpread CRT prerequisite.
+    u.mem_write(er.HOUSE + 0x34, dwords(inputs.suicide_country))
+    actor = f.allocate(0x1000)
+    bc.invoke(u, 0x517A50, actor, f.types['TERROR'], er.HOUSE)
+    position = f.allocate(12)
+    u.mem_write(position, dwords(2496, 2752, 0))
+    admitted = bc.invoke(u, 0x51DFF0, actor, position, 128) & 255
+    assert admitted == 1 and list(struct.unpack('<3i', u.mem_read(actor + 0x9C, 12))) == [2496, 2752, 0]
+    audio = VoiceHistory(inputs, 'stock_suicide', fixture=f, actor_count=0, coordinate_profile=True)
+    audio.listener_input('declared_flat_suicide_listener', viewport=(640,480), backbuffer=(640,480), view=(0,0))
+    audio.actors.append(actor)
+    audio.actor = actor
+    rng = RngTrace.__new__(RngTrace)
+    rng.u, rng.streams = u, {'main':0x886B88, 'scenario':read(0xA8B230)+0x218, 'mapgen':0xABE890}
+    rng.requests, rng.pending = [], []
+    u.hook_add(UC_HOOK_CODE, rng.observe)
+    phase = 'preparation'
+    pending, packets, target_calls, calls, anims, lifecycle = [], [], [], [], [], []
+    timer_writes, fire_writes, target_writes = [], [], []
+    bullets, phases = [], []
+    normal = dict(get_rof=0, bullet_emission_tail=0, burst_increment=0, rearm_tail=0, last_fire_tail=0)
+    normal_sites = {0x6FCFA0:'get_rof',0x6FE562:'bullet_emission_tail',0x6FF274:'burst_increment',0x6FF2B2:'rearm_tail',0x6FF743:'last_fire_tail'}
+
+    def signed(at):
+        return struct.unpack('<i', u.mem_read(at,4))[0]
+
+    def coords(at):
+        return list(struct.unpack('<3i',u.mem_read(at,12)))
+
+    def role(pointer):
+        return 'null' if not pointer else 'source' if pointer==actor else 'target' if pointer==er.BLD else 'source_house' if pointer==er.HOUSE else 'other'
+
+    def member(pointer, base):
+        return pointer in [read(read(base+4)+i*4) for i in range(read(base+16))]
+
+    def state():
+        return dict(frame=read(bc.FRAME),health=signed(actor+0x6C),alive=u.mem_read(actor+0x90,1)[0],
+            limbo=u.mem_read(actor+0x81,1)[0],marked=u.mem_read(actor+0x74,1)[0],logic=member(actor,0x87F778),
+            location=coords(actor+0x9C),target=role(read(actor+0x2B4)),current_weapon=signed(actor+0x138),
+            mission=signed(actor+0xAC),pending=u.mem_read(actor+0x68D,1)[0],doing=signed(actor+0x6C4),stage=signed(actor+0xF8),
+            sequence=dict(start=signed(actor+0x100),duration=signed(actor+0x108),rate=signed(actor+0x10C)),
+            rearm=dict(start=signed(actor+0x2EC),duration=signed(actor+0x2F4),rof_copy=signed(actor+0x2F8)),
+            burst=signed(actor+0x3B8),last_fire=signed(actor+0x120),pending_deletes=read(0xB0F6A8),
+            target_health=signed(er.BLD+0x6C),target_alive=u.mem_read(er.BLD+0x90,1)[0])
+
+    def boundary(label):
+        row=dict(label=label,source=state(),rng=rng.states(),rng_request_count=len(rng.requests))
+        phases.append(row)
+        return row
+
+    observed = {0x51DF60:'infantry_fire_at',0x6FDD50:'techno_fire_at',0x5206B0:'fire_at_target',
+        0x51B1F0:'set_target',0x5218E0:'select_weapon',0x51C8B0:'get_fire_error',0x51D6F0:'do_action',
+        0x70D690:'death_weapon',0x46B050:'bullet_factory',0x466380:'bullet_ctor',0x4690B0:'bullet_detonate',
+        0x489280:'area_damage',0x421EA0:'anim_ctor',0x4DE5D0:'foot_uninit',0x5F65F0:'object_uninit',
+        0x7258D0:'announce_expired',0x725C70:'deferred_drain',0x517D90:'infantry_destructor',0x481670:'target_scatter',
+        0x517FA0:'source_receiver',0x442230:'target_receiver'}
+
+    def observe(_u, pc, size, data):
+        sp=u.reg_read(UC_X86_REG_ESP)
+        for item in pending[:]:
+            if pc==item['return_pc'] and sp==item['after_sp']:
+                row=item['row'];name=row['kind']
+                if name in ('source_receiver','target_receiver'):
+                    receiver=actor if name=='source_receiver' else er.BLD
+                    row.update(health_after=signed(receiver+0x6C),result=u.reg_read(UC_X86_REG_EAX))
+                elif name in ('infantry_fire_at','techno_fire_at','select_weapon','get_fire_error','death_weapon'):
+                    row['result']=u.reg_read(UC_X86_REG_EAX)
+                elif name=='do_action':row['result_al']=u.reg_read(UC_X86_REG_EAX)&255
+                if name=='foot_uninit':boundary('after_original_uninit')
+                pending.remove(item)
+        if pc in normal_sites:normal[normal_sites[pc]]+=1
+        if pc not in observed:return
+        this=u.reg_read(UC_X86_REG_ECX);name=observed[pc]
+        if name=='source_receiver' and this!=actor:return
+        if name=='target_receiver' and this!=er.BLD:return
+        row=dict(kind=name,phase=phase,frame=read(bc.FRAME))
+        cleanup=0
+        if name in ('source_receiver','target_receiver'):
+            args=list(struct.unpack('<7I',u.mem_read(sp+4,28)))
+            row.update(damage=signed(args[0]),distance=signed(sp+8),warhead=f.string(args[2]+0x24),
+                attacker=role(args[3]),ignore_defenses=bool(args[4]),arg6=bool(args[5]),attacking_house=role(args[6]),
+                aliases_health=args[0]==this+0x6C,health_before=signed(this+0x6C))
+            (packets if name=='source_receiver' else target_calls).append(row)
+            cleanup=28
+        elif name in ('infantry_fire_at','techno_fire_at'):
+            row.update(target=role(read(sp+4)),weapon_index=signed(sp+8));cleanup=8
+            calls.append(row)
+        elif name=='set_target':
+            row['target']=role(read(sp+4));cleanup=4;calls.append(row)
+        elif name=='select_weapon':cleanup=4;calls.append(row)
+        elif name=='get_fire_error':cleanup=12;calls.append(row)
+        elif name=='do_action':
+            row.update(action=signed(sp+4),force=bool(read(sp+8)));cleanup=12
+            if phase!='dying_ai':calls.append(row)
+        elif name=='death_weapon':row['extra_damage']=signed(sp+4);cleanup=4;calls.append(row)
+        elif name=='bullet_factory':
+            row['caller']=f'{read(sp):08X}';calls.append(row)
+        elif name=='bullet_ctor':bullets.append(this);calls.append(row)
+        elif name=='bullet_detonate':row['location']=coords(read(sp+4));calls.append(row)
+        elif name=='area_damage':
+            row.update(location=coords(this),damage=u.reg_read(UC_X86_REG_EDX),warhead=f.string(read(sp+8)+0x24));calls.append(row)
+        elif name=='anim_ctor':
+            row.update(type=f.string(read(sp+4)+0x24),location=coords(read(sp+8)));anims.append(row)
+        elif name=='announce_expired':
+            if this!=actor and this not in bullets:return
+            row.update(object='source' if this==actor else 'death_bullet',caller=f'{read(sp):08X}');lifecycle.append(row)
+        elif name in ('foot_uninit','object_uninit','infantry_destructor'):
+            if this!=actor:return
+            lifecycle.append(row)
+        elif name=='deferred_drain':lifecycle.append(row)
+        elif name=='target_scatter':calls.append(row)
+        elif name=='fire_at_target':
+            if phase!='dying_ai':calls.append(row)
+        if name in ('source_receiver','target_receiver','infantry_fire_at','techno_fire_at',
+                    'select_weapon','get_fire_error','do_action','death_weapon','foot_uninit') and read(sp)!=native.RET_MAGIC:
+            pending.append(dict(row=row,return_pc=read(sp),after_sp=sp+4+cleanup))
+
+    def written(_u, access, address, size, value, data):
+        if not actor<=address<actor+0x1000:return
+        off=address-actor
+        row=dict(phase=phase,frame=read(bc.FRAME),pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',offset=off,value=value)
+        if off in (0xC8,0xD0,0xF8,0x100,0x108,0x10C,0x174,0x17C):timer_writes.append(row)
+        if off in (0x2EC,0x2F4,0x2F8,0x120,0x3B8):fire_writes.append(row)
+        if off==0x2B4:row['value']=role(value);target_writes.append(row)
+
+    hooks=[u.hook_add(UC_HOOK_CODE,observe),u.hook_add(UC_HOOK_MEM_WRITE,written)]
+    try:
+        playfield=f.allocate(12);u.mem_write(playfield,dwords(*coords(actor+0x9C)))
+        assert bc.invoke(u,0x568350,0x87F7E8,playfield)&255==1
+        boundary('before_preparation')
+        preparation=None
+        if wounded:
+            packet=f.allocate(4);u.mem_write(packet,dwords(58))
+            result=bc.invoke(u,0x517FA0,actor,packet,0,read(f.rules+0xFA8),0,1,0,0)
+            packets[-1].update(health_after=signed(actor+0x6C),result=result)
+            preparation=dict(damage=58,result=result,health=signed(actor+0x6C),strength=read(f.types['TERROR']+0xA0))
+            assert preparation['health']==17 and u.mem_read(actor+0x90,1)[0]==1
+        bc.invoke(u,0x51B1F0,actor,er.BLD)
+        if ordinary:
+            bc.invoke(u,0x5B35E0,actor,1,0);bc.invoke(u,0x5B3570,actor)
+        boundary('before_fire')
+        phase='ordinary_start' if ordinary else 'direct_fire';f.phase=phase
+        if ordinary:
+            bc.invoke(u,0x5206B0,actor,timeout_us=60_000_000)
+            boundary('after_schedule_start')
+            for visit in range(1,13):
+                if signed(actor+0x6C)==0:break
+                phase='ordinary_ai';f.phase=phase
+                u.mem_write(bc.SP,dwords(native.RET_MAGIC));u.reg_write(UC_X86_REG_ESP,bc.SP);u.reg_write(UC_X86_REG_EDI,0)
+                native.run_checked(u,0x55DE73,0x55DE87)
+                bc.invoke(u,0x51BAB0,actor,timeout_us=60_000_000)
+            assert signed(actor+0x6C)==0,'Ordinary schedule did not fire within12 visits'
+        else:
+            returned=bc.invoke(u,0x51DF60,actor,er.BLD,0,timeout_us=60_000_000)
+            next(v for v in calls if v['kind']=='infantry_fire_at')['result']=returned
+        boundary('after_fire')
+        phase='end_fire_deferred_drain';f.phase=phase
+        bc.invoke(u,0x725C70,0,timeout_us=60_000_000)
+        visits=[]
+        for visit in range(1,161):
+            phase='dying_ai';f.phase=phase
+            u.mem_write(bc.SP,dwords(native.RET_MAGIC));u.reg_write(UC_X86_REG_ESP,bc.SP);u.reg_write(UC_X86_REG_EDI,0)
+            native.run_checked(u,0x55DE73,0x55DE87)
+            bc.invoke(u,0x51BAB0,actor,timeout_us=60_000_000)
+            sample=state()
+            visits.append({k:sample[k] for k in ('frame','health','alive','logic','doing','stage','pending_deletes')})
+            if not sample['alive']:break
+        assert not state()['alive'],'Native dying sequence did not UnInit'
+        boundary('before_deferred_destruction')
+        phase='final_deferred_drain';f.phase=phase
+        bc.invoke(u,0x725C70,0,timeout_us=60_000_000)
+        boundary('after_deferred_destruction')
+        assert not pending and f.code_unchanged()
+        assert read(0xB0F6A8)==0
+        return dict(name='ordinary_5206b0' if ordinary else 'direct_wounded17' if wounded else 'direct_stock75',
+            input=dict(seed=seed,source_xyz=[2496,2752,0],target_xyz=coords(er.BLD+0x9C),
+                target_foundation=list(f.building_foundation_dimensions),source_country='Confederation',
+                distinct_target_house=read(er.BLD+0x21C)!=er.HOUSE,unlimbo_admitted=admitted,
+                guard_a8ed6b=u.mem_read(0xA8ED6B,1)[0],session_literal_a8b238=read(0xA8B238)),
+            preparation=preparation,phases=phases,source_packets=packets,target_receivers=target_calls,
+            calls=calls,anims=[v for v in anims if v['type']!='BEHIND'],
+            observed_excluded_anims=sorted({v['type'] for v in anims if v['type']=='BEHIND'}),
+            normal_fire_tail_visits=normal,fire_writes=fire_writes,target_writes=target_writes,
+            timer_writes=[v for v in timer_writes if v['phase']!='dying_ai'],
+            rng_requests=rng.requests,lifecycle=lifecycle,death_visits=visits,
+            original_code_unchanged=f.code_unchanged(),
+            reached_presentation_boundaries=sorted({f'{v["address"]:08X}' for v in f.events if v.get('event')=='presentation_boundary'}),
+            coordinate_sound_request_count=read(0xB1D3A8),
+            post_destructor_state_bound='retained arena bytes only; source is no longer a live object')
+    finally:
+        for h in hooks:u.hook_del(h)
+
+
+def suicide_fire_generate(root=None, scenario_map=None):
+    import os
+    root=Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS']) if root is None else Path(root)
+    scenario_map=root/'Hills.map' if scenario_map is None else Path(scenario_map)
+    inputs=suicide_fire_inputs(root,scenario_map)
+    return dict(schema_version=1,inputs=inputs.suicide_inputs,
+        rows=[suicide_fire_execute(inputs),suicide_fire_execute(inputs,wounded=True),
+              suicide_fire_execute(inputs,ordinary=True)])
+
+
+def suicide_fire_metadata():
+    return provenance(scope='Stock TERROR synchronous Suicide FireAt, explicit DeathWeapon/real2x2 GAPOWR area receivers and native Infantry sequence/UnInit/deferred cleanup; three prepared direct/ordinary controls.',
+        entry_points=dict(type_ctor=0x5236A0,type_reader=0x5240A0,weapon_reader=0x772080,
+            infantry_ctor=0x517A50,infantry_unlimbo=0x51DFF0,fire_at_target=0x5206B0,
+            infantry_ai=0x51BAB0,infantry_fire=0x51DF60,techno_fire=0x6FDD50,
+            infantry_receiver=0x517FA0,techno_receiver=0x701900,death_weapon=0x70D690,
+            area_damage=0x489280,corpse_completion=0x520AE0,deferred_drain=0x725C70),
+        assumptions=['Existing joined_inputs/joined_fixture owns the VM, original readers/registries/constructors, clear flat admitted map/House priors and original CellSpread/Infantry/subcell startup. Original full scenario/House/target production/Unlimbo and input/approach are excluded. The supplied target750HP/2x2 foundation is reinserted by original Mark0/3.',
+            'Fixed ART/SHP is physical TRST/TerroristSequence, MININUKE and six Rules DeadBodies assets. Raw guardA8ED6B=0 and sessionA8B238=1 retain literal identities, with no Editor/session enum claim. Wounded17 is reached by original58/Super/ignoreDefenses1/arg6false receiver before measured FireAt75.',
+            'Seed31; source placement[2496,2752,0] is independently admitted by original Infantry ctor/Unlimbo, with target[2688,2688,0]. Other objects, House/effect Anim AI, global Logic interleaving/audio service/PCM/render are excluded. Behind remains explicitly excluded; incidental constructor observations do not establish its reader/assets/render parity.',
+            'Full three RNG states at named boundaries and native request/raw draws are observed; timer middle words/void EAX/DoAction high bytes and freed-object interpretations are excluded. Post-destructor bytes are retained arena storage.'],
+        substitutions=['Existing source-order lexical/physical-file IO, successful arena allocation/no-op release, CRT/TLS/SEH/Windows COM/audio device/clock/listener boundaries. Actual original Walk/Drive/Bullet factories execute. Remap705D70/radar655560/655740 remain presentation sinks. No selected FireAt, receiver, fatal, Bullet/AoE, source AI, corpse or cleanup result is supplied.'])
+
+
+def suicide_fire_main(argv):
+    import argparse
+    from tools.native_oracle import finish_vectors
+    parser=argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--suicide-map',type=Path)
+    args,remaining=parser.parse_known_args(argv)
+    sources=joined_source_paths()
+    repo=Path(__file__).resolve().parents[2]
+    for name in ('tools/input_oracle/unit_voice_playback.py',
+                 'tools/procedural_drawing_oracle/electric_bolt.py',
+                 'tools/rules_oracle/weapon_laser.py','tools/rules_oracle/weapon_speed_order.py'):
+        sources[name]=repo/name
+    finish_vectors(lambda:suicide_fire_generate(scenario_map=args.suicide_map),
+        Path(__file__).with_name('suicide_fire.json'),provenance=suicide_fire_metadata,
+        argv=remaining,source_paths=sources)
+
+
 if __name__ == "__main__":
     import sys
+    if '--suicide-fire' in sys.argv[1:]:
+        if {'--typed-debris','--damage-sound-joined','--joined-stock-smudges',
+                '--constructed-cancellation','--joined'} & set(sys.argv[1:]):
+            raise SystemExit('Select one native corpus mode')
+        suicide_fire_main([arg for arg in sys.argv[1:] if arg!='--suicide-fire'])
+        raise SystemExit(0)
     if '--typed-debris' in sys.argv[1:]:
         typed_debris_main([arg for arg in sys.argv[1:] if arg!='--typed-debris'])
         raise SystemExit(0)

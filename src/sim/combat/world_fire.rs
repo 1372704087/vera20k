@@ -1012,7 +1012,7 @@ pub(crate) fn snapshot_get_rof(
 /// Existing FireAt delivery and bookkeeping, shared by the world receiver.
 /// The caller still owns legality, fire-action timing and inline damage commit.
 /// Answers the bullet `TechnoClass::FireAt @ 0x006FDD50` returns: the one
-/// launched, or `None` where it returns NULL (a refused sonic shot, the
+/// launched, or `None` where it returns NULL (Suicide, a refused sonic shot, the
 /// spawner, drain and DiskLaser arms, and a launch with no solution).
 pub(super) fn emit_admitted_fire(
     world: &mut Simulation,
@@ -1040,6 +1040,28 @@ pub(super) fn emit_admitted_fire(
     } = shot;
     let snap = &snap;
     let weapon = selected.weapon;
+    if weapon.suicide {
+        // Techno6FDDC0..6FDE0E: the local packet is type Strength, not
+        // current Health or weapon Damage. The real self receiver completes
+        // its nested DeathWeapon and class death before FireAt returns NULL;
+        // ordinary launch/GetROF/rearm/last-fire work is never reached.
+        // Original execution: tools/spatial_oracle/suicide_fire.json.
+        let c4 = world.interner.intern(&rules.bridge_warheads.c4_name);
+        let event = EntityDamageEvent::direct_receiver(
+            snap.stable_id,
+            obj.strength,
+            0,
+            RAD_NO_ATTACKER,
+            None,
+            c4,
+            ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: false,
+            },
+        );
+        world.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
+        return None;
+    }
     if weapon.is_sonic && world.active_wave_links.contains_key(&snap.stable_id) {
         return None;
     }

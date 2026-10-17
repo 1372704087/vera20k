@@ -1091,7 +1091,9 @@ use crate::sim::world::Simulation;
 // unload returns the passenger to the old shore. Do not migrate that state.
 // 393 -> 394: Mouse-save sidebar records retain pending request1/2 and
 // House prediction gates; NoInit resets only their predicted clocks.
-const SNAPSHOT_VERSION: u32 = 394;
+// Bumped 394 -> 395: retained General.MaximumCheerRate in Rules/registry
+// serialization; Cheer command appended without renumbering existing variants.
+const SNAPSHOT_VERSION: u32 = 395;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4670,7 +4672,8 @@ mod tests {
         // 391 -> 392: retained RulesClass survivor divisors.
         // 392 -> 393: reject cargo with the old mid-track boarding semantics.
         // 393 -> 394: saved requests/gates, with NoInit clock reset.
-        assert_eq!(super::SNAPSHOT_VERSION, 394);
+        // 394 -> 395: retained Cheer rate and the appended Cheer command.
+        assert_eq!(super::SNAPSHOT_VERSION, 395);
     }
 
     #[test]

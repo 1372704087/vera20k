@@ -518,6 +518,21 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(transcript['commands'][0]['payload'], {'Stop': {'entity_id': 7}})
         self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
 
+    def test_observed_commands_preserve_serde_unit_variants_and_reject_missing_tags(self):
+        self.gesture_profile()
+        self.gesture_receipts[0]['queued_commands'][0]['payload'] = 'Cheer'
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        receipts = report['capture']['observations']['gesture_input']['receipts']
+        self.assertEqual(receipts[0]['queued_commands'][0]['payload'], 'Cheer')
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        for index, payload in enumerate(('', None, 1, [], {}, {'': {}}, {'Cheer': None})):
+            with self.subTest(payload=payload):
+                self.output = self.root / f'bad-observed-command-tag-{index}'
+                self.change = lambda manifest, value=payload: manifest['observations'][
+                    'gesture_input']['receipts'][0]['queued_commands'][0].update(payload=value)
+                self.assertEqual(self.run_capture()['status'], 'INVALID')
+
     def command_bar_profile(self):
         self.gesture_profile()
         request, receipt = self.profile['gestures'][0], self.gesture_receipts[0]

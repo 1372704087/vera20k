@@ -2980,28 +2980,7 @@ impl Simulation {
                 let Some(owner) = self.live_action_house(live, value, rules) else {
                     return false;
                 };
-                let count = self.substrate.entities.techno_registry_len();
-                for ordinal in 0..count {
-                    let Some(id) = self.substrate.entities.techno_registry_at(ordinal) else {
-                        continue;
-                    };
-                    if self
-                        .substrate
-                        .entities
-                        .get(id)
-                        .is_some_and(|entity| entity.owner() == owner)
-                    {
-                        self.infantry_cheer(id, false, rules, frame_effects);
-                    }
-                }
-                //50C905..50C90B uses the registered Rules+1C8 cue, center
-                //pan2000, volume1, no handle, after all member callbacks.
-                if let Some(sound_id) = rules.general.cheer_sound() {
-                    self.sound_events.push(SimSoundEvent::VocCentered {
-                        sound_id: sound_id.to_owned(),
-                    });
-                    frame_effects.flush_sound(self, Some(rules));
-                }
+                self.house_cheer(owner, rules, frame_effects);
             }
             60 => {
                 //6DDEF5 scans the live Building registry forward and calls

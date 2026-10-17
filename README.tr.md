@@ -30,14 +30,15 @@ oyuncular söylüyor.
 
 ## Mevcut durum
 
-**Aktif geliştirme aşamasında.** Windows, Linux ve macOS'ta yerel çatışmalar oynanabiliyor.
-Orijinal ve rastgele oluşturulan haritalar, üs kurma, kaynak toplama, çatışma ve kaydetme/yükleme
-mevcut. Senaryo görevleri başlatılabiliyor; orijinal yapay zekânın bazı bölümleri artık üs kurma
-ve betiklerle yönetilen saldırıları yürütüyor.
+**Aktif geliştirme aşamasında.**
 
-Oynanışın aslına uygunluğu, görseller ve performans hâlâ geliştirme gerektiriyor. Senaryo
-desteği eksik, ağ üzerinden çok oyunculu mod henüz oynanamıyor ve 30 oyunculu, 20.000 birimli
-savaşlar henüz gösterilmiş değil.
+- **Çatışma:** Windows, Linux ve macOS'ta oynanabiliyor. Orijinal ve rastgele oluşturulan
+  haritalar, üs kurma, kaynak toplama, çatışma ve kaydetme/yükleme mevcut.
+- **Senaryolar:** Görevler başlatılabiliyor; destek henüz tamamlanmış değil.
+- **Yapay zekâ:** Orijinal yapay zekânın bazı bölümleri üs kurma ve betiklerle yönetilen saldırıları yürütüyor.
+- **Devam eden çalışmalar:** Oynanışın aslına uygunluğu, görseller ve performans.
+- **Çok oyunculu mod:** Ağ üzerinden oyun henüz mevcut değil.
+- **Ölçek:** 30 oyunculu, 20.000 birimli savaşlar henüz gösterilmiş değil.
 
 ## Mimari
 

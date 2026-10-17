@@ -29,14 +29,15 @@ ska gå.
 
 ## Aktuellt läge
 
-**Under aktiv utveckling.** Lokala skirmishmatcher går att spela på Windows, Linux och macOS,
-med kartor från originalspelet och slumpgenererade kartor, basbygge, resursinsamling, strider
-samt möjlighet att spara och ladda spel. Kampanjuppdrag går att starta, och delar av originalets
-AI sköter nu basbygge och skriptstyrda anfall.
+**Under aktiv utveckling.**
 
-Spelbeteendet, grafiken och prestandan behöver fortfarande förbättras. Kampanjstödet är
-ofullständigt, flerspelarläge över nätverk går ännu inte att spela, och slag med 30 spelare
-och 20 000 enheter har ännu inte demonstrerats.
+- **Skirmish:** Går att spela på Windows, Linux och macOS, med kartor från originalspelet
+  och slumpgenererade kartor, basbygge, resursinsamling, strider samt möjlighet att spara och ladda spel.
+- **Kampanjer:** Uppdrag går att starta; stödet är fortfarande ofullständigt.
+- **AI:** Delar av originalets AI sköter basbygge och skriptstyrda anfall.
+- **Pågående arbete:** Spelbeteende, grafik och prestanda.
+- **Flerspelarläge:** Nätverksspel är ännu inte tillgängligt.
+- **Skala:** Slag med 30 spelare och 20 000 enheter har ännu inte demonstrerats.
 
 ## Arkitektur
 

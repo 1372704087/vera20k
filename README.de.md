@@ -30,14 +30,15 @@ das Projekt entwickelt.
 
 ## Aktueller Stand
 
-**In aktiver Entwicklung.** Lokale Gefechte sind unter Windows, Linux und macOS spielbar,
-mit Originalkarten und zufällig generierten Karten, Basisbau, Rohstoffernte, Kämpfen sowie
-Speichern und Laden. Kampagnenmissionen lassen sich starten, und Teile der ursprünglichen KI
-übernehmen inzwischen den Basisbau und skriptgesteuerte Angriffe.
+**In aktiver Entwicklung.**
 
-Spielverhalten, Grafik und Leistung brauchen noch Arbeit. Die Kampagnenunterstützung ist
-unvollständig, der Netzwerk-Mehrspielermodus ist noch nicht spielbar, und Schlachten mit
-30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
+- **Gefechte:** Unter Windows, Linux und macOS spielbar, mit Originalkarten und zufällig
+  generierten Karten, Basisbau, Rohstoffernte, Kämpfen sowie Speichern und Laden.
+- **Kampagnen:** Missionen lassen sich starten; die Unterstützung bleibt unvollständig.
+- **KI:** Teile der ursprünglichen KI übernehmen den Basisbau und skriptgesteuerte Angriffe.
+- **Laufende Arbeiten:** Spielverhalten, Grafik und Leistung.
+- **Mehrspielermodus:** Netzwerkspiel ist noch nicht verfügbar.
+- **Größenordnung:** Schlachten mit 30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
 
 ## Architektur
 

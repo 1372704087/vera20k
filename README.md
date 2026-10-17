@@ -30,13 +30,15 @@ VERA20k is made by gamers, for gamers, and gamers have the final say in where it
 
 ## Current status
 
-**In active development.** Local skirmish is playable on Windows, Linux and macOS, with
-original and random maps, base building, harvesting, combat and save/load. Campaign missions
-can launch, and parts of the original AI now handle base building and scripted attacks.
+**In active development.**
 
-Gameplay accuracy, visuals and performance still need work. Campaign support is incomplete,
-network multiplayer is not playable yet, and battles with 30 players and 20,000 units have
-not yet been demonstrated.
+- **Skirmish:** Playable on Windows, Linux and macOS, with original and random maps,
+  base building, harvesting, combat and save/load.
+- **Campaigns:** Missions can launch; support remains incomplete.
+- **AI:** Parts of the original AI handle base building and scripted attacks.
+- **Ongoing work:** Gameplay accuracy, visuals and performance.
+- **Multiplayer:** Network play is not available yet.
+- **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
 
 ## Architecture
 

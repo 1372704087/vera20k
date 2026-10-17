@@ -946,6 +946,117 @@ mod tests {
     }
 
     #[test]
+    fn retail_disk_muzzle_and_range_queries_match_actual_unit_jumpjet_dispatch() {
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let rules = &retail.rules;
+        let native = crate::test_fixture::json("tools/spatial_oracle/disk_laser.json");
+        let rows = native["muzzle"].as_array().unwrap();
+        assert_eq!(
+            rows.len(),
+            7,
+            "four headings and three high-flight controls"
+        );
+        let int = |v: &serde_json::Value| v.as_i64().unwrap() as i32;
+        let triple = |v: &serde_json::Value| [int(&v[0]), int(&v[1]), int(&v[2])];
+        for row in rows {
+            let input = &row["input"];
+            let mut world = Simulation::new();
+            crate::sim::arena_fixture::flat_arena(&mut world, rules);
+            let mut ids = Vec::new();
+            for (kind, key) in [("DISK", "source"), ("MTNK", "target")] {
+                let [x, y, z] = triple(&input[key]);
+                let id = world
+                    .spawn_object(
+                        kind,
+                        "Americans",
+                        (x / 256) as u16,
+                        (y / 256) as u16,
+                        0,
+                        rules,
+                    )
+                    .unwrap();
+                let actor = world.substrate.entities.get_mut(id).unwrap();
+                actor
+                    .position
+                    .set_sub_x_for_test(SimFixed::from_num(x % 256));
+                actor
+                    .position
+                    .set_sub_y_for_test(SimFixed::from_num(y % 256));
+                actor.position.set_exact_z_leptons_for_test(Some(z));
+                ids.push(id);
+            }
+            let frame = input["frame"].as_u64().unwrap() as u32;
+            world.session.binary_frame = frame;
+            let source = world.substrate.entities.get_mut(ids[0]).unwrap();
+            source.body_facing = crate::sim::movement::FacingClass::new(
+                input["primary_facing"].as_u64().unwrap() as u16,
+                100,
+            );
+            source.barrel_facing = Some(crate::sim::movement::FacingClass::new(
+                input["secondary_facing"].as_u64().unwrap() as u16,
+                100,
+            ));
+            source
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap());
+            let obj = rules.object("DISK").unwrap();
+            assert_eq!(obj.has_turret, input["has_turret"].as_bool().unwrap());
+            assert_eq!(
+                rules.art().get("DISK").unwrap().primary_fire_flh,
+                Flh::from(triple(&input["primary_flh"]))
+            );
+            let before = world.state_hash();
+            let source = world.substrate.entities.get(ids[0]).unwrap();
+            let source_coord = crate::sim::movement::ground_pose::object_get_coords(
+                source,
+                world.resolved_terrain.as_ref(),
+            );
+            assert_eq!(
+                [source_coord.x, source_coord.y, source_coord.z],
+                triple(&row["source_coords"])
+            );
+            let muzzle = fire_coordinate(
+                &world,
+                rules,
+                &FireSource::of_entity(source),
+                obj,
+                int(&input["weapon_index"]),
+                input["burst"].as_u64().unwrap() as u8,
+                Flh::from(triple(&input["base"])),
+            );
+            assert_eq!(
+                [muzzle.coord.x, muzzle.coord.y, muzzle.coord.z],
+                triple(&row["muzzle"]),
+                "{input}"
+            );
+            let target = effect_target_coordinate(
+                &world,
+                rules,
+                crate::sim::projectile::ProjectileTarget::Entity(ids[1]),
+            )
+            .unwrap();
+            assert_eq!(
+                [target.x, target.y, target.z],
+                triple(&row["target_effect_coords"])
+            );
+            assert_eq!(
+                crate::sim::movement::air_movement::is_high_flying(
+                    source,
+                    world.resolved_terrain.as_ref(),
+                    Some((rules, &world.interner))
+                ),
+                row["high_flying"].as_bool().unwrap(),
+                "{input}"
+            );
+            assert_eq!(world.state_hash(), before, "queries are read-only: {input}");
+        }
+    }
+
+    #[test]
     fn numbered_weapon_index_and_elite_weapon_binding_reach_fire_coordinate() {
         let mut rules = RuleSet::from_ini(&IniFile::from_str(
             "[VehicleTypes]\n0=FV\n[FV]\nTurretCount=4\nWeaponCount=3\n\

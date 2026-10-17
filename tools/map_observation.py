@@ -42,21 +42,24 @@ from tools.tactical_certification.core import (
 from tools.tactical_certification.profile import load_contract, reject_denied_environment
 
 ROOT = Path(__file__).resolve().parents[1]
-RUN_SCHEMA = 'vera20k.map-observation-run.v7'
+RUN_SCHEMA = 'vera20k.map-observation-run.v8'
+WALK_RUN_SCHEMA = 'vera20k.map-observation-run.v7'
 DOCKING_RUN_SCHEMA = 'vera20k.map-observation-run.v6'
 BUILDING_RUN_SCHEMA = 'vera20k.map-observation-run.v5'
 TRAJECTORY_RUN_SCHEMA = 'vera20k.map-observation-run.v4'
 PRIOR_RUN_SCHEMA = 'vera20k.map-observation-run.v3'
 LEGACY_CLOCK_RUN_SCHEMA = 'vera20k.map-observation-run.v2'
 LEGACY_RUN_SCHEMA = 'vera20k.map-observation-run.v1'
-CHILD_SCHEMA = 'vera20k.map-observation.v7'
+CHILD_SCHEMA = 'vera20k.map-observation.v8'
+WALK_CHILD_SCHEMA = 'vera20k.map-observation.v7'
 DOCKING_CHILD_SCHEMA = 'vera20k.map-observation.v6'
 BUILDING_CHILD_SCHEMA = 'vera20k.map-observation.v5'
 TRAJECTORY_CHILD_SCHEMA = 'vera20k.map-observation.v4'
 PRIOR_CHILD_SCHEMA = 'vera20k.map-observation.v3'
 LEGACY_CHILD_SCHEMA = 'vera20k.map-observation.v2'
 CLOCK_POLICY = 'map-exact-step-presentation-v1'
-OBSERVATION_POLICY = 'map-ordinary-command-observation-v4'
+OBSERVATION_POLICY = 'map-ordinary-command-observation-v5'
+WALK_OBSERVATION_POLICY = 'map-ordinary-command-observation-v4'
 GESTURE_POLICY = 'map-tactical-left-gesture-v1'
 SIDEBAR_GESTURE_POLICY = 'map-local-left-gesture-v2'
 KEYBOARD_GESTURE_POLICY = 'map-local-gesture-v3'
@@ -1095,9 +1098,11 @@ def _detail(value: Any, label: str) -> None:
             raise ValidationError(f'{label}.{key} must be a boolean')
 
 
-def _lasers(value: Any, label: str) -> int:
+def _lasers(value: Any, label: str, *, disk_laser_state: bool = True) -> int:
     snapshot = require_object(value, label)
-    require_exact_keys(snapshot, ('detail', 'live'), label)
+    # The current policy requires both owners; historical policies retain the
+    # beam-only schema rather than manufacturing empty delayed-shot evidence.
+    require_exact_keys(snapshot, ('detail', 'live', *(('disk_shots',) if disk_laser_state else ())), label)
     _detail(snapshot['detail'], f'{label}.detail')
     live = require_array(snapshot['live'], f'{label}.live')
     for index, value in enumerate(live):
@@ -1105,7 +1110,8 @@ def _lasers(value: Any, label: str) -> int:
         beam = require_object(value, beam_label)
         require_exact_keys(beam, ('birth_frame', 'from', 'to', 'z_adjust', 'width', 'supported',
                                  'house_color', 'rgb', 'duration', 'age', 'timer_start',
-                                 'timer_duration'), beam_label)
+                                 'timer_duration',
+                                 *(('outer', 'spread', 'fade_end_bits') if disk_laser_state else ())), beam_label)
         for key in ('birth_frame', 'z_adjust', 'width', 'duration', 'age', 'timer_start', 'timer_duration'):
             _bounded_int(beam[key], f'{beam_label}.{key}', -(1 << 31), (1 << 31) - 1)
         for key in ('from', 'to'):
@@ -1113,12 +1119,35 @@ def _lasers(value: Any, label: str) -> int:
         for key in ('supported', 'house_color'):
             if type(beam[key]) is not bool:
                 raise ValidationError(f'{beam_label}.{key} must be a boolean')
-        rgb = require_array(beam['rgb'], f'{beam_label}.rgb')
-        if len(rgb) != 3:
-            raise ValidationError(f'{beam_label}.rgb must contain three channels')
-        for channel, value in enumerate(rgb):
-            _bounded_int(value, f'{beam_label}.rgb[{channel}]', 0, 255)
-    return 1 + len(live)
+        for key in ('rgb', *(('outer', 'spread') if disk_laser_state else ())):
+            channels = require_array(beam[key], f'{beam_label}.{key}')
+            if len(channels) != 3:
+                raise ValidationError(f'{beam_label}.{key} must contain three channels')
+            for channel, value in enumerate(channels):
+                _bounded_int(value, f'{beam_label}.{key}[{channel}]', 0, 255)
+        if disk_laser_state:
+            _bounded_int(beam['fade_end_bits'], f'{beam_label}.fade_end_bits', 0, (1 << 32) - 1)
+    shots = require_array(snapshot['disk_shots'], f'{label}.disk_shots') if disk_laser_state else []
+    previous = 0
+    for index, value in enumerate(shots):
+        shot_label = f'{label}.disk_shots[{index}]'
+        shot = require_object(value, shot_label)
+        require_exact_keys(shot, ('id', 'source', 'target', 'weapon', 'countdown', 'start', 'step',
+                                 'damage'), shot_label)
+        identity = _bounded_int(shot['id'], f'{shot_label}.id', 1, (1 << 64) - 1)
+        if identity <= previous:
+            raise ValidationError(f'{label}.disk_shots must have unique increasing IDs')
+        previous = identity
+        if shot['source'] is not None:
+            _bounded_int(shot['source'], f'{shot_label}.source', 1, (1 << 64) - 1)
+        _target_reference(shot['target'], f'{shot_label}.target')
+        if shot['weapon'] is not None and not require_string(shot['weapon'], f'{shot_label}.weapon'):
+            raise ValidationError(f'{shot_label}.weapon must be nonempty or null')
+        _bounded_int(shot['countdown'], f'{shot_label}.countdown', -(1 << 31), 1)
+        _bounded_int(shot['start'], f'{shot_label}.start', 0, 15)
+        _bounded_int(shot['step'], f'{shot_label}.step', 0, 8)
+        _bounded_int(shot['damage'], f'{shot_label}.damage', -(1 << 31), (1 << 31) - 1)
+    return 1 + len(live) + len(shots)
 
 
 def _observes_electric_step(profile: Mapping[str, Any], step: int) -> bool:
@@ -2466,7 +2495,7 @@ def _effects(value: Any, profile: Mapping[str, Any], label: str) -> int:
 
 def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, Any], *,
                   building_state: bool = True, docking_state: bool = True,
-                  walk_state: bool = True) -> dict[str, Any]:
+                  walk_state: bool = True, disk_laser_state: bool = True) -> dict[str, Any]:
     label = 'observations'
     observations = require_object(value, label)
     gesture_input = 'gestures' in profile
@@ -2487,7 +2516,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     segments = _load_segments(observations.get('load_segments'), profile)
     if 'observe_audio' in profile:
         _audio_observation(observations['audio'], profile)
-    policy = (OBSERVATION_POLICY if walk_state else DOCKING_OBSERVATION_POLICY if docking_state else
+    policy = ((OBSERVATION_POLICY if disk_laser_state else WALK_OBSERVATION_POLICY) if walk_state else
+              DOCKING_OBSERVATION_POLICY if docking_state else
               BUILDING_OBSERVATION_POLICY if building_state else TRAJECTORY_OBSERVATION_POLICY)
     require_value(observations['policy'], policy, f'{label}.policy')
     if building_state:
@@ -2597,7 +2627,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         if effects:
             sample_count += _effects(row['effects'], profile, f'{row_label}.effects')
         if profile.get('observe_lasers', False):
-            sample_count += _lasers(row['lasers'], f'{row_label}.lasers')
+            sample_count += _lasers(row['lasers'], f'{row_label}.lasers',
+                                    disk_laser_state=walk_state and disk_laser_state)
         if _observes_electric_step(profile, step):
             sample_count += _electric_bolts(row['electric_bolts'], f'{row_label}.electric_bolts')
         if profile.get('observe_bombs', False):
@@ -2672,7 +2703,7 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
                      identities: Mapping[str, Mapping[str, Any]], *,
                      legacy_clock: bool = False, prior_observations: bool = False,
                      prior_trajectory: bool = False, building_only: bool = False,
-                     docking_only: bool = False) -> _Capture:
+                     docking_only: bool = False, walk_only: bool = False) -> _Capture:
     """Check child semantics/bytes against independently checked input identities.
 
     Identities describe original runtime paths. Retained copies have their own real
@@ -2688,7 +2719,8 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
                        PRIOR_CHILD_SCHEMA if prior_observations else
                        TRAJECTORY_CHILD_SCHEMA if prior_trajectory else
                        BUILDING_CHILD_SCHEMA if building_only else
-                       DOCKING_CHILD_SCHEMA if docking_only else CHILD_SCHEMA)
+                       DOCKING_CHILD_SCHEMA if docking_only else
+                       WALK_CHILD_SCHEMA if walk_only else CHILD_SCHEMA)
     require_value(manifest.get('schema_version'),
                   expected_schema, 'schema_version')
     if manifest.get('status') != 'COMPLETE':
@@ -2773,7 +2805,8 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         observations = _observations(manifest.get('observations'), profile, final,
                                      building_state=not prior_trajectory,
                                      docking_state=not (prior_trajectory or building_only),
-                                     walk_state=not (prior_trajectory or building_only or docking_only))
+                                     walk_state=not (prior_trajectory or building_only or docking_only),
+                                     disk_laser_state=not walk_only)
         camera = require_object(render.get('camera'), 'render.camera')
         require_exact_keys(camera, ('requested_cell', 'top_left', 'zoom'), 'render.camera')
         _require_equal(camera['requested_cell'], profile.get('camera_cell'), 'render.camera.requested_cell')
@@ -2932,7 +2965,8 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
                                          maximum_length=MAX_RECEIPT_BYTES)
     schema = report.get('schema_version')
     legacy = schema == LEGACY_RUN_SCHEMA
-    if schema not in (RUN_SCHEMA, DOCKING_RUN_SCHEMA, BUILDING_RUN_SCHEMA, TRAJECTORY_RUN_SCHEMA, PRIOR_RUN_SCHEMA,
+    if schema not in (RUN_SCHEMA, WALK_RUN_SCHEMA, DOCKING_RUN_SCHEMA, BUILDING_RUN_SCHEMA,
+                      TRAJECTORY_RUN_SCHEMA, PRIOR_RUN_SCHEMA,
                       LEGACY_CLOCK_RUN_SCHEMA, LEGACY_RUN_SCHEMA):
         raise ValidationError(f'unsupported observation wrapper schema: {schema!r}')
     if legacy and not allow_legacy_inputs:
@@ -2943,6 +2977,7 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
     prior_trajectory = schema == TRAJECTORY_RUN_SCHEMA
     building_only = schema == BUILDING_RUN_SCHEMA
     docking_only = schema == DOCKING_RUN_SCHEMA
+    walk_only = schema == WALK_RUN_SCHEMA
     if legacy_clock and not allow_legacy_clock:
         raise ValidationError('legacy wall-clock evidence requires --allow-legacy-clock; '
                               'it has no deterministic presentation schedule')
@@ -2995,7 +3030,7 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
     checked = validate_capture(directory / 'child-output', profile, identities,
                                legacy_clock=legacy_clock, prior_observations=prior_observations,
                                prior_trajectory=prior_trajectory, building_only=building_only,
-                               docking_only=docking_only)
+                               docking_only=docking_only, walk_only=walk_only)
     _require_equal(report.get('capture'), checked.evidence, 'run.capture')
     logs = require_object(report.get('logs'), 'run.logs')
     snapshots = [run_snapshot, *inputs.values(), contract.snapshot, profile_snapshot,

@@ -240,14 +240,25 @@ committed frame. L0 reads initial state; later snapshots follow the app's
 ordered simulation handoff and FPS sample, before that frame's draw.
 `live` reads retained lasers in birth
 order: copied source/target leptons, birth frame, Z adjustment, width, support
-flag, House-color flag, resolved RGB, duration, age and timer. `detail` reads the
+flag, House-color flag, resolved RGB, duration, age and timer. Current policy v5
+also requires three-channel byte arrays `outer` and `spread`, plus the raw u32
+`fade_end_bits`. `detail` reads the
 process FPS counter, selected minimum/buffer, latch and sampling timer; it never
 calls the mutative minimum-frame-rate query. Each observed actor also receives
 `prism`: `null` for non-buildings, otherwise the support count, pending mode and
 payload/countdown, and rearm timer. These are owner snapshots, not inferred
 firing events or proof that a beam reached the GPU. One detail row and each live
-beam count toward the shared sample budget. False/absent adds no fields; v1
-rejects the option, and present null/nonboolean values are invalid.
+beam count toward the shared sample budget. The current observation policy v5 also
+requires `disk_shots`: copied delayed-shot owner rows in birth order, with an
+independent positive `id`, nullable source ID, tagged target and weapon name,
+signed damage, countdown (at most 1), ring `start` (0..15) and `step` (0..8).
+Each delayed shot adds one sample. These reads do not advance a shot or query
+coordinates; the validator checks structure rather than reconstructing gameplay.
+Accepted older observation policies, including prior walk policy v4, retain the
+previous `detail`/`live` schema and beam fields; missing disk/color/fade observations
+are not reconstructed.
+False/absent adds no fields; v1 rejects the option, and present null/nonboolean
+values are invalid.
 
 Optional v2 `observe_electric_bolts: true` adds immutable bolt, Spotlight and
 particle snapshots at L0, each committed frame, and after every tactical
@@ -836,7 +847,7 @@ first before Process. The optional type filter keeps its 10000-step capture with
 the fixed sample budget. The [destination evidence owner](spatial_oracle/infantry_teleport_destination.md#production-integration-and-validation)
 records the observed arrival, NavCom cleanup, Guard return and GPU/input identities.
 
-A new wrapper v6 bundle contains sealed `profile.json`, `config.toml` and
+A new wrapper v8 bundle contains sealed `profile.json`, `config.toml` and
 `contract.json` copies, plus `stdout.log`, `stderr.log`, `run.json` and the child's
 atomically published `child-output/{capture.json,frame.bgra}`. Runtime still reads
 the supplied original paths; retaining copies does not redirect the game loader.
@@ -844,7 +855,7 @@ Original files and retained copies must remain unchanged during capture.
 `run.json` records exact input hashes, command, child PID/status, timeout, receipt
 validation and capture artifact identities. A valid observation requires unchanged
 profile/config/executable/contract files, matching profile and contract receipts,
-a v6 child manifest with resident UnitAtlas statistics, a checked presentation-clock
+a v8 child manifest with resident UnitAtlas statistics, a checked presentation-clock
 transcript and neutral-input evidence, zero initial tick/frame/time,
 the requested final tick/frame and endpoint step
 receipts, a loaded loose/MIX map digest, hidden unfocused rendering without input
@@ -2593,7 +2604,7 @@ a labeled preserved build makes that requirement durable. The report marks this
 as `EXTERNALLY_REVALIDATED`. It cannot validate a deleted or replaced executable
 from its old receipt alone.
 
-A new wrapper v6 run validates its `SEALED_COPY` inputs without requiring the
+A new wrapper v8 run validates its `SEALED_COPY` inputs without requiring the
 original profile, config or contract files to remain available. It validates the
 retained contract's v2 rules without requiring today's checkout to have identical
 contract bytes. Offline checking does not apply the current process environment
@@ -2609,8 +2620,9 @@ legacy wall-clock observation and a diagnostic-clock observation are `INVALID`
 together even when their pixels match.
 Differences name precise field paths and before/after values. There are no pixel
 tolerances or omitted atlas fields.
-Current v6 pairs also compare the complete command, rule-handle inventory,
-actor/building/animation/unit/miner/radio/House/terrain transcript and camera. Historical
+Current v8 pairs also compare the complete command, rule-handle inventory,
+actor/building/animation/unit/miner/radio/House/terrain transcript and camera,
+including the delayed-shot and color/fade observations when requested. Historical
 v5 pairs retain their original building/animation and rule-handle transcript,
 including optional `unit` deployment observations when recorded. V4 pairs
 compare their original command and actor/terrain transcript and camera, while
@@ -2636,9 +2648,14 @@ Offline `validate` and `compare` reject old wall-clock observations by default.
 `--allow-legacy-clock` permits child v2 with sealed wrapper v2, preserving its
 original `run.capture` projection. Validation identifies its clock separately as
 `legacy-wall-clock`; it does not invent a diagnostic transcript or neutral-input
-guarantee. Live capture accepts only child v6 and never offers this override.
-Wrapper and child generations must correspond: v6/v6, v5/v5, v4/v4, v3/v3, v2/v2,
-or v1/v2. Historical v5 remains readable with its original policy, production
+guarantee. Live capture accepts only child v8 and never offers this override.
+Wrapper and child generations must correspond: v8/v8, v7/v7, v6/v6, v5/v5,
+v4/v4, v3/v3, v2/v2 or v1/v2. Current v8 uses ordinary observation policy v5.
+Sealed v7 uses prior walk policy v4: all existing walk actor fields remain required,
+while laser snapshots retain their original beam-only schema. V7 and v8 captures
+remain individually readable but cannot be compared as equal observation policies;
+missing delayed shots and beam color/fade fields are never invented.
+Historical v5 remains readable with its original policy, production
 commands, rule handles and building fields, including the optional `unit` extension
 when present, without miner/radio/House projections. Older rows without `unit`
 remain unchanged.

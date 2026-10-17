@@ -2337,13 +2337,14 @@ class MapObservationTests(unittest.TestCase):
         # Protocol fixture only: native lifetime/FPS results live in building_prism.json.
         return {'detail': {'frame_rate': 44, 'minimum': 15, 'buffer': 5, 'reduced': False,
                            'logic_visits': 0, 'sample_start': 60, 'sample_duration': 60,
-                           'initialized': True}, 'live': []}
+                           'initialized': True}, 'live': [], 'disk_shots': []}
 
     @staticmethod
     def laser_beam():
         return {'birth_frame': 37, 'from': [9694, 12254, 378], 'to': [11776, 12544, 0],
                 'z_adjust': -58, 'width': 5, 'supported': True, 'house_color': True,
-                'rgb': [0, 0, 255], 'duration': 15, 'age': 1,
+                'rgb': [0, 0, 255], 'outer': [0, 0, 0], 'spread': [0, 0, 0],
+                'fade_end_bits': 0, 'duration': 15, 'age': 1,
                 'timer_start': 38, 'timer_duration': 1}
 
     @staticmethod
@@ -2562,6 +2563,35 @@ class MapObservationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             observation._actor(self.actor_frames[2][0], 'actor')
         self.assertEqual(observation._lasers(self.laser_frames[2], 'lasers'), 2)
+
+        # Retain the actual v7 / ordinary-v4 shape, with no invented disk or
+        # color/fade evidence. The walk actor observations remain unchanged.
+        manifest = self.output / 'child-output/capture.json'
+
+        def prior_walk_observations(document):
+            document['observations']['policy'] = observation.WALK_OBSERVATION_POLICY
+            for frame in document['observations']['frames']:
+                frame['lasers'].pop('disk_shots')
+                for beam in frame['lasers']['live']:
+                    for key in ('outer', 'spread', 'fade_end_bits'):
+                        beam.pop(key)
+
+        def convert_child(document):
+            document['schema_version'] = observation.WALK_CHILD_SCHEMA
+            prior_walk_observations(document)
+
+        self.edit_json(manifest, convert_child)
+
+        def convert_wrapper(document):
+            document['schema_version'] = observation.WALK_RUN_SCHEMA
+            prior_walk_observations(document['capture'])
+            document['capture']['manifest'].update(byte_length=manifest.stat().st_size,
+                                                   sha256=sha256_bytes(manifest.read_bytes()))
+
+        self.edit_json(self.output / 'run.json', convert_wrapper)
+        original = manifest.read_bytes()
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertEqual(manifest.read_bytes(), original)
 
     def test_lasers_profile_rejects_legacy_presence_and_wrong_types(self):
         self.scripted_profile()
@@ -2800,7 +2830,8 @@ class MapObservationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValidationError):
                 observation._lasers(row, 'lasers')
         for key, value in (('from', [1, 2]), ('duration', True), ('rgb', [1, 2, 256]),
-                           ('supported', 1), ('age', 1 << 31)):
+                           ('outer', [0, 0]), ('spread', [0, True, 0]),
+                           ('fade_end_bits', 1 << 32), ('supported', 1), ('age', 1 << 31)):
             row = self.laser_snapshot()
             row['live'] = [dict(self.laser_beam(), **{key: value})]
             with self.subTest(key=key), self.assertRaises(ValidationError):
@@ -2909,7 +2940,7 @@ class MapObservationTests(unittest.TestCase):
         self.actor_frames[3][0]['building']['animation_slots'][0]['animation']['stable_id'] = 101
         report = self.run_capture()
         self.assertEqual(report['status'], 'VALID', report['errors'])
-        self.assertEqual(report['schema_version'], 'vera20k.map-observation-run.v7')
+        self.assertEqual(report['schema_version'], 'vera20k.map-observation-run.v8')
         observed = report['capture']['observations']
         self.assertEqual(observed['rule_types'], self.rule_types)
         self.assertEqual([row['payload'] for row in observed['commands']],
@@ -4242,7 +4273,7 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(report['presentation_clock']['policy'], observation.CLOCK_POLICY)
         self.assertNotIn('observations', report['capture'])
         self.assertEqual((run / 'run.json').read_bytes(), original)
-        current = self.valid_capture('current-v7')
+        current = self.valid_capture('current-v8')
         report = observation.compare_runs(run, current)
         self.assertEqual(report['status'], 'INVALID')
         self.assertIn('observation policies differ', report['errors'][0])
@@ -4484,7 +4515,9 @@ class MapObservationTests(unittest.TestCase):
 
     def test_historical_v6_rejects_v7_walk_fields_child_and_policy(self):
         self.scripted_profile()
-        changes = [lambda m: m.update(schema_version=observation.CHILD_SCHEMA),
+        changes = [lambda m: m.update(schema_version=observation.WALK_CHILD_SCHEMA),
+                   lambda m: m['observations'].update(policy=observation.WALK_OBSERVATION_POLICY),
+                   lambda m: m.update(schema_version=observation.CHILD_SCHEMA),
                    lambda m: m['observations'].update(policy=observation.OBSERVATION_POLICY)]
         for key in ('walk_head_leptons', 'walk_destination_leptons', 'walk_is_moving'):
             changes.append(lambda m, k=key:
@@ -4495,15 +4528,17 @@ class MapObservationTests(unittest.TestCase):
             self.edit_json(run / 'child-output/capture.json', change)
             self.assertEqual(observation.validate_run(run)['status'], 'INVALID')
 
-    def test_wrapper_v7_requires_child_v7_and_walk_observation_policy(self):
+    def test_wrapper_v8_requires_child_v8_and_disk_laser_observation_policy(self):
         for index, change in enumerate((
                 lambda m: m.update(schema_version=observation.TRAJECTORY_CHILD_SCHEMA),
                 lambda m: m.update(schema_version=observation.BUILDING_CHILD_SCHEMA),
                 lambda m: m.update(schema_version=observation.DOCKING_CHILD_SCHEMA),
+                lambda m: m.update(schema_version=observation.WALK_CHILD_SCHEMA),
                 lambda m: m['observations'].update(policy=observation.TRAJECTORY_OBSERVATION_POLICY),
                 lambda m: m['observations'].update(policy=observation.BUILDING_OBSERVATION_POLICY),
-                lambda m: m['observations'].update(policy=observation.DOCKING_OBSERVATION_POLICY))):
-            self.output = self.root / f'v7-generation-mismatch-{index}'
+                lambda m: m['observations'].update(policy=observation.DOCKING_OBSERVATION_POLICY),
+                lambda m: m['observations'].update(policy=observation.WALK_OBSERVATION_POLICY))):
+            self.output = self.root / f'v8-generation-mismatch-{index}'
             self.change = change
             self.assertEqual(self.run_capture()['status'], 'INVALID')
 

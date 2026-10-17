@@ -589,6 +589,7 @@ impl Simulation {
         );
         self.hash_shared_cell_dummy(cells_or_entities_retain_dummy, hasher);
         self.hash_waves(hasher);
+        self.disk_lasers.hash_state(hasher);
         self.hash_super_weapons(hasher);
         Self::hash_entities(&entity_digests, hasher);
         self.hash_anims(hasher);

@@ -113,7 +113,7 @@ fn production_radial_pixels_match_original_in_both_formats_and_immutable_depth()
                         z_origin_y: 0,
                         zoom: 1.,
                     },
-                    || true,
+                    |_| true,
                     |[x, y]| alpha[(y * 160 + x) as usize],
                 );
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());

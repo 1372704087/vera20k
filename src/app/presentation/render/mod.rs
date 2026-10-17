@@ -328,13 +328,15 @@ pub(crate) fn render_game(
         times.radar_ms,
     );
     let presentation = &mut state.match_state.match_presentation;
-    // Tactical6D466E executes once, before6D4673 trails, even when this
-    // composite ran no Logic. GPU uploads never consume the process cursor.
+    // Tactical6D4669 LaserDraw550240 precedes6D466E EBolt, then6D4673
+    // trails, even when this composite ran no Logic. Their shared process
+    // Main requests happen here once; GPU uploads only read resolved colors.
     let bolt_lines = {
         let mut main = crate::app::state::process_main_draws(
             state.match_state.sim_runtime.as_mut(),
             &mut state.frontend.frontend_main_rng,
         );
+        presentation.lasers.composite(&mut main);
         presentation
             .electric_bolts
             .composite(viewport, palette, &mut main)
@@ -380,10 +382,16 @@ pub(crate) fn render_game(
         segments,
         &radials,
         viewport,
-        || {
-            let mut detail = presentation.detail.borrow_mut();
-            detail.frame_rate() >= detail.minimum_frame_rate()
-                && presentation.in_game_options.detail_level != 0
+        |color| {
+            if matches!(color, crate::render::laser::LaserDrawColor::House(_)) {
+                let mut detail = presentation.detail.borrow_mut();
+                detail.frame_rate() >= detail.minimum_frame_rate()
+                    && presentation.in_game_options.detail_level != 0
+            } else {
+                // General550611 reads only Options.DetailLevel; its
+                // explicit-color arm never queries or changes FPS policy.
+                presentation.in_game_options.detail_level != 0
+            }
         },
         &mut alpha,
     );
@@ -400,7 +408,7 @@ pub(crate) fn render_game(
                     &[],
                     &[],
                     viewport,
-                    || false,
+                    |_| false,
                     &mut alpha,
                 )
             })
@@ -420,7 +428,7 @@ pub(crate) fn render_game(
                     &[],
                     &[],
                     viewport,
-                    || false,
+                    |_| false,
                     &mut alpha,
                 );
             }

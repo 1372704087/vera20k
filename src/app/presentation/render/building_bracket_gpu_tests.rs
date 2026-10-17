@@ -79,7 +79,7 @@ fn native_bracket_pixels_reach_display_replay_without_writing_z() {
                     &[],
                     &[],
                     viewport,
-                    || false,
+                    |_| false,
                     |[x, y]| {
                         if input["alpha"] == "mixed" {
                             [0, 1, 63, 127, 255][((x / 9 + y / 7) % 5) as usize]

@@ -25,6 +25,10 @@ pub(crate) mod building_anim;
 mod building_scatter;
 mod cell_content;
 mod crash;
+mod disk_laser;
+pub use disk_laser::DiskLaserObservation;
+#[cfg(test)]
+mod disk_laser_tests;
 #[cfg(test)]
 pub(crate) mod entry_test_fixture;
 mod frame_effects;
@@ -1347,6 +1351,9 @@ pub struct Simulation {
     /// control and the cells they fly at, owned by `kamikaze`. Its timer is
     /// not saved; a load restarts it.
     pub(crate) kamikaze: crate::sim::kamikaze::KamikazeTracker,
+    /// DiskLaser Save4A7C10 retains delayed shots; emitted LaserDraws remain
+    /// copied presentation facts. This owner has no Logic/Display membership.
+    disk_lasers: disk_laser::DiskLasers,
     /// The map's isometric playfield diamond ([Map] Size width + the raw
     /// LocalSize rect), set at map init. Threaded into the cell-rect occupancy
     /// validator's final playfield-corner test (the engine diamond, not a
@@ -3468,6 +3475,7 @@ impl Simulation {
             radiation: crate::sim::radiation::RadiationState::default(),
             bombs: crate::sim::bomb::BombList::default(),
             kamikaze: crate::sim::kamikaze::KamikazeTracker::default(),
+            disk_lasers: disk_laser::DiskLasers::default(),
             playfield_bounds: None,
             playfield_size_height: None,
             playfield_revision: 0,
@@ -6912,6 +6920,9 @@ impl Simulation {
             // Process` runs whatever the superweapons option (0x0055B5C8): a
             // map's NUKE weapon starts the nuke flash without a Super.
             self.kamikaze_update(rules, effects);
+            // Logic55B5A1..55B5BD: reverse Disk AI before LaserUpdate and
+            // ordinary object visits. FireAt births below wait until next tick.
+            bridge_state_changed |= self.tick_disk_lasers(rules, overlay_registry, effects);
             self.lifecycle_outputs.push(LifecycleOutput::LaserUpdate {
                 frame: self.session.binary_frame as i32,
             });

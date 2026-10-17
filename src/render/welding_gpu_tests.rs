@@ -68,7 +68,7 @@ fn production_welding_points_match_original_pixels_and_preserve_depth() {
                         z_origin_y: fixture::int(&input["z_origin_term"]),
                         zoom: 1.,
                     },
-                    || false,
+                    |_| false,
                     |[x, y]| a[(y as u32 * size[0] + x as u32) as usize],
                 );
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());

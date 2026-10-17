@@ -5394,6 +5394,10 @@ impl Simulation {
         // and the BombList; a SpawnManager's slot guard reads the membership
         // before it.
         self.kamikaze.remove(expired_id);
+        //725977..725993: DiskLaser4A7900 sees every expired pointer after
+        // Kamikaze and before the Techno navigation handoff. It queues a shot
+        // without clearing its retained pointers or deleting copied beams.
+        self.detach_disk_lasers(expired_id);
         // Dispatch7258D0's Techno-bit gate reaches733160 at7259B1 after
         // Kamikaze Remove. Executed controls: input_oracle/selection_navigation.
         // All typed GameEntity classes carry Abstract+14's Techno bit. Smudge
@@ -5966,7 +5970,9 @@ impl Simulation {
                 DeferredDeleteTicket::Object(id) => self.pending_object_is_ready(id),
                 DeferredDeleteTicket::Overlay(id) => self.load_objects.queued_overlay_is_ready(id),
                 // Abstract410440's +44 returns true for both live families.
-                DeferredDeleteTicket::Tag(_) | DeferredDeleteTicket::Trigger(_) => true,
+                DeferredDeleteTicket::Tag(_)
+                | DeferredDeleteTicket::Trigger(_)
+                | DeferredDeleteTicket::DiskLaser(_) => true,
             };
             if !ready {
                 index += 1;
@@ -5991,6 +5997,7 @@ impl Simulation {
                     self.delete_live_tag(id, rules, game_state, started)
                 }
                 DeferredDeleteTicket::Trigger(id) => self.delete_live_trigger(id),
+                DeferredDeleteTicket::DiskLaser(id) => self.destroy_disk_laser(id),
             }
         }
         self.substrate.pending_delete.finish_drain();

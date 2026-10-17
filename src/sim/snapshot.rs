@@ -1108,7 +1108,8 @@ use crate::sim::world::Simulation;
 // 400 -> 401: retain native scenario House names independently of internal
 // owner keys and display handles; authored-object admission cannot reconstruct
 // them from mutable human flags or country after loading.
-const SNAPSHOT_VERSION: u32 = 401;
+// 401 -> 402: retained DiskLaser bodies and Rules+28C charge-up reference.
+const SNAPSHOT_VERSION: u32 = 402;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1333,6 +1334,11 @@ pub enum SnapshotRestoreError {
     InvalidScalableProjectileRuntime(&'static str),
     #[error("invalid radiation site order: {0}")]
     InvalidRadiationSiteOrder(&'static str),
+    #[error("invalid saved DiskLaser {object_id}: {reason}")]
+    InvalidDiskLaserState {
+        object_id: u64,
+        reason: &'static str,
+    },
     #[error("entity {object_id} has invalid Tesla charging state: {reason}")]
     InvalidTeslaChargingState {
         object_id: u64,
@@ -1891,6 +1897,10 @@ impl RestoredObjectIndex {
         for (&registry_id, wave) in sim.waves.iter() {
             Self::register(&mut identities, "WaveStore", registry_id, wave.id)?;
             highest_id = highest_id.max(registry_id);
+        }
+        for shot in sim.disk_laser_observations() {
+            Self::register(&mut identities, "DiskLaserStore", shot.id, shot.id)?;
+            highest_id = highest_id.max(shot.id);
         }
         if let Some(grid) = &sim.smudge_grid {
             for (registry_id, object) in grid.objects() {
@@ -2792,6 +2802,13 @@ impl Simulation {
             }
         }
 
+        self.validate_disk_lasers_after_restore(None)
+            .map_err(
+                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
+                    object_id,
+                    reason,
+                },
+            )?;
         let (index, identities) = RestoredObjectIndex::build(self)?;
         let seen_logic = self
             .substrate
@@ -2826,6 +2843,7 @@ impl Simulation {
                 DeferredDeleteTicket::Overlay(id) => {
                     ("Overlay", id, self.load_objects.has_overlay(id))
                 }
+                DeferredDeleteTicket::DiskLaser(id) => ("DiskLaser", id, self.has_disk_laser(id)),
                 DeferredDeleteTicket::Tag(id) => {
                     ("Tag", id as u64, self.trigger_runtime.has_live_tag(id))
                 }
@@ -2991,6 +3009,13 @@ impl Simulation {
         prepare_terrain_assets: Option<&mut SnapshotTerrainAssetPreparation<'_>>,
     ) -> Result<SnapshotMapRestoreOutput, SnapshotRestoreError> {
         self.validate_type_tech_levels(rules)?;
+        self.validate_disk_lasers_after_restore(Some(rules))
+            .map_err(
+                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
+                    object_id,
+                    reason,
+                },
+            )?;
         let (overlay_width, overlay_height, overlay_cell_count, retained_wall_count) = self
             .overlay_grid
             .as_ref()
@@ -4779,7 +4804,8 @@ mod tests {
         // 398 -> 399: remove the derived theoretical-power cache.
         // 399 -> 400: retain the local Power bar projection.
         // 400 -> 401: retained native House names and their array binding.
-        assert_eq!(super::SNAPSHOT_VERSION, 401);
+        // 401 -> 402: retain delayed DiskLaser bodies and Rules charge-up.
+        assert_eq!(super::SNAPSHOT_VERSION, 402);
     }
 
     #[test]

@@ -307,7 +307,7 @@ fn ordinary_repair_children_reach_the_actual_effect_builder_and_gpu_without_muta
                                 z_origin_y: 0,
                                 zoom: 1.,
                             },
-                            || false,
+                            |_| false,
                             |[x, y]| {
                                 u16::from(
                                     a.sample_world(
@@ -558,7 +558,7 @@ fn retained_welding_system_then_particles_matches_original_shared_destination() 
                                 z_origin_y: fixture::int(&particles["z_origin_term"]),
                                 zoom: 1.,
                             },
-                            || false,
+                            |_| false,
                             |[x, y]| a[(y as u32 * size[0] + x as u32) as usize],
                         )
                     })

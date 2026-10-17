@@ -68,20 +68,65 @@ fn survivor_divisors_follow_native_defaults_and_retained_rules_passes() {
             .process_with_fixed_art_and_registry_state(&IniFile::empty(), retained)
             .unwrap();
         assert_eq!(published(&next), [0, 12, 0]);
-        let fresh = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
-            .process()
-            .unwrap();
-        let next_rules = RuleSet::from_processed_rules(&next).unwrap();
-        let fresh_rules = RuleSet::from_processed_rules(&fresh).unwrap();
-        assert_eq!(next_rules.source_ini_hash(), fresh_rules.source_ini_hash());
-        assert_ne!(
-            next_rules.simulation_config_hash(),
-            fresh_rules.simulation_config_hash(),
-            "identical current INIs must retain the different native reader histories"
-        );
         let (_, trace) = next.into_ini_and_native_type_construction_trace();
         retained = trace.into_registry_state_discarding_events();
     }
+}
+
+#[test]
+fn survivor_divisor_histories_change_simulation_config_hash_independently() {
+    use crate::rules::ruleset::RuleSet;
+
+    let continued = |divisors: [i32; 3]| {
+        let initial = RulesLayerStack::new(IniFile::from_str(&format!(
+            "[General]\nPrismSupportModifier=0\nAlliedSurvivorDivisor={}\n\
+             SovietSurvivorDivisor={}\nThirdSurvivorDivisor={}\n",
+            divisors[0], divisors[1], divisors[2]
+        )))
+        .process()
+        .unwrap();
+        let (_, trace) = initial.into_ini_and_native_type_construction_trace();
+        let next = RulesLayerStack::new(IniFile::from_str(
+            "[General]\nPrismSupportModifier=0\nName=Next scene\n",
+        ))
+        .process_with_fixed_art_and_registry_state(
+            &IniFile::empty(),
+            trace.into_registry_state_discarding_events(),
+        )
+        .unwrap();
+        RuleSet::from_processed_rules(&next).unwrap()
+    };
+    let baseline = continued([200, 100, 300]);
+    let mut omitted = Vec::new();
+    for (index, key) in [
+        "AlliedSurvivorDivisor",
+        "SovietSurvivorDivisor",
+        "ThirdSurvivorDivisor",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut divisors = [200, 100, 300];
+        divisors[index] += 1;
+        let changed = continued(divisors);
+        assert_eq!(baseline.source_ini_hash(), changed.source_ini_hash());
+        assert_eq!(
+            baseline.general.prism_support,
+            changed.general.prism_support
+        );
+        assert_eq!(
+            [
+                changed.general.allied_survivor_divisor,
+                changed.general.soviet_survivor_divisor,
+                changed.general.third_survivor_divisor,
+            ],
+            divisors
+        );
+        if baseline.simulation_config_hash() == changed.simulation_config_hash() {
+            omitted.push(key);
+        }
+    }
+    assert!(omitted.is_empty(), "effective hash omits {omitted:?}");
 }
 
 /// Instruction-derived reader regression: Building460F87 keeps the current

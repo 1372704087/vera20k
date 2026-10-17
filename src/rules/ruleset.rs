@@ -5432,7 +5432,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v18".hash(&mut hasher);
+        b"rules-simulation-config-v19".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5466,6 +5466,12 @@ impl RuleSet {
             .hash(&mut hasher);
         self.general.ambient_change_step.hash(&mut hasher);
         self.general.prism_support.hash(&mut hasher);
+        // Earlier Rules passes retain these signed divisors even when the
+        // current source stack omits them; sale crew and its RNG consumers
+        // must not be presented as the same effective configuration.
+        self.general.allied_survivor_divisor.hash(&mut hasher);
+        self.general.soviet_survivor_divisor.hash(&mut hasher);
+        self.general.third_survivor_divisor.hash(&mut hasher);
         self.general.patrol_scan_minutes.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);
         if self

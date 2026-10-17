@@ -137,9 +137,6 @@ pub(crate) fn build_shp_instances(
         let Some(_band) = entity_draw_band(sim.display_layers(), stable_id) else {
             continue;
         };
-        let Some(parent) = ground_order.object_draw(stable_id, SpriteEncoding::Plain) else {
-            continue;
-        };
         // Common visibility, passenger, limbo, and DrawState admission is shared below.
         let owner_str = sim.interner.resolve(entity.owner());
         let mut observer = super::helpers::observer_draw_context(
@@ -562,6 +559,9 @@ pub(crate) fn build_shp_instances(
                 ),
                 [0.0, 0.0],
             )
+        };
+        let Some(parent) = ground_order.object_draw(stable_id, SpriteEncoding::Plain) else {
+            continue;
         };
         // Building DrawBody's pieces use 0x6E00 (Z read/write), whose raw
         // leaf drops the word. Infantry518F90 uses 0x2E00 (Z read only),

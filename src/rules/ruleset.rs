@@ -2944,6 +2944,8 @@ impl GeneralRules {
         // gate.66B673..66B754 reads all three class lights and stores signed
         // milliunits after the active x87 chop-toward-zero conversion.
         // Original no-General GI control: infantry_berserk_body.json.
+        // Retained residual: a later AudioVisual pass with a missing key uses
+        // native signed integer /1000 defaults; this projection retains fractions.
         let extra_unit_light = (audio_visual
             .read_double("ExtraUnitLight", defaults.extra_unit_light as f64 / 1000.0)
             * 1000.0) as i32;

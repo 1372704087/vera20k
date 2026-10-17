@@ -1330,11 +1330,13 @@ class _HealthRecorder:
 
 
 def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540, aircraft=False,
-                       existing_cells=None):
+                       existing_cells=None, reuse_existing_expiry_registry=False):
     """Existing original mobile/Foot prefix and locomotor constructor, in this VM.
 
     CoCreate/whole typed Unit constructor and Unlimbo are excluded priors.
     No visual-character or observer predicate result is supplied.
+    Multi-actor callers may retain initialized expiry-listener capacity so
+    each original Object constructor appends without discarding earlier actors.
     """
     from tools.spatial_oracle.building_body_rules import SP as READER_SP
     u = m.u
@@ -1342,7 +1344,11 @@ def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540, aircraf
     rngs = (0x886B88,scenario+0x218,0xABE890)
     for stream in rngs:
         m.invoke(0x65C6D0,stream,(0,))
-    u.mem_write(0xB0F720,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+    if reuse_existing_expiry_registry:
+        assert m.read32(0xB0F724) and m.read32(0xB0F728) > 0
+        assert m.read32(0xB0F730) <= m.read32(0xB0F728)
+    else:
+        u.mem_write(0xB0F720,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
     requests=[]
     def observe_constructor(_u,pc,_size,_data):
         if pc in (0x65C780,0x65C7E0):

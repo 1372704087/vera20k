@@ -965,11 +965,10 @@ fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target
 /// `TechnoClass::GetROF` (vt+0x318) for a shot: of the weapon GetWeapon
 /// answers (a garrison's next occupant's), at the stepped burst index. The rank
 /// and class are the firer's (a garrison shot reads the building's). FireAt
-/// created the fired weapon's particle systems just before
-/// (`0x006FF15B..0x006FF26E`), so its flags are the live systems GetROF tests;
-/// a system left from an earlier shot matters only when GetWeapon answers a
-/// different weapon. RESIDUAL: retained live systems from an earlier weapon
-/// are not queried here.
+/// created the Spark system just before (`0x006FF1AD..0x006FF1F5`);
+/// GetROF reads the actual +308 link, including a retained earlier system.
+/// RESIDUAL: Fire/Railgun systems still use the firing weapon's flags as
+/// their preexisting launch approximation; their retained links are unported.
 fn fireat_get_rof(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -980,7 +979,11 @@ fn fireat_get_rof(
     next_index: i32,
 ) -> i32 {
     let live = super::rof::LiveParticles {
-        spark: weapon.use_spark_particles,
+        spark: world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .is_some_and(|firer| firer.spark_particle_system.system().is_some()),
         fire: weapon.use_fire_particles,
         railgun: weapon.is_railgun,
     };
@@ -1115,6 +1118,18 @@ pub(super) fn emit_admitted_fire(
         return None;
     }
     if weapon.is_sonic && world.active_wave_links.contains_key(&snap.stable_id) {
+        return None;
+    }
+    // 6FDE36..6FDE48: direct FireAt callers also refuse a flagged weapon
+    // while the actual Techno+308 system remains retained. GetFireError is
+    // not the only admission caller, and a guessed expiry tick is insufficient.
+    if weapon.use_spark_particles
+        && world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .is_some_and(|firer| firer.spark_particle_system.system().is_some())
+    {
         return None;
     }
 
@@ -1604,6 +1619,40 @@ pub(super) fn emit_admitted_fire(
     // upgrade-provided turret remains part of the separate upgrade mechanism.
     if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
         entity.fire_voxel_recoil(obj.has_turret);
+    }
+    // FireAt6FF1AD..6FF1F5: after successful Bullet::Fire and recoil, before
+    // burst/GetROF/rearm. The coordinate is the retained launch-source local
+    // [ESP+44], not a later recomputation. Constructor62DC50 owns identity,
+    // registration and target derivation; its result owns Techno+308 liveness.
+    if weapon.use_spark_particles
+        && world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .is_some_and(|firer| firer.spark_particle_system.system().is_none())
+    {
+        let system = weapon
+            .attached_particle_system
+            .as_deref()
+            .and_then(|name| rules.ps_type_id_by_name(name))
+            .and_then(|type_id| {
+                world.spawn_particle_system(
+                    type_id,
+                    glam::IVec3::new(
+                        launch_source.coord.x,
+                        launch_source.coord.y,
+                        launch_source.coord.z,
+                    ),
+                    Some(snap.target),
+                    Some(snap.stable_id),
+                    glam::IVec3::ZERO,
+                    None,
+                    rules,
+                )
+            });
+        if let Some(firer) = world.substrate.entities.get_mut(snap.stable_id) {
+            firer.spark_particle_system.bind(system);
+        }
     }
     // GetROF (`0x006FCFA0`) reads its weapon through GetWeapon (vt+0x3F8,
     // `0x006FCFCA`), after the advance above. Preserve a missing weapon:
@@ -2801,3 +2850,7 @@ pub(crate) fn estimated_damage_on(
         max_damage: rules.combat_damage.max_damage,
     })
 }
+
+#[cfg(test)]
+#[path = "welding_native_tests.rs"]
+mod welding_native_tests;

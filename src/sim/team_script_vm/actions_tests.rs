@@ -167,7 +167,7 @@ fn patrol_scan_retains_across_type_reset_and_changes_configuration_identity() {
                 &IniFile::empty(),
                 trace
                     .into_registry_state_discarding_events()
-                    .destructive_reset(),
+                    .destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
             )
             .unwrap();
         let rules = RuleSet::from_processed_rules(&processed).unwrap();

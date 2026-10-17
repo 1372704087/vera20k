@@ -312,7 +312,10 @@ fn retail_force_shield_colour_is_high_blue() {
         return;
     };
     assert_eq!(rules.general.force_shield_color, 6);
-    assert_eq!(rules.color_add.slots[6].name.as_deref(), Some("HighBlue"));
+    assert_eq!(
+        rules.color_add.entries()[6].name.as_deref(),
+        Some("HighBlue")
+    );
     let oracle = oracle();
     let native = oracle["building_colour_word"][0]["draw_body_word"]
         .as_u64()

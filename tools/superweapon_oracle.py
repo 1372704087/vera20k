@@ -4,6 +4,8 @@ and the computer houses' use of their superweapons.
 Run python -m tools.superweapon_oracle --check (or explicit --write).
 The focused --airstrike-tint option reads/writes tools/airstrike_tint.json;
 src/sim/superweapon/airstrike_tint_tests.rs consumes it.
+The focused --berserk-color option uses tools/berserk_color.json for original
+retained colour rules and Image-resolved stock Grizzly/DarkRed composite pixels.
 Rust consumers: src/sim/superweapon/fire_tests.rs (click_fire,
 defense_alert), src/sim/world/techno_ai/building_missile.rs (mission_missile),
 src/sim/projectile/launch.rs (both velocities), src/sim/combat/nuke_maker_tests.rs
@@ -298,6 +300,7 @@ fixture machinery):
   ripple, the Z threshold, the two-row step and the draw order.
 """
 from pathlib import Path
+import hashlib
 import math
 import struct
 
@@ -3532,6 +3535,467 @@ def curtain_draw_arm():
     rows.append(curtain_draw_arm_row(deactivated=True, intensity=-7))
     rows.append(curtain_draw_arm_row(word=0x1234))
     return rows
+
+
+def _berserk_colour_rules():
+    """Existing Reader/ordered cache; original ctor and three ColorAdd callers."""
+    from tools import native_oracle as native
+    from tools.rules_oracle.select_anim_reset import fresh_reset
+    from tools.rules_oracle.weapon_laser import physical_layers
+    from tools.input_oracle.campaign_start import CampaignReader
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.spatial_oracle.building_body_rules import INI, SP, dwords
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP
+
+    selectors = (('LaserTargetColor', 0x18A4), ('IronCurtainColor', 0x18A8),
+                 ('BerserkColor', 0x18AC), ('ForceShieldColor', 0x18B0))
+    m, rules = fresh_reset()
+    u = m.u
+    # Prove constructor writes rather than inheriting zero arena storage.
+    u.mem_write(rules + 0x1874, b'\xA5' * (16 * 3))
+    for _key, offset in selectors:
+        u.mem_write(rules + offset, dwords(0x12345678))
+    m.invoke(0x665650, rules)
+
+    def fields():
+        rgb = bytes(u.mem_read(rules + 0x1874, 48))
+        return dict(color_add=[list(rgb[i:i+3]) for i in range(0, 48, 3)],
+                    selectors={key: struct.unpack('<i', u.mem_read(rules + offset, 4))[0]
+                               for key, offset in selectors})
+
+    constructor = fields()
+
+    def read(sections, phase):
+        before = fields()
+        CampaignReader.ordered_ini(m, sections)
+        u.mem_write(SP, dwords(native.RET_MAGIC, INI))
+        u.reg_write(UC_X86_REG_ESP, SP)
+        if phase == 'cold':
+            u.mem_write(0x887048, dwords(INI))
+            native.run_checked(u, 0x52D104, 0x52D116,
+                               required_addresses=(0x52D111, 0x66D480))
+        elif phase == 'process':
+            u.reg_write(UC_X86_REG_ECX, rules)
+            native.run_checked(u, 0x668BF0, 0x668C8B,
+                               required_addresses=(0x66D3A0, 0x679F40))
+        elif phase == 'reset_root':
+            u.reg_write(UC_X86_REG_EDI, INI)
+            u.reg_write(UC_X86_REG_ESI, 0)
+            u.reg_write(UC_X86_REG_EBP, rules + 0x1874)
+            native.run_checked(u, 0x668B13, 0x668B8E,
+                               required_addresses=(0x526810,))
+        else:
+            raise ValueError(phase)
+        m.reads.clear()
+        admitted = None
+        if phase != 'reset_root':
+            if phase == 'cold':
+                u.reg_write(UC_X86_REG_ESP, SP)
+                native.run_checked(u, 0x52D126, 0x52D137,
+                                   required_addresses=(0x52D132, 0x6691E0))
+                admitted = bool(u.reg_read(UC_X86_REG_EAX) & 255)
+            else:
+                admitted = bool(m.invoke(0x6691E0, rules, (INI,)) & 255)
+        return dict(phase=phase, sections=sections, color_add_key_order=list(sections.get('ColorAdd', {})),
+                    before=before,
+                    audio_visual_admitted=admitted,
+                    selector_read_order=[row['key'] for row in m.reads
+                                         if row['key'] in dict(selectors)], after=fields())
+
+    layers = physical_layers()
+    wanted = {'ColorAdd', 'AudioVisual', 'CAOS', 'ChaosAttack', 'PsychGasCreate', 'MTNK'}
+    physical = []
+    trigger = {}
+    root_sections = None
+    for index, (name, archive, raw) in enumerate(layers):
+        if raw is None:
+            physical.append(dict(file=name, archive=archive, absent=True))
+            continue
+        sections, _lines = lexical(raw, wanted)
+        rgb = sections.get('ColorAdd')
+        audio = sections.get('AudioVisual')
+        selected = {}
+        if rgb is not None:
+            selected['ColorAdd'] = rgb
+        if audio is not None:
+            selected['AudioVisual'] = {key: value for key, value in audio.items()
+                                       if key in dict(selectors)}
+            # Retain physical section admission even when all of its actual
+            # values are outside this selected reader's evidence boundary.
+        if index == 0:
+            root_sections = selected
+            for section, keys in sections.items():
+                if section not in ('ColorAdd', 'AudioVisual'):
+                    trigger[section] = {key: value for key, value in keys.items() if key in {
+                        'Primary', 'Secondary', 'DeployFire', 'DefaultToGuardArea',
+                        'Damage', 'ROF', 'Range', 'AreaFire', 'Projectile', 'Warhead',
+                        'AttachedParticleSystem', 'Psychedelic', 'CellSpread', 'PercentAtMax',
+                        'Verses', 'AnimList', 'Armor', 'ImmuneToPsionics', 'Image'}}
+        stages = []
+        if index == 0:
+            stages.append(read(selected, 'cold'))
+        stages.append(read(selected, 'process'))
+        physical.append(dict(file=name, archive=archive, bytes=len(raw),
+                             sha256=hashlib.sha256(raw).hexdigest(), stages=stages))
+        # Reset's root ColorAdd reread is after optional LANGRULE Process and
+        # before mode Process. The absent-LANGRULE case follows this same order.
+        if (index == 0 and layers[1][2] is None) or index == 1:
+            physical.append(dict(file='RULESMD.INI', root_colour_reread=True,
+                                 stages=[read(root_sections, 'reset_root')]))
+    assert fields()['color_add'][:14] == [list(rgb) for rgb in RETAIL_COLOR_ADD]
+    retail_fields = fields()
+    seed = {f'entry{i}': f'{i+1},{i+2},{i+3}' for i in range(16)}
+    controls = [read({'ColorAdd': seed,
+                      'AudioVisual': {key: str(i + 1) for i, (key, _) in enumerate(selectors)}}, 'process')]
+    controls += [read({}, 'process'),
+                 read({'ColorAdd': {}}, 'process'),
+                 read({'ColorAdd': {'entry12': '0,0,24'},
+                       'AudioVisual': {'BerserkColor': '0'}}, 'process'),
+                 read({'ColorAdd': {'Z': '31,0,0', 'A': '0,63,0'}}, 'process'),
+                 read({'coloradd': {'Z': '9,9,9'},
+                       'AudioVisual': {'berserkcolor': '99'}}, 'process'),
+                 read({'AudioVisual': {'LaserTargetColor': '-1', 'IronCurtainColor': '$FF',
+                                      'BerserkColor': '80h', 'ForceShieldColor': '17junk'}}, 'process'),
+                 read({'AudioVisual': {'BerserkColor': 'junk'}}, 'process'),
+                 read({'AudioVisual': {'BerserkColor': '7'}}, 'process'),
+                 read({'AudioVisual': {'BerserkColor': ''}}, 'process'),
+                 read(root_sections, 'reset_root')]
+
+    # Present malformed RGB uses uninitialized/reused scanf locals, not the
+    # default color argument. Keep the first-local prior explicit and observe
+    # the original scanner count/outputs; no host parser produces the golden.
+    malformed = []
+    for phase in ('cold', 'process', 'reset_root'):
+        for name, entries, initial in (
+                ('first_bad_zero_prior', {'Bad': 'junk'}, [0, 0, 0]),
+                ('first_bad_nonzero_prior', {'Bad': 'junk'}, [0x12345678, 0x20304050, 0x6F7E8D9C]),
+                ('empty_present_cache_entry', {'Empty': ''}, [0x12345678, 0x20304050, 0x6F7E8D9C]),
+                ('good_then_bad', {'Good': '17,34,51', 'Bad': 'junk', 'BadAgain': 'x'}, [0, 0, 0]),
+                ('good_empty_bad', {'Good': '17,34,51', 'Empty': '', 'Bad': 'junk'}, [0, 0, 0]),
+                ('scanf_lexical_edges', {'Seed': '17,34,51', 'RedSuffix': '99junk,88,77',
+                    'GreenSuffix': '66,55junk,44', 'SpaceBeforeComma': '33 ,22,11',
+                    'EmptyMiddle': '44,,22', 'HexPrefix': '$FF,9,8',
+                    'Narrowing': '-1,256,300', 'SignedSpace': ' +12, -34, 56',
+                    'TrailingFourth': '1,2,3,4'}, [0, 0, 0]),
+                ('good_then_partial', {'Good': '17,34,51', 'Partial': '99,88'}, [0, 0, 0])):
+            scans, pointers = [], []
+            def scanner(_u, pc, _size, _data):
+                if pc == 0x474BC4:
+                    sp = u.reg_read(UC_X86_REG_ESP)
+                    pointers[:] = [m.read32(sp + i * 4) for i in (2, 3, 4)]
+                    if not scans:
+                        for address, value in zip(pointers, initial):
+                            u.mem_write(address, dwords(value))
+                    scans.append(dict(raw=m.string(m.read32(sp)),
+                                      before=[m.read32(address) for address in pointers]))
+                elif pc == 0x474BC9:
+                    scans[-1].update(assigned=u.reg_read(UC_X86_REG_EAX),
+                                     after=[m.read32(address) for address in pointers])
+            hook = u.hook_add(UC_HOOK_CODE, scanner)
+            try:
+                result = read({'ColorAdd': entries}, phase)
+            finally:
+                u.hook_del(hook)
+            malformed.append(dict(name=name, first_scanf_local_prior=initial,
+                                  scans=scans, **result))
+    # The loop compares against the enumerated section count, with no native
+    # sixteen-entry bound. Entry17 overwrites the first selector's low3 bytes.
+    overflow = read({'ColorAdd': dict(seed, entry16='17,34,51')}, 'process')
+    return dict(constructor_prefill_byte=0xA5, constructor=constructor,
+                physical=physical, retail=retail_fields, controls=controls,
+                malformed_rgb=malformed, overflow17=overflow, trigger_lexical=trigger)
+
+
+def _berserk_mtnk_image():
+    """Original UnitType ctor, retained ObjectType Image block and filenames."""
+    from tools import native_oracle as native
+    from tools.rules_oracle.select_anim_reset import fresh_reset
+    from tools.rules_oracle.weapon_laser import physical_layers
+    from tools.sidebar_oracle import stock
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.procedural_drawing_oracle.shroud import _status_reader_block
+    from tools.spatial_oracle.building_body_rules import INI, SP, dwords
+    from tools.voxel_oracle.building_barrel import Machine, TYPE
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP
+
+    m, _rules = fresh_reset()
+    u, typ = m.u, m.alloc(0x2000)
+    m.invoke(0x7470D0, typ, (m.cstring('MTNK'),))
+    constructor = m.string(typ + 0x1F8)
+    reads = []
+
+    def observe(_u, pc, _size, _data):
+        if pc in (0x528A10, 0x5295F0):
+            sp = u.reg_read(UC_X86_REG_ESP)
+            result = dict(section=m.string(m.read32(sp + 4)),
+                          key=m.string(m.read32(sp + 8)), reader=f'{pc:08X}')
+            if pc == 0x528A10:
+                result.update(default=m.string(m.read32(sp + 12)),
+                              capacity=m.read32(sp + 20))
+            else:
+                result.update(default=bool(m.read32(sp + 12) & 255))
+            reads.append(result)
+
+    def read(sections):
+        before, mark = m.string(typ + 0x1F8), len(reads)
+        m.make_ini(sections)
+        admitted = bool(m.invoke(0x526810, INI, (typ + 0x24,)) & 255)
+        if admitted:
+            u.mem_write(SP + 0x1B4, dwords(INI))
+            _status_reader_block(m, 0x5F92F9, 0x5F9340,
+                                 {UC_X86_REG_EBP: typ, UC_X86_REG_EBX: typ,
+                                  UC_X86_REG_ESI: INI, UC_X86_REG_EDI: typ + 0x1F8},
+                                 stack_delta=-4)
+        return dict(sections=sections, before=before, native_section_present=admitted,
+                    reads=reads[mark:], after=m.string(typ + 0x1F8))
+
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    try:
+        physical = []
+        for name, archive, raw in physical_layers():
+            if raw is None:
+                physical.append(dict(file=name, archive=archive, absent=True))
+                continue
+            sections, _ = lexical(raw, {'MTNK'})
+            selected = {key: {k: v for k, v in values.items() if k == 'Image'}
+                        for key, values in sections.items()}
+            physical.append(dict(file=name, archive=archive, bytes=len(raw),
+                                 sha256=hashlib.sha256(raw).hexdigest(), **read(selected)))
+        resolved = m.string(typ + 0x1F8)
+        controls = [read(sections) for sections in (
+            {'MTNK': {'Armor': 'heavy'}}, {'MTNK': {'image': 'IGNORED'}},
+            {'MTNK': {'Image': 'abcdefghijklmnopqrstuvwxTAIL'}},
+            {'MTNK': {'Image': ''}}, {'MTNK': {'Image': 'GTNK'}})]
+        root = native.configured_gamemd().parent
+        yr = stock.mix((root / 'ra2md.mix').read_bytes())
+        local = stock.mix(yr[stock.mix_hash('localmd.mix')])
+        raw = local[stock.mix_hash('ARTMD.INI')]
+        sections, _ = lexical(raw, {resolved})
+        selected = {resolved: {'Voxel': sections[resolved]['Voxel']}}
+        before, mark = bool(u.mem_read(typ + 0x236, 1)[0]), len(reads)
+        m.make_ini(selected)
+        _status_reader_block(m, 0x5F961C, 0x5F963A,
+                             {UC_X86_REG_EBX: typ, UC_X86_REG_ESI: typ + 0x1F8},
+                             stack_delta=4)
+        voxel = bool(u.mem_read(typ + 0x236, 1)[0])
+        art = dict(file='ARTMD.INI', archive='ra2md.mix/localmd.mix',
+                   bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(),
+                   sections=selected, voxel_before=before, voxel_after=voxel,
+                   reads=reads[mark:])
+    finally:
+        u.hook_del(hook)
+
+    # Reuse the existing native voxel-loader Machine's filename/IO seam.
+    # Stop after both native asset-constructor submissions; full immutable
+    # payload loading/rasterization happens in the existing raster owner below.
+    loader = Machine()
+    loader.phase = 'loader'
+    loader.available = {resolved + '.VXL', resolved + '.HVA'}
+    loader.u.mem_write(TYPE + 0x1F8, resolved.encode('latin1') + b'\0')
+    loader.u.mem_write(TYPE + 0x236, bytes((voxel,)))
+    loader.u.mem_write(loader.sp, dwords(native.RET_MAGIC))
+    loader.u.reg_write(UC_X86_REG_ESP, loader.sp)
+    loader.u.reg_write(UC_X86_REG_ECX, TYPE)
+    loader.u.reg_write(UC_X86_REG_EBP, TYPE)
+    native.run_checked(loader.u, 0x716090, 0x5F8219,
+                       required_addresses=(0x71609C, 0x5F8110, 0x7C9FF0,
+                                           0x4739F0, 0x755CD0, 0x5BD570))
+    return dict(type='MTNK', constructor=constructor, physical=physical,
+                resolved=resolved, controls=controls, art=art,
+                loader=dict(entry=0x716090, end_exclusive=0x5F8219, events=loader.events))
+
+
+def _berserk_mtnk_pixels(image, retail):
+    from tools import native_oracle as native
+    from tools.sidebar_oracle import stock
+    from tools.rules_oracle.weapon_laser import physical_layers
+    from tools.voxel_oracle.raster import render_native
+    from tools.voxel_oracle.lighting import native_camera, native_facing, native_multiply
+    from tools.projectile_oracle.bridge_render_inputs_palette import PaletteReader, initialize, color_scheme_palette
+    from tools.projectile_oracle.bridge_render_shape import prepare_surface, SURFACE, PIXELS, Z, A
+    from tools.procedural_drawing_oracle.shroud import _prepare_flat_cells
+    from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry
+    from tools.spatial_oracle.building_body_rules import dwords
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ESP
+
+    # The existing arm owner supplies its retained retail table. Bind those
+    # bytes to the independently executed physical rules readers above.
+    assert retail['color_add'] == [list(rgb) for rgb in RETAIL_COLOR_ADD] + [[0, 0, 0]] * 2
+    colour_inputs = dict(iron_color=retail['selectors']['IronCurtainColor'],
+                         berserk_color=retail['selectors']['BerserkColor'])
+    root = native.configured_gamemd().parent
+    base = stock.mix((root / 'ra2.mix').read_bytes())
+    expansion = stock.mix((root / 'ra2md.mix').read_bytes())
+    local = stock.mix(base[stock.mix_hash('local.mix')])
+    cache = stock.mix(base[stock.mix_hash('cache.mix')])
+    yr_local = stock.mix(expansion[stock.mix_hash('localmd.mix')])
+    assets = {'RULESMD.INI': physical_layers()[0][2]}
+    identities = []
+    submitted = {row['event']: row['name'] for row in image['loader']['events']
+                 if row['event'] in ('voxel', 'motion')}
+    for name, archive, table in (
+            ('PALETTE.PAL', 'ra2.mix/cache.mix', cache),
+            ('ANIM.PAL', 'ra2.mix/cache.mix', cache),
+            ('UNITTEM.PAL', 'ra2.mix/cache.mix', cache),
+            (submitted['voxel'], 'ra2.mix/local.mix', local),
+            (submitted['motion'], 'ra2.mix/local.mix', local),
+            ('VOXELS.VPL', 'ra2md.mix/localmd.mix', yr_local)):
+        raw = table[stock.mix_hash(name)]
+        assets[name] = raw
+        identities.append(dict(file=name, archive=archive, bytes=len(raw),
+                               sha256=hashlib.sha256(raw).hexdigest()))
+    # Existing selected Init_Game/ColorScheme owner supplies every material
+    # table. Use the established active RGB565/MMX mode as an explicit prior.
+    m = PaletteReader({}, root=Path('/nonexistent'))
+    m.assets.update(assets)
+    u = m.u
+    u.mem_write(0x8205D0, dwords(2))
+    u.mem_write(0x829D20, dwords(2))
+    u.mem_write(0x84E860, bytes((1, 0, 1)))
+    initialize(m)
+    _storage, colour_scheme = color_scheme_palette('DarkRed', owner=m, physical_assets=assets)
+    colour_scheme['registry_scope'] = 'selected-name 1/53 pair; local index1 is not full startup index'
+    scheme = m.read32(m.read32(0xB054D4) + colour_scheme['color_index'] * 4)
+    convert = m.read32(scheme + 0x30C)
+    table = bytes(u.mem_read(m.read32(convert + 0x170), colour_scheme['shade_count'] * 512))
+    scheme_palette = bytes(u.mem_read(m.read32(convert + 0x188), 768))
+    matrix = native_multiply(native_camera(), native_facing(5))
+    raster = render_native(assets[submitted['voxel']], assets[submitted['motion']],
+                           assets['VOXELS.VPL'], matrix)
+    u.mem_map(0x21000000, 0x100000)
+    source = m.alloc(65536)
+    composite = m.alloc(0x40)
+    indexed = bytearray(65536)
+    for index, value in raster['pixels']:
+        indexed[index] = value
+    u.mem_write(source, bytes(indexed))
+    u.mem_write(composite, dwords(0x7E2070, 256, 256, 0, 1, source, 65536, 0))
+    actor, typ, house = m.alloc(0x800), m.alloc(0x2000), m.alloc(0x18000)
+    u.mem_write(actor, dwords(0x7F5C70))
+    u.mem_write(actor + 0x6C4, dwords(typ))
+    u.mem_write(actor + 0x21C, dwords(house))
+    u.mem_write(actor + 0x9C, dwords(10 * 256 + 128, 20 * 256 + 128, 0))
+    u.mem_write(house + 0x16054, dwords(colour_scheme['color_index']))
+    _prepare_flat_cells(m, (10,), (20,))
+    initialize_discovery_geometry(m.invoke, m.read32, u)
+    u.mem_write(0xB1CFC0, struct.pack('<4i', *raster['rect'][2:]))
+    leaves, picks, z_requests, reached = [], [], [], set()
+
+    def observe(_u, pc, _size, _data):
+        sp = u.reg_read(UC_X86_REG_ESP)
+        if pc == 0x4DAFC0:
+            # A declared input boundary. Native terrain/Z producer is excluded;
+            # its zero answer supplies the flat candidate prior for this cue.
+            z_requests.append(0)
+            m.ret(0, 0)
+            return
+        if pc in (0x73B140, 0x5657A0, 0x487950, 0x4DB0A0, 0x490B90, 0x4373B0):
+            reached.add(f'{pc:08X}')
+        if pc == 0x490B90:
+            picks.append(dict(flags=m.read32(sp + 4)))
+        elif pc == 0x73B2C3:
+            blitter = u.reg_read(UC_X86_REG_EAX)
+            picks[-1].update(vtable=m.read32(blitter),
+                             plain=m.read32(m.read32(blitter) + 4),
+                             tinted=m.read32(m.read32(blitter) + 8))
+        elif (picks and pc in (picks[-1].get('plain'), picks[-1].get('tinted'))
+              and 0x4373B0 <= m.read32(sp) < 0x4379C0):
+            args = list(struct.unpack('<8I', u.mem_read(sp + 4, 32)))
+            index = (args[0] - PIXELS) // 2
+            leaves.append(dict(entry=f'{pc:08X}', x=index % 64, y=index // 64,
+                               count=args[2], candidate_z=args[3], intensity=args[6],
+                               warp=args[7], word=m.read32(sp + 36) if pc == picks[-1]['tinted'] else 0,
+                               source_offset=args[1] - source))
+
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    rows = []
+    cases = [
+        ('ordinary', dict(curtain=(-1, 0)), {}),
+        ('berserk', dict(berzerk=True, curtain=(-1, 0)), {}),
+        ('berserk_curtain', dict(berzerk=True), {}),
+        ('berserk_deactivated', dict(berzerk=True, curtain=(-1, 0), deactivated=True), {}),
+        ('berserk_iron_and_caller_word', dict(berzerk=True, iron_color=6, word=0x400), {}),
+        ('berserk_dark_a', dict(berzerk=True, curtain=(-1, 0)), dict(a_value=63)),
+        ('berserk_occluded', dict(berzerk=True, curtain=(-1, 0)), dict(old_z=0)),
+        ('translucent_plain', dict(curtain=(-1, 0)), dict(translucent=True)),
+        ('translucent_berserk', dict(berzerk=True, curtain=(-1, 0)), dict(translucent=True)),
+    ]
+    try:
+        for name, arm_inputs, surface_inputs in cases:
+            arm = curtain_draw_arm_row(**dict(colour_inputs, **arm_inputs))
+            case = dict(old_z=2000, a_value=127, background=0x39E7)
+            case.update(surface_inputs)
+            prepared = prepare_surface(u, case)
+            # Original Unit caller uses global887314 as the 8-bit composite
+            # source and passes the saved destination as its first argument.
+            u.mem_write(0x887314, dwords(composite))
+            u.mem_write(actor + 0x270, bytes((bool(case.get('translucent')),)))
+            leaves.clear(); picks.clear(); z_requests.clear(); reached.clear()
+            m.invoke(0x73B140, actor, (SURFACE, 32, 48, 0, 0, 64, 96,
+                                     arm['out_intensity'], arm['out_word']),
+                     timeout_us=120000000, instruction_limit=10000000)
+            pixels = bytes(u.mem_read(PIXELS, 64 * 96 * 2))
+            assert bytes(u.mem_read(Z, len(prepared['depths']))) == prepared['depths']
+            assert bytes(u.mem_read(A, len(prepared['lighting']))) == prepared['lighting']
+            assert bytes(u.mem_read(source, 65536)) == bytes(indexed)
+            rows.append(dict(name=name, arm=arm, surface=case, point=[32, 48], clip=[0, 0, 64, 96],
+                             picks=picks.copy(), leaves=leaves.copy(), reached=sorted(reached),
+                             prepared_z_adjust=z_requests.copy(), z_unchanged=True, a_unchanged=True,
+                             source_unchanged=True, rgb565_le_hex=pixels.hex()))
+    finally:
+        u.hook_del(hook)
+    return dict(surface=dict(width=64, height=96, bytes_per_pixel=2, depth_baseline=1024),
+                image=image, assets=identities, colour_scheme=colour_scheme,
+                material_priors=dict(surface_format=2, lightconvert_format=2, cmov=1, mmx=1),
+                colour_table_rgb565_le_hex=table.hex(),
+                scheme_palette_rgb8_hex=scheme_palette.hex(),
+                source=dict(width=256, height=256, facing_step=5,
+                            matrix_bits=raster['input_matrix_bits'], rect=raster['rect'],
+                            source_rect=raster['rect'][2:], pixels=raster['pixels'],
+                            normal_pages=raster['normal_pages']), rows=rows)
+
+
+def berserk_colour():
+    rules = _berserk_colour_rules()
+    return dict(source='unicorn/gamemd.exe', rules=rules,
+                mtnk=_berserk_mtnk_pixels(_berserk_mtnk_image(), rules['retail']))
+
+
+def berserk_colour_metadata():
+    return provenance(
+        scope='Original ColorAdd/current-default colour-selector rules and prepared Image-resolved stock MTNK/GTNK indexed hull with DarkRed composite RGB565 cue; not a world, whole vehicle assembly or CAOS-shot replay.',
+        assumptions=[
+            'Original665650 executes after selected fields are prefilled; all16 ColorAdd triples and four selectors are observed after constructor writes.',
+            'Physical RULESMD, optional loose LANGRULE, MPBattleMD and XMP03T4 selected strings feed the existing Reader/Sound source-order INI cache. Full INI/archive loading, full Process/reset chronology and unrelated readers are excluded; original cold calls, Process prefix, reset root loop and whole AudioVisual reader execute.',
+            'Malformed RGB controls explicitly seed first sscanf output locals and record original scanner counts/locals. Later per-entry locals carry through the same native loop. First malformed values without these priors are uninitialized-stack dependent, not a native black default. Explicit cached empty entries are parser-bypass controls: physical INI loading drops empty entries and sections.',
+            'Native ColorAdd loops enumerate the section count without a16-entry clamp. A bounded17-entry control records overwrite of the first selector low3 bytes. More than16 custom entries are memory-overflow behavior, not a safe native table size guarantee.',
+            'The existing Unit arm owner supplies retained retail ColorAdd bytes; all16 entries are checked against the independently executed physical native table before drawing. Ordinary IronCurtainColor/BerserkColor arm inputs come from that native physical reader state; the Iron6 case is an explicit selector override.',
+            'Full native UnitType7470D0 constructs Image=MTNK. Original ObjectType5F92F9..5F9340 reads exact-case Image with current string default and25-byte capacity in each admitted selected physical rules layer; RULESMD resolves GTNK and later layers retain it. Fixed ARTMD[GTNK] Voxel=yes runs through original5F961C..5F963A over ctorfalse, then actual TechnoType716090/71609C gate calls ObjectType5F8110..5F8219 to submit GTNK.VXL/HVA filenames through the existing loader IO seam.',
+            'Physical GTNK.VXL/HVA and active-YR VOXELS.VPL run through the existing complete native VXL/HVA/VPL loaders, ordinary normal lighting and raster owner at native camera/facing5. This is stock MTNK Image-resolved hull evidence; turret/barrel assembly, native Unit cache production/admission and world pose are excluded.',
+            'Existing physical palette startup/whole DarkRed ColorScheme owner initializes the53-row table from UNITTEM.PAL and physical Colors=0,230,255. Only the selected1/53 pair is constructed, so its local index1 is not the full world or lobby index. RGB565 format2, CMOV1/MMX1 and x87 0E7F are supplied active-mode priors documented by the palette oracle; no VERA table or framebuffer supplies native expected output.',
+            'Original Unit colour/intensity block73BF7B..73C166 outputs are passed to real Unit composite73B140. Prepared Unit/type/House records supply the Unit real vtable, native local DarkRed53 scheme index, flat Cell/visible state and no cloak/refinery effects. Native Cell visibility, flags, picker, clip, rowwalker and selected leaf pixels execute.',
+            'Prepared64x96 RGB565 destination,256x256 indexed native hull source, point32,48, circular A/Z, oldZ2000 or0, A127 or63 and background39E7. Original global887314 is the composite source during73B140. Z/A/source immutability is checked. These surface priors are not a rendered whole-world background.',
+            'Native Unit+270 is supplied only in the two conditional translucency policy controls; no producer reachability or whole cloak/warp lifecycle is claimed.',
+        ],
+        substitutions=[
+            'Existing successful native allocation/CRT/immutable file-buffer and INI source-order cache transports replace platform IO; native body bytes and scalar/table readers are unchanged.',
+            'Existing building_barrel Machine observes native ObjectType filename submissions with available files and loaded-object sentinel seams, then stops before tailer scaling. Actual GTNK payload loaders and raster execute separately in their established owner.',
+            'Foot GetZAdjust4DAFC0 returns explicit flat prior0. Its terrain producer is excluded; actual GetGradient4DB0A0 and all later depth tests run. No color, light, palette, clip or blitter result is supplied.',
+        ],
+        entry_points=dict(rules_ctor=0x665650, cold_colour_call=0x52D111,
+                          colour_add_reader=0x66D480, process_colour_prefix=0x668BF0,
+                          reset_root_colour_loop=0x668B13, audio_visual=0x6691E0,
+                          rgb_reader=0x474B50, rgb_scanf=0x7CA530,
+                          unit_type_ctor=0x7470D0, image_block=0x5F92F9,
+                          art_voxel=0x5F961C, voxel_loader_caller=0x71609C,
+                          voxel_filename_loader=0x5F8110,
+                          unit_colour=0x73BF7B, unit_composite=0x73B140,
+                          palette_picker=0x490B90, rowwalker=0x4373B0,
+                          ordinary_leaf=0x494B60, colour_leaf=0x494C40))
+
 
 
 # ------------------------------------------------- the curtain's tint on buildings
@@ -7939,6 +8403,12 @@ def generate():
 
 if __name__ == '__main__':
     import sys
+    if '--berserk-color' in sys.argv[1:]:
+        arguments = sys.argv[1:]
+        arguments.remove('--berserk-color')
+        finish_vectors(berserk_colour, Path(__file__).with_name('berserk_color.json'),
+                       provenance=berserk_colour_metadata, argv=arguments)
+        raise SystemExit
     if '--airstrike-tint' in sys.argv[1:]:
         arguments = sys.argv[1:]
         arguments.remove('--airstrike-tint')

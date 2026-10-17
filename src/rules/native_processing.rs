@@ -5,6 +5,7 @@
 //! ruleset converts this processed output into gameplay definitions. Failed passes
 //! preserve already-constructed registry state rather than rolling back.
 
+use crate::rules::color_add::{ColorAddSelectors, ColorAddTable};
 use crate::rules::crate_rules::{CrateRules, CrateRulesAccumulator};
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
@@ -244,6 +245,8 @@ fn process_native_rules_cold_start_inner(
     langrule: Option<&IniFile>,
 ) -> Result<(NativeTypeConstructionTrace, [usize; 5]), RulesError> {
     let mut processor = RulesPassProcessor::with_registry_state(registry_state);
+    // Cold52D111 reads ColorAdd66D480 before AudioVisual52D132.
+    processor.rules_color_add.apply_pass(selected_rules_root);
     processor.allocate_audio_visual_references(selected_rules_root);
     let after_audio_visual = processor.native_type_construction_events.len();
     if let Some(langrule) = langrule {
@@ -846,6 +849,12 @@ impl ProcessedRulesLayers {
             .rules_building_types
     }
 
+    /// Retained ColorAdd prefix/table and AudioVisual indexes, not a text merge.
+    pub(crate) fn color_add_state(&self) -> (&ColorAddTable, ColorAddSelectors) {
+        let state = self.native_type_construction_trace.registry_state();
+        (&state.rules_color_add, state.rules_color_add_selectors)
+    }
+
     pub(crate) fn projectile_rule_controls(&self) -> (f64, i32, [u8; 3]) {
         let state = self.native_type_construction_trace.registry_state();
         (
@@ -1062,6 +1071,8 @@ pub(crate) struct NativeRulesRegistryState {
     /// Process handoffs. Reset6686E6..668711 deletes and clears it alongside
     /// the Type registries, so destructive_reset leaves this field empty.
     colors: Vec<(String, String)>,
+    rules_color_add: ColorAddTable,
+    rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
@@ -1089,6 +1100,8 @@ impl Default for NativeRulesRegistryState {
             techno_type_order: Vec::new(),
             tiberiums: Vec::new(),
             colors: Vec::new(),
+            rules_color_add: ColorAddTable::default(),
+            rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             // RulesClass665650 initializes +16B8 before any AudioVisual read.
@@ -1245,8 +1258,14 @@ impl NativeRulesRegistryState {
     ///
     /// Numeric-ID history is intentionally not represented here and therefore
     /// cannot be rewound by this operation.
-    pub(crate) fn destructive_reset(self) -> Self {
+    pub(crate) fn destructive_reset(self, selected_rules_root: &IniFile) -> Self {
+        // Reset668B13..668B8E re-reads the selected root ColorAdd prefix.
+        // RulesClass survives, including the old tail and all four selectors.
+        let mut rules_color_add = self.rules_color_add;
+        rules_color_add.apply_pass(selected_rules_root);
         Self {
+            rules_color_add,
+            rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
             rules_difficulty_rows: self.rules_difficulty_rows,
             rules_gravity: self.rules_gravity,
@@ -1497,6 +1516,8 @@ struct RulesPassProcessor {
     native_type_construction_events: Vec<NativeTypeConstructionEvent>,
     tiberiums: Vec<ProcessedType>,
     colors: Vec<(String, String)>,
+    rules_color_add: ColorAddTable,
+    rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
@@ -1528,6 +1549,8 @@ impl Default for RulesPassProcessor {
             native_type_construction_events: Vec::new(),
             tiberiums: Vec::new(),
             colors: Vec::new(),
+            rules_color_add: ColorAddTable::default(),
+            rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             rules_gravity: NativeRulesRegistryState::default().rules_gravity,
@@ -1559,6 +1582,8 @@ impl RulesPassProcessor {
             techno_type_order: registry_state.techno_type_order,
             tiberiums: registry_state.tiberiums,
             colors: registry_state.colors,
+            rules_color_add: registry_state.rules_color_add,
+            rules_color_add_selectors: registry_state.rules_color_add_selectors,
             rules_detail: registry_state.rules_detail,
             rules_difficulty_rows: registry_state.rules_difficulty_rows,
             rules_gravity: registry_state.rules_gravity,
@@ -1591,6 +1616,7 @@ impl RulesPassProcessor {
         // Exact constructor-capable order from `RulesClass::Process @
         // 0x00668BF0`. Colors precede every Type registry but spend no Type ID.
         self.allocate_colors(pass);
+        self.rules_color_add.apply_pass(pass);
         for &(registry, family) in EXPLICIT_RULE_TYPE_FAMILIES {
             if family == RulesTypeFamily::Side {
                 self.process_side_registry(pass)?;
@@ -2861,8 +2887,12 @@ impl RulesPassProcessor {
         // default. Cold startup52D132 calls the same reader before Process.
         self.rules_gravity = section.read_int("Gravity", self.rules_gravity);
         // AudioVisual66B77D..66B7A7, after Gravity, retains the RGB default.
-        self.rules_line_trail_override =
-            section.read_color_rgb("LineTrailColorOverride", self.rules_line_trail_override);
+        self.rules_line_trail_override = section.read_color_rgb(
+            "LineTrailColorOverride",
+            self.rules_line_trail_override,
+            None,
+        );
+        self.rules_color_add_selectors.read_pass(section);
         for key in ["DropPodPuff", "VeinAttack", "Dig", "AtmosphereEntry"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
@@ -3029,6 +3059,8 @@ impl RulesPassProcessor {
                     techno_type_order: self.techno_type_order,
                     tiberiums: self.tiberiums,
                     colors: self.colors,
+                    rules_color_add: self.rules_color_add,
+                    rules_color_add_selectors: self.rules_color_add_selectors,
                     rules_detail: self.rules_detail,
                     rules_difficulty_rows: self.rules_difficulty_rows,
                     rules_gravity: self.rules_gravity,

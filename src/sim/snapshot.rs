@@ -1081,7 +1081,9 @@ use crate::sim::world::Simulation;
 // 388 -> 389: particle-system offsets retain constructor-relative coordinates.
 // Older saves stored zero even for an offset smoke source; resuming their new
 // follow behavior would snap it to the owner, so reject that continuation.
-const SNAPSHOT_VERSION: u32 = 389;
+// 389 -> 390: retained ColorAdd slots and four AudioVisual selectors are
+// serialized with the existing processed Rules owner; older layouts lack them.
+const SNAPSHOT_VERSION: u32 = 390;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;

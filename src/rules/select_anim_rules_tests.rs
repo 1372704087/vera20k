@@ -111,7 +111,7 @@ fn type_reset_clears_retired_references_then_rebuilds_native_physical_bindings()
     let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
     let reset = receipt
         .into_registry_state_discarding_events()
-        .destructive_reset();
+        .destructive_reset(&crate::rules::ini_parser::IniFile::empty());
     let cleared = RulesLayerStack::new(IniFile::empty())
         .process_with_fixed_art_and_registry_state(&IniFile::empty(), reset)
         .unwrap();

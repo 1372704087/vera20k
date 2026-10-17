@@ -218,7 +218,7 @@ impl ParticleSystemType {
             light_size: section.read_int("LightSize", 0),
             one_frame_light: section.read_bool("OneFrameLight", false),
             laser: section.read_bool("Laser", false),
-            laser_color: section.read_color_rgb("LaserColor", [0, 0, 0]),
+            laser_color: section.read_color_rgb("LaserColor", [0, 0, 0], None),
         };
 
         PendingParticleSystemType {

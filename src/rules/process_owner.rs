@@ -358,7 +358,7 @@ impl NativeRulesProcessOwner {
         };
         let (pre_reset_events, pre_reset_super_count, pre_reset_state) =
             pre_reset_trace.into_parts();
-        let post_reset_state = pre_reset_state.destructive_reset();
+        let post_reset_state = pre_reset_state.destructive_reset(&self.sources.selected_rules_root);
 
         let layers = self.scenario_layers(mode_rules_override, map_rules_overrides);
         let mut processed = match layers.process_with_fixed_art_and_registry_state_recovering(

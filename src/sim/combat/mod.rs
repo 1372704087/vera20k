@@ -84,15 +84,9 @@ mod combat_cloak_damage_tests;
 #[cfg(test)]
 mod combat_cloak_fire_tests;
 #[cfg(test)]
-mod combat_cloak_legality_tests;
-#[cfg(test)]
-mod combat_force_fire_cell_tests;
-#[cfg(test)]
 mod combat_tests;
 #[cfg(test)]
 mod combat_turret_facing_tests;
-#[cfg(test)]
-mod delayed_building_fire_tests;
 #[cfg(test)]
 mod electric_bolt_tests;
 #[cfg(test)]

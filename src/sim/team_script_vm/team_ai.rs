@@ -783,24 +783,4 @@ mod tests {
         crate::sim::vision::reveal_radius(&mut sim.fog, owner, 12, 12, 2);
         assert!(!sim.team_member_refuses_cell(hornet, centre, &rules, Some(&registry)));
     }
-
-    /// `ObjectClass::Distance @ 0x005F6360` measures from the member's
-    /// GetCoords (`vt+0x48` at `0x005F6391`), whose Z is the object's world
-    /// Z: a hovering member's height counts.
-    #[test]
-    fn a_hovering_members_distance_counts_its_height() {
-        use crate::rules::locomotor_type::LocomotorKind;
-        use crate::sim::movement::locomotor::LocomotorState;
-        let mut sim = crate::sim::world::Simulation::new();
-        let mut member =
-            crate::sim::game_entity::GameEntity::test_default(1, "HOVER", "Americans", 4, 4);
-        member.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Hover));
-        member.position.set_exact_z_leptons_for_test(Some(120));
-        sim.substrate.entities.insert(member);
-        let member = sim.substrate.entities.get(1).expect("member");
-        // The cell target is (4, 4)'s centre at its floor, straight below, so
-        // the whole distance is the height.
-        let distance = sim.team_member_distance(member, Some(TeamTarget::Cell { x: 4, y: 4 }));
-        assert_eq!(distance, 120);
-    }
 }

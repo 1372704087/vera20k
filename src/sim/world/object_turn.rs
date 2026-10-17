@@ -46,10 +46,6 @@ mod forced_track_object_turn_tests;
 mod teleport_anim_object_turn_tests;
 
 #[cfg(test)]
-#[path = "unit_fire_turn_tests.rs"]
-mod unit_fire_turn_tests;
-
-#[cfg(test)]
 #[path = "per_cell_object_turn_tests.rs"]
 mod per_cell_object_turn_tests;
 

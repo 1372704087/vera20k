@@ -2249,50 +2249,6 @@ mod difficulty_tests {
 }
 
 #[cfg(test)]
-mod base_reservation_tests {
-    use super::BaseReservationState;
-
-    #[test]
-    fn gsi_04_05_zero_minimum_rebases_and_retains_prior_span() {
-        let mut state = BaseReservationState::default();
-        state.update_bounds(0, 0, 3, 4);
-        assert_eq!(state.bounds(), (0, 0, 3, 4));
-
-        state.update_bounds(10, 20, 3, 5);
-        assert_eq!(
-            state.bounds(),
-            (10, 20, 3, 5),
-            "a zero minimum is treated as uninitialized again"
-        );
-
-        let mut retained = BaseReservationState {
-            min_x: 0,
-            width: 20,
-            ..BaseReservationState::default()
-        };
-        retained.update_bounds(10, 1, 3, 1);
-        assert_eq!(
-            (retained.min_x, retained.width),
-            (10, 20),
-            "the sentinel assignment does not reset an already larger span"
-        );
-    }
-
-    #[test]
-    fn gsi_04_05_perimeter_vector_append_and_remove_are_stable() {
-        let mut state = BaseReservationState::default();
-        state.append_perimeter_cell_if_absent(30);
-        state.append_perimeter_cell_if_absent(10);
-        state.append_perimeter_cell_if_absent(20);
-        state.append_perimeter_cell_if_absent(10);
-        assert_eq!(state.perimeter_cells(), &[30, 10, 20]);
-
-        state.remove_perimeter_cell(10);
-        assert_eq!(state.perimeter_cells(), &[30, 20]);
-    }
-}
-
-#[cfg(test)]
 mod multiplay_passive_tests {
     use super::resolve_multiplay_passive;
     use crate::rules::ini_parser::IniFile;

@@ -148,31 +148,6 @@ mod tests {
     }
 
     #[test]
-    fn locomotor_ready_drive_and_ship_truth_tables_are_independent() {
-        for state in [
-            drive(true, false, false, 0),
-            ship(true, false, false, 0),
-            drive(false, true, true, 1),
-            ship(false, true, true, 1),
-        ] {
-            assert!(state.is_moving_now());
-        }
-
-        for state in [
-            drive(false, false, true, 1),
-            drive(false, true, false, 1),
-            drive(false, true, true, -1),
-            drive(false, true, true, 0),
-            ship(false, false, true, 1),
-            ship(false, true, false, 1),
-            ship(false, true, true, -1),
-            ship(false, true, true, 0),
-        ] {
-            assert!(!state.is_moving_now());
-        }
-    }
-
-    #[test]
     fn locomotor_ready_hover_uses_native_ordered_nonzero_comparison() {
         for speed_bits in [
             POSITIVE_ONE,

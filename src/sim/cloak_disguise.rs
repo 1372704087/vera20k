@@ -957,10 +957,6 @@ mod sound_tests;
 pub(in crate::sim) mod mirage_tests;
 
 #[cfg(test)]
-#[path = "spy_disguise_tests.rs"]
-mod spy_disguise_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
 

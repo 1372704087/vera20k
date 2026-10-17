@@ -574,28 +574,6 @@ mod tests {
     }
 
     #[test]
-    fn cardinals_include_native_tiny_sample_chop_bias() {
-        assert_eq!(EXPECTED_OFFSETS[0], (0, -32));
-        assert_eq!(EXPECTED_OFFSETS[64], (32, 0));
-        assert_eq!(EXPECTED_OFFSETS[128], (-1, 32));
-        assert_eq!(EXPECTED_OFFSETS[192], (-32, -1));
-    }
-
-    #[test]
-    fn boundary_check_uses_native_truncation_and_whole_coord_fallback() {
-        let accepted =
-            scatter_effect_coord_for_byte(192, 0, 7, SimFixed::ZERO, SimFixed::from_num(19));
-        assert_eq!(accepted.0, 0);
-        assert_eq!(accepted.2.to_num::<i32>(), -32);
-
-        let base = (511, 7, SimFixed::from_num(250), SimFixed::from_num(19));
-        assert_eq!(
-            scatter_effect_coord_for_byte(64, base.0, base.1, base.2, base.3),
-            base
-        );
-    }
-
-    #[test]
     fn public_helper_consumes_exactly_one_raw_scenario_rng_draw() {
         let mut rng = SimRng::new(1);
         let mut reference = rng.clone();

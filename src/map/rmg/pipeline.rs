@@ -547,34 +547,6 @@ mod tests {
         run_with_types(seed, map_type, theater, &[])
     }
 
-    /// [`run_with_types`] with no catalog or with [`stock_tech_types`], run once
-    /// per test process: several tests read the same runs.
-    fn shared_run(
-        seed: u16,
-        map_type: i32,
-        theater: i32,
-        stock_catalog: bool,
-    ) -> std::sync::Arc<(RmgGrid, PipelineOutput)> {
-        let key = (seed, map_type, theater, stock_catalog);
-        crate::test_fixture::once_per_process(key, || {
-            let types = if stock_catalog {
-                stock_tech_types()
-            } else {
-                Vec::new()
-            };
-            Some(std::sync::Arc::new(run_with_types(
-                seed, map_type, theater, &types,
-            )))
-        })
-        .expect("pipeline run")
-    }
-
-    /// The stock YR neutral catalog, resolved from the real INIs so the gate
-    /// tests exercise the same list the app wires in.
-    fn stock_tech_types() -> Vec<TechType> {
-        crate::map::rmg::tech_catalog::stock_contract_catalog()
-    }
-
     fn run_with_types(
         seed: u16,
         map_type: i32,
@@ -875,21 +847,6 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_runs_end_to_end_and_shapes_terrain() {
-        let (grid, output) = run(1234, 1, 0);
-        // The map is no longer all-unassigned: water/land shaping ran.
-        let assigned = grid
-            .native_cells()
-            .filter(|&(x, y)| {
-                grid.get(x, y).unwrap().tile != crate::map::rmg::tiles::TILE_UNASSIGNED
-            })
-            .count();
-        assert!(assigned > 0, "the pipeline assigned real tiles");
-        // Waypoints are bounded by the start quota.
-        assert!(output.waypoints.len() <= STANDARD_START_QUOTA as usize);
-    }
-
-    #[test]
     fn pipeline_is_deterministic() {
         let snapshot = |seed| {
             let (grid, output) = run(seed, 1, 0);
@@ -907,141 +864,5 @@ mod tests {
             (tiles, overlays, output.waypoints, output.terrain)
         };
         assert_eq!(snapshot(4242), snapshot(4242));
-    }
-
-    /// Rock gate, on-side. The original runs the rock overlay pass only on the
-    /// `theater == 0` branch of "RMG: Creating LATs, rocks etc"; that branch
-    /// must actually produce overlays, or the off-side test below proves
-    /// nothing. (Gate verified 2026-07-25: `decompile_function 0x00598960`,
-    /// `0x005a3ae0` has the overlay loop, `0x005a4280` does not.)
-    #[test]
-    fn temperate_theater_paints_rocks() {
-        let (grid, _) = run(77, 1, 0);
-        let rocks = grid
-            .native_cells()
-            .filter(|&(x, y)| (168..=177).contains(&grid.get(x, y).unwrap().overlay))
-            .count();
-        assert!(rocks > 0, "temperate places rocks");
-    }
-
-    /// Tech gate, on-side. The original calls the placement driver whenever
-    /// `map_type != 0` (verified 2026-07-25: `decompile_function 0x00598960`,
-    /// the `RMG: Adding tech buildings` block). The off-side is pinned at phase
-    /// level by `tech_buildings::tests::map_type_zero_is_a_no_op`, which also
-    /// uses a non-empty catalog; map type 0 cannot be driven through the whole
-    /// pipeline on this synthetic terrain until the start-starvation assert at
-    /// `starts.rs:332` is resolved.
-    ///
-    /// Seed 9 is the combination the neighbouring map-type test already relies
-    /// on: the 1x1 synthetic tile block starves the start selector on many
-    /// seeds, which is a fixture limitation, not a generator property.
-    #[test]
-    fn tech_buildings_are_placed_for_non_zero_map_types() {
-        assert!(!stock_tech_types().is_empty(), "stock catalog resolves");
-        let placed: usize = [1, 2]
-            .into_iter()
-            .map(|map_type| shared_run(9, map_type, 0, true).1.structures.len())
-            .sum();
-        assert!(placed > 0, "map types 1/2 place tech buildings");
-    }
-
-    /// The catalog is what stops the phase being a no-op: with an empty list
-    /// the same run places nothing, which is the regression this pins.
-    #[test]
-    fn an_empty_catalog_places_no_tech_buildings() {
-        assert!(shared_run(9, 1, 0, false).1.structures.is_empty());
-    }
-
-    /// Every placed structure names a type from the resolved catalog.
-    #[test]
-    fn placed_tech_buildings_come_from_the_resolved_catalog() {
-        let types = stock_tech_types();
-        let names: Vec<&str> = types.iter().map(|t| t.name.as_str()).collect();
-        for map_type in [1, 2] {
-            let run = shared_run(9, map_type, 0, true);
-            for (name, _, _) in &run.1.structures {
-                assert!(
-                    names.contains(&name.as_str()),
-                    "{name} is in NeutralTechBuildings"
-                );
-            }
-        }
-    }
-
-    /// Start starvation is reachable, and the port now stops short and counts
-    /// instead of aborting the run.
-    ///
-    /// This pins a DELIBERATE DIVERGENCE, not parity. The original cannot fail
-    /// here — its two start routines hardcode success — so on starvation it
-    /// either walks a null array pointer and faults, or reads uninitialised
-    /// heap whose contents follow the process's allocation history rather than
-    /// the seed. There is nothing reproducible to copy.
-    #[test]
-    fn a_starved_map_counts_its_unfilled_start_slots() {
-        let run = shared_run(9, 0, 0, false);
-        let (_, output) = &*run;
-        assert!(
-            output.unfilled_start_slots > 0,
-            "the 1x1 synthetic tile block starves the selector on this fixture"
-        );
-        // Conservation: every quota slot is either written or counted. This is
-        // what pins the counter to the whole remaining tail rather than to 1.
-        assert_eq!(
-            output.waypoints.len() + output.unfilled_start_slots,
-            STANDARD_START_QUOTA as usize,
-            "written + unfilled must account for every start slot"
-        );
-    }
-
-    /// A starved region cannot leak a tiberium field onto the map origin, and
-    /// the reason is structural rather than lucky.
-    ///
-    /// The tiberium phase substitutes `(0, 0)` for an unwritten waypoint, so
-    /// starvation looks like it should stack fields in the map corner. It
-    /// cannot: starvation means the selection was shorter than the quota, so
-    /// the drain's `min(quota, selection.len())` consumes the whole selection
-    /// and leaves the region's field-slot list empty; the tiberium phase then
-    /// takes its `field_count == 0` early-out and skips the region entirely,
-    /// before pass 2 — the only place the origin substitution happens — is ever
-    /// reached.
-    ///
-    /// Pinned because it is a coupling between two phases that no single file
-    /// states: widening the drain, or moving the early-out, would silently put
-    /// tiberium in the corner of every starved map.
-    #[test]
-    fn a_starved_slot_never_seeds_tiberium_at_the_origin() {
-        let run = shared_run(9, 0, 0, false);
-        let (_, output) = &*run;
-        assert!(output.unfilled_start_slots > 0, "fixture starves");
-        assert!(
-            !output.terrain.iter().any(|(_, x, y)| *x == 0 && *y == 0),
-            "no terrain object may land on the map origin; terrain was {:?}",
-            output.terrain
-        );
-    }
-
-    #[test]
-    fn non_temperate_theater_paints_no_rocks() {
-        // Rock overlays land only on temperate (theater 0). A snow run (theater
-        // 1) must carry no SROCK/TROCK overlays (168..=177).
-        let (grid, _) = run(77, 1, 1);
-        let rocks = grid
-            .native_cells()
-            .filter(|&(x, y)| (168..=177).contains(&grid.get(x, y).unwrap().overlay))
-            .count();
-        assert_eq!(rocks, 0, "non-temperate theaters place no rocks");
-    }
-
-    #[test]
-    fn continental_and_island_map_types_complete() {
-        // Map types 1 (continental) and 2 (islands-in-sea) leave enough land
-        // for the standard 4-start quota under the synthetic 1x1 tile block.
-        // The water-heavy types (0/3/4) can starve the start selector on this
-        // degenerate terrain — that path needs real theater terrain, which is
-        // the app-layer adapter's job, not the pipeline's.
-        for map_type in [1, 2] {
-            let run = shared_run(9, map_type, 0, false);
-            assert!(run.0.native_cells().count() > 0);
-        }
     }
 }

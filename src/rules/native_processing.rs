@@ -724,6 +724,18 @@ impl ProcessedRulesLayers {
             .rules_detail
     }
 
+    /// Rules+1668/+1670 after the reached AudioVisual passes, including cold
+    /// startup and Type reset. Retain raw literal/default and authored f32-
+    /// widened doubles; only the consuming projection truncates to frames.
+    /// Original controls: trigger_map_lighting.json rate_controls (+meta).
+    pub(crate) fn ambient_change_inputs(&self) -> (NativeF64Bits, NativeF64Bits) {
+        let registry = self.native_type_construction_trace.registry_state();
+        (
+            registry.rules_ambient_change_rate,
+            registry.rules_ambient_change_step,
+        )
+    }
+
     /// Final Difficulty readers after the ordered Process passes. Keeping the
     /// typed rows preserves literal f64 defaults separately from ReadDouble's
     /// widened f32 authored values (ReadDifficulty @ 0x0066D270).
@@ -1074,6 +1086,8 @@ pub(crate) struct NativeRulesRegistryState {
     rules_color_add: ColorAddTable,
     rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
+    rules_ambient_change_rate: NativeF64Bits,
+    rules_ambient_change_step: NativeF64Bits,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
     rules_wind_direction: i32,
@@ -1103,6 +1117,9 @@ impl Default for NativeRulesRegistryState {
             rules_color_add: ColorAddTable::default(),
             rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
+            // Rules665650: literal doubles, before AudioVisual authored reads.
+            rules_ambient_change_rate: NativeF64Bits::from_bits(0x3fc9_9999_9999_999a),
+            rules_ambient_change_step: NativeF64Bits::from_bits(0x3fb9_9999_9999_999a),
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             // RulesClass665650 initializes +16B8 before any AudioVisual read.
             rules_gravity: 3,
@@ -1267,6 +1284,8 @@ impl NativeRulesRegistryState {
             rules_color_add,
             rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
+            rules_ambient_change_rate: self.rules_ambient_change_rate,
+            rules_ambient_change_step: self.rules_ambient_change_step,
             rules_difficulty_rows: self.rules_difficulty_rows,
             rules_gravity: self.rules_gravity,
             rules_wind_direction: self.rules_wind_direction,
@@ -1519,6 +1538,8 @@ struct RulesPassProcessor {
     rules_color_add: ColorAddTable,
     rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
+    rules_ambient_change_rate: NativeF64Bits,
+    rules_ambient_change_step: NativeF64Bits,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
     rules_wind_direction: i32,
@@ -1552,6 +1573,10 @@ impl Default for RulesPassProcessor {
             rules_color_add: ColorAddTable::default(),
             rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
+            rules_ambient_change_rate: NativeRulesRegistryState::default()
+                .rules_ambient_change_rate,
+            rules_ambient_change_step: NativeRulesRegistryState::default()
+                .rules_ambient_change_step,
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             rules_gravity: NativeRulesRegistryState::default().rules_gravity,
             rules_wind_direction: NativeRulesRegistryState::default().rules_wind_direction,
@@ -1585,6 +1610,8 @@ impl RulesPassProcessor {
             rules_color_add: registry_state.rules_color_add,
             rules_color_add_selectors: registry_state.rules_color_add_selectors,
             rules_detail: registry_state.rules_detail,
+            rules_ambient_change_rate: registry_state.rules_ambient_change_rate,
+            rules_ambient_change_step: registry_state.rules_ambient_change_step,
             rules_difficulty_rows: registry_state.rules_difficulty_rows,
             rules_gravity: registry_state.rules_gravity,
             rules_wind_direction: registry_state.rules_wind_direction,
@@ -2886,6 +2913,14 @@ impl RulesPassProcessor {
         // Full AudioVisual6691E0's 66B3C4 read uses the retained signed dword
         // default. Cold startup52D132 calls the same reader before Process.
         self.rules_gravity = section.read_int("Gravity", self.rules_gravity);
+        // AudioVisual66B5D7..66B625: rate then step; both ReadDouble defaults
+        // are the current Rules fields. Missing reads retain; malformed float
+        // output is native undefined stack data, using ini_value's safe policy.
+        // Original physical/retained controls: trigger_map_lighting.json (+meta).
+        self.rules_ambient_change_rate =
+            section.read_double_bits("AmbientChangeRate", self.rules_ambient_change_rate);
+        self.rules_ambient_change_step =
+            section.read_double_bits("AmbientChangeStep", self.rules_ambient_change_step);
         // AudioVisual66B77D..66B7A7, after Gravity, retains the RGB default.
         self.rules_line_trail_override = section.read_color_rgb(
             "LineTrailColorOverride",
@@ -3062,6 +3097,8 @@ impl RulesPassProcessor {
                     rules_color_add: self.rules_color_add,
                     rules_color_add_selectors: self.rules_color_add_selectors,
                     rules_detail: self.rules_detail,
+                    rules_ambient_change_rate: self.rules_ambient_change_rate,
+                    rules_ambient_change_step: self.rules_ambient_change_step,
                     rules_difficulty_rows: self.rules_difficulty_rows,
                     rules_gravity: self.rules_gravity,
                     rules_wind_direction: self.rules_wind_direction,

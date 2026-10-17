@@ -441,7 +441,15 @@ impl SmudgeGrid {
                         self.cell(x, y).type_id.is_none()
                             && overlay.cell(x, y).overlay_id.is_none()
                             && (allow_building
-                                || occupancy.is_none_or(|occ| !cell_has_building(occ, x, y)))
+                                || occupancy.is_none_or(|occ| {
+                                    // 6B6011: only absence of the first ground Building admits.
+                                    occ.first_building_on_layer(
+                                        x,
+                                        y,
+                                        crate::sim::movement::locomotor::MovementLayer::Ground,
+                                    )
+                                    .is_none()
+                                }))
                     }
                     NativeCellIdentity::Dummy => {
                         let dummy = terrain.shared_cell_dummy();
@@ -511,17 +519,6 @@ fn origin_in_bounds(terrain: &ResolvedTerrainGrid, origin: (i16, i16)) -> bool {
         && terrain
             .native_fixed_cell_index(origin.0, origin.1)
             .is_some()
-}
-
-/// gamemd's placement check asks the cell for a *building*, not for an
-/// obstruction: its lookup walks the cell's object list and returns only
-/// BuildingClass objects. A vehicle sitting on the cell is never returned, so a
-/// shell landing on a tank that survives still leaves its scorch.
-fn cell_has_building(occupancy: &OccupancyGrid, rx: u16, ry: u16) -> bool {
-    use crate::sim::movement::locomotor::MovementLayer;
-    occupancy
-        .get(rx, ry)
-        .is_some_and(|c| c.has_building_on(MovementLayer::Ground))
 }
 
 impl SmudgeGrid {

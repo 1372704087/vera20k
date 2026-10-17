@@ -470,6 +470,39 @@ fn retail_mcv_and_target_rules_deploy_with_one_command() {
     }
 }
 
+/// Event9's4C77C7 query must not find a factory after its Mark removal just
+/// because the retained entity still has its old foundation/position.
+#[test]
+fn cell_building_query_deploy_ignores_a_stored_unmarked_factory() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    assert!(rules.object("GAWEAP").unwrap().weapons_factory);
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 20, 20, 0, &rules)
+        .unwrap();
+    assert!(sim.unmark_entity_remove(
+        factory,
+        crate::sim::world::UninitContext::with_rules(&rules)
+    ));
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 21, 21, 0, &rules)
+        .unwrap();
+    assert!(crate::sim::deploy::issue_order(
+        &mut sim,
+        mcv,
+        &rules,
+        crate::sim::world::FrameEffects::default()
+    ));
+    assert_eq!(
+        sim.entities().get(mcv).unwrap().mission.queued().known(),
+        Some(MissionType::Unload)
+    );
+}
+
 #[test]
 fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
     let (mut sim, rules, id) = fixture("AMCV", 128, 5, 4);

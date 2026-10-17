@@ -2123,10 +2123,19 @@ fn native_initiate_warp_corpus() {
                 26,
             );
             if factory["in_cell"].as_bool().unwrap_or(true) {
-                // Footprint over the target's cell (Look_up_building_in_cell).
+                // Supplied native caller input: factory over the target's cell.
+                // Relocation must migrate its actual Mark lists as well as pose.
+                assert!(sim.unmark_entity_remove(
+                    factory_id,
+                    crate::sim::world::UninitContext::with_rules(&rules)
+                ));
                 let building = sim.substrate.entities.get_mut(factory_id).unwrap();
                 building.position.set_rx_for_test(19);
                 building.position.set_ry_for_test(19);
+                assert!(sim.mark_entity_put(
+                    factory_id,
+                    crate::sim::world::UninitContext::with_rules(&rules)
+                ));
             }
             let contacts = &mut sim
                 .substrate

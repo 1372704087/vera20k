@@ -1172,6 +1172,14 @@ pub struct GeneralRules {
     /// then Voc FindIndex7514D0, retaining the prior ID on missing, empty or
     /// unresolved text. The fixed SOUNDMD binder owns name resolution.
     pub guard_sound: Option<String>,
+    /// Rules+6F0/+6F4: constructor66600F/666015 starts at -1;
+    /// AudioVisual66AAC0..66AB53 reads exact RadarOn then RadarOff through
+    /// ReadString128/Voc7514D0, retaining the prior fixed-catalog ID on
+    /// missing, empty or unknown names. Radar656BE0 requests them centered,
+    /// full-volume and without a retained handle on ordinary direction changes.
+    /// Source: tools/input_oracle/radar_availability_audio.md and its consumed corpus.
+    pub radar_on: Option<String>,
+    pub radar_off: Option<String>,
     /// Rules+230, VoiceIFVRepair. Ctor665976 starts at -1;
     /// AudioVisual669D63..669DA7 uses ReadString128/Voc7514D0, retaining
     /// the current ID on missing/empty/unknown text. Fixed SOUNDMD binding
@@ -1697,7 +1705,7 @@ pub struct GeneralRules {
     /// [General] WeaponNullifyAnim (+350), constructor null; retained reader
     /// 66E2AF. Bullet46A2A1 uses it after AreaDamage returns IronCurtain (2).
     pub weapon_nullify_anim: String,
-    /// Whether `[General] AmbientChangeRate=` is nonzero before its native
+    /// Whether `[AudioVisual] AmbientChangeRate=` is nonzero before its native
     /// frame conversion. Kept separately because a nonzero mod value can chop
     /// to a zero-frame interval while still passing ScenarioClass's outer gate.
     pub ambient_change_rate_nonzero: bool,
@@ -2320,6 +2328,8 @@ impl Default for GeneralRules {
             gui_move_out_sound: None,
             generic_click_sound: None,
             guard_sound: None,
+            radar_on: None,
+            radar_off: None,
             voice_ifv_repair: None,
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
@@ -2453,7 +2463,7 @@ impl Default for GeneralRules {
             weapon_nullify_anim: String::new(),
             ambient_change_rate_nonzero: true,
             ambient_change_interval_frames: 180,
-            ambient_change_step: 20,
+            ambient_change_step: 10,
             iron_curtain_duration: 0,
             iron_curtain_invoke_anim: String::new(),
             chrono_placement_anim: String::new(),
@@ -2771,7 +2781,7 @@ const VETERAN_RATIO_DEFAULT: f64 = 3.0;
 /// [`VETERAN_RATIO_DEFAULT`]; stock supplies `2`.
 const VETERAN_CAP_DEFAULT: f64 = 2.0;
 
-/// `[General] AmbientChangeRate=` and `AmbientChangeStep=` (Rules `+0x1668`,
+/// `[AudioVisual] AmbientChangeRate=` and `AmbientChangeStep=` (Rules `+0x1668`,
 /// `+0x1670`) as `LogicClass::PerTickUpdate`'s ambient fade reads them:
 /// whether the rate is nonzero (`0x0055B351..0x0055B362`), the interval
 /// `ftol(rate * 900)` (`0x0055B3D8..0x0055B3E4`) and the step
@@ -3008,13 +3018,6 @@ impl GeneralRules {
             general.read_double("ConditionRedSparkingProbability", 0.02);
         let condition_yellow_spark_prob: f64 =
             general.read_double("ConditionYellowSparkingProbability", 0.01);
-        // These are ReadDouble values (single-precision parse widened to f64)
-        // and the consumer's ftol boundary chops toward zero.
-        let (ambient_change_rate_nonzero, ambient_change_interval_frames, ambient_change_step) =
-            ambient_change_terms(
-                general.read_double("AmbientChangeRate", 0.2),
-                general.read_double("AmbientChangeStep", 0.2),
-            );
         Self {
             detail,
             pose_dir,
@@ -3400,6 +3403,8 @@ impl GeneralRules {
                 .map(str::to_owned),
             // Native constructor -1; resolved by the fixed SOUNDMD binder.
             guard_sound: None,
+            radar_on: None,
+            radar_off: None,
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
             add_planning_mode_command_sound: None,
@@ -3648,9 +3653,10 @@ impl GeneralRules {
             lightning_warhead: general.read_string("LightningWarhead", "", 128),
             weather_con_bolt_explosion: general.read_string("WeatherConBoltExplosion", "", 128),
             weapon_nullify_anim: general.read_string("WeaponNullifyAnim", "", 128),
-            ambient_change_rate_nonzero,
-            ambient_change_interval_frames,
-            ambient_change_step,
+            // The sole ordered AV reader supplies these after projection.
+            ambient_change_rate_nonzero: defaults.ambient_change_rate_nonzero,
+            ambient_change_interval_frames: defaults.ambient_change_interval_frames,
+            ambient_change_step: defaults.ambient_change_step,
             iron_curtain_duration: combat_damage.read_int("IronCurtainDuration", 0),
             iron_curtain_invoke_anim: general.read_string("IronCurtainInvokeAnim", "", 0x80),
             chrono_placement_anim: general.read_string("ChronoPlacement", "", 0x80),
@@ -4045,6 +4051,15 @@ impl RuleSet {
         rules.general.wind_direction = processed.wind_direction();
         rules.general.difficulty_rows = *processed.difficulty_rows();
         rules.general.detail = processed.detail();
+        let (ambient_rate, ambient_step) = processed.ambient_change_inputs();
+        (
+            rules.general.ambient_change_rate_nonzero,
+            rules.general.ambient_change_interval_frames,
+            rules.general.ambient_change_step,
+        ) = ambient_change_terms(
+            f64::from_bits(ambient_rate.bits()),
+            f64::from_bits(ambient_step.bits()),
+        );
         rules.general.prism_support = processed.prism_support();
         rules.general.patrol_scan_minutes = processed.patrol_scan_minutes();
         rules.general.prism_type = processed.prism_type().map(str::to_owned);
@@ -4287,6 +4302,14 @@ impl RuleSet {
         self.general.guard_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "GuardSound"));
+        // Original66AAC0..66AB53: fixed process catalog, exact keys and
+        // current-ID retention across the existing processed read history.
+        self.general.radar_on = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "RadarOn"));
+        self.general.radar_off = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "RadarOff"));
         self.general.voice_ifv_repair = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "VoiceIFVRepair"));
@@ -5383,7 +5406,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v17".hash(&mut hasher);
+        b"rules-simulation-config-v18".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5411,6 +5434,11 @@ impl RuleSet {
         self.general.parachute_max_fall_rate.hash(&mut hasher);
         self.general.no_parachute_max_fall_rate.hash(&mut hasher);
         self.general.detail.hash(&mut hasher);
+        self.general.ambient_change_rate_nonzero.hash(&mut hasher);
+        self.general
+            .ambient_change_interval_frames
+            .hash(&mut hasher);
+        self.general.ambient_change_step.hash(&mut hasher);
         self.general.prism_support.hash(&mut hasher);
         self.general.patrol_scan_minutes.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);
@@ -8085,25 +8113,31 @@ MutateWarhead=MyMutate\n\
         let defaults = GeneralRules::default();
         assert!(defaults.ambient_change_rate_nonzero);
         assert_eq!(defaults.ambient_change_interval_frames, 180);
-        assert_eq!(defaults.ambient_change_step, 20);
+        assert_eq!(defaults.ambient_change_step, 10);
 
-        let stock = GeneralRules::from_ini(&IniFile::from_str(
-            "[General]\nAmbientChangeRate=.2\nAmbientChangeStep=.2\n",
-        ));
+        let stock = RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nAmbientChangeRate=.2\nAmbientChangeStep=.2\n",
+        ))
+        .unwrap()
+        .general;
         assert!(stock.ambient_change_rate_nonzero);
         assert_eq!(stock.ambient_change_interval_frames, 180);
         assert_eq!(stock.ambient_change_step, 20);
 
-        let tiny = GeneralRules::from_ini(&IniFile::from_str(
-            "[General]\nAmbientChangeRate=.0009\nAmbientChangeStep=.019\n",
-        ));
+        let tiny = RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nAmbientChangeRate=.0009\nAmbientChangeStep=.019\n",
+        ))
+        .unwrap()
+        .general;
         assert!(tiny.ambient_change_rate_nonzero);
         assert_eq!(tiny.ambient_change_interval_frames, 0);
         assert_eq!(tiny.ambient_change_step, 1);
 
-        let disabled = GeneralRules::from_ini(&IniFile::from_str(
-            "[General]\nAmbientChangeRate=0\nAmbientChangeStep=.2\n",
-        ));
+        let disabled = RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nAmbientChangeRate=0\nAmbientChangeStep=.2\n",
+        ))
+        .unwrap()
+        .general;
         assert!(!disabled.ambient_change_rate_nonzero);
         assert_eq!(disabled.ambient_change_interval_frames, 0);
     }
@@ -10921,3 +10955,7 @@ Projectile=Invisible
         );
     }
 }
+
+#[cfg(test)]
+#[path = "map_lighting_tests.rs"]
+mod map_lighting_tests;

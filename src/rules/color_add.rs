@@ -25,6 +25,8 @@ pub struct ColorAddTable {
 
 impl Default for ColorAddTable {
     fn default() -> Self {
+        // RulesClass665650 initializes all16 triples to black before Process.
+        // Original prefilled constructor control: tools/berserk_color.json.
         Self {
             slots: std::array::from_fn(|_| ColorAddEntry::default()),
         }

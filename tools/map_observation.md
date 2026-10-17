@@ -138,6 +138,19 @@ not dynamic structure passability. Historical receipts may omit these additions;
 omission supplies no evidence. Post-Logic observations cannot prove ordering
 between objects within a Logic pass.
 
+The [Cell building-query profile](map_observation.cell-building-query.example.json)
+uses the ordinary XMP03T4/Battle Allied opening: pay for power, barracks, refinery,
+war factory, service depot and AMCV, then request deployment inside the factory's
+ground footprint and again after moving away. Its
+[expectations](map_observation.cell-building-query.expectations.json) check the
+retained Move/NavCom at step7381, queued Unload at8401, the converted yard at40,96,
+and9100 credits spent. Actor1737 and yard2176 belong to this exact launch/command
+sequence; changing it requires discovery again. The initial MCV and production
+types use v3 bindings. The interior request is deliberately after factory contact
+release while the physical cell is still29,92. This is a production integration
+control, not native timing or whole-function parity; marked dying and special
+foundation inputs are separate component regressions.
+
 Requested terrain cells also report `local_visibility`: the current viewer's
 owner name and retained `revealed`, `visible` and `gap_covered` queries. It is
 `null` when no local viewer resolves. These read-only observations let a GPU
@@ -318,6 +331,24 @@ Current coordinate-sound rows also retain signed XYZ `coordinate_leptons`
 and the u32 caller `flags`. The reader accepts them as a bounded pair and
 does not derive them from projected pixels. Historical rows may omit both;
 their omission supplies no raw coordinate or flags evidence.
+
+Optional `observe_audio.coordinate_request_scope` selects `all` (the
+historical default) or `watched`. The latter keeps only coordinate nodes whose
+resolved sound ID matches `sound_ids` in each passive frame snapshot. This
+bounds a long focused run without retaining every unrelated map ambience
+node. Unbound nodes are excluded in that scope. Playback and final whole-pool,
+channel and coordinate-node counts remain global; an empty filtered list does
+not establish an empty global registry. Old executables require the historical
+four-field audio profile.
+
+`map_observation.radar-availability-audio.example.json` follows an ordinary
+paid Soviet opening on XMP03T4, sells the completed NARADR, then builds and
+places its replacement. Its RadarOn/RadarOff filter observes the registered
+centered one-shots from House508DF0 through Radar656DF0/656BE0; the housing
+owner suppresses equal availability updates and source hydration is silent.
+Inspect actual payment, placement and sale results alongside sample identity,
+PCM and event/channel retirement. The observation does not certify native
+whole-world scheduling, device mixing or speaker output.
 
 The production SfxPlayer enables the recorder at accepted L0. Its existing
 decoder, arbiter, Player, gain/pause/stop processing and device mixer still own
@@ -2290,6 +2321,15 @@ MTNK to `(37,88)` and orders ForceAttackCell at `(33,88)`; the profile supplies
 no ready product, overlay state, damage stage or random result. The defense
 tab samples retain the normal queue view. Numeric command handles belong to
 this launch; rediscover bindings with v3 named commands after changing it.
+
+The [wall-sale profile](map_observation.wall-sale.example.json) reuses that
+paid opening, attacks `(33,89)`, then enters Sell, clicks the actual wall and
+exits with RMB. These three gestures share one step because observation draws
+require a static cursor. Receipts retain sticky Sell mode after the left click
+and the queued signed Cell-sale command; subsequent frames observe removal,
+path reopening, attacker release and no refund. The audio recorder observes
+the ordinary SellBuilding player. This unsuspended tank route does not prove
+the distinct native Drive obstruction/Override prerequisite or native audio.
 
 The original-executable [wall component](spatial_oracle/anytown_damage/navigation.md)
 separately establishes three-stage AP damage, inline cardinal damage200,

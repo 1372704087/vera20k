@@ -1,4 +1,5 @@
 use super::*;
+use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::terrain_rules::TerrainClass;
 use crate::sim::bounce::{BounceOutcome, BounceState};
@@ -115,7 +116,7 @@ fn fixture(case: &Value) -> Simulation {
                 id,
                 MovementLayer::Ground,
                 None,
-                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+                crate::sim::occupancy::CellListInsertion::from_category(category),
             );
         }
     }
@@ -274,16 +275,8 @@ impl<'a> BounceTerrain for RecordingTerrain<'a> {
                     .inner
                     .sim
                     .occupancy()
-                    .get(cell.rx, cell.ry)
-                    .is_some_and(|o| {
-                        o.iter_layer(MovementLayer::Ground).any(|v| {
-                            self.inner
-                                .sim
-                                .entities()
-                                .get(v.entity_id)
-                                .is_some_and(|e| e.category() == EntityCategory::Structure)
-                        })
-                    });
+                    .first_building_on_layer(cell.rx, cell.ry, MovementLayer::Ground)
+                    .is_some();
                 (i32::from(cell.rx), i32::from(cell.ry), false, has)
             }
         };

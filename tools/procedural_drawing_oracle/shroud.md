@@ -699,3 +699,73 @@ remain its production lifecycle tests. Drawing itself writes no actor/timer,
 consumes no RNG and calls no detach. Arbitrary Building types, missing resources,
 large foundations, other status families and whole function/class coverage stay
 OPEN/PARTIAL.
+
+## Ordinary selected GAPOWR Power/Drain text
+
+`--building-power-status` adds `building_power_status.json/.meta.json` through
+an opt-in mode of the existing PRIMARY generator. The Building/PaletteReader,
+physical layers, Ground2 caller, text recorder, GAME.FNT loader, House colors
+and packed Surface raster remain the same owners. Historical PRIMARY, group
+and every other corpus are preserved.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --building-power-status --check
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --primary-factory-status --check
+```
+
+Original normal TacticalDraw calls6D8DB0 at6D465F. Its after-Ground2 sweep
+6D9423..6D95A1 walks the native constructor-registered Building array, tests
+marked74/body-opportunity99 and viewport bounds, then calls43E7B0. Selected83
+and owner-allied-to-current admit virtual+458=70AA60. Its first arm requires
+Building RTTI6, positive rated Power atType+EE0 and false primary3D3. Ordinary
+stock GAPOWR satisfies those type/primary conditions. No debug/info switch is
+read in this call chain; earlier Display/selection writers remain instruction
+and production evidence, rather than a complete native frame in this corpus.
+
+Whole original45DD90/45FE50 readers record constructor Power output/drain0/0,
+physical RULES200/0 and Strength750, then retained values when mode/map sections
+are absent. `reader_controls.{constructor,history}` additionally executes full
+45FE50 on a fresh native GAPOWR type in the same VM. Each history row keeps raw
+`sections`, normalized `cached_sections`, `admitted`, actual `power_reads`
+(default/value from5276D0), and native `after` fields. Existing lexical input
+preparation omits physical empty entries. Missing/empty values retain current;
+present junk reads0; key case is exact; numeric suffix17junk reads17. Original
+signed overflow2147483648 readsINT_MIN and NEG32 leaves the drain slotINT_MIN;
+a later missing read reconstructs that same signed default. These are cached
+native reader controls, excluding full native file loading and synthetic
+stored-empty entries.
+
+Native House constructor-store prefix4F5DCC..4F5DF6 publishes actual House+24
+interface7EA834. Draw70AA60 queries its drain slot24=4F6A10 first and output
+slot20=4F6A00 second. They return retained House53A8/53A4 without recomputing.
+`input.retained_house_power` is keyed by `Owner`/`Ally`, each with signed
+`output`/`drain`; those are declared consumer priors, including zero, signed and
+other-owner totals that differ from the visible plant's type or fresh sum.
+`getter_calls` records original return EAX and owner. The existing PowerState
+and power-assessment lifecycle remain authoritative; this oracle adds neither.
+
+Physical `TXT_POWER_DRAIN2` is `Power = %d Drain = %d`. Original CRT7CA564 and
+7D21BE execute both substitutions; `format_calls` observes actual arguments,
+return count and UTF16. The existing shared `install_digit_format(native=True)`
+only installs the established single-thread Interlocked import owner. Its
+default single-digit transport remains unchanged. No host string formatting,
+text measurement, clip, rectangle, glyph or pixel algorithm produces a golden.
+
+Seventeen `raster_controls` preserve the PRIMARY row/input schema and use
+`current_layer=2`: selected/deselected/hover-only, mark/opportunity, directional
+alliance/nonallied-zero-mask, four A values, occluding Z, viewport edges,
+retained caches and two positive overlapping parents. Original4A59E0/421B60,
+black fill/House-color outline and4A5EB0/GAME.FNT raster execute in order for each
+parent. `text_draws` keeps actual text/origin/rect/stage A/Z counters; `pixels`
+keeps final sparse packed words. Unused individual glyph memory events are
+omitted in this new mode. Two separate `caller_controls` execute native layer1/3
+rejection; they do not require another production phase decision in the frame
+producer. Historical PRIMARY remains the consumed stock GAWEAP nonpositive
+Power/PRIMARY fallback guard.
+
+Every measured row asserts unchanged actor/House bytes, A/Z and original code,
+with no drawing RNG, timer write or detach. Selected/hover, mark/opportunity,
+health/location, palette and retained House totals are declared priors. Full
+House construction/assessment, selection, Display traversal, device output,
+nonallied+210 production, arbitrary strings/locales and whole functions/classes
+remain OPEN/PARTIAL.

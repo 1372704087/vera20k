@@ -502,7 +502,12 @@ pub struct ObjectType {
     /// Art.ini image reference. Defaults to the object's ID if not specified.
     /// Used to look up sprite/voxel filenames in art.ini.
     pub image: String,
-    /// Power generation (positive) or consumption (negative). Buildings only.
+    /// Signed Power read result for Buildings. Constructor45DEF6/45DEFC
+    /// starts output/drain at0;461060..4610A0 passes their reconstructed
+    /// signed value to ReadInt5276D0. The existing reached-history reader
+    /// retains that value; power consumers split generation from wrapping
+    /// negated consumption.
+    /// Source: building_power_status.json reader_controls.
     pub power: i32,
     /// Extra power bonus per occupant for `InfantryAbsorb`/`UnitAbsorb`
     /// buildings. Parsed from `ExtraPower=` (signed i32). Only contributes

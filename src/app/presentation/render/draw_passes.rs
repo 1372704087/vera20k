@@ -27,7 +27,7 @@ pub(super) struct DrawPassData<'a> {
     pub overlay_render_z: &'a [RenderZPolicy],
     pub bridge_shadows: &'a [SpriteInstance],
     pub object_layers: &'a [super::draw_plan_lowering::ObjectLayerPass; 5],
-    pub primary_factory_status:
+    pub building_status_text:
         &'a crate::app::presentation::ui_overlays::BuildingStatusTextInstances,
     pub surface_effects: crate::render::terrain_draw::SurfaceLineBatch,
     pub sidebar_unavailable: &'a [SpriteInstance],
@@ -423,9 +423,9 @@ pub(super) fn dispatch_draw_passes(
                     .match_presentation
                     .selection_overlay
                     .as_ref(),
-                pool.get("primary_factory_status").map(|(buffer, _)| buffer),
+                pool.get("building_status_text").map(|(buffer, _)| buffer),
                 Some(state.renderer.bit_font.atlas()),
-                &data.primary_factory_status.runs,
+                &data.building_status_text.runs,
             );
         }
     }

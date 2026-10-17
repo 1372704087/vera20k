@@ -392,20 +392,83 @@ fn native_repair_wrenches_preserve_color_a_z_and_parent_order() {
 #[test]
 #[ignore = "requires retail assets and GPU; original Ground2 PRIMARY loop, physical text and unchanged A/Z"]
 fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
-    use crate::app::presentation::ui_overlays::build_primary_factory_status_render_instances;
+    native_building_status_labels("tools/procedural_drawing_oracle/primary_factory_status.json");
+}
+
+#[test]
+#[ignore = "requires retail assets and GPU; original GAPOWR power text, retained House totals and unchanged A/Z"]
+fn native_power_status_labels_preserve_color_a_z_and_constructor_order() {
+    native_building_status_labels("tools/procedural_drawing_oracle/building_power_status.json");
+}
+
+#[test]
+fn native_power_status_reader_history_reaches_the_immutable_type() {
+    use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+    use crate::rules::ruleset::RuleSet;
+    use crate::test_fixture::ini_sections;
+
+    let native =
+        crate::test_fixture::json("tools/procedural_drawing_oracle/building_power_status.json");
+    let controls = &native["reader_controls"];
+    let mut expected = controls["constructor"]["power_output"].as_i64().unwrap() as i32;
+    let mut layers = RulesLayerStack::new(crate::rules::ini_parser::IniFile::from_str(
+        "[BuildingTypes]\n0=GAPOWR\n[GAPOWR]\n",
+    ));
+    assert_eq!(
+        RuleSet::from_rules_layers(&layers)
+            .unwrap()
+            .object("GAPOWR")
+            .unwrap()
+            .power,
+        expected
+    );
+    for row in controls["history"].as_array().unwrap() {
+        let reads = row["power_reads"].as_array().unwrap();
+        if let Some(read) = reads.last() {
+            expected = read["value"].as_i64().unwrap() as i32;
+        }
+        layers.push(RulesLayerKind::Scenario, ini_sections(&row["sections"]));
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        assert_eq!(
+            rules.object("GAPOWR").unwrap().power,
+            expected,
+            "{} original admitted Power reader",
+            row["name"]
+        );
+    }
+    if let Some(retail) =
+        crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    {
+        let last = native["type_layer_fields"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap();
+        assert_eq!(
+            retail.rules.object("GAPOWR").unwrap().power,
+            last["after"]["power_output"].as_i64().unwrap() as i32,
+            "physical RULESMD/LANGRULE/Battle/XMP03T4 GAPOWR Power"
+        );
+    }
+}
+
+fn native_building_status_labels(fixture: &'static str) {
+    use crate::app::presentation::ui_overlays::build_building_status_render_instances;
     use crate::sim::{command::Command, house_state::HouseState};
     use std::collections::BTreeSet;
 
-    let native =
-        crate::test_fixture::json("tools/procedural_drawing_oracle/primary_factory_status.json");
-    let producer = crate::test_fixture::json("tools/spatial_oracle/building_manual_primary.json");
-    assert_eq!(native["native_sha256"], producer["native_sha256"]);
-    for (key, phase) in [("primary_on", 3), ("primary_off", 5)] {
-        assert_eq!(
-            native["producer_priors"][key]["value"],
-            producer["cases"][0]["phases"][phase]["state"]["primary"][1],
-            "the renderer's primary-byte priors come from original Event17 output"
-        );
+    let native = crate::test_fixture::json(fixture);
+    if native.get("producer_priors").is_some() {
+        let producer =
+            crate::test_fixture::json("tools/spatial_oracle/building_manual_primary.json");
+        assert_eq!(native["native_sha256"], producer["native_sha256"]);
+        for (key, phase) in [("primary_on", 3), ("primary_off", 5)] {
+            assert_eq!(
+                native["producer_priors"][key]["value"],
+                producer["cases"][0]["phases"][phase]["state"]["primary"][1],
+                "the renderer's primary-byte priors come from original Event17 output"
+            );
+        }
     }
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
         .expect("physical Battle INIs");
@@ -437,11 +500,8 @@ fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
         native["retail_csf"]["sha256"].as_str().unwrap()
     );
     let csf = crate::assets::csf_file::CsfFile::from_bytes(csf_bytes).unwrap();
-    for key in ["TXT_PRIMARY", "TXT_PRI"] {
-        assert_eq!(
-            csf.text(key).as_ref(),
-            native["retail_csf"]["labels"][key].as_str().unwrap()
-        );
+    for (key, value) in native["retail_csf"]["labels"].as_object().unwrap() {
+        assert_eq!(csf.text(key).as_ref(), value.as_str().unwrap());
     }
     let short_rules = primary_label_rules_with_fixed_art_override(&assets, &root);
     let gpu = Gpu::new();
@@ -487,6 +547,17 @@ fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
                 sim.houses
                     .insert(house, HouseState::new(house, 0, None, true, 0, 10));
                 sim.session.house_order.push(house);
+            }
+            if let Some(totals) = input["retained_house_power"].as_object() {
+                for (name, values) in totals {
+                    // Native IHouse4F6A00/4F6A10 query these supplied retained
+                    // slots. Drawing must not recompute them from the actors.
+                    let house = sim.interner.get(name).unwrap();
+                    let mut power = crate::sim::power_system::PowerState::default();
+                    power.total_output = values["output"].as_i64().unwrap() as i32;
+                    power.total_drain = values["drain"].as_i64().unwrap() as i32;
+                    sim.power_states.insert(house, power);
+                }
             }
             for (admitted, asker, other) in [
                 (
@@ -583,7 +654,7 @@ fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
                 );
                 colors.insert(actor["owner"].as_str().unwrap().to_owned(), color);
             }
-            let labels = build_primary_factory_status_render_instances(
+            let labels = build_building_status_render_instances(
                 &sim,
                 &opportunities,
                 owner,
@@ -625,7 +696,7 @@ fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
             pool.upload_on_device(
                 &gpu.device,
                 &gpu.queue,
-                "primary_factory_status",
+                "building_status_text",
                 &labels.instances,
             );
             let a_input =
@@ -653,7 +724,7 @@ fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
                 clip,
                 &batch,
                 Some(&overlay),
-                pool.get("primary_factory_status").map(|(buffer, _)| buffer),
+                pool.get("building_status_text").map(|(buffer, _)| buffer),
                 Some(font.atlas()),
                 &labels.runs,
             );

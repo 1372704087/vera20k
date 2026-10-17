@@ -9,6 +9,7 @@ use crate::app::input::cursor::{
 };
 use crate::app::presentation::instances::in_view;
 use crate::app::types::{CursorId, HoverTargetKind, SoftwareCursorSequence};
+use crate::assets::csf_file::{CsfArg, format_csf};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseColorMap;
 use crate::render::batch::{BatchTexture, SpriteInstance};
@@ -17,6 +18,7 @@ use crate::rules::house_colors::{HouseColorRamps, NO_REMAP};
 use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::Position;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// Authentic pip counts for unit health bars.
 const UNIT_PIPS_VEHICLE: u32 = 17; // vehicles + aircraft
@@ -260,7 +262,8 @@ pub(crate) struct StatusTextRun {
 }
 
 /// BuildingClass::Array-ordered text emitted once after Ground2. This is draw
-/// data only; ProductionState remains the owner of every primary identity.
+/// data only; ProductionState owns primary identities and PowerState owns the
+/// retained House totals.
 #[derive(Debug, Default)]
 pub(crate) struct BuildingStatusTextInstances {
     pub instances: Vec<SpriteInstance>,
@@ -288,7 +291,7 @@ fn status_text_tint(
 ) -> [f32; 3] {
     let owner = sim.interner.resolve(entity.owner());
     let color = house_color_map.get(owner).copied().unwrap_or(NO_REMAP);
-    // Both70A8xx and70ACxx read House+56F9, not ColorScheme UI text RGB.
+    //70A8xx/70ABxx/70ACxx read House+56F9, not ColorScheme UI text RGB.
     let [red, green, blue] =
         crate::render::palette_light::house_color_rgb(house_color_ramps, color);
     let [red, green, blue, _] =
@@ -299,7 +302,7 @@ fn status_text_tint(
 
 /// The shared7BB020/7BAD90/434120 material geometry. Callers supply their
 /// already measured/clipped backing and native glyph origin; group and
-/// PRIMARY deliberately use different rectangles and alignment.
+/// Building labels deliberately use different rectangles and alignment.
 fn status_text_instances(
     font: &BitFont,
     text: &str,
@@ -530,13 +533,14 @@ pub(crate) fn build_control_group_status_instances(
     )
 }
 
-/// Building43E7B0 -> Techno70AA60 PRIMARY, called from Tactical6D957A
-/// after Ground2. The caller supplies this frame's native +99 body
+/// Building43E7B0 -> Techno70AA60 Power/Drain and PRIMARY, called from
+/// Tactical6D957A after Ground2. The caller supplies this frame's native +99 body
 /// opportunities; successful glyph/body pixels are not the admission fact.
 /// BuildingClass::Array order is the existing monotonic construction-ID
 /// order, independent of the retained Display sort. No RNG/timer/detach or
-/// persistent state is changed. Native pixels: primary_factory_status.json.
-pub(crate) fn build_primary_factory_status_render_instances(
+/// persistent state is changed. Native pixels: building_power_status.json and
+/// primary_factory_status.json under tools/procedural_drawing_oracle.
+pub(crate) fn build_building_status_render_instances(
     sim: &crate::sim::world::Simulation,
     body_opportunities: &BTreeSet<u64>,
     current_house_id: crate::sim::intern::InternedId,
@@ -557,7 +561,6 @@ pub(crate) fn build_primary_factory_status_render_instances(
             || !body_opportunities.contains(&entity.stable_id())
             || !entity.lifecycle.cell_marked()
             || !entity.selection.is_selected()
-            || !sim.production.is_primary_factory(entity.stable_id())
             || !crate::map::houses::is_allied_with(
                 &sim.house_alliances,
                 sim.interner.resolve(entity.owner()),
@@ -571,6 +574,12 @@ pub(crate) fn build_primary_factory_status_render_instances(
         let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
             continue;
         };
+        let primary = sim.production.is_primary_factory(entity.stable_id());
+        //70AA88..70AAA4 admits the positive type Power arm only when the
+        //primary latch is clear.70ABEA then tests that latch for PRIMARY.
+        if !primary && object.power <= 0 {
+            continue;
+        }
         let location = crate::sim::movement::ground_pose::object_location(
             entity,
             sim.resolved_terrain.as_ref(),
@@ -592,17 +601,36 @@ pub(crate) fn build_primary_factory_status_render_instances(
         {
             continue;
         }
-        //70AC24's45EC90 uses foundation CELL width, not Dimension2 leptons.
-        let key = if crate::rules::foundation::foundation_dimensions(&object.foundation).0 == 1 {
-            "TXT_PRI"
+        let text = if primary {
+            //70AC24's45EC90 uses foundation CELL width, not Dimension2 leptons.
+            let key = if crate::rules::foundation::foundation_dimensions(&object.foundation).0 == 1
+            {
+                "TXT_PRI"
+            } else {
+                "TXT_PRIMARY"
+            };
+            csf.text(key)
         } else {
-            "TXT_PRIMARY"
+            //70AAAA..70AAEA reads the owner's retained IHouse4F6A00/4F6A10
+            //slots and formats physical TXT_POWER_DRAIN2. Drawing neither
+            //reassesses power nor substitutes the selected building's output.
+            let (output, drain) = crate::sim::production::power_balance_for_owner(
+                sim,
+                rules,
+                sim.interner.resolve(entity.owner()),
+            );
+            Cow::Owned(format_csf(
+                &csf.text("TXT_POWER_DRAIN2"),
+                &[
+                    CsfArg::Int(i64::from(output)),
+                    CsfArg::Int(i64::from(drain)),
+                ],
+            ))
         };
-        let text = csf.text(key);
         let measure = font.compute_text_rect(&text, anchor, 0x149, [4, 2]);
         let clipped = crate::util::rect::clip_rect(measure, tactical_clip);
-        //70AC60 and4A5EF9 share the whole-string center. Unlike group,
-        //PRIMARY does not expand the clipped backing one pixel left.
+        //70AB0A/70AC60 and4A5EF9 share the whole-string center. Unlike
+        //group, these labels do not expand the clipped backing one pixel left.
         let origin = [
             measure[0].wrapping_add(4) as f32 + camera[0],
             measure[1].wrapping_add(2) as f32 + camera[1],
@@ -620,8 +648,9 @@ pub(crate) fn build_primary_factory_status_render_instances(
 }
 
 /// AppState supplies current resources and the existing tactical viewport;
-/// the sim's primary query and the per-frame body plan supply all identities.
-pub(crate) fn build_primary_factory_status_instances(
+/// simulation owners supply primary identity and retained power, and the
+/// per-frame body plan supplies the current opportunities.
+pub(crate) fn build_building_status_instances(
     state: &AppState,
     body_opportunities: &BTreeSet<u64>,
 ) -> BuildingStatusTextInstances {
@@ -641,7 +670,7 @@ pub(crate) fn build_primary_factory_status_instances(
     };
     let (width, height) = crate::app::input::camera::tactical_viewport_size(state);
     let zoom = state.match_state.input.zoom_level;
-    build_primary_factory_status_render_instances(
+    build_building_status_render_instances(
         sim,
         body_opportunities,
         current_house,

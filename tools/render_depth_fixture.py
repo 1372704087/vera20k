@@ -9,6 +9,7 @@ Usage:
     python tools/render_depth_fixture.py target/depth-comparison/building-repair.map --building-repair
     python tools/render_depth_fixture.py target/depth-comparison/attack-voice.map --attack-order-voice unit
     python tools/render_depth_fixture.py target/depth-comparison/self-heal.map --house-self-heal
+    python tools/render_depth_fixture.py target/stock-e1-feedback-removal.map --damage-feedback removal
 
 This writes only the requested map. It neither edits game configuration nor
 launches either engine. The cliff fixture deliberately focuses on one cliff
@@ -137,18 +138,23 @@ C = 48
 def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
                   building_brackets: bool = False, building_repair: bool = False,
                   attack_order_voice: str | None = None,
-                  house_self_heal: str | None = None) -> str:
+                  house_self_heal: str | None = None,
+                  damage_feedback: str | None = None) -> str:
     """Keep comparison geometry stable within each selectable scene."""
     if house_self_heal not in (None, 'recovery', 'removal'):
         raise ValueError('Unknown House self-heal scene')
+    if damage_feedback not in (None, 'single', 'removal'):
+        raise ValueError('Unknown damage-feedback scene')
     cliff_x0, cliff_y0 = C - 8, C - 2   # 2 wide, 3 tall
     if attack_order_voice not in (None, 'unit', 'building'):
         raise ValueError('Choose a unit or building attack target')
     if sum((walls_only, cliff_back, building_brackets, building_repair,
-            attack_order_voice is not None, house_self_heal is not None)) > 1:
+            attack_order_voice is not None, house_self_heal is not None,
+            damage_feedback is not None)) > 1:
         raise ValueError('Choose one comparison mode')
     building_brackets = building_brackets or building_repair
-    walls_only = walls_only or building_brackets or attack_order_voice is not None or house_self_heal is not None
+    damage_scene = attack_order_voice is not None or house_self_heal is not None or damage_feedback is not None
+    walls_only = walls_only or building_brackets or damage_scene
 
     def high(x, y):
         return y <= x + 6  # Raised ground north-west of the cliff line.
@@ -254,12 +260,12 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
         infantry = []
         overlay[:] = b'\xff' * len(overlay)
         overlay_data[:] = bytes(len(overlay_data))
-    if attack_order_voice or house_self_heal:
+    if damage_scene:
         # One near damage target and one distant opponent keep ordinary
         # Attack/Stop observations separate from immediate victory.
         # Both scenes use untouched retail types, health, weapons and voices.
         # Keep a building's foundation-centre target comfortably in range.
-        unit_target = house_self_heal is not None or attack_order_voice == 'unit'
+        unit_target = damage_feedback is not None or house_self_heal is not None or attack_order_voice == 'unit'
         near, far = (C + (4 if unit_target else 3), C), (C + 12, C + 12)
         unit_cell, plant_cell = (near, far) if unit_target else (far, near)
         structures = [f'0=Computer1,GAPOWR,256,{plant_cell[0]},{plant_cell[1]},0,None,0,0,1,0,0,None,None,None,0,0']
@@ -278,6 +284,18 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
             f'1={"Americans" if house_self_heal else "Computer1"},MTNK,256,{unit_cell[0]},{unit_cell[1]},192,Guard,None,0,-1,0,-1,1,1',
         ]
         infantry = []
+        if damage_feedback:
+            # Full-health stock E1 crosses the real health threshold under
+            # ordinary friendly ForceAttack. Additional stock tanks permit
+            # removal while its unbound GIFear event is still playing.
+            positions = [(C, C)]
+            if damage_feedback == 'removal':
+                positions += [(C, C - 1), (C + 1, C - 1), (C + 1, C + 1), (C + 2, C + 1)]
+            units = [
+                f'{i}=Americans,MTNK,256,{x},{y},64,Guard,None,0,-1,0,-1,1,1'
+                for i, (x, y) in enumerate(positions)
+            ]
+            infantry = [f'0=Americans,E1,256,{near[0]},{near[1]},0,Guard,192,None,0,-1,0,1,1']
         overlay[:] = b'\xff' * len(overlay)
         overlay_data[:] = bytes(len(overlay_data))
     # Stock cliff-back blocking rejects Track/Foot placement in the exact
@@ -286,7 +304,7 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
     cliff_rules = '\n[General]\nCliffBackImpassability=0\n' if cliff_back else ''
     # Match normal Battle's AI slot, so the distant voxel also prevents an
     # empty-house victory from ending sustained selection captures.
-    bracket_house_slot = '\n2=Computer1' if building_brackets or attack_order_voice or house_self_heal else ''
+    bracket_house_slot = '\n2=Computer1' if building_brackets or damage_scene else ''
     bracket_house = '''\n[Computer1]
 Country=YuriCountry
 PlayerControl=no
@@ -296,10 +314,10 @@ Credits=0
 Edge=South
 Allies=Computer1
 Color=DarkRed
-''' if building_brackets or attack_order_voice or house_self_heal else ''
+''' if building_brackets or damage_scene else ''
 
     return f'''[Basic]
-Name=Depth Continuation - {'House Self Heal' if house_self_heal else 'Attack Voice ' + attack_order_voice if attack_order_voice else 'Building Repair' if building_repair else 'Building Brackets' if building_brackets else 'Cliff Back Edge' if cliff_back else 'Walls and Cliff'}
+Name=Depth Continuation - {'GI Fear ' + damage_feedback if damage_feedback else 'House Self Heal' if house_self_heal else 'Attack Voice ' + attack_order_voice if attack_order_voice else 'Building Repair' if building_repair else 'Building Brackets' if building_brackets else 'Cliff Back Edge' if cliff_back else 'Walls and Cliff'}
 NewINIFormat=4
 Player=Americans
 HomeCell={(C + 1) * 1000 + (C - 5)}
@@ -410,12 +428,17 @@ def main() -> None:
         '--house-self-heal', nargs='?', const='recovery', choices=('recovery', 'removal'),
         help='Use an owned stock Tech Machine Shop and two friendly tanks; removal starts the shop at authored 32/256 health',
     )
+    modes.add_argument(
+        '--damage-feedback', choices=('single', 'removal'),
+        help='Use a full-health local GI and stock tanks for damage-fear playback and live removal',
+    )
     args = parser.parse_args()
     mission = build_fixture(walls_only=args.walls_only, cliff_back=args.cliff_back,
                             building_brackets=args.building_brackets,
                             building_repair=args.building_repair,
                             attack_order_voice=args.attack_order_voice,
-                            house_self_heal=args.house_self_heal)
+                            house_self_heal=args.house_self_heal,
+                            damage_feedback=args.damage_feedback)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(mission, encoding='ascii')
     print(f'Wrote {args.output} ({len(mission)} characters)')

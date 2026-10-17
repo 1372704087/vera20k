@@ -8,6 +8,7 @@ use crate::map::lighting::CellLightGrid;
 use crate::map::overlay::OverlayEntry;
 use crate::render::batch::{BatchRenderer, InstanceBufferPool, SpriteInstance};
 use crate::render::overlay_atlas::{OverlayAtlas, build_overlay_atlas_on_device};
+use crate::render::shroud_buffer::ShroudBuffer;
 use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::terrain_draw_gpu_tests::{
     Gpu, assert_native_color_and_depth, camera, clear, encoded, extent,
@@ -21,10 +22,17 @@ struct Probe {
     batches: Vec<(wgpu::TextureFormat, BatchRenderer, OverlayAtlas)>,
     names: BTreeMap<u8, String>,
     size: [u32; 2],
+    lighting: crate::app::presentation::lighting::MatchLighting,
+    live_a: Option<(ShroudBuffer, crate::sim::intern::InternedId, u8)>,
 }
 
 impl Probe {
-    fn new(scene: &HeadlessScenario, packet: &Value) -> Self {
+    fn new(
+        scene: &HeadlessScenario,
+        packet: &Value,
+        source_cell: (u16, u16),
+        viewer: Option<crate::sim::intern::InternedId>,
+    ) -> Self {
         let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("physical retail root"));
         let mut assets = AssetManager::new(&root, MediaArchiveMode::STOCK_DIGITAL).unwrap();
         let mode = crate::rules::ini_parser::IniFile::from_bytes(
@@ -46,6 +54,7 @@ impl Probe {
                     .to_ascii_lowercase()
                     .ends_with(&format!(".{}", theater.extension)))
                 || name.eq_ignore_ascii_case("urban.pal")
+                || name.eq_ignore_ascii_case("temperat.pal")
             {
                 assert_eq!(
                     crate::util::sha256::sha256_hex(assets.get_ref(name).unwrap()),
@@ -61,7 +70,7 @@ impl Probe {
             .map
             .overlays
             .iter()
-            .filter(|e| (e.rx, e.ry) == (123, 33))
+            .filter(|e| (e.rx, e.ry) == source_cell)
             .cloned()
             .collect();
         assert_eq!(entries.len(), 1);
@@ -97,18 +106,53 @@ impl Probe {
             (format, batch, atlas)
         })
         .collect();
+        let size = [
+            packet["surface"]["width"].as_u64().unwrap() as u32,
+            packet["surface"]["height"].as_u64().unwrap() as u32,
+        ];
+        let live_a = viewer.map(|owner| {
+            let shp =
+                crate::assets::shp_file::ShpFile::from_bytes(assets.get_ref("SHROUD.SHP").unwrap())
+                    .unwrap();
+            let (frames, width, height) =
+                crate::render::shroud_buffer::extract_shp_brightness(&shp);
+            (
+                ShroudBuffer::new(
+                    &gpu.device,
+                    &gpu.queue,
+                    size,
+                    [scene.sim().fog.width, scene.sim().fog.height],
+                    frames,
+                    [width, height],
+                    crate::render::shroud_buffer::SHROUD_EDGE_LUT,
+                ),
+                owner,
+                packet["surface"]["a_value"].as_u64().unwrap() as u8,
+            )
+        });
+        let mut lighting = crate::app::presentation::lighting::MatchLighting::default();
+        lighting.install(
+            CellLightGrid::new(),
+            crate::map::lighting::parse_lighting(&scene.map.ini),
+            2,
+            Some((
+                scene.sim().resolved_terrain.as_ref().unwrap(),
+                scene.sim(),
+                rules,
+            )),
+        );
         Self {
             gpu,
             batches,
             names: crate::render::overlay_assets::render_overlay_names(registry),
-            size: [
-                packet["surface"]["width"].as_u64().unwrap() as u32,
-                packet["surface"]["height"].as_u64().unwrap() as u32,
-            ],
+            size,
+            lighting,
+            live_a,
         }
     }
 
-    fn compare(&self, scene: &HeadlessScenario, entries: &[OverlayEntry], row: &Value) {
+    fn compare(&mut self, scene: &HeadlessScenario, entries: &[OverlayEntry], row: &Value) {
+        let hash_before = scene.sim().state_hash();
         let input = &row["input"];
         let rx = input["coords"][0].as_u64().unwrap() as u16;
         let ry = input["coords"][1].as_u64().unwrap() as u16;
@@ -122,8 +166,32 @@ impl Probe {
         ];
         let terrain = scene.sim().resolved_terrain.as_ref().unwrap();
         let heights = terrain.build_height_map();
-        let lighting = CellLightGrid::new();
-        for (format, batch, atlas) in &self.batches {
+        if let Some((source, owner, expected)) = &mut self.live_a {
+            source.rebuild_if_needed(
+                &self.gpu.device,
+                &self.gpu.queue,
+                &scene.sim().fog,
+                *owner,
+                camera.camera_pos[0],
+                camera.camera_pos[1],
+                self.size[0],
+                self.size[1],
+                1.0,
+            );
+            let actual_a = self
+                .gpu
+                .read_float_texels(source.gpu_source().0, [0, 0], self.size);
+            assert!(
+                actual_a
+                    .iter()
+                    .all(|pixel| (pixel[0] * 255.0).round() as u8 == *expected)
+            );
+        }
+        for (format, batch, atlas) in &mut self.batches {
+            batch.bind_shroud(
+                &self.gpu.device,
+                self.live_a.as_ref().map(|(source, _, _)| source),
+            );
             let mut instances: Vec<SpriteInstance> = Vec::new();
             let mut policies: Vec<RenderZPolicy> = Vec::new();
             build_cell_overlay_instances(
@@ -138,7 +206,7 @@ impl Probe {
                     tiberium_types: Some(&scene.runtime.resources.rules.tiberium_types),
                     terrain: Some(terrain),
                     heights: &heights,
-                    lighting: &lighting,
+                    lighting: self.lighting.grid(),
                     scenario_lighting: &scene.sim().session.lighting,
                     camera: camera.camera_pos,
                     viewport: self.size.map(|v| v as f32),
@@ -208,11 +276,149 @@ impl Probe {
             let output = self.gpu.finish(encoder, &reads, self.size);
             assert_native_color_and_depth(&output, row, *format, self.size);
         }
+        assert_eq!(
+            scene.sim().state_hash(),
+            hash_before,
+            "ore presentation is read-only"
+        );
     }
 }
 
 fn packet() -> &'static Value {
     crate::test_fixture::json("tools/spatial_oracle/ore_render.json")
+}
+
+/// Cell483710/487190's ordinary source gain reaches the same retained index,
+/// atlas, A source and Cell47F6A0 submission as the two original rasters. Native
+/// scheduler/RNG and other object AI remain the core consumer's separate scope.
+#[test]
+#[ignore = "requires physical retail XMP03T4 and GPU; ordinary growth publication and native source rasters with live A"]
+fn retail_natural_ore_growth_reaches_index_a_and_native_cell_raster() {
+    use crate::app::presentation::overlay_index::OverlayRenderIndex;
+    use crate::sim::world::{FrameEffects, TickLane};
+
+    let Some((root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let profile = crate::test_fixture::json("tools/map_observation.ore-spread.example.json");
+    assert!(profile["commands"].as_array().unwrap().is_empty());
+    let launch: crate::skirmish_launch::SkirmishLaunchSession =
+        serde_json::from_value(profile["launch"].clone()).unwrap();
+    let map_name = launch.selected_map_file.as_deref().unwrap().to_owned();
+    let native = crate::test_fixture::json("tools/spatial_oracle/ore_render_natural.json");
+    let selected =
+        crate::map::source::load_map_by_name_or_path_with_assets(&root, &map_name, &assets)
+            .unwrap();
+    let map_input = native["inputs"]["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| {
+            source["name"]
+                .as_str()
+                .unwrap()
+                .eq_ignore_ascii_case(&map_name)
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(selected.source).unwrap()["source_sha256"],
+        map_input["sha256"],
+        "physical map, including loose-file precedence"
+    );
+    let mut scene = crate::headless_scenario::load_session(
+        &root,
+        &map_name,
+        profile["seed"].as_u64().unwrap() as u32,
+        launch,
+    )
+    .unwrap();
+    let before = &native["rows"][0];
+    let after = &native["rows"][1];
+    let source = (
+        before["input"]["coords"][0].as_u64().unwrap() as u16,
+        before["input"]["coords"][1].as_u64().unwrap() as u16,
+    );
+    let cell = scene
+        .sim()
+        .resolved_terrain
+        .as_ref()
+        .unwrap()
+        .cell(source.0, source.1)
+        .unwrap();
+    assert_eq!(
+        i64::from(cell.level),
+        before["input"]["level"].as_i64().unwrap()
+    );
+    assert_eq!(cell.slope_type, 0);
+    let mut entries = OverlayRenderIndex::default();
+    entries.replace_from_source(scene.map.overlays.clone());
+    let witnesses = [(71, 24), (72, 24), (73, 24), (71, 25), (71, 26)];
+    assert!(
+        witnesses
+            .iter()
+            .all(|at| !entries.iter().any(|e| (e.rx, e.ry) == *at))
+    );
+    assert!(
+        scene
+            .runtime
+            .simulation
+            .prepare_fog_view_for("VERA-OBSERVER")
+    );
+    let owner = scene.sim().session.current_house.unwrap();
+    let hash = scene.sim().state_hash();
+    let mut probe = Probe::new(&scene, native, source, Some(owner));
+    assert_eq!(
+        scene.sim().state_hash(),
+        hash,
+        "atlas/A/light preparation is read-only"
+    );
+    let source_entries = |index: &OverlayRenderIndex| {
+        index
+            .iter()
+            .filter(|e| (e.rx, e.ry) == source)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let initial = source_entries(&entries);
+    assert_eq!(initial.len(), 1);
+    assert_eq!(
+        u64::from(initial[0].frame),
+        before["input"]["state"].as_u64().unwrap()
+    );
+    probe.compare(&scene, &initial, before);
+
+    let output = scene
+        .runtime
+        .advance_frame(&[], 22, TickLane::Ordinary, FrameEffects::default())
+        .unwrap();
+    assert!(output.tick.frame_committed);
+    entries.remove_cells(&output.overlay_removals);
+    let retained_slot = entries.iter().position(|e| (e.rx, e.ry) == source).unwrap();
+    entries.upsert_occupied(output.overlay_updates);
+    assert_eq!(
+        entries.iter().position(|e| (e.rx, e.ry) == source),
+        Some(retained_slot)
+    );
+    let grown = source_entries(&entries);
+    assert_eq!(grown.len(), 1, "a live update retains one source slot");
+    assert_eq!(
+        u64::from(grown[0].frame),
+        after["input"]["state"].as_u64().unwrap()
+    );
+    for at in witnesses {
+        let retained: Vec<_> = entries.iter().filter(|e| (e.rx, e.ry) == at).collect();
+        assert_eq!(retained.len(), 1, "new ordinary spread cell {at:?}");
+        let live = scene.sim().overlay_grid.as_ref().unwrap().cell(at.0, at.1);
+        assert_eq!(Some(retained[0].overlay_id), live.overlay_id);
+        assert_eq!(retained[0].frame, live.overlay_data);
+    }
+    assert!(
+        scene
+            .runtime
+            .simulation
+            .prepare_fog_view_for("VERA-OBSERVER")
+    );
+    probe.compare(&scene, &grown, after);
 }
 
 #[test]
@@ -223,7 +429,7 @@ fn retail_ore_harvest_publication_matches_original_cell_raster() {
     let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("physical retail root"));
     let mut scene = crate::headless_scenario::load(&root, "GoldSt.mmx", 0x12345678).unwrap();
     let packet = packet();
-    let probe = Probe::new(&scene, &packet);
+    let mut probe = Probe::new(&scene, &packet, (123, 33), None);
     let mut entries = OverlayRenderIndex::default();
     entries.replace_from_source(
         scene
@@ -436,7 +642,7 @@ fn retail_flat_ore_rows_match_original_color_and_depth() {
     let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("physical retail root"));
     let mut scene = crate::headless_scenario::load(&root, "GoldSt.mmx", 0x12345678).unwrap();
     let packet = packet();
-    let probe = Probe::new(&scene, &packet);
+    let mut probe = Probe::new(&scene, &packet, (123, 33), None);
     let registry = &scene.runtime.resources.overlay_registry;
     let tib01 = registry.id_for_name("TIB01").unwrap();
     for control in packet["controls"].as_array().unwrap() {

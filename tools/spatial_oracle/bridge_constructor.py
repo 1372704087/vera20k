@@ -46,11 +46,17 @@ class OriginalBridgeConstructor:
         return self
 
     @staticmethod
-    def empty_registries(u, allocate, capacity=1024):
-        """Original startup vector vtables with supplied spare storage."""
+    def empty_registries(u, allocate, capacity=1024, *, preserve=()):
+        """Original startup vector vtables with supplied spare storage.
+
+        Composed map owners may retain already-populated registries. No live
+        vector is erased when its address is explicitly preserved.
+        """
         for registry, vtable in zip(REGISTRIES, (0x7E4F64, 0x7E91EC, 0x7E91EC, 0x7E91EC, 0x7E9D24)):
-            u.mem_write(registry, dwords(vtable, allocate(capacity * 4), capacity, 0, 0, 0))
-        u.mem_write(0xB0F698, dwords(0x7E91EC, allocate(capacity * 4), capacity, 0, 0, 0))
+            if registry not in preserve:
+                u.mem_write(registry, dwords(vtable, allocate(capacity * 4), capacity, 0, 0, 0))
+        if 0xB0F698 not in preserve:
+            u.mem_write(0xB0F698, dwords(0x7E91EC, allocate(capacity * 4), capacity, 0, 0, 0))
 
     def __init__(self, kind, overlay_id, requested=(16, 16)):
         self.kind, self.overlay_id, self.requested = kind, overlay_id, requested

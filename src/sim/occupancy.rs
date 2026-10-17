@@ -1519,8 +1519,13 @@ impl OccupancyGrid {
             .map(|occupant| occupant.entity_id)
     }
 
-    /// Typed Cell query over a selected native list. The caller owns the native
-    /// scenario-ready gate; this method owns only literal head-to-tail traversal.
+    /// Typed Cell query over a selected native list. Unit `47EBA0` and Infantry
+    /// `47EC40` share this traversal; a nonzero native layer argument selects
+    /// Bridge, otherwise Ground. Select the first category match before caller
+    /// eligibility checks, without health, dying or limbo filters.
+    /// Callers own native GameActive (`A8E9A0`) admission. Original Unit query
+    /// and caller controls are consumed from `tools/spatial_oracle/cmin_dock`
+    /// and `cell_entry_crush_tail`; this method owns stored-list selection only.
     pub fn first_category_on_layer(
         &self,
         rx: u16,

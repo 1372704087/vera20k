@@ -1164,6 +1164,14 @@ pub struct GeneralRules {
     /// Source: tools/input_oracle/radar_availability_audio.md and its consumed corpus.
     pub radar_on: Option<String>,
     pub radar_off: Option<String>,
+    /// Rules+220/+224: constructor66595E/665964 starts at -1;
+    /// AudioVisual66A4EF..66A582 reads SpySatActivationSound then
+    /// SpySatDeactivationSound with ReadString128/Voc7514D0 and retains the
+    /// current fixed-catalog ID on missing, empty or unknown names.
+    /// House508F60 requests the local cue after its map callback/latch edge.
+    /// Source: tools/input_oracle/spy_sat_audio.md and its consumed corpus.
+    pub spy_sat_activation_sound: Option<String>,
+    pub spy_sat_deactivation_sound: Option<String>,
     /// Rules+230, VoiceIFVRepair. Ctor665976 starts at -1;
     /// AudioVisual669D63..669DA7 uses ReadString128/Voc7514D0, retaining
     /// the current ID on missing/empty/unknown text. Fixed SOUNDMD binding
@@ -2314,6 +2322,8 @@ impl Default for GeneralRules {
             guard_sound: None,
             radar_on: None,
             radar_off: None,
+            spy_sat_activation_sound: None,
+            spy_sat_deactivation_sound: None,
             voice_ifv_repair: None,
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
@@ -3389,6 +3399,8 @@ impl GeneralRules {
             guard_sound: None,
             radar_on: None,
             radar_off: None,
+            spy_sat_activation_sound: None,
+            spy_sat_deactivation_sound: None,
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
             add_planning_mode_command_sound: None,
@@ -4294,6 +4306,13 @@ impl RuleSet {
         self.general.radar_off = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "RadarOff"));
+        // Original66A4EF..66A582 shares the retained fixed-catalog reader.
+        self.general.spy_sat_activation_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "SpySatActivationSound"));
+        self.general.spy_sat_deactivation_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "SpySatDeactivationSound"));
         self.general.voice_ifv_repair = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "VoiceIFVRepair"));

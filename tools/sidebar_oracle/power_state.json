@@ -15,6 +15,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -79,6 +80,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -143,6 +145,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -207,6 +210,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -271,6 +275,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -335,6 +340,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -399,6 +405,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -463,6 +470,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -527,6 +535,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -591,6 +600,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -655,6 +665,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -719,6 +730,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -783,6 +795,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -847,6 +860,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -911,6 +925,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -975,6 +990,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1039,6 +1055,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1103,6 +1120,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1167,6 +1185,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1231,6 +1250,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1295,6 +1315,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1359,6 +1380,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1423,6 +1445,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1487,6 +1510,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1551,6 +1575,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1615,6 +1640,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1679,6 +1705,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1743,6 +1770,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -1807,6 +1835,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 9,
           "flash_timer": [
             28,
@@ -1871,6 +1900,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 9,
           "flash_timer": [
             28,
@@ -1935,6 +1965,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 9,
           "flash_timer": [
             28,
@@ -1999,6 +2030,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 8,
           "flash_timer": [
             31,
@@ -2063,6 +2095,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 8,
           "flash_timer": [
             31,
@@ -2127,6 +2160,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 8,
           "flash_timer": [
             31,
@@ -2191,6 +2225,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 7,
           "flash_timer": [
             34,
@@ -2255,6 +2290,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 7,
           "flash_timer": [
             34,
@@ -2319,6 +2355,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 7,
           "flash_timer": [
             34,
@@ -2383,6 +2420,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 6,
           "flash_timer": [
             37,
@@ -2447,6 +2485,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 6,
           "flash_timer": [
             37,
@@ -2511,6 +2550,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 6,
           "flash_timer": [
             37,
@@ -2575,6 +2615,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 5,
           "flash_timer": [
             40,
@@ -2639,6 +2680,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 5,
           "flash_timer": [
             40,
@@ -2703,6 +2745,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 5,
           "flash_timer": [
             40,
@@ -2767,6 +2810,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 4,
           "flash_timer": [
             43,
@@ -2831,6 +2875,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 4,
           "flash_timer": [
             43,
@@ -2895,6 +2940,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 4,
           "flash_timer": [
             43,
@@ -2959,6 +3005,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 3,
           "flash_timer": [
             46,
@@ -3023,6 +3070,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 3,
           "flash_timer": [
             46,
@@ -3087,6 +3135,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 3,
           "flash_timer": [
             46,
@@ -3151,6 +3200,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 2,
           "flash_timer": [
             49,
@@ -3215,6 +3265,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 2,
           "flash_timer": [
             49,
@@ -3279,6 +3330,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 2,
           "flash_timer": [
             49,
@@ -3343,6 +3395,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 1,
           "flash_timer": [
             52,
@@ -3407,6 +3460,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 1,
           "flash_timer": [
             52,
@@ -3471,6 +3525,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 1,
           "flash_timer": [
             52,
@@ -3535,6 +3590,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3599,6 +3655,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3663,6 +3720,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3727,6 +3785,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3791,6 +3850,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3855,6 +3915,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3919,6 +3980,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -3983,6 +4045,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4047,6 +4110,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4111,6 +4175,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4175,6 +4240,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4239,6 +4305,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4303,6 +4370,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4367,6 +4435,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4431,6 +4500,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4495,6 +4565,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4559,6 +4630,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4623,6 +4695,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4687,6 +4760,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4751,6 +4825,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4815,6 +4890,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4879,6 +4955,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -4943,6 +5020,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5007,6 +5085,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5071,6 +5150,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5135,6 +5215,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5199,6 +5280,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5263,6 +5345,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5327,6 +5410,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5391,6 +5475,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5455,6 +5540,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5519,6 +5605,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5583,6 +5670,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5647,6 +5735,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5711,6 +5800,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5775,6 +5865,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5839,6 +5930,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5903,6 +5995,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -5967,6 +6060,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6031,6 +6125,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6095,6 +6190,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6159,6 +6255,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6223,6 +6320,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6287,6 +6385,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6351,6 +6450,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6415,6 +6515,7 @@
             1
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 0,
           "flash_timer": [
             55,
@@ -6484,6 +6585,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6548,6 +6650,7 @@
             2
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6612,6 +6715,7 @@
             3
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6676,6 +6780,7 @@
             4
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6740,6 +6845,7 @@
             5
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6804,6 +6910,7 @@
             6
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -6868,6 +6975,7 @@
             6
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             63,
@@ -6932,6 +7040,7 @@
             6
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 10,
           "flash_timer": [
             63,
@@ -6964,6 +7073,7 @@
             7
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             63,
@@ -7028,6 +7138,7 @@
             7
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             63,
@@ -7092,6 +7203,7 @@
             7
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             126,
@@ -7156,6 +7268,7 @@
             6
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             126,
@@ -7195,6 +7308,7 @@
             5
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             126,
@@ -7233,6 +7347,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             188,
@@ -7271,6 +7386,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             189,
@@ -7309,6 +7425,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 0,
           "flash": 9,
           "flash_timer": [
             250,
@@ -7352,6 +7469,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -7386,6 +7504,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -7420,6 +7539,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             0,
@@ -7454,6 +7574,7 @@
             2
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             0,
@@ -7518,6 +7639,7 @@
             2
           ],
           "dirty": 0,
+          "fill_calls": 0,
           "flash": 10,
           "flash_timer": [
             0,
@@ -7550,6 +7672,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 3,
           "flash": 10,
           "flash_timer": [
             268435455,
@@ -7614,6 +7737,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             268435455,
@@ -7678,6 +7802,7 @@
             1
           ],
           "dirty": 1,
+          "fill_calls": 1,
           "flash": 10,
           "flash_timer": [
             268435455,
@@ -8657,6 +8782,82 @@
         60,
         210
       ]
+    }
+  ],
+  "rated_lists": [
+    {
+      "filled": 1,
+      "name": "empty",
+      "powers": [],
+      "strip_height": 90,
+      "total": 0
+    },
+    {
+      "filled": 9,
+      "name": "stock-output",
+      "powers": [
+        150
+      ],
+      "strip_height": 90,
+      "total": 150
+    },
+    {
+      "filled": 1,
+      "name": "stock-drain",
+      "powers": [
+        -10
+      ],
+      "strip_height": 90,
+      "total": 10
+    },
+    {
+      "filled": 9,
+      "name": "stock-mixed",
+      "powers": [
+        150,
+        -10
+      ],
+      "strip_height": 90,
+      "total": 160
+    },
+    {
+      "filled": 31,
+      "name": "signed-min",
+      "powers": [
+        -2147483648
+      ],
+      "strip_height": 90,
+      "total": -2147483648
+    },
+    {
+      "filled": 31,
+      "name": "output-overflow",
+      "powers": [
+        2147483647,
+        1
+      ],
+      "strip_height": 90,
+      "total": -2147483648
+    },
+    {
+      "filled": 31,
+      "name": "drain-overflow",
+      "powers": [
+        -2147483647,
+        -1
+      ],
+      "strip_height": 90,
+      "total": -2147483648
+    },
+    {
+      "filled": 1,
+      "name": "two-min-wrap",
+      "powers": [
+        -2147483648,
+        -2147483648
+      ],
+      "strip_height": 90,
+      "total": 0
     }
   ]
 }

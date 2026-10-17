@@ -192,6 +192,37 @@ def collect_state():
     def signed(u, address, count=1):
         return list(struct.unpack('<' + 'i' * count, u.mem_read(address, 4 * count)))
 
+    # Observe the original combined dword before 63F8AF converts it to x87.
+    # Power's list traversal does not read the building's live state or the
+    # House's dirty assessment cache. The supplied signed Power values use
+    # BuildingType reader461060..46109A's EE0/EE4 split (including NEG MIN).
+    rated_lists = []
+    for name, powers in (
+            ('empty', ()), ('stock-output', (150,)), ('stock-drain', (-10,)),
+            ('stock-mixed', (150, -10)), ('signed-min', (-0x80000000,)),
+            ('output-overflow', (0x7fffffff, 1)),
+            ('drain-overflow', (-0x7fffffff, -1)),
+            ('two-min-wrap', (-0x80000000, -0x80000000))):
+        u, _, _ = fixture()
+        n.put32(u, 0xb0b504, 90)
+        n.put32(u, house + 0x78, len(powers))
+        for typ, power in zip(types, powers):
+            n.put32(u, typ + 0xee0, power if power >= 0 else 0)
+            n.put32(u, typ + 0xee4, -power if power < 0 else 0)
+        totals = []
+
+        def observe_total(_u, address, _size, _data):
+            assert address == 0x63f8ab
+            totals.append(struct.unpack('<i', struct.pack('<I',
+                u.reg_read(UC_X86_REG_EDX)))[0])
+
+        u.hook_add(UC_HOOK_CODE, observe_total, begin=0x63f8ab, end=0x63f8ab)
+        call(u, 0x63f850, ecx=owner)
+        assert len(totals) == 1, (name, totals)
+        filled = struct.unpack('<i', struct.pack('<I', u.reg_read(UC_X86_REG_EAX)))[0]
+        rated_lists.append(dict(name=name, powers=list(powers), strip_height=90,
+                                total=totals[0], filled=filled))
+
     numeric = []
     for precision in (0xe7f,):
         u, _, _ = fixture(precision)
@@ -237,6 +268,9 @@ def collect_state():
     }
     for name, schedule in schedules.items():
         u, commands, _ = fixture()
+        fill_calls = []
+        u.hook_add(UC_HOOK_CODE, lambda *_: fill_calls.append(True),
+                   begin=0x63f850, end=0x63f850)
         visits = []
         for wall_ms, height, output, drain, total, visible, reset in schedule:
             n.put32(u, wall_slot, wall_ms)
@@ -244,6 +278,7 @@ def collect_state():
                 call(u, 0x63f730, ecx=owner)
             inputs(u, height, output, drain, total)
             u.mem_write(0x884b8d, bytes([visible]))
+            fill_calls.clear()
             call(u, 0x63fea0, (0, 0), ecx=owner)
             dirty = int(u.mem_read(owner + 0x150c, 1)[0])
             commands.clear()
@@ -260,10 +295,11 @@ def collect_state():
                                flash_timer=[signed(u, owner + 0x1510)[0], signed(u, owner + 0x1518)[0]],
                                slide_timer=[signed(u, owner + 0x1520)[0], signed(u, owner + 0x1528)[0]],
                                cached=signed(u, owner + 0x153c, 2),
+                               fill_calls=len(fill_calls),
                                animating=bool(u.mem_read(owner + 0x1538, 1)[0]), dirty=dirty,
                                frames=[row[0] for row in commands]))
         histories.append(dict(name=name, visits=visits))
-    return dict(numeric=numeric, histories=histories)
+    return dict(rated_lists=rated_lists, numeric=numeric, histories=histories)
 
 
 if __name__ == '__main__':
@@ -273,7 +309,7 @@ if __name__ == '__main__':
     if options.state:
         finish_vectors(collect_state, Path(__file__).with_name('power_state.json'), argv=rest,
                        provenance=lambda: provenance(
-            scope='Power numeric controls and retained constructor/AI/draw histories; supplied House accounting and geometry.',
+            scope='Power typed-House-list sums/fill returns, numeric controls and retained AI query-admission/state/draw histories; supplied House accounting and geometry.',
             assumptions=['House power interface vtable7EA834 and its real getters; supplied House output/drain and owned typed-building list.',
                          'Native PC53/chop control word0x0E7F. No House producer/native scenario equivalence.',
                          'Constructor/reset inherited Radar body excluded. Power initial fields and clocks execute original instructions.'],
@@ -281,6 +317,7 @@ if __name__ == '__main__':
                            'Inherited Radar constructor/reset/AI returns at its interface. No Radar-state equivalence.',
                            'Existing surface-bounds and CC_Draw_Shape command transport; no native pixels.'],
             entry_points={'constructor':0x63F6B0,'reset':0x63F730,'fill':0x63F850,
+                          'rated_sum_observer':0x63F8AB,
                           'distribution':0x63F960,'animation':0x63FEA0,'draw':0x63FB20}))
     else:
         finish_vectors(collect,Path(__file__).with_suffix('.json'),argv=rest,provenance=lambda:provenance(

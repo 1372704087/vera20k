@@ -917,11 +917,9 @@ impl ResolvedTerrainGrid {
     /// waterfall tile ([`TileIds::is_water_shore_or_waterfall`], the one
     /// port). The shared dummy's tile is 0xFFFF.
     ///
-    /// RESIDUAL: that port skips a family whose base is -1; native compares
-    /// against the -1 base too, so on Lunar (no WaterSet or ShorePieces)
-    /// tiles 0..40 answer true. Trigger: a Chrono Warp landing on a Lunar
-    /// cell its object cannot enter (PostWarpValidation). Effect: VERA
-    /// destroys the object where native sinks it.
+    /// Absent bases still describe signed windows: Lunar ShorePieces=-1
+    /// admits tiles0..40. PostWarpValidation718AA9 uses this decision after
+    /// an entry refusal to choose living sinking rather than C4 destruction.
     ///
     /// [`TileIds::is_water_shore_or_waterfall`]:
     /// crate::map::rmg::tiles::TileIds::is_water_shore_or_waterfall

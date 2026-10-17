@@ -157,9 +157,11 @@ impl TileIds {
         base_or_lat(tile, self.sand, self.sand_lat)
     }
 
-    /// Shore-piece set membership.
+    /// Original Cell4865B0, signed ShorePieces window without an absent-base
+    /// guard (original executable;
+    /// tools/rules_oracle/theater_general_reader.md establishes its input).
     pub fn is_shore_piece(&self, tile: i32) -> bool {
-        in_span(tile, self.shore, SHORE_SPAN)
+        tile_in_native_window(tile, self.shore, SHORE_SPAN)
     }
 
     /// Does this cell carry special terrain the height code must leave alone?
@@ -198,13 +200,15 @@ impl TileIds {
     /// It deliberately ignores sub-tile: WaterSet 14, ShorePieces 42, or any
     /// of the four four-tile waterfall bands.
     pub fn is_water_shore_or_waterfall(&self, tile: i32) -> bool {
-        in_span(tile, self.water_base, WATER_FAMILY_SPAN)
-            || self.is_shore_piece(tile)
+        // Original4865D0..486641 compares even a -1 base; the Lunar
+        // ReadTheater postpass really publishes absent Shore/Water globals.
+        self.is_shore_piece(tile)
+            || tile_in_native_window(tile, self.water_base, WATER_FAMILY_SPAN)
             || self
                 .special
                 .waterfalls
                 .iter()
-                .any(|&base| in_span(tile, base, WATERFALL_SPAN))
+                .any(|&base| tile_in_native_window(tile, base, WATERFALL_SPAN))
     }
 
     /// Paved-road range used by the start 6x6 passability gate.
@@ -236,7 +240,11 @@ fn base_or_lat(tile: i32, base: i32, lat_base: i32) -> bool {
 }
 
 fn in_span(tile: i32, base: i32, span: i32) -> bool {
-    base != -1 && tile >= base && tile < base + span
+    base != -1 && tile_in_native_window(tile, base, span)
+}
+
+fn tile_in_native_window(tile: i32, base: i32, span: i32) -> bool {
+    tile >= base && tile < base.wrapping_add(span)
 }
 
 #[cfg(test)]
@@ -319,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_keys_never_match() {
+    fn missing_keys_keep_each_predicates_absent_base_policy() {
         let ids = TileIds {
             clear: -1,
             ramp_base: -1,
@@ -341,10 +349,14 @@ mod tests {
             medians: -1,
             special: SpecialTerrain::default(),
         };
-        // -1 bases must not create a range around -1; and the unassigned
-        // sentinel must not collide with the missing-key value.
+        // Cell4865B0/4865D0 accept the -1 windows. The other predicates
+        // retain their separate guards; this is not a blanket policy change.
         assert!(!ids.is_green_lat(-1));
-        assert!(!ids.is_shore_piece(-1));
+        assert!(ids.is_shore_piece(-1));
+        assert!(ids.is_shore_piece(40));
+        assert!(!ids.is_shore_piece(41));
+        assert!(ids.is_water_shore_or_waterfall(0));
+        assert!(!ids.is_water_shore_or_waterfall(TILE_UNASSIGNED));
         assert!(!ids.is_paved_road(0));
         assert!(ids.is_clear(TILE_UNASSIGNED));
     }

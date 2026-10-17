@@ -1041,8 +1041,16 @@ fn apply_lunar_global_zeroing(
     }
     *bridge_set = None;
     *wood_bridge_set = None;
-    *cliff_ranges = TheaterCliffRanges::default();
+    // Original ReadTheater545150, 546C95..546CB9 (original executable;
+    // General reader identities: tools/rules_oracle/theater_general_reader.md).
+    // Lunar resets these seven globals, retaining the other declared ranges.
+    cliff_ranges.cliff_set = None;
+    cliff_ranges.water_cliffs = None;
+    cliff_ranges.bridge_set = None;
+    cliff_ranges.wood_bridge_set = None;
     rmg_tiles.water_set = None;
+    rmg_tiles.shore_pieces = None;
+    rmg_tiles.water_bridge = None;
 }
 
 fn waterfall_is_special(start: Option<u16>, tile_id: u16, sub_tile: u8, ordinary: &[u8]) -> bool {

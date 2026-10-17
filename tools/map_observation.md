@@ -820,6 +820,15 @@ comparisons are documented by the existing
 [Unit Unlimbo evidence owner](spatial_oracle/anytown_damage/unit_unlimbo.md);
 this profile does not establish native whole-object clock or pixel equivalence.
 
+The [Spy Satellite audio profile](map_observation.spy-sat-audio.example.json)
+uses stock Allied prerequisites and two power plants on shrouded XMP03T4.
+Ordinary paid GASPYSAT placement, sale and replacement drive the existing House
+aggregate and map owners; the later scene also allows combat loss. It watches
+`SpyUplinkOn`/`SpyUplinkOff` through registered centered playback and natural
+retirement. The sealed cursor stays over a sidebar gadget so whole-map reveal
+does not change its feedback. Native component boundaries and excluded map
+callbacks are documented by the [SpySat evidence owner](input_oracle/spy_sat_audio.md).
+
 The [CLEG Cell destination profile](map_observation.cleg-cell-destination.example.json)
 uses the same retail start, builds America's AMRADR and a Battle Lab, then produces
 CLEG 1635. Two ordinary Cell orders share step 9500, with the second replacing the

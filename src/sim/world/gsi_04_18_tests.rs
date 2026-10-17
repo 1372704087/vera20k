@@ -108,6 +108,105 @@ fn set_missions(entity: &mut GameEntity, current: MissionId, queued: MissionId) 
     });
 }
 
+fn take_centered_cues(sim: &mut Simulation) -> Vec<String> {
+    std::mem::take(&mut sim.sound_events)
+        .into_iter()
+        .filter_map(|event| match event {
+            SimSoundEvent::VocCentered { sound_id } => Some(sound_id),
+            // Canonical UnInit also retires this object's retained loop owner.
+            SimSoundEvent::GattlingLoopRelease { .. } => None,
+            other => panic!("unexpected uplink output {other:?}"),
+        })
+        .collect()
+}
+
+/// House508F60 calls the registered Rules220/224 cue only after its aggregate
+/// map callback and latch change. This exercises the production owners, not
+/// individual Building gain/loss notifications.
+#[test]
+fn gsi_04_18_local_uplink_edges_emit_registered_centered_cues() {
+    let (mut sim, mut rules, owner) = fixture();
+    sim.session.current_house = Some(owner);
+    let references = IniFile::from_str(
+        "[AudioVisual]\nSpySatActivationSound=Online\nSpySatDeactivationSound=Offline\n",
+    );
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(
+        "[SoundList]\n0=Online\n1=Offline\n",
+    ));
+    rules.bind_type_sound_references(&references, &sounds);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(take_centered_cues(&mut sim).is_empty());
+    insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(sim.houses[&owner].spy_sat_active && sim.houses[&owner].map_is_clear);
+    assert!(sim.fog.is_cell_revealed(owner, 23, 23));
+    assert_eq!(take_centered_cues(&mut sim), ["Online"]);
+
+    sim.reconcile_active_vision_structures(&rules);
+    insert_structure(&mut sim, 2, owner, "GASPYSAT", 8);
+    sim.reconcile_active_vision_structures(&rules);
+    sim.uninit(1);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(
+        take_centered_cues(&mut sim).is_empty(),
+        "one surviving provider retains the aggregate"
+    );
+
+    sim.uninit(2);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(!sim.houses[&owner].spy_sat_active && !sim.houses[&owner].map_is_clear);
+    assert!(!sim.fog.is_cell_revealed(owner, 23, 23));
+    assert_eq!(take_centered_cues(&mut sim), ["Offline"]);
+    insert_structure(&mut sim, 3, owner, "GASPYSAT", 10);
+    sim.reconcile_active_vision_structures(&rules);
+    assert_eq!(take_centered_cues(&mut sim), ["Online"]);
+
+    // Shared crate/infiltration map callbacks are not SpySat aggregate edges.
+    sim.reset_shroud_for_owner(owner, &rules);
+    sim.reveal_map_for_owner(owner, &rules);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(take_centered_cues(&mut sim).is_empty());
+}
+
+#[test]
+fn gsi_04_18_remote_unbound_and_retained_active_uplinks_are_silent() {
+    let (mut sim, mut rules, owner) = fixture();
+    let references = IniFile::from_str(
+        "[AudioVisual]\nSpySatActivationSound=Online\nSpySatDeactivationSound=Offline\n",
+    );
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(
+        "[SoundList]\n0=Online\n1=Offline\n",
+    ));
+    rules.bind_type_sound_references(&references, &sounds);
+    insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
+    let viewer = sim.interner.intern("OtherHuman");
+    sim.houses
+        .insert(viewer, HouseState::new(viewer, 1, None, true, 10_000, 10));
+    sim.session.current_house = Some(viewer);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(sim.houses[&owner].spy_sat_active);
+    assert!(
+        take_centered_cues(&mut sim).is_empty(),
+        "human remote House is not PlayerPtr"
+    );
+    sim.session.current_house = Some(owner);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(
+        take_centered_cues(&mut sim).is_empty(),
+        "retained active state does not replay the gain"
+    );
+
+    // Missing fixed-catalog references suppress audio, not map/latch effects.
+    let rules = spy_sat_rules();
+    sim.uninit(1);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(!sim.houses[&owner].spy_sat_active);
+    insert_structure(&mut sim, 2, owner, "GASPYSAT", 8);
+    sim.reconcile_active_vision_structures(&rules);
+    assert!(sim.houses[&owner].spy_sat_active);
+    assert!(take_centered_cues(&mut sim).is_empty());
+}
+
 #[test]
 fn gsi_04_18_two_uplinks_reshroud_only_after_the_last_provider_is_concealed() {
     let (mut sim, rules, owner) = fixture();

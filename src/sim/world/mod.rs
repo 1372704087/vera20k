@@ -6205,9 +6205,12 @@ impl Simulation {
         );
     }
 
-    /// Commit aggregate SpySat transitions at the House update rung, then
-    /// materialize the House-rung SpySat -> Gap result. EventClass commands
-    /// execute later and therefore become visible to this scan next frame.
+    /// Commit aggregate SpySat transitions in the existing pre-House batch,
+    /// then materialize SpySat -> Gap. EventClass commands execute later and
+    /// become visible next frame. Native4F84F1 gates508F60 on the dirty suffix;
+    /// ordinary Unlimbo discovery6F49DE, GrandOpening446A84 and Selling44AB1B
+    /// arm it. Wider dirty/cross-House callback cadence remains a residual;
+    /// this cue chain preserves the existing map/latch scheduling.
     fn reconcile_active_vision_structures(&mut self, rules: &RuleSet) {
         let active_owners = self.collect_spy_sat_candidate_owners(rules);
         let transitions: Vec<_> = self
@@ -6227,6 +6230,23 @@ impl Simulation {
             }
             if let Some(house) = self.houses.get_mut(&owner) {
                 house.spy_sat_active = active;
+                // House509069/509017 stores577A after the Map callback;
+                //509090/50903F then requests the current PlayerPtr's cue.
+                // Native750920 receives center8192, volume1f and NULL handle.
+                // Other map callers (crates/infiltration) do not reach this
+                // aggregate edge. Source: tools/input_oracle/spy_sat_audio.md.
+                if self.session.current_house == Some(owner) {
+                    let sound = if active {
+                        &rules.general.spy_sat_activation_sound
+                    } else {
+                        &rules.general.spy_sat_deactivation_sound
+                    };
+                    if let Some(sound_id) = sound {
+                        self.sound_events.push(SimSoundEvent::VocCentered {
+                            sound_id: sound_id.clone(),
+                        });
+                    }
+                }
             }
         }
         let effects = self.collect_active_vision_structures(rules);

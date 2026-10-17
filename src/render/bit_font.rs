@@ -15,7 +15,6 @@ use std::collections::HashMap;
 
 use crate::assets::fnt_file::{FntFile, FntGlyph};
 use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
-use crate::render::gpu::GpuContext;
 use crate::render::shell_text_reveal::{PathAReveal, encoded_unit_rgb};
 
 /// Hardcoded inter-glyph spacing.
@@ -528,7 +527,7 @@ impl BitFont {
         ]
     }
 
-    pub fn fallback_5x7(gpu: &GpuContext, batch: &BatchRenderer) -> Self {
+    pub fn fallback_5x7(device: &wgpu::Device, queue: &wgpu::Queue, batch: &BatchRenderer) -> Self {
         const GLYPH_W: u32 = 5;
         const GLYPH_H: u32 = 7;
         const GLYPH_PAD: u32 = 1;
@@ -567,7 +566,9 @@ impl BitFont {
 
         Self {
             source_identity: None,
-            atlas_texture: Some(batch.create_texture(gpu, &rgba, atlas_w, atlas_h)),
+            atlas_texture: Some(
+                batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None),
+            ),
             glyphs,
             missing_glyph: None,
             cell_height: GLYPH_H + 1,
@@ -580,7 +581,12 @@ impl BitFont {
         }
     }
 
-    pub fn from_fnt(gpu: &GpuContext, batch: &BatchRenderer, fnt: &FntFile) -> Self {
+    pub fn from_fnt(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &BatchRenderer,
+        fnt: &FntFile,
+    ) -> Self {
         let mut entries: Vec<(u16, &FntGlyph)> = Vec::new();
         for cp in PACKED_CODEPOINT_RANGE {
             if let Some(g) = fnt.glyph(cp) {
@@ -609,7 +615,7 @@ impl BitFont {
 
         if entries.is_empty() && missing_owned.is_none() {
             log::warn!("FNT has no glyphs, falling back to hardcoded font");
-            return Self::fallback_5x7(gpu, batch);
+            return Self::fallback_5x7(device, queue, batch);
         }
 
         // Reserve a sentinel codepoint for the missing glyph that won't collide
@@ -690,8 +696,10 @@ impl BitFont {
             .glyph(0x20)
             .map(|g| g.width)
             .unwrap_or(DEFAULT_SPACE_WIDTH);
-        let atlas_texture = batch.create_texture(gpu, &rgba, atlas_w, atlas_h);
-        let darken_texture = batch.create_texture(gpu, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1);
+        let atlas_texture =
+            batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
+        let darken_texture =
+            batch.create_texture_on_device(device, queue, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1, None);
 
         log::info!(
             "BitFont atlas: {}x{} px, {} glyphs (+missing={}), space_width={}",

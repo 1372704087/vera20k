@@ -120,6 +120,9 @@ pub(crate) enum ObjectExtrasRun {
         background: Option<u32>,
         fills: std::ops::Range<u32>,
         scale: std::ops::Range<u32>,
+        self_heal: Option<u32>,
+        group_rectangles: std::ops::Range<u32>,
+        group_text: std::ops::Range<u32>,
     },
 }
 
@@ -325,14 +328,39 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                 let end = lowered.extras_instances.len() as u32;
                 lowered.extras_instances.extend(strip.scale);
                 let scale_end = lowered.extras_instances.len() as u32;
-                (rank, background, start..end, end..scale_end)
+                let self_heal = strip.self_heal.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let rectangles_start = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.group.rectangles);
+                let rectangles_end = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.group.text);
+                let text_end = lowered.extras_instances.len() as u32;
+                ObjectExtrasRun::Status {
+                    #[cfg(test)]
+                    parent: owner,
+                    rank,
+                    background,
+                    fills: start..end,
+                    scale: end..scale_end,
+                    self_heal,
+                    group_rectangles: rectangles_start..rectangles_end,
+                    group_text: rectangles_end..text_end,
+                }
             });
             // Native6F5382 precedes selected Building lines6F5396..5E10;
             // health6F5E27 follows them. Split only when those lines fence a
             // rank, retaining a single upload for both native Extras sweeps.
             let mut split_rank = None;
             if lines.as_ref().is_some_and(|lines| !lines.extras.is_empty()) {
-                if let Some((Some(rank), _, fills, _)) = &strip {
+                if let Some(ObjectExtrasRun::Status {
+                    rank: Some(rank),
+                    fills,
+                    ..
+                }) = &strip
+                {
                     split_rank = Some(lowered.extras_runs.len());
                     lowered.extras_runs.push(ObjectExtrasRun::Status {
                         #[cfg(test)]
@@ -341,6 +369,9 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                         background: None,
                         fills: fills.start..fills.start,
                         scale: fills.start..fills.start,
+                        self_heal: None,
+                        group_rectangles: fills.start..fills.start,
+                        group_text: fills.start..fills.start,
                     });
                 }
             }
@@ -366,9 +397,25 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                     });
                 }
             }
-            if let Some((rank, background, fills, scale)) = strip {
+            if let Some(ObjectExtrasRun::Status {
+                rank,
+                background,
+                fills,
+                scale,
+                self_heal,
+                group_rectangles,
+                group_text,
+                ..
+            }) = strip
+            {
                 let rank = rank.filter(|_| split_rank.is_none());
-                if rank.is_some() || background.is_some() || !fills.is_empty() || !scale.is_empty()
+                if rank.is_some()
+                    || background.is_some()
+                    || !fills.is_empty()
+                    || !scale.is_empty()
+                    || self_heal.is_some()
+                    || !group_rectangles.is_empty()
+                    || !group_text.is_empty()
                 {
                     if is_building {
                         // Tactical6D9153 calls Building Extras before its body;
@@ -383,6 +430,9 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
                         background,
                         fills,
                         scale,
+                        self_heal,
+                        group_rectangles,
+                        group_text,
                     });
                 }
             }
@@ -586,6 +636,8 @@ mod tests {
                 background: None,
                 fills: vec![SpriteInstance::default(); 15],
                 scale: Vec::new(),
+                group: Default::default(),
+                self_heal: None,
             });
             parent
         };
@@ -645,6 +697,8 @@ mod tests {
             background: None,
             fills: vec![SpriteInstance::default(); 15],
             scale: Vec::new(),
+            group: Default::default(),
+            self_heal: None,
         });
         let pass = lower_ground_object_instances(vec![parent]);
         // Native6D913C Behind,6D9153 Extras:6F5382 rank,6F5396..5E10
@@ -704,6 +758,8 @@ mod tests {
                 position: [3.0, 0.0],
                 ..Default::default()
             }],
+            group: Default::default(),
+            self_heal: None,
         });
         let mut middle = parent(3, 1);
         middle.brackets = Some(BuildingBracketLines {
@@ -724,10 +780,12 @@ mod tests {
                 ..Default::default()
             }],
             scale: Vec::new(),
+            group: Default::default(),
+            self_heal: None,
         });
         let pass = lower_ground_object_instances(vec![last, middle, first]);
         assert!(matches!(&pass.extras_runs[..], [
-            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a, scale: s },
+            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a, scale: s, .. },
             ObjectExtrasRun::Lines { parent: 3, .. },
             ObjectExtrasRun::Status { parent: 2, rank: None, background: None, fills: b, .. },
         ] if *a == (2..3) && *s == (3..4) && *b == (4..5)));

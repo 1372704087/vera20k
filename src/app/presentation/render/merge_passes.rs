@@ -36,6 +36,7 @@ pub(super) fn draw_native_object_pass<'a>(
     extras: Option<(
         &'a crate::render::selection_overlay::SelectionOverlay,
         &'a wgpu::Buffer,
+        Option<&'a crate::render::batch::BatchTexture>,
     )>,
 ) -> crate::render::terrain_draw::TerrainBatchStats {
     let mut terrain_stats = crate::render::terrain_draw::TerrainBatchStats::default();
@@ -92,8 +93,9 @@ pub(super) fn draw_native_object_pass<'a>(
                 terrain,
                 tactical,
                 batch,
-                extras.map(|(overlay, _)| overlay),
-                extras.map(|(_, buffer)| buffer),
+                extras.map(|(overlay, _, _)| overlay),
+                extras.map(|(_, buffer, _)| buffer),
+                extras.and_then(|(_, _, font)| font),
                 &ground.extras_runs[index..index + 1],
             );
             cursor += 1;

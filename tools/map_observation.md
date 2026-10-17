@@ -2291,6 +2291,15 @@ no ready product, overlay state, damage stage or random result. The defense
 tab samples retain the normal queue view. Numeric command handles belong to
 this launch; rediscover bindings with v3 named commands after changing it.
 
+The [wall-sale profile](map_observation.wall-sale.example.json) reuses that
+paid opening, attacks `(33,89)`, then enters Sell, clicks the actual wall and
+exits with RMB. These three gestures share one step because observation draws
+require a static cursor. Receipts retain sticky Sell mode after the left click
+and the queued signed Cell-sale command; subsequent frames observe removal,
+path reopening, attacker release and no refund. The audio recorder observes
+the ordinary SellBuilding player. This unsuspended tank route does not prove
+the distinct native Drive obstruction/Override prerequisite or native audio.
+
 The original-executable [wall component](spatial_oracle/anytown_damage/navigation.md)
 separately establishes three-stage AP damage, inline cardinal damage200,
 connectivity and removal. Its decoded Overlay construction inputs and

@@ -69,7 +69,7 @@ Kodun büyük bölümünü yapay zekâ kodlama ajanları yazıyor. Ajanlar özg�
 inceliyor, ardından davranışını Rust'a aktarıyor ve [karşılaştırma araçları](tools/native_oracle.md)
 ile oyun testleri kullanarak kontrol ediyor. Ajanlar [AGENTS.md](AGENTS.md) dosyasını izler.
 
-## Modlama
+## Özelleştirme
 
 İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
 ve uygun olduğunda istemciden açılıp kapatılabilmelidir.

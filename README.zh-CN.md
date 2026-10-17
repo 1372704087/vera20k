@@ -69,7 +69,7 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 欢迎在 GitHub 上[提交 issue](https://github.com/YuriPlanet/vera20k/issues)，或者来 [Discord](https://discord.gg/kmjRUn5m5F) 或 QQ 群（群号 1097193563）找我们。
 用中文写 issue 也完全没问题。
 
-## 模组开发
+## 自定义
 
 可选功能（例如 Ares 的功能）应能通过 INI 文件配置，并在适当情况下提供客户端开关。
 

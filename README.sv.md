@@ -70,7 +70,7 @@ portar sedan dess beteende till Rust och kontrollerar det med
 [jämförelseverktyg](tools/native_oracle.md) och speltester. Agenterna följer
 [AGENTS.md](AGENTS.md).
 
-## Moddning
+## Anpassning
 
 Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
 att slå på och av dem i klienten där det är lämpligt.

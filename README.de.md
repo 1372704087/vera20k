@@ -71,7 +71,7 @@ ursprüngliche Engine mit Ghidra, übertragen dann ihr Verhalten nach Rust und p
 [Vergleichswerkzeugen](tools/native_oracle.md) und Spieltests. Die Agenten folgen
 [AGENTS.md](AGENTS.md).
 
-## Modding
+## Anpassung
 
 Optionale Funktionen (z. B. aus Ares) sollen sich über INI-Dateien konfigurieren und,
 wo sinnvoll, im Client ein- und ausschalten lassen.

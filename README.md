@@ -69,7 +69,7 @@ Most of the code is written by AI coding agents. They use Ghidra to study the or
 engine, then port its behavior to Rust and check it with [comparison tools](tools/native_oracle.md)
 and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 
-## Modding
+## Customization
 
 Optional features (e.g. Ares) should be configurable through INI files, with client toggles
 where appropriate.

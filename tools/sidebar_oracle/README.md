@@ -27,6 +27,14 @@ its complete execution boundary and substitutions in the associated metadata.
   63FB20, totaling 44,778 commands. The surface-bounds interface and draw
   command are explicit substitutions. Segment target/timer producers are
   not proven by these staged inputs.
+- `power_draw --state`: 66 numeric controls and 125 retained Power constructor,
+  AI and draw visits in `power_state.json`. Original House interface getters
+  and typed-building traversal consume supplied accounting/list inputs;
+  PC53/chop arithmetic, wall-clock bucket edges, paired color transfers,
+  interrupted transitions, settling, resize, visibility and fresh clear execute
+  original instructions. Substitutions are the OS clock, inherited Radar
+  constructor/clear/AI and the shared surface/draw transport. This supplies
+  commands, not native pixels, House-producer or saved-state equivalence.
 - `radar_timer`: 600 original 653100 animation/timer states; only the OS
   clock is substituted. The four-bucket duration uses `timeGetTime() >> 4`.
   Availability direction changes do not reset that timer (656BE0).
@@ -71,7 +79,8 @@ GPU regression checks final pixels through predue loss and rapid reversal.
 Bounds remain explicit: this evidence covers ordinary fixed 168x110 radar
 housing; native map/dirty producers, viewport history outside the housing,
 surface-loss recovery, movie/jammed modes and modded transparent endpoints
-remain open. Full power producers, credits/text/fades, progress cadence and
+remain open. Power save/reentry and theoretical-list input correspondence outside
+ordinary lifecycle boundaries, credits/text/fades, progress cadence and
 diplomacy/briefing dialogs are separate unresolved mechanisms. A user capture
 of the integrated candidate is required before claiming a complete scene
 match. Tests using constructed frames are Rust regressions, not native goldens.

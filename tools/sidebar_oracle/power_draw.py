@@ -1,11 +1,16 @@
-"""Original PowerClass draw commands, with explicitly staged presentation state.
+"""Original PowerClass draw commands and opt-in retained producer controls.
 
 Executes 63FB20..63FDA5 from the hash-checked gamemd image. The surface bounds
 interface is replaced with a declared rectangle; 4AED70 is intercepted to record
 its actual command arguments and emulate RET 56. RadarClass::Draw is not entered.
-No raster, power-distribution producer, clock, or actual scene parity is claimed.
+The default corpus supplies segment counts; it does not establish their producer
+or clock. --state instead executes the original Power constructor, distribution,
+AI/timers and draw with supplied House inputs. Its clock and inherited Radar
+boundaries are explicit substitutions. Neither corpus renders native pixels or
+claims complete scene, native House-producer or save/load equivalence.
 """
 from pathlib import Path
+import argparse
 import hashlib
 import importlib.util
 import itertools
@@ -16,7 +21,7 @@ from unicorn.x86_const import *
 
 from types import SimpleNamespace
 from tools.native_oracle import NATIVE_SHA256, STACK_BASE, RET_MAGIC, finish_vectors, provenance
-from tools.sidebar_oracle.geometry import machine as base_machine, put32
+from tools.sidebar_oracle.geometry import machine as base_machine, put32, call
 
 def machine():
     u=base_machine(); u.mem_map(0x21000000,0x40000); return u
@@ -44,12 +49,11 @@ def presentation_return(u, read32, stack_argument_bytes):
     u.reg_write(UC_X86_REG_EIP, target)
 
 
-def collect():
-    u = n.machine()
-    owner, scenario = n.HEAP, n.HEAP + 0x10000
+def observe_draws(u):
+    """The one shared surface/shape transport for draw and producer controls."""
     surface, vtable, shape, convert = [n.HEAP + v for v in (0x20000, 0x21000, 0x22000, 0x23000)]
     callback = n.STOP + 0x100
-    for address, value in ((0xa8b230, scenario), (0x887300, surface),
+    for address, value in ((0x887300, surface),
                            (surface, vtable), (vtable + 0x78, callback),
                            (0xac4e74, shape), (0x87f6cc, convert), (0x886f94, 158)):
         n.put32(u, address, value)
@@ -84,6 +88,14 @@ def collect():
 
     u.hook_add(UC_HOOK_CODE, bounds, begin=callback, end=callback)
     u.hook_add(UC_HOOK_CODE, draw, begin=0x4aed70, end=0x4aed70)
+    return commands, bounds_calls
+
+
+def collect():
+    u = n.machine()
+    owner, scenario = n.HEAP, n.HEAP + 0x10000
+    n.put32(u, 0xa8b230, scenario)
+    commands, bounds_calls = observe_draws(u)
 
     def run(side, height, counts, flashes, force=1, dirty=0, visible=1):
         commands.clear()
@@ -131,8 +143,147 @@ def collect():
     }
 
 
+def collect_state():
+    """Execute Power's own constructor, arithmetic, AI and draw without patches.
+
+    House getters and the building/type-list traversal execute original bodies.
+    Their supplied accounting inputs do not establish the native House producer.
+    Only OS time, inherited Radar lifecycle/AI and the shared draw transport are
+    substituted. The active process control word is PC53/chop (0x0E7F),
+    including the sticky control-word write in the original Math::ftol.
+    """
+    owner, house = n.HEAP, n.HEAP + 0x10000
+    objects = (n.HEAP + 0x17000, n.HEAP + 0x1a000)
+    types = (n.HEAP + 0x18000, n.HEAP + 0x1b000)
+    building_list = n.HEAP + 0x1f000
+    wall_slot, clock = n.STOP + 0x300, n.STOP + 0x200
+
+    def fixture(precision=0xe7f):
+        u = n.machine()
+        u.reg_write(UC_X86_REG_FPCW, precision)
+        commands, bounds = observe_draws(u)
+        for address, value in ((0xa83d4c, house), (house + 0x24, 0x7ea834),
+                               (house + 0x6c, building_list), (house + 0x78, 2),
+                               (0xa8b230, house), (house + 0x34b8, 0),
+                               (0x7e1530, clock)):
+            n.put32(u, address, value)
+        for index, (obj, typ) in enumerate(zip(objects, types)):
+            n.put32(u, building_list + index * 4, obj)
+            n.put32(u, obj + 0x520, typ)
+        u.mem_write(clock, b'\xa1' + struct.pack('<I', wall_slot) + b'\xc3')
+
+        def inherited(_u, address, _size, _data):
+            assert address in (0x652960, 0x652de0, 0x653850)
+            presentation_return(u, lambda a: struct.unpack('<I', u.mem_read(a, 4))[0],
+                                8 if address == 0x653850 else 0)
+
+        for address in (0x652960, 0x652de0, 0x653850):
+            u.hook_add(UC_HOOK_CODE, inherited, begin=address, end=address)
+        call(u, 0x63f6b0, ecx=owner)
+        return u, commands, bounds
+
+    def inputs(u, height, output, drain, theoretical):
+        for address, value in ((0xb0b504, height), (house + 0x53a4, output),
+                               (house + 0x53a8, drain), (types[0] + 0xee0, theoretical),
+                               (types[0] + 0xee4, 0), (types[1] + 0xee0, 0),
+                               (types[1] + 0xee4, 0)):
+            n.put32(u, address, value)
+
+    def signed(u, address, count=1):
+        return list(struct.unpack('<' + 'i' * count, u.mem_read(address, 4 * count)))
+
+    numeric = []
+    for precision in (0xe7f,):
+        u, _, _ = fixture(precision)
+        for height in (0, 12, 90, 300, 434, 653):
+            # Geometry controls include the native one-segment minimum.
+            output = drain = total = 0
+            inputs(u, height, output, drain, total)
+            call(u, 0x63f960, (owner + 0x3000, owner + 0x3004, owner + 0x3008), ecx=owner)
+            numeric.append(dict(input=[height, output, drain, total], fpcw=precision,
+                                counts=signed(u, owner + 0x3000, 3)))
+        for height, values in itertools.product((12, 90, 300, 434), (
+                (200, 0, 200), (200, 100, 300), (100, 200, 300),
+                (300, 100, 400), (150, 100, 250), (100, 100, 200),
+                (600, 200, 800), (10000, 0, 10000), (99, 0, 99),
+                (100, 0, 100), (101, 0, 101), (200, 0, 400),
+                (150, 0, 150), (150, 10, 160), (150, 60, 210))):
+            output, drain, total = values
+            inputs(u, height, output, drain, total)
+            call(u, 0x63f960, (owner + 0x3000, owner + 0x3004, owner + 0x3008), ecx=owner)
+            numeric.append(dict(input=[height, output, drain, total], fpcw=precision,
+                                counts=signed(u, owner + 0x3000, 3)))
+
+    # Small retained histories include stalls, repeated bucket inputs, interrupted
+    # transitions, a theoretical-only change, resize, hide/show and reset.
+    histories = []
+    schedules = {
+        'power-plant-settle': [(ms, 90, 200, 0, 200, 1, 0) for ms in range(0, 1601, 16)],
+        'interrupt-and-reset': [
+            (0, 90, 200, 100, 300, 1, 0), (0, 90, 200, 100, 300, 1, 0),
+            (15, 90, 200, 100, 300, 1, 0), (16, 90, 200, 100, 300, 1, 0),
+            (32, 90, 200, 100, 300, 1, 0), (1000, 90, 200, 100, 300, 1, 0),
+            (1016, 90, 100, 200, 300, 1, 0), (1032, 90, 100, 200, 300, 0, 0),
+            (2000, 90, 100, 200, 300, 1, 0), (2000, 90, 100, 200, 300, 1, 0),
+            (2016, 90, 300, 100, 400, 1, 0), (2032, 12, 300, 100, 400, 1, 0),
+            (3000, 12, 300, 100, 400, 1, 0), (3016, 12, 300, 100, 400, 1, 1),
+            (3032, 12, 0, 0, 0, 1, 0), (4000, 12, 0, 0, 0, 1, 0)],
+        'idle-theoretical-and-clock-wrap': [
+            (0, 0, 0, 0, 0, 1, 0), (16, 0, 0, 0, 0, 1, 0),
+            (32, 0, 0, 0, 0, 1, 0), (1000, 90, 0, 0, 800, 1, 0),
+            (1016, 90, 0, 0, 800, 0, 0), (0xfffffff0, 90, 200, 0, 200, 1, 0),
+            (0x100000000, 90, 200, 0, 200, 1, 0),
+            (0x100000010, 90, 200, 0, 200, 1, 0)],
+    }
+    for name, schedule in schedules.items():
+        u, commands, _ = fixture()
+        visits = []
+        for wall_ms, height, output, drain, total, visible, reset in schedule:
+            n.put32(u, wall_slot, wall_ms)
+            if reset:
+                call(u, 0x63f730, ecx=owner)
+            inputs(u, height, output, drain, total)
+            u.mem_write(0x884b8d, bytes([visible]))
+            call(u, 0x63fea0, (0, 0), ecx=owner)
+            dirty = int(u.mem_read(owner + 0x150c, 1)[0])
+            commands.clear()
+            # Existing observer's bounds/draw ABI; stop before inherited Radar.
+            sp = n.STACK + 0x80000
+            u.mem_write(sp, struct.pack('<2I', n.STOP, 1))
+            u.reg_write(UC_X86_REG_ESP, sp)
+            u.reg_write(UC_X86_REG_ECX, owner)
+            u.emu_start(0x63fb20, 0x63fda5, count=20000)
+            assert u.reg_read(UC_X86_REG_EIP) == 0x63fda5
+            visits.append(dict(input=[wall_ms, height, output, drain, total, visible, reset],
+                               counts=signed(u, owner + 0x152c, 3),
+                               flash=signed(u, owner + 0x151c)[0],
+                               flash_timer=[signed(u, owner + 0x1510)[0], signed(u, owner + 0x1518)[0]],
+                               slide_timer=[signed(u, owner + 0x1520)[0], signed(u, owner + 0x1528)[0]],
+                               cached=signed(u, owner + 0x153c, 2),
+                               animating=bool(u.mem_read(owner + 0x1538, 1)[0]), dirty=dirty,
+                               frames=[row[0] for row in commands]))
+        histories.append(dict(name=name, visits=visits))
+    return dict(numeric=numeric, histories=histories)
+
+
 if __name__ == '__main__':
-    finish_vectors(collect,Path(__file__).with_suffix('.json'),provenance=lambda:provenance(
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--state', action='store_true')
+    options, rest = parser.parse_known_args()
+    if options.state:
+        finish_vectors(collect_state, Path(__file__).with_name('power_state.json'), argv=rest,
+                       provenance=lambda: provenance(
+            scope='Power numeric controls and retained constructor/AI/draw histories; supplied House accounting and geometry.',
+            assumptions=['House power interface vtable7EA834 and its real getters; supplied House output/drain and owned typed-building list.',
+                         'Native PC53/chop control word0x0E7F. No House producer/native scenario equivalence.',
+                         'Constructor/reset inherited Radar body excluded. Power initial fields and clocks execute original instructions.'],
+            substitutions=['timeGetTime returns explicit input;6C8C40 executes original SHR4.',
+                           'Inherited Radar constructor/reset/AI returns at its interface. No Radar-state equivalence.',
+                           'Existing surface-bounds and CC_Draw_Shape command transport; no native pixels.'],
+            entry_points={'constructor':0x63F6B0,'reset':0x63F730,'fill':0x63F850,
+                          'distribution':0x63F960,'animation':0x63FEA0,'draw':0x63FB20}))
+    else:
+        finish_vectors(collect,Path(__file__).with_suffix('.json'),argv=rest,provenance=lambda:provenance(
         scope='Original63FB20 command loop:1215 staged count/flash/side/height cases plus8 dirty/visible/force cases.',
         assumptions=['Explicit staged counters; no target or timing producer equivalence claimed.',
           'Sidebar surface bounds supplied as0,0,168,600; sidebar bodyY158.'],

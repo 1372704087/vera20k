@@ -1162,14 +1162,15 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   const duration = tickHz > 0 ? snapshot.tick / tickHz : 0;
   ctx.fillText(
     `tick ${thousands(snapshot.tick)} · ${t("rep.duration")} ${fmt(duration, 0)} s · ` +
-      `${fmt(tickHz, 1)} tick/s · ${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}`,
+      `${t("rep.fps")} ${fmt(snapshot.timing?.fps ?? 0, 0)} fps · ${fmt(tickHz, 1)} tick/s · ` +
+      `${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}`,
     pad,
     68,
   );
   ctx.fillText(
     `${t("rep.frame")} ${fmt(frameTotal, 2)} ms · ${t("rep.sim")} ${fmt(profile.mean_frame_ms, 2)} ms ` +
       `(${fmt(frameTotal > 0 ? (profile.mean_frame_ms / frameTotal) * 100 : 0, 0)}%) · ` +
-      `${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms · ${t("rep.frames")} ${thousands(profile.frames)}`,
+      `${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms`,
     pad,
     88,
   );
@@ -1435,8 +1436,8 @@ tr.foot td{font-weight:600;color:#1d2733;border-bottom:none}
 </style></head>
 <body>
 <h1>${escapeHtml(t("rep.title"))}</h1>
-<div class="sub">tick ${thousands(snapshot.tick)} · ${t("rep.duration")} ${fmt(duration, 0)} s · ${fmt(tickHz, 1)} tick/s · ${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}<br>
-${t("rep.frame")} ${fmt(frameTotal, 2)} ms · ${t("rep.sim")} ${fmt(profile.mean_frame_ms, 2)} ms（${fmt(share, 0)}%） · ${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms · ${t("rep.frames")} ${thousands(profile.frames)}</div>
+<div class="sub">tick ${thousands(snapshot.tick)} · ${t("rep.duration")} ${fmt(duration, 0)} s · ${t("rep.fps")} ${fmt(snapshot.timing?.fps ?? 0, 0)} fps · ${fmt(tickHz, 1)} tick/s · ${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}<br>
+${t("rep.frame")} ${fmt(frameTotal, 2)} ms · ${t("rep.sim")} ${fmt(profile.mean_frame_ms, 2)} ms（${fmt(share, 0)}%） · ${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms</div>
 <div class="pies">${pie(frameSlices, frameTotal, t("rep.whole"))}${pie(simSlices, simTotal, t("rep.simOnly"))}</div>
 <h2>${escapeHtml(t("rep.phases"))}</h2>
 <table><thead><tr><th>${escapeHtml(t("th.phase"))}</th><th class="n">${escapeHtml(t("th.ms").toUpperCase())}</th><th class="n">${escapeHtml(t("th.shareSim"))}</th><th class="n">${escapeHtml(t("th.shareFrame"))}</th></tr></thead><tbody>${rows}</tbody></table>

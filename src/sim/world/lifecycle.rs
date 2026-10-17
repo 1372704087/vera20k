@@ -2917,6 +2917,23 @@ impl Simulation {
         self.substrate.display.remove(stable_id);
     }
 
+    /// Spark62ED2C (and the other System AI cleanup callers) invokes the
+    /// Particle's inherited ObjectUnInit5F65F0. Transfer the unique body
+    /// first, then use that common lifecycle entry; it owns expiry, Limbo,
+    /// Alive and the one B0F698 queue. Physical destruction waits for725C70.
+    /// Source and executed queue controls: procedural_drawing_oracle/welding.
+    pub(crate) fn retire_particle(
+        &mut self,
+        particle: crate::sim::particles::Particle,
+        rules: &RuleSet,
+    ) {
+        let id = self
+            .substrate
+            .particle_systems
+            .retain_detached_particle(particle);
+        self.uninit_with_context(id, UninitContext::with_rules(rules));
+    }
+
     pub(crate) fn register_terrain_object(
         &mut self,
         stable_id: u64,
@@ -3127,6 +3144,12 @@ impl Simulation {
             .entities
             .get(stable_id)
             .map(|entity| (entity.lifecycle.in_limbo, entity.lifecycle.object_alive))
+            .or_else(|| {
+                self.substrate
+                    .particle_systems
+                    .detached_particle_lifecycle(stable_id)
+                    .map(|(alive, in_limbo)| (in_limbo, alive))
+            })
         else {
             return ConcealOutcome::MissingOrDead;
         };
@@ -3139,7 +3162,7 @@ impl Simulation {
             self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealAlreadyLimboReturn {
                 stable_id,
                 object_alive,
-                resolvable: self.substrate.entities.contains(stable_id),
+                resolvable: true,
             });
             return ConcealOutcome::AlreadyConcealed;
         }
@@ -3161,12 +3184,18 @@ impl Simulation {
                 .entities
                 .get(stable_id)
                 .map(|entity| (entity.lifecycle.object_alive, entity.lifecycle.cell_marked))
+                .or_else(|| {
+                    self.substrate
+                        .particle_systems
+                        .detached_particle_lifecycle(stable_id)
+                        .map(|(alive, _)| (alive, false))
+                })
                 .unwrap_or((false, false));
             self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealDestroyNotifyBoundary {
                 stable_id,
                 object_alive,
                 cell_marked,
-                resolvable: self.substrate.entities.contains(stable_id),
+                resolvable: true,
             });
         }
         // BuildingDetach44EBF0 completes both production arms before the
@@ -3203,8 +3232,14 @@ impl Simulation {
         }
 
         self.substrate.display.remove(stable_id);
-        self.lifecycle_outputs
-            .push(LifecycleOutput::DisplayRemove { stable_id });
+        // The app consumes this projection to refresh entity/Anim atlases.
+        // Particles draw from the retained Display registry directly; their
+        // removal cannot introduce atlas entries and must not trigger a
+        // whole-world atlas coverage scan for every child retirement.
+        if self.substrate.entities.contains(stable_id) {
+            self.lifecycle_outputs
+                .push(LifecycleOutput::DisplayRemove { stable_id });
+        }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealDisplayBoundary);
         self.lifecycle_outputs
@@ -3248,6 +3283,13 @@ impl Simulation {
             // `BuildingClass::Limbo` destroys its owned BuildingLight before
             // the remaining building-count/base-node teardown.
             entity.building_light.destroy_light();
+        } else {
+            // Ordinary Particle base fields are null and Mark(REMOVE) has
+            // no cell footprint; the same Object5F4D30 body still owns its
+            // retained Display removal and independent +81 write.
+            self.substrate
+                .particle_systems
+                .enter_particle_limbo(stable_id);
         }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealLimboSet);
@@ -3990,6 +4032,7 @@ impl Simulation {
             listener.passenger_role.inside_transport_id(),
             listener.pending_entry(),
             listener.spawn_owner_id.owner(),
+            listener.spark_particle_system.system(),
             listener.damage_smoke_system_id.system(),
             listener.ammo().and_then(|ammo| ammo.dock()),
             listener
@@ -4458,6 +4501,7 @@ impl Simulation {
         // exact match, including damage-Smoke+310. It precedes the control
         // gate707AE7 and is independent of the target's sensor/owner guards.
         let clear_damage_smoke = listener.damage_smoke_system_id.system() == Some(expired_id);
+        let clear_spark_system = listener.spark_particle_system.system() == Some(expired_id);
         // Techno707AE7..707B03 clears ArchiveTarget+218 on control1. The
         // later Foot4D99F1..4D99FC clears a still-matching archive on both
         // controls, independent of sensors and same-owner target exemptions.
@@ -4551,6 +4595,7 @@ impl Simulation {
         // of the base target exemptions. Only later AI changes the weapon latch.
         let clear_tesla_charger = listener.tesla_charge.chargers().contains(&expired_id);
         if !(clear_suspended_target
+            || clear_spark_system
             || clear_damage_smoke
             || clear_archive_target
             || clear_suspended_nav_com
@@ -4577,6 +4622,9 @@ impl Simulation {
         }
         if clear_damage_smoke {
             listener.damage_smoke_system_id.forget();
+        }
+        if clear_spark_system {
+            listener.spark_particle_system.forget();
         }
         if clear_archive_target {
             listener.set_archive_target(None);
@@ -4638,6 +4686,11 @@ impl Simulation {
     pub(crate) fn notify_pointer_expired(&mut self, expired_id: u64, context: UninitContext<'_>) {
         if !self.substrate.entities.contains(expired_id)
             && !self.substrate.particle_systems.contains_key(expired_id)
+            && self
+                .substrate
+                .particle_systems
+                .detached_particle(expired_id)
+                .is_none()
             && !self.production.terrain_objects.contains_key(&expired_id)
             && self.projectiles.get(expired_id).is_none()
             && self
@@ -4928,6 +4981,18 @@ impl Simulation {
                 Some((cell, system.alive(), 255, false, None))
             })
             .or_else(|| {
+                let (particle, alive) = self
+                    .substrate
+                    .particle_systems
+                    .detached_particle(expired_id)?;
+                let cell = u16::try_from(crate::util::lepton::lepton_to_cell(particle.coords.x))
+                    .ok()
+                    .zip(
+                        u16::try_from(crate::util::lepton::lepton_to_cell(particle.coords.y)).ok(),
+                    );
+                Some((cell, alive, 255, false, None))
+            })
+            .or_else(|| {
                 let bullet = self.projectiles.get(expired_id)?;
                 let point = bullet.position;
                 let cell = u16::try_from(crate::util::lepton::lepton_to_cell(point.x))
@@ -5106,6 +5171,12 @@ impl Simulation {
                             .particle_systems
                             .get(expired_id)
                             .map(|system| (system.alive(), system.in_limbo()))
+                    })
+                    .or_else(|| {
+                        self.substrate
+                            .particle_systems
+                            .detached_particle(expired_id)
+                            .map(|(_, alive)| (alive, !alive))
                     })
                     .or_else(|| {
                         self.production
@@ -5348,92 +5419,100 @@ impl Simulation {
 
     pub fn uninit_with_context(&mut self, stable_id: u64, context: UninitContext<'_>) {
         self.planning_detach_actor(stable_id);
-        if self
+        let smudge = self
             .smudge_grid
             .as_ref()
             .and_then(|grid| grid.object(stable_id))
-            .is_some()
-        {
-            // Whole Smudge6B4A50 -> ObjectUnInit5F65F0: expiry5F661B,
-            // then Conceal's Detach_All5F5316 while alive1/limbo0/marked0.
-            // SmudgeMark(0) writes no cell data. Only afterwards is this
-            // object limbo/dead and appended to the shared pending queue.
-            self.notify_pointer_expired(stable_id, context);
-            self.notify_pointer_expired(stable_id, context);
-            self.smudge_grid.as_mut().unwrap().finish_uninit(stable_id);
-            self.substrate.pending_delete.queue_object(stable_id);
-            #[cfg(any(test, feature = "test-support"))]
-            self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
-            return;
-        }
-        let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
-            return;
-        };
-        // Consume deferred/retained Infantry lifetime before pointer-expiry
-        // callbacks, including an UnInit that overtakes receiver delivery.
-        entity.death.end_infantry_policy();
-        // `FootClass::UnInit @ 0x004DE5DD` frees a controller's captives
-        // first (a crushed or otherwise removed Yuri or Mastermind).
-        let foot = matches!(
-            entity.category(),
-            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
-        );
-        if foot
-            && entity.capture_manager.is_some()
-            && let Some(rules) = context.rules()
-        {
-            self.free_all_captures(stable_id, rules, context.registry(), context.effects());
-        }
-        // `0x004DE5F0`: a Magnetron lets go of what it holds.
-        if foot
-            && self
-                .substrate
-                .entities
-                .get(stable_id)
-                .is_some_and(|entity| entity.lift.target().is_some())
-        {
-            self.release_locomotor(
-                stable_id,
-                true,
-                context.rules(),
-                context.registry(),
-                context.effects(),
+            .is_some();
+        let particle = self
+            .substrate
+            .particle_systems
+            .detached_particle(stable_id)
+            .is_some();
+        // Ordinary Particle and Smudge instances have no Techno/Foot hooks
+        // or passengers. Every represented family joins the one base tail.
+        if !smudge && !particle {
+            let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
+                return;
+            };
+            // Consume deferred/retained Infantry lifetime before pointer-expiry
+            // callbacks, including an UnInit that overtakes receiver delivery.
+            entity.death.end_infantry_policy();
+            // `FootClass::UnInit @ 0x004DE5DD` frees a controller's captives
+            // first (a crushed or otherwise removed Yuri or Mastermind).
+            let foot = matches!(
+                entity.category(),
+                EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             );
-        }
-        // `0x004DE604`: then the object leaves its team.
-        if foot {
-            self.leave_team(stable_id, false, context.rules(), context.effects());
-        }
+            if foot
+                && entity.capture_manager.is_some()
+                && let Some(rules) = context.rules()
+            {
+                self.free_all_captures(stable_id, rules, context.registry(), context.effects());
+            }
+            // `0x004DE5F0`: a Magnetron lets go of what it holds.
+            if foot
+                && self
+                    .substrate
+                    .entities
+                    .get(stable_id)
+                    .is_some_and(|entity| entity.lift.target().is_some())
+            {
+                self.release_locomotor(
+                    stable_id,
+                    true,
+                    context.rules(),
+                    context.registry(),
+                    context.effects(),
+                );
+            }
+            // `0x004DE604`: then the object leaves its team.
+            if foot {
+                self.leave_team(stable_id, false, context.rules(), context.effects());
+            }
 
-        self.run_represented_uninit_pre_hook(stable_id);
-        // `ObjectClass::UnInit` kills a Techno's passengers with no attacker
-        // (`0x005F660D`).
-        self.kill_passengers(stable_id, None, context);
+            self.run_represented_uninit_pre_hook(stable_id);
+            // `ObjectClass::UnInit` kills a Techno's passengers with no attacker
+            // (`0x005F660D`).
+            self.kill_passengers(stable_id, None, context);
 
-        #[cfg(any(test, feature = "test-support"))]
-        {
-            let (object_alive, cell_marked) = self
-                .substrate
-                .entities
-                .get(stable_id)
-                .map(|entity| (entity.lifecycle.object_alive, entity.lifecycle.cell_marked))
-                .unwrap_or((false, false));
-            self.trace_lifecycle_for_test(LifecycleTestEvent::UninitRemovalNotifyBoundary {
-                stable_id,
-                object_alive,
-                cell_marked,
-                resolvable: self.substrate.entities.contains(stable_id),
-            });
+            #[cfg(any(test, feature = "test-support"))]
+            {
+                let (object_alive, cell_marked) = self
+                    .substrate
+                    .entities
+                    .get(stable_id)
+                    .map(|entity| (entity.lifecycle.object_alive, entity.lifecycle.cell_marked))
+                    .unwrap_or((false, false));
+                self.trace_lifecycle_for_test(LifecycleTestEvent::UninitRemovalNotifyBoundary {
+                    stable_id,
+                    object_alive,
+                    cell_marked,
+                    resolvable: self.substrate.entities.contains(stable_id),
+                });
+            }
         }
         // ObjectClass::UnInit's first statement (`0x005F65F3`) defuses a
         // carried bomb silently: sold, crushed, erased.
         self.bomb_defuse(stable_id);
         self.notify_pointer_expired(stable_id, context);
 
-        let _ = self.techno_limbo_with_context(stable_id, context);
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.lifecycle.object_alive = false;
-            entity.death.begin();
+        if smudge {
+            // Whole Smudge6B4A50 delegates to Object5F65F0. Its Mark(0)
+            // writes no cell data; preserve its existing fused Conceal tail.
+            self.notify_pointer_expired(stable_id, context);
+            self.smudge_grid.as_mut().unwrap().finish_uninit(stable_id);
+        } else if particle {
+            let _ = self.object_conceal_with_context(stable_id, context);
+            self.substrate
+                .particle_systems
+                .finish_particle_retirement(stable_id);
+        } else {
+            let _ = self.techno_limbo_with_context(stable_id, context);
+            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                entity.lifecycle.object_alive = false;
+                entity.death.begin();
+            }
         }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::UninitAliveCleared { stable_id });
@@ -5454,7 +5533,7 @@ impl Simulation {
     /// Their owned particles have already emptied before this transition.
     /// SystemAI62FDC7..62FDE7 calls ObjectLimbo5F4D30 while Alive is still
     /// set, then clears Alive and queues deletion. Limbo's literal control1
-    /// dispatch clears Techno+310 synchronously, before the late destructor.
+    /// dispatch clears Techno+308/+310 synchronously, before the late destructor.
     pub(crate) fn retire_particle_system(&mut self, stable_id: u64, context: UninitContext<'_>) {
         let ready = self
             .substrate
@@ -5504,6 +5583,10 @@ impl Simulation {
             // SystemVT7EFB9C+44 -> IsReadyToDelete62FE60: done+F8 and
             // count+CC==0, independently of the ObjectAlive byte.
             return system.done_spawning && system.particles.is_empty();
+        }
+        if let Some((_, alive)) = self.substrate.particle_systems.detached_particle(stable_id) {
+            // Particle+44 inherits Object5F6690: !ObjectAlive.
+            return !alive;
         }
         if let Some(terrain) = self.production.terrain_objects.get(&stable_id) {
             return !terrain.is_live() && !terrain.in_logic_vector;
@@ -5577,6 +5660,17 @@ impl Simulation {
             // owner instead of clearing only its producer after removal.
             self.notify_pointer_expired(stable_id, context);
             self.conceal_particle_system(stable_id);
+        }
+        if self
+            .substrate
+            .particle_systems
+            .detached_particle(stable_id)
+            .is_some()
+        {
+            // ParticleDtor62D9A0: its already-limbo check does no work,
+            // then62D9C8 announces again before ObjectDtor5F3B80 unregisters
+            // and frees the body. No Particle-specific RNG/timer writes.
+            self.notify_pointer_expired(stable_id, context);
         }
         if self
             .smudge_grid
@@ -5782,6 +5876,7 @@ impl Simulation {
         }
         let anim = self.substrate.anims.remove(stable_id);
         let particle_system = self.substrate.particle_systems.finalize_remove(stable_id);
+        let particle = self.substrate.particle_systems.finalize_particle(stable_id);
         if let Some(system) = particle_system.as_ref() {
             // SystemDtor62E0AE..62E15D disposes retained children before its
             // vector is freed. Ordinary AI retirement has no children left;
@@ -5822,6 +5917,7 @@ impl Simulation {
             usize::from(entity.is_some())
                 + usize::from(anim.is_some())
                 + usize::from(particle_system.is_some())
+                + usize::from(particle.is_some())
                 + usize::from(terrain.is_some())
                 + usize::from(projectile.is_some())
                 + usize::from(wave.is_some())

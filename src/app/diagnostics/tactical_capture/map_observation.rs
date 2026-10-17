@@ -2065,7 +2065,7 @@ impl MapElectricBoltObservation {
                 "in_limbo": system.in_limbo(),
                 "display_layer": sim.display_layers().layer_of(id).map(|layer| layer.index()),
                 "done_spawning": system.done_spawning, "in_logic_vector": system.in_logic_vector,
-                "owner_entity": system.owner_entity, "attached_entity": system.attached_entity,
+                "owner_entity": system.owner_entity, "attached_entity": match system.target_ref { Some(crate::sim::combat::TargetKind::Entity(id)) => Some(id), _ => None },
                 "particles": particles}));
         }
         let rng = sim.rng_views();

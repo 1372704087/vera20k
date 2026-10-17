@@ -101,7 +101,10 @@ fn production_radial_pixels_match_original_in_both_formats_and_immutable_depth()
                     &gpu.device,
                     &gpu.queue,
                     std::iter::empty(),
-                    &lines,
+                    lines
+                        .iter()
+                        .copied()
+                        .map(crate::render::surface_line::SurfaceDraw::Line),
                     &[],
                     &radials,
                     SurfaceLineViewport {

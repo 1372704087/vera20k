@@ -49,6 +49,28 @@ fn raster_draw(
 ) {
     use crate::render::surface_line::{antialiased_line, ellipse, rasterize_z_clipped};
     let line = match draw {
+        SurfaceDraw::Point(point) => {
+            let screen = point.screen.to_array();
+            let a = alpha(screen);
+            if a != 0 {
+                let word = crate::render::tactical_compat::pack_rgb(
+                    crate::render::tactical_compat::modulate_rgb(point.rgb, a),
+                    crate::render::native_surface_format::RGB565,
+                );
+                emit(&[(
+                    screen,
+                    Operation {
+                        // Keep the signed candidate intact across the scalar ABI.
+                        z: point.candidate_z as u32,
+                        rgb: u32::from(word),
+                        alpha: u32::from(a),
+                        mode: 6,
+                        ..Default::default()
+                    },
+                )]);
+            }
+            return;
+        }
         SurfaceDraw::Ellipse {
             center,
             radius,
@@ -386,7 +408,7 @@ impl TerrainDrawRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         lasers: impl IntoIterator<Item = crate::render::laser::LaserDraw>,
-        lines: &[SurfaceLine],
+        draws: impl Iterator<Item = SurfaceDraw> + Clone,
         segments: &[LineTrailSegment],
         radials: &[crate::render::radial_indicator::RadialIndicatorDraw],
         viewport: SurfaceLineViewport,
@@ -414,9 +436,15 @@ impl TerrainDrawRenderer {
         // extras and Laser/EBolt/Trail calls need no prior-write index. When
         // rays are possible, index every earlier write in this same batch.
         let track_dependencies = radials.iter().any(|draw| draw.rays)
-            || lines
-                .iter()
-                .any(|line| matches!(line.blend, SurfaceLineBlend::Antialiased { .. }));
+            || draws.clone().any(|draw| {
+                matches!(
+                    draw,
+                    SurfaceDraw::Line(SurfaceLine {
+                        blend: SurfaceLineBlend::Antialiased { .. },
+                        ..
+                    })
+                )
+            });
         // Tactical6D4669..6D4673 draws LaserDraw, EBolt, then LineTrail.
         // They read the same immutable Z and completed destination. Bolt
         // subdivision has already consumed Main once for this composite;
@@ -456,14 +484,8 @@ impl TerrainDrawRenderer {
                 });
             }
         }
-        for &line in lines {
-            raster_draw(
-                SurfaceDraw::Line(line),
-                viewport,
-                size,
-                &mut alpha,
-                &mut store,
-            );
+        for draw in draws {
+            raster_draw(draw, viewport, size, &mut alpha, &mut store);
         }
         for &segment in segments {
             rasterize(
@@ -581,3 +603,7 @@ mod electric_bolt_tests;
 #[cfg(test)]
 #[path = "radial_indicator_gpu_tests.rs"]
 mod radial_indicator_tests;
+
+#[cfg(test)]
+#[path = "welding_gpu_tests.rs"]
+mod welding_tests;

@@ -959,41 +959,24 @@ impl Simulation {
             sys.offset.to_array().hash(hasher);
             sys.spawn_timer().bits().hash(hasher);
             sys.spark_spawn_frames.hash(hasher);
-            sys.attached_entity.hash(hasher);
+            sys.target_ref.hash(hasher);
             sys.owner_entity.hash(hasher);
             sys.target_coords.to_array().hash(hasher);
             sys.owner_house.hash(hasher);
             sys.particles.len().hash(hasher);
-            for p in &sys.particles {
-                p.stable_id().hash(hasher);
-                p.native_unique_id().hash(hasher);
-                p.type_id.0.hash(hasher);
-                p.coords.x.hash(hasher);
-                p.coords.y.hash(hasher);
-                p.coords.z.hash(hasher);
-                p.lifetime_remaining.hash(hasher);
-                p.animation_state.hash(hasher);
-                p.translucency.hash(hasher);
-                p.marked_for_deletion.hash(hasher);
-                p.origin.to_array().hash(hasher);
-                p.direction.map(|v| v.to_bits()).hash(hasher);
-                p.velocity().bits().hash(hasher);
-                p.damage_counter.hash(hasher);
-                p.state_ai_advance.hash(hasher);
-                (p.drift_x, p.drift_y, p.drift_z).hash(hasher);
-                p.prev_delta.map(|v| v.to_bits()).hash(hasher);
-                match p.spark {
-                    None => 0_u8.hash(hasher),
-                    Some(spark) => {
-                        1_u8.hash(hasher);
-                        spark.velocity_x.bits().hash(hasher);
-                        spark.velocity_y.bits().hash(hasher);
-                        spark.velocity_z.bits().hash(hasher);
-                        spark.start_rgb.hash(hasher);
-                        spark.color_index.hash(hasher);
-                        spark.color_accumulator.bits().hash(hasher);
-                    }
-                }
+            for particle in &sys.particles {
+                hash_particle(particle, hasher);
+            }
+        }
+        let retiring = self.particle_systems().detached_particles();
+        if retiring.len() != 0 {
+            b"detached-particles-v397".hash(hasher);
+            retiring.len().hash(hasher);
+            for (id, particle, alive, in_limbo) in retiring {
+                id.hash(hasher);
+                alive.hash(hasher);
+                in_limbo.hash(hasher);
+                hash_particle(particle, hasher);
             }
         }
     }
@@ -1498,6 +1481,40 @@ impl Simulation {
             debris.marked_for_deletion.hash(hasher);
             debris.owner_house.hash(hasher);
             debris.bounce.hash_bits(hasher);
+        }
+    }
+}
+
+/// The same authoritative Particle body survives System removal until725C70.
+/// Keep one hash fold for both live children and retiring bodies.
+fn hash_particle(p: &crate::sim::particles::Particle, hasher: &mut impl Hasher) {
+    p.stable_id().hash(hasher);
+    p.native_unique_id().hash(hasher);
+    p.type_id.0.hash(hasher);
+    p.coords.x.hash(hasher);
+    p.coords.y.hash(hasher);
+    p.coords.z.hash(hasher);
+    p.lifetime_remaining.hash(hasher);
+    p.animation_state.hash(hasher);
+    p.translucency.hash(hasher);
+    p.marked_for_deletion.hash(hasher);
+    p.origin.to_array().hash(hasher);
+    p.direction.map(|v| v.to_bits()).hash(hasher);
+    p.velocity().bits().hash(hasher);
+    p.damage_counter.hash(hasher);
+    p.state_ai_advance.hash(hasher);
+    (p.drift_x, p.drift_y, p.drift_z).hash(hasher);
+    p.prev_delta.map(|v| v.to_bits()).hash(hasher);
+    match p.spark {
+        None => 0_u8.hash(hasher),
+        Some(spark) => {
+            1_u8.hash(hasher);
+            spark.velocity_x.bits().hash(hasher);
+            spark.velocity_y.bits().hash(hasher);
+            spark.velocity_z.bits().hash(hasher);
+            spark.start_rgb.hash(hasher);
+            spark.color_index.hash(hasher);
+            spark.color_accumulator.bits().hash(hasher);
         }
     }
 }
@@ -2246,10 +2263,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0u8.hash(hasher);
     }
 
-    // S4b damage-Spark `+0x308`-equivalent live-system gate. Hashed because
-    // it gates future scenario_rng draws (a divergence here desyncs the
-    // stream). Zero for every entity in stock YR (the gate is Cyborg-only).
-    entity.damage_particle_live_until.live_until().hash(hasher);
+    // Preserve the constructor-NULL representation while hashing the actual
+    // retained system identity, which gates FireAt/GetROF and future AI draws.
+    entity
+        .spark_particle_system
+        .system()
+        .unwrap_or(0)
+        .hash(hasher);
     // ReceiveDamage damage-Smoke `+0x310` identity. This gates later
     // spawn/RNG and remains set while a marked system drains.
     entity.damage_smoke_system_id.system().hash(hasher);
@@ -3565,7 +3585,7 @@ mod particle_hash_tests {
                 ))
             }),
             Box::new(|s| s.spark_spawn_frames = 1),
-            Box::new(|s| s.attached_entity = Some(7)),
+            Box::new(|s| s.target_ref = Some(crate::sim::combat::TargetKind::Entity(7))),
             Box::new(|s| s.owner_entity = Some(7)),
             Box::new(|s| s.target_coords = IVec3::new(0, 1, 0)),
             Box::new(move |s| s.owner_house = Some(owner_house)),

@@ -377,6 +377,7 @@ fn retail_gi_berserk_atlas_and_replay_match_original_body_pixels() {
                 None,
                 batch.default_zshape_bind_group(),
                 None,
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),

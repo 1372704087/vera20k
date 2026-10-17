@@ -1506,6 +1506,12 @@ impl OccupancyGrid {
     /// `Look_up_building_in_cell` @ `0x0047C520` walks `+0xE4` only and returns
     /// the first `What_Am_I() == 6`, so it never selects the deck list. (There
     /// is no `CellClass::GetBuilding` in this program.)
+    /// Callers own native GameActive (`A8E9A0`) admission; this is the stored
+    /// list query for an admitted active context. Health, dying and limbo are
+    /// not query predicates: Mark owns list membership and lifetime. Original
+    /// 47C520..54E is exercised by the consumed engineer_repair_admission
+    /// controls in tools/spatial_oracle; inactive app/teardown lifetime is not
+    /// inferred from ScenarioSession.started (a different native byte).
     pub fn first_building_on_layer(&self, rx: u16, ry: u16, layer: MovementLayer) -> Option<u64> {
         self.get(rx, ry)?
             .iter_layer(layer)

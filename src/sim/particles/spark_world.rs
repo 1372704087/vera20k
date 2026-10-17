@@ -12,7 +12,6 @@ use super::spark::{
     classify_collision_kind, in_contact_band,
 };
 use crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
-use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::voxel_slope::slope_matrix;
 use crate::rules::foundation::foundation_dimensions;
@@ -222,9 +221,11 @@ impl<'a> SparkCollisionWorld<'a> {
         let mut accepted_building = false;
         let mut wall_overlay_id = None;
         if bridge_kind.is_none() && in_contact_band(motion, ground_z)? {
-            accepted_building = self.accepted_building_for_selection(&candidate_cell)?;
-            if !accepted_building {
-                wall_overlay_id = self.wall_overlay_for_selection(&candidate_cell)?;
+            // 62C88A tests the Building pointer before either exclusion. A
+            // nonnull excluded Building does not fall through to480510.
+            match self.building_collision_for_selection(&candidate_cell)? {
+                Some(accepted) => accepted_building = accepted,
+                None => wall_overlay_id = self.wall_overlay_for_selection(&candidate_cell)?,
             }
         }
 
@@ -257,13 +258,13 @@ impl<'a> SparkCollisionWorld<'a> {
         }
     }
 
-    fn accepted_building_for_selection(
+    fn building_collision_for_selection(
         &self,
         selection: &SelectedSparkCell<'_>,
-    ) -> Result<bool, SparkWorldError> {
+    ) -> Result<Option<bool>, SparkWorldError> {
         match &selection.cell {
-            CellRef::Dummy { .. } => Ok(false),
-            CellRef::Real(cell) => self.accepted_building(cell.rx, cell.ry),
+            CellRef::Dummy { .. } => Ok(None),
+            CellRef::Real(cell) => self.building_collision(cell.rx, cell.ry),
         }
     }
 
@@ -300,43 +301,42 @@ impl<'a> SparkCollisionWorld<'a> {
         slope_matrix(slope_type).ok_or(SparkWorldError::UnsupportedSlope(slope_type))
     }
 
-    fn accepted_building(&self, rx: u16, ry: u16) -> Result<bool, SparkWorldError> {
-        let Some(occupancy) = self.sim.occupancy().get(rx, ry) else {
-            return Ok(false);
+    fn building_collision(&self, rx: u16, ry: u16) -> Result<Option<bool>, SparkWorldError> {
+        let Some(sid) = self
+            .sim
+            .occupancy()
+            .first_building_on_layer(rx, ry, MovementLayer::Ground)
+        else {
+            return Ok(None);
         };
-        for occupant in occupancy.iter_layer(MovementLayer::Ground) {
-            let entity = self
-                .sim
-                .entities()
-                .get(occupant.entity_id)
-                .ok_or(SparkWorldError::MissingOccupantEntity(occupant.entity_id))?;
-            if entity.category() != EntityCategory::Structure {
-                continue;
-            }
+        let entity = self
+            .sim
+            .entities()
+            .get(sid)
+            .ok_or(SparkWorldError::MissingOccupantEntity(sid))?;
 
-            // Native stops at the first building in the selected object list.
-            let object = self
-                .sim
-                .object_type(entity.type_ref(), self.rules)
-                .ok_or(SparkWorldError::MissingObjectType(entity.stable_id()))?;
-            if object.laser_fence {
-                return Err(SparkWorldError::UnsupportedLaserFence(entity.stable_id()));
-            }
-            let undeploys_from_one_by_one = object
-                .undeploys_into
-                .as_deref()
-                .and_then(|target| self.rules.object(target))
-                .is_some()
-                && foundation_dimensions(&object.foundation) == (1, 1);
-            return Ok(!undeploys_from_one_by_one);
+        // Native stops at the first building in the selected object list.
+        let object = self
+            .sim
+            .object_type(entity.type_ref(), self.rules)
+            .ok_or(SparkWorldError::MissingObjectType(entity.stable_id()))?;
+        if object.laser_fence {
+            return Err(SparkWorldError::UnsupportedLaserFence(entity.stable_id()));
         }
-        Ok(false)
+        let undeploys_from_one_by_one = object
+            .undeploys_into
+            .as_deref()
+            .and_then(|target| self.rules.object(target))
+            .is_some()
+            && foundation_dimensions(&object.foundation) == (1, 1);
+        Ok(Some(!undeploys_from_one_by_one))
     }
 }
 
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::map::entities::EntityCategory;
     use glam::IVec3;
 
     use crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
@@ -866,6 +866,27 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cell_building_query_excluded_building_suppresses_wall_fallback() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=Vehicle\n[BuildingTypes]\n0=Deployable\n\
+             [Deployable]\nUndeploysInto=Vehicle\nFoundation=1x1\n",
+        ))
+        .unwrap();
+        let mut sim = one_cell_sim(terrain_cell(0, 0));
+        add_building(&mut sim, 1, "Deployable");
+        // Original62C88A branches on a null Building, not on its later virtual80
+        // answer. A nonnull excluded Building must suppress even a wall read.
+        sim.overlay_grid = None;
+        let facts = SparkCollisionWorld::new(&sim, &rules)
+            .unwrap()
+            .query(motion_at(0, 0))
+            .expect("excluded building does not query overlay");
+        assert!(!facts.accepted_building);
+        assert_eq!(facts.wall_overlay_id, None);
+        assert!(facts.slope_matrix.is_none());
+    }
+
+    #[test]
     fn first_building_exclusion_does_not_scan_later_buildings() {
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[VehicleTypes]\n1=Vehicle\n\
@@ -881,18 +902,18 @@ pub(super) mod tests {
         add_building(&mut ordered, 1, "Deployable");
         add_building(&mut ordered, 2, "Solid");
         let world = SparkCollisionWorld::new(&ordered, &rules).unwrap();
-        assert_eq!(world.accepted_building(0, 0), Ok(false));
+        assert_eq!(world.building_collision(0, 0), Ok(Some(false)));
 
         let mut solid = one_cell_sim(terrain_cell(0, 0));
         add_building(&mut solid, 2, "Solid");
         let world = SparkCollisionWorld::new(&solid, &rules).unwrap();
-        assert_eq!(world.accepted_building(0, 0), Ok(true));
+        assert_eq!(world.building_collision(0, 0), Ok(Some(true)));
 
         let mut fence = one_cell_sim(terrain_cell(0, 0));
         add_building(&mut fence, 3, "Fence");
         let world = SparkCollisionWorld::new(&fence, &rules).unwrap();
         assert_eq!(
-            world.accepted_building(0, 0),
+            world.building_collision(0, 0),
             Err(SparkWorldError::UnsupportedLaserFence(3))
         );
     }

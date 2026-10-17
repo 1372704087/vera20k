@@ -8,6 +8,7 @@
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::{TargetKind, combat_weapon};
 use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
@@ -91,13 +92,17 @@ pub(crate) fn issue_order(
         return false;
     }
     // `0x004C778A..0x004C77DE`: the event is ignored while the Unit's cell
-    // holds a WeaponsFactory= building (Cell_Building `0x0047C520`; VERA's
-    // foundation scan stands in), so an MCV still leaving its factory stays.
+    // holds a WeaponsFactory= building (Cell_Building `0x0047C520`), so an
+    // MCV still leaving its factory stays. Only the first ground Building's
+    // type is tested; Mark owns membership independently of death state.
     let (rx, ry) = {
         let entity = sim.substrate.entities.get(id).unwrap();
         (entity.position.rx(), entity.position.ry())
     };
-    if crate::sim::credit_income::building_at_cell(sim, rx, ry)
+    if sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(rx, ry, MovementLayer::Ground)
         .and_then(|building| sim.substrate.entities.get(building))
         .and_then(|building| sim.object_type(building.type_ref(), rules))
         .is_some_and(|kind| kind.weapons_factory)

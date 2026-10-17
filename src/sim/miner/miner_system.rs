@@ -1176,7 +1176,18 @@ fn handle_going_to_idle(
         harvest_looking(sim, rules, overlay_registry, snap, frame_effects);
         return false;
     }
-    if let Some(refinery_sid) = refinery_building_in_cell(sim, rules, (snap.rx, snap.ry))
+    // 73EF1F selects the first ground Building before its type flags; no
+    // dying filter or later matching refinery can replace that identity.
+    if let Some(refinery_sid) = sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(snap.rx, snap.ry, MovementLayer::Ground)
+        .filter(|&sid| {
+            sim.substrate.entities.get(sid).is_some_and(|building| {
+                sim.object_type(building.type_ref(), rules)
+                    .is_some_and(|kind| kind.refinery)
+            })
+        })
         && let Some(exit) = sim
             .techno_nearby_location(snap.entity_id, Some(refinery_sid), rules)
             .and_then(|(x, y)| Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?)))
@@ -1227,22 +1238,6 @@ fn house_owns_dock_instance(sim: &Simulation, rules: &RuleSet, snap: &MinerSnaps
                 .iter()
                 .filter_map(|name| sim.interner.get(name)),
         )
-    })
-}
-
-/// `Look_up_building_in_cell` for the state-4 refinery test: the structure
-/// occupying `cell` whose type is `Refinery=yes` (BuildingType `+0x16BB`).
-/// Any owner qualifies, as native tests only the type flag.
-fn refinery_building_in_cell(sim: &Simulation, rules: &RuleSet, cell: (u16, u16)) -> Option<u64> {
-    let occupancy = sim.substrate.occupancy.get(cell.0, cell.1)?;
-    occupancy.blockers(MovementLayer::Ground).find(|&sid| {
-        sim.substrate.entities.get(sid).is_some_and(|entity| {
-            entity.category() == EntityCategory::Structure
-                && !entity.death.is_dying()
-                && sim
-                    .object_type(entity.type_ref(), rules)
-                    .is_some_and(|obj| obj.refinery)
-        })
     })
 }
 

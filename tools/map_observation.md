@@ -138,6 +138,19 @@ not dynamic structure passability. Historical receipts may omit these additions;
 omission supplies no evidence. Post-Logic observations cannot prove ordering
 between objects within a Logic pass.
 
+The [Cell building-query profile](map_observation.cell-building-query.example.json)
+uses the ordinary XMP03T4/Battle Allied opening: pay for power, barracks, refinery,
+war factory, service depot and AMCV, then request deployment inside the factory's
+ground footprint and again after moving away. Its
+[expectations](map_observation.cell-building-query.expectations.json) check the
+retained Move/NavCom at step7381, queued Unload at8401, the converted yard at40,96,
+and9100 credits spent. Actor1737 and yard2176 belong to this exact launch/command
+sequence; changing it requires discovery again. The initial MCV and production
+types use v3 bindings. The interior request is deliberately after factory contact
+release while the physical cell is still29,92. This is a production integration
+control, not native timing or whole-function parity; marked dying and special
+foundation inputs are separate component regressions.
+
 Requested terrain cells also report `local_visibility`: the current viewer's
 owner name and retained `revealed`, `visible` and `gap_covered` queries. It is
 `null` when no local viewer resolves. These read-only observations let a GPU

@@ -1,6 +1,5 @@
 //! Live Cell selection for Bounce439B00/439A10 and VoxelAnim749F30.
 //! Evidence: docs/research/PHASE3_BOUNCE_GROUND_QUERY_DELIVERY_NATIVE_REPORT.md.
-use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::bounce::BounceTerrain;
 use crate::sim::cell_rect::{CellRef, get_cellclass_fallback_leptons};
@@ -72,21 +71,22 @@ impl<'a> BounceTerrain for ResolvedBounceTerrain<'a> {
             }
             CellRef::Real(cell) => cell,
         };
-        if let Some(occupancy) = self.sim.occupancy().get(cell.rx, cell.ry) {
-            for occupant in occupancy.iter_layer(MovementLayer::Ground) {
-                let Some(entity) = self.sim.entities().get(occupant.entity_id) else {
-                    continue;
-                };
-                if entity.category() != EntityCategory::Structure {
-                    continue;
-                }
-                // 47C520 first normal-list RTTI6; 457620->465D40 rejects
-                // exactly a1x1 structure with resolved UndeploysInto type.
-                return self
-                    .rules
-                    .and_then(|rules| self.sim.object_type(entity.type_ref(), rules))
-                    .is_some_and(|kind| !kind.is_1x1_with_undeploy());
-            }
+        if let Some(sid) =
+            self.sim
+                .occupancy()
+                .first_building_on_layer(cell.rx, cell.ry, MovementLayer::Ground)
+        {
+            // 439CAD selects a Building before its virtual80 exclusion. A
+            // nonnull excluded Building suppresses the wall query as well.
+            return self
+                .sim
+                .entities()
+                .get(sid)
+                .and_then(|entity| {
+                    self.rules
+                        .and_then(|rules| self.sim.object_type(entity.type_ref(), rules))
+                })
+                .is_some_and(|kind| !kind.is_1x1_with_undeploy());
         }
         // 480510(-1,-1) accepts these three raw overlay IDs only.
         self.sim

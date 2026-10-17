@@ -594,10 +594,10 @@ impl Simulation {
                         && self
                             .object_type(factory.type_ref(), rules)
                             .is_some_and(|object| object.weapons_factory)
-                }) && crate::sim::credit_income::building_at_cell(
-                    self,
+                }) && self.substrate.occupancy.first_building_on_layer(
                     entity.position.rx(),
                     entity.position.ry(),
+                    crate::sim::movement::locomotor::MovementLayer::Ground,
                 ) == Some(contact)
             })
     }

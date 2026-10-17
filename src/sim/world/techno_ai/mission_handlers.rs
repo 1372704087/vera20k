@@ -2238,16 +2238,18 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
         let (Ok(cx), Ok(cy)) = (u16::try_from(rx + dx), u16::try_from(ry + dy)) else {
             continue;
         };
-        let Some(cell) = sim.substrate.occupancy.get(cx, cy) else {
-            continue;
-        };
-        let own_refinery = cell
-            .blockers(crate::sim::movement::locomotor::MovementLayer::Ground)
-            .any(|sid| {
+        // 74096F selects the first Building before the refinery/owner tests.
+        let own_refinery = sim
+            .substrate
+            .occupancy
+            .first_building_on_layer(
+                cx,
+                cy,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            )
+            .is_some_and(|sid| {
                 sim.substrate.entities.get(sid).is_some_and(|building| {
-                    building.category() == EntityCategory::Structure
-                        && !building.death.is_dying()
-                        && building.owner() == entity.owner()
+                    building.owner() == entity.owner()
                         && sim
                             .object_type(building.type_ref(), rules)
                             .is_some_and(|obj| obj.refinery)
@@ -2720,6 +2722,30 @@ mod harvester_guard_override_tests {
             sim.rng_state().scenario,
             scenario_before,
             "the Foot Guard body (and its draw) is never reached"
+        );
+    }
+
+    #[test]
+    fn cell_building_query_guard_miner_sees_a_still_listed_dying_refinery() {
+        let rules = rules();
+        let mut sim = Simulation::new();
+        spawn_refinery(&mut sim, "Americans");
+        spawn_guard_miner(&mut sim, MinerKind::Chrono, (14, 11));
+        // Explicit retained-lifetime prior. Original74096F/47C520 does not
+        // inspect death; unlinking the foundation is a separate Mark operation.
+        sim.substrate
+            .entities
+            .get_mut(REFINERY_ID)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
+        let rng_before = sim.rng_state();
+        dispatch(&mut sim, &rules);
+        assert_eq!(queued(&sim), Some(MissionType::Harvest));
+        assert_eq!(
+            sim.rng_state(),
+            rng_before,
+            "Guard override precedes its random epilogue"
         );
     }
 

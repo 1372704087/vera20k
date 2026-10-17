@@ -7,7 +7,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::map::entities::EntityCategory;
 use crate::map::playfield::{lepton_to_packed_cell_component, rect_playfield_corners};
 #[cfg(any(test, feature = "test-support"))]
 use crate::map::resolved_terrain::SharedCellDummySnapshot;
@@ -16,7 +15,6 @@ use crate::map::resolved_terrain::{
 };
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::terrain_rules::SpeedCostProfile;
-use crate::sim::entity_store::EntityStore;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 use crate::sim::overlay_grid::OverlayGrid;
@@ -688,7 +686,6 @@ pub struct CellRectOccupancyContext<'a> {
     pub reservation_arg: i32,
     pub reservations: Option<&'a CellReservationGrid>,
     pub occupancy: Option<&'a OccupancyGrid>,
-    pub entities: Option<&'a EntityStore>,
     /// Derived index of live TerrainClass objects in the active ground list.
     pub terrain_object_cells: Option<&'a BTreeMap<(u16, u16), u64>>,
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
@@ -795,9 +792,14 @@ fn occupancy_blocker_at(
     } {
         return Some(OccupancyBlocker::Slope);
     }
-    if canonical
-        .is_some_and(|(rx, ry)| ground_building_present(ctx.occupancy, ctx.entities, rx, ry))
-    {
+    // Original 586846 asks47C520 after every preceding blocker gate.
+    if canonical.is_some_and(|(rx, ry)| {
+        ctx.occupancy.is_some_and(|occupancy| {
+            occupancy
+                .first_building_on_layer(rx, ry, MovementLayer::Ground)
+                .is_some()
+        })
+    }) {
         return Some(OccupancyBlocker::Building);
     }
     None
@@ -1010,24 +1012,6 @@ fn overlay_present(overlay_grid: Option<&OverlayGrid>, rx: u16, ry: u16) -> bool
     overlay_grid
         .map(|grid| grid.cell(rx, ry).overlay_id.is_some())
         .unwrap_or(false)
-}
-
-fn ground_building_present(
-    occupancy: Option<&OccupancyGrid>,
-    entities: Option<&EntityStore>,
-    rx: u16,
-    ry: u16,
-) -> bool {
-    let (Some(occupancy), Some(entities)) = (occupancy, entities) else {
-        return false;
-    };
-    occupancy.get(rx, ry).is_some_and(|cell| {
-        cell.iter_layer(MovementLayer::Ground).any(|occupant| {
-            entities
-                .get(occupant.entity_id)
-                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
-        })
-    })
 }
 
 /// Height-aware `MapClass::IsRectInPlayfield @ 0x00578390`: test NW, NE,
@@ -1546,7 +1530,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: terrain,
             overlay_grid: None,
@@ -1768,7 +1751,6 @@ mod tests {
             reservation_arg: -1,
             reservations: Some(&reservations),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -1782,7 +1764,6 @@ mod tests {
             reservation_arg: -1,
             reservations: Some(&reservations),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -1803,7 +1784,6 @@ mod tests {
             reservation_arg: 5,
             reservations: Some(&reservations),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -1817,7 +1797,6 @@ mod tests {
             reservation_arg: 6,
             reservations: Some(&reservations),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -1831,7 +1810,6 @@ mod tests {
             reservation_arg: -1,
             reservations: Some(&reservations),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2180,7 +2158,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: Some(&occupancy),
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2609,7 +2586,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2623,7 +2599,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2637,7 +2612,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2671,7 +2645,6 @@ mod tests {
             reservation_arg: -1,
             reservations: None,
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: None,
             overlay_grid: None,
@@ -2892,7 +2865,6 @@ mod tests {
             reservation_arg: 6,
             reservations: Some(&grid),
             occupancy: None,
-            entities: None,
             terrain_object_cells: None,
             resolved_terrain: Some(&terrain),
             overlay_grid: None,
@@ -2937,11 +2909,6 @@ mod tests {
 
     #[test]
     fn gsi_04_05_reservation_checkoccupancy_first_blocker_order_is_exact() {
-        use crate::sim::combat::Health;
-        use crate::sim::entity_store::EntityStore;
-        use crate::sim::game_entity::GameEntity;
-        use crate::sim::intern::InternedId;
-
         let mut terrain = flat_terrain(1, 1);
         terrain.cells[0].zone_type = zone_class::WATER;
         terrain.cells[0].slope_type = 2;
@@ -2951,21 +2918,6 @@ mod tests {
         overlays.place_overlay(0, 0, 7, 0);
         let mut terrain_objects = BTreeMap::new();
         terrain_objects.insert((0, 0), 88);
-        let mut entities = EntityStore::new();
-        entities.insert(GameEntity::new_at_frame_zero_for_test(
-            1,
-            0,
-            0,
-            0,
-            0,
-            InternedId::from_index(0),
-            Health::new(10),
-            InternedId::from_index(1),
-            EntityCategory::Structure,
-            0,
-            0,
-            false,
-        ));
         let mut occupancy = OccupancyGrid::new();
         occupancy.add(
             0,
@@ -2985,7 +2937,6 @@ mod tests {
                         reservation_arg: 0,
                         reservations: Some(&reservations),
                         occupancy: Some(&occupancy),
-                        entities: Some(&entities),
                         terrain_object_cells: Some(&terrain_objects),
                         resolved_terrain: Some(&terrain),
                         overlay_grid: Some(&overlays),
@@ -3013,32 +2964,7 @@ mod tests {
 
     #[test]
     fn gsi_04_05_reservation_checkoccupancy_ignores_deck_buildings_and_ground_units() {
-        use crate::sim::combat::Health;
-        use crate::sim::entity_store::EntityStore;
-        use crate::sim::game_entity::GameEntity;
-        use crate::sim::intern::InternedId;
-
         let terrain = flat_terrain(2, 1);
-        let mut entities = EntityStore::new();
-        for (stable_id, category, rx) in [
-            (1, EntityCategory::Structure, 0),
-            (2, EntityCategory::Unit, 1),
-        ] {
-            entities.insert(GameEntity::new_at_frame_zero_for_test(
-                stable_id,
-                rx,
-                0,
-                0,
-                0,
-                InternedId::from_index(0),
-                Health::new(10),
-                InternedId::from_index(stable_id as u32),
-                category,
-                0,
-                0,
-                false,
-            ));
-        }
         let mut occupancy = OccupancyGrid::new();
         occupancy.add(
             0,
@@ -3065,7 +2991,6 @@ mod tests {
                         reservation_arg: -1,
                         reservations: None,
                         occupancy: Some(&occupancy),
-                        entities: Some(&entities),
                         terrain_object_cells: None,
                         resolved_terrain: Some(&terrain),
                         overlay_grid: None,

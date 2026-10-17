@@ -79,6 +79,307 @@ fn native_control_group_labels_preserve_color_a_z_and_parent_order() {
 }
 
 #[test]
+#[ignore = "requires retail assets and GPU; original damaged self-heal phase, A/Z and overlapping destination edits"]
+fn native_damaged_self_heal_markers_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/self_heal_status.json",
+        "MTNK",
+        EntityCategory::Unit,
+    );
+    native_self_heal_draw_fault_order();
+}
+
+fn native_self_heal_draw_fault_order() {
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/self_heal_status.json");
+    let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        .expect("physical Battle rules");
+    let assets = AssetManager::new(
+        &std::path::PathBuf::from(std::env::var_os("RA2_DIR").unwrap()),
+        MediaArchiveMode::STOCK_DIGITAL,
+    )
+    .unwrap();
+    let gpu = Gpu::new();
+    let batch = BatchRenderer::new_with_device(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
+    let overlay = SelectionOverlay::new_on_device(&gpu.device, &gpu.queue, &batch, Some(&assets));
+    let mut checked = 0;
+    for row in native["divide_controls"].as_array().unwrap() {
+        if row["path"] != "draw" {
+            continue;
+        }
+        let mut rules = retail.rules.clone();
+        let name = row["type_name"].as_str().unwrap();
+        let infantry = name == "E1";
+        let period = row["period"].as_i64().unwrap() as i32;
+        if infantry {
+            rules.general.self_heal_infantry_frames = period;
+        } else {
+            rules.general.self_heal_unit_frames = period;
+        }
+        let mut sim = Simulation::new();
+        let owner = sim.interner.intern("Owner");
+        let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
+        let count = row["house_count"].as_i64().unwrap() as i32;
+        crate::sim::arena_fixture::install_status_self_heal(
+            &mut house,
+            if infantry { count } else { 0 },
+            if infantry { 0 } else { count },
+        );
+        sim.houses.insert(owner, house);
+        sim.session.binary_frame = row["binary_frame"].as_i64().unwrap() as u32;
+        let object = rules.object(name).unwrap();
+        let type_ref = sim.interner.intern(name);
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            1,
+            10,
+            20,
+            0,
+            0,
+            owner,
+            Health::new(object.strength),
+            type_ref,
+            EntityCategory::from(object.category),
+            0,
+            5,
+            false,
+        );
+        entity.lifecycle.set_in_limbo_for_test(false);
+        entity.selection.set_selected_for_test(true);
+        entity.discovery.set_owned_by_current_house_for_test(true);
+        sim.fog = crate::sim::vision::FogState::new(64, 64);
+        sim.fog.reveal_all_for_owner(owner);
+        sim.entities_mut().insert(entity);
+        sim.resubmit_entity_display_for_test(1);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            techno_extras_for_parent(
+                &sim,
+                sim.entities().get(1).unwrap(),
+                Some(&rules),
+                &overlay,
+                None,
+                Some("Owner"),
+                StatusViewport {
+                    camera: [-380.0, 400.0],
+                    size: [160.0, 120.0],
+                    ignore_visibility: true,
+                },
+            )
+        }));
+        // The original HasSelfHeal query precedes the divide. Drawing does
+        // not skip the admitted divide for full health, unlike the AI arm.
+        assert_eq!(result.is_err(), !row["fault"].is_null(), "{row}");
+        if let Ok(strip) = result {
+            assert!(strip.self_heal.is_none());
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 8);
+}
+
+/// Production status cost, with a one-parent replay comparison. Use release
+/// for performance; debug execution only diagnoses the timer and composition.
+/// Setup/upload is excluded; both intervals include clears and every draw.
+#[test]
+#[ignore = "release CPU/GPU timing; requires retail assets and an uncontended GPU"]
+fn production_self_heal_status_workload_timing() {
+    use crate::render::terrain_draw_gpu_tests::GpuFrameTimer;
+
+    let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        .expect("physical Battle rules");
+    let rules = &retail.rules;
+    let assets = AssetManager::new(
+        &std::path::PathBuf::from(std::env::var_os("RA2_DIR").unwrap()),
+        MediaArchiveMode::STOCK_DIGITAL,
+    )
+    .unwrap();
+    let gpu = Gpu::with_features(wgpu::Features::TIMESTAMP_QUERY);
+    let timer = GpuFrameTimer::new(&gpu);
+    let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+    let size = [1920, 1080];
+    let batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, format);
+    let overlay = SelectionOverlay::new_on_device(&gpu.device, &gpu.queue, &batch, Some(&assets));
+    let mut pool = InstanceBufferPool::new();
+    let center = crate::util::lepton::absolute_leptons_to_screen(48 * 256 + 128, 48 * 256 + 128, 0);
+    let mut cam = camera(size);
+    cam.camera_pos = [center.0 - 960.0, center.1 - 540.0];
+    batch.write_camera(&gpu.queue, cam);
+    let color = gpu.target(size, format);
+    let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
+    let cv = color.create_view(&Default::default());
+    let dv = depth.create_view(&Default::default());
+    let mut terrain = TerrainDrawRenderer::new(&gpu.device, &gpu.queue, format, &batch);
+    let mut samples = Vec::new();
+    for count in [1usize, 32, 252] {
+        for layout in ["dispersed", "overlap"] {
+            let mut sim = Simulation::new();
+            let owner = sim.interner.intern("Owner");
+            let type_ref = sim.interner.intern("MTNK");
+            let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
+            crate::sim::arena_fixture::install_status_self_heal(&mut house, 0, 1);
+            sim.houses.insert(owner, house);
+            sim.fog = crate::sim::vision::FogState::new(64, 64);
+            sim.fog.reveal_all_for_owner(owner);
+            let ids: Vec<_> = (1..=count as u64).collect();
+            for (i, &id) in ids.iter().enumerate() {
+                let (x, y) = if layout == "overlap" {
+                    (48, 48)
+                } else {
+                    (40 + (i % 16) as u16, 40 + (i / 16) as u16)
+                };
+                let mut entity = GameEntity::new_at_frame_zero_for_test(
+                    id,
+                    x,
+                    y,
+                    0,
+                    0,
+                    owner,
+                    Health::new(150),
+                    type_ref,
+                    EntityCategory::Unit,
+                    0,
+                    5,
+                    false,
+                );
+                entity.lifecycle.set_in_limbo_for_test(false);
+                entity.discovery.set_owned_by_current_house_for_test(true);
+                entity.selection.set_selected_for_test(true);
+                sim.entities_mut().insert(entity);
+                sim.resubmit_entity_display_for_test(id);
+            }
+            let display = NativeDisplayOrder::new(&ids);
+            for (phase, frame, selector) in [("ordinary", 6, 0), ("pulse", 5, 1)] {
+                sim.session.binary_frame = frame;
+                let parents = ids
+                    .iter()
+                    .map(|&id| {
+                        let mut parent = PlannedObjectInstance::object(
+                            display.object_draw(id, SpriteEncoding::Plain).unwrap(),
+                            vec![],
+                        );
+                        let strip = techno_extras_for_parent(
+                            &sim,
+                            sim.entities().get(id).unwrap(),
+                            Some(rules),
+                            &overlay,
+                            None,
+                            Some("Owner"),
+                            StatusViewport {
+                                camera: cam.camera_pos,
+                                size: size.map(|n| n as f32),
+                                ignore_visibility: false,
+                            },
+                        );
+                        assert_eq!(
+                            strip
+                                .self_heal
+                                .as_ref()
+                                .unwrap()
+                                .draw_state
+                                .native_selector_bits(),
+                            selector
+                        );
+                        parent.status = Some(strip);
+                        parent
+                    })
+                    .collect();
+                let layer = lower_ground_object_instances(parents);
+                assert_eq!(layer.extras_runs.len(), count);
+                pool.upload_on_device(
+                    &gpu.device,
+                    &gpu.queue,
+                    "object_extras",
+                    &layer.extras_instances,
+                );
+                let mut reference = None;
+                for sequential in [true, false] {
+                    eprintln!(
+                        "STATUS timing begins: parents={count} layout={layout} phase={phase} one_parent_calls={sequential}"
+                    );
+                    for sample in 0..4 {
+                        terrain.prepare(&gpu.device, &color, &dv, cam);
+                        let (_, cpu_ms, gpu_ms) = timer.measure(&gpu, |encoder| {
+                            clear(
+                                encoder,
+                                &cv,
+                                &dv,
+                                u16::MAX,
+                                wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            );
+                            if sequential {
+                                for run in &layer.extras_runs {
+                                    super::object_extras::draw_status_runs(
+                                        encoder,
+                                        &cv,
+                                        &dv,
+                                        &mut terrain,
+                                        [0, 0, size[0], size[1]],
+                                        &batch,
+                                        Some(&overlay),
+                                        pool.get("object_extras").map(|(buffer, _)| buffer),
+                                        &layer.extras_instances,
+                                        None,
+                                        std::slice::from_ref(run),
+                                    );
+                                }
+                            } else {
+                                super::object_extras::draw_status_runs(
+                                    encoder,
+                                    &cv,
+                                    &dv,
+                                    &mut terrain,
+                                    [0, 0, size[0], size[1]],
+                                    &batch,
+                                    Some(&overlay),
+                                    pool.get("object_extras").map(|(buffer, _)| buffer),
+                                    &layer.extras_instances,
+                                    None,
+                                    &layer.extras_runs,
+                                );
+                            }
+                        });
+                        if sample > 0 {
+                            samples.push(serde_json::json!({
+                                "parents": count, "layout": layout, "phase": phase,
+                                "one_parent_calls": sequential, "sample": sample,
+                                "cpu_encode_ms": cpu_ms, "gpu_ms": gpu_ms,
+                            }));
+                        }
+                    }
+                    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                    let reads = [
+                        gpu.read(&mut encoder, &color),
+                        gpu.read(&mut encoder, &depth),
+                    ];
+                    let output = gpu.finish(encoder, &reads, size);
+                    if let Some(expected) = &reference {
+                        assert!(
+                            &output == expected,
+                            "{count} {layout} {phase}: parent replay color/depth"
+                        );
+                    } else {
+                        reference = Some(output);
+                    }
+                }
+            }
+        }
+    }
+    let report = serde_json::json!({
+        "build_profile": if cfg!(debug_assertions) { "debug-diagnostic" } else { "release" },
+        "target": size, "color_format": "Bgra8UnormSrgb",
+        "scope": "Actual selected MTNK producer, lowering and status replay; House-count/HP/position consumer priors, not full gameplay or20k performance",
+        "interval": "GPU includes clears, all status passes and the final one-workgroup timestamp marker. CPU includes encoder construction/draw commands/intermediate submits; excludes setup/upload/prepare/final submit/wait. One warmup and3samples per case. Every whole-run result matches one-parent color/depth.",
+        "samples": samples,
+    });
+    eprintln!("{report}");
+    if let Some(path) = std::env::var_os("VERA20K_STATUS_PERF_OUTPUT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    }
+}
+
+#[test]
 #[ignore = "requires retail assets and GPU; original GAPOWR wrench prefix, MOUSEPAL N1 and both Extras visits"]
 fn native_repair_wrenches_preserve_color_a_z_and_parent_order() {
     native_status_controls(
@@ -515,8 +816,9 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     + crate::util::lepton::absolute_leptons_to_screen(0, 0, 0).1,
             ];
             let mut sim = Simulation::new();
-            sim.session.binary_frame = input["frame"]
+            sim.session.binary_frame = input["binary_frame"]
                 .as_i64()
+                .or(input["frame"].as_i64())
                 .or(row["frame"].as_i64())
                 .unwrap_or(0) as u32;
             sim.session.game_options.game_speed = input["speed"]
@@ -760,6 +1062,23 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 }
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);
+                if actor["native_ai_before_draw"] == true {
+                    // Original component AI6FA793 heals299->300 at75 before
+                    // its Extras call. Use the real Rust tick owner and check
+                    // the consumed native post-health. Its post-tick clock is
+                    //76; healthy600 is phase-independent, so this does not
+                    //claim identical whole-game frame scheduling.
+                    sim.set_logic_order_for_test(vec![id]);
+                    sim.advance_tick(&[], Some(rules), None, None, 33);
+                    assert_eq!(
+                        i64::from(sim.entities().get(id).unwrap().health.current()),
+                        row["actor_results"][index]["health_after_native_ai"]
+                            .as_i64()
+                            .unwrap(),
+                        "{} actual AI before Extras",
+                        row["name"],
+                    );
+                }
                 if actor["sinking"].as_bool().unwrap_or(false) {
                     sim.begin_ship_sinking(id, rules, crate::sim::world::FrameEffects::default());
                 }
@@ -857,7 +1176,12 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     .chain(strip.self_heal.iter())
                     .zip(native_pips)
                 {
-                    assert_eq!(draw["flags"], 0x600);
+                    assert_eq!(
+                        draw["flags"],
+                        0x600 + instance.draw_state.native_selector_bits(),
+                        "{}: native plain/half-destination material",
+                        row["name"]
+                    );
                     let expected = overlay
                         .pips()
                         .unwrap()

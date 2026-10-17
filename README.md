@@ -77,9 +77,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Write `ra2_dir` with forward slashes, like `C:/Games/RA2`. Use `--release` to play; debug
-builds are too slow. The log is in `logs/ra2.log`.
-
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original

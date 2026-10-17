@@ -76,9 +76,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Skriv `ra2_dir` med vanliga snedstreck, till exempel `C:/Games/RA2`. Använd `--release` när du
-spelar; debugbyggen är för långsamma. Loggen hamnar i `logs/ra2.log`.
-
 ## Så arbetar vi
 
 Större delen av koden skrivs av AI-agenter. De använder Ghidra för att studera originalmotorn,

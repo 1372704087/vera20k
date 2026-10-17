@@ -77,9 +77,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Schreib `ra2_dir` mit normalen Schrägstrichen, etwa `C:/Games/RA2`. Verwende zum Spielen
-`--release`; Debug-Builds sind zu langsam. Das Log liegt in `logs/ra2.log`.
-
 ## So arbeiten wir
 
 Der Großteil des Codes wird von KI-Programmieragenten geschrieben. Sie untersuchen die

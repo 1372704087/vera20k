@@ -71,8 +71,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-`ra2_dir` 请使用正斜杠，例如 `C:/Games/RA2`。游玩时请使用 `--release`；调试构建运行太慢。日志保存在 `logs/ra2.log`。
-
 ## 我们如何开发
 
 大部分代码由 AI 编程助手编写。它们用 Ghidra 研究原版引擎，再将其行为移植到 Rust，

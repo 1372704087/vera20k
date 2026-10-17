@@ -73,9 +73,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-ให้เขียน `ra2_dir` ด้วยเครื่องหมายทับ (/) เช่น `C:/Games/RA2` ใช้ `--release` เพื่อเล่นเกม เพราะบิลด์แบบ debug ช้าเกินไป
-ไฟล์ล็อกอยู่ที่ `logs/ra2.log`
-
 ## วิธีทำงานของเรา
 
 โค้ดส่วนใหญ่เขียนโดยเอเจนต์ AI ซึ่งใช้ Ghidra ศึกษาเอนจินต้นฉบับ

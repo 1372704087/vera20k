@@ -592,7 +592,8 @@ pub struct HouseState {
     /// `UnitsKilled`/`BuildingsKilled` tables that the score screen sums, a
     /// `UnitsLost`/`BuildingsLost` pair, and four "quantity built" counters that
     /// its `Record_Last_Built` step increments once per finished factory item.
-    /// Only the totals are player-visible, so the Rust model keeps totals.
+    /// The score reads totals; negative BuildLimit additionally reads the
+    /// successful-production items retained by `produced_type_counts`.
     ///
     /// House Save504080/Load503040 preserve the native inline statistics and
     /// all four built Counters (naval_house_stats native execution). Keep the
@@ -615,6 +616,20 @@ pub struct HouseState {
     /// Executed controls: tag_lifecycle --build-type-events (Steam3e81a617).
     #[serde(default)]
     last_built_types: LastBuiltTypes,
+    /// Successful scored factory deliveries by category and native Type
+    /// ArrayIndex: House+55A0/55B4/55C8/55DC, Record_Last_Built4FB6B0
+    /// -> Counter49FA00. Owned/active tracking, discovery, construction and
+    /// ChangeOwner do not write this history. Missing indices mean zero;
+    /// registration growth cannot erase earlier items. Save504080/Load503040
+    /// retain the four native streams (naval_house_stats executed corpus).
+    ///
+    /// House4F5B13..34 calls Counter constructor49F9B0, starting empty.
+    /// Starting forces never call Record in this model, so their
+    /// clear5D6FAD..5D6FDA is an elided zero reset.
+    /// Only nonzero items are stored; MatchStatistics.built is their wrapping
+    /// sum, updated by the same owner and checked when restoring a save.
+    #[serde(default)]
+    produced_type_counts: [BTreeMap<i32, i32>; 4],
     /// House+54E0: the last building that left this House through an owner
     /// change. `BuildingClass::ChangeOwner` records it on the old owner after
     /// the Techno owner swap (`0x00448C70`) and forgets it on the new owner
@@ -781,6 +796,80 @@ impl HouseState {
     /// HasOccurred71EFEB..71F03D reads the incoming House's class-local slot.
     pub(crate) fn last_built_type_index(&self, category: ObjectCategory) -> i32 {
         self.last_built_types.0[category as usize]
+    }
+
+    /// Record4FB6B0's four DontScore-admitted Counter increments. The caller
+    /// stores LastBuilt first and retains cue/tech-recheck ordering afterward.
+    pub(crate) fn record_scored_production(&mut self, category: ObjectCategory, type_index: i32) {
+        assert!(type_index >= 0, "produced Type must have a registry index");
+        let items = &mut self.produced_type_counts[category as usize];
+        let count = items.entry(type_index).or_default();
+        *count = count.wrapping_add(1);
+        if *count == 0 {
+            items.remove(&type_index);
+        }
+        self.stats.record_built();
+    }
+
+    /// Counter49FAE0's logical item query. Sparse lookup replaces native
+    /// allocation/zero-fill; allocator capacity has no gameplay consumer here.
+    pub(crate) fn produced_count(&self, category: ObjectCategory, type_index: i32) -> i32 {
+        self.produced_type_counts[category as usize]
+            .get(&type_index)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Explicit retained Counter prior for native execution comparisons.
+    /// Normal construction/acquisition must never call this fixture adapter.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_produced_count_for_test(
+        &mut self,
+        category: ObjectCategory,
+        type_index: i32,
+        count: i32,
+    ) {
+        assert!(type_index >= 0);
+        let items = &mut self.produced_type_counts[category as usize];
+        if count == 0 {
+            items.remove(&type_index);
+        } else {
+            items.insert(type_index, count);
+        }
+        self.stats.built = self
+            .produced_type_counts
+            .iter()
+            .flat_map(|items| items.values())
+            .fold(0_u32, |total, &item| total.wrapping_add(item as u32));
+    }
+
+    pub(crate) fn hash_production_history(&self, hasher: &mut impl std::hash::Hasher) {
+        if self
+            .produced_type_counts
+            .iter()
+            .any(|items| !items.is_empty())
+        {
+            std::hash::Hash::hash(b"house-produced-type-counts-v1", hasher);
+            std::hash::Hash::hash(&self.produced_type_counts, hasher);
+        }
+    }
+
+    /// VERA's derived Built cache is not independently mutable or rebuilt
+    /// from live objects. Reject an inconsistent saved cache before commit.
+    pub(crate) fn validate_production_history(&self) -> Result<(), &'static str> {
+        let mut total = 0_u32;
+        for items in &self.produced_type_counts {
+            for (&index, &count) in items {
+                if index < 0 || count == 0 {
+                    return Err("produced items require nonnegative indices and nonzero counts");
+                }
+                total = total.wrapping_add(count as u32);
+            }
+        }
+        if total != self.stats.built() {
+            return Err("Built total disagrees with produced type history");
+        }
+        Ok(())
     }
 
     /// Original50D610 appends even when an earlier snapshot already exists.
@@ -1612,6 +1701,7 @@ impl HouseState {
             stats: MatchStatistics::default(),
             building_capture_notified: false,
             last_built_types: LastBuiltTypes::default(),
+            produced_type_counts: Default::default(),
             lost_building: None,
             spy_gains: SpyGains::default(),
             powered_unit_centers: 0,
@@ -1658,8 +1748,8 @@ pub struct MatchStatistics {
     units_lost: u32,
     /// Admitted building loss callbacks for this house, including captures.
     buildings_lost: u32,
-    /// Objects of this house that left their factory, `DontScore=` types
-    /// excepted: placed buildings and delivered units
+    /// Derived wrapping sum of HouseState's successful-production items:
+    /// placed buildings and delivered units, `DontScore=` types excepted
     /// (`production::factory_lifecycle::record_last_built`).
     built: u32,
 }
@@ -1712,8 +1802,8 @@ impl MatchStatistics {
         *counter = counter.wrapping_add(1);
     }
 
-    /// The existing Record_Last_Built caller owns its DontScore admission.
-    pub(crate) fn record_built(&mut self) {
+    /// Only HouseState's successful-production owner updates this derived sum.
+    fn record_built(&mut self) {
         self.built = self.built.wrapping_add(1);
     }
 

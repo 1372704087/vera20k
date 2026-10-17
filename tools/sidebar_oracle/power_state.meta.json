@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "native_sha256": "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c",
+  "unicorn_binding": "2.1.4",
+  "unicorn_core": [
+    2,
+    1,
+    33621247
+  ],
+  "scope": "Power numeric controls and retained constructor/AI/draw histories; supplied House accounting and geometry.",
+  "assumptions": [
+    "House power interface vtable7EA834 and its real getters; supplied House output/drain and owned typed-building list.",
+    "Native PC53/chop control word0x0E7F. No House producer/native scenario equivalence.",
+    "Constructor/reset inherited Radar body excluded. Power initial fields and clocks execute original instructions."
+  ],
+  "substitutions": [
+    "timeGetTime returns explicit input;6C8C40 executes original SHR4.",
+    "Inherited Radar constructor/reset/AI returns at its interface. No Radar-state equivalence.",
+    "Existing surface-bounds and CC_Draw_Shape command transport; no native pixels."
+  ],
+  "entry_points": {
+    "constructor": "0x0063F6B0",
+    "reset": "0x0063F730",
+    "fill": "0x0063F850",
+    "distribution": "0x0063F960",
+    "animation": "0x0063FEA0",
+    "draw": "0x0063FB20"
+  },
+  "replay_command": "python -m tools.sidebar_oracle.power_draw --state",
+  "payload_sha256": "a029c30a7b98398fb129a635ff2b06f2bfdac29154784529f2bbee501f077138"
+}

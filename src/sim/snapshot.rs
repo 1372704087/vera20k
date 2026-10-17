@@ -1099,7 +1099,10 @@ use crate::sim::world::Simulation;
 // until the common deferred drain. Old layouts cannot resume these states.
 // 396 -> 397: retained Particle bodies preserve Object+81 independently of
 // Alive, so the shared Object Limbo/UnInit owners can resume either boundary.
-const SNAPSHOT_VERSION: u32 = 397;
+// 397 -> 398: House retains per-family/type successful-production history.
+// Older saves contain its score total only and cannot reconstruct lifetime
+// BuildLimit admission from the currently owned objects.
+const SNAPSHOT_VERSION: u32 = 398;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1359,6 +1362,11 @@ pub enum SnapshotRestoreError {
     InvalidInfantryTerminalState { object_id: u64 },
     #[error("house {owner} has invalid serialized outcome state: {reason}")]
     InvalidHouseOutcomeState {
+        owner: crate::sim::intern::InternedId,
+        reason: &'static str,
+    },
+    #[error("house {owner} has invalid produced history: {reason}")]
+    InvalidHouseProductionHistory {
         owner: crate::sim::intern::InternedId,
         reason: &'static str,
     },
@@ -2705,6 +2713,9 @@ impl Simulation {
             }
         }
         for (&owner, house) in &self.houses {
+            house.validate_production_history().map_err(|reason| {
+                SnapshotRestoreError::InvalidHouseProductionHistory { owner, reason }
+            })?;
             let Some(outcome) = house.outcome() else {
                 if house.is_defeated || house.has_won() || house.has_lost() {
                     return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
@@ -4727,7 +4738,8 @@ mod tests {
         // 394 -> 395: retained Cheer rate and the appended Cheer command.
         // 395 -> 396: actual Spark link/target and retained Particle bodies.
         // 396 -> 397: retained Particle has independent Alive and Limbo.
-        assert_eq!(super::SNAPSHOT_VERSION, 397);
+        // 397 -> 398: per-family/type produced history for lifetime limits.
+        assert_eq!(super::SNAPSHOT_VERSION, 398);
     }
 
     #[test]

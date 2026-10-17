@@ -88,7 +88,7 @@ PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
-                              'observe_electric_bolt_steps', 'observe_bombs',
+                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_crates',
                               'observe_audio', 'allow_load_segments',
                               'camera_cell', 'cursor_position', 'terrain_cells',
                               'observe_super_weapons', 'observe_diplomacy', 'observe_sidebar_steps'))
@@ -574,7 +574,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         raise ValidationError('profile.observe_action_line_inputs must be a boolean')
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
-    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs'):
+    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_crates'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
     if 'observe_electric_bolt_steps' in profile:
@@ -2440,6 +2440,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                  *(('lasers',) if profile.get('observe_lasers', False) else ()),
                                  *(('electric_bolts',) if _observes_electric_step(profile, step) else ()),
                                  *(('bombs',) if profile.get('observe_bombs', False) else ()),
+                                 *(('crates',) if profile.get('observe_crates', False) else ()),
                                  *(('audio_state',) if 'observe_audio' in profile else ()),
                                  *(('houses',) if docking_state else ())), row_label)
         tick, binary_frame = _segment_clock(step, segments)
@@ -2496,6 +2497,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
             sample_count += _electric_bolts(row['electric_bolts'], f'{row_label}.electric_bolts')
         if profile.get('observe_bombs', False):
             sample_count += _bombs(row['bombs'], f'{row_label}.bombs')
+        if profile.get('observe_crates', False):
+            sample_count += _crate_slots(row['crates'], f'{row_label}.crates')
         if gesture_input:
             sample_count += _input_observation(row['input'], f'{row_label}.input',
                                                 local_input=_observes_local_input(profile))
@@ -2523,6 +2526,38 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                  else frames[segment['after_step']])
         require_value(segment['before']['total_simulation_ms'], prior['total_simulation_ms'], 'load segment before time')
     return dict(observations)
+
+
+def _crate_slots(value: Any, label: str) -> int:
+    slots = require_array(value, label)
+    if len(slots) > 256:
+        raise ValidationError(f'{label} exceeds the native slot capacity')
+    previous = -1
+    for index, value in enumerate(slots):
+        row_label = f'{label}[{index}]'
+        row = require_object(value, row_label)
+        require_exact_keys(row, ('slot', 'cell', 'start_frame', 'aux', 'duration', 'overlay'), row_label)
+        slot = _bounded_int(row['slot'], f'{row_label}.slot', 0, 255)
+        if slot <= previous:
+            raise ValidationError(f'{label} slot identities must increase strictly')
+        previous = slot
+        cell = require_array(row['cell'], f'{row_label}.cell')
+        if len(cell) != 2:
+            raise ValidationError(f'{row_label}.cell requires two coordinates')
+        for axis, coordinate in enumerate(cell):
+            _bounded_int(coordinate, f'{row_label}.cell[{axis}]', -32768, 32767)
+        if cell == [0, 0]:
+            raise ValidationError(f'{row_label} cannot retain an empty slot')
+        for field in ('start_frame', 'duration'):
+            _bounded_int(row[field], f'{row_label}.{field}', -(1 << 31), (1 << 31) - 1)
+        _bounded_int(row['aux'], f'{row_label}.aux', 0, (1 << 32) - 1)
+        if row['overlay'] is not None:
+            overlay = require_object(row['overlay'], f'{row_label}.overlay')
+            require_exact_keys(overlay, ('id', 'data'), f'{row_label}.overlay')
+            if overlay['id'] is not None:
+                _bounded_int(overlay['id'], f'{row_label}.overlay.id', 0, 255)
+            _bounded_int(overlay['data'], f'{row_label}.overlay.data', 0, 255)
+    return len(slots)
 
 
 def validate_capture(directory: Path, profile: Mapping[str, Any],

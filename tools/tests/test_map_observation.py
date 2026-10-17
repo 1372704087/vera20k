@@ -53,6 +53,7 @@ class MapObservationTests(unittest.TestCase):
         self.laser_frames = {}
         self.electric_frames = {}
         self.bomb_frames = {}
+        self.crate_frames = {}
         self.input_frames = {}
         self.gesture_receipts = []
         self.keyboard_bindings = []
@@ -140,6 +141,8 @@ class MapObservationTests(unittest.TestCase):
                 frames[-1]['electric_bolts'] = deepcopy(self.electric_frames.get(step, self.electric_snapshot()))
             if self.profile.get('observe_bombs', False):
                 frames[-1]['bombs'] = deepcopy(self.bomb_frames.get(step, {'carriers': [], 'records': []}))
+            if self.profile.get('observe_crates', False):
+                frames[-1]['crates'] = deepcopy(self.crate_frames.get(step, []))
         manifest['observations'] = {
             'policy': observation.OBSERVATION_POLICY, 'owners': self.profile.get('observe_owners', []),
             'rule_types': deepcopy(self.rule_types),
@@ -249,6 +252,39 @@ class MapObservationTests(unittest.TestCase):
                        'payload': {'ForceAttackCell': {'attacker_id': 1, 'target_rx': 87, 'target_ry': 53}}}])
         self.profile_path.write_text(json.dumps(self.profile))
         self.actor_frames = {step: [self.actor()] for step in range(4)}
+
+    def test_crate_profile_and_occupied_slot_receipts_round_trip(self):
+        self.scripted_profile()
+        self.profile['observe_crates'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.crate_frames[0] = [{'slot': 3, 'cell': [10, 12], 'start_frame': 50,
+                                 'aux': 777, 'duration': 100, 'overlay': {'id': 4, 'data': 20}}]
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual(frames[0]['crates'], self.crate_frames[0])
+        self.assertEqual(frames[1]['crates'], [])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_crates=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_crates=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_crates=value))
+
+    def test_crate_slots_reject_empty_duplicate_and_malformed_rows(self):
+        slot = {'slot': 3, 'cell': [10, 12], 'start_frame': 50,
+                'aux': 777, 'duration': 100, 'overlay': {'id': 4, 'data': 20}}
+        self.assertEqual(observation._crate_slots([slot], 'crates'), 1)
+        for changed in [dict(slot, cell=[0, 0]), dict(slot, slot=256),
+                        dict(slot, cell=[-32769, 12]), dict(slot, aux=-1),
+                        dict(slot, duration=True), dict(slot, overlay={'id': 4, 'data': 256})]:
+            with self.subTest(changed=changed), self.assertRaises(ValidationError):
+                observation._crate_slots([changed], 'crates')
+        with self.assertRaises(ValidationError):
+            observation._crate_slots([slot, slot], 'crates')
 
     def test_v2_records_exact_issue_order_without_input_delay_and_every_actor_frame(self):
         self.scripted_profile()

@@ -544,3 +544,43 @@ hidden/removed objects and replacement. The explicit ignored GPU regression
 runs the production SHP/VXL shaders on synthetic texels and reads the output.
 It proves bounded GPU ordering/occlusion, not retail RGB equality; a production
 NATBNK/LTNK played comparison remains necessary.
+
+
+### Stock cash-crate joined control
+
+`python -m tools.spatial_oracle.crate_pickup --cash --check` consumes
+[`cash_crate.json`](spatial_oracle/cash_crate.json) and its binary/command
+sidecar. `--write` deliberately regenerates this separate corpus; the default
+28-row pickup/prefix corpus remains independent.
+
+The existing `AnimationFixture`, source-map fixture, Overlay constructor and
+Sound reader compose one VM. Original `481A00` reaches weighted/fixed Money,
+`56C020` removal, optional `56BD40` replacement/nearby search, amount RNG,
+`4F9950` credits, separate retained-Cell sound/tail height queries, and MONEY
+Anim construction, AI expiry and deferred cleanup. Physical RULESMD Powerups
+and CrateRules readers, the exact Overlay Crate/CrateTrigger reader block,
+SOUNDMD CrateMoney binding and ARTMD MONEY reader run before pickup.
+
+Inputs declare a neutral local Unit/House owning a building, no attached Tag,
+a small allocated flat map, Size/LocalSize, resident TMP metadata and spare
+registry capacity. Original Resize field stores derive MapRect; each row retains
+its observed raw/final LocalSize, geometry and runtime-ID cursor boundaries.
+Full original `567230` normalizes LocalSize before the independently chosen
+interior pickup cell `(11,11)` is placed. The input records the inherited
+AnimationFixture stored game speed read back from `A8EB60`; MONEY normalization
+uses that supplied option through original `5FB2E0`. Supplied slot storage starts zeroed;
+only its coordinate sentinel determines emptiness.
+Initial placement runs native code; pickup seeds are independent priors.
+Full RNG states and ranged/raw draws are observed at removal, replacement,
+credit and cleanup boundaries. Seed2 directly selects Money from stock weights.
+The sound reader uses its existing fixture-local sample-slot boundary for
+physical `ubonus`; native lookup chooses the Voc identity. Playback ends at
+`7509E0`, so device admission/channel scheduling and its RNG are outside this
+control. Cash opts into original `Object::Mark5F5850` admission and state writes for
+Overlay and Anim, recording before/after flags and native refusal controls. Consecutive identical frame
+Mark observations retain their native call count in one compact row.
+The historical animation-only Mark seam remains its default. Display submission
+`4A9720` still returns supplied success; the selected Object Unlimbo caller
+ignores that result. Screen rectangle/dirty outputs remain supplied. This is a
+bounded native comparison, not a complete scenario/House/Unit initialization,
+rendering, audio playback or whole crate-function equivalence proof.

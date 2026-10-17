@@ -2565,3 +2565,7 @@ External `pr1018-diagnostics-release-continuity-20261003.json` records the
 identity and validations (SHA-256
 `d6413cf7fc50e5e763aeacec6f34ef53e9994ad1dd03a4050b8d88854af07cfd`).
 The previous bounded actor/GPU comparisons and native-parity limits remain.
+
+### Occupied crate slots
+
+Set `observe_crates: true` to read the existing MapClass crate-slot authority at each committed boundary. Each frame adds `crates` in ascending slot order, containing only occupied slots: `slot`, signed packed `cell`, raw timer `start_frame`/`aux`/`duration`, and current real-grid `overlay` (`id`, `data`, or null for a missing grid). Empty coordinates disappear; accepted ghosts remain visible to the observation even without an overlay. This projection never performs a gameplay map lookup or stamps the shared Dummy, places crates, or changes timers. It supports locating a naturally generated startup crate and observing ordinary movement pickup, replacement and cleanup. Each occupied slot counts toward the existing sample budget. Omit the flag or set it false to preserve existing frame fields.

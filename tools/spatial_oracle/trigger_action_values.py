@@ -196,6 +196,9 @@ class ActionFixture(FlagsFixture):
         u.mem_write(0xA8B230,dwords(SCENARIO))
         u.mem_write(PTD,bytes(0x74))
         self.cursor = HEAP+0x40000
+        # Reader.alloc shares this VM through ordered_ini; VectorFixture maps
+        # exactly this arena. Keep its configurable bound on composed readers.
+        self.arena_size = 0x100000
         self.allocations, self.calls = [], []
         self.hook = u.hook_add(UC_HOOK_CODE,self.observe)
         self.ranges = [(0x6DD000,0x6DD17B),(0x6DD5B0,0x6DD87D),
@@ -822,17 +825,20 @@ def initialize_animation_catalog(f, physical, *, cold=True):
                 audio_visual_prefix=prefix,names=names())
 
 
-def initialize_animation_sounds(f):
+def initialize_animation_sounds(f, selected_names=('Explosion06', 'ExplosionShard'), *, sample_ids=None):
     local = mix(mix((configured_gamemd().parent/'ra2md.mix').read_bytes())[
         mix_hash('localmd.mix')])
     raw = local[mix_hash('SOUNDMD.INI')]
     physical = sections(raw)
-    selected = {name:physical[name] for name in ('Defaults','Explosion06','ExplosionShard')}
+    selected = {name:physical[name] for name in ('Defaults', *selected_names)}
     selected['SoundList'] = {k:v for k,v in physical['SoundList'].items()
-                             if v in ('Explosion06','ExplosionShard')}
+                             if v in selected_names}
     proxy = Sound.__new__(Sound)
     proxy.__dict__ = f.__dict__
     proxy.samples = []
+    # The proxy shares the fixture dictionary; every initialization resets
+    # this optional IO boundary, including custom-to-default reinitialization.
+    proxy.sample_ids = sample_ids
     f.u.mem_write(0x87E2A0,dwords(1))
     system = f.allocate(0x100)
     f.u.mem_write(system,bytes(0x100))
@@ -849,9 +855,16 @@ def initialize_animation_sounds(f):
 
 
 class AnimationFixture(ActionFixture):
-    """Compose original action/ART/Anim owners; only IO/OS/display are seams."""
-    def __init__(self):
+    """Compose original action/ART/Anim owners with explicit transport seams.
+
+    Historical animation controls supply Object::Mark admission. Joined
+    gameplay controls opt into its original body; IO/OS/display seams remain.
+    """
+    def __init__(self, *, original_object_mark=False):
         super().__init__()
+        # Historical animation-only controls retain their explicit Mark seam.
+        # Joined gameplay histories opt into the original admission/state body.
+        self.original_object_mark = original_object_mark
         self.rules_input,self.art_input,self.conquer,self.identity=physical_animation_inputs()
         self.catalog=initialize_animation_catalog(self,self.rules_input,cold=False)
         self.sound_identity=initialize_animation_sounds(self)
@@ -906,7 +919,7 @@ class AnimationFixture(ActionFixture):
             requested=self.string(receiver)
             self.assets[requested.upper()]=self.conquer.get(mix_hash(requested))
             Reader.hook(self.reader,u,pc,_size,_data)
-        elif pc==0x5F5850:
+        elif pc==0x5F5850 and not self.original_object_mark:
             return_from_sink(u,4,1)
         elif pc==0x4A9720:
             self.events.append(dict(call='display_submit'))

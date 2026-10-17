@@ -447,6 +447,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_bombs: Option<bool>,
+    /// Read occupied slots from the existing MapClass crate authority.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_crates: Option<bool>,
     #[serde(
         default,
         deserialize_with = "deserialize_present",
@@ -529,6 +536,7 @@ impl MapCaptureProfile {
                     && self.observe_electric_bolts.is_none()
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
+                    && self.observe_crates.is_none()
                     && self.camera_cell.is_none()
                     && self.cursor_position.is_none()
                     && self.terrain_cells.is_none()
@@ -2084,6 +2092,49 @@ impl MapEffectObservation {
     }
 }
 
+/// Immutable occupied-slot projection. Empty coordinates, including timed
+/// ghosts cleared by pickup, disappear; the slot number preserves array order.
+#[derive(Debug, Serialize)]
+struct MapCrateSlotObservation {
+    slot: usize,
+    cell: [i16; 2],
+    start_frame: i32,
+    aux: u32,
+    duration: i32,
+    overlay: Option<Value>,
+}
+
+impl MapCrateSlotObservation {
+    fn capture(sim: &crate::sim::world::Simulation) -> Vec<Self> {
+        sim.crate_authority
+            .slots()
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| !slot.is_empty())
+            .map(|(index, slot)| {
+                // Real-grid indexing only: observing a slot must never stamp
+                // the mutable canonical Dummy through a gameplay map lookup.
+                let overlay = u16::try_from(slot.cell_x)
+                    .ok()
+                    .zip(u16::try_from(slot.cell_y).ok())
+                    .and_then(|(x, y)| {
+                        let grid = sim.overlay_grid.as_ref()?;
+                        (x < grid.width() && y < grid.height()).then(|| grid.cell(x, y))
+                    })
+                    .map(|cell| json!({"id": cell.overlay_id, "data": cell.overlay_data}));
+                Self {
+                    slot: index,
+                    cell: [slot.cell_x, slot.cell_y],
+                    start_frame: slot.start_frame,
+                    aux: slot.aux,
+                    duration: slot.duration,
+                    overlay,
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct MapFrameObservation {
     completed_steps: u64,
@@ -2102,6 +2153,8 @@ struct MapFrameObservation {
     electric_bolts: Option<MapElectricBoltObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bombs: Option<crate::sim::bomb::BombObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crates: Option<Vec<MapCrateSlotObservation>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     input: Option<MapInputObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2299,6 +2352,7 @@ impl MapObservation {
                 )
             })
             .and_then(|count| count.checked_add(frame.bombs.as_ref().map_or(0, bomb_sample_count)))
+            .and_then(|count| count.checked_add(frame.crates.as_ref().map_or(0, Vec::len)))
             .and_then(|count| {
                 count.checked_add(
                     frame
@@ -3548,6 +3602,8 @@ impl TacticalCaptureSession {
                 .transpose()?,
             bombs: (profile.observe_bombs == Some(true))
                 .then(|| sim.bomb_observation(MAX_OBSERVATION_SAMPLES + 1)),
+            crates: (profile.observe_crates == Some(true))
+                .then(|| MapCrateSlotObservation::capture(sim)),
             input: profile
                 .gestures
                 .as_ref()
@@ -3875,6 +3931,34 @@ mod tests {
     }
 
     #[test]
+    fn crate_observation_preserves_occupied_slot_identity_without_mutating_simulation() {
+        let mut sim = crate::sim::world::Simulation::new();
+        *sim.crate_authority.slot_mut(3) = crate::sim::crates::CrateSlot {
+            start_frame: 50,
+            aux: 777,
+            duration: 100,
+            cell_x: 10,
+            cell_y: 12,
+        };
+        *sim.crate_authority.slot_mut(7) = crate::sim::crates::CrateSlot {
+            cell_x: -1,
+            cell_y: 4,
+            ..Default::default()
+        };
+        let before = sim.state_hash();
+        let rows = MapCrateSlotObservation::capture(&sim);
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].slot, rows[0].cell), (3, [10, 12]));
+        assert_eq!(
+            (rows[0].start_frame, rows[0].aux, rows[0].duration),
+            (50, 777, 100)
+        );
+        assert_eq!((rows[1].slot, rows[1].cell), (7, [-1, 4]));
+        assert!(rows.iter().all(|row| row.overlay.is_none()));
+        assert_eq!(sim.state_hash(), before);
+    }
+
+    #[test]
     fn capture_retains_only_actual_draws_in_committed_order() {
         let mut zero = initialized_map();
         zero.observe_draw(0, 0, times(0)).unwrap();
@@ -3962,6 +4046,7 @@ mod tests {
                     lasers: None,
                     electric_bolts: None,
                     bombs: None,
+                    crates: None,
                     audio_state: Some(audio.clone()),
                 },
                 BTreeSet::new(),
@@ -4215,6 +4300,7 @@ mod tests {
                     lasers: None,
                     electric_bolts: None,
                     bombs: Some(snapshot),
+                    crates: None,
                     input: None,
                     audio_state: None,
                 },
@@ -4308,6 +4394,7 @@ mod tests {
                         lasers: None,
                         electric_bolts: None,
                         bombs: None,
+                        crates: None,
                         audio_state: None,
                     },
                     BTreeSet::new()
@@ -4599,6 +4686,7 @@ mod tests {
         modern["observe_electric_bolts"] = json!(true);
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
+        modern["observe_crates"] = json!(true);
         modern["cursor_position"] = json!([720, 556]);
         modern["gestures"] = json!([]);
         modern["observe_super_weapons"] = json!(true);
@@ -4620,6 +4708,7 @@ mod tests {
             "observe_electric_bolts",
             "observe_electric_bolt_steps",
             "observe_bombs",
+            "observe_crates",
             "camera_cell",
             "cursor_position",
             "terrain_cells",
@@ -4999,6 +5088,7 @@ mod tests {
                 lasers: None,
                 electric_bolts: None,
                 bombs: None,
+                crates: None,
                 audio_state: None,
             };
             if profile.observes_sidebar_step(&frame) {
@@ -5447,6 +5537,7 @@ mod tests {
                 lasers: None,
                 electric_bolts: None,
                 bombs: None,
+                crates: None,
                 audio_state: None,
             },
             BTreeSet::from([7]),
@@ -5468,6 +5559,7 @@ mod tests {
                 lasers: None,
                 electric_bolts: None,
                 bombs: None,
+                crates: None,
                 audio_state: None,
             },
             BTreeSet::from([7]),
@@ -5701,6 +5793,7 @@ mod tests {
             lasers: None,
             electric_bolts: None,
             bombs: None,
+            crates: None,
             audio_state: None,
         };
         let mut map = initialized_map();

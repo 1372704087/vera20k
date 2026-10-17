@@ -1128,8 +1128,8 @@ where
 }
 
 /// A building as the map-wall owner search measures it: its GetCoords
-/// (vt+0x48, [`object_get_coords`]) and the foundation of its distance
-/// discount.
+/// (vt+0x48, [`object_get_coords`]). The target is a Cell, so5F6360 applies
+/// no Building-foundation discount; dimensions belong to GetCoords alone.
 /// Serves the wall-owner search `0x0047D210`, which `InitCellAttributes @ 0x00568BB0`
 /// runs per cell; it also tests IsAlive (`+0x90`) and Marked (`+0x74`).
 ///
@@ -1141,16 +1141,11 @@ pub fn map_wall_owner_candidate_from_building(
 ) -> crate::sim::overlay_grid::MapWallOwnerCandidate {
     let coords =
         crate::sim::movement::ground_pose::object_get_coords(entity, Some(resolved_terrain));
-    let (foundation_width, foundation_height) =
-        crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
-
     crate::sim::overlay_grid::MapWallOwnerCandidate {
         owner: entity.owner(),
         world_x: coords.x,
         world_y: coords.y,
         world_z: coords.z,
-        foundation_width,
-        foundation_height,
         object_alive: entity.lifecycle.object_alive(),
         cell_marked: entity.lifecycle.cell_marked(),
         house_wall_owner,

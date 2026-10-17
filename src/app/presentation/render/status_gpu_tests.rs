@@ -1752,7 +1752,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             &[],
                             &[],
                             viewport,
-                            || false,
+                            |_| false,
                             |_| input["a_value"].as_u64().unwrap() as u16,
                         )
                     })
@@ -1773,7 +1773,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             &[],
                             &[],
                             viewport,
-                            || false,
+                            |_| false,
                             |_| input["a_value"].as_u64().unwrap() as u16,
                         );
                     }

@@ -87,7 +87,7 @@ fn production_line_trail_matches_original_full_line_pixels() {
                 &segments,
                 &[],
                 viewport,
-                || true,
+                |_| true,
                 |[x, y]| {
                     if input["alpha"] == "mixed" {
                         [0, 1, 63, 127, 255][((x / 9 + y / 7) % 5) as usize]
@@ -195,7 +195,7 @@ fn production_line_trail_preserves_native_overlap_across_chunks() {
                     &segments,
                     &[],
                     ordered_viewport(row),
-                    || true,
+                    |_| true,
                     |_| row["input"]["alpha"].as_u64().unwrap() as u16,
                 );
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());
@@ -344,7 +344,7 @@ fn line_trail_native_fixture_submission_timings() {
                     segments,
                     radials,
                     viewport,
-                    || true,
+                    |_| true,
                     |_| alpha,
                 );
                 let prepared = prepare_begin.elapsed().as_secs_f64() * 1000.;

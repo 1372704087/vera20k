@@ -1007,6 +1007,10 @@ pub struct GeneralRules {
     create_unit_sound: Option<String>,
     create_infantry_sound: Option<String>,
     create_aircraft_sound: Option<String>,
+    /// Rules+28C: ctor665A00=-1; AudioVisual66A355..66A38C reads the
+    /// exact DiskLaserChargeUp key through ReadString128/Voc FindIndex.
+    /// The fixed-catalog binder owns retention across reached rules passes.
+    disk_laser_charge_up: Option<String>,
     /// Thunder cues from `[AudioVisual] LightningSounds=` (stock a single
     /// `WeatherStrike`), in source order.
     ///
@@ -2306,6 +2310,7 @@ impl Default for GeneralRules {
             create_unit_sound: None,
             create_infantry_sound: None,
             create_aircraft_sound: None,
+            disk_laser_charge_up: None,
             lightning_sounds: Vec::new(),
             credit_ticks: Vec::new(),
             storm_sound: None,
@@ -2832,6 +2837,10 @@ impl GeneralRules {
 
     pub fn create_aircraft_sound(&self) -> Option<&str> {
         self.create_aircraft_sound.as_deref()
+    }
+
+    pub fn disk_laser_charge_up(&self) -> Option<&str> {
+        self.disk_laser_charge_up.as_deref()
     }
 
     pub fn time_warp_out_sound(&self) -> Option<&str> {
@@ -3368,6 +3377,7 @@ impl GeneralRules {
             create_unit_sound: None,
             create_infantry_sound: None,
             create_aircraft_sound: None,
+            disk_laser_charge_up: None,
             // `CCINIClass::ReadSoundList @ 0x00525430`: `ReadString(..., "",
             // buf, 0x80)` first (so the whole value is byte-cut and trimmed
             // once), then `strtok` on `","` (`0x00817F70`) with the tokens
@@ -4283,6 +4293,9 @@ impl RuleSet {
         ini: &IniFile,
         sounds: &crate::rules::sound_ini::SoundRegistry,
     ) {
+        self.general.disk_laser_charge_up = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "DiskLaserChargeUp"));
         self.general.create_unit_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "CreateUnitSound"));

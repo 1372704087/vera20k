@@ -1245,42 +1245,6 @@ pub(super) fn emit_admitted_fire(
         return None;
     }
 
-    // `TechnoClass::FireAt`'s DiskLaser arm (`0x006FE460..0x006FE4EF`): a
-    // DiskLaserClass takes the shot, the burst steps around GetROF, the rearm
-    // stores GetROF's value unhalved, and FireAt returns with no bullet,
-    // report or muzzle anim. `DiskLaserClass::AI @ 0x004A7340` then deletes
-    // the laser before it draws or deals anything while its owner is crashing
-    // (`+0x425`, `0x004A7462`), so a falling Floating Disc's shots are spent
-    // here. A live Disc's delivery is VERA's unported DiskLaser path below.
-    if weapon.disk_laser
-        && world
-            .substrate
-            .entities
-            .get(snap.stable_id)
-            .is_some_and(|firer| firer.crash.is_crashing())
-    {
-        let burst = world
-            .substrate
-            .entities
-            .get(snap.stable_id)
-            .map(|entity| entity.weapon_burst)
-            .unwrap_or_default();
-        let rof = fireat_get_rof(
-            world,
-            rules,
-            snap,
-            obj,
-            weapon,
-            Some(weapon),
-            burst.next_index(),
-        );
-        if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
-            entity.rearm_after_fire(binary_frame as i32, rof);
-            entity.weapon_burst.complete_shot(weapon.burst.max(1));
-        }
-        return None;
-    }
-
     // Fire one shot!
     //
     // The burst index is needed twice — the fire coordinate mirrors its lateral
@@ -1320,6 +1284,50 @@ pub(super) fn emit_admitted_fire(
         .map_or(0, |entity| entity.prism_support_count.count());
     let warhead = selected.warhead;
     let base_damage = fireat_damage(world, rules, snap, obj, weapon, is_garrison);
+    // FireAt6FE460..6FE4EF constructs a retained DiskLaser before GetROF,
+    // advances the burst, stores the unhalved rearm, then calls Fire4A71A0
+    // and returns NULL. Disk AI owns the later range/crash gate, discharge
+    // and report; no Bullet, muzzle/reveal or last-fire tail is reached here.
+    // Executable lifecycle controls: tools/spatial_oracle/disk_laser.md.
+    if weapon.disk_laser {
+        let disk_id = world.construct_disk_laser();
+        let rof_weapon = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .and_then(|firer| {
+                combat_weapon::get_weapon(
+                    firer,
+                    obj,
+                    selected.index,
+                    &world.substrate.entities,
+                    rules,
+                    &world.interner,
+                )
+            });
+        let rof = fireat_get_rof(
+            world,
+            rules,
+            snap,
+            obj,
+            weapon,
+            rof_weapon,
+            burst.next_index(),
+        );
+        if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
+            entity.rearm_after_fire(binary_frame as i32, rof);
+            entity.weapon_burst.complete_shot(weapon.burst.max(1));
+        }
+        let weapon_id = world.interner.intern(selected.weapon_id);
+        world.fire_disk_laser(
+            disk_id,
+            Some(snap.stable_id),
+            Some(snap.target),
+            Some(weapon_id),
+            base_damage,
+        );
+        return None;
+    }
     let ProjectileDelivery {
         collision,
         ballistic,
@@ -1753,15 +1761,8 @@ pub(super) fn emit_admitted_fire(
     // other writer).
     // The remainder (`0x006FF2C5`) divides by the Burst of the weapon fired,
     // where GetROF's mid-burst test read the (next) weapon GetWeapon answers.
-    // A DiskLaser weapon's own path stores GetROF's value unhalved
-    // (`0x006FE4A4..0x006FE4C5`); the rest of that path (the disk laser fires
-    // and FireAt returns) is the unported DiskLaser delivery.
     if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id) {
-        let rearm = if weapon.disk_laser {
-            rof
-        } else {
-            fireat_rearm_frames(rof, entity.berserk.is_active())
-        };
+        let rearm = fireat_rearm_frames(rof, entity.berserk.is_active());
         entity.rearm_after_fire(binary_frame as i32, rearm);
         entity.weapon_burst.complete_shot(weapon.burst.max(1));
         entity.last_fire_frame.record(binary_frame);

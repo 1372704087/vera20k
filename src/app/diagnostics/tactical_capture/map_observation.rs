@@ -18,8 +18,8 @@ use command_bindings::{MapScheduledCommand, production_type_names};
 const PROFILE_V1: &str = "vera20k.map-observation-profile.v1";
 const PROFILE_V2: &str = "vera20k.map-observation-profile.v2";
 const PROFILE_V3: &str = "vera20k.map-observation-profile.v3";
-const CHILD_SCHEMA: &str = "vera20k.map-observation.v7";
-const OBSERVATION_POLICY: &str = "map-ordinary-command-observation-v4";
+const CHILD_SCHEMA: &str = "vera20k.map-observation.v8";
+const OBSERVATION_POLICY: &str = "map-ordinary-command-observation-v5";
 const MAX_COMMANDS: usize = 1024;
 const MAX_GESTURES: usize = 1024;
 const GESTURE_POLICY: &str = "map-tactical-left-gesture-v1";
@@ -1975,10 +1975,17 @@ fn bomb_sample_count(snapshot: &crate::sim::bomb::BombObservation) -> usize {
 struct MapLaserObservation {
     detail: crate::app::presentation::detail::DetailObservation,
     live: Vec<crate::app::presentation::lasers::LaserObservation>,
+    disk_shots: Vec<Value>,
 }
 
 impl MapLaserObservation {
     fn capture(state: &AppState) -> Result<Self> {
+        let runtime = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("laser observation simulation absent")?;
+        let sim = &runtime.simulation;
         let presentation = &state.match_state.match_presentation;
         let snapshot = Self {
             detail: presentation.detail.borrow().observation(),
@@ -1986,6 +1993,18 @@ impl MapLaserObservation {
                 .lasers
                 .observations()
                 .take(MAX_OBSERVATION_SAMPLES + 1)
+                .collect(),
+            // Copy the authoritative delayed-shot owner in birth order. This
+            // reads no coordinates and advances no timer, ID cursor or RNG.
+            disk_shots: sim
+                .disk_laser_observations()
+                .take(MAX_OBSERVATION_SAMPLES + 1)
+                .map(|shot| {
+                    let weapon = shot.weapon.map(|id| sim.interner.resolve(id));
+                    json!({"id": shot.id, "source": shot.source, "target": shot.target,
+                        "weapon": weapon, "countdown": shot.countdown,
+                        "start": shot.start, "step": shot.step, "damage": shot.damage})
+                })
                 .collect(),
         };
         ensure!(
@@ -1996,7 +2015,7 @@ impl MapLaserObservation {
     }
 
     fn sample_count(&self) -> usize {
-        1 + self.live.len()
+        1 + self.live.len() + self.disk_shots.len()
     }
 }
 

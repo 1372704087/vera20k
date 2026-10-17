@@ -412,7 +412,7 @@ impl TerrainDrawRenderer {
         segments: &[LineTrailSegment],
         radials: &[crate::render::radial_indicator::RadialIndicatorDraw],
         viewport: SurfaceLineViewport,
-        mut high_detail: impl FnMut() -> bool,
+        mut high_detail: impl FnMut(crate::render::laser::LaserDrawColor) -> bool,
         mut alpha: impl FnMut([i32; 2]) -> u16,
     ) -> SurfaceLineBatch {
         let start = self.surface_lines.active;
@@ -446,8 +446,8 @@ impl TerrainDrawRenderer {
                 )
             });
         // Tactical6D4669..6D4673 draws LaserDraw, EBolt, then LineTrail.
-        // They read the same immutable Z and completed destination. Bolt
-        // subdivision has already consumed Main once for this composite;
+        // They read the same immutable Z and completed destination. Laser
+        // colors and Bolt subdivision consumed Main for this composite;
         // rasterization, upload chunks and readback cannot request more draws.
         let mut store = |operations: &[([i32; 2], Operation)]| {
             //4BD646/68F read BOTH old words before4BD85B/8C0 write either.
@@ -473,7 +473,7 @@ impl TerrainDrawRenderer {
         };
         for laser in lasers {
             if laser.duration > 0 {
-                laser.lines(viewport.camera, high_detail(), |line| {
+                laser.lines(viewport.camera, high_detail(laser.color), |line| {
                     raster_draw(
                         SurfaceDraw::Line(line),
                         viewport,

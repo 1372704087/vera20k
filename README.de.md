@@ -99,15 +99,6 @@ Ideen einbringen oder es neben dem Original spielen und uns sagen, was sich fals
 Öffne einen PR, und wir kümmern uns um den Rest.
 Diskutiert wird auf [Discord](https://discord.gg/kmjRUn5m5F) und in der QQ-Gruppe (1097193563).
 
-Die Spiellogik liegt in `src/sim/`, das Rendering in `src/render/` und Menüs und Eingabe in
-`src/app/` und `src/ui/`; die Python-Werkzeuge in `tools/` brauchst du nicht.
-
-Zum Testen deiner Änderungen im Spiel starte `cargo run --profile fast --bin vera20k`. Das ist
-optimiert wie `--release`, baut aber nur neu, was du geändert hast, sodass du schneller wieder
-im Spiel bist. Miss die Leistung mit `--release`.
-
-Beiträge stehen wie das übrige Projekt unter der GPLv3; ein CLA gibt es nicht.
-
 ## Unterstützen
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Unterstütze VERA20k über PayPal" height="40"></a>

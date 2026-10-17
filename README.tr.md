@@ -98,15 +98,6 @@ fikirlerinizi paylaşabilir veya orijinal oyunla yan yana oynayıp neyin yanlı�
 bize anlatabilirsiniz. Bir PR açın, gerisini biz hallederiz.
 Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda (1097193563) yürür.
 
-Oyun mantığı `src/sim/`, çizim `src/render/`, menüler ve girdi ise `src/app/` ve `src/ui/`
-içinde; `tools/` altındaki Python araçlarına ihtiyacınız yok.
-
-Değişikliklerinizi oyunda denemek için `cargo run --profile fast --bin vera20k` çalıştırın.
-`--release` gibi optimize edilmiştir ama yalnızca değiştirdiğiniz kısmı yeniden derler, böylece
-oyuna daha çabuk dönersiniz. Performansı `--release` ile ölçün.
-
-Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
-
 ## Destek
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20k'yi PayPal üzerinden destekleyin" height="40"></a>

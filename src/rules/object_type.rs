@@ -1179,6 +1179,9 @@ pub struct ObjectType {
     /// Whether this unit has normal TechnoType `Crusher=yes` capability.
     /// Distinct from `OmniCrusher=` and MovementZone crusher names.
     pub crusher: bool,
+    /// TechnoType+D2B: ctor711500 sets true; ReadINI7153DA..7153F5
+    /// reads TiltsWhenCrushes with the current byte as its Bool default.
+    pub tilts_when_crushes: bool,
     /// Whether this unit can crush non-Crushable targets (only Battle Fortress).
     /// Default: false. Parsed from `OmniCrusher=` in rules.ini.
     pub omni_crusher: bool,
@@ -2893,6 +2896,7 @@ impl ObjectType {
             crushable: section.read_bool("Crushable", category == ObjectCategory::Infantry),
             deployed_crushable: section.read_bool("DeployedCrushable", true),
             crusher: section.read_bool("Crusher", false),
+            tilts_when_crushes: section.read_bool("TiltsWhenCrushes", true),
             omni_crusher: section.read_bool("OmniCrusher", false),
             omni_crush_resistant: section.read_bool("OmniCrushResistant", false),
             immune_to_radiation: section.read_bool("ImmuneToRadiation", false),
@@ -5799,6 +5803,24 @@ mod tests {
         let section = ini.section("MTNK").unwrap();
         let obj = ObjectType::from_ini_section("MTNK", section, ObjectCategory::Vehicle);
         assert!(!obj.crusher);
+    }
+
+    /// TechnoType ctor711500/default and ReadINI7153DA..7153F5.
+    #[test]
+    fn crush_tilt_reader_preserves_native_true_default_and_explicit_no() {
+        for (line, expected) in [
+            ("", true),
+            ("TiltsWhenCrushes=no", false),
+            ("TiltsWhenCrushes=yes", true),
+        ] {
+            let ini = IniFile::from_str(&format!("[MTNK]\nSpeed=7\n{line}\n"));
+            let object = ObjectType::from_ini_section(
+                "MTNK",
+                ini.section("MTNK").unwrap(),
+                ObjectCategory::Vehicle,
+            );
+            assert_eq!(object.tilts_when_crushes, expected);
+        }
     }
 
     #[test]

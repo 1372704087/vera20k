@@ -1070,7 +1070,8 @@ use crate::sim::world::Simulation;
 // building fallback production. Startup assignment must not repeat on load.
 // 382 -> 383: Factory+71 persists automatic-recovery eligibility separately
 // from +70 suspension. System holds must survive load and retain their owner.
-const SNAPSHOT_VERSION: u32 = 383;
+// 383 -> 385: Drive retains its native +64 straight/crush track flag.
+const SNAPSHOT_VERSION: u32 = 385;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4603,7 +4604,7 @@ mod tests {
         // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
         // 381 -> 382: retained Secret Lab rules, membership and reward.
         // 382 -> 383: private Factory+71 automatic-recovery eligibility.
-        assert_eq!(super::SNAPSHOT_VERSION, 383);
+        assert_eq!(super::SNAPSHOT_VERSION, 385);
     }
 
     #[test]

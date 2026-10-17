@@ -6115,9 +6115,24 @@ impl Simulation {
         events: &[WallDamageEvent],
         overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     ) {
-        if events.is_empty() {
-            return;
+        for event in events {
+            self.apply_wall_damage(
+                crate::sim::overlay_grid::WallPointerTarget::Real(event.rx, event.ry),
+                event.damage,
+                overlay_registry,
+            );
         }
+    }
+
+    /// World host for the single Cell480CB0 port, with the receiver retained
+    /// across synchronous callbacks. Weapon events and Unit73B056 share it;
+    /// AreaDamage's additional outer detach belongs to its own caller.
+    pub(crate) fn apply_wall_damage(
+        &mut self,
+        target: crate::sim::overlay_grid::WallPointerTarget,
+        damage: i32,
+        overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    ) {
         let Some(grid) = self.overlay_grid.as_mut() else {
             return;
         };
@@ -6135,135 +6150,15 @@ impl Simulation {
             bridge_state: self.bridge_state.as_ref(),
             playfield_bounds: self.playfield_bounds,
         };
-        for event in events {
-            let _ = damage_wall_overlay_with_runtime_host(
-                grid,
-                overlay_registry,
-                self.resolved_terrain.as_mut(),
-                crate::sim::overlay_grid::WallPointerTarget::Real(event.rx, event.ry),
-                event.damage,
-                &mut self.scenario_rng,
-                Some(&mut host),
-            );
-        }
-    }
-
-    /// Movement-side wall crush: a `Crusher=yes` drive vehicle that finishes the
-    /// ground-movement stage standing on a `Wall=yes` overlay cell flattens that
-    /// wall outright. This mirrors gamemd's per-cell-process wall crush — a
-    /// forced, instant overlay removal — which is a SEPARATE path from the
-    /// probabilistic weapon/warhead wall damage (the crush deals no unit damage
-    /// and skips the Strength dice roll).
-    ///
-    /// The gate is `UnitClass::PerCellProcess @ 0x0073AFD4..B074`: the
-    /// `Crusher=` flag (not `OmniCrusher=`, which governs unit-vs-unit crushing)
-    /// over a `Crushable=` overlay, or over a `Wall=` overlay with the Drive
-    /// locomotor. Fences and sandbags (`Crushable=yes`) fall to any crusher that
-    /// reaches them; concrete walls only to a Drive crusher, and in stock YR only
-    /// the Battle Fortress routes *through* those (`MovementZone=CrusherAll`).
-    /// A crusher can only occupy an intact wall cell on the tick it enters, and
-    /// the wall is removed that same tick, so this self-limits to one
-    /// destruction per wall with no per-tick re-fire.
-    ///
-    /// Runs immediately after Phase-1 ground movement, before vision, rather
-    /// than inside the per-cell entry callback (recorded ordering difference).
-    /// Reuses the shared `apply_wall_damage_events` path so overlay clear,
-    /// cardinal neighbor connectivity cleanup, and chain reaction match weapon
-    /// damage, and queues the overlay type's `CrushSound=` at the crusher.
-    ///
-    /// Residuals: the `RockingForwardsPerFrame += 0.02` tilt (`0x0073B05B`) has
-    /// no rendering consumer in VERA and is not written; the crush-clamp byte
-    /// `Foot+0x6B5` that `0x0073B067` clears is not modelled at all; the CRUSHER
-    /// weapon ability arm is not modelled (no stock type grants it).
-    pub(crate) fn apply_wall_crush_on_driveover(
-        &mut self,
-        rules: Option<&RuleSet>,
-        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-    ) {
-        let (Some(_rules), Some(registry)) = (rules, overlay_registry) else {
-            return;
-        };
-        let Some(grid) = self.overlay_grid.as_ref() else {
-            return;
-        };
-
-        // Phase 1 (read-only): collect every distinct wall cell currently
-        // occupied by an active Crusher drive vehicle. Sorted entity iteration
-        // keeps this deterministic; the per-cell dedup means two crushers on one
-        // cell emit a single forced-destruction event.
-        let mut events: Vec<WallDamageEvent> = Vec::new();
-        let mut sounds: Vec<SimSoundEvent> = Vec::new();
-        let mut seen: BTreeSet<(u16, u16)> = BTreeSet::new();
-        for (_id, e) in self.substrate.entities.iter_sorted() {
-            // `0x0073AFEB..B000`: `Crusher=` (`TechnoType+0xD28`) or the CRUSHER
-            // weapon ability (`HasWeaponAbility(0x11)`). No stock type grants
-            // the ability through `VeteranAbilities=`/`EliteAbilities=`, so only
-            // the flag is modelled here.
-            if !e.mover_facts.regular_crusher() || !e.is_active() {
-                continue;
-            }
-            let (rx, ry) = (e.position.rx(), e.position.ry());
-            let Some(flags) = grid
-                .cell(rx, ry)
-                .overlay_id
-                .and_then(|oid| registry.flags(oid))
-            else {
-                continue;
-            };
-            // `0x0073B013..B034`: a `Crushable=` overlay is crushed by any
-            // crusher; a `Wall=` overlay additionally needs
-            // `MovementZone=CrusherAll`.
-            //
-            // `0x0073B027` loads the type pointer from `+0x6C4` and `0x0073B02D`
-            // compares `TechnoTypeClass+0x5B4` against `0xC`, `JNZ` out. That
-            // field is **MovementZone**, not the locomotor: `ReadINI 0x0071605E`
-            // reads the key "MovementZone" (`0x008431C8`) through
-            // `CCINIClass::ReadMovementZone 0x00474E40` against the name table at
-            // `0x0081BA88`, where index 12 is `CrusherAll`. This gate used to
-            // test `LocomotorKind::Drive` while its own comment named `+0x5B4`.
-            //
-            // Read from the entity's locomotor where native reads the type.
-            // Equivalent because `piggyback` captures and restores
-            // `movement_zone` across a temporary locomotor swap - which is
-            // what the comment this replaced meant by "the primary kind".
-            //
-            // The difference is not academic: exactly **one** stock vehicle
-            // carries `MovementZone=CrusherAll` - `BFRT`, the Battle Fortress -
-            // where `Crusher=yes` covers 29. So every crusher tank was flattening
-            // walls by driving over them, and retail lets only the Battle
-            // Fortress do it. `Crushable=` overlays (sandbags, fences) are
-            // unaffected: they fall to any crusher through the first clause.
-            let crusher_all = e.locomotor.as_ref().is_some_and(|l| {
-                l.movement_zone() == crate::rules::locomotor_type::MovementZone::CrusherAll
-            });
-            if !(flags.crushable || (flags.wall && crusher_all)) {
-                continue;
-            }
-            // `CellClass::DestroyOverlay @ 0x00480CB0` acts only on a `Wall=`
-            // overlay; the sound cue precedes it and does not depend on it.
-            // This sweep runs every frame rather than once per cell entry, so a
-            // non-wall crushable overlay would re-fire its cue each frame; no
-            // stock overlay carries `Crushable=yes` without `Wall=yes` and a
-            // sound, so the cue is gated on the wall removal here (recorded).
-            if flags.wall && seen.insert((rx, ry)) {
-                if let Some(sound_id) = flags.crush_sound.as_ref() {
-                    // `0x0073B045..B04D`: the overlay type's `CrushSound=` at
-                    // the crusher's own coordinates.
-                    sounds.push(SimSoundEvent::wall_crushed(sound_id.clone(), &e.position));
-                }
-                // damage == -1 = forced instant removal, bypassing the
-                // probabilistic Strength gate the weapon path uses.
-                events.push(WallDamageEvent { rx, ry, damage: -1 });
-            }
-        }
-        self.sound_events.extend(sounds);
-
-        if events.is_empty() {
-            return;
-        }
-
-        // Phase 2 (mutating): shared teardown, identical to the combat wall path.
-        self.apply_wall_damage_events(&events, registry);
+        let _ = damage_wall_overlay_with_runtime_host(
+            grid,
+            overlay_registry,
+            self.resolved_terrain.as_mut(),
+            target,
+            damage,
+            &mut self.scenario_rng,
+            Some(&mut host),
+        );
     }
 
     pub(crate) fn default_vision_range_for_category(category: EntityCategory) -> u16 {
@@ -7062,11 +6957,6 @@ impl Simulation {
         let tube_turn_owned_ids = object_pass.tube_turn_owned_ids;
         //Gate Open runs in Building Mission AI; factory clearance runs in
         //the arriving Unit's Per_Cell_Process before Ready/Commence.
-        // Movement-side wall crush (part of the ground-movement stage): a Crusher
-        // drive vehicle that ended Phase-1 on a wall cell flattens the wall,
-        // separate from the weapon-damage wall path. No-op when no crusher sits
-        // on a wall, so it is hash-neutral for every non-crush scenario.
-        self.apply_wall_crush_on_driveover(rules, overlay_registry);
         // Aircraft missions retain their existing deferred receiver. Building
         // shots already finished in their own dynamic Logic slots.
         let fire_requests = std::mem::take(&mut self.fire_requests);

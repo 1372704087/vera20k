@@ -118,3 +118,33 @@ Tactical loop's actual `-1` admission and observes no body/shadow calls; its map
 and visibility transport boundaries remain explicit. This does not claim a whole
 Tactical frame or GPU composition. Sidecars record the binary and reproduction command;
 validation receipts remain external.
+
+`python -m tools.spatial_oracle.anytown_damage.mtnk_attack --authored-fence-driveover --write`
+(and `--check`) writes the separate `fence_driveover.json` component corpus.
+It reuses the authored-fence VM, actual physical wall/type/map initialization,
+entry observers and deferred-delete owner. Independent seed0 is installed on all
+three streams after setup. Original `480CB0(-1)` executes first on authored
+`43,82`, then `44,82`; the second call uses the actual first call's resulting
+grid. Each `steps` row retains the existing `before/events/changed/before_drain/
+after/source` fields and adds `source_cell`. Full RNG states, draw requests,
+ordered callbacks, current radar storage, runtime cursor and queue drain remain
+observed. The selected forced path must remove both receivers without RNG draws.
+It still executes the accepted-hit dirty/data-increment prefix before removal.
+This direct Unit route has no AreaDamage `70D4A0` detach.
+
+The same MTNK reader additionally executes admitted layered
+`TiltsWhenCrushes` reads at `7153DA..7153FB`, using the retained constructor
+default at type `D2B`. The corpus records physical layer identities, source
+lines, admission and before/after values under `input.mtnk_tilts`. No Rust value
+or inferred stock default supplies that byte. Historical AP/default modes do
+not execute these extra reads and retain their existing corpus.
+
+This is a Cell component, composed with the existing 296
+`unit_per_cell_overlay` caller/numeric controls and ordinary World integration.
+Those caller controls replace map/damage/audio queries and explicitly exclude
+sound playback RNG. The direct Cell mode creates no Unit and does not execute
+UnitPerCell `739EC0`, its retained physical `+1B8` query, live sound `+48`
+sample, Drive `+64` pre-tilt, `+334` recoil or `+6B5` lifetime. Selected physical
+`WallCrushBlack` has random samples/pitch/volume, so draw-free forced Cell damage
+does not establish draw-free Unit/audio behavior. Empty native listeners do not
+prove positive target expiry, and no absolute normal movement frame is claimed.

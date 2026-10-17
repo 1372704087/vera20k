@@ -6501,6 +6501,9 @@ fn vehicle_on_overlay(rules: &RuleSet, veh_type: &str, overlay_id: u8) -> Simula
     let obj = rules.object(veh_type).expect("veh object");
     let veh_type_id = sim.interner.intern(veh_type);
     let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
+    // PerCell belongs to an on-map live owner. The old global sweep also
+    // inspected ctor-limbo fixtures; the canonical callback must not do so.
+    veh.lifecycle.set_in_limbo_for_test(false);
     veh.set_owner_for_test(owner_id);
     veh.set_type_ref_for_test(veh_type_id);
     veh.mover_facts.set_regular_crusher_for_test(obj.crusher);
@@ -6645,7 +6648,14 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
 
     // Crusher (BFRT): wall destroyed and crusher unharmed.
     let mut sim = build("BFRT");
-    sim.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     sim.flush_pending_delete();
     assert!(
         !wall_present(&sim),
@@ -6680,7 +6690,14 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
 
     // Non-crusher (MTNK): wall stays intact.
     let mut sim = build("MTNK");
-    sim.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     sim.flush_pending_delete();
     assert!(
         wall_present(&sim),
@@ -6699,9 +6716,10 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
          [VehicleTypes]\n0=ROBO\n1=BFRT\n\
          [AircraftTypes]\n\
          [BuildingTypes]\n0=GAWALL\n1=CAFNCB\n\
-         [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=CAFNCB\n\
+         [OverlayTypes]\n0=GASAND\n1=CYCL\n2=GAWALL\n3=CAFNCB\n4=CUSTOM\n\
          [GAWALL]\nStrength=400\nArmor=concrete\nWall=yes\nDamageLevels=4\n\
          [CAFNCB]\nStrength=100\nArmor=wood\nWall=yes\nCrushable=yes\nCrushSound=WallCrushBlack\n\
+         [CUSTOM]\nCrushable=yes\nWall=no\nCrushSound=WallCrushBlack\n\
          [ROBO]\nCrusher=yes\nLocomotor={4A582742-9839-11D1-B709-00A024DDAFD1}\n\
          [BFRT]\nCrusher=yes\nMovementZone=CrusherAll\nLocomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n",
     );
@@ -6738,7 +6756,14 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
 
     // Hover crusher over a crushable fence: crushed, cue queued.
     let mut sim = build("ROBO", 3);
-    sim.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     sim.flush_pending_delete();
     assert!(
         !wall_present(&sim),
@@ -6748,7 +6773,14 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
 
     // Crusher over a concrete wall WITHOUT MovementZone=CrusherAll: survives.
     let mut sim = build("ROBO", 2);
-    sim.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     sim.flush_pending_delete();
     assert!(
         wall_present(&sim),
@@ -6759,12 +6791,48 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
     // CrusherAll vehicle over a concrete wall without a CrushSound: crushed,
     // silent. Exactly one stock vehicle qualifies - BFRT, the Battle Fortress.
     let mut sim = build("BFRT", 2);
-    sim.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     sim.flush_pending_delete();
     assert!(!wall_present(&sim));
     assert!(
         crush_sounds(&sim).is_empty(),
         "no CrushSound= means silence"
+    );
+    // The native sound/recoil precede/ignore the Cell damage return. A
+    // Crushable non-Wall is admitted by Unit but rejected by Cell480CB0.
+    let mut sim = build("ROBO", 4);
+    sim.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    assert!(wall_present(&sim));
+    assert_eq!(crush_sounds(&sim), vec!["WallCrushBlack".to_string()]);
+    let native = crate::test_fixture::json("tools/spatial_oracle/unit_per_cell_overlay.json");
+    let expected = native
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["input"]["name"] == "numeric_00000000_r0_d0")
+        .unwrap();
+    assert_eq!(
+        sim.entities()
+            .get(2)
+            .unwrap()
+            .rocking
+            .unwrap()
+            .native_bits()[3],
+        u32::from_str_radix(expected["output"]["velocity_bits"].as_str().unwrap(), 16).unwrap()
     );
 }
 
@@ -11431,7 +11499,14 @@ fn a_drive_crusher_without_crusherall_leaves_a_plain_wall_standing() {
     };
 
     let mut tank = build("HTNK");
-    tank.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    tank.per_cell_process(
+        2,
+        crate::sim::movement::PerCellReason::TurnComplete,
+        Some(&rules),
+        Some(&registry),
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
     tank.flush_pending_delete();
     assert!(
         wall_present(&tank),
@@ -11439,7 +11514,15 @@ fn a_drive_crusher_without_crusherall_leaves_a_plain_wall_standing() {
     );
 
     let mut fortress = build("BFRT");
-    fortress.apply_wall_crush_on_driveover(Some(&rules), Some(&registry));
+    fortress
+        .per_cell_process(
+            2,
+            crate::sim::movement::PerCellReason::TurnComplete,
+            Some(&rules),
+            Some(&registry),
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
     fortress.flush_pending_delete();
     assert!(
         !wall_present(&fortress),

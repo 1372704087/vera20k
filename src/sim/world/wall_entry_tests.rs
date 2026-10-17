@@ -433,11 +433,153 @@ fn retail_authored_fence_fire_publishes_damage_removal_and_cell_target_expiry() 
     );
 }
 
+/// Unit739EC0's common tail calls Cell480CB0(-1) at73B056 before
+/// object crush/Foot continuation. Supply only an arrival through the existing
+/// marked-location owner; the separate normal Move capture reaches this same
+/// authored fence without relocating the actor.
+#[test]
+fn retail_unit_per_cell_removes_authored_fence_before_returning() {
+    use crate::sim::world::FrameEffects;
+
+    struct CueBoundary {
+        delivered: std::cell::Cell<usize>,
+        crushed: std::cell::Cell<usize>,
+    }
+    impl crate::sim::world::SoundBoundary for CueBoundary {
+        fn consume(
+            &self,
+            sim: &Simulation,
+            _: &RuleSet,
+            events: &[crate::sim::world::SimSoundEvent],
+        ) {
+            for event in &events[self.delivered.get()..] {
+                if let crate::sim::world::SimSoundEvent::WallCrushed {
+                    rx, ry, sound_id, ..
+                } = event
+                {
+                    assert_eq!((*rx, *ry), (43, 82));
+                    assert_eq!(sound_id, "WallCrushBlack");
+                    assert!(
+                        sim.overlay_grid
+                            .as_ref()
+                            .unwrap()
+                            .cell(43, 82)
+                            .overlay_id
+                            .is_some(),
+                        "7509E0 playback boundary precedes Cell480CB0"
+                    );
+                    assert_eq!(
+                        sim.entities()
+                            .get(1376)
+                            .unwrap()
+                            .rocking
+                            .map_or(0, |r| r.native_bits()[3]),
+                        0,
+                        "recoil follows sound/damage"
+                    );
+                    self.crushed.set(self.crushed.get() + 1);
+                }
+            }
+            self.delivered.set(events.len());
+        }
+        fn delivered(&self) -> usize {
+            self.delivered.get()
+        }
+    }
+    let cue = CueBoundary {
+        delivered: std::cell::Cell::new(0),
+        crushed: std::cell::Cell::new(0),
+    };
+    let Some((root, _assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let profile = crate::test_fixture::json("tools/map_observation.authored-fence.example.json");
+    let launch: crate::skirmish_launch::SkirmishLaunchSession =
+        serde_json::from_value(profile["launch"].clone()).unwrap();
+    let map = launch.selected_map_file.as_deref().unwrap().to_owned();
+    let mut scene = crate::headless_scenario::load_session(
+        &root,
+        &map,
+        profile["seed"].as_u64().unwrap() as u32,
+        launch,
+    )
+    .unwrap();
+    let rules = &scene.runtime.resources.rules;
+    let registry = &scene.runtime.resources.overlay_registry;
+    let sim = &mut scene.runtime.simulation;
+    let id = 1376;
+    let at = (43, 82);
+    let wall = registry.id_for_name("CAFNCB").unwrap();
+    let flags = registry.flags(wall).unwrap();
+    assert!(flags.wall && flags.crushable);
+    let object = rules.object("MTNK").unwrap();
+    assert!(object.crusher && object.tilts_when_crushes);
+    assert_eq!(
+        sim.resolve(sim.entities().get(id).unwrap().type_ref()),
+        "MTNK"
+    );
+    let position = {
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(
+            sim.resolved_terrain.as_ref().unwrap(),
+        );
+        crate::sim::movement::target_cell_coord(at.0, at.1, Some(&cells))
+    };
+    sim.foot_set_location_marked(
+        id,
+        position,
+        Some(rules),
+        Some(registry),
+        FrameEffects::default(),
+    );
+    assert_eq!(
+        sim.overlay_grid
+            .as_ref()
+            .unwrap()
+            .cell(at.0, at.1)
+            .overlay_id,
+        Some(wall)
+    );
+    sim.per_cell_process(
+        id,
+        crate::sim::movement::PerCellReason::Arrival,
+        Some(rules),
+        Some(registry),
+        FrameEffects::for_sound(&cue),
+    )
+    .unwrap();
+    assert_eq!(
+        cue.crushed.get(),
+        1,
+        "cue delivered synchronously through the existing owner"
+    );
+    assert_eq!(
+        sim.overlay_grid
+            .as_ref()
+            .unwrap()
+            .cell(at.0, at.1)
+            .overlay_id,
+        None,
+        "native73B056 removal is visible when Per_Cell_Process returns, before the frame tail"
+    );
+}
+
 /// Full AreaDamage489280 from an independently seeded, null-attacker boundary.
 /// Normal map loading must produce the native wall/122/terrain priors first;
 /// no wall state is supplied. This is separate from the ordinary shot witness.
 #[test]
 fn retail_authored_fence_area_damage_matches_original_histories() {
+    assert_retail_authored_fence_history(false);
+}
+
+/// Direct Cell480CB0(-1), independent of the actor/audio boundary. The
+/// original forced controls retain the same physical map priors as the AP
+/// controls and exercise real lifecycle/navigation/cleanup rather than stubs.
+#[test]
+fn retail_authored_fence_forced_removal_matches_original_histories() {
+    assert_retail_authored_fence_history(true);
+}
+
+fn assert_retail_authored_fence_history(direct: bool) {
     use crate::sim::combat::world_receiver::apply_area_damage;
     use crate::sim::projectile::ProjectileCoord;
     use crate::sim::world::FrameEffects;
@@ -535,8 +677,11 @@ fn retail_authored_fence_area_damage_matches_original_histories() {
         return;
     };
     let profile = crate::test_fixture::json("tools/map_observation.authored-fence.example.json");
-    let native =
-        crate::test_fixture::json("tools/spatial_oracle/anytown_damage/authored_fence.json");
+    let native = crate::test_fixture::json(if direct {
+        "tools/spatial_oracle/anytown_damage/fence_driveover.json"
+    } else {
+        "tools/spatial_oracle/anytown_damage/authored_fence.json"
+    });
     assert!(!native["cases"].as_array().unwrap().is_empty());
     for case in native["cases"].as_array().unwrap() {
         let neighbor_domain = case["steps"]
@@ -581,6 +726,12 @@ fn retail_authored_fence_area_damage_matches_original_histories() {
         .unwrap();
         let rules = &scene.runtime.resources.rules;
         let registry = &scene.runtime.resources.overlay_registry;
+        if direct {
+            assert_eq!(
+                u64::from(rules.object("MTNK").unwrap().tilts_when_crushes),
+                case["input"]["mtnk_tilts"]["value"].as_u64().unwrap()
+            );
+        }
         let sim = &mut scene.runtime.simulation;
         for expected in case["initial_patch"].as_array().unwrap() {
             assert_cell(sim, expected, &neighbor_domain);
@@ -600,7 +751,9 @@ fn retail_authored_fence_area_damage_matches_original_histories() {
             expected_type["wall"].as_u64().unwrap()
         );
         let weapon = rules.weapon("105mm").unwrap();
-        assert_eq!(json!(weapon.damage), case["input"]["damage"]);
+        if !direct {
+            assert_eq!(json!(weapon.damage), case["input"]["damage"]);
+        }
         assert_eq!(weapon.warhead.as_deref(), Some("AP"));
         let warhead = rules.warhead("AP").unwrap();
         assert!(warhead.wall && warhead.wood && !warhead.wall_absolute_destroyer);
@@ -690,16 +843,25 @@ fn retail_authored_fence_area_damage_matches_original_histories() {
                 .collect::<Vec<_>>();
             let tactical_start = sim.tactical_dirty_cells.len();
             let (_, draws) = crate::sim::rng::trace_draws(|| {
-                apply_area_damage(
-                    sim,
-                    rules,
-                    Some(registry),
-                    ProjectileCoord::new(center.x, center.y, center.z),
-                    weapon.damage,
-                    warhead,
-                    (crate::sim::combat::RAD_NO_ATTACKER, None, ap),
-                    FrameEffects::default(),
-                )
+                if direct {
+                    let at = at(&step["source"]);
+                    sim.apply_wall_damage(
+                        crate::sim::overlay_grid::WallPointerTarget::Real(at.0, at.1),
+                        -1,
+                        registry,
+                    );
+                } else {
+                    apply_area_damage(
+                        sim,
+                        rules,
+                        Some(registry),
+                        ProjectileCoord::new(center.x, center.y, center.z),
+                        weapon.damage,
+                        warhead,
+                        (crate::sim::combat::RAD_NO_ATTACKER, None, ap),
+                        FrameEffects::default(),
+                    );
+                }
             });
             let events = step["events"].as_array().unwrap();
             let actual_draws = draws
@@ -843,4 +1005,101 @@ fn retail_authored_fence_area_damage_matches_original_histories() {
             // empty Rust detach list. Positive target release is tested above.
         }
     }
+}
+
+/// Real command/path/paid-point/PerCell production path, using stock actors
+/// and authored fences. Crossing a physical cell is distinct from PerCell;
+/// no expected native frame number is inferred from this Rust observation.
+#[test]
+fn retail_mtnk_move_crushes_fences_through_per_cell_with_body_rocking() {
+    use crate::sim::command::{Command, CommandEnvelope};
+    use crate::sim::world::{FrameEffects, TickLane};
+    let Some((root, _)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let profile = crate::test_fixture::json("tools/map_observation.fence-driveover.example.json");
+    let launch: crate::skirmish_launch::SkirmishLaunchSession =
+        serde_json::from_value(profile["launch"].clone()).unwrap();
+    let map = launch.selected_map_file.clone().unwrap();
+    let mut scene = crate::headless_scenario::load_session(
+        &root,
+        &map,
+        profile["seed"].as_u64().unwrap() as u32,
+        launch,
+    )
+    .unwrap();
+    scene.runtime.simulation.batch_path_searches();
+    scene.runtime.simulation.batch_target_scans();
+    let owner = scene.sim().session.current_house.unwrap();
+    let command: Command =
+        serde_json::from_value(profile["commands"][0]["payload"].clone()).unwrap();
+    let order = CommandEnvelope::new(owner, 0, command);
+    let cells = [(43, 82), (44, 82)];
+    let mut clears = [None; 2];
+    let mut sounds = 0;
+    let mut crossed_before_callback = false;
+    let mut tilted = false;
+    for step in 1..=profile["ticks"].as_u64().unwrap() {
+        let output = scene
+            .runtime
+            .advance_frame(
+                if step == 1 {
+                    std::slice::from_ref(&order)
+                } else {
+                    &[]
+                },
+                22,
+                TickLane::Ordinary,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        let sim = scene.sim();
+        let actor = sim.entities().get(1376).unwrap();
+        let grid = sim.overlay_grid.as_ref().unwrap();
+        if (actor.position.rx(), actor.position.ry()) == cells[0]
+            && grid.cell(cells[0].0, cells[0].1).overlay_id.is_some()
+        {
+            crossed_before_callback = true;
+        }
+        if let Some(rocking) = actor.rocking {
+            tilted |= rocking.native_bits()[3] & 0x8000_0000 != 0;
+        }
+        for (index, &(x, y)) in cells.iter().enumerate() {
+            if clears[index].is_none() && grid.cell(x, y).overlay_id.is_none() {
+                clears[index] = Some(step);
+                assert!(sim.radar_terrain_dirty_cells.contains(&(x, y)));
+                assert!(sim.tactical_dirty_cells.contains(&(x, y)));
+            }
+        }
+        sounds += output
+            .sound_events
+            .iter()
+            .filter(|event| {
+                matches!(event,
+                    crate::sim::world::SimSoundEvent::WallCrushed { sound_id, .. }
+                        if sound_id == "WallCrushBlack"
+                )
+            })
+            .count();
+    }
+    assert!(
+        crossed_before_callback,
+        "physical crossing must not trigger the removed global sweep"
+    );
+    assert!(
+        tilted,
+        "native Drive pre-entry negative rocking rate is visible in ordinary movement"
+    );
+    assert!(clears.iter().all(Option::is_some));
+    assert_eq!(
+        sounds, 2,
+        "one sound at each actual admitted overlay callback"
+    );
+    let actor = scene.sim().entities().get(1376).unwrap();
+    assert_eq!((actor.position.rx(), actor.position.ry()), (45, 81));
+    assert_eq!(
+        actor.mission.current().known(),
+        Some(crate::rules::mission_data::MissionType::Guard)
+    );
+    println!("authored_fence_driveover clears={clears:?} sounds={sounds}");
 }

@@ -139,6 +139,7 @@ fn busy_factory_exit_product(
         super::factory::FactoryHolder::Building(1),
         type_id,
         crate::sim::world::FrameEffects::default(),
+        false,
     )
     .unwrap();
     let factory = sim.production.factories.test_first_mut().unwrap();

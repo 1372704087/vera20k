@@ -30,13 +30,14 @@ oyuncular söylüyor.
 
 ## Mevcut durum
 
-**Geliştirmenin orta aşamalarında.** Windows'ta basit bir yapay zekâya karşı yerel çatışmalar
-oynanabiliyor. Orijinal ve rastgele oluşturulan haritalar, menüler, üs kurma, kaynak toplama,
-çatışma ve kaydetme/yükleme mevcut, ancak hâlâ düzeltilecek ve tamamlanacak çok şey var.
+**Aktif geliştirme aşamasında.** Windows, Linux ve macOS'ta yerel çatışmalar oynanabiliyor.
+Orijinal ve rastgele oluşturulan haritalar, üs kurma, kaynak toplama, çatışma ve kaydetme/yükleme
+mevcut. Senaryo görevleri başlatılabiliyor; orijinal yapay zekânın bazı bölümleri artık üs kurma
+ve betiklerle yönetilen saldırıları yürütüyor.
 
-Çok oyunculu mod, senaryolar ve orijinal yapay zekâ henüz yok. Uçaklar, zihin kontrolü, köprüler
-ve çeşitli silahlar ile efektler üzerinde daha fazla çalışmamız gerekiyor. Henüz 30 oyunculu,
-20.000 birimli savaşlar göstermedik.
+Oynanışın aslına uygunluğu, görseller ve performans hâlâ geliştirme gerektiriyor. Senaryo
+desteği eksik, ağ üzerinden çok oyunculu mod henüz oynanamıyor ve 30 oyunculu, 20.000 birimli
+savaşlar henüz gösterilmiş değil.
 
 ## Mimari
 

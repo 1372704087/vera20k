@@ -30,14 +30,14 @@ das Projekt entwickelt.
 
 ## Aktueller Stand
 
-**Mitten in der Entwicklung.** Lokale Gefechte gegen eine einfache KI sind unter Windows
-spielbar. Originalkarten und zufällig generierte Karten, Menüs, Basisbau, Rohstoffernte,
-Kämpfe sowie Speichern und Laden sind vorhanden, aber es gibt noch viel zu verbessern
-und fertigzustellen.
+**In aktiver Entwicklung.** Lokale Gefechte sind unter Windows, Linux und macOS spielbar,
+mit Originalkarten und zufällig generierten Karten, Basisbau, Rohstoffernte, Kämpfen sowie
+Speichern und Laden. Kampagnenmissionen lassen sich starten, und Teile der ursprünglichen KI
+übernehmen inzwischen den Basisbau und skriptgesteuerte Angriffe.
 
-Mehrspielermodus, Kampagnen und die ursprüngliche KI fehlen noch. Flugzeuge,
-Gedankenkontrolle, Brücken und mehrere Waffen und Effekte brauchen noch Arbeit.
-Schlachten mit 30 Spielern und 20.000 Einheiten haben wir bisher nicht demonstriert.
+Spielverhalten, Grafik und Leistung brauchen noch Arbeit. Die Kampagnenunterstützung ist
+unvollständig, der Netzwerk-Mehrspielermodus ist noch nicht spielbar, und Schlachten mit
+30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
 
 ## Architektur
 

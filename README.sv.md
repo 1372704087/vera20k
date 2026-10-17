@@ -29,14 +29,14 @@ ska gå.
 
 ## Aktuellt läge
 
-**Mitt i utvecklingen.** Lokala skirmishmatcher går att spela på Windows mot en enkel AI.
-Kartor från originalspelet och slumpgenererade kartor, menyer, basbygge, resursinsamling,
-strider samt möjligheten att spara och ladda spel finns på plats, men mycket återstår
-att fixa och färdigställa.
+**Under aktiv utveckling.** Lokala skirmishmatcher går att spela på Windows, Linux och macOS,
+med kartor från originalspelet och slumpgenererade kartor, basbygge, resursinsamling, strider
+samt möjlighet att spara och ladda spel. Kampanjuppdrag går att starta, och delar av originalets
+AI sköter nu basbygge och skriptstyrda anfall.
 
-Flerspelarläge, kampanjer och originalets AI saknas fortfarande. Flygplan, sinneskontroll,
-broar och flera vapen och effekter behöver mer arbete. Vi har ännu inte demonstrerat slag
-med 30 spelare och 20 000 enheter.
+Spelbeteendet, grafiken och prestandan behöver fortfarande förbättras. Kampanjstödet är
+ofullständigt, flerspelarläge över nätverk går ännu inte att spela, och slag med 30 spelare
+och 20 000 enheter har ännu inte demonstrerats.
 
 ## Arkitektur
 

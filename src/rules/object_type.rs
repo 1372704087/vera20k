@@ -1487,6 +1487,10 @@ pub struct ObjectType {
     /// `Tiberium` shows per-bale cargo pips for harvesters using pips2.shp.
     pub pip_scale: PipScale,
 
+    /// TechnoType+3E4: signed PipWrap. Constructor710D40 seeds0;
+    /// ReadInt714179..714198 uses the retained field as its default.
+    pip_wrap: i32,
+
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
     pub infantry_absorb: bool,
@@ -1968,6 +1972,11 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    /// Signed PipWrap configuration, before the draw caller's division.
+    pub const fn pip_wrap(&self) -> i32 {
+        self.pip_wrap
+    }
+
     /// InfantryType+DFC: raw PIPS2 frame for this infantry as a passenger.
     pub const fn pip(&self) -> u32 {
         self.infantry_pips.pip
@@ -3010,6 +3019,7 @@ impl ObjectType {
                 .read_name("PipScale", 0x20)
                 .map(PipScale::from_ini)
                 .unwrap_or_default(),
+            pip_wrap: section.read_int("PipWrap", 0),
             infantry_absorb: section.read_bool("InfantryAbsorb", false),
             unit_absorb: section.read_bool("UnitAbsorb", false),
             grinding: section.read_bool("Grinding", false),
@@ -3358,6 +3368,10 @@ mod infantry_speed_type_tests;
 #[cfg(test)]
 #[path = "infantry_pip_tests.rs"]
 mod infantry_pip_tests;
+
+#[cfg(test)]
+#[path = "ammo_pip_tests.rs"]
+mod ammo_pip_tests;
 
 #[cfg(test)]
 mod tests {

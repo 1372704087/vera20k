@@ -2060,6 +2060,28 @@ class MapObservationTests(unittest.TestCase):
                 self.change = lambda manifest, value=value: manifest['render'].update(frame_wall_mean_ms=value)
                 self.assertEqual(self.run_capture()['status'], 'INVALID')
 
+    def test_ammo_projection_round_trips_signed_owner_and_legacy_omission(self):
+        observation._actor(self.actor(), 'legacy actor')
+        for value in (None, -(1 << 31), -1, 0, 1, (1 << 31) - 1):
+            actor = self.actor()
+            actor['foot']['ammo_2fc'] = value
+            observation._actor(actor, 'actor')
+        self.scripted_profile()
+        for step, actors in self.actor_frames.items():
+            actors[0]['foot']['ammo_2fc'] = 1 if step < 2 else 0
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual([row['actors'][0]['foot']['ammo_2fc'] for row in frames], [1, 1, 0, 0])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    def test_ammo_projection_rejects_nonsigned_counts(self):
+        for value in (True, 1.0, '1', -(1 << 31) - 1, 1 << 31):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                actor = self.actor()
+                actor['foot']['ammo_2fc'] = value
+                observation._actor(actor, 'actor')
+
     def test_pending_entry_projection_round_trips_null_and_stable_target(self):
         self.scripted_profile()
         for step, actors in self.actor_frames.items():

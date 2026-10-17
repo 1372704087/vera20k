@@ -321,3 +321,122 @@ pub fn install_status_capture_count(
         ),
     );
 }
+
+/// One physical retail scene shared by the flight/rearm and presentation tests.
+/// The existing dock-cycle fixture loads Death.mmx, admits a real GAAIRC,
+/// two stock ORCAs and an enemy Rhino through the production placement/spawn
+/// owners. Callers issue their own commands and advance the bound runtime.
+pub struct RetailHarrierDockScene {
+    pub runtime: crate::sim::runtime::SimRuntime,
+    pub player: crate::sim::intern::InternedId,
+    pub airfield: u64,
+    pub harriers: [u64; 2],
+    pub target: u64,
+}
+
+pub fn retail_harrier_dock_scene(
+    retail: &std::path::Path,
+) -> Result<RetailHarrierDockScene, String> {
+    use crate::sim::house_state::HouseState;
+    use crate::sim::runtime::SimRuntime;
+    let mut scenario = crate::headless_scenario::load(retail, "Death.mmx", 0x5EED_0001)?;
+    let SimRuntime {
+        simulation: sim,
+        resources,
+    } = &mut scenario.runtime;
+    let rules = &resources.rules;
+    // Both houses human, so no house AI moves the Rhino.
+    let mut owners = Vec::new();
+    for (index, name) in ["Player", "Enemy"].into_iter().enumerate() {
+        let id = sim.interner.intern(name);
+        let mut house = HouseState::new(id, index as u8, None, true, 0, 10);
+        house.multiplay_passive = true;
+        sim.houses.insert(id, house);
+        sim.session.house_order.push(id);
+        owners.push(id);
+    }
+    let mut cells: Vec<(u16, u16)> = sim
+        .resolved_terrain
+        .iter()
+        .flat_map(|terrain| terrain.iter().map(|cell| (cell.rx, cell.ry)))
+        .collect();
+    let (sum_x, sum_y) = cells.iter().fold((0_i64, 0_i64), |(x, y), &(rx, ry)| {
+        (x + i64::from(rx), y + i64::from(ry))
+    });
+    let centre = (sum_x / cells.len() as i64, sum_y / cells.len() as i64);
+    let reach = |(rx, ry): (u16, u16)| {
+        (i64::from(rx) - centre.0).pow(2) + (i64::from(ry) - centre.1).pow(2)
+    };
+    cells.sort_by_key(|&cell| (reach(cell), cell));
+    // Each object takes the cell nearest the map centre at least `cells_out`
+    // cells out that admits it; the airfield a site its owner could build on
+    // (`BuildingTypeClass::CanPlaceAt @ 0x00464AC0`).
+    let airfield_type = rules.object("GAAIRC").expect("GAAIRC");
+    let mut spawn = |name: &str, owner: usize, cells_out: i64| {
+        let house = sim.interner.resolve(owners[owner]).to_owned();
+        for &(rx, ry) in cells
+            .iter()
+            .filter(|&&cell| reach(cell) >= cells_out * cells_out)
+        {
+            let site = (rx as i16, ry as i16);
+            if name == "GAAIRC"
+                && !crate::sim::build_site::can_place_building_at(
+                    sim,
+                    rules,
+                    None,
+                    airfield_type,
+                    site,
+                    Some(owners[owner]),
+                    None,
+                )
+            {
+                continue;
+            }
+            if let Some(id) = sim.spawn_object(name, &house, rx, ry, 0, rules) {
+                return id;
+            }
+        }
+        panic!("no room for {name}")
+    };
+    let airfield = spawn("GAAIRC", 0, 0);
+    let harriers = [spawn("ORCA", 0, 4), spawn("ORCA", 0, 5)];
+    let rhino = spawn("HTNK", 1, 18);
+    sim.resolve_type_handles(rules);
+    Ok(RetailHarrierDockScene {
+        runtime: scenario.runtime,
+        player: owners[0],
+        airfield,
+        harriers,
+        target: rhino,
+    })
+}
+
+/// Explicit status-consumer ammo prior. Construction, pending release/debit
+/// and rearm use their existing owner methods. These bounded transitions do
+/// not substitute for the physical Attack/return/dock production fixture.
+/// Returns (initialized Ammo, current Ammo, pending release).
+pub fn install_status_ammo_state(
+    entity: &mut crate::sim::game_entity::GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+    stage: &str,
+    current: Option<i32>,
+) -> (i32, i32, bool) {
+    entity.initialize_ammo_from_type(object);
+    let ammo = entity.ammo_mut().expect("Foot ammo initialization");
+    let initialized = ammo.current();
+    match stage {
+        "full" => {}
+        "depleted" | "rearmed" => {
+            ammo.begin_release();
+            ammo.consume_release(false);
+            if stage == "rearmed" {
+                ammo.reload_round();
+            }
+        }
+        _ => panic!("unknown explicit status ammo prior {stage}"),
+    }
+    if let Some(current) = current {
+        ammo.set_current_for_test(current);
+    }
+    (initialized, ammo.current(), ammo.release_pending())
+}

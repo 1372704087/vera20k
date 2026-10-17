@@ -35,7 +35,9 @@ use crate::sim::world::ObjectLifecycle;
 
 mod distributed_fire;
 mod foot_air;
+mod pip_fill;
 pub(crate) use distributed_fire::DistributedFireCandidate;
+pub use pip_fill::rounded_pip_quantity;
 
 /// ObjectClass's retained fall words: +2C, +84, +8D and +8F.
 /// DropAsBomb5F4160 preserves the rate and parachute byte; landing5F3F86

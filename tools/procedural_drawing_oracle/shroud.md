@@ -499,3 +499,85 @@ the native archive search itself is outside this runtime boundary.
 Stock size-one infantry match the current integer cargo owner. Fractional
 Size/SizeLimit and per-type reload behavior remain explicit residuals; the
 oracle adds no competing size, cargo, palette or raster implementation.
+
+## Ordinary Harrier ammo and the shared pip-fill query
+
+`--ammo-pips` adds `ammo_pips.json` and its sidecar through the same health
+status generator, mobile-prefix helper, recorder, PaletteReader/native cache,
+palette/Convert and Surface/shape owners. The six historical modes keep their
+payloads and sidecars unchanged. No second runtime, actor bootstrap, cargo,
+manager, storage, parser, palette or numeric emulator supplies expected values.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --ammo-pips --check
+```
+
+The existing root schema (`readers`, `physical_inputs`, `palette`,
+`raster_controls`) is retained. Actors declare `type_name=ORCA`,
+`kind=aircraft`, `ammo_initialization=full|depleted|rearmed`, canonical rank bits
+and ordinary health/selection/observer/raw Location priors.
+`actor_results` includes `initialized_ammo`, `current_ammo`, `pending_release`,
+`fill_count`, `pip_max`, native GetCoords/projection and `ammo_events`.
+`full` executes41403A..414051's InitialAmmo fallback; `depleted` additionally
+enters the admitted pending writer41840E..418415 and next-entry consume
+418031..418056; `rearmed` then invokes the whole original Aircraft radio
+receiver4190B0 with message1F, reaching actual Techno6F4C9C. Admission to that
+pending writer is supplied. These controls do not run a shot, mission scheduler,
+return flight, dock service or selection lifecycle.
+
+Whole original AircraftType41C8B0/Rules665650 constructors execute, followed by
+selected native type read/store blocks on physical RULESMD, absent LANGRULE,
+MPBattleMD and XMP03T4. ORCA's PipScale read714120 produces Ammo1; PipWrap
+constructor710D40 is0 and ReadInt714188/store714198 retains0; InitialAmmo
+constructor7110E6 is−1 and ReadInt71475B retains−1; Ammo constructor7110EC is−1
+and ReadInt714775 reads physical1. These readers retain their current defaults
+and apply no clamp. Strength150/delta0 and existing numeric dependency type
+inputs come through the same reader owner. Fixed ART is not layered and
+supplies none of these selected status keys; full type/ART/body readers are
+outside this component. Authored nonzero PipWrap is a dormant branch in this
+physical stack, not unreachable or equivalent to the unwrapped arm.
+
+The shared mobile-prefix helper executes Aircraft413D20..413DB1 before COM,
+then original Fly4CC9A0 and its actual55ABC0 visual callback through Foot4DA4E0.
+Interface owner/link/active and scene priors are supplied, as with existing
+Unit/Drive and Infantry/Walk controls. Constructor Scenario RNG request65C780
+at6F3259 and passive timer `[0,0,45]` are recorded separately. Every raster row
+runs complete6F5190→6F64A0→709A90→70AA60 with original observer gates,
+708C30 and716290, projection, SHP selection, picker and pixel leaves.
+
+Stock full ORCA emits one YR PIPS2 frame13 at GetCoords' projected point plus
+`[-15,+7]`, flags600, step[4,0]. Depleted0 emits no empty ammo pip. The actual
+4912B0/7E5A20 leaf bypasses A/Z, while PIPBRD retains E00/A consumption. Rows
+cover A127/2/0, occluding Z0, hover/deselection/sinking, actual viewport clip,
+supplied airborne Z1500 and ordered parents. Native projection derives the
+clip point[17,80] from XYZ[2416,5520,0], and airborne[80,81] from
+[4544,7104,1500]. Ordered points[80,80] and[80,115] produce sixteen earlier
+ammo pixels overwritten by the later health strip, recorded in
+`overwritten_scale_pixels`; legal dense-unit placement is not claimed.
+
+`fill_controls` executes complete original708C30 on the same retained actor,
+manager, cargo and float-storage owners. Each row has `input`, actual
+`type_fields`, native `pip_max`, signed `result`, native spilled `arithmetic`
+operands and directly observed `ftol` EDX:EAX/FPCW at708D2A, before the
+positive-total minimum. `arithmetic.storage_total` is observed at6C9677:
+6C9650 truncates each signed integer accumulator plus the next f32 slot, then
+returns the final integer as binary64. No host sum supplies that operand.
+
+Stock ORCA counts MIN,−2,−1,0,1,2,MAX yield MIN+1,−1,0,0,1,2,MAX. HARV
+Storage40 with amounts0,1,4,5,20,40 yields0,1,1,1,3,5; raw pre-minimum ftol
+values are0,0,0,1,3,5. This shared quantity differs from the independent
+ore/gem raster rounding in the passenger corpus. MIND counts0/3/4 and actual
+FV Cargo count0/1 exercise their same shared query. Explicit configuration
+boundaries execute original ReadInt blocks for Storage0/−1 and Ammo0, and
+ReadPipScale for Power/None, then restore through those readers. Storage0 with
+positive amount yields invalid signed64 conversion EDX:EAX80000000:00000000,
+then minimum1; negative Storage−1 with amount1 yields−4. Power/None return0
+without arithmetic. Those configuration and extreme signed-count inputs do
+not claim ordinary stock reachability, and huge counts are never rasterized.
+
+Original code/vtables, actor bytes and A/Z remain unchanged over the measured
+queries/draws; they draw no RNG and perform no timer write or detach. Full
+construction, native archive search, shroud generation, VXL body composition,
+world Display, combat/flight/dock lifecycle and other PipWrap/status routes
+remain separate owners or residuals. Normal STOCK_DIGITAL physical PIPS2
+winner and native5F76B0 filename lookup are the same as the passenger mode.

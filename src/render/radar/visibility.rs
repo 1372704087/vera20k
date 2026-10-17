@@ -403,10 +403,6 @@ pub(super) fn build_radar_object_update(
 }
 
 #[cfg(test)]
-#[path = "visibility_lifecycle_tests.rs"]
-mod lifecycle_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};

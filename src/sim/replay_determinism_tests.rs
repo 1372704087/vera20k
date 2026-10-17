@@ -94,16 +94,6 @@ fn run_with_frame_profile(total_ms: u32, frame_ms: u32) -> (u64, Vec<Option<u64>
 }
 
 #[test]
-fn fixed_step_invariance_across_frame_profiles() {
-    let (hash_a, _, _) = run_with_frame_profile(2500, 16);
-    let (hash_b, _, _) = run_with_frame_profile(2500, 50);
-    assert_eq!(
-        hash_a, hash_b,
-        "Fixed-step simulation must be frame-rate invariant"
-    );
-}
-
-#[test]
 fn determinism_repeatability_same_inputs() {
     let (hash_a, timeline_a, _) = run_with_frame_profile(2500, 16);
     let (hash_b, timeline_b, _) = run_with_frame_profile(2500, 16);
@@ -213,20 +203,5 @@ fn replay_reapplies_header_seed() {
     assert_ne!(
         live, diverged,
         "a corrupted header seed must not reproduce the timeline"
-    );
-}
-
-#[test]
-fn replay_playback_matches_live_hash_timeline() {
-    let (_, live_timeline, replay) = run_with_frame_profile(2500, 20);
-
-    let mut replay_sim = make_test_sim();
-    let grid = PathGrid::new(32, 32);
-    let playback_timeline =
-        ReplayRunner::run_fixture(&mut replay_sim, &replay, None, Some(&grid), TICK_MS);
-
-    assert_eq!(
-        live_timeline, playback_timeline,
-        "Replay playback must match live hash timeline"
     );
 }

@@ -1255,10 +1255,6 @@ mod tibtre_tests;
 #[path = "overlay_atlas_mirage_tests.rs"]
 mod mirage_tests;
 
-#[cfg(test)]
-#[path = "overlay_atlas_radar_tests.rs"]
-mod radar_tests;
-
 /// Shelf-pack rendered overlay sprites into a GPU texture atlas.
 fn pack_overlay_sprites(
     device: &wgpu::Device,

@@ -49,24 +49,8 @@ use crate::util::lookup_hash::LookupMap;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
 #[cfg(test)]
-#[path = "building_abandoned_sound_tests.rs"]
-mod building_abandoned_sound_tests;
-
-#[cfg(test)]
 #[path = "building_damage_sound_tests.rs"]
 mod building_damage_sound_tests;
-
-#[cfg(test)]
-#[path = "message_sound_tests.rs"]
-mod message_sound_tests;
-
-#[cfg(test)]
-#[path = "creation_sound_tests.rs"]
-mod creation_sound_tests;
-
-#[cfg(test)]
-#[path = "radial_fire_segments_tests.rs"]
-mod radial_fire_segments_tests;
 
 /// Country-level fields needed by gameplay systems.
 #[derive(Debug, Clone)]

@@ -1897,15 +1897,6 @@ impl<'a> WalkableEntry<'a> {
     pub(crate) fn new(grid: &'a PathGrid) -> Self {
         Self { grid, cells: None }
     }
-
-    /// Also answers the retained cells path finishing forwards, by their
-    /// coordinates in `cells`.
-    pub(crate) fn with_cells(grid: &'a PathGrid, cells: &'a ResolvedTerrainGrid) -> Self {
-        Self {
-            grid,
-            cells: Some(cells),
-        }
-    }
 }
 
 #[cfg(any(test, feature = "test-support"))]

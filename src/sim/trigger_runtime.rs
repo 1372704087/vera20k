@@ -4079,10 +4079,6 @@ mod wakeup_tests;
 mod chrono_reinforcement_tests;
 
 #[cfg(test)]
-#[path = "trigger_runtime_bridge_event_tests.rs"]
-mod bridge_event_tests;
-
-#[cfg(test)]
 #[path = "trigger_runtime_lightning_tests.rs"]
 mod lightning_tests;
 

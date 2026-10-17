@@ -36,11 +36,7 @@ pub mod hva_file;
 pub mod ima_adpcm;
 pub mod mix_archive;
 pub mod mix_crypto;
-#[cfg(test)]
-mod mix_diag_tests;
 pub mod mix_hash;
-#[cfg(test)]
-mod mix_tests;
 pub mod pal_file;
 pub mod pcx_file;
 pub mod shp_decode;

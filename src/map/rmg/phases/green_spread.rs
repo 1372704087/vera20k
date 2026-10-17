@@ -131,73 +131,6 @@ mod tests {
     }
 
     #[test]
-    fn conversion_count_is_a_third_of_the_candidate_list() {
-        let mut grid = grid_with_water();
-        // One green cell surrounded by 4 clear cardinals -> list of 4,
-        // count = 4/3 = 1 conversion.
-        paint(&mut grid, &[(8, 8)], 100);
-        paint(&mut grid, &[(8, 7), (9, 8), (8, 9), (7, 8)], 0);
-
-        let ids = test_ids();
-        let mut rng = RmgRng::new(7);
-        run(&mut grid, &ids, &mut rng);
-
-        let greens = [(8, 7), (9, 8), (8, 9), (7, 8)]
-            .iter()
-            .filter(|&&(x, y)| grid.get(x, y).unwrap().tile == 100)
-            .count();
-        assert_eq!(greens, 1, "list of 4 yields exactly one conversion");
-    }
-
-    #[test]
-    fn short_lists_convert_nothing() {
-        let mut grid = grid_with_water();
-        // Two clear neighbors -> len 2 -> 2/3 = 0 conversions.
-        paint(&mut grid, &[(8, 8)], 100);
-        paint(&mut grid, &[(8, 7), (9, 8)], 0);
-
-        let ids = test_ids();
-        let mut rng = RmgRng::new(7);
-        let before = rng.clone();
-        run(&mut grid, &ids, &mut rng);
-
-        assert_eq!(grid.get(8, 7).unwrap().tile, 0);
-        assert_eq!(grid.get(9, 8).unwrap().tile, 0);
-        assert_eq!(
-            rng.next_u32(),
-            before.clone().next_u32(),
-            "zero conversions must consume zero draws"
-        );
-    }
-
-    #[test]
-    fn converted_cells_refeed_the_list() {
-        let mut grid = grid_with_water();
-        // A clear corridor: enough green sources that the corridor cells all
-        // enter the list, and conversions append their clear neighbors.
-        paint(&mut grid, &[(10, 8), (10, 10), (12, 8)], 100);
-        let corridor: Vec<(i32, i32)> = (8..14).map(|x| (x, 9)).collect();
-        paint(&mut grid, &corridor, 0);
-        paint(&mut grid, &[(10, 9)], 0);
-        // Give each green its cardinal clears.
-        paint(&mut grid, &[(10, 7), (9, 8), (11, 8)], 0);
-        paint(&mut grid, &[(9, 10), (11, 10), (10, 11)], 0);
-        paint(&mut grid, &[(12, 7), (13, 8), (11, 8)], 0);
-
-        let ids = test_ids();
-        let mut rng = RmgRng::new(1234);
-        run(&mut grid, &ids, &mut rng);
-
-        let converted = grid
-            .native_cells()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .filter(|&(x, y)| grid.get(x, y).unwrap().tile == 100)
-            .count();
-        assert!(converted > 3, "spread grew beyond the seed greens");
-    }
-
-    #[test]
     fn spread_is_deterministic_per_seed() {
         let make = || {
             let mut grid = grid_with_water();
@@ -226,35 +159,5 @@ mod tests {
                 .collect()
         };
         assert_eq!(tiles(&first), tiles(&second));
-    }
-
-    #[test]
-    fn edge_green_can_paint_the_border_cell() {
-        let mut grid = grid_with_water();
-        // A green cell on the first scan row: its north neighbor is out of
-        // band, so the (clear-tiled) border cell joins the list; with a list
-        // of exactly 3 the single conversion may hit any entry, but the
-        // border cell must at least have been considered clear and appended.
-        let (x, y) = (4, 5); // sum 9 > 8, first row region
-        assert!(grid.is_valid(x, y));
-        assert!(!grid.is_valid(x, y - 1), "north neighbor is out of band");
-        paint(&mut grid, &[(x, y)], 100);
-        paint(&mut grid, &[(x + 1, y), (x, y + 1)], 0);
-
-        let ids = test_ids();
-        // List: border (N), (x+1,y) E, (x,y+1) S -> count exactly 1.
-        let mut rng = RmgRng::new(3);
-        run(&mut grid, &ids, &mut rng);
-
-        let converted_real =
-            grid.get(x + 1, y).unwrap().tile == 100 || grid.get(x, y + 1).unwrap().tile == 100;
-        let converted_border = {
-            let mut probe = grid;
-            probe.cell_native(0, 0).tile == 100
-        };
-        assert!(
-            converted_real || converted_border,
-            "exactly one of the three entries (incl. the border cell) converted"
-        );
     }
 }

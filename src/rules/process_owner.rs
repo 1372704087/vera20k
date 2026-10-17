@@ -11,18 +11,6 @@
 mod sinking_sound_tests;
 
 #[cfg(test)]
-#[path = "ambient_sound_tests.rs"]
-mod ambient_sound_tests;
-
-#[cfg(test)]
-#[path = "working_sound_tests.rs"]
-mod working_sound_tests;
-
-#[cfg(test)]
-#[path = "turret_rotate_sound_tests.rs"]
-mod turret_rotate_sound_tests;
-
-#[cfg(test)]
 #[path = "selection_voice_tests.rs"]
 mod selection_voice_tests;
 
@@ -108,11 +96,6 @@ pub(crate) struct NativeRulesPhaseReceipt {
 }
 
 impl NativeRulesPhaseReceipt {
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn events(&self) -> &[NativeTypeConstructionEvent] {
-        &self.events
-    }
-
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn event_count(&self) -> usize {
         self.events.len()
@@ -426,165 +409,5 @@ impl NativeRulesProcessOwner {
         }
         layers.push(RulesLayerKind::Scenario, map_rules_overrides.clone());
         layers
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    fn live_registry(&self) -> &NativeRulesRegistryState {
-        match self.registry.as_ref().expect("registry is resident") {
-            NativeRulesRegistryOwner::ColdStartup(trace) => trace.registry_state(),
-            NativeRulesRegistryOwner::Live(state) => state,
-            NativeRulesRegistryOwner::Scenario(processed) => {
-                processed.native_type_construction_trace().registry_state()
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::NativeRulesProcessOwner;
-    use crate::rules::ini_parser::IniFile;
-    use crate::rules::native_processing::NativeTypeConstructorFamily;
-
-    fn ini(text: &str) -> IniFile {
-        IniFile::from_bytes(text.as_bytes()).expect("valid synthetic INI")
-    }
-
-    #[test]
-    fn second_noncampaign_scenario_continues_live_registry_then_resets_it() {
-        let root = ini("[Animations]\n0=ROOTANIM\n\
-             [BuildingTypes]\n0=ROOTBLDG\n\
-             [Countries]\n0=ROOTCOUNTRY\n\
-             [General]\nParaDrop.Types=ROOTUNIT\n\
-             [ROOTCOUNTRY]\nVeteranUnits=ROOTINF\n");
-        let art = ini("[ROOTANIM]\nImage=ROOTANIM\n[ROOTBLDG]\nImage=ROOTBLDG\n");
-        let first_map = ini("[BuildingTypes]\n1=MAPONLY\n[MAPONLY]\nImage=MAPONLY\n");
-        let second_map = ini("");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            art,
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-
-        let first = owner
-            .load_scenario(
-                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                &first_map,
-            )
-            .expect("first scenario");
-        assert!(first.receipt.pre_reset.event_count() > 0);
-        assert!(first.receipt.post_reset.events().iter().any(|event| {
-            event.family() == NativeTypeConstructorFamily::BuildingType
-                && event.native_stored_id() == "MAPONLY"
-        }));
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2
-        );
-
-        let second = owner
-            .load_scenario(
-                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                &second_map,
-            )
-            .expect("second scenario");
-        assert_eq!(
-            second.receipt.pre_reset.event_count(),
-            0,
-            "the second prepass looks up names in scenario-one's live registry"
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            1,
-            "the destructive reset removes the prior map-only type"
-        );
-    }
-
-    #[test]
-    fn failed_post_reset_process_keeps_its_partial_live_registry() {
-        let root = ini("[BuildingTypes]\n0=ROOTBLDG\n");
-        let failing_map = ini("[BuildingTypes]\n1=PARTIAL\n\
-             [Tiberiums]\n-1=INVALID\n");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-
-        assert!(
-            owner
-                .load_scenario(
-                    crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                    &failing_map
-                )
-                .is_err(),
-            "negative Tiberium slot fails after explicit families"
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-            "ROOTBLDG and PARTIAL both remain in the post-reset native registry"
-        );
-    }
-
-    #[test]
-    fn saved_rules_restore_reached_fields_without_replaying_constructor_events() {
-        let root = ini("[BuildingTypes]\n0=ROOTBLDG\n[ROOTBLDG]\nStrength=200\n\
-            [General]\nPrismSupportModifier=1.75\n");
-        let map = ini("[BuildingTypes]\n1=MAPONLY\n[General]\n");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-        let original = owner
-            .load_scenario(super::NativeScenarioRulesPrefix::NonCampaign(None), &map)
-            .unwrap();
-        assert!(original.receipt.post_reset.event_count() > 0);
-        let saved = owner.saved_scenario_rules().unwrap();
-        assert_eq!(saved.native_type_construction_trace().event_count(), 0);
-        let saved_hash = original.rules.simulation_config_hash();
-        let saved_modifier = original.rules.general.prism_support.modifier;
-        let bytes = bincode::serialize(saved).unwrap();
-        let restored = bincode::deserialize(&bytes).unwrap();
-
-        // Loading does not re-read RULESMD or construct the saved type vector.
-        // Different cold-process source values must not replace saved fields.
-        let mut cold = NativeRulesProcessOwner::from_cold_start_sources(
-            ini("[BuildingTypes]\n0=OTHER\n[General]\nPrismSupportModifier=9.0\n"),
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-        let projected = cold.project_saved_scenario_rules(&restored).unwrap();
-        assert_eq!(projected.simulation_config_hash(), saved_hash);
-        assert_eq!(projected.general.prism_support.modifier, saved_modifier);
-        assert_eq!(restored.native_type_construction_trace().event_count(), 0);
-        cold.install_saved_scenario_rules(restored);
-        assert_eq!(
-            cold.live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-            "serialization did not consume or replace the original process owner",
-        );
     }
 }

@@ -178,29 +178,3 @@ fn is_tiberium(overlay_id: u8) -> bool {
         .flags(overlay_id)
         .is_some_and(|flags| flags.tiberium)
 }
-
-/// Whether a cell holds a tiberium overlay, at any density.
-pub(crate) fn has_tiberium(sim: &Simulation, cell: (u16, u16)) -> bool {
-    sim.overlay_grid
-        .as_ref()
-        .and_then(|grid| grid.cell(cell.0, cell.1).overlay_id)
-        .is_some_and(is_tiberium)
-}
-
-/// Remove whatever overlay the cell holds; on a fixture with map cells the
-/// cell is recalculated as RecalcAttributes does (LandType back to the
-/// ground's).
-pub(crate) fn clear_tiberium(sim: &mut Simulation, cell: (u16, u16)) {
-    if let Some(grid) = sim.overlay_grid.as_mut() {
-        grid.clear_overlay(cell.0, cell.1);
-        if let Some(terrain) = sim.resolved_terrain.as_mut() {
-            grid.recalculate_runtime_cell(terrain, overlay_registry_with_land(), cell);
-        }
-    }
-}
-
-/// A cell's tiberium in the retired stock units (`bales * 120`, the ore rate),
-/// so density assertions written against those units keep their numbers.
-pub(crate) fn stock_amount_at(sim: &Simulation, cell: (u16, u16)) -> u16 {
-    u16::from(bales_at(sim, cell.0, cell.1)) * 120
-}

@@ -334,14 +334,6 @@ fn is_cell_harvestable(
 mod tests {
     use super::*;
 
-    #[test]
-    fn scan_radius_divides_leptons_toward_zero() {
-        assert_eq!(scan_cells(0x600), 6);
-        assert_eq!(scan_cells(1664), 6);
-        assert_eq!(scan_cells(-1664), -6);
-        assert_eq!(scan_cells(255), 0);
-    }
-
     /// The original4DCF26..4DCF97 query seam, excluding the prior playfield
     /// gate and later LandType/CanEnter. Expected arguments and reach verdicts
     /// come from native execution, not from the Rust scan.

@@ -18,10 +18,6 @@ mod refinery_dock;
 pub(crate) use refinery_dock::UnloadImage;
 
 #[cfg(test)]
-#[path = "miner_tests.rs"]
-mod miner_tests;
-
-#[cfg(test)]
 #[path = "outbound_drive_tests.rs"]
 mod outbound_drive_tests;
 

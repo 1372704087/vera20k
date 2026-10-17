@@ -182,25 +182,6 @@ fn can_reach_through_explicit_tube(
     })
 }
 
-// Original42C900 compares raw GetZoneID results, including distinct invalid
-// row labels1/FFFF. Compatibility-only test/cache grids have no raw row.
-#[cfg(any(test, feature = "test-support"))]
-fn native_path_zone_equality(
-    zones: &ZoneGrid,
-    terrain: Option<&ResolvedTerrainGrid>,
-    movement: MovementZone,
-    start: (u16, u16),
-    start_bridge: bool,
-    goal: (u16, u16),
-    goal_bridge: bool,
-) -> Option<bool> {
-    let terrain = terrain?;
-    Some(
-        zones.get_zone_id_native(terrain, start, movement, start_bridge)?
-            == zones.get_zone_id_native(terrain, goal, movement, goal_bridge)?,
-    )
-}
-
 /// The level-0 corridor a passed `Zone_precheck` hands the cell A*
 /// (`AStar_main_loop @ 0x00429A90`'s last argument, `allowHS`).
 struct HierarchyCorridor<'a> {
@@ -449,50 +430,6 @@ pub(crate) fn find_path_zoned_marker_detailed(
         facts,
         blocker_neighbor_counts,
     )
-}
-
-/// The flat search with the native entry's facts given directly (tests),
-/// asking [`super::WalkableEntry`].
-#[cfg(any(test, feature = "test-support"))]
-fn find_path_zoned_marker_inner(
-    grid: &PathGrid,
-    start: (u16, u16),
-    goal: (u16, u16),
-    hierarchy_start: (u16, u16),
-    hierarchy_goal: (u16, u16),
-    native_zone_equal: Option<bool>,
-    zone_grid: Option<&ZoneGrid>,
-    mz: MovementZone,
-    movement_zone: Option<MovementZone>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    marker_overlay: Option<&SearchMarkerOverlay>,
-    blocker_neighbor_counts: Option<&BlockerNeighborCounts>,
-) -> Option<Vec<(u16, u16)>> {
-    let entry = NativePathEntry {
-        raw_equal: native_zone_equal,
-        goal_bridge: false,
-        hierarchy_start,
-        hierarchy_goal,
-        endpoints_in_playfield: true,
-    };
-    find_flat_path_after_entry(
-        grid,
-        start,
-        goal,
-        &entry,
-        zone_grid,
-        mz,
-        movement_zone,
-        resolved_terrain,
-        marker_overlay,
-        MoverSearchFacts {
-            urgency: 0,
-            foot_entry: &super::WalkableEntry::new(grid),
-        },
-        blocker_neighbor_counts,
-    )
-    .ok()
-    .map(|steps| steps.into_iter().map(|step| (step.rx, step.ry)).collect())
 }
 
 /// 429C1A prepares the marker transaction only after 42C900 has admitted

@@ -23,8 +23,6 @@
 //! - Part of sim/ -- no dependencies outside sim/.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-use crate::sim::radio::{self, RadioMessage, RadioPayload};
-use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 /// Whether the refinery's Contacts[] list holds the miner.
@@ -35,41 +33,9 @@ pub(crate) fn has_contact(sim: &Simulation, refinery_sid: u64, miner_sid: u64) -
         .is_some_and(|refinery| refinery.radio_contacts.contains(miner_sid))
 }
 
-/// BREAK over the bus — drops the contact on both ends and clears the miner's
-/// tether.
-pub(crate) fn break_contact(
-    sim: &mut Simulation,
-    miner_sid: u64,
-    refinery_sid: u64,
-    frame_effects: FrameEffects<'_>,
-) {
-    let _ = radio::transmit(
-        sim,
-        miner_sid,
-        refinery_sid,
-        RadioMessage::Break,
-        RadioPayload::default(),
-        None,
-        frame_effects,
-    );
-}
-
 /// Test fixtures drive the same bus the FSM does; there is no test-only store.
 pub(crate) mod test_support {
     use super::*;
-
-    /// HELLO with the stock single dock; `true` when the refinery admitted.
-    pub(crate) fn dock_test_hello(sim: &mut Simulation, refinery_sid: u64, miner_sid: u64) -> bool {
-        radio::transmit(
-            sim,
-            miner_sid,
-            refinery_sid,
-            RadioMessage::Hello,
-            RadioPayload::default(),
-            None,
-            crate::sim::world::FrameEffects::default(),
-        ) == radio::RadioResponse::Roger
-    }
 
     /// Whether the 0x18 ENTER_DOCK handshake linked this miner to the refinery.
     pub(crate) fn has_entered(sim: &Simulation, refinery_sid: u64, miner_sid: u64) -> bool {
@@ -77,19 +43,6 @@ pub(crate) mod test_support {
             .entities
             .get(miner_sid)
             .is_some_and(|miner| miner.tether.partner() == Some(refinery_sid))
-    }
-
-    /// ENTER_DOCK (0x18) over the bus — sets the miner's tether.
-    pub(crate) fn enter_dock(sim: &mut Simulation, miner_sid: u64, refinery_sid: u64) {
-        let _ = radio::transmit(
-            sim,
-            miner_sid,
-            refinery_sid,
-            RadioMessage::Tether,
-            RadioPayload::default(),
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
     }
 
     /// Whether any miner holds a contact slot of the refinery.

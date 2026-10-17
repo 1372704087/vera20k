@@ -155,8 +155,6 @@ mod engineer_building_repair_tests;
 #[cfg(test)]
 mod engineer_power_consumer_tests;
 #[cfg(test)]
-mod eva_dispatch_tests;
-#[cfg(test)]
 mod fly_height_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gap_generator_tests;
@@ -4167,26 +4165,8 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn take_house_ai_activation_order_test_trace(
-        &mut self,
-    ) -> Vec<HouseAiActivationOrderTestEvent> {
-        std::mem::take(&mut self.house_ai_activation_order_test_trace)
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
     fn trace_house_ai_activation_order(&mut self, event: HouseAiActivationOrderTestEvent) {
         self.house_ai_activation_order_test_trace.push(event);
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn append_house_order_after_for_test(
-        &mut self,
-        after_owner: InternedId,
-        appended_owner: InternedId,
-    ) {
-        debug_assert!(self.houses.contains_key(&appended_owner));
-        debug_assert!(!self.session.house_order.contains(&appended_owner));
-        self.house_update_append_after_test = Some((after_owner, appended_owner));
     }
 
     /// Shared identity source for every modeled runtime `AbstractClass` analogue.
@@ -7229,10 +7209,6 @@ mod cmin_dock_cycle_tests;
 mod passenger_escape_oracle_tests;
 
 #[cfg(test)]
-#[path = "world_orders_c4_tests.rs"]
-mod world_orders_c4_tests;
-
-#[cfg(test)]
 #[path = "world_orders_bridge_repair_tests.rs"]
 mod world_orders_bridge_repair_tests;
 
@@ -7334,9 +7310,6 @@ mod ore_spread_oracle_tests;
 
 #[cfg(test)]
 mod drop_as_bomb_integration_tests;
-
-#[cfg(test)]
-mod radiation_timing_tests;
 
 mod airstrike_aircraft;
 

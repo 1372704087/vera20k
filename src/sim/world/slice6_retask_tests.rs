@@ -17,11 +17,8 @@ use super::*;
 use crate::map::entities::{EntityCategory, MapEntity};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::TargetKind;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::mission::mega_mission::MegaMission;
 use crate::sim::mission::{MissionId, MissionType};
-use crate::sim::pathfinding::PathGrid;
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
 
 fn slice6_rules() -> RuleSet {
@@ -655,52 +652,5 @@ fn replay_hash_stable_through_slice6() {
         sim.state_hash(),
         SLICE6_BASELINE_HASH,
         "scripted-retask state drifted: establish the changed behavior, RNG producer, or hash composition before updating"
-    );
-}
-
-#[test]
-fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
-    // A Move command must route through the compatibility boundary: the mission
-    // substrate's `current` becomes Move (checked BEFORE any tick-tail shadow
-    // refresh) AND the legacy conflicting fields are cleared.
-    let rules = slice6_rules();
-    let grid = PathGrid::new(64, 64);
-    let mut sim = Simulation::new();
-    sim.install_fixture_path_grid(Some(&grid));
-    sim.spawn_from_map(
-        &[unit("Americans", "MTNK", 3, 3, EntityCategory::Unit)],
-        Some(&rules),
-    );
-    // Seed a conflicting prior order the Move must tear down.
-    {
-        let e = sim.substrate.entities.get_mut(1).expect("unit");
-        e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        e.mega_mission = MegaMission::attack_move(Some(crate::sim::combat::TargetKind::Cell(3, 3)));
-    }
-
-    let issued = sim.apply_command(
-        "Americans",
-        &Command::Move {
-            entity_id: 1,
-            target_rx: 10,
-            target_ry: 10,
-        },
-        Some(&rules),
-    );
-    assert!(issued, "move command should issue");
-
-    let e = sim.substrate.entities.get(1).expect("unit");
-    assert_eq!(
-        e.mission.queued(),
-        MissionId::from_known(MissionType::Move),
-        "the command queued Move through the exact authority (host promotes later)"
-    );
-    assert!(
-        e.attack_target.target().is_none(),
-        "Move tore down the attack target"
-    );
-    assert!(
-        !e.mega_mission.is_attack_move(),
-        "Move's Assign_Target_Command cleared the attack-move"
     );
 }

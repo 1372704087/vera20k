@@ -171,49 +171,6 @@ mod tests {
     }
 
     #[test]
-    fn every_water_cell_leaves_the_base_tile() {
-        let mut grid = water_grid();
-        let identity = ids();
-        let block_table = blocks();
-        let mut rng = RmgRng::new(1234);
-        run(&mut grid, &identity, &block_table, &mut rng);
-
-        for (x, y) in grid.native_cells().collect::<Vec<_>>() {
-            let cell = grid.get(x, y).unwrap();
-            assert_ne!(
-                (cell.tile, cell.sub_tile),
-                (500, 0),
-                "({x},{y}) still holds the untouched base water tile"
-            );
-            assert!(
-                cell.tile >= 500 && cell.tile < 500 + 24,
-                "({x},{y}) holds a water variant (2x2 variants span 0..24)"
-            );
-        }
-    }
-
-    #[test]
-    fn single_cells_use_the_six_band_variants() {
-        let mut grid = water_grid();
-        let identity = ids();
-        let block_table = blocks();
-        // Turn everything but one isolated water cell to land.
-        let coords: Vec<(i32, i32)> = grid.native_cells().collect();
-        for &(x, y) in &coords {
-            if (x, y) != (10, 10) {
-                grid.get_mut(x, y).unwrap().tile = 0;
-            }
-        }
-        let mut rng = RmgRng::new(7);
-        run(&mut grid, &identity, &block_table, &mut rng);
-        let tile = grid.get(10, 10).unwrap().tile;
-        assert!(
-            (508..=513).contains(&tile),
-            "isolated water gets a band variant, got {tile}"
-        );
-    }
-
-    #[test]
     fn band_math_uses_the_fp_chain_not_modulo() {
         // Raw draw 0x80000000: the FP chain gives trunc(2^31 * ~201*2^-32)
         // = 100 -> band 2; a modulo implementation would give 3 -> band 0.

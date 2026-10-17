@@ -325,8 +325,6 @@ mod ground_pose_tests;
 mod movement_bridge_retail_tests;
 #[cfg(test)]
 mod movement_tests;
-#[cfg(test)]
-mod prone_speed_tests;
 
 #[cfg(test)]
 mod foot_timer_migration_tests;

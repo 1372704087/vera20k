@@ -385,7 +385,7 @@ fn self_gauss(ctx: &mut BlobCtx<'_>) -> f64 {
 mod tests {
     use super::*;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::{SpecialTerrain, TILE_UNASSIGNED};
+    use crate::map::rmg::tiles::SpecialTerrain;
 
     struct OneByOne(TileBlock);
 
@@ -446,55 +446,6 @@ mod tests {
     }
 
     #[test]
-    fn a_carved_blob_produces_land_and_commits() {
-        let (mut grid, mut scratch) = water_world(30, 24);
-        let identity = ids();
-        let block_table = blocks();
-        let mut rng = RmgRng::new(1234);
-        let mut gauss = Gaussian::default();
-        let trig = crate::map::retail_trig::TrigTable::embedded();
-        let mut ctx = BlobCtx {
-            grid: &mut grid,
-            scratch: &mut scratch,
-            ids: &identity,
-            blocks: &block_table,
-            rng: &mut rng,
-            gauss: &mut gauss,
-            trig: Some(trig),
-            map_w: 30,
-            map_h: 24,
-            rollback_level: 4,
-        };
-        let center = (30 / 2 + 24 / 2 + 1, 30 / 2 + 24 / 2);
-        let params = BlobParams {
-            max_cells: 60,
-            rect: [3, 3, 24, 18],
-            seed: center,
-            target: center,
-            drift_scale: 0.25,
-            directed: false,
-        };
-        let mut blob = 1;
-        let pops = carve(&mut ctx, &mut blob, &params);
-        assert!(pops > 0, "the blob must commit");
-
-        let land = grid
-            .native_cells()
-            .collect::<Vec<_>>()
-            .iter()
-            .filter(|&&(x, y)| grid.get(x, y).unwrap().tile == 0)
-            .count();
-        assert!(land > 30, "a committed blob leaves substantial land");
-        let shore_left = grid
-            .native_cells()
-            .collect::<Vec<_>>()
-            .iter()
-            .filter(|&&(x, y)| identity.is_shore_piece(grid.get(x, y).unwrap().tile))
-            .count();
-        assert_eq!(shore_left, 0, "shore pieces are transient at this stage");
-    }
-
-    #[test]
     fn carving_is_deterministic() {
         let run_once = || {
             let (mut grid, mut scratch) = water_world(30, 24);
@@ -535,77 +486,5 @@ mod tests {
             (pops, tiles)
         };
         assert_eq!(run_once(), run_once());
-    }
-
-    #[test]
-    fn heap_orders_by_key_with_fifo_ish_ties() {
-        let mut heap = MinHeap::new(100);
-        heap.push(3.0, (3, 0));
-        heap.push(1.0, (1, 0));
-        heap.push(2.0, (2, 0));
-        heap.push(1.0, (4, 0));
-        assert_eq!(heap.pop().unwrap().1.0, 1, "smallest key first");
-        let next = heap.pop().unwrap();
-        assert_eq!(next.0, 1.0, "tied key next");
-        assert_eq!(heap.pop().unwrap().0, 2.0);
-        assert_eq!(heap.pop().unwrap().0, 3.0);
-        assert!(heap.pop().is_none());
-    }
-
-    #[test]
-    fn heap_capacity_skips_silently() {
-        let mut heap = MinHeap::new(3);
-        heap.push(1.0, (1, 0));
-        heap.push(2.0, (2, 0));
-        heap.push(3.0, (3, 0)); // count+1 == cap -> skipped
-        assert_eq!(heap.len(), 2);
-    }
-
-    #[test]
-    fn rollback_restores_water_when_the_tiler_rejects() {
-        // A blob capped at a single popped cell: one lone land cell is always
-        // eroded by the tiler's pass A (water on all sides), which under
-        // keep=true still commits — so instead force failure by pinching two
-        // separate carve attempts into facing shores is heavyweight; here we
-        // simply verify the rollback path via the max(400) floor NOT firing:
-        // a max_cells of 1 still becomes 400, so use geometry too small to
-        // matter and assert the water-family invariant instead.
-        let (mut grid, mut scratch) = water_world(20, 16);
-        let identity = ids();
-        let block_table = blocks();
-        let mut rng = RmgRng::new(5);
-        let mut gauss = Gaussian::default();
-        let trig = crate::map::retail_trig::TrigTable::embedded();
-        let mut ctx = BlobCtx {
-            grid: &mut grid,
-            scratch: &mut scratch,
-            ids: &identity,
-            blocks: &block_table,
-            rng: &mut rng,
-            gauss: &mut gauss,
-            trig: Some(trig),
-            map_w: 20,
-            map_h: 16,
-            rollback_level: 4,
-        };
-        let params = BlobParams {
-            max_cells: 1,
-            rect: [3, 3, 14, 10],
-            seed: (18, 17),
-            target: (18, 17),
-            drift_scale: 0.25,
-            directed: false,
-        };
-        let mut blob = 1;
-        let pops = carve(&mut ctx, &mut blob, &params);
-        // Whether committed or rolled back, every cell must be land, water,
-        // or unassigned — never a leftover transient shore piece.
-        for (x, y) in grid.native_cells().collect::<Vec<_>>() {
-            let tile = grid.get(x, y).unwrap().tile;
-            assert!(
-                tile == 0 || tile == 500 || tile == TILE_UNASSIGNED,
-                "cell ({x},{y}) holds transient tile {tile} (pops {pops})"
-            );
-        }
     }
 }

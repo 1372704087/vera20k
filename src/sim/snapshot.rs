@@ -4602,7 +4602,8 @@ mod tests {
         // 379 -> 380: live type TechLevels and global constructor chronology.
         // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
         // 381 -> 382: retained Secret Lab rules, membership and reward.
-        assert_eq!(super::SNAPSHOT_VERSION, 382);
+        // 382 -> 383: private Factory+71 automatic-recovery eligibility.
+        assert_eq!(super::SNAPSHOT_VERSION, 383);
     }
 
     #[test]

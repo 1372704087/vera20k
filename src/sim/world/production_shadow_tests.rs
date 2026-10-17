@@ -311,15 +311,18 @@ fn queue_advances_only_after_delivery() {
     // empty_rules -> cost 0; seed a real cost so completion takes the full ladder.
     f.progress = 0;
     f.balance = 700;
+    // This clone supplies the running step-kernel prior, after native Resume;
+    // StartProduction alone leaves +70 suspended until that separate call.
+    f.suspended = false;
     // The credits mirror is retired, so a cloned economy starts at 0 — fund the oracle
     // explicitly so the per-step charge can actually complete the build.
     let mut oracle = sim.houses[&owner].economy.clone();
     oracle.set_credits_for_test(700);
-    loop {
-        if matches!(f.advance_one_step(&mut oracle), StepOutcome::Completed) {
-            break;
-        }
-    }
+    assert!(
+        (0..PRODUCTION_STEPS)
+            .any(|_| { matches!(f.advance_one_step(&mut oracle), StepOutcome::Completed) }),
+        "the running, funded head must complete within its native ladder"
+    );
     assert!(
         f.suspended && f.object.is_some(),
         "C12: completion holds the object, suspended"

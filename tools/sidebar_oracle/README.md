@@ -36,9 +36,24 @@ its complete execution boundary and substitutions in the associated metadata.
   and typed-building traversal consume supplied accounting/list inputs;
   PC53/chop arithmetic, wall-clock bucket edges, paired color transfers,
   interrupted transitions, settling, resize, visibility and fresh clear execute
-  original instructions. Substitutions are the OS clock, inherited Radar
-  constructor/clear/AI and the shared surface/draw transport. This supplies
-  commands, not native pixels, House-producer or saved-state equivalence.
+  original instructions. Eight additional `loaded_histories` supply 22
+  post-NoInit AI/draw visits: stopped/armed/due/wrapped raw Flash timers,
+  repeated visits/long stalls, retained active bands and a settled resize.
+  Each row records `input` in the existing seven-word history format,
+  `prior` and immediate `no_init` with the existing retained-state field names,
+  then ordinary `visits`. New `clock_ms` arrays observe actual clock-stub calls;
+  `no_init.writes` records every Power-range write as `[offset, size, value]`.
+  Offsets are relative to the receiver; only +1520/+1528 change in NoInit.
+  The first six priors are staged raw controls. The last two execute ctor/AI
+  at 0/16 ms (height12), or 0..1600 ms by16 (height90, then load height12).
+  Geometry may shrink below retained counts; no load-time count clamp is valid.
+  Sidebar6A4F20..6A4FED executes around declared excluded member constructors:
+  inherited6AC840 RET4;42F670/6AC8D0 RET8;4F1B00 RET4;405BE0 RET0;
+  Strip iterator4068F0 RET16. Substitutions also include the OS clock,
+  inherited Radar constructor/clear/AI and shared surface/draw transport.
+  Code guards reject modifications to original executable sections.
+  This supplies Power component commands/state, not native pixels,
+  House-producer, Mouse storage/swizzle or complete saved-load equivalence.
 - `radar_timer`: 600 original 653100 animation/timer states; only the OS
   clock is substituted. The four-bucket duration uses `timeGetTime() >> 4`.
   Availability direction changes do not reset that timer (656BE0).
@@ -83,7 +98,7 @@ GPU regression checks final pixels through predue loss and rapid reversal.
 Bounds remain explicit: this evidence covers ordinary fixed 168x110 radar
 housing; native map/dirty producers, viewport history outside the housing,
 surface-loss recovery, movie/jammed modes and modded transparent endpoints
-remain open. Power save/reentry and theoretical-list input correspondence outside
+remain open. Power save/reentry beyond these component controls and theoretical-list input correspondence outside
 ordinary lifecycle boundaries, credits/text/fades, progress cadence and
 diplomacy/briefing dialogs are separate unresolved mechanisms. A user capture
 of the integrated candidate is required before claiming a complete scene

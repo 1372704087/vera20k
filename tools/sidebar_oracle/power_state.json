@@ -7858,6 +7858,1523 @@
       ]
     }
   ],
+  "loaded_histories": [
+    {
+      "input": [
+        8000,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "stopped-positive",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8000
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          -1,
+          3
+        ],
+        "slide_timer": [
+          500,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            500
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          -1,
+          3
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            -1,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            -1,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            160000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        8000,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "stopped-zero",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8000
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          -1,
+          0
+        ],
+        "slide_timer": [
+          500,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            500
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          -1,
+          0
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8032
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8032,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8048,
+            8048
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 2,
+          "flash_timer": [
+            503,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            8048,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        8016,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "armed",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8016
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          500,
+          3
+        ],
+        "slide_timer": [
+          501,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            501
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          500,
+          3
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8016
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            8016,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            501,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8032
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            8032,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            501,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8048,
+            8048
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            503,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8048,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            501,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        8000,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "already-due",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8000
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          100,
+          3
+        ],
+        "slide_timer": [
+          500,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            500
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          100,
+          3
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8000,
+            8000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            8000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 3,
+          "flash_timer": [
+            500,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            160000,
+            160000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 2,
+          "flash_timer": [
+            10000,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            160000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            160000
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 2,
+          "flash_timer": [
+            10000,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            160000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        4294967296,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "wrap",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          0
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          268435455,
+          3
+        ],
+        "slide_timer": [
+          0,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            0
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 4,
+        "flash_timer": [
+          268435455,
+          3
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            0
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            268435455,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            4294967296,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            0,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            48
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 4,
+          "flash_timer": [
+            268435455,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            4294967344,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        8000,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "zero-count",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8000
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 0,
+        "flash_timer": [
+          100,
+          3
+        ],
+        "slide_timer": [
+          500,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            500
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          3
+        ],
+        "dirty": 1,
+        "flash": 0,
+        "flash_timer": [
+          100,
+          3
+        ],
+        "slide_timer": [
+          74565,
+          1234
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 0,
+          "flash_timer": [
+            100,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 0,
+          "fill_calls": 0,
+          "flash": 0,
+          "flash_timer": [
+            100,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            160000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        32,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "retained-active",
+      "no_init": {
+        "animating": true,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          32
+        ],
+        "counts": [
+          0,
+          0,
+          2
+        ],
+        "dirty": 1,
+        "flash": 10,
+        "flash_timer": [
+          0,
+          3
+        ],
+        "slide_timer": [
+          2,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            2
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": true,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          0,
+          0,
+          2
+        ],
+        "dirty": 1,
+        "flash": 10,
+        "flash_timer": [
+          0,
+          3
+        ],
+        "slide_timer": [
+          1,
+          3
+        ]
+      },
+      "visits": [
+        {
+          "animating": true,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            32,
+            32
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 3,
+          "flash": 10,
+          "flash_timer": [
+            0,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            32,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            2,
+            5
+          ]
+        },
+        {
+          "animating": true,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            32
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 1,
+          "flash": 10,
+          "flash_timer": [
+            0,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            32,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            2,
+            5
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            112
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 1,
+          "flash": 10,
+          "flash_timer": [
+            0,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            4,
+            3,
+            3
+          ],
+          "input": [
+            112,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            2,
+            5
+          ]
+        },
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [
+            112,
+            112
+          ],
+          "counts": [
+            0,
+            0,
+            3
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 9,
+          "flash_timer": [
+            7,
+            3
+          ],
+          "frames": [
+            0,
+            0,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            112,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            2,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "input": [
+        8000,
+        12,
+        300,
+        100,
+        400,
+        1,
+        0
+      ],
+      "name": "settled-resize-load",
+      "no_init": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "clock_ms": [
+          8000
+        ],
+        "counts": [
+          5,
+          5,
+          6
+        ],
+        "dirty": 1,
+        "flash": 0,
+        "flash_timer": [
+          66,
+          3
+        ],
+        "slide_timer": [
+          500,
+          0
+        ],
+        "writes": [
+          [
+            5408,
+            4,
+            500
+          ],
+          [
+            5416,
+            4,
+            0
+          ]
+        ]
+      },
+      "prior": {
+        "animating": false,
+        "cached": [
+          100,
+          300
+        ],
+        "counts": [
+          5,
+          5,
+          6
+        ],
+        "dirty": 1,
+        "flash": 0,
+        "flash_timer": [
+          66,
+          3
+        ],
+        "slide_timer": [
+          33,
+          5
+        ]
+      },
+      "visits": [
+        {
+          "animating": false,
+          "cached": [
+            100,
+            300
+          ],
+          "clock_ms": [],
+          "counts": [
+            5,
+            5,
+            6
+          ],
+          "dirty": 1,
+          "fill_calls": 0,
+          "flash": 0,
+          "flash_timer": [
+            66,
+            3
+          ],
+          "frames": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+            2,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "input": [
+            8000,
+            12,
+            300,
+            100,
+            400,
+            1,
+            0
+          ],
+          "slide_timer": [
+            500,
+            0
+          ]
+        }
+      ]
+    }
+  ],
   "numeric": [
     {
       "counts": [

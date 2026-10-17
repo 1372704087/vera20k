@@ -234,38 +234,36 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
         _unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable> {
         let (rx, ry) = (self.entity.position.rx(), self.entity.position.ry());
-        let Some(cell) = self.sim.substrate.occupancy.get(rx, ry) else {
+        let Some(entity) = self
+            .sim
+            .substrate
+            .occupancy
+            .first_building_on_layer(
+                rx,
+                ry,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            )
+            .and_then(|sid| self.sim.substrate.entities.get(sid))
+        else {
             return Ok(None);
         };
-        // The per-cell occupant list already keeps the gamemd insertion order
-        // (non-buildings prepend, buildings append); take the first Building
-        // in that stored order — no sort, no rebuilt candidate list.
-        for occupant in cell.iter_layer(crate::sim::movement::locomotor::MovementLayer::Ground) {
-            let Some(entity) = self.sim.substrate.entities.get(occupant.entity_id) else {
-                continue;
-            };
-            if entity.category() != EntityCategory::Structure {
-                continue;
-            }
-            // Anchor: the Building's footprint-NW cell as a lepton point whose
-            // native lepton→cell conversion lands on that cell. UNCHECKED
-            // whether the native building coordinate is NW-cell-anchored for
-            // multi-cell foundations; the affected branch is the narrow
-            // no-contact factory-cell hold.
-            let anchor = ReadyLeptonPoint::new(
-                i32::from(entity.position.rx())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-                i32::from(entity.position.ry())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-            );
-            return Ok(Some(UnitReadyBuilding::new(
-                self.weapons_factory(entity),
-                anchor,
-            )));
-        }
-        Ok(None)
+        // Anchor: the Building's footprint-NW cell as a lepton point whose
+        // native lepton→cell conversion lands on that cell. UNCHECKED
+        // whether the native building coordinate is NW-cell-anchored for
+        // multi-cell foundations; the affected branch is the narrow
+        // no-contact factory-cell hold.
+        let anchor = ReadyLeptonPoint::new(
+            i32::from(entity.position.rx())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+            i32::from(entity.position.ry())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+        );
+        Ok(Some(UnitReadyBuilding::new(
+            self.weapons_factory(entity),
+            anchor,
+        )))
     }
 }
 

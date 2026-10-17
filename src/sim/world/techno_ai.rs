@@ -68,6 +68,7 @@ pub(super) struct ObjectAiOutcome {
     #[cfg(any(test, feature = "test-support"))]
     pub(super) visited: bool,
     pub(super) bridge_state_changed: bool,
+    pub(super) destroyed_structure: bool,
     ownership_changed: bool,
     pub(super) landed: bool,
     pub(super) fall_error: Option<super::FrameAdvanceError>,

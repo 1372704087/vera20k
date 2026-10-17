@@ -151,6 +151,8 @@ mod damage_consequence_tests;
 #[cfg(test)]
 mod drone_rocking_tests;
 #[cfg(test)]
+mod suicide_fire_tests;
+#[cfg(test)]
 mod engineer_building_repair_tests;
 #[cfg(test)]
 mod engineer_power_consumer_tests;

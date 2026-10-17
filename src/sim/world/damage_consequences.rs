@@ -23,10 +23,20 @@ pub(crate) struct DamageConsequences {
     delivery: DamageDelivery,
 }
 
+#[derive(Default)]
 pub struct DamageCommitReceipt {
     pub(crate) area_result: Option<crate::sim::combat::world_receiver::AreaDamageResult>,
     pub(super) structure_destroyed: bool,
     pub(crate) bridge_state_changed: bool,
+}
+
+impl DamageCommitReceipt {
+    /// A nested transaction already delivered its effects. Retain only its
+    /// frame notifications in the outer transaction; never replay its work.
+    pub(crate) fn retain_frame_notifications(self, effects: &mut DeathEffects) {
+        effects.structure_destroyed |= self.structure_destroyed;
+        effects.bridge_state_changed |= self.bridge_state_changed;
+    }
 }
 
 impl DamageConsequences {

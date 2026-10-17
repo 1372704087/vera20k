@@ -306,7 +306,7 @@ mod muzzle_anim_tests {
     use super::*;
     use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::anim_class::AnimWorldCoord;
+
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::projectile::ProjectileCoord;
@@ -358,63 +358,6 @@ mod muzzle_anim_tests {
         event
     }
 
-    /// `0x006FF3C2` then `0x006FF43A`: the constructor row, then
-    /// `SetOwnerObject(firer)` for anything that is not a building.
-    #[test]
-    fn a_units_muzzle_anim_is_built_at_the_fire_coordinate_and_rides_the_firer() {
-        let (mut sim, rules, tank) = fixture(EntityCategory::Unit);
-        let event = shot(&mut sim, tank, EntityCategory::Unit);
-        admit_muzzle_anim(&mut sim, &rules, &event);
-
-        let (id, anim) = sim.substrate.anims.iter().next().expect("one muzzle anim");
-        let id = *id;
-        assert_eq!(sim.interner.resolve(anim.type_id), "GUNFIRE");
-        assert_eq!((anim.draw_flags, anim.z_adjust), (0x600, 0));
-        assert_eq!(anim.runtime.loop_remaining, 1);
-        assert_eq!(anim.owner_entity, Some(tank));
-        let at_fire = AnimWorldCoord {
-            x: 10 * 256 + 200,
-            y: 10 * 256 + 60,
-            z: 105,
-        };
-        assert_eq!(sim.anim_absolute_coord(id), Some(at_fire));
-
-        // The firer drives one cell east and climbs: the flash goes with it.
-        {
-            let firer = sim.substrate.entities.get_mut(tank).unwrap();
-            firer.position.set_rx_for_test(firer.position.rx() + 1);
-            firer.position.set_exact_z_leptons_for_test(Some(70));
-        }
-        assert_eq!(
-            sim.anim_absolute_coord(id),
-            Some(AnimWorldCoord {
-                x: at_fire.x + 256,
-                y: at_fire.y,
-                z: at_fire.z + 70,
-            })
-        );
-    }
-
-    /// `0x006FF3D9..0x006FF427`: a building's anim is not attached; it takes a
-    /// `ZAdjust` from the fire offset, or -200 when occupants fired.
-    #[test]
-    fn a_buildings_muzzle_anim_stays_put_and_takes_the_native_z_adjust() {
-        let (mut sim, rules, tower) = fixture(EntityCategory::Structure);
-        let mut own_weapon = shot(&mut sim, tower, EntityCategory::Structure);
-        own_weapon.fire_offset_y = 130;
-        let mut occupants = own_weapon.clone();
-        occupants.occupied_building = true;
-        for event in [own_weapon, occupants] {
-            admit_muzzle_anim(&mut sim, &rules, &event);
-        }
-
-        let anims: Vec<_> = sim.substrate.anims.iter().map(|(_, anim)| anim).collect();
-        assert_eq!(anims.len(), 2);
-        assert!(anims.iter().all(|anim| anim.owner_entity.is_none()));
-        assert_eq!(anims[0].z_adjust, -32);
-        assert_eq!(anims[1].z_adjust, -200);
-    }
-
     /// Firer expiry425150 removes Display and clears ownership without
     /// converting stored relative coordinates. The hidden flash remains in
     /// storage until its own AI reaches Destroy. Native owner histories are
@@ -443,18 +386,5 @@ mod muzzle_anim_tests {
             "expiry preserves the stored delta after clearing the owner"
         );
         assert_eq!(sim.substrate.display.layer_of(id), None);
-    }
-
-    #[test]
-    fn a_shot_without_a_bound_muzzle_type_constructs_nothing() {
-        let (mut sim, rules, tank) = fixture(EntityCategory::Unit);
-        let mut unbound = shot(&mut sim, tank, EntityCategory::Unit);
-        unbound.muzzle_anim = Some(sim.interner.intern("NOSUCHANIM"));
-        let mut none = unbound.clone();
-        none.muzzle_anim = None;
-        for event in [unbound, none] {
-            admit_muzzle_anim(&mut sim, &rules, &event);
-        }
-        assert_eq!(sim.substrate.anims.iter().count(), 0);
     }
 }

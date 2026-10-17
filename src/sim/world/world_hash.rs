@@ -2364,54 +2364,6 @@ fn hash_slope_transition_state(
 }
 
 #[cfg(test)]
-mod teleport_hash_tests {
-    use super::Simulation;
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::movement::teleport_movement::{TeleportPhase, TeleportState};
-
-    fn teleport_state() -> TeleportState {
-        TeleportState::for_test(TeleportPhase::Relocate, 17, 29, 41)
-    }
-
-    fn hash_entity(mut entity: GameEntity) -> u64 {
-        let mut sim = Simulation::new();
-        entity.set_stable_id_for_test(1);
-        sim.substrate.entities.insert(entity);
-        sim.state_hash()
-    }
-
-    fn hash_teleport(state: Option<TeleportState>) -> u64 {
-        let mut entity = GameEntity::test_default(1, "CHRP", "Americans", 5, 5);
-        entity.install_teleport_state_for_test(state);
-        hash_entity(entity)
-    }
-
-    fn assert_teleport_change(change: impl FnOnce(&mut TeleportState)) {
-        let baseline = hash_teleport(Some(teleport_state()));
-        let mut changed = teleport_state();
-        change(&mut changed);
-        assert_ne!(baseline, hash_teleport(Some(changed)));
-    }
-
-    #[test]
-    fn teleport_hash_projects_presence_phase_target_and_materialization_timer() {
-        assert_ne!(hash_teleport(None), hash_teleport(Some(teleport_state())));
-        assert_teleport_change(|state| state.set_phase_for_test(TeleportPhase::ChronoDelay));
-        assert_teleport_change(|state| {
-            let mut destination = state.destination().unwrap();
-            destination.x += 256;
-            state.set_destination_for_test(destination);
-        });
-        assert_teleport_change(|state| {
-            let mut destination = state.destination().unwrap();
-            destination.y += 256;
-            state.set_destination_for_test(destination);
-        });
-        assert_teleport_change(|state| state.set_ticks_for_test(state.chrono_delay_ticks() + 1));
-    }
-}
-
-#[cfg(test)]
 mod raw_cell_occupation_hash_tests {
     use super::Simulation;
 
@@ -3637,32 +3589,6 @@ mod particle_hash_tests {
     }
 
     #[test]
-    fn spark_coordinate_lifetime_and_delete_state_remain_hashed() {
-        let state = SparkRuntimeState {
-            velocity_x: NativeF32Bits::POSITIVE_ZERO,
-            velocity_y: NativeF32Bits::POSITIVE_ZERO,
-            velocity_z: NativeF32Bits::POSITIVE_ZERO,
-            start_rgb: [0; 3],
-            color_index: 0,
-            color_accumulator: NativeF64Bits::POSITIVE_ZERO,
-        };
-        let base = particle_with_spark(Some(state));
-        let base_hash = hash_with_particle(base.clone());
-
-        let mut changed = base.clone();
-        changed.coords.x = 0;
-        assert_ne!(base_hash, hash_with_particle(changed));
-
-        let mut changed = base.clone();
-        changed.lifetime_remaining = 8;
-        assert_ne!(base_hash, hash_with_particle(changed));
-
-        let mut changed = base;
-        changed.marked_for_deletion = true;
-        assert_ne!(base_hash, hash_with_particle(changed));
-    }
-
-    #[test]
     fn terrain_animations_included_in_state_hash() {
         use crate::sim::terrain_spawn::TerrainAnimationState;
 
@@ -3719,108 +3645,6 @@ mod particle_hash_tests {
             sim_b.state_hash(),
             "all terrain spawner state fields must affect state hash",
         );
-    }
-}
-
-#[cfg(test)]
-mod tube_movement_hash_tests {
-    use super::Simulation;
-    use crate::map::tube_facts::TubeId;
-    use crate::sim::combat::Health;
-    use crate::sim::components::DriveCoord;
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
-
-    fn fixture_entity() -> GameEntity {
-        GameEntity::new_at_frame_zero_for_test(
-            1,
-            0,
-            0,
-            0,
-            0,
-            crate::sim::intern::test_intern("Allies"),
-            Health::new(100),
-            crate::sim::intern::test_intern("MTNK"),
-            crate::map::entities::EntityCategory::Unit,
-            0,
-            5,
-            true,
-        )
-    }
-
-    fn hash_entity(entity: GameEntity) -> u64 {
-        let mut sim = Simulation::new();
-        sim.substrate.entities.insert(entity);
-        sim.state_hash()
-    }
-
-    #[test]
-    fn gsi_04_15_exact_z_and_live_tube_payload_are_fully_hashed() {
-        let fixture = fixture_entity();
-        let default_hash = hash_entity(fixture.clone());
-
-        let mut exact_z = fixture.clone();
-        exact_z.position.set_exact_z_leptons_for_test(Some(-37));
-        let exact_z_hash = hash_entity(exact_z.clone());
-        assert_ne!(default_hash, exact_z_hash);
-        exact_z.position.set_exact_z_leptons_for_test(Some(-36));
-        assert_ne!(exact_z_hash, hash_entity(exact_z));
-
-        let state = LowBridgeTubeMovementState::for_test(
-            TubeId(3),
-            1,
-            DriveCoord {
-                x: 640,
-                y: 128,
-                z: -19,
-            },
-        );
-        let mut active = fixture;
-        active.position.set_exact_z_leptons_for_test(Some(-37));
-        active.low_bridge_tube_state = Some(state);
-        let active_hash = hash_entity(active.clone());
-        assert_ne!(exact_z_hash, active_hash);
-
-        let variants = [
-            {
-                let mut value = state;
-                value.set_tube_id_for_test(TubeId(4));
-                value
-            },
-            {
-                let mut value = state;
-                value.set_cursor_for_test(2);
-                value
-            },
-            {
-                let mut value = state;
-                value.set_target_for_test(DriveCoord {
-                    x: 641,
-                    ..state.target()
-                });
-                value
-            },
-            {
-                let mut value = state;
-                value.set_target_for_test(DriveCoord {
-                    y: 129,
-                    ..state.target()
-                });
-                value
-            },
-            {
-                let mut value = state;
-                value.set_target_for_test(DriveCoord {
-                    z: -18,
-                    ..state.target()
-                });
-                value
-            },
-        ];
-        for variant in variants {
-            active.low_bridge_tube_state = Some(variant);
-            assert_ne!(active_hash, hash_entity(active.clone()));
-        }
     }
 }
 

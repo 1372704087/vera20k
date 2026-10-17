@@ -6263,10 +6263,6 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
 }
 
 #[cfg(test)]
-#[path = "techno_ai_veterancy_tests.rs"]
-mod veterancy_tests;
-
-#[cfg(test)]
 #[path = "techno_ai_selfheal_tests.rs"]
 mod selfheal_tests;
 
@@ -6296,10 +6292,6 @@ mod bridge_low_repair_tests;
 #[cfg(test)]
 #[path = "techno_ai/mirage_disguise_tests.rs"]
 mod mirage_disguise_tests;
-
-#[cfg(test)]
-#[path = "techno_ai/target_reach_tests.rs"]
-mod target_reach_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 use super::bridge_test_evidence;

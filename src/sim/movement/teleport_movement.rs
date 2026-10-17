@@ -178,11 +178,6 @@ impl TeleportState {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn set_phase_for_test(&mut self, phase: TeleportPhase) {
-        self.phase = phase;
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_destination_for_test(&mut self, destination: DriveCoord) {
         self.destination = Some(destination);
     }

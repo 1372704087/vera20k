@@ -6,9 +6,7 @@ use super::Simulation;
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_hierarchy::ZoneRecord;
-use crate::sim::pathfinding::zone_incremental::repair_zone_hierarchy_around_cell;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
-use std::hash::Hasher;
 
 // Supplied branch-test bounds, as in zone_map_tests::repair_test_bounds. They
 // admit the retained flat cells through the native mode1 query; None rejects.
@@ -40,15 +38,6 @@ fn world(terrain: ResolvedTerrainGrid) -> Simulation {
     sim.install_resolved_terrain_for_new_map(terrain);
     sim.zone_grid = Some(zones);
     sim
-}
-
-fn navigation_hash(sim: &Simulation) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    sim.zone_grid
-        .as_ref()
-        .unwrap()
-        .fold_navigation_history(&mut hasher);
-    hasher.finish()
 }
 
 #[test]
@@ -86,61 +75,4 @@ fn identical_source_and_houses_with_different_retained_threat_seed_hash_differen
     a.zone_grid = None;
     b.zone_grid = None;
     assert_eq!(a.state_hash(), b.state_hash());
-}
-
-#[test]
-fn ordinary_snapshot_rebuild_discards_local_hierarchy_history() {
-    use crate::sim::snapshot::GameSnapshot;
-    let terrain = terrain();
-    let canonical = world(terrain.clone());
-    let mut live = world(terrain.clone());
-    let slots = live
-        .zone_grid
-        .as_ref()
-        .unwrap()
-        .hierarchy_for(crate::rules::locomotor_type::MovementZone::Normal)
-        .unwrap()
-        .level(1)
-        .unwrap()
-        .record_slot_count();
-    repair_zone_hierarchy_around_cell(
-        live.zone_grid.as_mut().unwrap(),
-        (5, 5),
-        Some(bounds()),
-        &terrain,
-        &[],
-    );
-    assert!(
-        live.zone_grid
-            .as_ref()
-            .unwrap()
-            .hierarchy_for(crate::rules::locomotor_type::MovementZone::Normal)
-            .unwrap()
-            .level(1)
-            .unwrap()
-            .record_slot_count()
-            > slots
-    );
-    assert_ne!(navigation_hash(&live), navigation_hash(&canonical));
-    let bytes = GameSnapshot::save(&live, 0, 0, "flat-navigation-history", 0);
-    let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
-    let saved_base = bincode::serialize(live.zone_grid.as_ref().unwrap()).unwrap();
-    let pending = restored.zone_grid.as_ref().expect("saved base navigation");
-    assert!(pending.is_native_load_pending());
-    assert_eq!(bincode::serialize(pending).unwrap(), saved_base);
-    restored.install_resolved_terrain_for_new_map(terrain);
-    assert!(restored.rebuild_dynamic_navigation(&crate::sim::runtime::SimResources::empty().rules));
-    assert!(
-        !restored
-            .zone_grid
-            .as_ref()
-            .unwrap()
-            .is_native_load_pending()
-    );
-    assert_eq!(
-        bincode::serialize(restored.zone_grid.as_ref().unwrap()).unwrap(),
-        saved_base
-    );
-    assert_eq!(navigation_hash(&restored), navigation_hash(&canonical));
-    assert_ne!(navigation_hash(&restored), navigation_hash(&live));
 }

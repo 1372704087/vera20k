@@ -1117,7 +1117,8 @@ fn advance_one_simulation_frame(
                         },
                     );
                 }
-                LifecycleOutput::SidebarRecalculated { .. }
+                LifecycleOutput::SidebarConstructionOption { .. }
+                | LifecycleOutput::SidebarRecalculated { .. }
                 | LifecycleOutput::ProductionFactoryLinked { .. }
                 | LifecycleOutput::ProductionFactoryAbandoning { .. }
                 | LifecycleOutput::ProductionFactoryUnlinked { .. }

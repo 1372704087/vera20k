@@ -30,6 +30,10 @@ pub(crate) struct SidebarProjectionState {
     /// Pending local House4F92E2 handoff. Rendering refreshes comparison and
     /// drawing inputs every frame, but does not manufacture a House +1FC pass.
     pending_cameo_recheck: Option<InternedId>,
+    /// Ordered AddCameo attempts captured by the House pass, rather than
+    /// recomputed from later-frame readiness or retention. Cleared on the
+    /// membership pass, seed/reset and save restoration.
+    pending_cameo_additions: Vec<InternedId>,
     /// Foreign Factory references belonging to retained strip entries. The
     /// simulation registry owns Factory lifetime/state; only original local
     /// Begin/House abandonment facts and initial projection seed write these
@@ -55,6 +59,7 @@ impl SidebarProjectionState {
         if view.is_none() {
             self.cameos = None;
             self.pending_cameo_recheck = None;
+            self.pending_cameo_additions.clear();
             self.factory_links.clear();
         }
         self.current_view = view;
@@ -67,6 +72,7 @@ impl SidebarProjectionState {
     pub(crate) fn reset_cameo_seed(&mut self) {
         self.cameos = None;
         self.pending_cameo_recheck = None;
+        self.pending_cameo_additions.clear();
         self.factory_links.clear();
     }
 
@@ -83,6 +89,7 @@ impl SidebarProjectionState {
         owner: InternedId,
         current: &[Cameo],
         visible_rows: usize,
+        seed_additions: &[InternedId],
     ) -> crate::ui::sidebar::cameo_order::CameoReconcile {
         let initialized = self
             .cameos
@@ -96,17 +103,30 @@ impl SidebarProjectionState {
         }
         let recalculate_builds = !initialized || self.pending_cameo_recheck == Some(owner);
         self.pending_cameo_recheck = None;
+        let additions = if initialized {
+            &self.pending_cameo_additions
+        } else {
+            seed_additions
+        };
         let reconciled = self
             .cameos
             .as_mut()
             .expect("cameos initialized")
             .1
-            .reconcile(current, visible_rows, recalculate_builds);
+            .reconcile(current, visible_rows, recalculate_builds, additions);
+        self.pending_cameo_additions.clear();
         if initialized {
             reconciled
         } else {
             reconciled.without_build_insertion()
         }
+    }
+
+    pub(crate) fn needs_cameo_seed(&self, owner: InternedId) -> bool {
+        !self
+            .cameos
+            .as_ref()
+            .is_some_and(|(previous, _)| *previous == owner)
     }
 
     /// Mouse Save 5BE6D0 writes the display object, including each strip's
@@ -126,6 +146,7 @@ impl SidebarProjectionState {
     pub(crate) fn restore_order(&mut self, saved: Option<(InternedId, CameoStrips)>) {
         self.cameos = saved;
         self.pending_cameo_recheck = None;
+        self.pending_cameo_additions.clear();
         self.factory_links.clear();
     }
 
@@ -143,6 +164,12 @@ impl SidebarProjectionState {
         local_house: Option<InternedId>,
     ) -> Option<LifecycleOutput> {
         match *output {
+            LifecycleOutput::SidebarConstructionOption { owner, type_id }
+                if local_house == Some(owner) =>
+            {
+                self.pending_cameo_additions.push(type_id);
+                None
+            }
             LifecycleOutput::SidebarRecalculated { owner } if local_house == Some(owner) => {
                 self.pending_cameo_recheck = Some(owner);
                 None
@@ -761,13 +788,13 @@ mod tests {
             })
         };
         let mut projection = SidebarProjectionState::default();
-        projection.reconcile_cameos(owner, &candidates(true), 3);
+        projection.reconcile_fixture(owner, &candidates(true), 3);
         let before = projection.cameo_strips().saved_identities();
 
         // FindFactory rejects a Selling producer immediately, but the local
         // House +1FC pass has not run. Strip AI/Draw retain their entries.
         // Native caller/Draw evidence: House 4F927C/4F92E2, Strip 6A8B30/6A9540.
-        let refreshed = projection.reconcile_cameos(owner, &candidates(false), 3);
+        let refreshed = projection.reconcile_fixture(owner, &candidates(false), 3);
         assert_eq!(projection.cameo_strips().saved_identities(), before);
         assert_eq!(refreshed.transitions(), Default::default());
 
@@ -777,12 +804,12 @@ mod tests {
             &LifecycleOutput::SidebarRecalculated { owner: foreign },
             Some(owner),
         );
-        projection.reconcile_cameos(owner, &candidates(false), 3);
+        projection.reconcile_fixture(owner, &candidates(false), 3);
         assert_eq!(projection.cameo_strips().saved_identities(), before);
 
         projection
             .apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
-        let recalculated = projection.reconcile_cameos(owner, &candidates(false), 3);
+        let recalculated = projection.reconcile_fixture(owner, &candidates(false), 3);
         assert!(
             projection
                 .cameo_strips()
@@ -819,33 +846,33 @@ mod tests {
         // Sim A: the first projection seeds silently, growth speaks.
         assert!(
             !projection
-                .reconcile_cameos(owner, &[candidate(a)], 3)
+                .reconcile_fixture(owner, &[candidate(a)], 3)
                 .build_inserted()
         );
         assert!(
             !projection
-                .reconcile_cameos(owner, &[candidate(a)], 3)
+                .reconcile_fixture(owner, &[candidate(a)], 3)
                 .build_inserted()
         );
         projection
             .apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
         assert!(
             projection
-                .reconcile_cameos(owner, &[candidate(a), candidate(b)], 3)
+                .reconcile_fixture(owner, &[candidate(a), candidate(b)], 3)
                 .build_inserted()
         );
         projection
             .apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
         assert!(
             !projection
-                .reconcile_cameos(owner, &[candidate(a)], 3)
+                .reconcile_fixture(owner, &[candidate(a)], 3)
                 .build_inserted()
         );
         projection
             .apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
         assert!(
             projection
-                .reconcile_cameos(owner, &[candidate(a), candidate(b)], 3)
+                .reconcile_fixture(owner, &[candidate(a), candidate(b)], 3)
                 .build_inserted()
         );
         // Sim B with a different pre-placed base: without the reset its
@@ -853,7 +880,7 @@ mod tests {
         projection.reset_cameo_seed();
         assert!(
             !projection
-                .reconcile_cameos(owner, &[candidate(b)], 3)
+                .reconcile_fixture(owner, &[candidate(b)], 3)
                 .build_inserted(),
             "the first refresh after a sim install is the init window"
         );
@@ -861,19 +888,19 @@ mod tests {
             .apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
         assert!(
             projection
-                .reconcile_cameos(owner, &[candidate(a), candidate(b)], 3)
+                .reconcile_fixture(owner, &[candidate(a), candidate(b)], 3)
                 .build_inserted()
         );
         assert!(
             !projection
-                .reconcile_cameos(InternedId::from_index(4), &[candidate(a)], 3)
+                .reconcile_fixture(InternedId::from_index(4), &[candidate(a)], 3)
                 .build_inserted()
         );
         // Leaving the match still clears the seed.
         projection.replace_view(None);
         assert!(
             !projection
-                .reconcile_cameos(owner, &[candidate(a)], 3)
+                .reconcile_fixture(owner, &[candidate(a)], 3)
                 .build_inserted()
         );
     }

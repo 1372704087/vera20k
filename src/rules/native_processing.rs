@@ -5,6 +5,7 @@
 //! ruleset converts this processed output into gameplay definitions. Failed passes
 //! preserve already-constructed registry state rather than rolling back.
 
+use crate::rules::color_add::{ColorAddSelectors, ColorAddTable};
 use crate::rules::crate_rules::{CrateRules, CrateRulesAccumulator};
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
@@ -57,6 +58,13 @@ pub enum RulesLayerKind {
     LangRule,
     GameMode,
     Scenario,
+}
+
+/// Whether these passes continue a live registry or enter Full_Init's reset.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RulesProcessContext {
+    Ordinary,
+    ScenarioReset,
 }
 
 #[derive(Debug, Clone)]
@@ -146,12 +154,16 @@ impl RulesLayerStack {
         fixed_art: &IniFile,
         registry_state: NativeRulesRegistryState,
     ) -> Result<ProcessedRulesLayers, RulesError> {
-        self.process_with_fixed_art_and_registry_state_recovering(fixed_art, registry_state)
-            .map_err(NativeRulesProcessingFailure::into_error)
+        self.process_with_fixed_art_and_registry_state_recovering(
+            fixed_art,
+            registry_state,
+            RulesProcessContext::Ordinary,
+        )
+        .map_err(NativeRulesProcessingFailure::into_error)
     }
 
-    /// Continue Process calls while retaining the sole native registry owner
-    /// when a later pass fails.
+    /// Execute Process calls, optionally entering Full_Init's destructive
+    /// reset, while retaining the sole registry owner when a later pass fails.
     ///
     /// Native `RulesClass::Process @ 0x00668BF0` is not transactional. A
     /// Tiberium failure can occur after earlier constructors in the same pass
@@ -163,9 +175,26 @@ impl RulesLayerStack {
         &self,
         fixed_art: &IniFile,
         registry_state: NativeRulesRegistryState,
+        context: RulesProcessContext,
     ) -> Result<ProcessedRulesLayers, NativeRulesProcessingFailure> {
+        let (registry_state, mut root_color_add_reread) = match context {
+            RulesProcessContext::Ordinary => (registry_state, None),
+            RulesProcessContext::ScenarioReset => (
+                registry_state.destructive_reset(),
+                Some(&self.layers[0].ini),
+            ),
+        };
         let mut processor = RulesPassProcessor::with_registry_state(registry_state);
-        for (_, ini) in self.iter_passes() {
+        for (index, (kind, ini)) in self.iter_passes().enumerate() {
+            if index > 0
+                && kind != RulesLayerKind::LangRule
+                && let Some(root) = root_color_add_reread.take()
+            {
+                // Reset668B13..668B8E rereads only root ColorAdd after
+                // LANG668B05 and before mode668BAA/map68774F. In
+                // particular, LANG's AudioVisual selectors stay current.
+                processor.rules_color_add.apply_pass(root);
+            }
             if let Err(error) = processor.apply_pass(ini, fixed_art) {
                 let (_, partial_trace, _, _, _, _) = processor.finish();
                 return Err(NativeRulesProcessingFailure {
@@ -173,6 +202,15 @@ impl RulesLayerStack {
                     partial_trace: Box::new(partial_trace),
                 });
             }
+            if index == 0 && root_color_add_reread.is_some() {
+                // Reset668A34..668A56 clears all16 RGB triples AFTER root
+                // Process668A27. It leaves the four selector DWORDs alone.
+                // Whole original Reset controls: tools/berserk_color.json.
+                processor.rules_color_add = ColorAddTable::default();
+            }
+        }
+        if let Some(root) = root_color_add_reread {
+            processor.rules_color_add.apply_pass(root);
         }
         let (
             ini,
@@ -244,6 +282,8 @@ fn process_native_rules_cold_start_inner(
     langrule: Option<&IniFile>,
 ) -> Result<(NativeTypeConstructionTrace, [usize; 5]), RulesError> {
     let mut processor = RulesPassProcessor::with_registry_state(registry_state);
+    // Cold52D111 reads ColorAdd66D480 before AudioVisual52D132.
+    processor.rules_color_add.apply_pass(selected_rules_root);
     processor.allocate_audio_visual_references(selected_rules_root);
     let after_audio_visual = processor.native_type_construction_events.len();
     if let Some(langrule) = langrule {
@@ -858,6 +898,12 @@ impl ProcessedRulesLayers {
             .rules_building_types
     }
 
+    /// Retained ColorAdd prefix/table and AudioVisual indexes, not a text merge.
+    pub(crate) fn color_add_state(&self) -> (&ColorAddTable, ColorAddSelectors) {
+        let state = self.native_type_construction_trace.registry_state();
+        (&state.rules_color_add, state.rules_color_add_selectors)
+    }
+
     pub(crate) fn projectile_rule_controls(&self) -> (f64, i32, [u8; 3]) {
         let state = self.native_type_construction_trace.registry_state();
         (
@@ -1074,6 +1120,8 @@ pub(crate) struct NativeRulesRegistryState {
     /// Process handoffs. Reset6686E6..668711 deletes and clears it alongside
     /// the Type registries, so destructive_reset leaves this field empty.
     colors: Vec<(String, String)>,
+    rules_color_add: ColorAddTable,
+    rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
     rules_ambient_change_rate: NativeF64Bits,
     rules_ambient_change_step: NativeF64Bits,
@@ -1103,6 +1151,8 @@ impl Default for NativeRulesRegistryState {
             techno_type_order: Vec::new(),
             tiberiums: Vec::new(),
             colors: Vec::new(),
+            rules_color_add: ColorAddTable::default(),
+            rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
             // Rules665650: literal doubles, before AudioVisual authored reads.
             rules_ambient_change_rate: NativeF64Bits::from_bits(0x3fc9_9999_9999_999a),
@@ -1249,9 +1299,10 @@ impl NativeRulesRegistryState {
     }
 
     /// Consume the pre-reset registry owner at Full_Init's destructive Rules
-    /// reset and return an owner with empty Type registries. RulesClass itself
-    /// survives 6686C0, retaining Gravity, detail thresholds and its other
-    /// scalar values for the first postpass.
+    /// Type-deletion phase and return an owner with empty Type registries.
+    /// RulesClass itself survives6686C0, retaining Gravity, detail thresholds
+    /// and its scalar values for the first root Process. The ColorAdd clear
+    /// and root reread occur later in RulesLayerStack's ScenarioReset context.
     ///
     /// Original reset retires every referenced Type: LightningWarhead detaches
     /// to null, while these Rules Anim references/list retain freed addresses.
@@ -1264,6 +1315,8 @@ impl NativeRulesRegistryState {
     /// cannot be rewound by this operation.
     pub(crate) fn destructive_reset(self) -> Self {
         Self {
+            rules_color_add: self.rules_color_add,
+            rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
             rules_ambient_change_rate: self.rules_ambient_change_rate,
             rules_ambient_change_step: self.rules_ambient_change_step,
@@ -1516,6 +1569,8 @@ struct RulesPassProcessor {
     native_type_construction_events: Vec<NativeTypeConstructionEvent>,
     tiberiums: Vec<ProcessedType>,
     colors: Vec<(String, String)>,
+    rules_color_add: ColorAddTable,
+    rules_color_add_selectors: ColorAddSelectors,
     rules_detail: DetailRules,
     rules_ambient_change_rate: NativeF64Bits,
     rules_ambient_change_step: NativeF64Bits,
@@ -1549,6 +1604,8 @@ impl Default for RulesPassProcessor {
             native_type_construction_events: Vec::new(),
             tiberiums: Vec::new(),
             colors: Vec::new(),
+            rules_color_add: ColorAddTable::default(),
+            rules_color_add_selectors: ColorAddSelectors::default(),
             rules_detail: DetailRules::default(),
             rules_ambient_change_rate: NativeRulesRegistryState::default()
                 .rules_ambient_change_rate,
@@ -1584,6 +1641,8 @@ impl RulesPassProcessor {
             techno_type_order: registry_state.techno_type_order,
             tiberiums: registry_state.tiberiums,
             colors: registry_state.colors,
+            rules_color_add: registry_state.rules_color_add,
+            rules_color_add_selectors: registry_state.rules_color_add_selectors,
             rules_detail: registry_state.rules_detail,
             rules_ambient_change_rate: registry_state.rules_ambient_change_rate,
             rules_ambient_change_step: registry_state.rules_ambient_change_step,
@@ -1618,6 +1677,7 @@ impl RulesPassProcessor {
         // Exact constructor-capable order from `RulesClass::Process @
         // 0x00668BF0`. Colors precede every Type registry but spend no Type ID.
         self.allocate_colors(pass);
+        self.rules_color_add.apply_pass(pass);
         for &(registry, family) in EXPLICIT_RULE_TYPE_FAMILIES {
             if family == RulesTypeFamily::Side {
                 self.process_side_registry(pass)?;
@@ -2896,8 +2956,12 @@ impl RulesPassProcessor {
         self.rules_ambient_change_step =
             section.read_double_bits("AmbientChangeStep", self.rules_ambient_change_step);
         // AudioVisual66B77D..66B7A7, after Gravity, retains the RGB default.
-        self.rules_line_trail_override =
-            section.read_color_rgb("LineTrailColorOverride", self.rules_line_trail_override);
+        self.rules_line_trail_override = section.read_color_rgb(
+            "LineTrailColorOverride",
+            self.rules_line_trail_override,
+            None,
+        );
+        self.rules_color_add_selectors.read_pass(section);
         for key in ["DropPodPuff", "VeinAttack", "Dig", "AtmosphereEntry"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
@@ -3064,6 +3128,8 @@ impl RulesPassProcessor {
                     techno_type_order: self.techno_type_order,
                     tiberiums: self.tiberiums,
                     colors: self.colors,
+                    rules_color_add: self.rules_color_add,
+                    rules_color_add_selectors: self.rules_color_add_selectors,
                     rules_detail: self.rules_detail,
                     rules_ambient_change_rate: self.rules_ambient_change_rate,
                     rules_ambient_change_step: self.rules_ambient_change_step,

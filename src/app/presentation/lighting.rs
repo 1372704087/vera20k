@@ -280,14 +280,46 @@ fn effect_light(
     with_intensity(tint, light, tinted)
 }
 
-/// UnitClass's DrawVoxelBody after its curtain arm (`0x0073C143..0x0073C158`):
-/// a deactivated Unit (`+0x1C8`, `sim::powered_unit`) draws at half the
-/// intensity, a signed division toward zero.
-pub(crate) fn deactivated_unit_light(
+/// UnitClass::DrawVoxelBody73BF9C..73C15F after its shared flash/curtain
+/// intensity: OR IronCurtainColor while IsIronCurtained41BF40, then
+/// BerserkColor while Techno+298 is active, into the caller's colour word.
+/// Composite73C1A5 passes that word to the existing packed blitter owner.
+/// A deactivated Unit (+1C8) then halves intensity, signed toward zero.
+///
+/// The voxel builder also draws Aircraft through Techno::Draw70678D, which
+/// has no Unit colour arms. The Unit gate preserves that class boundary.
+/// Original controls: superweapon_oracle.json::curtain_draw_arm and
+/// berserk_color.json::mtnk (physical stock Image-resolved GTNK/DarkRed).
+/// No simulation state, timer, RNG or detach is written here.
+pub(crate) fn unit_voxel_effect_light(
     entity: &crate::sim::game_entity::GameEntity,
     tint: [f32; 3],
     light: crate::render::palette_light::PaletteLight,
+    rules: Option<&RuleSet>,
+    frame: u32,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
+    let mut light = light;
+    if entity.category() == crate::map::entities::EntityCategory::Unit {
+        let word = rules.map_or(0, |rules| {
+            let curtain = if crate::sim::superweapon::invulnerability::is_invulnerable(
+                entity.invulnerability.as_ref(),
+                frame,
+            ) {
+                rules
+                    .color_add
+                    .rgb565_word(rules.general.iron_curtain_color)
+            } else {
+                0
+            };
+            let berserk = if entity.berserk.is_active() {
+                rules.color_add.rgb565_word(rules.general.berserk_color)
+            } else {
+                0
+            };
+            curtain | berserk
+        });
+        light = light.with_colour_word(light.colour_word() | word);
+    }
     if entity.deactivated.is_offline() {
         with_intensity(tint, light, light.brightness() / 2)
     } else {

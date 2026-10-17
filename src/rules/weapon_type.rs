@@ -283,9 +283,9 @@ impl WeaponType {
             // Color fields: ReadColorRGB over the constructor's zero
             // (`0x00771D30`-`0x00771D60`), at `0x00772770`, `0x00772796` and
             // `0x007727BC`.
-            laser_inner_color: section.read_color_rgb("LaserInnerColor", [0; 3]),
-            laser_outer_color: section.read_color_rgb("LaserOuterColor", [0; 3]),
-            laser_outer_spread: section.read_color_rgb("LaserOuterSpread", [0; 3]),
+            laser_inner_color: section.read_color_rgb("LaserInnerColor", [0; 3], None),
+            laser_outer_color: section.read_color_rgb("LaserOuterColor", [0; 3], None),
+            laser_outer_spread: section.read_color_rgb("LaserOuterSpread", [0; 3], None),
 
             // Bool fields
             use_fire_particles: section.read_bool("UseFireParticles", false),

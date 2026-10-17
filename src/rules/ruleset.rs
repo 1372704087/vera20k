@@ -856,6 +856,10 @@ pub struct GeneralRules {
     /// AudioVisual LaserTargetColor (Rules+18A4), constructor6678AA=0;
     /// ReadInt66B818..66B832 retains the current ColorAdd table index.
     pub laser_target_color: i32,
+    /// AudioVisual66B832..66B857, Rules+18A8; constructor6678B0=0.
+    pub iron_curtain_color: i32,
+    /// AudioVisual66B857..66B877, Rules+18AC; constructor6678B6=0.
+    pub berserk_color: i32,
     /// AudioVisual66A046..66A07C / 66A088..66A0B5 use ReadString128 then
     /// VocFindIndex7514D0, retaining the current index on a miss (ctor -1).
     pub airstrike_abort_sound: Option<String>,
@@ -2261,6 +2265,8 @@ impl Default for GeneralRules {
             idle_action_frequency: f64::from_bits(0x3fb5_3f7c_ed91_6873),
             force_shield_color: 0,
             laser_target_color: 0,
+            iron_curtain_color: 0,
+            berserk_color: 0,
             airstrike_abort_sound: None,
             airstrike_attack_voice: None,
             condition_red_sparking_probability: 0.02,
@@ -2732,7 +2738,7 @@ impl RadiationRules {
             return d;
         };
         let [red, green, blue] =
-            section.read_color_rgb("RadColor", [d.color.0, d.color.1, d.color.2]);
+            section.read_color_rgb("RadColor", [d.color.0, d.color.1, d.color.2], None);
         Self {
             duration_multiple: section.read_int("RadDurationMultiple", d.duration_multiple),
             // Delays are used as divisors/modulo periods — clamp to >= 1 so a
@@ -2902,10 +2908,12 @@ impl GeneralRules {
         let bomb_ticking_sound = audio_visual_sound("BombTickingSound");
         let bomb_attach_sound = audio_visual_sound("BombAttachSound");
         // ReadAudioVisual too (`0x0066B877..0x0066B891`).
-        let force_shield_color =
-            audio_visual.read_int("ForceShieldColor", defaults.force_shield_color);
-        let laser_target_color =
-            audio_visual.read_int("LaserTargetColor", defaults.laser_target_color);
+        let mut color_indexes = crate::rules::color_add::ColorAddSelectors::default();
+        color_indexes.read_pass(audio_visual);
+        let force_shield_color = color_indexes.force_shield_color();
+        let laser_target_color = color_indexes.laser_target_color();
+        let iron_curtain_color = color_indexes.iron_curtain_color();
+        let berserk_color = color_indexes.berserk_color();
         let ally_reveal = audio_visual.read_bool("AllyReveal", defaults.ally_reveal);
         let psychic_reveal_activate_sound = audio_visual
             .read_name("PsychicRevealActivateSound", 0x80)
@@ -2954,6 +2962,8 @@ impl GeneralRules {
                 bomb_attach_sound,
                 force_shield_color,
                 laser_target_color,
+                iron_curtain_color,
+                berserk_color,
                 ally_reveal,
                 allies_allowed,
                 paranoid,
@@ -3175,8 +3185,11 @@ impl GeneralRules {
             tunnel_speed: sim_from_f32(general.read_double("TunnelSpeed", 6.0) as f32),
             missile_rot_var: general.read_double("MissileROTVar", defaults.missile_rot_var),
             safety_altitude: general.read_int("MissileSafetyAltitude", defaults.safety_altitude),
-            line_trail_color_override: audio_visual
-                .read_color_rgb("LineTrailColorOverride", defaults.line_trail_color_override),
+            line_trail_color_override: audio_visual.read_color_rgb(
+                "LineTrailColorOverride",
+                defaults.line_trail_color_override,
+                None,
+            ),
             flight_level: general.read_int("FlightLevel", 500),
             attacking_aircraft_sight_range: general.read_int(
                 "AttackingAircraftSightRange",
@@ -3301,6 +3314,8 @@ impl GeneralRules {
                 .read_double("IdleActionFrequency", defaults.idle_action_frequency),
             force_shield_color,
             laser_target_color,
+            iron_curtain_color,
+            berserk_color,
             airstrike_abort_sound: None,
             airstrike_attack_voice: None,
             building_garrisoned_sound: audio_visual
@@ -4424,7 +4439,12 @@ impl RuleSet {
         let mut aircraft_ids: Vec<String> = Vec::new();
         let mut building_ids: Vec<String> = Vec::new();
         let production: ProductionRules = ProductionRules::from_ini(ini);
-        let general: GeneralRules = GeneralRules::from_ini(ini);
+        let mut general: GeneralRules = GeneralRules::from_ini(ini);
+        let (_, color_indexes) = processed.color_add_state();
+        general.laser_target_color = color_indexes.laser_target_color();
+        general.iron_curtain_color = color_indexes.iron_curtain_color();
+        general.berserk_color = color_indexes.berserk_color();
+        general.force_shield_color = color_indexes.force_shield_color();
         let ai_base_spacing = ini.section_or_empty("AI").read_int("AIBaseSpacing", 1);
         let shipyard_types: Vec<String> = ini
             .section_or_empty("General")
@@ -4503,7 +4523,7 @@ impl RuleSet {
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
         let house_color_ramps =
             crate::rules::house_colors::HouseColorRamps::from_schemes(&color_schemes);
-        let color_add = crate::rules::color_add::ColorAddTable::from_ini(ini);
+        let color_add = processed.color_add_state().0.clone();
 
         // Step 1: Parse each type registry and load object sections.
         for &(registry_name, category) in TYPE_REGISTRIES {
@@ -7737,16 +7757,16 @@ CellSpread=0
         );
         let rules = RuleSet::from_ini(&ini).expect("ColorAdd rules parse");
 
-        assert_eq!(rules.color_add.slots[0].name.as_deref(), Some("First"));
-        assert_eq!(rules.color_add.slots[0].rgb, [1, 2, 3]);
+        assert_eq!(rules.color_add.entries()[0].name.as_deref(), Some("First"));
+        assert_eq!(rules.color_add.entries()[0].rgb, [1, 2, 3]);
         assert_eq!(
-            rules.color_add.slots[1].name.as_deref(),
+            rules.color_add.entries()[1].name.as_deref(),
             Some("StrongGreen")
         );
-        assert_eq!(rules.color_add.slots[1].rgb, [0, 63, 0]);
-        assert_eq!(rules.color_add.slots[2].rgb, [31, 63, 31]);
+        assert_eq!(rules.color_add.entries()[1].rgb, [0, 63, 0]);
+        assert_eq!(rules.color_add.entries()[2].rgb, [31, 63, 31]);
         assert_eq!(
-            rules.color_add.slots[15],
+            rules.color_add.entries()[15],
             crate::rules::color_add::ColorAddEntry::default()
         );
     }

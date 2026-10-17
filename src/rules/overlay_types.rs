@@ -353,7 +353,7 @@ impl OverlayTypeRegistry {
                 // leaves the overlay's art colour to the caller.
                 let radar_color = type_section
                     .is_present("RadarColor")
-                    .then(|| type_section.read_color_rgb("RadarColor", [0; 3]));
+                    .then(|| type_section.read_color_rgb("RadarColor", [0; 3], None));
                 // `0x005FE8BE`: ReadInt from the art INI section the Image
                 // names, over the constructor's 1 (e.g. [GASAND]
                 // DamageLevels=2).

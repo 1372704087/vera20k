@@ -655,15 +655,29 @@ impl IniSection {
     /// Original474B50: ReadString64 then one `%d,%d,%d` scan, byte narrowing.
     /// Literal commas must immediately follow each of the first two numbers;
     /// a suffix there stops the WHOLE scan. Absent/empty input keeps the default.
-    /// Original incomplete nonempty scans copy uninitialized stack bytes. We
-    /// deterministically retain the current RGB for that malformed domain,
-    /// matching read_coord3's policy instead of reproducing fixture stack data.
-    /// Full-reader controls: tools/projectile_oracle/line_trail.json.
-    pub fn read_color_rgb(&self, key: &str, default: [u8; 3]) -> [u8; 3] {
+    /// Original incomplete nonempty scans copy uninitialized/reused locals.
+    /// A proven native caller loop may supply its reused scanf destinations;
+    /// an empty value returns the default without touching those destinations.
+    /// Other callers pass None, retaining the current RGB on incomplete scans
+    /// as deterministic recovery for their uninitialized-stack domain.
+    /// Full-reader controls: tools/projectile_oracle/line_trail.json and
+    /// tools/berserk_color.json (all three ColorAdd caller loops).
+    pub fn read_color_rgb(
+        &self,
+        key: &str,
+        default: [u8; 3],
+        mut scan_locals: Option<&mut [i32; 3]>,
+    ) -> [u8; 3] {
         self.fold_rules_values(key, default, |current, raw| {
-            let mut out = [0; 3];
             let value = strtrim_ascii(truncate_native_bytes(raw, 63));
-            if scan_int_fields(value, &mut out) == out.len() {
+            if value.is_empty() {
+                return current;
+            }
+            let retained = scan_locals.is_some();
+            let mut fresh = [0; 3];
+            let out = scan_locals.as_deref_mut().unwrap_or(&mut fresh);
+            let assigned = scan_int_fields(value, out);
+            if retained || assigned == out.len() {
                 out.map(|component| component as u8)
             } else {
                 current
@@ -1524,10 +1538,10 @@ mod tests {
     fn test_read_color_rgb() {
         let ini = sec("[S]\nC=12,34,56\nWide=300,-1,256\nShort=1,2\n");
         let s = ini.section("S").unwrap();
-        assert_eq!(s.read_color_rgb("C", [0, 0, 0]), [12, 34, 56]);
-        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0]), [44, 255, 0]);
-        assert_eq!(s.read_color_rgb("Short", [7, 8, 9]), [7, 8, 9]);
-        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3]), [1, 2, 3]);
+        assert_eq!(s.read_color_rgb("C", [0, 0, 0], None), [12, 34, 56]);
+        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0], None), [44, 255, 0]);
+        assert_eq!(s.read_color_rgb("Short", [7, 8, 9], None), [7, 8, 9]);
+        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3], None), [1, 2, 3]);
     }
 
     #[test] // P19

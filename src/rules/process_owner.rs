@@ -24,8 +24,9 @@ use crate::rules::error::RulesError;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{
     NativeRulesRegistryState, NativeTypeConstructionEvent, NativeTypeConstructionTrace,
-    ProcessedRulesLayers, RulesLayerKind, RulesLayerStack, process_native_campaign_rules_prepass,
-    process_native_noncampaign_rules_prepass, process_native_rules_cold_start,
+    ProcessedRulesLayers, RulesLayerKind, RulesLayerStack, RulesProcessContext,
+    process_native_campaign_rules_prepass, process_native_noncampaign_rules_prepass,
+    process_native_rules_cold_start,
 };
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
@@ -299,8 +300,9 @@ impl NativeRulesProcessOwner {
     ///
     /// Noncampaign runs `E_multi` against the process-retained registry;
     /// campaign runs optional scenario-basename INI P against that registry.
-    /// The common destructive reset then precedes root/LANG/(noncampaign
-    /// mode)/map P.
+    /// The common reset deletes Types, processes root, clears ColorAdd,
+    /// processes LANG, then rereads only root ColorAdd before (noncampaign
+    /// mode)/map P. The four AudioVisual selectors retain LANG's last read.
     /// Every error restores the actual partial post-reset registry; no path
     /// rolls back to cold/pre-reset state.
     pub fn load_scenario(
@@ -341,12 +343,11 @@ impl NativeRulesProcessOwner {
         };
         let (pre_reset_events, pre_reset_super_count, pre_reset_state) =
             pre_reset_trace.into_parts();
-        let post_reset_state = pre_reset_state.destructive_reset();
-
         let layers = self.scenario_layers(mode_rules_override, map_rules_overrides);
         let mut processed = match layers.process_with_fixed_art_and_registry_state_recovering(
             &self.sources.fixed_art,
-            post_reset_state,
+            pre_reset_state,
+            RulesProcessContext::ScenarioReset,
         ) {
             Ok(processed) => processed,
             Err(failure) => {

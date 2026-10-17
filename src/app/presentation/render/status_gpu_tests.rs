@@ -390,6 +390,16 @@ fn native_repair_wrenches_preserve_color_a_z_and_parent_order() {
 }
 
 #[test]
+#[ignore = "requires retail assets and GPU; original Ivan clock prefix, MOUSEPAL N1 and retained parent order"]
+fn native_bomb_clocks_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/bomb_clock.json",
+        "MTNK",
+        EntityCategory::Unit,
+    );
+}
+
+#[test]
 #[ignore = "requires retail assets and GPU; original Ground2 PRIMARY loop, physical text and unchanged A/Z"]
 fn native_primary_factory_labels_preserve_color_a_z_and_constructor_order() {
     native_building_status_labels("tools/procedural_drawing_oracle/primary_factory_status.json");
@@ -821,7 +831,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
         );
         if matches!(
             name.to_ascii_uppercase().as_str(),
-            "WRENCH.SHP" | "MOUSEPAL.PAL"
+            "BOMBCURS.SHP" | "WRENCH.SHP" | "MOUSEPAL.PAL"
         ) {
             eprintln!(
                 "normal STOCK_DIGITAL {name}: {archive}, {} bytes, {}",
@@ -874,8 +884,10 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 });
             let rules = patched.as_ref().map_or(rules, |retail| &retail.rules);
             let size = pair(&input["size"]);
-            let tactical_clip: [u32; 4] =
-                input.get("clip").map_or([0, 0, size[0], size[1]], |clip| {
+            let tactical_clip: [u32; 4] = input
+                .get("tactical_clip")
+                .or_else(|| input.get("clip"))
+                .map_or([0, 0, size[0], size[1]], |clip| {
                     std::array::from_fn(|index| clip[index].as_u64().unwrap() as u32)
                 });
             let mut cam = camera(size);
@@ -913,6 +925,30 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             }
             sim.fog = crate::sim::vision::FogState::new(64, 64);
             sim.fog.reveal_all_for_owner(owner);
+            if let Some(overrides) = input["cell_overrides"].as_array() {
+                // These controls declare the default for the whole native
+                // cell plane, then override raw and height-projected cells.
+                if let Some(bits) = input["cell_bits"].as_u64() {
+                    for y in 0..64 {
+                        for x in 0..64 {
+                            sim.fog.set_ground_bits_for_test(owner, x, y, bits as u8);
+                        }
+                    }
+                }
+                for cell in overrides {
+                    if let Some(level) = cell["level"].as_u64() {
+                        sim.resolved_terrain
+                            .as_mut()
+                            .unwrap()
+                            .cell_mut(
+                                cell["cell"][0].as_u64().unwrap() as u16,
+                                cell["cell"][1].as_u64().unwrap() as u16,
+                            )
+                            .unwrap()
+                            .level = level as u8;
+                    }
+                }
+            }
             let mut parents = Vec::new();
             let mut groups = vec![Vec::new(); 10];
             let mut house_colors = crate::map::houses::HouseColorMap::new();
@@ -1016,6 +1052,18 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 if let Some(bits) = input["cell_bits"].as_u64() {
                     sim.fog
                         .set_ground_bits_for_test(owner, cell.0, cell.1, bits as u8);
+                }
+                if let Some(overrides) = input["cell_overrides"].as_array() {
+                    for cell in overrides {
+                        if let Some(bits) = cell["bits"].as_u64() {
+                            sim.fog.set_ground_bits_for_test(
+                                owner,
+                                cell["cell"][0].as_u64().unwrap() as u16,
+                                cell["cell"][1].as_u64().unwrap() as u16,
+                                bits as u8,
+                            );
+                        }
+                    }
                 }
                 for _ in 0..actor["sensor_count"].as_u64().unwrap_or(0) {
                     sim.fog.increment_sensor_at(owner, cell.0, cell.1);
@@ -1133,6 +1181,96 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 }
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);
+                if let Some(start) = actor["bomb_start_frame"].as_i64() {
+                    // Drawing-consumer prior established by native Attach.
+                    // Use the existing Bomb owner for the retained record and
+                    // its real second-UpdateAll visibility cadence; the planter
+                    // is outside the supplied Display parents.
+                    let planter = 90_000 + index as u64;
+                    let ivan = rules.object("IVAN").expect("physical Crazy Ivan");
+                    let ivan_type = sim.interner.intern("IVAN");
+                    let mut entity = GameEntity::new_at_frame_zero_for_test(
+                        planter,
+                        50,
+                        50,
+                        0,
+                        0,
+                        owner,
+                        Health::new(ivan.strength),
+                        ivan_type,
+                        EntityCategory::Infantry,
+                        0,
+                        5,
+                        false,
+                    );
+                    entity.lifecycle.set_in_limbo_for_test(false);
+                    sim.entities_mut().insert(entity);
+                    if !sim.session.house_order.contains(&owner) {
+                        sim.session.house_order.push(owner);
+                    }
+                    let frame = sim.session.binary_frame;
+                    sim.session.binary_frame = start as u32;
+                    sim.bomb_attach(planter, Some(id), rules);
+                    sim.bomb_list_update(rules);
+                    if actor["bomb_visible"].as_bool().unwrap_or(true) {
+                        sim.bomb_list_update(rules);
+                    }
+                    sim.session.binary_frame = frame;
+                    let record = sim
+                        .bomb_observation(usize::MAX)
+                        .records
+                        .into_iter()
+                        .find(|record| record.carrier_id == id)
+                        .unwrap();
+                    let native_bomb = if composed {
+                        &row["bomb"]
+                    } else {
+                        &row["actor_results"][index]["bomb"]
+                    };
+                    let native_frame = if composed {
+                        row["draws"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|draw| {
+                                draw["asset"] == "BOMBCURS.SHP"
+                                    && draw["actor"].as_u64() == Some(index as u64)
+                            })
+                            .and_then(|draw| draw["frame"].as_i64())
+                    } else {
+                        row["actor_results"][index]["clock_frame"].as_i64()
+                    };
+                    assert_eq!(
+                        i64::from(record.start_frame),
+                        native_bomb["start_frame"].as_i64().unwrap()
+                    );
+                    assert_eq!(
+                        i64::from(record.end_frame),
+                        native_bomb["end_frame"].as_i64().unwrap(),
+                    );
+                    assert_eq!(
+                        sim.bomb_seen_by(id, owner),
+                        actor["bomb_visible"].as_bool().unwrap_or(true),
+                        "{} retained BombVisible",
+                        row["name"],
+                    );
+                    assert_eq!(
+                        sim.entities()
+                            .get(id)
+                            .unwrap()
+                            .bomb
+                            .unwrap()
+                            .clock_frame(
+                                frame as i32,
+                                rules.combat_damage.ivan_timed_delay,
+                                rules.combat_damage.ivan_icon_flicker_rate
+                            )
+                            .map(i64::from),
+                        native_frame,
+                        "{} native GetClockFrame",
+                        row["name"],
+                    );
+                }
                 if actor["native_ai_before_draw"] == true {
                     // Original component AI6FA793 heals299->300 at75 before
                     // its Extras call. Use the real Rust tick owner and check
@@ -1171,9 +1309,56 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     // Consume only that produced prefix, keeping complete
                     // Extras replay for the separate native body compositions.
                     strip = crate::app::presentation::ui_overlays::TechnoExtras {
+                        bomb_clock: strip.bomb_clock,
                         wrench: strip.wrench,
                         ..Default::default()
                     };
+                }
+                let clocks: Vec<_> = row["draws"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|draw| {
+                        draw["asset"] == "BOMBCURS.SHP"
+                            && draw["actor"].as_u64() == Some(index as u64)
+                            && (!composed
+                                || draw["phase"]
+                                    .as_str()
+                                    .is_some_and(|phase| phase.ends_with("first_extras")))
+                    })
+                    .collect();
+                assert_eq!(
+                    usize::from(strip.bomb_clock.is_some()),
+                    clocks.len(),
+                    "{} actor{index} clock admission",
+                    row["name"]
+                );
+                if let (Some(instance), Some(draw)) = (&strip.bomb_clock, clocks.first()) {
+                    assert_eq!(draw["flags"], 0xE00);
+                    let expected = overlay
+                        .bomb_clock()
+                        .unwrap()
+                        .instance(
+                            draw["frame"].as_u64().unwrap() as usize,
+                            (
+                                draw["point"][0].as_i64().unwrap() as f32 + cam.camera_pos[0],
+                                draw["point"][1].as_i64().unwrap() as f32 + cam.camera_pos[1],
+                            ),
+                            instance.depth,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        instance.position, expected.position,
+                        "{} native clock render point",
+                        row["name"]
+                    );
+                    assert_eq!(
+                        instance.uv_origin, expected.uv_origin,
+                        "{} native clock frame",
+                        row["name"]
+                    );
+                    assert_eq!(instance.z_adjust, draw["z_adjust"].as_i64().unwrap() as f32);
+                    assert_eq!(instance.alpha, 1.0);
                 }
                 let wrenches: Vec<_> = row["draws"]
                     .as_array()
@@ -1616,6 +1801,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     for parent in 0..129 {
                         fenced.extras_runs.push(ObjectExtrasRun::Status {
                             parent,
+                            bomb_clock: None,
                             wrench: None,
                             rank: *rank,
                             background: *background,
@@ -1772,6 +1958,31 @@ fn assert_z(actual: &[u8], expected: &[u16], row: &Value) {
 
 fn pair(value: &Value) -> [u32; 2] {
     std::array::from_fn(|i| value[i].as_u64().unwrap() as u32)
+}
+
+#[test]
+fn retail_ivan_clock_tuning_matches_original_layered_readers() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/bomb_clock.json");
+    let empty = crate::rules::ini_parser::IniFile::from_str("[CombatDamage]\nFixture=1\n");
+    let constructor = crate::rules::combat_damage::CombatDamageDefaults::from_ini_section(
+        empty.section("CombatDamage").unwrap(),
+    );
+    for (actual, expected) in [
+        (&constructor, &native["readers"]["constructor"]),
+        (&retail.rules.combat_damage, &native["readers"]["result"]),
+    ] {
+        for (value, key) in [
+            (actual.ivan_damage, "ivan_damage"),
+            (actual.ivan_timed_delay, "ivan_timed_delay"),
+            (actual.ivan_icon_flicker_rate, "ivan_icon_flicker_rate"),
+        ] {
+            assert_eq!(i64::from(value), expected[key].as_i64().unwrap(), "{key}");
+        }
+    }
 }
 
 #[test]

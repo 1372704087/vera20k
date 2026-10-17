@@ -452,6 +452,22 @@ deselect. The text reads the House's retained totals; it does not sum buildings 
 assess power during drawing. The existing Building-array text pass draws after
 Ground2, with the same physical GAME.FNT and House color as PRIMARY labels.
 
+The [Ivan bomb-clock profile](map_observation.bomb-clock.example.json) uses an
+ordinary Crazy Ivan planting order on a friendly stock tank:
+
+```sh
+python tools/render_depth_fixture.py target/bomb-clock.map --bomb-clock
+```
+
+Set the generated map's absolute path in a copy of the profile. It selects Ivan,
+clicks the nearby tank, then deselects Ivan and selects the carrier. Health,
+weapons, visibility and the fuse keep their retail values. `observe_bombs` reads
+the existing bomb owner's carrier index and records at each committed step.
+Use 120 steps to inspect the active selected clock; the supplied 480-step run
+continues through detonation and removal. Each clock belongs to its admitted
+Display parent's Extras prefix, before rank, brackets and health, with the
+global tactical clip and the existing MOUSEPAL material.
+
 Literal `key` gestures may optionally include a unique `modifiers` list containing
 `Ctrl`, `Shift`, `Alt`, and/or `Super`. These use the shared modifier-key owner and
 ordinary key edges, and release every modifier before rendering. Bare historical

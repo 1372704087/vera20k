@@ -2063,6 +2063,32 @@ lifetime, audio playback and raster parity are also unclaimed.
 
 ## War Miner refinery-cycle observation
 
+The [ore cash recovery profile](map_observation.ore-cash-recovery.example.json)
+joins an ordinary HARV harvest/return/unload to two paid E2 orders. Its
+[authored clear map](map_observation/examples/ore_cash_recovery.map) supplies a
+completed Soviet base, an empty miner, an ore patch and a distant opponent's
+yard. A remote local MTNK supplies the ordinary vehicle-atlas prerequisite.
+There are no rules or type overrides. Starting cash is 50; the only production
+orders queue two Conscripts. The infantry-tab gesture exposes the retained
+running cameo during the cash stall. No refund, Resume or injected cargo funds
+the queue.
+
+Copy the JSON to a scratch profile and replace `launch.selected_map_file` with
+the map's absolute checkout path before running the existing capture command.
+Use a fresh scratch runtime/config and retain the whole 2000-step run. Inspect
+the miner's cargo, radio contact and Unload departure alongside House cash,
+score and spending, the original paid limbo actor's stable identity and its
+later map entry, and the queued successor. Capture validity alone does not
+establish those outcomes. Use the existing `inspect --expect` reader with
+[retained-outcome assertions](map_observation.ore-cash-recovery.expectations.json)
+for this exact launch; their step windows describe a Rust production witness,
+not native timing goldens. The production-frame regression
+`retail_ore_deposit_funds_the_retained_cash_stalled_build` separately covers
+due and not-due deposits, retained Factory balance/timer/FIFO and delivery;
+its full cargo and return state are supplied priors. Both checks join existing
+owners. Native money and docking controls bound their component behavior;
+neither is a whole native scheduler, audio-device or pixel comparison.
+
 [`map_observation.refinery-docking.example.json`](map_observation.refinery-docking.example.json)
 uses the same stock Russia/Battle/AnyTown launch and first five ordinary deployment
 and production commands as the Attack profile. It issues no combat order and

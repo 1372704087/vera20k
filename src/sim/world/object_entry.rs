@@ -1453,11 +1453,14 @@ fn unit_post_walk_tail(
             live.sim
                 .substrate
                 .occupancy
-                .get(p.0 as u16, p.1 as u16)
-                .into_iter()
-                .flat_map(|list| list.iter_layer(MovementLayer::Ground))
-                .filter_map(|member| live.blocker(member.entity_id))
-                .find(|(unit, _)| unit.category() == EntityCategory::Unit)
+                .first_category_on_layer(
+                    p.0 as u16,
+                    p.1 as u16,
+                    MovementLayer::Ground,
+                    EntityCategory::Unit,
+                    &live.sim.substrate.entities,
+                )
+                .and_then(|id| live.blocker(id))
                 .is_some_and(|(unit, _)| {
                     // IsCrushableBy asks the mover's House in both arms; the
                     // caller's latch stands for the Crusher test.

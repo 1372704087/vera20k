@@ -45,6 +45,18 @@ uses the existing stock scenario, two location-qualified tank selectors and a na
 superweapon. Its [expectations](map_observation.iron-curtain.expectations.json)
 check readiness before the order and the observed charge restart afterward.
 
+The [first-Unit query profile](map_observation.first-unit-query.example.json)
+uses the same paid Allied opening through a war factory, then buys one MTNK.
+Its ordinary Move orders occupy the observed refinery pad and clear it again.
+The free CMIN naturally fills, returns with refinery contact, drives toward the
+occupied pad, then returns to Teleport, docks, unloads and resumes harvesting.
+The [expectations](map_observation.first-unit-query.expectations.json) assert
+those retained outcomes, marked tank occupancy and 6,000 credits spent. The pad
+is the radio producer's building origin plus `(3,1)`, distinct from the ART
+queueing offset `(4,1)`. Actor selectors bind after normal production. Exact steps
+are this Rust integration witness, not native timing goldens or direct query-PC
+observations; native Unit-query/caller controls remain separate evidence.
+
 Inspect a completed capture without restarting the game:
 
 ```sh

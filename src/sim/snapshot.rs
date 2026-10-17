@@ -2127,21 +2127,23 @@ fn restore_object_references(
             }
             if let Some(TargetKind::Entity(target_id)) = manager.current_target() {
                 require_resolved_reference(
-                    entity_ids.contains(&target_id),
+                    entity_ids.contains(&target_id)
+                        || sim.production.terrain_objects.contains_key(&target_id),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.current_target",
-                    "EntityStore",
+                    "EntityStore or TerrainObjectStore",
                     target_id,
                 )?;
             }
             if let Some(TargetKind::Entity(target_id)) = manager.queued_target() {
                 require_resolved_reference(
-                    entity_ids.contains(&target_id),
+                    entity_ids.contains(&target_id)
+                        || sim.production.terrain_objects.contains_key(&target_id),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.queued_target",
-                    "EntityStore",
+                    "EntityStore or TerrainObjectStore",
                     target_id,
                 )?;
             }
@@ -2176,21 +2178,23 @@ fn restore_object_references(
 
         if let Some(TargetKind::Entity(target_id)) = entity.attack_target.target() {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "EntityStore",
                 entity_id,
                 "attack_target",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
         if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target.target() {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "EntityStore",
                 entity_id,
                 "suspended_attack_target",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
@@ -2494,11 +2498,12 @@ fn restore_object_references(
         }
         if let Some(TargetKind::Entity(target_id)) = wave.target_ref {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "WaveStore",
                 wave_id,
                 "target_ref",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
@@ -8243,7 +8248,14 @@ mod tests {
                     source_registry,
                     source_id,
                     field,
-                    target_registry: "EntityStore",
+                    target_registry: if matches!(
+                        role,
+                        MissingRole::CurrentTarget | MissingRole::QueuedTarget
+                    ) {
+                        "EntityStore or TerrainObjectStore"
+                    } else {
+                        "EntityStore"
+                    },
                     target_id: 9_999,
                 }),
                 "missing {role:?} must reject the snapshot"

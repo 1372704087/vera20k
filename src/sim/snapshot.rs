@@ -1086,7 +1086,10 @@ use crate::sim::world::Simulation;
 // serialized with the existing processed Rules owner; older layouts lack them.
 // 391 -> 392: existing processed Rules owner retains the three survivor
 // divisors across scene/Type resets; older registry layouts lack those fields.
-const SNAPSHOT_VERSION: u32 = 392;
+// 392 -> 393: Unit transport entry runs after locomotor arrival. Earlier
+// cargo can retain an active pre-boarding Drive track; resuming it after
+// unload returns the passenger to the old shore. Do not migrate that state.
+const SNAPSHOT_VERSION: u32 = 393;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4632,8 +4635,10 @@ mod tests {
         // 387 -> 388: independent RadSite light clock and source parameters.
         // 388 -> 389: particle owner-relative offsets have native semantics.
         // 389 -> 390: retained AV ambient rate/step fields in saved Rules.
+        // 390 -> 391: retained ColorAdd slots and AudioVisual selectors.
         // 391 -> 392: retained RulesClass survivor divisors.
-        assert_eq!(super::SNAPSHOT_VERSION, 392);
+        // 392 -> 393: reject cargo with the old mid-track boarding semantics.
+        assert_eq!(super::SNAPSHOT_VERSION, 393);
     }
 
     #[test]

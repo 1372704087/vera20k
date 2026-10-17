@@ -50,7 +50,7 @@ def ints(u, address, count):
 
 def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar=False,
                     frontier=False, tmp_names=(), smudge=False, hills=False, ore_natural=False, wall=False,
-                    wall_materials=(), radiation=False, tmp_families=(), snow=False):
+                    wall_materials=(), radiation=False, tmp_families=(), snow=False, rubble=False):
     assert wall or not wall_materials
     assert tile or not tmp_families
     assert not snow or tile or radiation
@@ -82,6 +82,14 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
         containers = (
             ('ra2.mix', wall_archives),
             ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini', 'TEMPERATMD.INI')}),
+            ('multimd.mix', {None: ('XMP03T4.MAP',)}),
+        )
+    if rubble:
+        containers = (
+            ('ra2.mix', {'isotemp.mix': ('cthse05.shp',),
+                         'temperat.mix': ('srock01.tem',),
+                         'cache.mix': ('palette.pal', 'anim.pal', 'temperat.pal', 'isotem.pal')}),
+            ('ra2md.mix', {'localmd.mix': ('ARTMD.INI', 'MPBattleMD.ini')}),
             ('multimd.mix', {None: ('XMP03T4.MAP',)}),
         )
     if ore_natural:
@@ -165,7 +173,7 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
                               sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
                 if name in families: source['variant_family'] = families[name]
                 sources.append(source)
-    if ore or placement or frontier or smudge or wall or radiation:
+    if ore or placement or frontier or smudge or wall or radiation or rubble:
         # Active retail's expansion archive overrides the base RULESMD.
         raw = (root / 'expandmd01.mix').read_bytes()
         rules = mix(raw)[mix_hash('RULESMD.INI')]
@@ -173,7 +181,7 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
         sources.append(dict(name='RULESMD.INI', outer='expandmd01.mix', inner=None,
                             outer_sha256=hashlib.sha256(raw).hexdigest(),
                             sha256=hashlib.sha256(rules).hexdigest(), bytes=len(rules)))
-        if not smudge and not radiation:
+        if not smudge and not radiation and not rubble:
             raw = (root / 'GoldSt.mmx').read_bytes()
             assets['GOLDST.MMX'] = raw
             sources.append(dict(name='GoldSt.mmx', kind='loose', outer=None, inner=None,
@@ -182,13 +190,13 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
 
 
 def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=False,
-            wall_types=(), wall_materials=(), radiation=False, snow=False):
-    assert sum((body, ore, placement, wall, radiation)) <= 1
+            wall_types=(), wall_materials=(), radiation=False, snow=False, rubble=False):
+    assert sum((body, ore, placement, wall, radiation, rubble)) <= 1
     assert wall or not (wall_types or wall_materials)
     assert not snow or radiation
     assets, sources = physical_assets(body=body, ore=ore, placement=placement,
-        ore_natural=ore_natural, wall=wall, wall_materials=wall_materials, radiation=radiation, snow=snow)
-    map_filename = 'XMP03T4.MAP' if ore_natural or wall else 'GoldSt.mmx'
+        ore_natural=ore_natural, wall=wall, wall_materials=wall_materials, radiation=radiation, snow=snow, rubble=rubble)
+    map_filename = 'XMP03T4.MAP' if ore_natural or wall or rubble else 'GoldSt.mmx'
     shadow_bytes, shape_aliases = {}, []
     for name, raw in assets.items():
         image_name = name.split('.')[0]
@@ -210,9 +218,9 @@ def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=F
                                    shadow_frames_sha256=hashlib.sha256(normalized).hexdigest()))
     assert all(len(images) == 6 and all(raw == images[0] for raw in images)
                for images in shadow_bytes.values())
-    selected_types = () if radiation else ('GAPOWR',) if placement else (wall_types or WALL_TYPES) if wall else ORE_TYPES if ore else BRIDGE_TYPES
+    selected_types = ('RUBBLE_OVERLAY',) if rubble else () if radiation else ('GAPOWR',) if placement else (wall_types or WALL_TYPES) if wall else ORE_TYPES if ore else BRIDGE_TYPES
     art, art_lines = lexical(assets['ARTMD.INI'], set(selected_types)
-                             | (set() if ore or wall or radiation else {'BRIDGE', 'BRIDGB'}))
+                             | ({'CAHSE05', 'SROCK01'} if rubble else set() if ore or wall or radiation else {'BRIDGE', 'BRIDGB'}))
     m = PaletteReader(art)
     m.assets.update(assets)
     initialize(m, ordinary=ore, early_temperat=placement)
@@ -235,7 +243,7 @@ def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=F
         types[name] = typ
     m.make_ini(art)
     layers = []
-    for filename in ('RULESMD.INI', 'MPBattleMD.ini', *((map_filename,) if ore or wall else ())):
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', *((map_filename,) if ore or wall or rubble else ())):
         sections, lines = lexical(assets[filename.upper()], set(selected_types))
         m.rules_cache(sections)
         for name in selected_types:
@@ -285,7 +293,7 @@ def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=F
                   physical_art=art, art_source_lines=art_lines, layers=layers)
     if wall:inputs.update(overlay_theater=inputs_theater,theater=wall_theater)
     if wall_types or wall_materials:inputs['wall_images']=image_states
-    if body or wall or radiation:
+    if body or wall or radiation or rubble:
         if snow:
             from tools.spatial_oracle.anytown_damage.navigation_inputs import Inputs
             theater = Inputs.read_map_theater(m, assets[RADIATION_SNOW_SOURCES['map'].upper()])
@@ -444,8 +452,8 @@ def snapshot(u, background, old_z):
 
 
 def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
-            boundary_only=False, reset_surface=True, allow_empty_frame=False):
-    assert wall or not shadow
+            boundary_only=False, reset_surface=True, allow_empty_frame=False, rubble_type=None):
+    assert wall or rubble_type is not None or not shadow
     assert body or ore or wall or not boundary_only
     case = dict(type='TIB01' if ore else 'BRIDGE1',
                 coords=[123, 33] if ore else [10, 20], level=5 if ore else 0, state=0,
@@ -457,6 +465,8 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
     shp = m.read32(typ + 0xA4)
     assert shp, 'Physical image must bind through original reader'
     u.mem_write(CELL + 0x44, dwords(case.get('overlay_id', m.read32(typ + 0x294))))
+    if rubble_type is not None:
+        u.mem_write(CELL + 0x40, dwords(0 if case.get('clear_rubble_type') else rubble_type))
     u.mem_write(CELL + 0x24, struct.pack('<2h', *case['coords']))
     u.mem_write(CELL + 0x11B, bytes((case.get('level', 0) & 255,)))
     u.mem_write(CELL + 0x11E, bytes((case.get('state', 0),)))
@@ -471,7 +481,7 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
         u.mem_write(PIXELS, packed_words([background] * COUNT))
         u.mem_write(Z, packed_words([old_z] * COUNT))
         u.mem_write(A, packed_words([127] * COUNT))
-    if wall and case.get('overlay_id') == -1:
+    if (wall or rubble_type is not None) and case.get('overlay_id') == -1:
         #47F6A0 requires a valid type. Reuse the existing actual Tactical
         # caller's -1 admission, as the historical ore empty control does.
         native_traversal=traversal(m,origin=tuple(case['coords']),require_draws=False)
@@ -485,7 +495,7 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
 
     def observe(_u, address, _size, _data):
         if address in (entry, 0x480110, 0x5FDCC0, 0x4AED70, 0x69E7E0,
-                       0x69E740, 0x69E900, 0x490E50, 0x437A10, *leaves):
+                       0x69E740, 0x69E900, 0x490E50, 0x437A10, 0x45F160, 0x45F1D0, *leaves):
             reached.add(address)
         if address == 0x4AED70:
             sp = u.reg_read(UC_X86_REG_ESP)
@@ -518,10 +528,20 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
             observe(u, 0x4AED70, 0, None)
         else:
             m.invoke(entry, CELL, (POINT, CLIP))
-        if (body or ore or wall) and not boundary_only and case['repeat'] > 1:
+        if (body or ore or wall or rubble_type is not None) and not boundary_only and case['repeat'] > 1:
             steps.append(snapshot(u, background, old_z))
     u.hook_del(hook)
+    if rubble_type is not None and not draws:
+        assert case.get('expect_no_draw'), (case['name'], sorted(reached))
+        assert not rows
+        return dict(name=case['name'], input=case, draws=[], leaf_rows=[],
+                    reached=[f'{p:08X}' for p in sorted(reached)],
+                    output=snapshot(u, background, old_z))
     required = {entry, 0x480110, 0x5FDCC0, 0x4AED70}
+    if rubble_type is not None:
+        required.discard(0x5FDCC0)
+        required.add(0x45F160 if body else 0x45F1D0)
+        shp = draws[0]['raw_args'][0]
     if not boundary_only:
         required |= {0x490E50, 0x437A10, 0x4990E0 if body or ore or wall else 0x497390}
     if wall:
@@ -539,7 +559,10 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
             assert not rows and not any(p in reached for p in leaves)
         else:
             assert any(p in reached for p in leaves)
-    assert draws and required.issubset(reached)
+    if rubble_type is not None and case.get('expect_clipped'):
+        assert not rows
+        required -= {0x490E50, 0x437A10, 0x497390}
+    assert draws and required.issubset(reached), (case['name'], sorted(required-reached))
     if ore:
         # The original coordinate selector can bind another image than the
         # gameplay Cell's live overlay identity. Observe its actual pointer.
@@ -547,7 +570,7 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
         typ = next(pointer for pointer in types.values() if m.read32(pointer + 0xA4) == shp)
     m.invoke(0x69E7E0, shp, (RECT, draws[0]['frame']))
     result = dict(name=case['name'], input=case, draws=draws, leaf_rows=rows,
-                  image_name=m.string(typ + 0x1F8),
+                  image_name=m.string((rubble_type or typ) + 0x1F8),
                   native_rect=ints(u, RECT, 4),
                   reached=[f'{p:08X}' for p in sorted(reached)])
     if not boundary_only:
@@ -665,6 +688,164 @@ def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True,
         result.update(rectangles=rectangles,view_origin=list(view_origin),
             boundary='Supplied sparse selected Cell lookup/native-constructed empty Dummy and map visibility admission. Original47FB90/47FDE0/6D2140/rectangle intersection execute; actual admitted body/shadow calls are recorded sinks.')
     return result
+
+
+def prepare_rubble():
+    """CAHSE05 original readers in the existing Cell/raster VM.
+
+    Native foundation/Rules/Building registry prerequisites follow the shared
+    placement component. No separate reader/VM or host SHP decoder is added.
+    """
+    m, types, inputs = prepare(rubble=True)
+    u = m.u
+    inputs['overlay_theater'] = initialize_overlay_theater(m, 0)
+    overlay = types['RUBBLE_OVERLAY']
+    overlay_image = m.invoke(m.read32(m.read32(overlay) + 0x9C), overlay)
+    assert overlay_image == m.asset_ptr['SROCK01.TEM']
+    assert u.mem_read(overlay + 0x2AA, 1) == b'\0'
+    assert u.mem_read(overlay + 0x2B4, 1) == b'\1'
+    inputs['rubble_overlay'] = dict(index=m.read32(overlay+0x294),
+        image=m.string(overlay+0x1F8), raw_frame_count=struct.unpack('<h',u.mem_read(overlay_image+6,2))[0],
+        is_rubble=u.mem_read(overlay+0x2B4,1)[0], crate=u.mem_read(overlay+0x2AA,1)[0])
+    m.invoke(0x45B1C0, 0)
+    rules = m.alloc(0x5000)
+    u.mem_write(0x8871E0, dwords(rules))
+    m.invoke(0x665650, rules)
+    m.invoke(0x4E7CF0, 0)
+    typ = m.alloc(0x2000)
+    m.invoke(0x45DD90, typ, (m.cstring('CAHSE05'),))
+    def state():
+        image = m.read32(typ + 0xA4)
+        return dict(leave_rubble=u.mem_read(typ + 0x1768, 1)[0],
+                    custom_rubble_present=bool(m.read32(typ + 0x14F4)),
+                    image=m.string(typ + 0x1F8), image_present=bool(image),
+                    frame_count=struct.unpack('<h', u.mem_read(image + 6, 2))[0] if image else None)
+    inputs['building'] = dict(name='CAHSE05', constructor=state(), layers=[])
+    assert not (configured_gamemd().parent / 'LANGRULE.INI').exists()
+    inputs['building']['langrule_absent'] = True
+    for filename in ('RULESMD.INI', 'MPBattleMD.ini', 'XMP03T4.MAP'):
+        sections, lines = lexical(m.assets[filename.upper()], {'CAHSE05'})
+        m.rules_cache(sections)
+        mark = len(m.asset_loaded)
+        admitted = m.invoke(0x45FE50, typ, (RULES,)) & 255
+        inputs['building']['layers'].append(dict(file=filename, admitted=admitted,
+            physical_keys=sections.get('CAHSE05'), source_lines=lines,
+            retained=state(), loads=m.asset_loaded[mark:]))
+    assert state()['leave_rubble'] == 1 and not state()['custom_rubble_present']
+    getter = m.read32(m.read32(typ) + 0x9C)
+    image = m.invoke(getter, typ)
+    raw = m.assets['CTHSE05.SHP']
+    assert image and bytes(u.mem_read(image, len(raw))) == raw
+    assert hashlib.sha256(raw).hexdigest() == 'ebc7b1bb38fb8028d442e10facb2edb3799b9b1e470c436134514ab588f9f0fb'
+    inputs['building'].update(image_getter=f'{getter:08X}', effective=state())
+    return m, types, typ, inputs
+
+
+def rubble_traversals(m, case):
+    """Existing real Tactical suffix, using actual SROCK shadow bounds.
+
+    Supplied sparse lookup/admission and draw sinks are the existing traversal
+    boundary. Actual Cell bounds, projection and rectangle intersection run.
+    """
+    u = m.u
+    dummy = m.alloc(0x148)
+    m.invoke(0x47BBF0, dummy)
+    tactical = m.alloc(0xE20)
+    cells = {tuple(case['coords']): CELL}
+    projection = traversal(m, origin=tuple(case['coords']), require_draws=False,
+        native_cells=cells, native_dummy=dummy, native_tactical=tactical,
+        native_rectangles=False)
+    point = next(call['point'] for call in projection['calls'] if call['piece']=='shadow')
+    view = tuple(point[i]-case['cell_point'][i] for i in range(2))
+    positive = traversal(m, origin=tuple(case['coords']), view_origin=view,
+        require_draws=False, native_cells=cells, native_dummy=dummy, native_tactical=tactical)
+    assert any(call['piece']=='shadow' for call in positive['calls'])
+    # No data-byte producer is inferred: production observes normal data0 and
+    # AfterDestruction441F60 retains it. This255 contrast is supplied only.
+    saved = bytes(u.mem_read(CELL+0x11E,1))
+    u.mem_write(CELL+0x11E,b'\xff')
+    invalid = traversal(m, origin=tuple(case['coords']), view_origin=view,
+        require_draws=False, native_cells=cells, native_dummy=dummy, native_tactical=tactical)
+    u.mem_write(CELL+0x11E,saved)
+    assert not any(call['piece']=='shadow' for call in invalid['calls'])
+    return dict(positive=positive, supplied_out_of_range_data=invalid,
+                projection_point_at_zero_view=point)
+
+
+def generate_rubble():
+    m, types, typ, inputs = prepare_rubble()
+    u = m.u
+    base = dict(type='RUBBLE_OVERLAY', coords=[68, 66], level=5, flags=0, state=0,
+                cell_point=[66, 130])
+    cases = [dict(name='own_image'), dict(name='level_zero', level=0),
+             dict(name='level_six', level=6), dict(name='level_minus_one', level=-1),
+             dict(name='left_clip', cell_point=[-5, 130]),
+             dict(name='dirty_clip', clip=[65, 45, 30, 20]),
+             dict(name='all_clipped', cell_point=[-200, 130], expect_clipped=True),
+             dict(name='repeat', repeat=2)]
+    rows = [execute(m, types, base | case, shadow=True, rubble_type=typ) for case in cases]
+    positive = rows[0]
+    assert positive['draws'][0]['frame'] == 7 and positive['draws'][0]['flags'] == 0x4601
+    assert positive['native_rect'] == [12, 43, 74, 37]
+    point, canvas = positive['draws'][0]['point'], positive['canvas']
+    canvas_top = [point[i] - canvas[i] // 2 for i in range(2)]
+    shape = dict(image_name=positive['image_name'], frame=7, canvas=canvas,
+                 native_rect=positive['native_rect'],
+                 mask_runs=[[x-canvas_top[0], y-canvas_top[1], n]
+                            for x, y, n, _color, _depth in positive['output']['runs']])
+    assert sum(run[2] for run in shape['mask_runs']) == 129
+    sample = next(row for row in positive['leaf_rows'] if row['count'])
+    candidate, scan_y = sample['candidate'], sample['y']
+    for delta, name in ((-1, 'depth_far'), (0, 'depth_equal'), (1, 'depth_near')):
+        rows.append(execute(m, types, base | dict(name=name, old_z=candidate+delta,
+            clip=[0, scan_y, WIDTH, 1]), shadow=True, rubble_type=typ))
+    for name, offset, value in (('leave_rubble_false', 0x1768, b'\0'),
+                                ('custom_rubble_false', 0x14F4, dwords(m.read32(typ+0xA4)))):
+        saved = bytes(u.mem_read(typ+offset, len(value)))
+        u.mem_write(typ+offset, value)
+        rows.append(execute(m, types, base | dict(name=name, expect_no_draw=True),
+                            shadow=True, rubble_type=typ))
+        u.mem_write(typ+offset, saved)
+    rows.append(execute(m, types, base | dict(name='cleared_type',
+        clear_rubble_type=True, expect_no_draw=True), shadow=True, rubble_type=typ))
+    # Restore normal input before observing the actual outer draw admission.
+    execute(m, types, base | dict(name='outer_setup'), shadow=True, rubble_type=typ)
+    outer = rubble_traversals(m, base)
+    rows.append(execute(m, types, base | dict(name='cleared_overlay', overlay_id=-1),
+                        shadow=True, rubble_type=typ))
+    # Required same-cell dependency: original480110's literal overlayEF arm
+    # subtracts15Y for both body and shadow. Retain actual47F6A0/45F160 body,
+    # then47F510/45F1D0 on the SAME physical ISOConvert and color/Z/A surface.
+    # No copied body math, pixel decoder or host-composition rule is supplied.
+    body = execute(m, types, base | dict(name='rubble_body'), body=True, rubble_type=typ)
+    combined = execute(m, types, base | dict(name='body_then_shadow'), shadow=True,
+                       rubble_type=typ, reset_surface=False)
+    assert body['draws'][0]['frame'] == 3
+    assert body['draws'][0]['point'] == positive['draws'][0]['point']
+    assert combined['draws'] == positive['draws']
+    return dict(native_sha256=NATIVE_SHA256, inputs=inputs, shapes=[shape],
+                surface=dict(width=WIDTH, height=HEIGHT, baseline=32768, bytes_per_pixel=2),
+                rows=rows, outer_admission=outer,
+                composition=dict(body=body, body_then_shadow=combined))
+
+
+def rubble_metadata():
+    return provenance(scope='Bounded original Cell47F6A0/BuildingType45F160 body frame3 followed by Cell47F510/BuildingType45F1D0 shadow frame7 on the same surface, sharing Cell480110 on physical CAHSE05/CTHSE05; actual SROCK01.TEM outer Cell shadow bounds/Tactical intersection; original RGB565/Z raster and supplied level/clip/depth/admission/clear controls. No native building death, whole map load, GPU or scene claim.',
+        assumptions=[
+            'Existing physical archive, lexical INI, PaletteReader, full native constructors/readers, Cell Convert, SHP metadata/selector/rowwalker/leaves and RGB565/Z surface owners are reused. No host image decoder or expected raster arithmetic. Physical RULESMD, MPBattleMD and XMP03T4 CAHSE05 and RUBBLE_OVERLAY layers execute; selected optional LANGRULE is physically absent; ART is fixed.',
+            'Original BuildingType constructor and full reader run in the existing raster VM with native foundation/Rules/registry prerequisites used by placement_render.prepare. Actual own-image getter and physical CTHSE05 bytes must match. Cell overlay/type pointer/data0, signed level5, ground projected point, clip, prior color/Z and A127 are supplied component inputs. Level0/6/-1 and admission fields are explicit contrasts. Fatal damage/rubble publication/map initialization remain separate evidence.',
+            'Actual RUBBLE_OVERLAY binds Image=SROCK01, ART Theater=yes and physical SROCK01.TEM. Its two-frame image and frame1 nonempty crop supply the ORIGINAL47FDE0 outer shadow bounds. Original Tactical suffix executes these actual bounds, projection and rectangle intersection; map-bound admission/sparse lookup/draw sinks retain existing traversal substitutions. A supplied data255 control asks out-of-range frame256, produces empty bounds and no shadow call. Production data0 must be separately observed, never inferred from these priors.',
+            'Original47F510 calls45F1D0: LeaveRubble, nonnull Cell type, own-image count half greater than3 select half+3. CustomRubble writes outputs but returns false. Selected admission field mutations are supplied contrasts, not alternate retail reader results. Erased overlay uses native Tactical admission, never a -1 direct caller.',
+            'Additional same-surface composition executes original47F6A0/45F160 body frame3 on fresh color/Z/A, then original47F510/45F1D0 shadow frame7 without resetting the framebuffer or changing the physical ISO Cell Convert. Actual body and shadow draw points must agree; both include original480110 literal-overlayEF minus15Y admission. Actual body/combined color and depth outputs are retained. There is no host image decoder, body math or composed-pixel rule.',
+            'Positive stencil runs come from native output at oldZ65535. Near/equal/far candidate and one-scanline clip come from an original positive leaf. Original calls and shape args/crop, signed comparison, destination darkening, depth stores, repeat and clipping run unchanged. No RNG draw, gameplay timer write or detach call belongs to this selected rendering component.',
+        ], substitutions=['Existing allocator/TLS/archive-resource services and supplied scene/Cell/A/Z/surface priors. No reached Cell, BuildingType rubble getter, shape/selector/rowwalker or shadow leaf is substituted. Tactical suffix uses supplied map admission/sparse Cell lookup and actual draw sinks, while native bounds/projection/intersection execute.'],
+        entry_points=dict(cell_shadow=0x47F510, rubble_shadow=0x45F1D0,
+            shadow_bounds=0x47FDE0, cell_draw_offset=0x480110, shape=0x4AED70,
+            building_constructor=0x45DD90, building_reader=0x45FE50,
+            cell_body=0x47F6A0, rubble_body=0x45F160,
+            rle_selector=0x490E50, rowwalker=0x437A10,
+            plain_shadow_leaf=0x493830, rle_shadow_leaf=0x497390,
+            tactical_sweeps_begin=0x6D6E5B, tactical_sweeps_end=0x6D71D3))
 
 
 def generate():
@@ -1421,6 +1602,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--body', action='store_true')
+    modes.add_argument('--rubble', action='store_true')
     modes.add_argument('--ore', action='store_true')
     modes.add_argument('--ore-natural', action='store_true')
     modes.add_argument('--authored-fence', action='store_true')
@@ -1431,6 +1613,27 @@ if __name__ == '__main__':
     modes.add_argument('--smudge', action='store_true')
     modes.add_argument('--cliff', action='store_true')
     selected, remaining = parser.parse_known_args()
+    if selected.rubble:
+        # Guard the actual shared reader/runtime/asset/raster inputs only for
+        # this invocation. No repository-source hashes enter the sidecar.
+        source_names = (
+            'native_oracle.py', 'oracle_sources.py',
+            'spatial_oracle/bridge_shadow_render.py',
+            'spatial_oracle/building_body_rules.py', 'spatial_oracle/placement_render.py',
+            'spatial_oracle/bridge_constructor.py', 'spatial_oracle/map_queries.py',
+            'spatial_oracle/bridge_damage_admission.py',
+            'projectile_oracle/bridge_render_inputs.py',
+            'projectile_oracle/bridge_render_inputs_palette.py',
+            'projectile_oracle/bridge_render_shape.py', 'projectile_oracle/flat_art.py',
+            'projectile_oracle/bridge_render.py',
+            'rules_oracle/bridge_anim_inputs.py', 'rules_oracle/bridge_anim_lists.py',
+            'rules_oracle/bridge_child_sound.py',
+            'palette_oracle/oracle.py', 'palette_oracle/check.py', 'sidebar_oracle/stock.py',
+        )
+        finish_vectors(generate_rubble, Path(__file__).with_name('building_rubble_shadow_render.json'),
+                       provenance=rubble_metadata, argv=remaining,
+                       source_paths={name: Path('tools') / name for name in source_names})
+        raise SystemExit(0)
     if selected.authored_fence or selected.concrete_wall or selected.low_concrete_bridge:
         from functools import partial
         generator, metadata_selected, output = generate_authored_fence, authored_fence_metadata, 'wall_render.json'

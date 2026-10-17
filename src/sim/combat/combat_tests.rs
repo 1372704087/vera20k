@@ -6454,7 +6454,7 @@ fn test_direct_hit_weapon_destroys_center_ore() {
 // ---- Wall damage integration tests ----------------------------------------
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
-use crate::sim::overlay_grid::{OverlayGrid, WallDamageEvent};
+use crate::sim::overlay_grid::{OverlayGrid, WallPointerTarget};
 use crate::sim::world::Simulation;
 
 /// INI containing GAWALL as both a [BuildingTypes] entry (so it has an
@@ -6530,12 +6530,7 @@ fn wall_warhead_damages_and_destroys_wall_overlay() {
     assert_eq!(initial_wall_entities, 0, "wall state is cell-owned");
 
     // Forced destruction (literal -1 bypasses the probabilistic gate).
-    let events = [WallDamageEvent {
-        rx: 5,
-        ry: 5,
-        damage: -1,
-    }];
-    sim.apply_wall_damage_events(&events, &registry);
+    sim.apply_wall_damage(WallPointerTarget::Real(5, 5), -1, &registry);
     // Overlay cleared.
     let grid = sim
         .overlay_grid
@@ -6881,12 +6876,7 @@ fn concrete_wall_chain_reaction_runs_without_panic() {
     // probabilistic check is skipped and the damage applies. Stage advances
     // to 3 → chain triggers 200-damage events on pristine same-type cardinal
     // neighbors. Outcome of those events depends on RNG roll vs strength=400.
-    let events = [WallDamageEvent {
-        rx: 5,
-        ry: 5,
-        damage: 400,
-    }];
-    sim.apply_wall_damage_events(&events, &registry);
+    sim.apply_wall_damage(WallPointerTarget::Real(5, 5), 400, &registry);
 
     // The chain code path ran (no panic). Assert (5,5) is at stage ≥ 3 or
     // gone — either outcome is consistent with the binary's behavior at the
@@ -6919,43 +6909,19 @@ fn build_minimal_sim_with_gawall_seeded(
 #[test]
 fn wall_damage_deterministic_across_replays() {
     let seed: u64 = 0x1234_5678;
-    let events = [
-        WallDamageEvent {
-            rx: 5,
-            ry: 5,
-            damage: 100,
-        },
-        WallDamageEvent {
-            rx: 5,
-            ry: 5,
-            damage: 100,
-        },
-        WallDamageEvent {
-            rx: 5,
-            ry: 5,
-            damage: 100,
-        },
-        WallDamageEvent {
-            rx: 5,
-            ry: 5,
-            damage: 100,
-        },
-        WallDamageEvent {
-            rx: 5,
-            ry: 5,
-            damage: 100,
-        },
-    ];
-
     let snapshot_a: (Option<u8>, u8) = {
         let (mut sim, _rules, registry) = build_minimal_sim_with_gawall_seeded(5, 5, seed);
-        sim.apply_wall_damage_events(&events, &registry);
+        for _ in 0..5 {
+            sim.apply_wall_damage(WallPointerTarget::Real(5, 5), 100, &registry);
+        }
         let cell = sim.overlay_grid.as_ref().unwrap().cell(5, 5);
         (cell.overlay_id, cell.overlay_data)
     };
     let snapshot_b: (Option<u8>, u8) = {
         let (mut sim, _rules, registry) = build_minimal_sim_with_gawall_seeded(5, 5, seed);
-        sim.apply_wall_damage_events(&events, &registry);
+        for _ in 0..5 {
+            sim.apply_wall_damage(WallPointerTarget::Real(5, 5), 100, &registry);
+        }
         let cell = sim.overlay_grid.as_ref().unwrap().cell(5, 5);
         (cell.overlay_id, cell.overlay_data)
     };

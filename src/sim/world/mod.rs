@@ -227,7 +227,7 @@ use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::overlay_grid::{
-    WallDamageEvent, WallDamageTransactionHost, WallDirtyStep, WallPointerTarget,
+    WallDamageTransactionHost, WallDirtyStep, WallPointerTarget,
     damage_wall_overlay_with_runtime_host, recalc_overlay_passability,
 };
 use crate::sim::passenger;
@@ -6105,28 +6105,9 @@ impl Simulation {
         }
     }
 
-    /// Apply combat-emitted wall damage events: drives the per-cell damage
-    /// progression in `damage_wall_overlay`, runs the cardinal-neighbor cleanup
-    /// for any cells the damage destroys.
-    ///
-    /// `overlay_registry` supplies per-overlay-type Strength/DamageLevels.
-    pub(crate) fn apply_wall_damage_events(
-        &mut self,
-        events: &[WallDamageEvent],
-        overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
-    ) {
-        for event in events {
-            self.apply_wall_damage(
-                crate::sim::overlay_grid::WallPointerTarget::Real(event.rx, event.ry),
-                event.damage,
-                overlay_registry,
-            );
-        }
-    }
-
-    /// World host for the single Cell480CB0 port, with the receiver retained
-    /// across synchronous callbacks. Weapon events and Unit73B056 share it;
-    /// AreaDamage's additional outer detach belongs to its own caller.
+    /// Direct Cell480CB0 caller, retaining its receiver across synchronous
+    /// callbacks. Unit73B056 uses the same transaction host as AreaDamage;
+    /// the latter's additional outer detach belongs to its own caller.
     pub(crate) fn apply_wall_damage(
         &mut self,
         target: crate::sim::overlay_grid::WallPointerTarget,

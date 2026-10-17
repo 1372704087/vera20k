@@ -12,6 +12,94 @@ use crate::sim::world::Simulation;
 use super::can_build::{CanBuild, can_build, check_build_limit, find_factory};
 use super::production_types::*;
 
+#[cfg(test)]
+#[path = "construction_options_tests.rs"]
+mod construction_options_tests;
+
+/// House4F9280..4F92D2's local membership pass, in House+6C order.
+/// AddCameo attempts precede Strip Recalculate; retention is a separate query.
+/// Original controls: tools/can_build_construction_options.json.
+pub fn construction_options_for_owner(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+) -> Vec<InternedId> {
+    let mut additions = Vec::new();
+    let Some(house) = sim.houses.get(&owner) else {
+        return additions;
+    };
+    let selling =
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
+    for &id in house.base_projection.buildings() {
+        let Some(building) = sim.entities().get(id) else {
+            continue;
+        };
+        if building.is_object_alive()
+            && building.health.current() > 0
+            && building.mission.effective() != selling
+            && building.mission.queued() != selling
+            && building.owner() == owner
+        {
+            append_construction_options(sim, rules, id, &mut additions);
+        }
+    }
+    additions
+}
+
+/// Scenario684C40..684C58 visits the global Building array after map setup.
+/// Unlike the House caller, this route supplies no health/Selling filter.
+/// Stable IDs retain constructor order; each Building port filters locality.
+pub fn initial_construction_options(sim: &Simulation, rules: &RuleSet) -> Vec<InternedId> {
+    let mut additions = Vec::new();
+    for (id, building) in sim.entities().iter_sorted() {
+        if building.category() == EntityCategory::Structure {
+            append_construction_options(sim, rules, id, &mut additions);
+        }
+    }
+    additions
+}
+
+/// BuildingClass::UpdateConstructionOptions4456D0..44583F. This is the
+/// single port of the adding-factory decision for both native callers.
+/// It does NOT ask FindFactory/Owner/Naval/readiness: every nonzero result of
+/// CanBuild(false,true), including AtLimit, attempts AddCameo in type order.
+/// The retained strip subsequently decides duplicates, capacity and removal.
+fn append_construction_options(
+    sim: &Simulation,
+    rules: &RuleSet,
+    building_id: u64,
+    additions: &mut Vec<InternedId>,
+) {
+    let Some(building) = sim.entities().get(building_id) else {
+        return;
+    };
+    if sim.session.current_house != Some(building.owner())
+        || building.lifecycle.in_limbo()
+        || !building.discovery.discovered_by_current_house()
+        || !building.building_online()
+    {
+        return;
+    }
+    let Some(factory) = sim.object_type(building.type_ref(), rules) else {
+        return;
+    };
+    let ids = match factory.factory_type() {
+        Some(FactoryType::BuildingType) => &rules.building_ids,
+        Some(FactoryType::InfantryType) => &rules.infantry_ids,
+        Some(FactoryType::UnitType) => &rules.vehicle_ids,
+        Some(FactoryType::AircraftType) => &rules.aircraft_ids,
+        None => return,
+    };
+    for id in ids {
+        if let Some(object) = rules.object(id)
+            && can_build(sim, rules, building.owner(), object, false, true) != CanBuild::No
+            && let Some(id) = sim.interner.get(id)
+        {
+            additions.push(id);
+        }
+    }
+}
+
 /// What the player's sidebar shows for `type_id`, from [`sidebar_state`].
 /// No money check: a build starts without the funds and stalls its steps
 /// instead (`SelectClass::Action @ 0x006AAD00` and `HouseClass::Begin_Production
@@ -85,13 +173,9 @@ fn strip_refusal(
 /// (`CanBuild(type, 0, 0)` answers -1, or [`check_build_limit`]). A retained
 /// Factory link clears that overlay at6A98D3; the sidebar owner applies it.
 ///
-/// Residual: the strip adds cameos only when the house's tech tree is
-/// rechecked (House `+0x1FC`, `HouseClass::Update @ 0x004F926C`). The retained
-/// app owner now follows that boundary. `UpdateConstructionOptions` additionally
-/// asks only eligible discovered/online factories of the type's kind; this
-/// query still combines addition and retention admission. Trigger: a new
-/// option on a recheck without an eligible adding factory. Effect: VERA can
-/// insert it early. Admission/discovery and alternate add routes remain open.
+/// This query supplies retention and drawing, never new-entry admission.
+/// [`construction_options_for_owner`] supplies the House pass's ordered
+/// AddCameo attempts through the existing lifecycle handoff.
 fn sidebar_state(
     sim: &Simulation,
     rules: &RuleSet,

@@ -2,6 +2,7 @@
 //! AddCameo 6A6300 and Recalculate 6AA600. Native comparisons live in
 //! tools/sidebar_oracle/cameo_order.py.
 
+use crate::sim::intern::InternedId;
 use std::collections::HashMap;
 
 pub(crate) use crate::sim::snapshot::SavedCameoId as CameoId;
@@ -373,7 +374,8 @@ impl CameoStrips {
     /// strips, then grants Supers. Ordinary membership changes only on that
     /// House pass (or initial seed). StripAI6A8B30 and Draw6A9540 refresh
     /// decoration without pruning when FindFactory starts rejecting Selling.
-    /// Visibility still comes from the existing production admission owner.
+    /// The production owner supplies adding attempts separately from the
+    /// candidates' retention predicate, in native building/type order.
     ///
     /// The reported transitions follow the same pass: the ordinary additions
     /// run first, `retain` prunes (Recalculate 6AA600), and only then do newly
@@ -384,14 +386,21 @@ impl CameoStrips {
         candidates: &[Cameo],
         visible_rows: usize,
         recalculate_builds: bool,
+        additions: &[InternedId],
     ) -> CameoReconcile {
         self.refresh_keys(candidates);
         let mut build_entered = [false; 4];
         let mut build_inserted = false;
         let empty_before_builds = self.sidebar_empty();
         let mut active_tab_destination = None;
-        for candidate in candidates.iter().filter(|item| {
-            recalculate_builds && item.available && matches!(item.id, CameoId::Object(_))
+        for candidate in additions.iter().filter_map(|id| {
+            recalculate_builds
+                .then(|| {
+                    candidates
+                        .iter()
+                        .find(|item| item.id == CameoId::Object(*id))
+                })
+                .flatten()
         }) {
             let accepted = self.insert(candidate);
             build_entered[candidate.tab.tab_index()] |= accepted;

@@ -180,7 +180,7 @@ fn refresh_fixture_sidebar(
         .side2_tile_count;
     fixture
         .projection
-        .reconcile_cameos(fixture.owner, &candidates, visible_rows);
+        .reconcile_fixture(fixture.owner, &candidates, visible_rows);
     fixture
         .projection
         .reconcile_factory_links(&fixture.sim, fixture.owner);

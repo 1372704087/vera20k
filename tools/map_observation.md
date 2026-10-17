@@ -421,6 +421,23 @@ control. Both variants retain full map health and retail weapons/rules. A launch
 seed does not specify the later percent draw after loading and audio service;
 absence of a submission alone cannot establish the exact rejected value.
 
+The [movement-voice profile](map_observation.move-voice.example.json) selects
+one full-health stock MTNK and issues an ordinary command click on clear ground.
+Generate its map with:
+
+```sh
+python tools/render_depth_fixture.py target/move-voice.map --move-order-voice multiple
+```
+
+Copy the profile and use the map's absolute path. The `stock` variant retains
+all retail type values. `multiple`, `unknown-first` and `unknown-only` override
+only `VoiceMove` with inputs executed by the native
+[movement-voice comparison](spatial_oracle/move_order_voice.json); geometry,
+health and weapons stay identical. Inspect the committed acknowledgement,
+queued/head voice actions, physical sample/finite PCM and event/channel
+retirement. Loading and service can advance Main before the order, so a launch
+seed alone does not determine which entry a multi-entry list chooses.
+
 Literal `key` gestures may optionally include a unique `modifiers` list containing
 `Ctrl`, `Shift`, `Alt`, and/or `Super`. These use the shared modifier-key owner and
 ordinary key edges, and release every modifier before rendering. Bare historical

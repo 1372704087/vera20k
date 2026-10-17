@@ -4275,7 +4275,7 @@ impl RuleSet {
             let section = ini.section(&object.id);
             object.bind_scalar_sound_references(section, sounds);
             object.bind_deploy_voice_references(section, sounds);
-            object.bind_attack_voice_references(section, sounds);
+            object.bind_order_voice_references(section, sounds);
             object.voice_select = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelect")
             });
@@ -5500,7 +5500,7 @@ impl RuleSet {
         // Rules text is identical. Empty versus nonempty vectors gates Main
         // draws; list order/duplicates select the sound. Hash effective lists
         // in canonical type order, independently of registry insertion order.
-        b"resolved-type-sound-lists-v3".hash(&mut hasher);
+        b"resolved-type-sound-lists-v4".hash(&mut hasher);
         self.general.voice_ifv_repair().hash(&mut hasher);
         self.object_list
             .iter()
@@ -5510,6 +5510,10 @@ impl RuleSet {
                     (
                         &object.voice_select,
                         &object.voice_select_enslaved,
+                        object.voice_move(),
+                        object.voice_enter(),
+                        object.voice_capture(),
+                        object.voice_harvest(),
                         &object.move_sound,
                         &object.voice_special_attack,
                         &object.voice_feedback,

@@ -403,7 +403,8 @@ pub(super) fn dispatch_draw_passes(
                 .zip(
                     pool.get_page("object_extras", layer)
                         .map(|(buffer, _)| buffer),
-                ),
+                )
+                .map(|(overlay, buffer)| (overlay, buffer, Some(state.renderer.bit_font.atlas()))),
         );
     }
 
@@ -479,7 +480,8 @@ pub(super) fn dispatch_draw_passes(
             .zip(
                 pool.get_page("object_extras", layer)
                     .map(|(buffer, _)| buffer),
-            ),
+            )
+            .map(|(overlay, buffer)| (overlay, buffer, Some(state.renderer.bit_font.atlas()))),
     );
 
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
@@ -586,6 +588,7 @@ pub(super) fn dispatch_draw_passes(
                 .as_ref(),
             pool.get_page("object_extras", layer)
                 .map(|(buffer, _)| buffer),
+            Some(state.renderer.bit_font.atlas()),
             objects,
         );
     }
@@ -624,53 +627,6 @@ pub(super) fn dispatch_draw_passes(
     );
     // The self-heal status pip `DrawPipScalePips` draws after the strip
     // (pips.shp frames 0x0D / 0x14).
-    let self_heal_pip_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .and_then(|o| o.pips())
-        .map(|pip| pip.texture());
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        self_heal_pip_tex,
-        "self_heal_pips",
-    );
-    // DrawPipScalePips fills the black backing, draws its one-pixel House-color
-    // outline, then submits the GAME.FNT glyph. Keep those layers under the
-    // same tactical camera/scissor after the scale and self-heal pips.
-    let control_group_bg_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .map(|overlay| overlay.white_texture());
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        control_group_bg_tex,
-        "control_group_status_bg",
-    );
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        control_group_bg_tex,
-        "control_group_status_outline",
-    );
-    // Control-group digits are the GAME.FNT tail of DrawPipScalePips, after
-    // the native backing and outline after the scale and self-heal pips.
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        Some(state.renderer.bit_font.atlas()),
-        "control_group_status",
-    );
-
     // Original6D4664 -> Spotlight5FFFA0 edits the destination after the first
     // rally pass. Preserve this overlap, including the rally's black shadow.
     drop(pass);

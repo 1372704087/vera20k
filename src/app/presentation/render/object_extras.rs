@@ -2,7 +2,7 @@
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
-use crate::render::batch::BatchRenderer;
+use crate::render::batch::{BatchRenderer, BatchTexture};
 use crate::render::selection_overlay::SelectionOverlay;
 use crate::render::terrain_draw::TerrainDrawRenderer;
 
@@ -18,6 +18,7 @@ pub(super) fn draw_object_extras(
     batch: &BatchRenderer,
     overlay: Option<&SelectionOverlay>,
     buffer: Option<&wgpu::Buffer>,
+    font: Option<&BatchTexture>,
     layer: &ObjectLayerPass,
 ) {
     let mut next = 0;
@@ -28,7 +29,7 @@ pub(super) fn draw_object_extras(
             continue;
         }
         // Adjacent status parents share one attachment pass; each keeps its
-        // rank->border->fill->scale order. Lines fence this pass before using Z.
+        // rank->border->fill->scale->self-heal->group order. Lines fence Z.
         let start = next;
         while matches!(
             layer.extras_runs.get(next),
@@ -45,6 +46,7 @@ pub(super) fn draw_object_extras(
             batch,
             overlay,
             buffer,
+            font,
             &layer.extras_runs[start..next],
         );
     }
@@ -62,6 +64,7 @@ pub(super) fn draw_status_runs(
     batch: &BatchRenderer,
     overlay: Option<&SelectionOverlay>,
     buffer: Option<&wgpu::Buffer>,
+    font: Option<&BatchTexture>,
     runs: &[ObjectExtrasRun],
 ) {
     let mut pass = begin_main_load_pass(encoder, color, depth);
@@ -74,6 +77,9 @@ pub(super) fn draw_status_runs(
             background,
             fills,
             scale,
+            self_heal,
+            group_rectangles,
+            group_text,
             ..
         } = &runs[next]
         else {
@@ -112,6 +118,33 @@ pub(super) fn draw_status_runs(
                     scale.end - scale.start,
                 );
             }
+            if let (Some(index), Some(shape)) = (self_heal, overlay.pips()) {
+                batch.draw_with_buffer_passthrough_range(
+                    &mut pass,
+                    shape.texture(),
+                    buffer,
+                    *index,
+                    1,
+                );
+            }
+            //70A6FD..70A987: each parent's black fill, packed House outline,
+            //then GAME.FNT glyph. Surface7BB050/7BADC0/434120 bypass A/Z.
+            batch.draw_with_buffer_passthrough_range(
+                &mut pass,
+                overlay.white_texture(),
+                buffer,
+                group_rectangles.start,
+                group_rectangles.end - group_rectangles.start,
+            );
+            if let Some(font) = font {
+                batch.draw_with_buffer_passthrough_range(
+                    &mut pass,
+                    font,
+                    buffer,
+                    group_text.start,
+                    group_text.end - group_text.start,
+                );
+            }
         }
         next = end;
     }
@@ -129,12 +162,19 @@ fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
         background: None,
         fills,
         scale,
+        self_heal: None,
+        group_rectangles,
+        group_text,
         ..
     } = &runs[start]
     else {
         return start + 1;
     };
-    if !fills.is_empty() || !scale.is_empty() {
+    if !fills.is_empty()
+        || !scale.is_empty()
+        || !group_rectangles.is_empty()
+        || !group_text.is_empty()
+    {
         return start + 1;
     }
     let mut end = start + 1;
@@ -143,10 +183,18 @@ fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
         background: None,
         fills,
         scale,
+        self_heal: None,
+        group_rectangles,
+        group_text,
         ..
     }) = runs.get(end)
     {
-        if !fills.is_empty() || !scale.is_empty() || *index != *first + (end - start) as u32 {
+        if !fills.is_empty()
+            || !scale.is_empty()
+            || !group_rectangles.is_empty()
+            || !group_text.is_empty()
+            || *index != *first + (end - start) as u32
+        {
             break;
         }
         end += 1;
@@ -165,6 +213,9 @@ mod tests {
             background: None,
             fills: index + 1..index + 1,
             scale: index + 1..index + 1,
+            group_rectangles: 0..0,
+            group_text: 0..0,
+            self_heal: None,
         }
     }
 
@@ -176,6 +227,21 @@ mod tests {
 
     #[test]
     fn rank_batching_preserves_health_line_and_instance_fences() {
+        let mut rectangles = rank(14);
+        if let ObjectExtrasRun::Status {
+            group_rectangles, ..
+        } = &mut rectangles
+        {
+            *group_rectangles = 15..20;
+        }
+        let mut glyph = rank(21);
+        if let ObjectExtrasRun::Status { group_text, .. } = &mut glyph {
+            *group_text = 22..23;
+        }
+        let mut marker = rank(24);
+        if let ObjectExtrasRun::Status { self_heal, .. } = &mut marker {
+            *self_heal = Some(25);
+        }
         let runs = [
             rank(0),
             rank(1),
@@ -185,6 +251,9 @@ mod tests {
                 background: Some(3),
                 fills: 4..5,
                 scale: 5..5,
+                group_rectangles: 0..0,
+                group_text: 0..0,
+                self_heal: None,
             },
             rank(5),
             ObjectExtrasRun::Status {
@@ -193,6 +262,9 @@ mod tests {
                 background: None,
                 fills: 6..7,
                 scale: 7..7,
+                group_rectangles: 0..0,
+                group_text: 0..0,
+                self_heal: None,
             },
             rank(7),
             ObjectExtrasRun::Lines {
@@ -208,8 +280,17 @@ mod tests {
                 background: None,
                 fills: 12..12,
                 scale: 12..13,
+                group_rectangles: 0..0,
+                group_text: 0..0,
+                self_heal: None,
             },
             rank(13),
+            rectangles,
+            rank(20),
+            glyph,
+            rank(23),
+            marker,
+            rank(26),
         ];
         for (start, end) in [
             (0, 2),
@@ -220,6 +301,12 @@ mod tests {
             (8, 9),
             (9, 10),
             (10, 11),
+            (11, 12),
+            (12, 13),
+            (13, 14),
+            (14, 15),
+            (15, 16),
+            (16, 17),
         ] {
             assert_eq!(rank_run_end(&runs, start), end, "run {start}");
         }

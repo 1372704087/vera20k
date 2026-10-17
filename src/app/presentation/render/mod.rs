@@ -507,22 +507,6 @@ fn upload_to_gpu(
     );
     pool.upload(&state.renderer.gpu, "bomb_clocks", &ui.bomb_clock);
     pool.upload(&state.renderer.gpu, "repair_wrenches", &ui.repair_wrench);
-    pool.upload(
-        &state.renderer.gpu,
-        "control_group_status_bg",
-        &ui.control_group_status_bg,
-    );
-    pool.upload(
-        &state.renderer.gpu,
-        "control_group_status_outline",
-        &ui.control_group_status_outline,
-    );
-    pool.upload(
-        &state.renderer.gpu,
-        "control_group_status",
-        &ui.control_group_status,
-    );
-    pool.upload(&state.renderer.gpu, "self_heal_pips", &ui.self_heal_pip);
     pool.upload(&state.renderer.gpu, "software_cursor", &ui.software_cursor);
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);
     pool.upload(

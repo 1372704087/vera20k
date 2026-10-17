@@ -17,7 +17,7 @@ use crate::rules::house_colors::{HouseColorRamps, NO_REMAP};
 use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::Position;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 /// Authentic pip counts for unit health bars.
 const UNIT_PIPS_VEHICLE: u32 = 17; // vehicles + aircraft
 const UNIT_PIPS_INFANTRY: u32 = 8;
@@ -68,17 +68,6 @@ fn health_bar_hover_target(
 /// The existing resolved hover target for either Techno health branch.
 pub(crate) fn health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
     health_bar_hover_target(state, local_owner).map(|(id, _)| id)
-}
-
-/// The hovered *unit or infantry*, for the non-building health-bar pass.
-pub(crate) fn unit_health_hover_target(state: &AppState, local_owner: Option<&str>) -> Option<u64> {
-    health_bar_hover_target(state, local_owner).and_then(|(id, kind)| {
-        matches!(
-            kind,
-            HoverTargetKind::FriendlyUnit | HoverTargetKind::EnemyUnit
-        )
-        .then_some(id)
-    })
 }
 
 /// Whether a status-producing object draws its bracket background and pips.
@@ -208,9 +197,9 @@ pub(crate) fn control_group_status_labels(
     let mut slot_by_id = HashMap::new();
     for (slot, members) in control_groups.iter().take(10).enumerate() {
         for &stable_id in members {
-            // Match the single native Techno field if malformed/restored input
-            // ever contains duplicate membership: the last slot is the one
-            // whose live assignment most recently wins.
+            // The input owner maintains unique membership. Last-slot choice
+            // only makes malformed/restored duplicates deterministic; it
+            // does not reconstruct a native assignment history.
             slot_by_id.insert(stable_id, slot);
         }
     }
@@ -219,8 +208,16 @@ pub(crate) fn control_group_status_labels(
         .into_iter()
         .filter_map(|stable_id| {
             let entity = sim.entities().get(stable_id)?;
+            let building_tiberium_tail = entity.category() == EntityCategory::Structure
+                && rules
+                    .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
+                    .is_some_and(|object| {
+                        object.pip_scale == crate::rules::object_type::PipScale::Tiberium
+                    });
             if entity.sinking.is_active()
                 || entity.passenger_role.is_inside_transport()
+                //709B61 skips the entire Building status tail for Tiberium2.
+                || building_tiberium_tail
                 || !entity_status_pips_drawable(
                     sim,
                     entity,
@@ -246,29 +243,12 @@ pub(crate) fn control_group_status_labels(
         .collect()
 }
 
-/// Paired background and glyph instances for the native control-group label.
-/// The background is emitted in its own earlier layer so the glyph renderer
-/// remains on the existing GAME.FNT atlas/pass.
+/// One parent's fill/outline followed by its GAME.FNT glyph. Both materials
+/// bypass A/Z; their ranges stay with that parent's other Extras commands.
+#[derive(Debug, Default)]
 pub(crate) struct ControlGroupStatusOverlayInstances {
-    pub background: Vec<SpriteInstance>,
-    pub outline: Vec<SpriteInstance>,
+    pub rectangles: Vec<SpriteInstance>,
     pub text: Vec<SpriteInstance>,
-}
-
-/// Native `DrawHealthBar @0x006F64A0` adds the projected building-foundation
-/// offset before calling the shared pip/status slot at `+0x450`.
-/// `BuildingTypeClass::Dimension2 @0x00464AF0` supplies the foundation width
-/// and height in 256-lepton cells; the caller halves each with signed
-/// truncation, negates X, and uses the shared native coordinate projection.
-fn building_control_group_status_anchor_offset(foundation: &str) -> (i32, i32) {
-    let [width_leptons, height_leptons] =
-        crate::rules::foundation::foundation_dimensions_leptons(foundation);
-    let half_width = width_leptons / 2;
-    let half_height = height_leptons / 2;
-    crate::util::lepton::project_absolute_lepton_xy(
-        -(width_leptons - half_width),
-        height_leptons - half_height,
-    )
 }
 
 /// Emit the selected/hovered unit's control-group digit with the shared GAME.FNT
@@ -300,7 +280,7 @@ pub(crate) fn build_control_group_status_render_instances(
     sh: f32,
     tactical_clip: [i32; 4],
     rules: Option<&RuleSet>,
-) -> ControlGroupStatusOverlayInstances {
+) -> BTreeMap<u64, ControlGroupStatusOverlayInstances> {
     let labels = control_group_status_labels(
         sim,
         control_groups,
@@ -309,19 +289,43 @@ pub(crate) fn build_control_group_status_render_instances(
         ignore_visibility,
         rules,
     );
-    let mut background = Vec::with_capacity(labels.len());
-    let mut outline = Vec::with_capacity(labels.len() * 4);
-    let mut text_instances = Vec::with_capacity(labels.len());
+    let mut parents = BTreeMap::new();
     for (stable_id, digit) in labels {
+        let mut label = ControlGroupStatusOverlayInstances::default();
         let Some(entity) = sim.entities().get(stable_id) else {
             continue;
         };
+        // Tactical6D9676/6D9691 uses GetCoords and integer XYZ projection,
+        // shared with this parent's health/rank producer.
+        let coord = crate::sim::movement::ground_pose::object_get_coords(
+            entity,
+            sim.resolved_terrain.as_ref(),
+        );
         let (mut screen_x, mut screen_y) =
-            crate::app::presentation::instances::interpolated_screen_position_entity(entity);
+            crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z);
         let building = entity.category() == EntityCategory::Structure;
         if building {
-            let (foundation_x, foundation_y) =
-                building_control_group_status_anchor_offset(entity.type_facts.foundation());
+            //6F659E's third Dimension2 projection deliberately uses Z=0.
+            // Production reads the canonical type query; reader-less fixtures
+            // supply the retained foundation dimensions as an explicit prior.
+            let [width, height] = rules
+                .and_then(|rules| {
+                    sim.interner
+                        .object_type(entity.type_ref(), rules)
+                        .map(|object| {
+                            let [width, height, _] = rules.building_dimensions(object);
+                            [width, height]
+                        })
+                })
+                .unwrap_or_else(|| {
+                    crate::rules::foundation::foundation_dimensions_leptons(
+                        entity.type_facts.foundation(),
+                    )
+                });
+            let (foundation_x, foundation_y) = crate::util::lepton::project_absolute_lepton_xy(
+                -(width - width / 2),
+                height - height / 2,
+            );
             screen_x += foundation_x as f32;
             screen_y += foundation_y as f32;
         }
@@ -346,8 +350,15 @@ pub(crate) fn build_control_group_status_render_instances(
         let owner = sim.interner.resolve(entity.owner());
         let color = house_color_map.get(owner).copied().unwrap_or(NO_REMAP);
         // Native `DrawPipScalePips @0x00709A90` reads House+0x56F9 directly.
-        let tint = crate::render::palette_light::house_color_rgb(house_color_ramps, color)
-            .map(|channel| f32::from(channel) / 255.0);
+        let [red, green, blue] =
+            crate::render::palette_light::house_color_rgb(house_color_ramps, color);
+        // House50B840 returns zero-filled RGB extracted from the packed word.
+        // The outline and glyph store that word; display expansion belongs to
+        // the existing surface presentation profile, after House lookup.
+        let [red, green, blue, _] =
+            crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+                .quantize_rgba8([red, green, blue, 255]);
+        let tint = [red, green, blue].map(|channel| f32::from(channel) / 255.0);
         // The original measures the text rectangle, clips it to the tactical
         // surface, then expands the clipped result one pixel to the left for
         // its opaque black fill and House-color outline. All rectangles here
@@ -368,7 +379,7 @@ pub(crate) fn build_control_group_status_render_instances(
             let rect_y = rect_y as f32 + camera[1];
             let rect_width = rect_width as f32;
             let rect_height = rect_height as f32;
-            background.push(SpriteInstance {
+            label.rectangles.push(SpriteInstance {
                 position: [rect_x, rect_y],
                 size: [rect_width, rect_height],
                 uv_origin: [0.0, 0.0],
@@ -379,38 +390,38 @@ pub(crate) fn build_control_group_status_render_instances(
             });
             // Native 0x7BADC0 draws inclusive endpoints (origin+size-1).
             // Avoid zero-area quads when clipping leaves a one-pixel edge.
-            let mut edges = vec![
+            let edges = [
                 ([rect_x, rect_y], [rect_width, 1.0]),
                 ([rect_x, rect_y + rect_height - 1.0], [rect_width, 1.0]),
+                ([rect_x, rect_y + 1.0], [1.0, rect_height - 2.0]),
+                (
+                    [rect_x + rect_width - 1.0, rect_y + 1.0],
+                    [1.0, rect_height - 2.0],
+                ),
             ];
-            if rect_height > 2.0 {
-                edges.extend([
-                    ([rect_x, rect_y + 1.0], [1.0, rect_height - 2.0]),
-                    (
-                        [rect_x + rect_width - 1.0, rect_y + 1.0],
-                        [1.0, rect_height - 2.0],
-                    ),
-                ]);
-            }
-            outline.extend(edges.into_iter().map(|(position, size)| SpriteInstance {
-                position,
-                size,
-                uv_origin: [0.0, 0.0],
-                uv_size: [1.0, 1.0],
-                tint,
-                alpha: 1.0,
-                ..Default::default()
-            }));
+            let count = if rect_height > 2.0 { 4 } else { 2 };
+            label
+                .rectangles
+                .extend(
+                    edges[..count]
+                        .iter()
+                        .map(|&(position, size)| SpriteInstance {
+                            position,
+                            size,
+                            uv_origin: [0.0, 0.0],
+                            uv_size: [1.0, 1.0],
+                            tint,
+                            alpha: 1.0,
+                            ..Default::default()
+                        }),
+                );
         }
         // These are world-pixel coordinates; the tactical surface camera
         // applies the camera offset at draw time, like the neighboring pips.
-        text_instances.extend(font.build_text(&text, x, y, 1.0, 0.0, tint, [0.0, 0.0]));
+        label.text = font.build_text(&text, x, y, 1.0, 0.0, tint, [0.0, 0.0]);
+        parents.insert(stable_id, label);
     }
-    ControlGroupStatusOverlayInstances {
-        background,
-        outline,
-        text: text_instances,
-    }
+    parents
 }
 
 /// AppState adapter for the production tactical UI build.
@@ -418,7 +429,7 @@ pub(crate) fn build_control_group_status_instances(
     state: &AppState,
     sw: f32,
     sh: f32,
-) -> ControlGroupStatusOverlayInstances {
+) -> BTreeMap<u64, ControlGroupStatusOverlayInstances> {
     let (Some(sim), Some(rules)) = (
         state
             .match_state
@@ -427,11 +438,7 @@ pub(crate) fn build_control_group_status_instances(
             .map(|runtime| &runtime.simulation),
         state.rules(),
     ) else {
-        return ControlGroupStatusOverlayInstances {
-            background: Vec::new(),
-            outline: Vec::new(),
-            text: Vec::new(),
-        };
+        return BTreeMap::new();
     };
     let local_owner = preferred_local_owner_name(state);
     let local_owner_id = local_owner
@@ -487,16 +494,17 @@ impl SelfHealPip {
             Self::Units => 0x14,
         }
     }
+}
 
-    /// The draw-point offset from the object's screen position plus bracket
-    /// delta — the `[esp+0x50]` / `[esp+0x68]` base the health strip uses,
-    /// which `(+0x26, -0x20)` and `(+0x13, -0x23)` are added to at
-    /// `0x0070A5F1` and `0x0070A60A`.
-    pub(crate) const fn offset(self) -> (f32, f32) {
-        match self {
-            Self::Organic => (0x13 as f32, -0x23 as f32),
-            Self::Units => (0x26 as f32, -0x20 as f32),
-        }
+///70A5EC chooses the offset by RTTI, independently of the icon frame.
+/// Health6F6A8E supplies(-10,+10),709B14 subtracts5 X and adds11 for
+/// Infantry.70A5F1 adds(38,-32) for every Unit, even Organic, while
+///70A60A adds(19,-35) for Infantry. Type+3E0 bracket delta is not passed.
+fn self_heal_pip_offset(category: EntityCategory) -> (f32, f32) {
+    if category == EntityCategory::Unit {
+        (23.0, -22.0)
+    } else {
+        (15.0, -25.0)
     }
 }
 
@@ -736,6 +744,10 @@ pub(crate) struct TechnoExtras {
     pub fills: Vec<SpriteInstance>,
     /// Plain600 PIPS2 scale commands, after this parent's health.
     pub scale: Vec<SpriteInstance>,
+    /// Existing House-owned self-heal marker, between scale and group text.
+    pub self_heal: Option<SpriteInstance>,
+    ///709A90's group tail follows this parent's pip scale, not a global sweep.
+    pub group: ControlGroupStatusOverlayInstances,
 }
 
 /// One Techno DrawExtras6F5190 parent, rank prefix then health6F64A0.
@@ -1029,98 +1041,22 @@ pub(crate) fn techno_extras_for_parent(
                 .extend(instance(art, frame, (x, sy + delta + scale_y), 0.0004));
         }
     }
-    strip
-}
-
-/// The self-heal status pip a non-building's health strip carries.
-///
-/// Native tail of `DrawPipScalePips` (`0x0070A614..0x0070A6BB`), which the
-/// object-render loop reaches straight after the strip: PIPS.SHP frame `0x0D`
-/// (the red cross) or `0x14` (the white wrench), centered (flags `0x600`) on
-/// the same draw point the strip uses plus [`SelfHealPip::offset`]. The gate is
-/// [`self_heal_pip`]'s, so the pip appears exactly when the strip does.
-///
-/// Residual: for an object whose `Health` (`+0x6C`) is below its type's
-/// `Strength` (`Type+0xA0`) and whose frame lands in the first six of the
-/// heal period, native re-issues the draw with bit 0 set (flags `0x601`,
-/// `0x0070A628..0x0070A667`). That variant's draw effect is not established,
-/// so every pip here uses `0x600`, which is also what the native draws at full
-/// health and outside the window.
-pub(crate) fn build_self_heal_pip_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-    ) else {
-        return Vec::new();
-    };
-    let Some(pip_art) = overlay.pips() else {
-        return Vec::new();
-    };
-    let local_owner = preferred_local_owner_name(state);
-    let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
-    let mut instances = Vec::new();
-    for e in sim.entities().values() {
-        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
-            continue;
-        }
-        if e.passenger_role.is_inside_transport() {
-            continue;
-        }
-        if !entity_status_pips_drawable(
-            sim,
-            e,
-            hovered_unit_id,
-            local_owner
-                .as_deref()
-                .and_then(|owner| sim.interner.get(owner)),
-            state.rules(),
-        ) {
-            continue;
-        }
-        let Some(obj) = state
-            .rules()
-            .and_then(|rules| sim.interner.object_type(e.type_ref(), rules))
-        else {
-            continue;
-        };
-        let (infantry, units) = sim.houses.get(&e.owner()).map_or((0, 0), |house| {
+    //70A614..6BB: the existing House bonus owner selects the full-health
+    //plain600 marker. Keep its consumer in this parent's status sequence.
+    //Damaged first-six-frame flags601 behavior remains an explicit residual;
+    //this migration preserves that existing marker policy.
+    if entity_status_pips_drawable(sim, entity, hovered_id, observer_id, Some(rules)) {
+        let (infantry_heal, unit_heal) = sim.houses.get(&entity.owner()).map_or((0, 0), |house| {
             (house.self_heal_infantry(), house.self_heal_units())
         });
-        let Some(arm) = self_heal_pip(e.category(), obj.organic, infantry, units) else {
-            continue;
-        };
-        let (sx, sy) = crate::app::presentation::instances::interpolated_screen_position_entity(e);
-        let (off_x, off_y) = arm.offset();
-        let point: (f32, f32) = (
-            sx + off_x,
-            sy + obj.pixel_selection_bracket_delta as f32 + off_y,
-        );
-        let Some(instance) = pip_art.instance(arm.frame(), point, 0.0004) else {
-            continue;
-        };
-        if in_view(
-            instance.position[0],
-            instance.position[1],
-            instance.size[0],
-            instance.size[1],
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-            sw,
-            sh,
-            48.0,
-        ) {
-            instances.push(instance);
+        if let Some(arm) =
+            self_heal_pip(entity.category(), object.organic, infantry_heal, unit_heal)
+        {
+            let (offset_x, offset_y) = self_heal_pip_offset(entity.category());
+            strip.self_heal = instance(shape, arm.frame(), (sx + offset_x, sy + offset_y), 0.0004);
         }
     }
-    instances
+    strip
 }
 
 /// Raw PIPS2 frames after selected/hovered body admission and the shared
@@ -1838,16 +1774,16 @@ mod tests {
         assert_eq!(self_heal_pip(Unit, false, 0, 1), Some(SelfHealPip::Units));
     }
 
-    /// The frame and draw-point offset each arm carries: `ebx` `0x0D` at
-    /// `0x0070A573` with `edi`/`esi` `(+0x13, -0x23)` at `0x0070A60A`, and
-    /// `0x14` at `0x0070A5DF` with `(+0x26, -0x20)` at `0x0070A5F1`. `edi`
-    /// reaches the x argument (`0x0070A63C`, `0x0070A67D`) and `esi` the y one
-    /// (`0x0070A649`, `0x0070A68A`).
+    /// Frame selection and RTTI projection are independent at70A573/5DF/5EC.
+    /// The consumed control_group_status corpus executes both category arms.
     #[test]
     fn the_self_heal_pip_frames_and_offsets_match_the_original() {
         assert_eq!(SelfHealPip::Organic.frame(), 0x0D);
         assert_eq!(SelfHealPip::Units.frame(), 0x14);
-        assert_eq!(SelfHealPip::Organic.offset(), (19.0, -35.0));
-        assert_eq!(SelfHealPip::Units.offset(), (38.0, -32.0));
+        assert_eq!(
+            self_heal_pip_offset(EntityCategory::Infantry),
+            (15.0, -25.0)
+        );
+        assert_eq!(self_heal_pip_offset(EntityCategory::Unit), (23.0, -22.0));
     }
 }

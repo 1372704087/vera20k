@@ -273,6 +273,16 @@ fn native_zones(
 #[cfg(any(test, feature = "test-support"))]
 pub mod mastermind;
 
+/// Explicit House50D9C0/50D9D0 drawing-consumer prior. Use the existing
+/// private grant owner; this does not establish a captured-building lifecycle.
+pub fn install_status_self_heal(
+    house: &mut crate::sim::house_state::HouseState,
+    infantry: i32,
+    units: i32,
+) {
+    house.grant_self_heal(infantry, units);
+}
+
 /// Explicit drawing-consumer prior, using the existing private cargo setter.
 /// It establishes no harvesting, movement, deposit or full native lifecycle.
 pub fn install_status_miner_cargo(

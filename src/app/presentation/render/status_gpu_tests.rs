@@ -68,6 +68,16 @@ fn native_aircraft_ammo_pips_preserve_color_a_z_and_parent_order() {
     );
 }
 
+#[test]
+#[ignore = "requires retail assets and GPU; original MTNK group font pixels and parent composition"]
+fn native_control_group_labels_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/control_group_status.json",
+        "MTNK",
+        EntityCategory::Unit,
+    );
+}
+
 fn native_status_controls(fixture: &'static str, type_name: &str, category: EntityCategory) {
     let native = crate::test_fixture::json(fixture);
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -92,6 +102,13 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
         let overlay =
             SelectionOverlay::new_on_device(&gpu.device, &gpu.queue, &batch, Some(&assets));
         let mut pool = InstanceBufferPool::new();
+        let font = native.get("native_font").map(|_| {
+            let fnt = crate::assets::fnt_file::FntFile::from_bytes(
+                assets.get_ref("GAME.FNT").expect("physical GAME.FNT"),
+            )
+            .expect("production font parser");
+            crate::render::bit_font::BitFont::from_fnt(&gpu.device, &gpu.queue, &batch, &fnt)
+        });
         for row in [
             "raster_controls",
             "composition_controls",
@@ -134,9 +151,32 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
             let mut sim = Simulation::new();
             let owner = sim.interner.intern("Owner");
             let enemy = sim.interner.intern("Enemy");
+            if input.get("self_heal_infantry").is_some() || input.get("self_heal_units").is_some() {
+                let mut house =
+                    crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
+                crate::sim::arena_fixture::install_status_self_heal(
+                    &mut house,
+                    input["self_heal_infantry"].as_i64().unwrap_or(0) as i32,
+                    input["self_heal_units"].as_i64().unwrap_or(0) as i32,
+                );
+                sim.houses.insert(owner, house);
+            }
             sim.fog = crate::sim::vision::FogState::new(64, 64);
             sim.fog.reveal_all_for_owner(owner);
             let mut parents = Vec::new();
+            let mut groups = vec![Vec::new(); 10];
+            let mut house_colors = crate::map::houses::HouseColorMap::new();
+            if font.is_some() {
+                let gold = crate::rules::house_colors::HouseColorIndex(
+                    rules
+                        .color_schemes
+                        .iter()
+                        .position(|scheme| scheme.name == "Gold")
+                        .expect("physical Gold scheme") as u8,
+                );
+                house_colors.insert("Owner".to_owned(), gold);
+                house_colors.insert("Enemy".to_owned(), gold);
+            }
             let mut row_has_building = false;
             let ids = if composed {
                 row["body_admissions"]
@@ -320,6 +360,20 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     assert_eq!(i64::from(current), result["current_ammo"].as_i64().unwrap());
                     assert_eq!(pending, result["pending_release"].as_bool().unwrap());
                 }
+                if font.is_some() {
+                    let native_actor = &row["actor_results"][index];
+                    let slot = native_actor["group_slot"].as_i64().unwrap();
+                    if (0..10).contains(&slot) {
+                        // Native TeamCreate1..10 stores0..9; the existing
+                        // input owner indexes displayed digits1..9,0.
+                        groups[((slot + 1) % 10) as usize].push(id);
+                    }
+                    let rgb = crate::render::palette_light::house_color_rgb(
+                        &rules.house_color_ramps,
+                        house_colors["Owner"],
+                    );
+                    assert_eq!(serde_json::json!(rgb), native_actor["house_rgb"]);
+                }
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);
                 if actor["sinking"].as_bool().unwrap_or(false) {
@@ -349,12 +403,17 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     })
                     .collect();
                 assert_eq!(
-                    strip.fills.len(),
+                    strip.fills.len() + usize::from(strip.self_heal.is_some()),
                     native_pips.len(),
                     "{} actor{index} pip commands",
                     row["name"]
                 );
-                for (instance, draw) in strip.fills.iter().zip(native_pips) {
+                for (instance, draw) in strip
+                    .fills
+                    .iter()
+                    .chain(strip.self_heal.iter())
+                    .zip(native_pips)
+                {
                     assert_eq!(draw["flags"], 0x600);
                     let expected = overlay
                         .pips()
@@ -473,6 +532,22 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 parent.status = Some(strip);
                 parents.push(parent);
             }
+            if let Some(font) = &font {
+                let labels = crate::app::presentation::ui_overlays::build_control_group_status_render_instances(
+                    &sim, &groups,
+                    input["actors"].as_array().unwrap().iter().enumerate()
+                        .find(|(_, actor)| actor["hovered"].as_bool().unwrap_or(false))
+                        .map(|(index, _)| if index == 0 { 901 } else { 2 }),
+                    Some(owner), false, &house_colors, &rules.house_color_ramps,
+                    font, cam.camera_pos, size[0] as f32, size[1] as f32,
+                    tactical_clip.map(|value| value as i32), Some(rules),
+                );
+                let mut labels = labels;
+                for parent in &mut parents {
+                    parent.status.as_mut().unwrap().group =
+                        labels.remove(&parent.parent.id).unwrap_or_default();
+                }
+            }
             let a_input =
                 vec![input["a_value"].as_u64().unwrap() as u8; (size[0] * size[1]) as usize];
             let a = ShroudBuffer::fixture(&gpu.device, &gpu.queue, size, cam.camera_pos, &a_input);
@@ -533,7 +608,9 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     None,
                     None,
                     batch.default_zshape_bind_group(),
-                    overlay_resource(&overlay, &pool),
+                    overlay_resource(&overlay, &pool).map(|(overlay, buffer)| {
+                        (overlay, buffer, font.as_ref().map(|font| font.atlas()))
+                    }),
                 );
                 let reads = [
                     gpu.read(&mut encoder, &color),
@@ -582,6 +659,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                 &batch,
                 Some(&overlay),
                 pool.get("object_extras").map(|(buffer, _)| buffer),
+                font.as_ref().map(|font| font.atlas()),
                 &layer,
             );
             if category == EntityCategory::Unit {
@@ -610,6 +688,9 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             background: *background,
                             fills: fills.clone(),
                             scale: scale.clone(),
+                            group_rectangles: 0..0,
+                            group_text: 0..0,
+                            self_heal: None,
                         });
                         fenced.extras_runs.push(ObjectExtrasRun::Lines {
                             parent: parent + 1000,
@@ -626,6 +707,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         &batch,
                         Some(&overlay),
                         pool.get("object_extras").map(|(buffer, _)| buffer),
+                        font.as_ref().map(|font| font.atlas()),
                         &fenced,
                     );
                     assert!(

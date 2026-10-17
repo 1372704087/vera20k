@@ -1829,9 +1829,12 @@ pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: 
         0..=2 => {
             let group = command + 1;
             if right {
-                if let Some(members) = state.match_state.input.control_groups.get_mut(group) {
-                    members.clear();
-                }
+                let sim = state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .map(|runtime| &runtime.simulation);
+                clear_control_group(&mut state.match_state.input.control_groups, group, sim);
                 return;
             }
             HotkeyCommand::TeamSelect(group)
@@ -3067,6 +3070,26 @@ fn assign_control_group(groups: &mut [Vec<u64>], slot: usize, ids: Vec<u64>) {
     groups[slot] = ids;
 }
 
+/// TeamClear7310D0, reached by the command bar at6D0990. Eligibility is
+/// tested before touching+214, so ineligible live members retain their slot.
+/// Missing objects have no native field and are pruned from the host index.
+fn clear_control_group(
+    groups: &mut [Vec<u64>],
+    slot: usize,
+    sim: Option<&crate::sim::world::Simulation>,
+) {
+    let Some(members) = groups.get_mut(slot) else {
+        return;
+    };
+    let Some(sim) = sim else {
+        // With no world every retained ID is absent, as on world cleanup.
+        members.clear();
+        return;
+    };
+    let eligible: HashSet<_> = live_group_members(Some(sim), members).into_iter().collect();
+    members.retain(|id| sim.entities().get(*id).is_some() && !eligible.contains(id));
+}
+
 /// Apply TeamAssign's clear-then-set effects to the Rust group index.
 /// TeamAssign731060 skips both effects for an ineligible owner, so those live
 /// members keep their slot latent until their owner becomes eligible again.
@@ -3076,17 +3099,11 @@ fn reassign_control_group(
     selected: &[u64],
     sim: &crate::sim::world::Simulation,
 ) {
-    let retained_ineligible = groups[slot]
-        .iter()
-        .copied()
-        .filter(|id| {
-            sim.entities()
-                .get(*id)
-                .is_some_and(|entity| !sim.house_is_control_group_eligible(entity.owner()))
-        })
-        .collect::<Vec<_>>();
+    //73109E..7310BF performs the same eligible clear before setting the
+    //selected field. Reuse its owner instead of copying the eligibility gate.
+    clear_control_group(groups, slot, Some(sim));
     let eligible_selected = live_group_members(Some(sim), selected);
-    let mut target_members = retained_ineligible;
+    let mut target_members = groups[slot].clone();
     target_members.extend(eligible_selected);
     assign_control_group(groups, slot, target_members);
 }
@@ -3136,7 +3153,10 @@ fn trimmed_centroid_leptons(points: &[(i64, i64)]) -> Option<(i64, i64)> {
 /// Leptons per cell.
 const LEPTONS_PER_CELL: i64 = crate::util::lepton::LEPTONS_PER_CELL_I32 as i64;
 
-/// Live members of a control group, in the sim's iteration order.
+/// Existing eligible members in retained membership order. Assignment, clear
+/// and recall share this entity-level filter; the House owner decides the
+/// mode-zero PlayerControl/nonzero current-House predicate. Limbo policy is
+/// left to the selection consumer, rather than added to assignment or clear.
 fn live_group_members(sim: Option<&crate::sim::world::Simulation>, group: &[u64]) -> Vec<u64> {
     let Some(sim) = sim else {
         return Vec::new();
@@ -3634,8 +3654,8 @@ mod deploy_key_tests {
 mod control_group_tests {
     use super::{
         GroupPressAction, KeyModifiers, append_group_members_to_selection, assign_control_group,
-        control_group_action_for_input, control_group_press_action, live_group_members,
-        reassign_control_group, trimmed_centroid_leptons,
+        clear_control_group, control_group_action_for_input, control_group_press_action,
+        live_group_members, reassign_control_group, trimmed_centroid_leptons,
     };
     use std::time::Duration;
 
@@ -3913,6 +3933,135 @@ mod control_group_tests {
         );
     }
 
+    /// Original7310D0 tests the same House gate as731060 before clearing
+    /// matching+214. An object that changed owner keeps its latent slot;
+    /// deleting the object removes the field rather than a ghost membership.
+    #[test]
+    fn command_bar_team_clear_preserves_latent_ineligible_members() {
+        use crate::sim::world::Simulation;
+
+        for multiplayer in [false, true] {
+            let mut sim = Simulation::new();
+            let local = house(&mut sim, "Local", false, true);
+            let ai = house(&mut sim, "AI", false, false);
+            let human_only = house(&mut sim, "HumanOnly", true, false);
+            group_entity(&mut sim, 1, local);
+            group_entity(&mut sim, 2, ai);
+            group_entity(&mut sim, 3, human_only);
+            sim.session.game_mode_nonzero = multiplayer;
+            sim.session.current_house = Some(local);
+            let mut groups = vec![Vec::new(); 10];
+            groups[1] = vec![1, 2, 3, 99];
+            groups[2] = vec![4];
+            let before = sim.state_hash();
+
+            // This is the actual command-bar mutation endpoint, retaining
+            // the production digit1 -> Rust slot1 mapping.
+            clear_control_group(&mut groups, 1, Some(&sim));
+            assert_eq!(
+                groups[1],
+                [2, 3],
+                "native7310FD/731105 skips ineligible owners in mode{multiplayer}; absent99 has no field"
+            );
+            assert_eq!(groups[2], [4], "clearing1 cannot alter another slot");
+            assert_eq!(
+                sim.state_hash(),
+                before,
+                "group clear writes no gameplay state or timers"
+            );
+            assert!(live_group_members(Some(&sim), &groups[1]).is_empty());
+
+            sim.change_owner(2, local);
+            assert_eq!(
+                live_group_members(Some(&sim), &groups[1]),
+                [2],
+                "the original membership is usable after the owner becomes eligible again"
+            );
+        }
+    }
+
+    #[test]
+    fn team_assign_and_command_bar_clear_match_original_assignment_controls() {
+        let native =
+            crate::test_fixture::json("tools/procedural_drawing_oracle/control_group_status.json");
+        let controls = native["assignment_controls"].as_array().unwrap();
+        assert!(!controls.is_empty());
+        for row in controls {
+            let input = &row["input"];
+            let mut sim = crate::sim::world::Simulation::new();
+            let owners = [
+                house(&mut sim, "CurrentHouse", false, false),
+                house(&mut sim, "OtherHouse", false, false),
+            ];
+            sim.session.game_mode_nonzero = input["mode"].as_u64().unwrap() != 0;
+            sim.session.current_house = Some(owners[0]);
+            let actors = input["actors"].as_array().unwrap();
+            let mut groups = vec![Vec::new(); 10];
+            let mut selected = Vec::new();
+            for (index, actor) in actors.iter().enumerate() {
+                let id = index as u64 + 1;
+                let owner = owners[actor["owner"].as_u64().unwrap() as usize];
+                sim.houses.get_mut(&owner).unwrap().player_control =
+                    actor["player_control"].as_bool().unwrap();
+                group_entity(&mut sim, id, owner);
+                let is_selected = actor["selected"].as_bool().unwrap();
+                sim.entities_mut()
+                    .get_mut(id)
+                    .unwrap()
+                    .selection
+                    .set_selected_for_test(is_selected);
+                if is_selected {
+                    selected.push(id);
+                }
+                let field = actor["group_slot"].as_i64().unwrap();
+                if (0..10).contains(&field) {
+                    // Native field0..9 maps to displayed/Rust digits1..9,0.
+                    groups[(field as usize + 1) % 10].push(id);
+                }
+            }
+            let fields = |groups: &[Vec<u64>]| {
+                (1..=actors.len() as u64)
+                    .map(|id| {
+                        let memberships: Vec<_> = groups
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(slot, group)| group.contains(&id).then_some(slot))
+                            .collect();
+                        assert!(memberships.len() <= 1, "one native+214 field per object");
+                        memberships
+                            .first()
+                            .map_or(-1, |&slot| ((slot + 9) % 10) as i32)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for step in row["steps"].as_array().unwrap() {
+                assert_eq!(serde_json::json!(fields(&groups)), step["before"], "{row}");
+                let command = &step["command"];
+                let parameter = command["group"].as_u64().unwrap() as usize;
+                assert!((1..=10).contains(&parameter));
+                let slot = parameter % 10;
+                let before = sim.state_hash();
+                match command["operation"].as_str().unwrap() {
+                    "assign" => reassign_control_group(&mut groups, slot, &selected, &sim),
+                    "clear" => clear_control_group(&mut groups, slot, Some(&sim)),
+                    other => panic!("unsupported original assignment operation {other}"),
+                }
+                assert_eq!(
+                    serde_json::json!(fields(&groups)),
+                    step["after"],
+                    "{row}: {step}"
+                );
+                assert_eq!(
+                    sim.state_hash(),
+                    before,
+                    "input membership cannot write gameplay timers"
+                );
+                assert_eq!(step["timers_unchanged"], true);
+            }
+            assert!(row["rng_entries"].as_array().unwrap().is_empty());
+        }
+    }
+
     #[test]
     fn shift_group_add_preserves_a_legitimately_selected_enemy() {
         use crate::sim::world::Simulation;
@@ -4089,9 +4238,11 @@ mod control_group_tests {
                 sim.entities().get(27).expect("retained ORCA"),
             );
         let selected_ground = render(&sim, &groups, None);
+        assert_eq!(selected_ground.len(), 1);
+        let selected_ground = selected_ground.get(&27).expect("ORCA's admitted label");
         assert_eq!(selected_ground.text.len(), 1);
-        assert_eq!(selected_ground.background.len(), 1);
-        assert_eq!(selected_ground.outline.len(), 4);
+        assert_eq!(selected_ground.rectangles.len(), 5);
+        assert_eq!(selected_ground.rectangles[0].tint, [0.0; 3]);
         let ground_text_position = selected_ground.text[0].position;
 
         {
@@ -4104,6 +4255,8 @@ mod control_group_tests {
                 sim.entities().get(27).expect("retained ORCA"),
             );
         let hovered_airborne = render(&sim, &groups, Some(27));
+        assert_eq!(hovered_airborne.len(), 1);
+        let hovered_airborne = hovered_airborne.get(&27).expect("hovered ORCA's label");
         assert_eq!(hovered_airborne.text.len(), 1);
         let airborne_text_position = hovered_airborne.text[0].position;
         assert_eq!(airborne_text_position[0], ground_text_position[0]);
@@ -4128,21 +4281,21 @@ mod control_group_tests {
             ),
             vec![(27, '0')]
         );
-        assert_eq!(render(&sim, &groups, Some(27)).text.len(), 1);
+        assert_eq!(render(&sim, &groups, Some(27))[&27].text.len(), 1);
 
         sim.entities_mut()
             .get_mut(27)
             .expect("retained ORCA")
             .selection
             .set_selected_for_test(false);
-        assert!(render(&sim, &groups, None).text.is_empty());
+        assert!(render(&sim, &groups, None).is_empty());
         assign_control_group(&mut groups, registered_slot("TeamCreate_10"), Vec::new());
         sim.entities_mut()
             .get_mut(27)
             .expect("retained ORCA")
             .selection
             .set_selected_for_test(true);
-        assert!(render(&sim, &groups, None).text.is_empty());
+        assert!(render(&sim, &groups, None).is_empty());
     }
 
     #[test]
@@ -4417,8 +4570,12 @@ mod control_group_tests {
                 None,
             )
         };
-        let group_glyphs =
-            |groups: &[Vec<u64>], hovered_unit_id| group_overlay(groups, hovered_unit_id).text;
+        let group_glyphs = |groups: &[Vec<u64>], hovered_unit_id| {
+            group_overlay(groups, hovered_unit_id)
+                .into_values()
+                .flat_map(|parent| parent.text)
+                .collect::<Vec<_>>()
+        };
         let registered_create_slot = |name: &str| {
             let command = crate::app::input::hotkeys::catalog::registered_commands()
                 .iter()
@@ -4436,15 +4593,25 @@ mod control_group_tests {
         assign_control_group(&mut groups, create_one_slot, vec![17, 18, 19]);
         assert_eq!(projected(&groups, None), vec![(17, '1')]);
         let group_one = group_overlay(&groups, None);
+        assert_eq!(group_one.len(), 1);
+        let group_one = group_one.get(&17).expect("assigned unit's group1 label");
         assert_eq!(group_one.text.len(), 1);
-        assert_eq!(group_one.background.len(), 1);
-        assert_eq!(group_one.outline.len(), 4);
+        assert_eq!(group_one.rectangles.len(), 5);
+        assert_eq!(group_one.rectangles[0].tint, [0.0; 3]);
         assert_eq!(projected(&groups, Some(17)), vec![(17, '1')]);
         let first_glyph = group_glyphs(&groups, Some(17));
         assert_eq!(first_glyph.len(), 1);
         let hovered_labels = projected(&groups, Some(18));
         assert!(hovered_labels.contains(&(17, '1')));
         assert!(hovered_labels.contains(&(18, '1')));
+        assert_eq!(
+            group_overlay(&groups, Some(18))
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [17, 18],
+            "each admitted selected/hovered parent retains its own label"
+        );
         assert_eq!(group_glyphs(&groups, Some(18)).len(), 2);
         assert_eq!(
             projected(&groups, Some(19)),
@@ -4455,25 +4622,27 @@ mod control_group_tests {
         assign_control_group(&mut groups, 2, vec![17, 18, 19]);
         assert_eq!(projected(&groups, None), vec![(17, '2')]);
         let group_two = group_overlay(&groups, None);
+        assert_eq!(group_two.len(), 1);
+        let group_two = group_two.get(&17).expect("assigned unit's group2 label");
         assert_eq!(group_two.text.len(), 1);
-        assert_eq!(group_two.background.len(), 1);
-        assert_eq!(group_two.outline.len(), 4);
+        assert_eq!(group_two.rectangles.len(), 5);
+        assert_eq!(group_two.rectangles[0].tint, [0.0; 3]);
 
         let create_zero_slot = registered_create_slot("TeamCreate_10");
         assert_eq!(create_zero_slot, 0);
         assign_control_group(&mut groups, create_zero_slot, vec![17]);
         assert_eq!(projected(&groups, None), vec![(17, '0')]);
         let group_zero = group_overlay(&groups, None);
+        assert_eq!(group_zero.len(), 1);
+        let group_zero = group_zero.get(&17).expect("assigned unit's group0 label");
         assert_eq!(group_zero.text.len(), 1);
-        assert_eq!(group_zero.background.len(), 1);
-        assert_eq!(group_zero.outline.len(), 4);
+        assert_eq!(group_zero.rectangles.len(), 5);
+        assert_eq!(group_zero.rectangles[0].tint, [0.0; 3]);
 
         assign_control_group(&mut groups, 0, Vec::new());
         assert!(projected(&groups, None).is_empty());
         let no_group_overlay = group_overlay(&groups, None);
-        assert!(no_group_overlay.text.is_empty());
-        assert!(no_group_overlay.background.is_empty());
-        assert!(no_group_overlay.outline.is_empty());
+        assert!(no_group_overlay.is_empty());
 
         assign_control_group(&mut groups, 0, vec![17]);
         sim.entities_mut().remove(17);
@@ -4504,7 +4673,6 @@ mod control_group_tests {
                 [0, 0, 800, 600],
                 None,
             )
-            .text
             .is_empty()
         );
     }
@@ -4789,12 +4957,14 @@ mod control_group_tests {
                 "the assignment reaches the same live production projection"
             );
 
-            let anchor = crate::app::presentation::instances::interpolated_screen_position_entity(
+            let coord = crate::sim::movement::ground_pose::object_get_coords(
                 sim.entities().get(1).expect("retained live entity"),
+                sim.resolved_terrain.as_ref(),
             );
-            // Align the production entity's Rust screen anchor to the native
-            // caller fixture. The comparison then exercises the real text
-            // builder's anchor, font measurement, glyph and viewport-cull path.
+            let anchor = crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z);
+            // Align the actual GetCoords/integer-projection caller prior to
+            // the native tail fixture. Foundation adjustment, measurement,
+            // glyph geometry and clipping remain the producer's work.
             let camera = [anchor.0 - native_x, anchor.1 - native_y];
             let (sw, sh) = if label == "outside" {
                 (100.0, 100.0)
@@ -4824,27 +4994,24 @@ mod control_group_tests {
                         .expect("native clip has four xywh values"),
                     None,
                 );
-            let glyphs = &overlay_instances.text;
             if label == "outside" {
-                assert!(glyphs.is_empty(), "the off-viewport native case is culled");
                 assert!(
-                    overlay_instances.background.is_empty(),
-                    "the off-viewport native case does not draw its black fill"
-                );
-                assert!(
-                    overlay_instances.outline.is_empty(),
-                    "the off-viewport native case does not draw its colored outline"
+                    overlay_instances.is_empty(),
+                    "the off-viewport native case admits no fill, outline or glyph parent"
                 );
                 continue;
             }
+            assert_eq!(overlay_instances.len(), 1, "one retained native actor");
+            let overlay_instances = overlay_instances.get(&1).expect("native actor's label");
+            let glyphs = &overlay_instances.text;
 
             assert_eq!(glyphs.len(), 1, "native case {label} emits one digit quad");
             assert_eq!(
-                overlay_instances.background.len(),
-                1,
+                overlay_instances.rectangles.len(),
+                5,
                 "native case {label} emits the black fill before its outline and glyph"
             );
-            let native_fill = &overlay_instances.background[0];
+            let native_fill = &overlay_instances.rectangles[0];
             assert_eq!(
                 native_fill.tint, [0.0; 3],
                 "native background_fill color_arg 0 is rendered as black"
@@ -4879,7 +5046,16 @@ mod control_group_tests {
                     "native case {label} background fill axis {axis}"
                 );
             }
-            assert_eq!(overlay_instances.outline.len(), 4);
+            assert_eq!(overlay_instances.rectangles[1..].len(), 4);
+            // The expected packed word is observed at the original surface
+            // call. Keep native word extraction and display expansion with
+            // their existing format/profile owners, after the House lookup.
+            let [red, green, blue] =
+                crate::render::native_surface_format::RGB565.unpack_rgb8(packed_rgb);
+            let [red, green, blue, _] =
+                crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+                    .quantize_rgba8([red, green, blue, 255]);
+            let expected_tint = [red, green, blue].map(|channel| f32::from(channel) / 255.0);
             let expected_outline = [
                 (
                     [expected_fill[0], expected_fill[1]],
@@ -4901,8 +5077,9 @@ mod control_group_tests {
                     [1.0, expected_fill[3] - 2.0],
                 ),
             ];
-            for (line, (expected_position, expected_size)) in
-                overlay_instances.outline.iter().zip(expected_outline)
+            for (line, (expected_position, expected_size)) in overlay_instances.rectangles[1..]
+                .iter()
+                .zip(expected_outline)
             {
                 assert_eq!(
                     [line.position[0] - camera[0], line.position[1] - camera[1],],
@@ -4911,9 +5088,8 @@ mod control_group_tests {
                 );
                 assert_eq!(line.size, expected_size, "native case {label} outline size");
                 assert_eq!(
-                    line.tint,
-                    house_rgb.map(|channel| f32::from(channel) / 255.0),
-                    "native case {label} outline uses direct House+0x56F9 RGB"
+                    line.tint, expected_tint,
+                    "native case {label} outline presents the direct House+0x56F9 packed RGB"
                 );
             }
             let expected_width = metrics[digit_index]["glyph_width"]
@@ -4925,9 +5101,8 @@ mod control_group_tests {
                 "native case {label} uses the pinned GAME.FNT glyph metrics"
             );
             assert_eq!(
-                glyphs[0].tint,
-                house_rgb.map(|channel| f32::from(channel) / 255.0),
-                "native case {label} uses House+0x56F9 through the existing RGB owner"
+                glyphs[0].tint, expected_tint,
+                "native case {label} presents House+0x56F9 through the existing RGB owner"
             );
             assert_eq!(
                 font.text_width(digit),

@@ -935,7 +935,7 @@ class ReadyBuildingFixture:
         self.identities[product] = name + '_product'
         return result
 
-    def click(self, name, *, right=False, kind=6, tab=None):
+    def click(self, name, *, right=False, kind=6, tab=None, shift=False):
         if tab is None:
             tab = 1 if name == 'GAPILL' else 0
         index = self.get(self.f.types[name] + 0xDF8)
@@ -946,7 +946,7 @@ class ReadyBuildingFixture:
         visible_slot = slots[0] - 2 * self.get(STRIPS[tab] + 0x44)
         assert 0 <= visible_slot < 60
         return self.invoke(0x6AAD00, 0xB07E80 + (tab * 60 + visible_slot) * 56,
-                           0x10 if right else 1, self.key, 0)
+                           0x10 if right else 1, self.key, int(shift))
 
     def preview(self, xy):
         self.u.mem_write(self.cell_arg, struct.pack('<2h', *xy))

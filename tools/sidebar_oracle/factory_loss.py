@@ -383,7 +383,13 @@ def sale_sidebar_setup(root):
     return m
 
 
-def sale_sidebar_state(m, factory):
+def sale_sidebar_state(m, factory, *, request_projection=False):
+    """Shared sidebar/Factory observer with an explicit new request projection.
+
+    Historical corpora called record+24 (the dirty byte) ``request_state``.
+    Preserve their default schema/bytes; the opt-in reads actual request+10
+    and observes its predicted clock, including the no-Factory interval.
+    """
     from tools.spatial_oracle.factory_cadence import state as factory_state
     u, get = m.u, m.get
     strip = c.STRIPS[2]
@@ -396,23 +402,38 @@ def sale_sidebar_state(m, factory):
             continue
         linked = get(record + 12)
         held = get(linked + 0x58) if linked else 0
-        entries.append(dict(name=names[index], kind=kind, slot=slot,
-            request_state=get(record + 24), linked=bool(linked),
-            linked_held_type=m.type_names.get(get(held + 0x6C0)) if held else None))
-    held = get(factory + 0x58)
-    raw = bytes(u.mem_read(factory, 0x74))
+        entry = dict(name=names[index], kind=kind, slot=slot,
+            request_state=get(record + (16 if request_projection else 24)),
+            linked=bool(linked),
+            linked_held_type=m.type_names.get(get(held + 0x6C0)) if held else None)
+        if request_projection:
+            entry.update(predicted_stage=struct.unpack('<i', u.mem_read(record + 20, 4))[0],
+                predicted_rate=struct.unpack('<i', u.mem_read(record + 40, 4))[0],
+                increment=struct.unpack('<i', u.mem_read(record + 44, 4))[0],
+                prediction_timer=dict(start=struct.unpack('<i', u.mem_read(record + 28, 4))[0],
+                                      duration=struct.unpack('<i', u.mem_read(record + 36, 4))[0]))
+        entries.append(entry)
     credits = struct.unpack('<i', u.mem_read(m.er.HOUSE + 0x30C, 4))[0]
     spent = struct.unpack('<i', u.mem_read(m.er.HOUSE + 0x2DC, 4))[0]
-    return dict(frame=get(bc.FRAME), house_recheck=u.mem_read(m.er.HOUSE + 0x1FC, 1)[0],
-        total_entries=get(strip + 0x54), entries=entries,
-        mission=struct.unpack('<i', u.mem_read(m.bar + 0xAC, 4))[0],
-        barracks_limbo=u.mem_read(m.bar + 0x81, 1)[0],
-        factory=dict(factory_state(raw, credits, spent),
+    current_factory = None
+    if factory:
+        held = get(factory + 0x58)
+        raw = bytes(u.mem_read(factory, 0x74))
+        current_factory = dict(factory_state(raw, credits, spent),
             changed=bool(raw[0x5D]),
             held_type=m.type_names.get(get(held + 0x6C0)) if held else None,
             held_id=get(held + 0x10) if held else None,
             queue=[m.type_names[get(get(factory + 0x44) + i * 4)]
-                   for i in range(get(factory + 0x50))]))
+                   for i in range(get(factory + 0x50))])
+    result = dict(frame=get(bc.FRAME), house_recheck=u.mem_read(m.er.HOUSE + 0x1FC, 1)[0],
+        total_entries=get(strip + 0x54), entries=entries,
+        mission=struct.unpack('<i', u.mem_read(m.bar + 0xAC, 4))[0],
+        barracks_limbo=u.mem_read(m.bar + 0x81, 1)[0],
+        factory=current_factory)
+    if request_projection:
+        result.update(credits=credits, spent=spent,
+            category_request_bytes=list(u.mem_read(m.er.HOUSE + 0x53D0, 9)))
+    return result
 
 
 def sale_sidebar_events(m):
@@ -852,6 +873,307 @@ def held_factory_observer(m, factory, product, *, extra_calls=(), extra_state=No
         return result
 
     return state, phase, phases
+
+
+class PendingProductionObservation:
+    """Observe selected native request/clock boundaries in the existing VM.
+
+    The shared sidebar state reader owns the fields. This collector adds no
+    admission, production, timer or arithmetic implementation.
+    """
+
+    NUMERIC_FIELDS = {
+        0x6AB864: (('cost_times_ahead_low_i32', UC_X86_REG_ECX),),
+        0x6AB879: (('minimum_step_credits_i32', UC_X86_REG_EDI),
+                   ('available_money_i32', UC_X86_REG_EAX)),
+        0x6AB8A9: (('type_base_duration_i32', UC_X86_REG_EAX),),
+        0x6AB8E9: (('duration_i32', UC_X86_REG_EDI),
+                   ('ahead_plus_fifteen_i32', UC_X86_REG_ECX)),
+        0x6AB920: (('initial_rate_i32', UC_X86_REG_EDX),),
+        0x6AB5B3: (('smoothed_stage_i32', UC_X86_REG_EAX),),
+        0x6AB5C3: (('actual_rate_before_increment_i32', UC_X86_REG_EAX),),
+    }
+
+    def __init__(self, m):
+        self.m = m
+        self.numeric, self.timer_writes, self.rng_states = [], [], {}
+        self.clock_records = self.records()
+        m.watch.update({0x4FA910: ('house_suspend', 3, 12),
+            0x4C9E60: ('factory_suspend', 1, 4),
+            0x711EE0: ('type_base_duration', 0, 0),
+            0x711F00: ('type_cost', 1, 4),
+            0x4F6990: ('available_money', 1, 4),
+            0x4C9FB0: ('factory_prediction_rate', 0, 0),
+            0x6F47A0: ('time_to_build', 0, 0),
+            0x4C98B0: ('factory_constructor', 0, 0),
+            0x517A50: ('infantry_constructor', 2, 8),
+            0x517D90: ('infantry_destructor', 0, 0),
+            0x68BCB0: ('next_identity', 0, 0)})
+        self.call_names = {value[0] for value in m.watch.values()}
+        self.code_hook = m.u.hook_add(UC_HOOK_CODE, self.observe)
+        self.write_hook = m.u.hook_add(UC_HOOK_MEM_WRITE, self.write)
+
+    def close(self):
+        self.m.u.hook_del(self.code_hook)
+        self.m.u.hook_del(self.write_hook)
+
+    def records(self):
+        m, strip = self.m, c.STRIPS[2]
+        names = {m.get(m.f.types[name] + 0xDF8): name for name in SALE_INFANTRY}
+        return {names[m.get(record)]: record
+                for slot in range(m.get(strip + 0x54))
+                for record in (strip + 0x58 + slot * 52,)
+                if m.get(record + 4) == 16 and m.get(record) in names}
+
+    def observe(self, u, pc, _size, _data):
+        m = self.m
+        if pc == 0x4C98B0:
+            factory = u.reg_read(UC_X86_REG_ECX)
+            # Register only the actually entered constructor receiver. This
+            # lets the existing timer observer see its initial real writes.
+            m.factories['pending_infantry'] = factory
+            m.identities[factory] = 'infantry_factory'
+        elif pc == 0x517A50:
+            m.identities[u.reg_read(UC_X86_REG_ECX)] = 'held_infantry'
+        if pc in self.NUMERIC_FIELDS:
+            self.numeric.append(dict(pc=hex(pc), **{
+                name: struct.unpack('<i', c.dwords(u.reg_read(register)))[0]
+                for name, register in self.NUMERIC_FIELDS[pc]}))
+
+    def write(self, u, _access, address, size, value, _data):
+        # Only selected presentation clocks; existing ReadyBuildingFixture
+        # owns gameplay timer observation. Padding is deliberately excluded.
+        for name, record in self.clock_records.items():
+            if address in (record + 28, record + 36):
+                self.timer_writes.append(dict(type=name,
+                    field='start' if address == record + 28 else 'duration',
+                    pc=hex(u.reg_read(UC_X86_REG_EIP)), size=size,
+                    before=bytes(u.mem_read(address, size)).hex(),
+                    after=(value & ((1 << (size * 8)) - 1)).to_bytes(size, 'little').hex()))
+
+    def state(self):
+        return sale_sidebar_state(self.m, self.m.get(self.m.er.HOUSE + 0x53B0),
+                                  request_projection=True)
+
+    def rng_refs(self, streams):
+        result = {}
+        for name, encoded in streams.items():
+            digest = hashlib.sha256(bytes.fromhex(encoded)).hexdigest()
+            self.rng_states.setdefault(digest, encoded)
+            assert self.rng_states[digest] == encoded
+            result[name] = digest
+        return result
+
+    def phase(self, name, operation, *, allow_construction=False, allow_detach=False):
+        m = self.m
+        before = self.state()
+        cursor = m.get(m.get(0xA8B230) + 0x214)
+        self.clock_records = self.records()
+        marks = len(self.numeric), len(self.timer_writes)
+        evidence = m.step(name, operation)
+        after = self.state()
+        assert evidence['native_code_unchanged']
+        calls = []
+        for row in evidence['native_calls']:
+            if row['name'] not in self.call_names:
+                continue
+            call = dict(name=row['name'], caller=row['caller'], args_raw=row['args'])
+            if 'return_eax' in row:
+                call['return_eax_raw'] = row['return_eax']
+                if row['name'] in ('type_base_duration', 'type_cost', 'available_money',
+                                   'time_to_build', 'factory_prediction_rate'):
+                    call['return_i32'] = struct.unpack('<i', c.dwords(row['return_eax']))[0]
+            if row['name'] == 'eva':
+                call['request'] = m.inputs.string(int(row['ecx'], 16))
+            calls.append(call)
+        constructors = sum(row['name'] in ('factory_constructor', 'infantry_constructor')
+                           for row in calls)
+        detaches = sum(row['name'] in ('object_detach', 'dispatch_pointer_expired') for row in calls)
+        destructors = sum(row['name'] in ('infantry_destructor', 'factory_scalar_delete') for row in calls)
+        identity_delta = m.get(m.get(0xA8B230) + 0x214) - cursor
+        if not allow_construction:
+            assert constructors == identity_delta == 0
+        if not allow_detach:
+            assert detaches == destructors == 0
+        factory = m.get(m.er.HOUSE + 0x53B0)
+        timers = [dict(field='start' if int(row['address'], 16) - factory == 0x2C else 'duration',
+                       pc=row['pc'], size=row['size'], before=row['before'], after=row['after'])
+                  for row in evidence['timer_writes']
+                  if factory and int(row['address'], 16) - factory in (0x2C, 0x34)]
+        before_rng, after_rng = evidence['before']['rng'], evidence['after']['rng']
+        return dict(name=name, before=before, after=after,
+            events=sale_sidebar_events(m), calls=calls,
+            numeric_reads=self.numeric[marks[0]:],
+            prediction_timer_writes=self.timer_writes[marks[1]:], factory_timer_writes=timers,
+            constructor_count=constructors, detach_count=detaches, destructor_count=destructors,
+            identity_delta=identity_delta, rng=dict(before=self.rng_refs(before_rng),
+                after=self.rng_refs(after_rng), unchanged=before_rng == after_rng,
+                requests=evidence['rng_requests'], ranged_advances=evidence['rng_advances']))
+
+
+def pending_production_generate():
+    """Original first-click controls, plus explicitly prepared numeric inputs."""
+    m = sale_sidebar_setup(sale_sidebar_root())
+    u, get = m.u, m.get
+    observation = PendingProductionObservation(m)
+    histories, numeric = [], []
+
+    def prepare(*, frame=100, ahead=0):
+        m.restore()
+        u.mem_write(bc.FRAME, c.dwords(frame))
+        # A test input, not proof of offline startup's initialized MaxAhead.
+        u.mem_write(0xA8B550, c.dwords(ahead))
+        assert not get(m.er.HOUSE + 0x53B0) and not get(0xA802C8)
+
+    def click(name='E2', *, right=False, shift=False):
+        return m.click(name, right=right, shift=shift, kind=16, tab=2)
+
+    def advance_prediction(frames):
+        u.mem_write(bc.FRAME, c.dwords(get(bc.FRAME) + frames))
+        return m.invoke(0x6A8B30, c.STRIPS[2], 0, 0)
+
+    def entries(phase):
+        return {entry['name']: entry for entry in phase['after']['entries']}
+
+    def assert_no_init(phase, request):
+        entry = entries(phase)['E2']
+        assert entry['request_state'] == request
+        assert entry['predicted_stage'] == entry['predicted_rate'] == 0
+        assert entry['prediction_timer']['duration'] == 0 and entry['increment'] == 1
+
+    try:
+        for shift in (False, True):
+            prepare()
+            phases = [observation.phase('left_idle', click),
+                      observation.phase('first_predicted_due', lambda: advance_prediction(1)),
+                      observation.phase('right_pending', lambda: click(right=True, shift=shift)),
+                      observation.phase('repeat_right_pending', lambda: click(right=True, shift=shift)),
+                      observation.phase('held_prediction_frozen', lambda: advance_prediction(5)),
+                      observation.phase('receive_produce_then_suspend', m.receive, allow_construction=True)]
+            assert entries(phases[0])['E2']['request_state'] == 1
+            assert phases[0]['after']['factory'] is None
+            assert entries(phases[2])['E2']['request_state'] == 2
+            assert [event['kind'] for event in phases[2]['events']] == [14, 15]
+            assert phases[3]['events'] == phases[2]['events']
+            assert entries(phases[4])['E2']['predicted_stage'] == entries(phases[2])['E2']['predicted_stage']
+            assert entries(phases[5])['E2']['request_state'] == 2
+            assert entries(phases[5])['E2']['linked']
+            assert phases[5]['after']['factory']['suspended']
+            if not shift:
+                phases += [observation.phase('left_held_resume', click),
+                           observation.phase('receive_resume', m.receive),
+                           observation.phase('same_frame_factory_ai',
+                               lambda: m.invoke(0x4C9B20, get(m.er.HOUSE + 0x53B0))),
+                           observation.phase('resumed_prediction_due', lambda: advance_prediction(2)),
+                           observation.phase('next_factory_ai',
+                               lambda: m.invoke(0x4C9B20, get(m.er.HOUSE + 0x53B0))),
+                           observation.phase('strip_no_init', lambda: m.invoke(0x6A4F20, c.SIDEBAR, 0)),
+                           observation.phase('strip_clear', lambda: m.invoke(0x6A81B0, c.STRIPS[2]))]
+                assert not phases[7]['after']['factory']['suspended']
+                assert_no_init(phases[-2], 1)
+                assert phases[-1]['after']['total_entries'] == 0
+            else:
+                phases.append(observation.phase('held_no_init', lambda: m.invoke(0x6A4F20, c.SIDEBAR, 0)))
+                assert_no_init(phases[-1], 2)
+            histories.append(dict(name='pending_shift_right' if shift else 'idle_hold_resume',
+                inputs=dict(max_ahead=0, initial_frame=100, shift=shift), phases=phases))
+
+        prepare()
+        phases = [observation.phase('left_idle', click),
+                  observation.phase('receive_first_head', m.receive, allow_construction=True),
+                  observation.phase('left_busy_other_type', lambda: click('FLAKT')),
+                  observation.phase('receive_queued_copy', m.receive),
+                  observation.phase('right_queued_only', lambda: click('FLAKT', right=True)),
+                  observation.phase('receive_queued_abandon', m.receive)]
+        assert entries(phases[2])['FLAKT']['request_state'] == 0
+        assert not entries(phases[3])['FLAKT']['linked']
+        assert [event['kind'] for event in phases[4]['events']] == [16]
+        assert not any(row['name'] == 'eva' for row in phases[4]['calls'])
+        assert not phases[5]['after']['factory']['suspended']
+        histories.append(dict(name='busy_queued_only', inputs=dict(max_ahead=0, initial_frame=100), phases=phases))
+
+        prepare()
+        phases = [observation.phase('left_idle', click),
+                  observation.phase('repeat_left_before_receive', click),
+                  observation.phase('right_pending', lambda: click(right=True)),
+                  observation.phase('unlinked_held_no_init', lambda: m.invoke(0x6A4F20, c.SIDEBAR, 0))]
+        assert [event['kind'] for event in phases[1]['events']] == [14, 14]
+        assert [event['kind'] for event in phases[2]['events']] == [14, 14, 15]
+        assert_no_init(phases[-1], 2)
+        assert not entries(phases[-1])['E2']['linked']
+        histories.append(dict(name='repeat_left_and_unlinked_no_init',
+            inputs=dict(max_ahead=0, initial_frame=100), phases=phases))
+
+        for name, cost, speed, ahead, wallet in (
+                ('ordinary_floor_not_ceil', 100, 1.0, 0, 10000),
+                ('minimum_ahead_rounds_up', 100, 1.0, 54, 100),
+                ('affordability_below', 100, 1.0, 54, 99),
+                ('signed_low_product', 0x40000001, 1.0, 4, 0),
+                ('signed_division_toward_zero', -1, 1.0, 53, -1),
+                ('negative_duration_minimum', -100, 1.0, 0, 0),
+                ('rate_upper_clamp', 100000, 1.0, 0, 10000)):
+            prepare(ahead=ahead)
+            pointer, rules = m.f.types['E2'], get(0x8871E0)
+            u.mem_write(pointer + 0x610, c.dwords(cost))
+            u.mem_write(rules + 0x1748, struct.pack('<d', speed))
+            u.mem_write(m.er.HOUSE + 0x30C, c.dwords(wallet))
+            base = m.invoke(0x711EE0, pointer)
+            phase = observation.phase('left_numeric', click)
+            numeric.append(dict(name=name, inputs=dict(cost=cost, build_speed_bits=struct.pack('<d', speed).hex(),
+                max_ahead=ahead, wallet=wallet), base_duration_i32=struct.unpack('<i', c.dwords(base))[0], phase=phase))
+
+        for name, predicted, speed in (('smooth_greater', 53, None),
+                                       ('keep_actual_greater', 0, None),
+                                       ('resumed_rate_256', 0, 100000.0)):
+            factory, _product = sale_queue_start(m, 'E2')
+            m.invoke(0x4FA910, m.er.HOUSE, 16, get(m.f.types['E2'] + 0xDF8), 0)
+            record = observation.records()['E2']
+            u.mem_write(record + 16, c.dwords(2))
+            u.mem_write(record + 20, c.dwords(predicted))
+            if speed is not None:
+                u.mem_write(get(0x8871E0) + 0x1748, struct.pack('<d', speed))
+            phase = observation.phase('left_resume_numeric', click)
+            numeric.append(dict(name=name, inputs=dict(prepared_predicted_stage=predicted,
+                prepared_request_state=2, prepared_build_speed_bits=None if speed is None else struct.pack('<d', speed).hex(),
+                actual_stage_before=phase['before']['factory']['stage']), phase=phase))
+
+        prepare()
+        click()
+        for _ in range(52):
+            advance_prediction(1)
+        phase = observation.phase('prediction_reaches_native_limit', lambda: advance_prediction(1))
+        stopped = observation.phase('prediction_stays_stopped', lambda: advance_prediction(1))
+        assert entries(phase)['E2']['predicted_stage'] == 53
+        assert entries(phase)['E2']['predicted_rate'] == 0
+        assert entries(stopped)['E2']['predicted_stage'] == 53
+        numeric.append(dict(name='prediction_stops_at_53',
+            inputs=dict(preparation='Whole Select followed by52 original StripAI visits; no assigned progress',
+                        max_ahead=0, frame_increment=1), phase=phase, stopped_phase=stopped))
+    finally:
+        observation.close()
+    return dict(schema=1, type_inputs=m.inputs.sale_type_inputs,
+                histories=histories, numeric_controls=numeric, rng_states=observation.rng_states)
+
+
+def pending_production_metadata():
+    record = provenance(
+        scope='Original idle E2 pending Left/Right/Shift, real event hold/resume, queued-only guard, prediction numeric inputs and NoInit/clear',
+        assumptions=[
+            'Reuse existing sale_sidebar_setup physical Russian Type/country readers, ReadyBuildingFixture VM/allocator/House/map/UI/audio owners and original selected skirmish mode5 store52E10F..52E119. No second VM/parser/admission owner; full process/menu/scenario loading is excluded.',
+            'Whole Select6AAD00 creates request1 and pending Right creates2 before real local receive6474C7 executes PRODUCE14 then SUSPEND15. Real Factory/Infantry constructors, HouseBegin, Suspend1 and same-head Resume0 execute. Root production validation covers full payment/exit; native history visits only selected early FactoryAI/StripAI steps.',
+            'MaxAhead0 and the numeric matrix MaxAhead values are explicitly prepared inputs, not initialized offline/network producer evidence. Numeric controls also prepare native E2 Cost, Rules BuildSpeed and wallet; original CostOf, AvailableMoney,711EE0 and selected comparison/rate arithmetic execute unchanged.',
+            'Resumed numeric controls reuse actual paid E2+E2 preparation and original Suspend; request2/predicted stage and optional BuildSpeed are explicit component inputs. Actual Factory stage/debt/identity and Time_To_Build are observed, not reconstructed from Rust.',
+            'The request_projection option reads actual record+10. Historical sale_sidebar_state default schemas retain their mislabeled request_state observation of record+24 dirty; those old fields are not request-state proof. New corpus alone uses the corrected explicit projection.',
+            'Sidebar NoInit6A4F20 executes directly on linked request1/2 and unlinked request2, resetting progress while retaining request state. StripClear6A81B0 is a direct lifecycle boundary, not whole save stream/new-scenario execution. No native SAV compatibility or historical Factory-link persistence claim.',
+            'Each phase observes unchanged original code, all three complete RNG buffers via deduplicated SHA references, native RNG requests/advances, actual constructor/identity/detach/destructor counts, meaningful Factory and predicted clock writes. Opaque timer padding is excluded. EVA remains an observed RET4 sink; no whole audio device RNG, Draw raster or pixel claim.',
+        ],
+        substitutions=['Inherited physical-cache/arena/CRT TLS/OS/COM/DirectSound/EVA services; explicit numeric/frame priors only. No Factory, admission, payment, clock, RNG or House method is replaced.'],
+        entry_points=dict(select_action=0x6AAD00, local_receive=0x6474C7, house_begin=0x4FA350,
+            house_suspend=0x4FA910, factory_suspend=0x4C9E60, factory_resume=0x4C9EA0,
+            type_base_duration=0x711EE0, factory_prediction_rate=0x4C9FB0,
+            strip_ai=0x6A8B30, sidebar_no_init=0x6A4F20, strip_clear=0x6A81B0))
+    record['retail_inputs'] = sale_sidebar_metadata()['retail_inputs']
+    return record
 
 
 def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
@@ -2124,7 +2446,11 @@ def naval_output_metadata():
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if '--naval-output' in args:
+    if '--pending-production' in args:
+        args.remove('--pending-production')
+        finish_vectors(pending_production_generate, Path(__file__).with_name('pending_production.json'),
+                       provenance=pending_production_metadata, argv=args)
+    elif '--naval-output' in args:
         args.remove('--naval-output')
         finish_vectors(naval_output_generate, Path(__file__).with_name('factory_naval_output.json'),
                        provenance=naval_output_metadata, argv=args)

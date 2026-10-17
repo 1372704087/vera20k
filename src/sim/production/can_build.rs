@@ -344,7 +344,7 @@ pub fn object_find_factory(
 /// eligible primary wins; without one, return the last eligible building.
 /// Human PLACE4FB1DA retains this transient identity through its radio/release
 /// path. Existing null-test callers consume this same result.
-pub(crate) fn find_factory(
+pub fn find_factory(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,

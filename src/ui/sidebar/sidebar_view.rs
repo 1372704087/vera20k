@@ -14,9 +14,9 @@ use crate::sim::superweapon::SuperWeaponView;
 use super::cameo_order::{CameoId, CameoStrips};
 use super::gadget_flash::SidebarGadgetState;
 
-/// Read-only drawing inputs from one retained cameo's actual Factory link.
-/// The same Factory can appear on multiple cameos after a rearm; queue badges
-/// still use the separate House/type count.
+/// Read-only drawing inputs from one retained cameo's Factory link and pending
+/// request/clock. The same Factory can appear on multiple cameos after a rearm;
+/// queue badges still use the separate House/type count.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CameoFactoryStatus {
     pub(crate) type_id: InternedId,

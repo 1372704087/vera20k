@@ -224,6 +224,11 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         .match_presentation
         .sidebar_projection
         .reconcile_factory_links(sim, owner);
+    state
+        .match_state
+        .match_presentation
+        .sidebar_projection
+        .advance_cameo_requests(sim, owner);
     {
         let presentation = &mut state.match_state.match_presentation;
         apply_cameo_transitions(

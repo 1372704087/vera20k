@@ -25,7 +25,9 @@ pub struct StageClass {
 }
 
 impl StageClass {
-    pub(crate) const fn constructed(now: i32) -> Self {
+    /// The same semantic initial value/rate/increment as Sidebar record
+    /// constructor6AC7C0; presentation retains its own instance.
+    pub const fn constructed(now: i32) -> Self {
         Self {
             value: 0,
             changed: 0,
@@ -35,9 +37,9 @@ impl StageClass {
         }
     }
 
-    /// Original6FABC4 and4509DE: advance at most once, even after a long gap.
+    /// Original6FABC4,4509DE and StripAI6A8FBE: advance at most once, even after a long gap.
     /// The changed byte records passing the gate, including increment zero.
-    pub(crate) fn advance(&mut self, now: i32) -> bool {
+    pub fn advance(&mut self, now: i32) -> bool {
         let stepped = self.timer.expired(now) && self.rate != 0;
         self.changed = u8::from(stepped);
         if stepped {
@@ -50,7 +52,7 @@ impl StageClass {
     /// DoAction51D9D2..51DA96, Unit Unlimbo737BF5..737C75, and the
     /// existing harvesting/building receivers
     /// restart value/rate/timer while retaining the independent FC/110 fields.
-    pub(crate) fn restart(&mut self, value: i32, now: i32, rate: i32) {
+    pub fn restart(&mut self, value: i32, now: i32, rate: i32) {
         self.value = value;
         self.timer.start(now, rate);
         self.rate = rate;
@@ -66,7 +68,7 @@ impl StageClass {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn timer(&self) -> CdTimer {
+    pub const fn timer(&self) -> CdTimer {
         self.timer
     }
 

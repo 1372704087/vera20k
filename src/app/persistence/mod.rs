@@ -172,10 +172,7 @@ pub(crate) struct PreparedLoad {
     map_restore: SnapshotMapRestoreOutput,
     sinking_waterlines: Vec<(u64, i16)>,
     tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
-    sidebar_order: Option<(
-        crate::sim::intern::InternedId,
-        crate::ui::sidebar::cameo_order::CameoStrips,
-    )>,
+    sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
 
 /// Presentation changes released only after the validated world commits.
@@ -183,10 +180,7 @@ pub(crate) struct CommittedLoadPresentation {
     pub(crate) occupied_overlays: Vec<crate::map::overlay::OverlayEntry>,
     pub(crate) sinking_waterlines: Vec<(u64, i16)>,
     pub(crate) tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
-    pub(crate) sidebar_order: Option<(
-        crate::sim::intern::InternedId,
-        crate::ui::sidebar::cameo_order::CameoStrips,
-    )>,
+    pub(crate) sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
 
 /// Fixture adapter for snapshots without a production resource record.

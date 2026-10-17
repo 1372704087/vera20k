@@ -3483,7 +3483,7 @@ impl Simulation {
             ion_blasts: Vec::new(),
             terrain_speed_config: terrain_speed::TerrainSpeedConfig::default(),
             debug_event_logging: false,
-            input_delay_ticks: 2,
+            input_delay_ticks: u64::from(crate::util::config::default_input_delay_ticks()),
             quit_requested: false,
             executed_exit_owner: None,
             connection_lost: false,

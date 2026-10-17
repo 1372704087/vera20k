@@ -1000,6 +1000,13 @@ fn sidebar_cameo_press(
         category,
         type_iid,
         linked_factory.map(|(status, _)| status),
+        type_iid.and_then(|type_id| {
+            state
+                .match_state
+                .match_presentation
+                .sidebar_projection
+                .cameo_request(type_id)
+        }),
         press,
         at_build_limit,
     );
@@ -1014,6 +1021,30 @@ fn sidebar_cameo_press(
     }
     if let Some(line) = click.eva {
         push_local_eva(state, line);
+    }
+    let owner = preferred_local_owner_name(state).and_then(|name| {
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()?
+            .simulation
+            .interner
+            .get(&name)
+    });
+    if let (Some(runtime), Some(owner), Some(type_id)) =
+        (state.match_state.sim_runtime.as_ref(), owner, type_iid)
+    {
+        state
+            .match_state
+            .match_presentation
+            .sidebar_projection
+            .record_cameo_click(
+                &runtime.simulation,
+                &runtime.resources.rules,
+                owner,
+                type_id,
+                click,
+            );
     }
     match click.order {
         None => {}

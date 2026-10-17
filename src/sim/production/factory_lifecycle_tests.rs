@@ -9,6 +9,54 @@ use super::{
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
 use crate::sim::{intern::InternedId, rng::SimRng, world::Simulation};
 
+/// Begin4FA41C clears the local category prediction gate before a failed
+/// FindFactory. The resulting presentation fact must not depend on a real
+/// Factory, nor be published for a foreign House. The strip request itself
+/// belongs to the client and is tested there.
+#[test]
+fn refused_begin_still_publishes_the_local_prediction_gate_transition() {
+    use crate::sim::house_state::HouseState;
+    use crate::sim::world::{FrameEffects, LifecycleOutput};
+
+    let rules = super::tests::basic_infantry_rules();
+    let mut sim = Simulation::with_seed(0x4FA4_1C00);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner.intern("Americans");
+    sim.houses
+        .insert(owner, HouseState::new(owner, 0, None, true, 1000, 10));
+    sim.session.current_house = Some(owner);
+    let before_wallet = sim.houses[&owner].economy.clone();
+    assert!(!enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        FrameEffects::default(),
+        false
+    ));
+    assert!(
+        matches!(sim.lifecycle_outputs.as_slice(), [LifecycleOutput::ProductionBeginAttempted {
+        owner: reached, category: ProductionCategory::Infantry, naval: false,
+    }] if *reached == owner)
+    );
+    assert!(sim.production.factories.is_empty());
+    assert!(sim.entities().is_empty());
+    assert_eq!(sim.houses[&owner].economy, before_wallet);
+
+    sim.lifecycle_outputs.clear();
+    sim.session.current_house = None;
+    assert!(!enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        FrameEffects::default(),
+        false
+    ));
+    assert!(sim.lifecycle_outputs.is_empty());
+}
+
 /// Ordinary paid DEST from an already admitted Allied base. The water patch,
 /// completed buildings, running Idle animation and wallet are scene priors; payment, held identity,
 /// PLACE, producer missions and animation retirement all use the frame API.

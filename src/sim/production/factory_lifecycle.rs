@@ -113,6 +113,19 @@ pub fn enqueue_by_type(
         return false;
     };
     let owner_id = sim.interner.intern(owner);
+    let category = production_category_for_object(obj);
+    // HouseBegin4FA41C clears the local prediction gate before FindFactory
+    // can refuse. This fact leaves the cameo request itself with its strip
+    // owner. Native: tools/sidebar_oracle/pending_production.md.
+    if sim.session.current_house == Some(owner_id) {
+        sim.lifecycle_outputs.push(
+            crate::sim::world::LifecycleOutput::ProductionBeginAttempted {
+                owner: owner_id,
+                category,
+                naval: obj.naval,
+            },
+        );
+    }
     let held_start = if find_factory(sim, rules, owner_id, obj, false, true, true).is_some() {
         false
     } else if force && find_factory(sim, rules, owner_id, obj, true, false, true).is_some() {
@@ -121,7 +134,6 @@ pub fn enqueue_by_type(
     } else {
         return false;
     };
-    let category = production_category_for_object(obj);
     let type_interned = sim.interner.intern(type_id);
     if let Some((active, suspended)) = sim.production.factories.active_object(owner_id, category)
         && active == type_interned

@@ -101,7 +101,9 @@ cargo run --release --bin vera20k
 
 ผลงานที่ร่วมพัฒนาใช้สัญญาอนุญาต GPLv3 เช่นเดียวกับส่วนอื่นของโครงการ และไม่ต้องลงนาม CLA
 
-## สนับสนุนโครงการ <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="สนับสนุน VERA20k ผ่าน PayPal" height="40" align="middle"></a>
+## สนับสนุนโครงการ
+
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="สนับสนุน VERA20k ผ่าน PayPal" height="40"></a>
 
 [สนับสนุน VERA20k ผ่าน PayPal](https://paypal.me/vera20k) เงินบริจาคทั้งหมดที่ได้รับจะจัดสรรให้
 ผู้มีส่วนร่วมตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)

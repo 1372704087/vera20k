@@ -72,6 +72,22 @@ def decode_iso_cells(section):
 
 
 class RenderDepthFixtureTests(unittest.TestCase):
+    def test_building_repair_has_clear_stock_damage_and_repair_actors(self):
+        ini = parse_ini(build_fixture(building_repair=True))
+        stock = parse_ini(build_fixture(building_brackets=True))
+        self.assertEqual(ini['Structures'], stock['Structures'])
+        self.assertEqual(ini['Units']['0'], stock['Units']['0'])
+        attacker = ini['Units']['1'].split(',')
+        self.assertEqual(attacker[:5], ['Americans', 'MTNK', '256', '48', '44'])
+        cells = decode_iso_cells(ini['IsoMapPack5'])
+        self.assertEqual(cells[48, 44], (0, 0, 0))
+        self.assertNotIn('General', ini)
+        self.assertNotIn('GAPOWR', ini)
+        self.assertNotIn('MTNK', ini)
+        self.assertTrue(all(value == 255 for value in decode_overlay_section(ini['OverlayPack'])))
+        with self.assertRaises(ValueError):
+            build_fixture(building_repair=True, walls_only=True)
+
     def test_existing_fixture_modes_keep_their_authored_bytes(self):
         # Captured from HEAD's generator before the separate --cliff-back mode.
         # Preserve both map payloads, including compression and entity order.

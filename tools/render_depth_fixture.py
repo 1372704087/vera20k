@@ -6,6 +6,7 @@ Usage:
     python tools/render_depth_fixture.py target/depth-comparison/depth-walls.map --walls-only
     python tools/render_depth_fixture.py target/depth-comparison/depth-cliff-back.map --cliff-back
     python tools/render_depth_fixture.py target/depth-comparison/building-brackets.map --building-brackets
+    python tools/render_depth_fixture.py target/depth-comparison/building-repair.map --building-repair
 
 This writes only the requested map. It neither edits game configuration nor
 launches either engine. The cliff fixture deliberately focuses on one cliff
@@ -132,11 +133,12 @@ C = 48
 
 
 def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
-                  building_brackets: bool = False) -> str:
+                  building_brackets: bool = False, building_repair: bool = False) -> str:
     """Keep comparison geometry stable within each selectable scene."""
     cliff_x0, cliff_y0 = C - 8, C - 2   # 2 wide, 3 tall
-    if sum((walls_only, cliff_back, building_brackets)) > 1:
+    if sum((walls_only, cliff_back, building_brackets, building_repair)) > 1:
         raise ValueError('Choose one comparison mode')
+    building_brackets = building_brackets or building_repair
     walls_only = walls_only or building_brackets
 
     def high(x, y):
@@ -236,6 +238,10 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
             for i, (x, y) in enumerate(((C, C), (C - 2, C + 1), (C + 2, C - 1)))
         ]
         units = [f'0=Computer1,MTNK,256,{C+12},{C+12},64,Guard,None,0,-1,0,-1,1,1']
+        if building_repair:
+            # A normal local attacker can damage the stock plant before Stop
+            # and a retained Repair-button click. No HP, weapon or rate patch.
+            units.append(f'1=Americans,MTNK,256,{C},{C-4},64,Guard,None,0,-1,0,-1,1,1')
         infantry = []
         overlay[:] = b'\xff' * len(overlay)
         overlay_data[:] = bytes(len(overlay_data))
@@ -258,7 +264,7 @@ Color=DarkRed
 ''' if building_brackets else ''
 
     return f'''[Basic]
-Name=Depth Continuation - {'Building Brackets' if building_brackets else 'Cliff Back Edge' if cliff_back else 'Walls and Cliff'}
+Name=Depth Continuation - {'Building Repair' if building_repair else 'Building Brackets' if building_brackets else 'Cliff Back Edge' if cliff_back else 'Walls and Cliff'}
 NewINIFormat=4
 Player=Americans
 HomeCell={(C + 1) * 1000 + (C - 5)}
@@ -357,9 +363,14 @@ def main() -> None:
         '--building-brackets', action='store_true',
         help='Use stock selected-building and neighboring-body positions on clear ground',
     )
+    modes.add_argument(
+        '--building-repair', action='store_true',
+        help='Add a stock local tank to the building scene for damage, Stop and paid repair',
+    )
     args = parser.parse_args()
     mission = build_fixture(walls_only=args.walls_only, cliff_back=args.cliff_back,
-                            building_brackets=args.building_brackets)
+                            building_brackets=args.building_brackets,
+                            building_repair=args.building_repair)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(mission, encoding='ascii')
     print(f'Wrote {args.output} ({len(mission)} characters)')

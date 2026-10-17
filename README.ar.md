@@ -113,8 +113,7 @@ cargo run --release --bin vera20k
 المساهمين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
 
 تُرسل الدفعات إلى المساهمين عبر PayPal أو UnionPay (الصين) أو Alipay أو Vipps أو التحويل البنكي SEPA
-أو Bitcoin. يُرجى من المساهمين الانضمام إلى [Discord](https://discord.gg/kmjRUn5m5F)
-أو مجموعة QQ (1097193563) حتى يتمكن المؤسس من التواصل معهم لترتيب الدفعات.
+أو Bitcoin.
 
 ## شكر ومعلومات قانونية
 

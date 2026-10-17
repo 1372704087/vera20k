@@ -107,8 +107,7 @@ cargo run --release --bin vera20k
 ผู้มีส่วนร่วมตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)
 
 ผู้มีส่วนร่วมรับเงินได้ผ่าน PayPal, UnionPay (จีน), Alipay, Vipps, การโอนเงินผ่านธนาคารแบบ SEPA
-หรือ Bitcoin ผู้มีส่วนร่วมควรเข้าร่วม [Discord](https://discord.gg/kmjRUn5m5F) หรือกลุ่ม QQ
-(1097193563) เพื่อให้ผู้ก่อตั้งติดต่อและนัดหมายการจ่ายเงินได้
+หรือ Bitcoin
 
 ## เครดิตและข้อกฎหมาย
 

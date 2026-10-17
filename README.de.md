@@ -115,9 +115,7 @@ gemäß dem [TIBTRE-Beitragsverzeichnis](https://github.com/YuriPlanet/tibtre-le
 Mitwirkende verteilt.
 
 Auszahlungen an Mitwirkende erfolgen über PayPal, UnionPay (China), Alipay, Vipps,
-SEPA-Überweisung oder Bitcoin. Mitwirkende sollten [Discord](https://discord.gg/kmjRUn5m5F)
-oder der QQ-Gruppe (1097193563) beitreten, damit der Gründer sie kontaktieren und die
-Auszahlungen vereinbaren kann.
+SEPA-Überweisung oder Bitcoin.
 
 ## Danksagung und Rechtliches
 

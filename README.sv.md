@@ -112,8 +112,7 @@ Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget 
 medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
 
 Utbetalningar till medverkande görs via PayPal, UnionPay (Kina), Alipay, Vipps,
-SEPA-banköverföring eller Bitcoin. Medverkande bör gå med i [Discord](https://discord.gg/kmjRUn5m5F) eller
-QQ-gruppen (1097193563) så att grundaren kan kontakta dem för att ordna utbetalningar.
+SEPA-banköverföring eller Bitcoin.
 
 ## Tack och juridisk information
 

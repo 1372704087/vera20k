@@ -114,8 +114,7 @@ Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 bulunanlara dağıtılır.
 
 Katkıda bulunanlara ödemeler PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
-Bitcoin üzerinden yapılır. Katkıda bulunanlar [Discord](https://discord.gg/kmjRUn5m5F) ya da QQ grubuna
-(1097193563) katılmalıdır; böylece kurucu kendileriyle iletişime geçip ödemeleri ayarlayabilir.
+Bitcoin üzerinden yapılır.
 
 ## Teşekkürler ve yasal bilgiler
 

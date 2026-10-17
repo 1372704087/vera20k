@@ -112,8 +112,7 @@ Contributions are licensed under the GPLv3, like the rest of the project; there'
 to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
 
 Payouts to contributors go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
-or Bitcoin. Contributors should join [Discord](https://discord.gg/kmjRUn5m5F) or the QQ group
-(1097193563) so the founder can contact them to arrange payouts.
+or Bitcoin.
 
 ## Credits and legal
 

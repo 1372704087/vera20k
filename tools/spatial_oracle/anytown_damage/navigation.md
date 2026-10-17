@@ -79,3 +79,42 @@ Each stream begins with the complete original seed-0 state. The Unit constructor
 * This packet does not execute the whole scenario/file loader, general building/mobile world lifecycle, high bridges, visibility/AI, full projectile admission, renderer, or full gameplay load RNG. Its claim is the listed physical inputs, original Cell class derivation, native graph builders/updates and bounded MTNK admissions.
 
 `initial` and `stages[*].state` contain `navigation`, three `graphs`, `cells`, `dummy`, `movement_admissions` and complete `rng`. Stage records add the original return byte, ordered trace, RNG before/after and per-stage reached counters. Production export comparisons must check all planes/rows and complete ordered graph records, with padding retained, rather than treating the record counts as sufficient.
+
+### Authored CAFNCB / AP wall component
+
+`python -m tools.spatial_oracle.anytown_damage.mtnk_attack --authored-fence --write`
+(and `--check`) adds the consumed `authored_fence.json` comparison. The normal
+mtnk_attack corpus and all Navigation defaults remain independent and unchanged.
+The opt-in uses the same physical XMP03T4 Cell/TMP/Terrain runtime and reader,
+full native Rules constructor, physical Overlay ART and stock MTNK/105mm/AP
+readers. Actual decoded OverlayPack admission `5FD41A..5FD508`, constructor/Mark,
+then second data pass `5FD61A..5FD646` establish wall identity and retained +122
+before Terrain. The shared bridge saved-byte restoration `5FD4F3..5FD508` remains
+a distinct bridge-only operation. Original nested ScenarioInit writers bracket
+this setup; original Main zero/active-game stores precede live damage.
+
+Each independently seeded history calls full original AreaDamage `489280` at
+physical Cell43,81 center with its native-read stock damage. Every reached wall,
+real `480CB0/480630/480510`, Recalc, connectivity/hierarchy edits, radar dirty
+writer, pointer expiry/detach and deferred drain execute. The compact output
+retains native admissions, changed cells/owner/data/+122/material/zone, all three
+full RNG states and draw/callback order. The explicit null attacker and empty
+Techno/listener registry do not prove ordinary MTNK target clearance; the normal
+World shot/Cell-target regression is a separate integration consumer. Full native
+Scenario bootstrap, authored buildings/Technos and whole-World RNG are excluded.
+An uncovered live animation fails closed rather than supplying a gameplay result.
+
+`python -m tools.spatial_oracle.bridge_shadow_render --authored-fence --write`
+(and `--check`) consumes those native states into `wall_render.json`. It uses the
+existing physical image/ColorScheme/TMP Lighting/native raster owners, with actual
+map/type identity checks and observed A readback. Native initial source, partial
+neighbor, changed endpoint and removed source states select the wall frames. The
+existing sole ReadColor helper uses its small INI Fixture; selected ColorScheme
+constructors, material conversion and raster execute in the existing raster VM. Sparse TMP/Cell registration,
+current Player/House scheme index, local projection/clip/background/A/Z are explicit
+component priors. Actual Cell lighting produces the top scalar; its floor pixels
+are cleared before the separate wall raster. The erased row reuses the existing
+Tactical loop's actual `-1` admission and observes no body/shadow calls; its map
+and visibility transport boundaries remain explicit. This does not claim a whole
+Tactical frame or GPU composition. Sidecars record the binary and reproduction command;
+validation receipts remain external.

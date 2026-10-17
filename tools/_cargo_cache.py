@@ -36,10 +36,16 @@ def gib_bytes(value: str) -> int:
         raise ValueError('Expected a finite nonnegative size in GiB') from error
 
 
+# Each worktree that builds tests and a fast game keeps 2-3 GiB of incremental
+# sessions. A 4 GiB budget covered about one of the ten worktrees active on
+# 2026-10-17: passes then removed sessions minutes old, and the next one-line
+# edit compiled its crate from scratch (75-110 s instead of 15-20 s). These
+# budgets keep the active worktrees' sessions; the free-space reserve still
+# trims them whenever the volume runs short.
 @dataclass(frozen=True)
 class CachePolicy:
-    cache_bytes: int = 32 * GIB
-    incremental_bytes: int = 4 * GIB
+    cache_bytes: int = 64 * GIB
+    incremental_bytes: int = 24 * GIB
     min_free_bytes: int = 16 * GIB
 
     def __post_init__(self):
@@ -50,8 +56,8 @@ class CachePolicy:
     def from_env(cls, cache=None, incremental=None, free=None):
         return cls(*(gib_bytes(value if value is not None else os.environ.get(key, default))
                      for value, key, default in (
-                         (cache, 'VERA20K_CACHE_GIB', '32'),
-                         (incremental, 'VERA20K_INCREMENTAL_GIB', '4'),
+                         (cache, 'VERA20K_CACHE_GIB', '64'),
+                         (incremental, 'VERA20K_INCREMENTAL_GIB', '24'),
                          (free, 'VERA20K_MIN_FREE_GIB', '16'))))
 
 

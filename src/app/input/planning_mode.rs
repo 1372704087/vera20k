@@ -186,8 +186,9 @@ fn set_active(state: &mut AppState, active: bool) {
     ui_sound(state, sound);
 }
 
-/// Encode the already resolved ordinary action through the planning producer.
-/// Unsupported actions are consumed, never downgraded to immediate orders.
+/// Encode resolved missions through the planning producer. Building primary
+/// selection keeps its ordinary Event17 route; unsupported actions are
+/// consumed, never downgraded to immediate orders.
 pub(crate) fn queue_orders(state: &mut AppState, orders: Vec<CommandEnvelope>) {
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
         queue_orders_in_sim(&mut rt.simulation, orders);
@@ -200,6 +201,18 @@ fn queue_orders_in_sim(
 ) -> bool {
     let mut added = false;
     for order in orders {
+        if matches!(
+            order.payload,
+            crate::sim::command::Command::TogglePrimaryFactory { .. }
+        ) {
+            // Display4ABF78..4ABFA9 admits the ordinary empty-path
+            // factory self action through PlanMgr639040/639130, then
+            // Selection4AE750 reaches Building443410's direct Event17.
+            // It is not a planning MegaMission or a plan-node append.
+            sim.queue_command(order);
+            added = true;
+            continue;
+        }
         let Some(record) = sim.encode_planning_order_record(order.owner, &order.payload) else {
             continue;
         };
@@ -444,6 +457,79 @@ mod tests {
             ));
             assert!(sim.pending_command_snapshot().is_empty());
         }
+    }
+
+    #[test]
+    fn retail_planning_primary_selection_keeps_its_ordinary_scheduled_event() {
+        use crate::rules::overlay_types::OverlayTypeRegistry;
+        use crate::sim::runtime::{SimResources, SimRuntime};
+        use crate::sim::world::{FrameEffects, TickLane};
+
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let overlays =
+            OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
+        let rules = retail.rules;
+        let mut sim = Simulation::with_seed(0x004A_BFA9);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.session.game_mode_nonzero = true;
+        sim.session.game_options.short_game = false;
+        let owner = sim.intern("Americans");
+        let side = rules.country_side_index("Americans").unwrap().0;
+        let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
+        house.project_country_mults(&rules, &sim.interner);
+        sim.houses.insert(owner, house);
+        sim.session.house_order.push(owner);
+        sim.session.current_house = Some(owner);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let first = sim
+            .spawn_object("GAWEAP", "Americans", 6, 6, 0, &rules)
+            .expect("stock initial primary War Factory");
+        let second = sim
+            .spawn_object("GAWEAP", "Americans", 20, 6, 0, &rules)
+            .expect("stock nonprimary War Factory");
+        assert!(sim.production.is_primary_factory(first));
+        assert!(!sim.production.is_primary_factory(second));
+        let order = CommandEnvelope::new(
+            owner,
+            2,
+            Command::TogglePrimaryFactory { entity_id: second },
+        );
+        assert!(queue_orders_in_sim(&mut sim, vec![order.clone()]));
+        assert_eq!(
+            sim.pending_command_snapshot(),
+            vec![order],
+            "the planning boundary preserves the Event17 target, issuer and execute tick"
+        );
+        assert!(sim.planning_paths(owner).is_empty());
+
+        let mut resources = SimResources::empty();
+        resources.rules = rules;
+        resources.overlay_registry = overlays;
+        let mut runtime = SimRuntime {
+            simulation: sim,
+            resources,
+        };
+        for selected in [false, true] {
+            let due = runtime.simulation.take_due_commands();
+            runtime
+                .advance_frame(&due, 67, TickLane::Ordinary, FrameEffects::default())
+                .expect("ordinary planning-active primary-selection frame");
+            assert_eq!(
+                runtime.simulation.production.is_primary_factory(second),
+                selected
+            );
+            assert_eq!(
+                runtime.simulation.production.is_primary_factory(first),
+                !selected
+            );
+            assert!(runtime.simulation.planning_paths(owner).is_empty());
+        }
+        assert!(runtime.simulation.pending_command_snapshot().is_empty());
     }
 
     #[test]

@@ -2207,8 +2207,9 @@ pub(super) fn is_simple_deploy_unit(
 /// VERA picks the command from the clicked object's own capabilities. The
 /// class overrides' full post-processing of ACTION_SELF (`UnitClass`
 /// `0x0073FD50`, `InfantryClass` `0x0051E3B0`, `BuildingClass` `0x00447210`)
-/// is not ported. Simple-deployer capability is shared with the cursor and
-/// deploy key; the other self-hover capabilities remain separate (issue #605).
+/// is not ported. The factory primary and simple-deployer decisions share
+/// their simulation owners with the cursor; other self-hover capabilities
+/// remain separate (issue #605).
 fn self_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2237,6 +2238,12 @@ fn self_click_command(
             })
         } else if sim.should_show_undeploy_building_command(target.stable_id, rules) {
             Some(Command::UndeployBuilding {
+                entity_id: target.stable_id,
+            })
+        } else if crate::sim::production::can_select_factory_primary(sim, rules, target.stable_id) {
+            // Building4472EC preserves Action4 only for a nonprimary
+            // factory; Click443450..443494 queues this target's Event17.
+            Some(Command::TogglePrimaryFactory {
                 entity_id: target.stable_id,
             })
         } else {
@@ -3782,6 +3789,133 @@ mod tests {
         assert_eq!(click(&[mcv, gi], mcv), None, "a group click selects");
         assert_eq!(click(&[gi], other_gi), None, "not the selected object");
         assert_eq!(click(&[enemy_mcv], enemy_mcv), None, "not the player's");
+    }
+
+    /// Building447210 keeps Action4 for a lone selected own nonprimary
+    /// factory. Click443410 then queues TargetEvent17 for that same building;
+    /// its receiver toggles Building448160. This covers the input boundary,
+    /// with existing FindFactory proving the initial primary independently.
+    #[test]
+    fn retail_nonprimary_war_factory_self_click_queues_its_primary_selection() {
+        use crate::rules::object_type::FactoryType;
+        use crate::sim::house_state::HouseState;
+
+        let Some(battle) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let rules = &battle.rules;
+        let factory = rules.object("GAWEAP").expect("stock Allied War Factory");
+        assert_eq!(factory.factory_type(), Some(FactoryType::UnitType));
+        assert!(!factory.naval && !factory.invisible_in_game);
+        let mut sim = Simulation::with_seed(0x0044_8160);
+        sim.intern_rule_type_ids(rules);
+        sim.resolve_type_handles(rules);
+        sim.session.game_mode_nonzero = true;
+        for name in ["Americans", "Russians"] {
+            let owner = sim.intern(name);
+            let side = rules
+                .country_side_index(name)
+                .expect("stock country Side")
+                .0;
+            let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
+            house.project_country_mults(rules, &sim.interner);
+            sim.houses.insert(owner, house);
+            sim.session.house_order.push(owner);
+        }
+        let owner = sim.interner.get("Americans").unwrap();
+        sim.session.current_house = Some(owner);
+        crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+        let first = sim
+            .spawn_object("GAWEAP", "Americans", 6, 6, 0, rules)
+            .expect("first own retail War Factory");
+        let second = sim
+            .spawn_object("GAWEAP", "Americans", 20, 6, 0, rules)
+            .expect("second own retail War Factory");
+        sim.spawn_object("GAWEAP", "Russians", 20, 20, 0, rules)
+            .expect("foreign owner's initial primary War Factory");
+        let foreign = sim
+            .spawn_object("GAWEAP", "Russians", 6, 20, 0, rules)
+            .expect("foreign owner's nonprimary War Factory");
+        let product = sim
+            .spawn_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, rules)
+            .expect("actual retail tank for the existing producer query");
+        assert_eq!(
+            crate::sim::production::object_find_factory(&sim, rules, product, false, false),
+            Some(first),
+            "automatic initialization must preserve the first primary; without one FindFactory returns the last eligible building"
+        );
+        let hover = |stable_id| HoverTargetKindWithId {
+            kind: if stable_id == foreign {
+                HoverTargetKind::EnemyStructure
+            } else {
+                HoverTargetKind::FriendlyStructure
+            },
+            stable_id,
+        };
+        let click = |selected: &[u64], target| {
+            self_click_command(&sim, rules, owner, selected, Some(&hover(target)))
+        };
+        assert_eq!(click(&[first], first), None, "already primary is Action0");
+        assert_eq!(click(&[first, second], second), None, "a group selects");
+        assert_eq!(click(&[first], second), None, "not the selected object");
+        assert_eq!(
+            click(&[foreign], foreign),
+            None,
+            "not the player's building"
+        );
+        let command = click(&[second], second)
+            .expect("native nonprimary GAWEAP self-click queues its target-bearing Event17");
+        assert_eq!(command, Command::TogglePrimaryFactory { entity_id: second });
+        assert_eq!(
+            order_voice_key(&command),
+            None,
+            "Event17 has no input voice"
+        );
+
+        use crate::app::input::cursor::{capability_cursor_for_hover, cursor_id_for_feedback};
+        use crate::app::types::{CursorFeedbackKind, CursorId};
+
+        let cursor = |selected: &[u64], target| {
+            capability_cursor_for_hover(
+                &sim,
+                selected,
+                selected.first().copied(),
+                &hover(target),
+                Some(rules),
+                None,
+            )
+        };
+        let nonprimary_cursor = cursor(&[second], second);
+        assert_eq!(nonprimary_cursor, CursorFeedbackKind::Deploy);
+        assert_eq!(
+            cursor_id_for_feedback(nonprimary_cursor),
+            Some(CursorId::Deploy),
+            "native main-map Action4 uses the existing row27"
+        );
+        let primary_cursor = cursor(&[first], first);
+        assert_eq!(primary_cursor, CursorFeedbackKind::Default);
+        assert_eq!(
+            cursor_id_for_feedback(primary_cursor),
+            Some(CursorId::Default),
+            "already-primary Action0 uses row0"
+        );
+        assert_eq!(
+            cursor(&[first, second], second),
+            CursorFeedbackKind::FriendlyStructure,
+            "a group hover selects instead of choosing a primary"
+        );
+        assert_eq!(
+            cursor(&[first], second),
+            CursorFeedbackKind::FriendlyStructure,
+            "the hovered factory must be the selected object"
+        );
+        assert_ne!(
+            cursor(&[foreign], foreign),
+            CursorFeedbackKind::Deploy,
+            "a foreign nonprimary must not offer the local self action"
+        );
     }
 
     #[test]

@@ -1486,7 +1486,7 @@ pub(crate) fn resolve_object_shp_frame(
             .and(entity.attack_target.target())
             .and_then(|target| {
                 let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
-                crate::sim::movement::turret::facing_toward_target(entity, &target, sim.entities())
+                crate::sim::movement::turret::facing_toward_target(entity, &target, sim)
             })
             .map_or(facing, |direction| (direction >> 8) as u8);
         // Native EAX remains signed. A negative/wide result cannot alias an

@@ -167,6 +167,12 @@ chosen retail map. Keep explicit countries, colors and distinct start slots, and
 keep `pre_fill_house_roster` consistent with the opponents. Rust validates launch
 admission; Python does not maintain a second launch parser or synthesize defaults.
 
+New Foot observations include `foot.ammo_2fc`, an immutable signed count from
+the existing Techno ammo owner, or null when no owner is installed. This lets
+an ordinary aircraft Attack/return/rearm capture distinguish a spent round
+from full ammo without inferring it from pixels. Historical receipts omit the
+field; omission says nothing about their ammo state.
+
 The [factory rally profile](map_observation.rally-drawing.example.json) adds the
 ordinary `Select` command to a produced barracks. Its optional v2
 `cursor_position: [720, 556]` is applied once after loading, before exact steps,

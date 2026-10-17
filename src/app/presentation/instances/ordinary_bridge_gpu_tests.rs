@@ -1004,8 +1004,23 @@ fn retail_starting_mtnk_low_concrete_bridge_matches_native_raster() {
 #[test]
 #[ignore = "requires physical retail XMP03T4 and GPU; CAHSE05 rubble body then shadow through native Cell RGB/Z"]
 fn retail_rubble_body_then_shadow_matches_native_raster() {
-    let packet =
-        crate::test_fixture::json("tools/spatial_oracle/building_rubble_shadow_render.json");
+    assert_retail_cell_body_then_shadow(crate::test_fixture::json(
+        "tools/spatial_oracle/building_rubble_shadow_render.json",
+    ));
+}
+
+/// The natural crate's post-Mark Cell byte is FF. This component fixture
+/// supplies that live state and unity lighting, then submits the actual body
+/// and shadow owners on the same attachments; it is not a native world replay.
+#[test]
+#[ignore = "requires physical retail XMP03T4 and GPU; CRATE body then shadow through native Cell RGB/Z"]
+fn retail_crate_body_then_shadow_matches_native_raster() {
+    assert_retail_cell_body_then_shadow(crate::test_fixture::json(
+        "tools/spatial_oracle/crate_shadow_render.json",
+    ));
+}
+
+fn assert_retail_cell_body_then_shadow(packet: &Value) {
     let body = &packet["composition"]["body"];
     let combined = &packet["composition"]["body_then_shadow"];
     let input = &body["input"];
@@ -1060,15 +1075,6 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
         );
     }
     let rubble_arts: Vec<_> = rules.building_rubble_arts().cloned().collect();
-    let building = packet["inputs"]["building"]["name"].as_str().unwrap();
-    let art = rules
-        .building_rubble_art(building)
-        .expect("production scenario bound rubble art");
-    assert_eq!(art.shp.to_ascii_lowercase(), "cthse05.shp");
-    let type_id = sim
-        .interner
-        .get(building)
-        .expect("actual map building type");
     let coord = (
         input["coords"][0].as_u64().unwrap() as u16,
         input["coords"][1].as_u64().unwrap() as u16,
@@ -1076,9 +1082,30 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
     let overlay_id = registry
         .id_for_name(input["type"].as_str().unwrap())
         .unwrap();
+    let flags = registry.flags(overlay_id).unwrap();
+    let is_rubble = flags.is_rubble && !flags.crate_type;
+    let type_id = if is_rubble {
+        let building = packet["inputs"]["building"]["name"].as_str().unwrap();
+        let art = rules
+            .building_rubble_art(building)
+            .expect("production scenario bound rubble art");
+        assert_eq!(art.shp.to_ascii_lowercase(), "cthse05.shp");
+        Some(
+            sim.interner
+                .get(building)
+                .expect("actual map building type"),
+        )
+    } else {
+        assert!(flags.crate_type && !flags.wall);
+        assert_eq!(
+            input["state"],
+            crate::rules::overlay_types::native_mark_overlay_data(flags)
+        );
+        assert_eq!(input["state"], 255);
+        None
+    };
     let terrain = sim.resolved_terrain.as_ref().unwrap();
-    let entries: Vec<_> = [coord.1, coord.1 + 1]
-        .into_iter()
+    let entries: Vec<_> = (coord.1..=coord.1 + u16::from(is_rubble))
         .map(|ry| {
             let cell = terrain.cell(coord.0, ry).unwrap();
             assert_eq!(cell.level, input["level"].as_u64().unwrap() as u8);
@@ -1094,20 +1121,22 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
             }
         })
         .collect();
-    // Supplied post-death state, using the public fixture cell access. Only the
-    // foundation origin owns a BuildingType; the adjacent EF cell owns none.
+    // Supplied post-Mark/post-death Cell fields through the existing live
+    // owner. Only rubble has a BuildingType or an adjacent foundation cell.
     let mut live_grid = crate::sim::overlay_grid::OverlayGrid::from_overlay_entries(
         &entries,
         terrain.width(),
         terrain.height(),
     );
-    live_grid.cell_mut(coord.0, coord.1).rubble_building_type = Some(type_id);
-    assert!(
-        live_grid
-            .cell_mut(coord.0, coord.1 + 1)
-            .rubble_building_type
-            .is_none()
-    );
+    live_grid.cell_mut(coord.0, coord.1).rubble_building_type = type_id;
+    if is_rubble {
+        assert!(
+            live_grid
+                .cell_mut(coord.0, coord.1 + 1)
+                .rubble_building_type
+                .is_none()
+        );
+    }
     let names = crate::render::overlay_assets::render_overlay_names(registry);
     let heights = terrain.build_height_map();
     let convert = &packet["inputs"]["cell_convert"];
@@ -1206,7 +1235,7 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
             &mut instances,
             &mut policies,
         );
-        assert_eq!(instances.len(), 1, "only origin publishes rubble body art");
+        assert_eq!(instances.len(), 1, "one live Cell publishes body art");
         assert_eq!(policies, [RenderZPolicy::ReadWrite]);
         let mut shadows = Vec::new();
         crate::app::presentation::instances::bridges::build_bridge_shadow_instances_inner(
@@ -1216,7 +1245,7 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
             &entries,
             Some(&live_grid),
             Some(registry),
-            Some((rules, &sim.interner)),
+            is_rubble.then_some((rules, &sim.interner)),
             view.world_origin_y,
             view.world_height,
             view.camera_pos[0],
@@ -1228,7 +1257,7 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
         assert_eq!(
             shadows.len(),
             1,
-            "adjacent null type cannot duplicate shadow art"
+            "one live Cell publishes a shadow without a duplicate foundation"
         );
         batch.write_camera(&gpu.queue, view);
         let mut pool = InstanceBufferPool::new();
@@ -1290,7 +1319,7 @@ fn retail_rubble_body_then_shadow_matches_native_raster() {
         assert_native_color_and_depth(&output[2..], combined, format, size);
         assert_ne!(
             output[0], output[2],
-            "native shadow visibly edits the rubble/body surface"
+            "native shadow visibly edits the body surface"
         );
     }
     assert_eq!(

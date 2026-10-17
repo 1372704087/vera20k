@@ -367,3 +367,28 @@ are native outputs. Both calls share original480110, including its literal
 overlay-ID `0xEF` subtraction of15Y when high-bridge bit80 is clear; this draw
 offset is independent of the retained BuildingType and IsRubble flag. No host
 body arithmetic or second composition implementation supplies the result.
+
+## Ordinary crate shadow
+
+`python -m tools.spatial_oracle.bridge_shadow_render --crate --check` consumes
+the separate `crate_shadow_render.json` corpus through the existing Cell,
+physical archive/INI, LightConvert and raster owners. Physical RULESMD,
+MPBattleMD and stock XMP03T4 layers construct/read CRATE; fixed ART binds
+CRATE.TEM. Original constructor Crate=false and layered reader retention are
+recorded; optional LANGRULE is absent.
+
+Normal crate Mark writes rawFF at5FD105. Both original47F510 shadow selector
+and47FDE0 outer bounds force crate data0 before selecting physical half-frame1;
+rawFF and supplied0 must therefore produce identical pixels and admission.
+Original body47F6A0 independently selects frame0. Its body followed by shadow
+runs on the SAME color/Z/A attachments and native CellConvert, with actual
+output retained rather than a host composition rule.
+
+Cell52,120/level4/rawFF/flags0 correspond to a separately observed ordinary
+Crates-enabled stock XMP03T4 path. Local projected point/clip and prior
+color/Z/A/light are explicit numeric component inputs. Controls cover signed
+levels, clipping, observed candidate depth, repeat and erased live identity.
+The source shadow stencil contains199 admitted native pixels; body/depth/clip
+may change how many final scene pixels visibly darken. Native map creation,
+Mark execution, RNG, pickup/reward/timer lifecycle, GPU and whole-frame parity
+remain outside this bounded raster comparison.

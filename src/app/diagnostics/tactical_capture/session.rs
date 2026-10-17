@@ -274,10 +274,7 @@ impl TacticalCaptureSession {
         });
         state.match_state.input.cursor_x = capture.post_load_cursor.x as f32;
         state.match_state.input.cursor_y = capture.post_load_cursor.y as f32;
-        let now_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-            state,
-            std::time::Instant::now(),
-        );
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state.platform.frame_pacer.reanchor(now_ms);
         self.begin_accepted_loading(state)?;
         self.failure_stage = "loading".to_owned();

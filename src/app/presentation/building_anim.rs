@@ -356,12 +356,7 @@ impl SoundPlaybackInputs<'_> {
 /// Tick the sidebar power bar animation (segment-by-segment transition).
 pub(crate) fn update_power_bar_anim(state: &mut AppState, wall_ms: u64) {
     let owner_name = preferred_local_owner_name(state);
-    // Compute bar height from sidebar layout.
-    let spec = state.match_state.match_presentation.sidebar_layout_spec;
-    let (sw, sh) = state.sidebar_frame().layout_screen();
-    let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
-    // 63FB20: segment budget is (native strip height + 3) / 3.
-    let bar_height_px = (layout.cameo_grid_bottom - layout.cameo_grid_top) as i32 + 3;
+    let bar_height_px = power_bar_budget_px(state);
 
     let anim = &mut state.match_state.match_presentation.power_bar_anim;
     anim.set_max_segments(bar_height_px);
@@ -382,6 +377,17 @@ pub(crate) fn update_power_bar_anim(state: &mut AppState, wall_ms: u64) {
         }
         _ => anim.update(0, 0, || 0, wall_ms),
     }
+}
+
+/// Current Sidebar geometry, shared by ordinary AI and saved NoInit before
+/// its first draw. The retained native band counts are never clamped to it.
+pub(crate) fn power_bar_budget_px(state: &AppState) -> i32 {
+    // Compute bar height from sidebar layout.
+    let spec = state.match_state.match_presentation.sidebar_layout_spec;
+    let (sw, sh) = state.sidebar_frame().layout_screen();
+    let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
+    // 63FB20: segment budget is (native strip height + 3) / 3.
+    (layout.cameo_grid_bottom - layout.cameo_grid_top) as i32 + 3
 }
 
 /// Update radar availability from ECS and tick the radar chrome animation.

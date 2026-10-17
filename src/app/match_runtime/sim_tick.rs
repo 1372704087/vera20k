@@ -8,7 +8,6 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Instant;
 
 use crate::app::AppState;
 use crate::app::input::commands::{preferred_local_owner, preferred_local_owner_name};
@@ -349,10 +348,6 @@ pub(crate) enum ExactStepError {
     FrameDelta { actual: u32 },
 }
 
-pub(crate) fn monotonic_frame_pacer_ms(state: &AppState, now: Instant) -> u64 {
-    crate::app::match_runtime::frame_pacer::wall_clock_ms(state.platform.frame_pacer_epoch, now)
-}
-
 /// One `AudioSystem::Pump @ 0x00406F70` service pass, run every frame whether
 /// or not the simulation stepped.
 ///
@@ -601,7 +596,7 @@ pub(crate) fn advance_in_game_runtime_exact_step(
         .ok_or(ExactStepError::SimulationMissing)?;
 
     advance_in_game_runtime_mode(state, RuntimeAdvanceMode::ExactOneStep, admitted);
-    let now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     state.platform.frame_pacer.reanchor(now_ms);
 
     let (tick_after, binary_frame_after) = state
@@ -731,7 +726,7 @@ fn advance_in_game_runtime_mode(
 
     // MainThrottle55E33B publishes Logic visits per60 wall-clock buckets,
     // including the path where the pacer admitted no simulation frame.
-    let wall_ms = state.radar_presentation_ms(Instant::now());
+    let wall_ms = state.radar_presentation_ms();
     state
         .match_state
         .match_presentation
@@ -760,7 +755,7 @@ fn advance_in_game_runtime_mode(
     // only `Main_Tick @ 0x0055D360`'s scenario-running head rule (retained ==
     // -1 -> `Queue_Song(-2)`; `InGameMusic == 0` -> `Stop(1)` + `Queue(-3)`)
     // belongs to the in-game frame.
-    let music_now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::presentation::building_anim::drain_sound_events(state);
     let in_game_music = state.persistence.options_profile.in_game_music;
     state.audio.main_tick_theme(in_game_music, music_now_ms);
@@ -1299,7 +1294,7 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
     for effect in effects {
         match effect {
             TriggerEffect::MusicTheme { request } => {
-                let wall_ms = monotonic_frame_pacer_ms(state, Instant::now());
+                let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
                 state.audio.queue_theme(request, wall_ms);
             }
             TriggerEffect::ChronoScreen { command } => {

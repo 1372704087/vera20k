@@ -3291,6 +3291,9 @@ impl TacticalCaptureSession {
                         }))
                     });
                     Some(json!({
+                        // Immutable query of the sole Techno+2FC owner. A
+                        // missing owner is null, never inferred full/empty.
+                        "ammo_2fc": entity.ammo().map(|ammo| ammo.current()),
                         "pending_entry_500": entity.pending_entry(),
                         "retarget_after_stop_688": entity.foot_retarget_after_stop(),
                         "firing_sequence_latch_68d": entity.mission_leaf.foot_firing_sequence_latch(),

@@ -1421,8 +1421,13 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                                   *(('walk_head_leptons', 'walk_destination_leptons',
                                      'walk_is_moving') if walk_state else ()),
                                   *(('track',) if 'track' in foot else ()),
+                                  *(('ammo_2fc',) if 'ammo_2fc' in foot else ()),
                                   *(('pending_entry_500',) if 'pending_entry_500' in foot else ())),
                            f'{label}.foot')
+        # Historical receipts omit this immutable owner query. A negative
+        # native Ammo is a retained signed count, not an absent/full marker.
+        if 'ammo_2fc' in foot and foot['ammo_2fc'] is not None:
+            _bounded_int(foot['ammo_2fc'], f'{label}.foot.ammo_2fc', -(1 << 31), (1 << 31) - 1)
         if 'air' in foot:
             _foot_air(foot['air'], f'{label}.foot.air')
         # Additive read-only projection: previously sealed v6 receipts omit it.

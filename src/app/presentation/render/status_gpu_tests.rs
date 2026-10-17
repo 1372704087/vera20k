@@ -58,6 +58,16 @@ fn native_passenger_pips_preserve_color_a_z_and_parent_order() {
     );
 }
 
+#[test]
+#[ignore = "requires retail assets and GPU; original ORCA ammo pips and native Aircraft projection"]
+fn native_aircraft_ammo_pips_preserve_color_a_z_and_parent_order() {
+    native_status_controls(
+        "tools/procedural_drawing_oracle/ammo_pips.json",
+        "ORCA",
+        EntityCategory::Aircraft,
+    );
+}
+
 fn native_status_controls(fixture: &'static str, type_name: &str, category: EntityCategory) {
     let native = crate::test_fixture::json(fixture);
     let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -283,6 +293,32 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         actor["ore_bales"].as_u64().unwrap_or(0) as usize,
                         actor["gem_bales"].as_u64().unwrap_or(0) as usize,
                     );
+                }
+                if let Some(stage) = actor["ammo_initialization"].as_str() {
+                    let (initialized, current, pending) =
+                        crate::sim::arena_fixture::install_status_ammo_state(
+                            &mut entity,
+                            object,
+                            stage,
+                            actor["current_ammo"].as_i64().map(|value| {
+                                i32::try_from(value).expect("native signed Ammo prior")
+                            }),
+                        );
+                    let result = &row["actor_results"][index];
+                    assert_eq!(
+                        i64::from(entity.techno_pip_fill_level(object, rules)),
+                        result["fill_count"].as_i64().unwrap(),
+                    );
+                    assert_eq!(
+                        i64::from(object.pip_max(rules)),
+                        result["pip_max"].as_i64().unwrap()
+                    );
+                    assert_eq!(
+                        i64::from(initialized),
+                        result["initialized_ammo"].as_i64().unwrap()
+                    );
+                    assert_eq!(i64::from(current), result["current_ammo"].as_i64().unwrap());
+                    assert_eq!(pending, result["pending_release"].as_bool().unwrap());
                 }
                 sim.entities_mut().insert(entity);
                 sim.resubmit_entity_display_for_test(id);

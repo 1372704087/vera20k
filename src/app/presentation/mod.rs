@@ -28,6 +28,9 @@ pub(crate) mod ui_overlays;
 #[cfg(test)]
 mod passenger_pip_tests;
 
+#[cfg(test)]
+mod ammo_pip_tests;
+
 pub(crate) mod lighting;
 
 #[cfg(test)]

@@ -530,10 +530,11 @@ pub(crate) fn self_heal_pip(
 // handle from `DAT_00AC147C` (PIPS.SHP) to `DAT_00AC1480` (PIPS2.SHP) at
 // 0x00709AEF for every non-building.
 //
-// * **`PipScale=Ammo`.** Selecting a finite-ammo aircraft/unit still has no
-//   ammunition readout. The ordinary stock FV passenger path now uses the
-//   shared parent strip; fractional/mixed passenger sizes and other transport
-//   lifecycle paths retain their existing owner and explicit residuals.
+// * **Wrapped ammo pips**,70A421..4E6: PipWrap!=0 selects signed-division
+//   stacks and other frames. Stock ORCA retains PipWrap0 and uses the common
+//   strip below. The wrapped configuration is dormant in the stock Ammo types,
+//   not proven unreachable. Passenger fractional/mixed sizes and other
+//   transport lifecycle paths retain their explicit owner residuals.
 //
 // * **Spawn pips**, from `TypeClass+0xD5C` via
 //   `SpawnManagerClass__CountDockedSpawns`. Trigger: a selected Kirov/carrier
@@ -1003,6 +1004,15 @@ pub(crate) fn techno_extras_for_parent(
     //and native relationship admission; no global scale bucket remains.
     if let Some(art) = overlay.scale_pips() {
         let frames = scale_pip_frames(sim, entity, hovered_id, local_owner, rules);
+        //70A3B7: unwrapped Ammo sits three pixels above the ordinary scale
+        //anchor. Positive Passengers takes its earlier arm, even with Ammo.
+        let scale_y = if object.passengers <= 0
+            && object.pip_scale == crate::rules::object_type::PipScale::Ammo
+        {
+            7.0
+        } else {
+            10.0
+        };
         for (slot, frame) in frames.into_iter().enumerate() {
             //709F50..A06F: Gunner draws slot0 normally, then advances an extra
             //two steps before slot1. Stock FV has one slot; shared callers
@@ -1016,7 +1026,7 @@ pub(crate) fn techno_extras_for_parent(
                 sx - 15.0 + if infantry { 11.0 } else { 0.0 } + ((slot + gunner_step) * 4) as f32;
             strip
                 .scale
-                .extend(instance(art, frame, (x, sy + delta + 10.0), 0.0004));
+                .extend(instance(art, frame, (x, sy + delta + scale_y), 0.0004));
         }
     }
     strip
@@ -1192,16 +1202,29 @@ pub(crate) fn scale_pip_frames(
         }
         return frames;
     }
+    if object.pip_scale == crate::rules::object_type::PipScale::Ammo {
+        //709A90/70A345..41C: ordinary stock ORCA reaches the unwrapped
+        //PIPS2 frame13 arm. Iterate GetPipMax slots but draw only positive
+        //fill; depleted Ammo emits no empty outline. Draw flags600/noA/Z
+        //are owned by the existing per-parent scale replay.
+        //Nonzero PipWrap70A421..4E6 remains a separate dormant configuration.
+        if object.pip_wrap() != 0 {
+            return Vec::new();
+        }
+        let filled = entity
+            .techno_pip_fill_level(object, rules)
+            .clamp(0, object.pip_max(rules).max(0));
+        return vec![13; filled as usize];
+    }
     if object.pip_scale == crate::rules::object_type::PipScale::MindControl {
         //716290 case5 reads current primary Weapon.Damage, independently of
         //the manager's retained admission capacity.
         let maximum = object.pip_max(rules);
         let slots = usize::try_from(maximum).unwrap_or(0);
         let manager = entity.capture_manager.as_ref();
-        let count = manager.map_or(0, |manager| manager.count());
-        // Fill708C7A..708D46 scales count/max by the SAME positive max:
-        // stock count0..4/weaponDamage3 rounds back to count. Draw70A0B5
-        // uses frame1 while index<fill and frame0 for the remaining slots.
+        let count = entity.techno_pip_fill_level(object, rules);
+        //Canonical708C30 owns count/max rounding, including signed numeric
+        //boundaries. Draw70A0B5 uses frame1 below fill, frame0 afterward.
         let mut frames: Vec<_> = (0..slots)
             .map(|index| usize::from((index as i64) < i64::from(count)))
             .collect();
@@ -1232,14 +1255,8 @@ pub(crate) fn scale_pip_frames(
     //multiply, so rational half-up is wrong. Reuse the existing numeric owner;
     //original executable controls: passenger_pips.json/numeric_results.
     let count = |amount: usize| {
-        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
-        let rounded = X87::ftol_i32_low_masked(X87::add(
-            X87::mul(
-                X87::div(X87::load_i32(amount as i32), X87::load_i32(object.storage)),
-                X87::load_i32(maximum),
-            ),
-            X87::load_f64(NativeF64Bits::from_bits(0x3fe0_0000_0000_0000)),
-        ));
+        let rounded =
+            crate::sim::game_entity::rounded_pip_quantity(amount as i32, object.storage, maximum);
         usize::try_from(rounded).unwrap_or(0).min(slots)
     };
     let gem_pips = count(gems);

@@ -162,8 +162,8 @@ worktree, so the runner starts one only when it can matter:
   blocked or partial; a dry run does not. `--trim-cache` always runs one.
 
 Between passes the cache can exceed its budgets; the free-space reserve is still
-measured on every invocation. Defaults are **64 GiB total compiler
-cache**, **24 GiB incremental cache**, and **16 GiB minimum free space** per cache
+measured on every invocation. Defaults are **40 GiB total compiler
+cache**, **16 GiB incremental cache**, and **16 GiB minimum free space** per cache
 volume. Set `VERA20K_CACHE_GIB`, `VERA20K_INCREMENTAL_GIB`, and
 `VERA20K_MIN_FREE_GIB`, or pass `--cache-gib`, `--incremental-gib`, and
 `--min-free-gib` before `--`; they set the policy the next pass applies. Sizes

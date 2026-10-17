@@ -16,7 +16,6 @@ use crate::rules::overlay_types::{
 use crate::sim::intern::InternedId;
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
 use crate::util::direction_tables::CELL_DELTAS;
-use crate::util::lepton::{LEPTONS_PER_LEVEL, ground_height_leptons};
 use crate::util::native_x87::object_distance;
 use std::collections::BTreeSet;
 
@@ -41,8 +40,6 @@ pub struct MapWallOwnerCandidate {
     pub world_x: i32,
     pub world_y: i32,
     pub world_z: i32,
-    pub foundation_width: u16,
-    pub foundation_height: u16,
     pub object_alive: bool,
     pub cell_marked: bool,
     pub house_wall_owner: bool,
@@ -860,8 +857,12 @@ impl OverlayGrid {
         &self.dirty_cells
     }
 
-    /// Reconstruct owners for map-loaded wall overlays after buildings exist.
-    /// Strict distance improvement preserves the first candidate on ties.
+    /// Cell47D210, called by InitCellAttributes568E16 after Buildings load.
+    /// Building5F6360 receives the Cell as its target (47D278..27B): its
+    /// RTTI487E60 is11, so no Building-target foundation discount applies.
+    /// Strict signed improvement from INT_MAX preserves the first tie.
+    /// Source: original47D210..47D2A6; shared numeric controls are consumed by
+    /// team_script_vm::recruit_oracle_tests::object_distance_matches_the_original.
     pub fn reconstruct_map_wall_owners(
         &mut self,
         resolved_terrain: &ResolvedTerrainGrid,
@@ -885,27 +886,24 @@ impl OverlayGrid {
                 let Some(cell) = resolved_terrain.cell(rx, ry) else {
                     continue;
                 };
-                let wall_x = i32::from(rx).wrapping_mul(256).wrapping_add(128);
-                let wall_y = i32::from(ry).wrapping_mul(256).wrapping_add(128);
-                let wall_z = ground_height_leptons(cell.level, cell.slope_type, wall_x, wall_y)
-                    .unwrap_or(i32::from(cell.level) * LEPTONS_PER_LEVEL as i32);
-                let mut best_distance = i64::MAX;
+                let Some(wall) = crate::sim::cell_rect::CellRef::Real(cell).center_coordinate()
+                else {
+                    continue;
+                };
+                let mut best_distance = i32::MAX;
                 let mut best_owner = None;
                 for building in buildings {
                     if !building.object_alive || !building.cell_marked || !building.house_wall_owner
                     {
                         continue;
                     }
-                    let adjusted = i64::from(object_distance(
-                        [wall_x, wall_y, wall_z],
+                    let distance = object_distance(
                         [building.world_x, building.world_y, building.world_z],
-                        Some((
-                            i32::from(building.foundation_width),
-                            i32::from(building.foundation_height),
-                        )),
-                    ));
-                    if adjusted < best_distance {
-                        best_distance = adjusted;
+                        [wall.x, wall.y, wall.z],
+                        None,
+                    );
+                    if distance < best_distance {
+                        best_distance = distance;
                         best_owner = Some(building.owner);
                     }
                 }
@@ -3025,7 +3023,7 @@ mod tests {
     }
 
     #[test]
-    fn gsi_04_07_placement_map_wall_owner_filters_and_uses_adjusted_distance() {
+    fn gsi_04_07_placement_map_wall_owner_filters_and_measures_cell_target() {
         let registry = gsi_04_07_placement_registry();
         let terrain = clear_terrain_grid(5, 5);
         let mut grid = OverlayGrid::new(5, 5);
@@ -3038,8 +3036,6 @@ mod tests {
                 world_x: wall_center,
                 world_y: wall_center,
                 world_z: 0,
-                foundation_width: 1,
-                foundation_height: 1,
                 object_alive: false,
                 cell_marked: true,
                 house_wall_owner: true,
@@ -3049,8 +3045,6 @@ mod tests {
                 world_x: wall_center + 500,
                 world_y: wall_center,
                 world_z: 0,
-                foundation_width: 1,
-                foundation_height: 1,
                 object_alive: true,
                 cell_marked: true,
                 house_wall_owner: true,
@@ -3060,8 +3054,6 @@ mod tests {
                 world_x: wall_center + 600,
                 world_y: wall_center,
                 world_z: 0,
-                foundation_width: 4,
-                foundation_height: 4,
                 object_alive: true,
                 cell_marked: true,
                 house_wall_owner: true,
@@ -3069,7 +3061,7 @@ mod tests {
         ];
 
         grid.reconstruct_map_wall_owners(&terrain, &registry, &candidates);
-        assert_eq!(grid.cell(2, 2).wall_owner, Some(InternedId::from_index(3)));
+        assert_eq!(grid.cell(2, 2).wall_owner, Some(InternedId::from_index(2)));
 
         let mut filtered = candidates;
         filtered[0].object_alive = true;
@@ -3092,8 +3084,6 @@ mod tests {
             world_x: wall_center + delta,
             world_y: wall_center,
             world_z: 0,
-            foundation_width: 1,
-            foundation_height: 1,
             object_alive: true,
             cell_marked: true,
             house_wall_owner: true,
@@ -3121,8 +3111,6 @@ mod tests {
             world_x: wall_center,
             world_y: wall_center.wrapping_sub(dy),
             world_z: 0i32.wrapping_sub(dz),
-            foundation_width: 1,
-            foundation_height: 1,
             object_alive: true,
             cell_marked: true,
             house_wall_owner: true,

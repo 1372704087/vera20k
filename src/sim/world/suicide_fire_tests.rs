@@ -486,3 +486,143 @@ fn ordinary_terror_attack_finishes_die2_and_retires_its_source() {
             > 0
     );
 }
+
+#[test]
+fn direct_suicide_blast_reports_building_loss() {
+    assert_suicide_blast_reports_building_loss(true);
+}
+
+#[test]
+fn ordinary_suicide_blast_reports_building_loss() {
+    assert_suicide_blast_reports_building_loss(false);
+}
+
+fn assert_suicide_blast_reports_building_loss(direct: bool) {
+    use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags};
+    use crate::sim::command::{Command, CommandEnvelope};
+
+    let Some(mut scene) = retail_scene() else {
+        return;
+    };
+    // The target entered Logic before its attacker: a later target AI visit
+    // cannot accidentally supply the firing caller's missing notification.
+    // The same stock receiver reaches a real wounded target. No HP field
+    // write or replacement damage/death producer supplies the outcome.
+    let c4 = scene
+        .sim
+        .interner
+        .intern(&scene.rules.bridge_warheads.c4_name);
+    scene.sim.commit_direct_damage_receiver(
+        &scene.rules,
+        None,
+        EntityDamageEvent::direct_receiver(
+            scene.target,
+            650,
+            0,
+            RAD_NO_ATTACKER,
+            None,
+            c4,
+            ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: false,
+            },
+        ),
+        FrameEffects::default(),
+    );
+    assert_eq!(
+        scene
+            .sim
+            .substrate
+            .entities
+            .get(scene.target)
+            .unwrap()
+            .health
+            .current(),
+        100
+    );
+    if direct {
+        let receipt = scene.sim.commit_fire_visit(
+            FireVisit::Direct {
+                id: scene.source,
+                target: TargetKind::Entity(scene.target),
+                weapon_index: 0,
+            },
+            &scene.rules,
+            None,
+            FrameEffects::default(),
+        );
+        assert!(
+            scene
+                .sim
+                .substrate
+                .entities
+                .get(scene.target)
+                .unwrap()
+                .death
+                .is_dying()
+        );
+        assert!(
+            receipt.structure_destroyed,
+            "nested DeathWeapon loss must reach its direct FireAt caller"
+        );
+        return;
+    }
+    for (name, house, cell) in [
+        ("NAPOWR", "Confederation", (4, 4)),
+        ("GAPOWR", "Americans", (27, 27)),
+    ] {
+        scene
+            .sim
+            .spawn_object(name, house, cell.0, cell.1, 0, &scene.rules)
+            .unwrap();
+    }
+    let owner = scene
+        .sim
+        .substrate
+        .entities
+        .get(scene.source)
+        .unwrap()
+        .owner();
+    scene.sim.queue_command(CommandEnvelope::new(
+        owner,
+        1,
+        Command::Attack {
+            attacker_id: scene.source,
+            target_id: scene.target,
+        },
+    ));
+    let mut killed = false;
+    for _ in 0..100 {
+        let commands = scene.sim.take_due_commands();
+        let output = scene
+            .sim
+            .advance_app_frame(
+                &commands,
+                Some(&scene.rules),
+                None,
+                33,
+                super::TickLane::Ordinary,
+                None,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        if scene
+            .sim
+            .substrate
+            .entities
+            .get(scene.target)
+            .is_none_or(|target| target.health.current() <= 0)
+        {
+            assert!(
+                output.tick.destroyed_structure,
+                "ordinary Infantry fire must publish the same-frame building loss"
+            );
+            killed = true;
+            break;
+        }
+    }
+    assert!(
+        killed,
+        "the ordinary Suicide blast must kill the wounded building"
+    );
+}

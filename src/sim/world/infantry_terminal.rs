@@ -654,7 +654,10 @@ impl Simulation {
                 };
                 super::techno_ai::dying_infantry_techno_ai(self, id, rules, ctx);
                 match self.infantry_action_turn(id, rules, ctx.overlay_registry, ctx.effects) {
-                    Ok(changed) => outcome.bridge_state_changed = changed,
+                    Ok(receipt) => {
+                        outcome.bridge_state_changed |= receipt.bridge_state_changed;
+                        outcome.destroyed_structure |= receipt.structure_destroyed;
+                    }
                     Err(cause) => log::debug!("infantry {id} terminal action turn: {cause}"),
                 }
                 return outcome;

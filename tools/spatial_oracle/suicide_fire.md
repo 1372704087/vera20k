@@ -129,11 +129,10 @@ sections differ in PlayerControl, TechLevel, Credits, Allies and Color (plus
 Hills' extra PercentBuilt/NodeCount); Hills also contains an `[Americans]` House
 section absent from Cuba. The native component supplies its explicit
 Confederation Country pointer, current/human and nonallied House/foundation
-priors; it does not execute those maps' full House loading. Actual production
-remains Cuba. Its observed target
-disappearance while TERROR survives remains separate from the native component
-result163HP; there is no same full native scenario/frame replay or independently
-measured production receiver aggregate here.
+priors; it does not execute those maps' full House loading. The authored Cuba
+scene remains a separate production integration input. There is no same full
+native scenario/frame replay or independently measured production receiver
+aggregate here.
 
 Player Event/input delivery, approach from the original starting position,
 other receiver/Suicide variants and whole-function/class coverage remain open.

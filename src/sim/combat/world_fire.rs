@@ -1059,7 +1059,9 @@ pub(super) fn emit_admitted_fire(
                 arg6: false,
             },
         );
-        world.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
+        world
+            .commit_direct_damage_receiver(rules, overlay_registry, event, effects)
+            .retain_frame_notifications(&mut out.effects);
         return None;
     }
     if weapon.is_sonic && world.active_wave_links.contains_key(&snap.stable_id) {

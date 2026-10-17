@@ -35,6 +35,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
+use crate::sim::world::damage_consequences::DamageCommitReceipt;
 
 pub(crate) const DO_READY: i32 = 0;
 pub(crate) const DO_GUARD: i32 = 1;
@@ -428,22 +429,23 @@ impl Simulation {
     /// ordinary walker, so construction/Unlimbo keeps the native -1 and the
     /// first stationary AI selects Ready through the actual default arm.
     /// Firing (`0x0051BF59`) precedes the sequencer (`0x0051BF6A`) and
-    /// locomotion actions (`0x0051BF7B`). Returns bridge-state consequences.
+    /// locomotion actions (`0x0051BF7B`). Returns the committed fire receipt,
+    /// including the frame notifications of synchronous nested death weapons.
     pub(crate) fn infantry_action_turn(
         &mut self,
         id: u64,
         rules: &RuleSet,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
-    ) -> Result<bool, String> {
+    ) -> Result<DamageCommitReceipt, String> {
         let Some(actor) = self.substrate.entities.get(id) else {
-            return Ok(false);
+            return Ok(DamageCommitReceipt::default());
         };
         // Original51BCA4/51BCAC and51BF5E/51BF66 test Object+90, not
         // Health or the presentation death flag. Retained death sequences
         // still reach Fear -> Fire -> Sequencer until actual UnInit.
         if actor.category() != EntityCategory::Infantry || !actor.is_object_alive() {
-            return Ok(false);
+            return Ok(DamageCommitReceipt::default());
         }
         //51BDE7..51BE3E precedes the second Ready/Commence and Fear. A
         // rate-zero clock cancels+68D, then unforced Deployed/Ready. Prone
@@ -466,30 +468,29 @@ impl Simulation {
         self.object_ai_post_movement_promote_one(id, Some(rules));
         //51BF0B is after Process and the second Ready/Commence, including a
         // retained death sequence. Shared DoAction decides stance refusal.
-        let mut bridge_changed = self.infantry_fear_turn(id, rules, registry, effects)?;
+        let bridge_changed = self.infantry_fear_turn(id, rules, registry, effects)?;
         //51BF59 owns all Infantry firing; its new Bullet/Anim objects join
         // the current dynamic Logic suffix before the next actor visit.
-        bridge_changed |= self
-            .commit_fire_visit(
-                crate::sim::combat::world_fire::FireVisit::InfantryTarget(id),
-                rules,
-                registry,
-                effects,
-            )
-            .bridge_state_changed;
+        let mut receipt = self.commit_fire_visit(
+            crate::sim::combat::world_fire::FireVisit::InfantryTarget(id),
+            rules,
+            registry,
+            effects,
+        );
+        receipt.bridge_state_changed |= bridge_changed;
         if self
             .substrate
             .entities
             .get(id)
             .is_none_or(|actor| !actor.is_object_alive())
         {
-            return Ok(bridge_changed);
+            return Ok(receipt);
         }
         if self.infantry_sequencer(id, rules, effects) {
-            return Ok(bridge_changed);
+            return Ok(receipt);
         }
         self.infantry_movement_actions(id, rules, registry, effects);
-        Ok(bridge_changed)
+        Ok(receipt)
     }
 
     /// `InfantryClass::DoType_Sequencer @ 0x00520AE0` for an infantryman

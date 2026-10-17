@@ -797,6 +797,7 @@ impl Simulation {
         }
         let mut per_cell_ran = ai.landed;
         outcome.bridge_state_changed |= ai.bridge_state_changed;
+        outcome.destroyed_structure |= ai.destroyed_structure;
         outcome.ownership_changed |= ai.ownership_changed();
         if was_structure
             && sim
@@ -1105,7 +1106,7 @@ impl Simulation {
                     entity_id: stable_id,
                     cause,
                 })?;
-            outcome.bridge_state_changed |= sim
+            let receipt = sim
                 .infantry_action_turn(stable_id, rules, overlay_registry, object_ctx.effects)
                 .map_err(|cause| super::FrameAdvanceError {
                     tick: sim.session.tick,
@@ -1113,6 +1114,8 @@ impl Simulation {
                     entity_id: stable_id,
                     cause,
                 })?;
+            outcome.bridge_state_changed |= receipt.bridge_state_changed;
+            outcome.destroyed_structure |= receipt.structure_destroyed;
             if sim
                 .substrate
                 .entities

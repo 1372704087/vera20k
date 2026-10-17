@@ -1937,19 +1937,24 @@ pub struct ObjectType {
     pub refinery_smoke_offsets: [IVec3; 4],
     /// `RefinerySmokeFrames=` — frame count for the smoke particle system.
     pub refinery_smoke_frames: i32,
-    /// `GapRadiusInCells=` — per-object gap-generator radius (overrides the
-    /// global default for this object).
-    pub gap_radius_in_cells: u8,
+    /// ObjectType+238, ctor5F71A6=false; ReadBool5F9521..9549, current default.
+    /// Tactical6DBE59 admits the selected object's radial-indicator virtual.
+    has_radial_indicator: bool,
+    /// BuildingType+1708, ctor=false; ReadBool461030..46104A, current default.
+    concentric_radial_indicator: bool,
+    /// TechnoType+CD2: ReadInt713FBC stores AL without a clamp;4566EC
+    /// sign-extends it. The constructor's default is zero, not General.GapRadius.
+    pub gap_radius_in_cells: i8,
     /// `SuperGapRadiusInCells=` — oversized gap radius applied during
     /// specific game states.
-    pub super_gap_radius_in_cells: u8,
-    /// `PsychicDetectionRadius=` — selected Psychic Sensor ring radius.
-    pub psychic_detection_radius: u8,
+    pub super_gap_radius_in_cells: i8,
+    /// BuildingType+170C: signed ReadInt460C41, current default zero.
+    pub psychic_detection_radius: i32,
     /// `SensorArray=` — building sensor-array flag used by GetSensorRange.
     pub sensor_array: bool,
     /// `Sensors=` — generic cloak-sensor flag.
     pub sensors: bool,
-    /// `SensorsSight=` — fallback sensor/cloak-generator ring radius.
+    /// `SensorsSight=` — generic sensor coverage; not GetSensorRange4566B0.
     pub sensors_sight: u8,
     /// `DetectDisguise=` — `TechnoTypeClass+0xD31`, written by
     /// `TechnoTypeClass::ReadINI @ 0x0071444C` (key string `0x00843C78`).
@@ -1999,6 +2004,35 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub const fn has_radial_indicator(&self) -> bool {
+        self.has_radial_indicator
+    }
+
+    pub const fn concentric_radial_indicator(&self) -> bool {
+        self.concentric_radial_indicator
+    }
+
+    /// Building GetSensorRange4566B0. The caller supplies retained+268 and
+    /// GetCurrentWeapon70E1A0's resolved range; Option already represents the
+    /// null WeaponStruct/WeaponType test70E240. No General.GapRadius fallback.
+    pub fn building_sensor_range(&self, gap_supercharged: bool, weapon_range: Option<i32>) -> i32 {
+        if self.psychic_detection_radius > 0 {
+            self.psychic_detection_radius
+        } else if self.gap_generator {
+            i32::from(if gap_supercharged {
+                self.super_gap_radius_in_cells
+            } else {
+                self.gap_radius_in_cells
+            })
+        } else if self.sensor_array || self.cloak_generator {
+            i32::from(self.cloak_radius_in_cells)
+        } else {
+            weapon_range
+                .filter(|range| *range > 0)
+                .map_or(0, |range| range / 256)
+        }
+    }
+
     pub const fn attacks_friendlies(&self) -> bool {
         self.attack_friendlies
     }
@@ -3276,15 +3310,15 @@ impl ObjectType {
                 IVec3::from_array(section.read_coord_tokens("RefinerySmokeOffsetFour", [0; 3])),
             ],
             refinery_smoke_frames: section.read_int("RefinerySmokeFrames", 25),
-            gap_radius_in_cells: section
-                .read_int("GapRadiusInCells", 0)
-                .clamp(0, u8::MAX as i32) as u8,
-            super_gap_radius_in_cells: section
-                .read_int("SuperGapRadiusInCells", 0)
-                .clamp(0, u8::MAX as i32) as u8,
-            psychic_detection_radius: section
-                .read_int("PsychicDetectionRadius", 0)
-                .clamp(0, u8::MAX as i32) as u8,
+            has_radial_indicator: section.read_bool("HasRadialIndicator", false),
+            concentric_radial_indicator: category == ObjectCategory::Building
+                && section.read_bool("ConcentricRadialIndicator", false),
+            // The reached-pass history folds current-default reads before
+            // this immutable projection. Low-byte storage commutes with
+            // absent/default reads; it must not become a saturation clamp.
+            gap_radius_in_cells: section.read_int("GapRadiusInCells", 0) as i8,
+            super_gap_radius_in_cells: section.read_int("SuperGapRadiusInCells", 0) as i8,
+            psychic_detection_radius: section.read_int("PsychicDetectionRadius", 0),
             sensor_array: section.read_bool("SensorArray", false),
             sensors: section.read_bool("Sensors", false),
             sensors_sight: section.read_int("SensorsSight", 0).clamp(0, u8::MAX as i32) as u8,

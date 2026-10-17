@@ -111,7 +111,7 @@ Ghidra, затем переносят его поведение на Rust и п�
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Поддержать VERA20k через PayPal" height="40"></a>
 
-[Поддержать VERA20k через PayPal](https://paypal.me/vera20k). Все полученные пожертвования
+Все полученные пожертвования
 распределяются между участниками проекта согласно
 [журналу вкладов TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
 

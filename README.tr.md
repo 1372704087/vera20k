@@ -111,7 +111,7 @@ Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20k'yi PayPal üzerinden destekleyin" height="40"></a>
 
-[VERA20k'yi PayPal üzerinden destekleyin](https://paypal.me/vera20k). Alınan tüm bağışlar,
+Alınan tüm bağışlar,
 [TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
 bulunanlara dağıtılır.
 

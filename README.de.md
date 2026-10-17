@@ -112,7 +112,7 @@ Beiträge stehen wie das übrige Projekt unter der GPLv3; ein CLA gibt es nicht.
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Unterstütze VERA20k über PayPal" height="40"></a>
 
-[Unterstütze VERA20k über PayPal](https://paypal.me/vera20k). Alle eingegangenen Spenden werden
+Alle eingegangenen Spenden werden
 gemäß dem [TIBTRE-Beitragsverzeichnis](https://github.com/YuriPlanet/tibtre-ledger) an
 Mitwirkende verteilt.
 

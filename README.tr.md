@@ -107,6 +107,17 @@ oyuna daha çabuk dönersiniz. Performansı `--release` ile ölçün.
 
 Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 
+## Destek
+
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20k'yi PayPal üzerinden destekleyin" height="40"></a>
+
+Alınan tüm bağışlar,
+[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
+bulunanlara dağıtılır.
+
+Katkıda bulunanlara ödemeler PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
+Bitcoin üzerinden yapılır.
+
 ## Teşekkürler ve yasal bilgiler
 
 OpenRA, XCC Mixer, ModEnc wiki, Project Perfect Mod, Command & Conquer ve Red Alert'in

@@ -106,6 +106,16 @@ performance with `--release`.
 
 Contributions are licensed under the GPLv3, like the rest of the project; there's no CLA.
 
+## Support
+
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20k via PayPal" height="40"></a>
+
+All donations received are distributed
+to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
+
+Payouts to contributors go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
+or Bitcoin.
+
 ## Credits and legal
 
 Thanks to OpenRA, XCC Mixer, the ModEnc wiki, Project Perfect Mod, EA's GPL source release of

@@ -20,16 +20,74 @@ fn native_voice_corpus() -> serde_json::Value {
     corpus
 }
 
-fn scene(body: &str) -> (Simulation, RuleSet, u64) {
-    scene_with_input(body, &serde_json::json!({}))
-}
-
-fn scene_with_input(body: &str, input: &serde_json::Value) -> (Simulation, RuleSet, u64) {
+#[test]
+fn retail_attack_acknowledgement_spends_the_original_singleton_main_draw() {
     use crate::map::entities::EntityCategory;
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::HouseState;
 
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/attack_order_voice.json");
+    let row = corpus["voice_controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "stock_mtnk_target")
+        .unwrap();
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let mut sim = Simulation::with_seed(row["input"]["seed"].as_u64().unwrap());
+    let local = sim.interner.intern("Local");
+    sim.session.current_house = Some(local);
+    sim.session.game_mode_nonzero = true;
+    sim.houses
+        .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+    let type_ref = sim.interner.intern("MTNK");
+    sim.entities_mut()
+        .insert(GameEntity::new_at_frame_zero_for_test(
+            1,
+            10,
+            10,
+            0,
+            0,
+            local,
+            Health::new(retail.rules.object("MTNK").unwrap().strength),
+            type_ref,
+            EntityCategory::Unit,
+            0,
+            5,
+            false,
+        ));
+    assert_eq!(
+        sim.main_rng.native_state_hex(),
+        row["output"]["main_before_hex"].as_str().unwrap()
+    );
+    let scenario = sim.scenario_rng.logical_state();
+    let mapgen = sim.mapgen_rng.logical_state();
+    let (_, draws) =
+        trace_draws(|| sim.order_voice_request(&retail.rules, 1, "VoiceAttack", None, true));
+    // Original6FFBE0 ->7090A0 calls Main65C780 at709193, even for
+    // the actual stock singleton. The original selector's secondary-NULL
+    // return occurs before any target read; no Rust modulo supplies this golden.
+    assert_eq!(
+        serde_json::json!(draws.iter().map(|draw| &draw["value"]).collect::<Vec<_>>()),
+        row["output"]["main_draws"]
+    );
+    assert_eq!(
+        sim.main_rng.native_state_hex(),
+        row["output"]["main_after_hex"].as_str().unwrap()
+    );
+    assert_eq!(sim.scenario_rng.logical_state(), scenario);
+    assert_eq!(sim.mapgen_rng.logical_state(), mapgen);
+}
+
+fn scene(body: &str) -> (Simulation, RuleSet, u64) {
+    scene_with_input(body, &serde_json::json!({}))
+}
+
+fn scene_with_input(body: &str, input: &serde_json::Value) -> (Simulation, RuleSet, u64) {
     let ini = IniFile::from_str(&format!(
         "[InfantryTypes]\n0=ENGINEER\n[ENGINEER]\nStrength=100\n{body}"
     ));
@@ -38,6 +96,24 @@ fn scene_with_input(body: &str, input: &serde_json::Value) -> (Simulation, RuleS
         "[SoundList]\n0=Move\n1=Enter\n2=Capture\n3=Harvest\n4=Attack\n5=Special\n",
     ));
     rules.bind_type_sound_references(&ini, &sounds);
+    scene_for_rules(
+        rules,
+        input,
+        "ENGINEER",
+        crate::map::entities::EntityCategory::Infantry,
+    )
+}
+
+fn scene_for_rules(
+    rules: RuleSet,
+    input: &serde_json::Value,
+    type_name: &str,
+    category: crate::map::entities::EntityCategory,
+) -> (Simulation, RuleSet, u64) {
+    use crate::sim::combat::Health;
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::house_state::HouseState;
+
     let mut sim = Simulation::with_seed(input["seed"].as_u64().unwrap_or(1));
     let local = sim.interner.intern("Local");
     let other = sim.interner.intern("Other");
@@ -46,7 +122,7 @@ fn scene_with_input(body: &str, input: &serde_json::Value) -> (Simulation, RuleS
         "other" => other,
         other => panic!("unknown native actor owner {other}"),
     };
-    let type_ref = sim.interner.intern("ENGINEER");
+    let type_ref = sim.interner.intern(type_name);
     sim.session.current_house = Some(local);
     sim.session.game_mode_nonzero = input["mode"].as_u64().unwrap_or(1) != 0;
     sim.houses
@@ -70,14 +146,361 @@ fn scene_with_input(body: &str, input: &serde_json::Value) -> (Simulation, RuleS
             0,
             0,
             actor_owner,
-            Health::new(100),
+            Health::new(rules.object(type_name).unwrap().strength),
             type_ref,
-            EntityCategory::Infantry,
+            category,
             0,
             5,
             false,
         ));
     (sim, rules, id)
+}
+
+fn attack_control_rules(corpus: &serde_json::Value, input: &serde_json::Value) -> RuleSet {
+    use std::collections::BTreeMap;
+
+    let names: BTreeMap<_, _> = corpus["readers"]["sound"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["fixture_index"].as_i64().unwrap(),
+                row["name"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    let mut catalog = String::from("[SoundList]\n");
+    for (index, name) in &names {
+        catalog.push_str(&format!("{index}={name}\n"));
+    }
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str(&catalog));
+    let type_name = input["type_name"].as_str().unwrap();
+    let voices = input["voice_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|id| names.get(&id.as_i64().unwrap()).copied())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut body = format!("[VehicleTypes]\n0={type_name}\n");
+    if type_name != "MTNK" {
+        body.push_str("1=MTNK\n[MTNK]\nStrength=300\n");
+    }
+    body.push_str(&format!(
+        "[BuildingTypes]\n0=GAPOWR\n[GAPOWR]\nStrength=750\n\
+         [{type_name}]\nStrength=300\nVoiceAttack={voices}\n"
+    ));
+    for (key, id) in [
+        "VoicePrimaryWeaponAttack",
+        "VoicePrimaryEliteWeaponAttack",
+        "VoiceSecondaryWeaponAttack",
+        "VoiceSecondaryEliteWeaponAttack",
+    ]
+    .into_iter()
+    .zip(input["weapon_voice_slots"].as_array().unwrap())
+    {
+        if let Some(name) = names.get(&id.as_i64().unwrap()) {
+            body.push_str(&format!("{key}={name}\n"));
+        }
+    }
+    if input["null_weapon"] != true {
+        body.push_str("Primary=VOICE_CONTROL\n");
+    }
+    match input["selector_boundary"].as_i64() {
+        Some(1) => {
+            // The native component supplies index1 at its declared selector
+            // seam. Use the existing gunner owner to reach the same index,
+            // rather than duplicating selection in the voice implementation.
+            body.push_str("TurretCount=1\nWeapon1=VOICE_CONTROL\nWeapon2=VOICE_CONTROL\n");
+        }
+        Some(-1) => body.push_str("DeployFire=yes\nDeployFireWeapon=-1\n"),
+        None | Some(0) => {}
+        other => panic!("unhandled native selector boundary {other:?}"),
+    }
+    body.push_str(&format!(
+        "[VOICE_CONTROL]\nDamage={}\nAmbientDamage={}\nProjectile=VOICE_PROJECTILE\n",
+        input["damage"].as_i64().unwrap(),
+        input["ambient_damage"].as_i64().unwrap(),
+    ));
+    if input["missing_warhead"] != true {
+        body.push_str("Warhead=VOICE_WARHEAD\n[VOICE_WARHEAD]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n");
+    }
+    body.push_str("[VOICE_PROJECTILE]\nAG=yes\nAA=yes\n");
+    if let Some(name) = names.get(&input["voice_ifv_repair"].as_i64().unwrap()) {
+        body.push_str(&format!("[AudioVisual]\nVoiceIFVRepair={name}\n"));
+    }
+    let ini = IniFile::from_str(&body);
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    rules.bind_type_sound_references(&ini, &sounds);
+    rules
+}
+
+#[test]
+fn attack_voice_matches_native_target_slots_rng_and_queue_admission() {
+    use crate::map::entities::EntityCategory;
+    use crate::sim::combat::{Health, TargetKind};
+    use crate::sim::game_entity::GameEntity;
+    use crate::util::native_x87::NativeF32Bits;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/attack_order_voice.json");
+    assert_eq!(
+        corpus["native_sha256"],
+        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
+    );
+    let sound_name = |index: i64| {
+        corpus["readers"]["sound"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["fixture_index"].as_i64() == Some(index))
+            .unwrap()["name"]
+            .as_str()
+            .unwrap()
+    };
+    let mut full_requests = 0;
+    let mut unbound_vector_kernel = 0;
+    let mut native_faults = 0;
+    for row in corpus["voice_controls"].as_array().unwrap() {
+        let name = row["name"].as_str().unwrap();
+        let input = &row["input"];
+        let output = &row["output"];
+        let type_name = input["type_name"].as_str().unwrap();
+        let (mut sim, rules, actor) = scene_for_rules(
+            attack_control_rules(&corpus, input),
+            input,
+            type_name,
+            EntityCategory::Unit,
+        );
+        let object = rules.object(type_name).unwrap();
+        let entity = sim.entities_mut().get_mut(actor).unwrap();
+        entity.veterancy.set_raw_for_test(NativeF32Bits::from_bits(
+            input["raw_veterancy_bits"].as_u64().unwrap() as u32,
+        ));
+        // A stale opposite cache cannot choose the weapon voice tier.
+        entity
+            .veterancy
+            .set_rank_cache_for_test(if input["raw_veterancy_bits"] == 0 {
+                0
+            } else {
+                2
+            });
+        if let Some(index) = input["selector_boundary"].as_i64() {
+            if index == -1 {
+                entity.set_unit_simple_deploy_for_test(true, false, false);
+            } else {
+                entity.set_gunner_weapon(index as i32, object);
+            }
+        }
+        let target = if input["null_target"] == true {
+            None
+        } else {
+            let type_ref = sim.interner.intern(input["target_type"].as_str().unwrap());
+            let owner = sim.interner.get("Other").unwrap();
+            let category = if input["target_type"] == "GAPOWR" {
+                EntityCategory::Structure
+            } else {
+                EntityCategory::Unit
+            };
+            sim.entities_mut()
+                .insert(GameEntity::new_at_frame_zero_for_test(
+                    2,
+                    4,
+                    0,
+                    0,
+                    0,
+                    owner,
+                    Health::new(100),
+                    type_ref,
+                    category,
+                    0,
+                    5,
+                    false,
+                ));
+            Some(TargetKind::Entity(2))
+        };
+        assert_eq!(
+            sim.main_rng.native_state_hex(),
+            output["main_before_hex"].as_str().unwrap(),
+            "{name}"
+        );
+        let scenario = sim.scenario_rng.native_state_hex();
+        let mapgen = sim.mapgen_rng.native_state_hex();
+        let hash = sim.state_hash();
+        let enabled = input["voices_enabled"].as_bool().unwrap();
+        let direct = input["caller_entry"] == "0x007090A0";
+        let unbound = input["voice_ids"] == serde_json::json!([-1]);
+        let unbound_voices = [String::new()];
+        let human = sim.house_is_human_player(sim.entities().get(actor).unwrap().owner());
+        let (result, draws) = trace_draws(|| {
+            catch_unwind(AssertUnwindSafe(|| {
+                if unbound {
+                    // Original ReadSoundList never binds -1. This deliberately
+                    // prepared vector belongs only to the shared list kernel.
+                    sim.voice_request_from_list(&unbound_voices, enabled, human)
+                } else if direct {
+                    sim.attack_voice_request(&rules, actor, target, enabled)
+                } else {
+                    sim.order_voice_request(&rules, actor, "VoiceAttack", target, enabled)
+                }
+            }))
+        });
+        if output["fault"].is_object() {
+            native_faults += 1;
+            assert!(
+                result.is_err(),
+                "{name}: original NULL slot faults before a draw"
+            );
+        } else {
+            let request = result.unwrap();
+            let queued = output["queued_voice_after"].as_i64().unwrap();
+            let expected = (queued != output["queued_voice_before"].as_i64().unwrap())
+                .then(|| sound_name(queued));
+            assert_eq!(request, expected, "{name}: native QueueVoice admission");
+            if unbound {
+                unbound_vector_kernel += 1;
+            } else {
+                full_requests += 1;
+            }
+        }
+        assert_eq!(
+            serde_json::json!(draws.iter().map(|draw| &draw["value"]).collect::<Vec<_>>()),
+            output["main_draws"],
+            "{name}: raw Main draws"
+        );
+        assert_eq!(
+            sim.main_rng.native_state_hex(),
+            output["main_after_hex"].as_str().unwrap(),
+            "{name}: full Main continuation"
+        );
+        assert_eq!(
+            sim.scenario_rng.native_state_hex(),
+            scenario,
+            "{name}: Scenario unchanged"
+        );
+        assert_eq!(
+            sim.mapgen_rng.native_state_hex(),
+            mapgen,
+            "{name}: MapGen unchanged"
+        );
+        assert_eq!(
+            sim.state_hash(),
+            hash,
+            "{name}: voice owns no simulation state"
+        );
+        assert_eq!(output["timer_start_calls"], 0, "{name}");
+        assert_eq!(output["detach_calls"], 0, "{name}");
+        for expected in output["main_next_four"].as_array().unwrap() {
+            assert_eq!(
+                u64::from(sim.main_rng.next_u32()),
+                expected.as_u64().unwrap(),
+                "{name}: continuation"
+            );
+        }
+    }
+    assert_eq!(
+        (full_requests, unbound_vector_kernel, native_faults),
+        (19, 1, 1)
+    );
+}
+
+#[test]
+fn attack_voice_selects_for_the_committed_target_without_retargeting_the_actor() {
+    use crate::map::entities::EntityCategory;
+    use crate::sim::combat::{Health, TargetKind};
+    use crate::sim::game_entity::GameEntity;
+
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/attack_order_voice.json");
+    let native_voice = |name: &str| {
+        let index = corpus["voice_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == name)
+            .unwrap()["output"]["queued_voice_after"]
+            .as_i64()
+            .unwrap();
+        corpus["readers"]["sound"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["fixture_index"] == index)
+            .unwrap()["name"]
+            .as_str()
+            .unwrap()
+    };
+    let primary = native_voice("primary_override");
+    let secondary = native_voice("secondary_override");
+    // These authored target/Verses priors exercise the existing selection
+    // owner's live target arm. The voice values are the original7090A0
+    // slot controls, not a new spatial/weapon-selection golden.
+    let ini = IniFile::from_str(&format!(
+        "[VehicleTypes]\n0=MTNK\n1=OLD\n2=NEW\n\
+         [MTNK]\nStrength=300\nPrimary=P\nSecondary=S\n\
+         VoicePrimaryWeaponAttack={primary}\nVoiceSecondaryWeaponAttack={secondary}\n\
+         [OLD]\nStrength=300\nArmor=none\n[NEW]\nStrength=300\nArmor=heavy\n\
+         [P]\nDamage=65\nProjectile=Q\nWarhead=PRIMARY_WH\n\
+         [S]\nDamage=65\nProjectile=Q\nWarhead=SECONDARY_WH\n\
+         [Q]\nAG=yes\nAA=no\n\
+         [PRIMARY_WH]\nVerses=100%,100%,100%,100%,100%,0%,100%,100%,100%,100%,100%\n\
+         [SECONDARY_WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
+    ));
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str(&format!(
+        "[SoundList]\n0={primary}\n1={secondary}\n"
+    )));
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    rules.bind_type_sound_references(&ini, &sounds);
+    let (mut sim, rules, actor) =
+        scene_for_rules(rules, &serde_json::json!({}), "MTNK", EntityCategory::Unit);
+    let owner = sim.interner.get("Other").unwrap();
+    for (id, type_name) in [(2, "OLD"), (3, "NEW")] {
+        let kind = sim.interner.intern(type_name);
+        sim.entities_mut()
+            .insert(GameEntity::new_at_frame_zero_for_test(
+                id,
+                id as u16,
+                0,
+                0,
+                0,
+                owner,
+                Health::new(300),
+                kind,
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            ));
+    }
+    sim.assign_target_represented(
+        actor,
+        Some(TargetKind::Entity(2)),
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::empty(),
+    )
+    .unwrap();
+    for (target, expected) in [
+        (None, primary),
+        (Some(TargetKind::Entity(2)), primary),
+        (Some(TargetKind::Entity(3)), secondary),
+        (Some(TargetKind::Cell(3, 3)), primary),
+    ] {
+        let main = sim.main_rng.native_state_hex();
+        let world = sim.state_hash();
+        let request = sim.order_voice_request(&rules, actor, "VoiceAttack", target, true);
+        assert_eq!(request, Some(expected), "committed target {target:?}");
+        assert_eq!(
+            sim.entities().get(actor).unwrap().attack_target.target(),
+            Some(TargetKind::Entity(2))
+        );
+        assert_eq!(
+            sim.main_rng.native_state_hex(),
+            main,
+            "scalar override draws none"
+        );
+        assert_eq!(sim.state_hash(), world, "voice must not retarget the actor");
+    }
 }
 
 #[test]
@@ -111,7 +534,8 @@ fn capture_enter_and_harvest_preserve_scalar_precedence_and_move_fallback() {
             ("VoiceHarvest", harvest),
         ] {
             let (mut sim, rules, id) = scene(body);
-            let (request, draws) = trace_draws(|| sim.order_voice_request(&rules, id, field, true));
+            let (request, draws) =
+                trace_draws(|| sim.order_voice_request(&rules, id, field, None, true));
             assert_eq!(request, expected, "{field} with {body:?}");
             let expected_draws = if expected == Some("Move") {
                 move_draws.clone()
@@ -134,21 +558,20 @@ fn scalar_and_unknown_order_voice_fields_do_not_spend_main_draws() {
          VoiceEnter=Enter\nVoiceHarvest=Harvest\n",
     );
     for (field, expected) in [
-        ("VoiceAttack", Some("Attack")),
         ("VoiceCapture", Some("Capture")),
         ("VoiceEnter", Some("Enter")),
         ("VoiceHarvest", Some("Harvest")),
         ("unrecognized", None),
     ] {
         let before = sim.main_rng.native_state_hex();
-        let (sound, draws) = trace_draws(|| sim.order_voice_request(&rules, id, field, true));
+        let (sound, draws) = trace_draws(|| sim.order_voice_request(&rules, id, field, None, true));
         assert_eq!(sound, expected, "{field}");
         assert!(draws.is_empty(), "{field}");
         assert_eq!(sim.main_rng.native_state_hex(), before, "{field}");
     }
     let (mut sim, rules, id) = scene("VoiceMove=Move\n");
     assert_eq!(
-        sim.order_voice_request(&rules, id, "VoiceAttack", true),
+        sim.order_voice_request(&rules, id, "VoiceAttack", None, true),
         None
     );
 }
@@ -156,9 +579,16 @@ fn scalar_and_unknown_order_voice_fields_do_not_spend_main_draws() {
 #[test]
 fn disabled_order_voice_rejects_before_move_or_fallback_is_reached() {
     let (mut sim, rules, id) = scene("VoiceMove=Move\n");
-    for field in ["VoiceMove", "VoiceCapture", "VoiceEnter", "VoiceHarvest"] {
+    for field in [
+        "VoiceMove",
+        "VoiceAttack",
+        "VoiceCapture",
+        "VoiceEnter",
+        "VoiceHarvest",
+    ] {
         let before = sim.main_rng.native_state_hex();
-        let (sound, draws) = trace_draws(|| sim.order_voice_request(&rules, id, field, false));
+        let (sound, draws) =
+            trace_draws(|| sim.order_voice_request(&rules, id, field, None, false));
         assert_eq!(sound, None, "{field}");
         assert!(draws.is_empty(), "{field}");
         assert_eq!(sim.main_rng.native_state_hex(), before, "{field}");
@@ -218,7 +648,7 @@ fn allied_object_move_voice_matches_native_rng_and_queue() {
                     None
                 }
             } else {
-                sim.order_voice_request(&rules, id, "VoiceMove", enabled)
+                sim.order_voice_request(&rules, id, "VoiceMove", None, enabled)
             }
         });
         let queued = request.map_or_else(

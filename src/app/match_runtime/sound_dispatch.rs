@@ -117,7 +117,7 @@ pub(crate) fn default_order_voice_event(
     voices_enabled: bool,
 ) -> Option<GameSoundEvent> {
     let sound_id =
-        sim.order_voice_request(rules, entity_id, "VoiceSpecialAttack", voices_enabled)?;
+        sim.order_voice_request(rules, entity_id, "VoiceSpecialAttack", None, voices_enabled)?;
     Some(GameSoundEvent::UnitMoveOrder {
         speaker_id: entity_id,
         sound_id: sound_id.to_string(),

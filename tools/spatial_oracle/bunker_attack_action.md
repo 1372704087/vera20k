@@ -115,3 +115,89 @@ reference names3e81 while the selected file is1cdd, a strict provenance check
 correctly refuses that identity change even when all payload behavior matches.
 Use the shared [section-compatibility evidence](../native_oracle.md#steam-compatibility-and-evidence-identity)
 to qualify a separate semantic replay; do not relabel or rebaseline old evidence.
+
+## Attack acknowledgement
+
+The additive `--attack-order-voice` mode writes `attack_order_voice.json` and
+its sidecar. It reuses `run()` and the existing Move/Attack `voice_control`
+recorder, RNG owner and native type/INI/Sound owners. Historical default and
+allied outputs remain independent of this option.
+
+```
+VERA20K_SHRAPNEL_INPUTS=/path/to/existing/extract \
+  python -m tools.spatial_oracle.bunker_attack_action --attack-order-voice --check
+```
+
+That existing extraction contains SOUNDMD.INI for the shared Sound owner.
+The selected rules/mode/map bytes come from the original game's archives via
+`weapon_laser.physical_layers`, rather than the extraction's older Hills map.
+Use `VERA20K_GAMEMD_EXE` as above; `--write` deliberately reexecutes the corpus.
+
+`readers.constructor` records whole native UnitType7470D0, WeaponType771C70
+and Rules665650 construction results. `readers.layers` records actual section
+admission526810 and selected unchanged reader blocks for RULESMD.INI,
+optional LANGRULE.INI, MPBattleMD.ini and XMP03T4.MAP. This does not execute
+whole file/type readers. Actual selected stock MTNK has Primary105mm,
+SecondaryNULL, TurretCount0, IsGattlingfalse, VoiceAttack singleton and four
+weapon-voice overrides−1. **Weapon Damage is+A4; AmbientDamage is+98.**
+
+VoiceAttack vector+484 defaults empty and reads through712C5B..712CC5.
+The four scalar slots580/584/588/58C default−1 (710F55..710F68), in order
+`VoicePrimaryWeaponAttack`, `VoicePrimaryEliteWeaponAttack`,
+`VoiceSecondaryWeaponAttack`, `VoiceSecondaryEliteWeaponAttack`.
+Original713679..713775 uses ReadString128/Voc7514D0 and retains the current
+slot on missing, empty or unresolved names. `readers.retained_controls` keeps
+these native results, including absent/admitted sections, list duplicates,
+unresolved list names and exact-case keys. No Python sound parser supplies the
+expected values.
+
+`readers.sound` retains the physical SOUNDMD source keys, selected Defaults,
+sound sections, sample names and actual native binding. Numeric registry and
+sample indices are local to the selected registry, not full-game numeric IDs.
+Original Sound initialization and7514D0 lookup share the existing BulletReader
+VM through `Sound.make_ini`/`mtnk_attack.sound_inputs`; physical archive loading,
+AudioIndex/device/PCM and complete sound catalog are outside this comparison.
+
+`readers.voice_ifv_repair` records Rules+230 constructor−1 at665976,
+exact AudioVisual literal83A87C `VoiceIFVRepair`, native reader669D63..669DA7
+(store669DA1) and selected physical `IFVMove`. The current signed ID is retained
+for missing/empty/unresolved names. Actual RepairBullet Damage−50 is read from
+the physical weapon section. The bounded FV consumer controls supply the type
+identity/weapon selection prior; they do not claim the IFV gunner/repair lifecycle.
+
+Each `voice_controls` row retains `input` and `output`. The two ordinary rows
+are `stock_mtnk_target` and `stock_gapowr_target`. They execute native Foot
+attack admission/argument producer4D769F with ESI=actor and its local stack
+target slot supplied, then accepted mission1→6FFBE0→whole7090A0→QueueVoice.
+Stop6FFDA5 precedes event encoding. Target class/type/vtable and live Unit/House
+state are explicit consumer priors; full target/actor constructors and whole
+ClickedAction dispatch are not claimed. Reader facts transfer by value between
+the two existing reader/action runtimes, never as transplanted pointers.
+
+During the measured continuation, the historical selector seam is released:
+original Unit746CD0→Techno6F3330→GetWeapon70E140 executes unchanged. Stock
+TurretCount0, original41BFB0=false and SecondaryNULL select primary0 before any
+target read. The recorder explicitly reports `selector_target_memory_reads`.
+Secondary override controls use the original DeployFire index branch with
+declared supplied state; they are not stock MTNK deploy/secondary reachability.
+Raw veterancy bits, list/scalar state, pending777 and RNG seeds are priors.
+
+`output` includes actual produced mission/arguments, selector/weapon events,
+queue requests and pending state, full before/after Main/Scenario/MapGen states,
+raw Main draws and native next-four continuation. Singleton lists spend one Main
+draw. Disabled caller skips7090A0; direct disabled/nonhuman calls spend the draw
+before QueueVoice rejection. Empty lists spend none; scalar primary/secondary
+and raw-elite overrides spend none. Negative-Damage literalFV uses Rules+230
+without a draw when bound; unbound or non-FV falls back to the generic list.
+The `fv_negative_unbound_bypasses_weapon_overrides` contrast retains all four
+valid native-read overrides while Rules+230 is−1: original7090EB→70914A
+bypasses those overrides and still spends Main on the generic list.
+Missing-warhead controls establish that this decision only needs the raw weapon
+and Damage, not Warhead resolution. No measured timer start or detach occurs.
+
+NULL target with stock primary-only selection and valid slot.weaponNULL both
+still reach generic voice selection. Selected index−1 is different: original
+GetWeapon returns a NULL slot and7090C0 dereferences it. Its explicit direct
+boundary control records that native fault before any RNG/queue request; no
+fallback result or ordinary command reachability is invented. All whole action,
+mission/event, arbitrary weapon/target and playback functions remain partial.

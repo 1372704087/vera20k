@@ -106,7 +106,9 @@ Mät prestanda med `--release`.
 
 Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
 
-## Stöd projektet <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20k via PayPal" height="40" align="middle"></a>
+## Stöd projektet
+
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20k via PayPal" height="40"></a>
 
 [Stöd VERA20k via PayPal](https://paypal.me/vera20k). Alla mottagna donationer fördelas till
 medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).

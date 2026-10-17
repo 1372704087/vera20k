@@ -297,9 +297,10 @@ fn record_last_built_uses_class_fallbacks_type_overrides_and_the_existing_tech_o
 /// A stock, settled barracks prior for ordinary paid production and SELL.
 /// The real theater SHP binder supplies sale control; this fixture never
 /// arms a Factory, completion flag or BuildingDown stage.
-fn retail_barracks_sale_runtime(
+pub(super) fn retail_barracks_sale_runtime(
     second_barracks: bool,
     radar: bool,
+    initial_credits: i32,
 ) -> Option<(crate::sim::runtime::SimRuntime, InternedId, u64)> {
     use crate::sim::house_state::HouseState;
     use crate::sim::runtime::{SimResources, SimRuntime};
@@ -315,7 +316,7 @@ fn retail_barracks_sale_runtime(
     sim.resolve_type_handles(&rules);
     super::tests::install_infantry_delivery_fixture_map(&mut sim);
     let owner = sim.interner.intern("Russians");
-    let mut house = HouseState::new(owner, 0, Some(owner), true, 50_000, 10);
+    let mut house = HouseState::new(owner, 0, Some(owner), true, initial_credits, 10);
     house.project_country_mults(&rules, &sim.interner);
     sim.houses.insert(owner, house);
     sim.session.current_house = Some(owner);
@@ -357,6 +358,210 @@ fn retail_barracks_sale_runtime(
     ))
 }
 
+fn paid_infantry_with_backup() -> Option<(crate::sim::runtime::SimRuntime, InternedId, u64, u64)> {
+    use crate::sim::world::{FrameEffects, TickLane};
+    let (mut runtime, owner, barracks) = retail_barracks_sale_runtime(true, false, 50_000)?;
+    for _ in 0..8 {
+        runtime
+            .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+            .unwrap();
+    }
+    for _ in 0..2 {
+        assert!(enqueue_by_type(
+            &mut runtime.simulation,
+            &runtime.resources.rules,
+            "Russians",
+            "E2",
+            FrameEffects::default(),
+            false,
+        ));
+    }
+    for _ in 0..100 {
+        if runtime.simulation.houses[&owner].economy.spent_credits() > 0 {
+            break;
+        }
+        runtime
+            .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+            .unwrap();
+    }
+    let sim = &runtime.simulation;
+    let backup = sim
+        .entities()
+        .iter_sorted()
+        .find(|(id, entity)| *id != barracks && sim.interner.resolve(entity.type_ref()) == "NAHAND")
+        .map(|(id, _)| id)
+        .unwrap();
+    Some((runtime, owner, barracks, backup))
+}
+
+/// House509240..50924D keeps the paid object and FIFO when a factory still
+/// exists, but suspends it if none is online. The Temporal state here is a
+/// supplied callback-boundary prior; the app capture exercises its CLEG source.
+#[test]
+fn offline_backup_preserves_paid_infantry_with_system_hold() {
+    use crate::sim::temporal::TemporalState;
+    let Some((mut runtime, owner, barracks, backup)) = paid_infantry_with_backup() else {
+        return;
+    };
+    let sim = &mut runtime.simulation;
+    sim.entities_mut().get_mut(backup).unwrap().temporal =
+        TemporalState::warped_by_for_test(backup);
+    let category = ProductionCategory::Infantry;
+    let before = sim.production.factories.view(owner, category).unwrap();
+    assert!(before.is_running());
+    let progress = before.progress;
+    assert!(progress > 0 && progress < super::PRODUCTION_STEPS);
+    let product = before.object.unwrap().entity_id;
+    let order = before.construction_order();
+    let wallet = sim.houses[&owner].economy.credits();
+    let spent = sim.houses[&owner].economy.spent_credits();
+
+    sim.techno_limbo_with_rules(barracks, &runtime.resources.rules, None);
+
+    let held = sim.production.factories.view(owner, category).unwrap();
+    assert!(
+        !held.is_running(),
+        "native50924D suspends the paid head when only an offline backup remains"
+    );
+    assert_eq!(held.progress, progress);
+    assert_eq!(held.object.unwrap().entity_id, product);
+    assert_eq!(held.construction_order(), order);
+    assert_eq!(held.queue.len(), 1);
+    for offset in 1..=12 {
+        let sim = &mut runtime.simulation;
+        sim.production
+            .factories
+            .step_all(&mut sim.houses, sim.session.binary_frame + offset);
+    }
+    let sim = &runtime.simulation;
+    let held = sim.production.factories.view(owner, category).unwrap();
+    assert_eq!(held.progress, progress);
+    assert_eq!(held.object.unwrap().entity_id, product);
+    assert_eq!(sim.houses[&owner].economy.credits(), wallet);
+    assert_eq!(sim.houses[&owner].economy.spent_credits(), spent);
+}
+
+/// A real Temporal owner supplies the online transition, but not a queue
+/// callback. Capture449284 supplies later automatic recovery. Save/load must
+/// retain +71 so the otherwise identical user hold refuses that recovery.
+#[test]
+fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
+    use crate::sim::house_state::HouseState;
+    use crate::sim::snapshot::GameSnapshot;
+    use crate::sim::world::{FrameEffects, SnapshotProcessState};
+
+    let mut hold_hashes = Vec::new();
+    for user_hold in [false, true] {
+        let Some((mut runtime, owner, barracks, backup)) = paid_infantry_with_backup() else {
+            return;
+        };
+        let rules = &runtime.resources.rules;
+        let sim = &mut runtime.simulation;
+        let other = sim.interner.intern("Opponent");
+        let mut house = HouseState::new(other, 1, Some(owner), false, 50_000, 10);
+        house.project_country_mults(rules, &sim.interner);
+        sim.houses.insert(other, house);
+        assert!(sim.session.house_order.contains(&owner));
+        assert!(!sim.session.house_order.contains(&other));
+        sim.session.house_order.push(other);
+        let attacker = sim
+            .spawn_object("CLEG", "Opponent", 12, 20, 0, rules)
+            .unwrap();
+        let captured = sim
+            .spawn_object("NAHAND", "Opponent", 28, 20, 0, rules)
+            .unwrap();
+        if user_hold {
+            assert!(super::suspend_production(
+                sim,
+                "Russians",
+                ProductionCategory::Infantry
+            ));
+        }
+        sim.temporal_initiate_warp(attacker, Some(backup), rules, None, FrameEffects::default());
+        assert!(!sim.entities().get(backup).unwrap().building_online());
+        sim.techno_limbo_with_rules(barracks, rules, None);
+        sim.temporal_let_go(attacker);
+        assert!(sim.entities().get(backup).unwrap().building_online());
+        let held = sim
+            .production
+            .factories
+            .view(owner, ProductionCategory::Infantry)
+            .unwrap();
+        assert!(
+            !held.is_running(),
+            "release alone supplies no native queue callback"
+        );
+        let product = held.object.unwrap().entity_id;
+        let progress = held.progress;
+        let order = held.construction_order();
+        let credits = sim.houses[&owner].economy.credits();
+        let spent = sim.houses[&owner].economy.spent_credits();
+
+        // Match Scenario load's native reseed while retaining process RNG and
+        // exercising the production save/restore owner, not raw native SAV.
+        sim.scenario_rng = SimRng::new(0);
+        hold_hashes.push(sim.state_hash());
+        let bytes = GameSnapshot::save(sim, 0, rules.simulation_config_hash(), "offline-backup", 0);
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.retain_process_state_for_load(SnapshotProcessState::Live(sim));
+        restored.restore_after_snapshot_load().unwrap();
+        restored.resolve_type_handles(rules);
+        restored.rebuild_caches_after_load(
+            sim.resolved_terrain.as_ref().unwrap().clone(),
+            sim.terrain_speed_config.clone(),
+            rules,
+        );
+        assert!(restored.rebuild_dynamic_navigation(rules));
+        assert_eq!(restored.state_hash(), sim.state_hash());
+
+        for branch in [&mut *sim, &mut restored] {
+            branch.change_owner_with_rules(captured, owner, rules, None, FrameEffects::default());
+            let factory = branch
+                .production
+                .factories
+                .view(owner, ProductionCategory::Infantry)
+                .unwrap();
+            assert_eq!(
+                factory.is_running(),
+                !user_hold,
+                "only a system hold auto-recovers"
+            );
+            assert_eq!(factory.progress, progress);
+            assert_eq!(factory.object.unwrap().entity_id, product);
+            assert_eq!(factory.construction_order(), order);
+            assert_eq!(factory.queue.len(), 1);
+            assert_eq!(branch.houses[&owner].economy.credits(), credits);
+            assert_eq!(branch.houses[&owner].economy.spent_credits(), spent);
+            if user_hold {
+                assert!(enqueue_by_type(
+                    branch,
+                    rules,
+                    "Russians",
+                    "E2",
+                    FrameEffects::default(),
+                    false
+                ));
+                let factory = branch
+                    .production
+                    .factories
+                    .view(owner, ProductionCategory::Infantry)
+                    .unwrap();
+                assert!(
+                    factory.is_running(),
+                    "ordinary same-type selection resumes the original head"
+                );
+                assert_eq!(factory.object.unwrap().entity_id, product);
+                assert_eq!(factory.queue.len(), 1);
+            }
+        }
+        assert_eq!(restored.state_hash(), sim.state_hash());
+    }
+    assert_ne!(
+        hold_hashes[0], hold_hashes[1],
+        "automatic-recovery eligibility is simulation state"
+    );
+}
+
 /// SellBack44717D/44718F changes mission only. Isolated stage0 has no
 /// UpdateFactoryQueue509140 or House1FC request; native loss cleanup starts
 /// in the completing Limbo445E14. Protect the first subsequent Factory sweep
@@ -369,7 +574,7 @@ fn selling_last_retail_barracks_keeps_paid_head_before_map_exit() {
 
     for successor in ["E2", "FLAKT"] {
         let Some((mut runtime, owner, barracks)) =
-            retail_barracks_sale_runtime(false, successor == "FLAKT")
+            retail_barracks_sale_runtime(false, successor == "FLAKT", 50_000)
         else {
             return;
         };
@@ -601,7 +806,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
         let successor = row["successor"].as_str().unwrap();
         let second_barracks = row["surviving_barracks"].as_bool().unwrap();
         let Some((mut runtime, owner, barracks)) =
-            retail_barracks_sale_runtime(second_barracks, successor == "FLAKT")
+            retail_barracks_sale_runtime(second_barracks, successor == "FLAKT", 50_000)
         else {
             return;
         };

@@ -199,7 +199,8 @@ pub(crate) fn install_world_presentation(
     // when optional font preparation did not produce a replacement.
     if let Some(ref fnt) = assets.fnt_file {
         state.renderer.bit_font = crate::render::bit_font::BitFont::from_fnt(
-            &state.renderer.gpu,
+            &state.renderer.gpu.device,
+            &state.renderer.gpu.queue,
             &state.renderer.batch_renderer,
             fnt,
         );

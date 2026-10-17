@@ -89,15 +89,14 @@
 //!   `0x0050B04F`, in `superweapon`), and `ObjectTypeClass::FindFactory @
 //!   0x005F7900`'s online argument where the player's sidebar darkens a
 //!   cameo and a PRODUCE event looks for a factory (`production::can_build`).
+//!   Building lifecycle callbacks also run HouseUpdateFactoryQueue509140:
+//!   only-offline factories suspend a retained build with Suspend0, and a
+//!   later real callback can resume its system hold. Forced promotion uses
+//!   the shared held-start Resume owner. Temporal pause/release themselves
+//!   make no queue callback: warp alone keeps producing, while release alone
+//!   preserves a hold caused by another building's loss. GoOffline/GoOnline's
+//!   independent +660 lifecycle remains unported.
 //!   Not wired:
-//!   - `HouseClass::Update_Factory_Queue @ 0x00509140` holds a build that
-//!     only offline factories could build (`FindFactory(1,1,1)`,
-//!     `0x0050924D`), and a build promoted then starts on hold
-//!     (`0x004FA45B`). VERA has neither (residual at
-//!     `factory_lifecycle::update_factory_queue`). Trigger: a building event or a
-//!     promotion while every factory of the kind is warped; a warp's start
-//!     runs no update (`0x004521C0`). Effect: VERA keeps producing during
-//!     the warp.
 //!   - `HouseClass::CanBuild`'s upgrade-prerequisite scan
 //!     (`0x004F7DE6..0x004F7E4E`: an upgrade prerequisite counts only on an
 //!     online, unsold host; plain prerequisites use the house counters),
@@ -529,15 +528,15 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
-        let structure = match entity.category() {
-            EntityCategory::Unit if object.harvester => false,
+        match entity.category() {
+            EntityCategory::Unit if object.harvester => {}
             EntityCategory::Structure
                 if !object.insignificant && !object.is_1x1_with_undeploy() =>
             {
-                true
+                // HouseNotify owns the deployed-miner subtype.
             }
             _ => return,
-        };
+        }
         // The radar cell is the victim's GetCoords (vt+0x48): a building's
         // foundation centre (`0x00447AC0`; NotifyUnderAttack `0x004F94AE`,
         // `0x004F950E`, `0x004F956A`).
@@ -551,10 +550,9 @@ impl Simulation {
             rx,
             ry,
             owner: entity.owner(),
-            miner: !structure,
-            structure,
+            victim_type: entity.type_ref(),
         };
-        self.dispatch_under_attack_events(&[event]);
+        self.dispatch_under_attack_events(&[event], rules);
     }
 
     /// `TemporalClass::CanWarpTarget @ 0x0071AE50`: a `Warpable=` type, not

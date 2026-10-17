@@ -273,6 +273,16 @@ fn native_zones(
 #[cfg(any(test, feature = "test-support"))]
 pub mod mastermind;
 
+/// Explicit House50D9C0/50D9D0 drawing-consumer prior. Use the existing
+/// private grant owner; this does not establish a captured-building lifecycle.
+pub fn install_status_self_heal(
+    house: &mut crate::sim::house_state::HouseState,
+    infantry: i32,
+    units: i32,
+) {
+    house.grant_self_heal(infantry, units);
+}
+
 /// Explicit drawing-consumer prior, using the existing private cargo setter.
 /// It establishes no harvesting, movement, deposit or full native lifecycle.
 pub fn install_status_miner_cargo(
@@ -304,6 +314,12 @@ pub fn install_status_miner_cargo(
         .collect(),
     );
     entity.miner = Some(miner);
+}
+
+/// Explicit Foot+694 prior for an object-action consumer comparison. Actual
+/// attachment, detachment and parasite AI remain with the parasite owner.
+pub fn install_action_infestation(entity: &mut crate::sim::game_entity::GameEntity, owner: u64) {
+    entity.parasite.set_eater_for_test(Some(owner));
 }
 
 /// Explicit retained-count prior for a drawing comparison. Capture and release
@@ -439,4 +455,8 @@ pub fn install_status_ammo_state(
         ammo.set_current_for_test(current);
     }
     (initialized, ammo.current(), ammo.release_pending())
+}
+/// Explicit DrawExtras consumer prior; repair lifecycle tests use ToggleRepair.
+pub fn install_status_repair(entity: &mut crate::sim::game_entity::GameEntity, repairing: bool) {
+    entity.repairing.set_for_test(repairing);
 }

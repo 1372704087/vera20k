@@ -1648,9 +1648,14 @@ pub struct ObjectType {
     /// Constructor default UNCHECKED; every stock author writes it explicitly.
     pub overpowerable: bool,
 
-    /// Whether this unit shows an `Attack` cursor even on friendly targets.
-    /// Parsed from `AttackCursorOnFriendlies=yes` in rules.ini.
-    /// Used by Desolator and Boris whose weapons affect friendlies.
+    /// TechnoType+6C0: ctor71117B=false, ReadBool71523D reads
+    /// `AttackFriendlies` with the retained byte as default, no clamp.
+    attack_friendlies: bool,
+
+    /// TechnoType+6C1: ctor711181=false, ReadBool71525E reads
+    /// `AttackCursorOnFriendlies` with the retained byte as default.
+    /// Stock IVAN/CIVAN use it; the IvanBomb/Passengers exception belongs
+    /// to What_Action, not this immutable rule projection.
     pub attack_cursor_on_friendlies: bool,
 
     /// Whether this infantry uses the `Enter`/sabotage cursor instead of
@@ -1972,6 +1977,10 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub const fn attacks_friendlies(&self) -> bool {
+        self.attack_friendlies
+    }
+
     /// Signed PipWrap configuration, before the draw caller's division.
     pub const fn pip_wrap(&self) -> i32 {
         self.pip_wrap
@@ -3073,6 +3082,7 @@ impl ObjectType {
             produce_cash_amount: section.read_int("ProduceCashAmount", 0),
             produce_cash_delay: section.read_int("ProduceCashDelay", 0),
             overpowerable: section.read_bool("Overpowerable", false),
+            attack_friendlies: section.read_bool("AttackFriendlies", false),
             attack_cursor_on_friendlies: section.read_bool("AttackCursorOnFriendlies", false),
             sabotage_cursor: section.read_bool("SabotageCursor", false),
             c4: section.read_bool("C4", false),

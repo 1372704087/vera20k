@@ -581,3 +581,121 @@ construction, native archive search, shroud generation, VXL body composition,
 world Display, combat/flight/dock lifecycle and other PipWrap/status routes
 remain separate owners or residuals. Normal STOCK_DIGITAL physical PIPS2
 winner and native5F76B0 filename lookup are the same as the passenger mode.
+
+## Ordinary control-group number
+
+`--control-group-status` extends the same health generator/recorder and native
+MTNK Unit/Foot/Drive/type owners. The existing
+[control-group font owner](../control_group_text_oracle.md) now accepts that
+same PaletteReader VM and executes original GAME.FNT initialization and glyphs.
+Historical seven selected modes and the old11-case font-submission payload
+retain their exact outputs and provenance.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --control-group-status --check
+```
+
+The new `control_group_status.json` follows `input.actors`/`actor_results`,
+physical inputs/readers/palette and final sparse `pixels` used by the existing
+status GPU consumer. Original731060/7310D0 produce each actual signed
+`group_slot`; `group_commands` carries native parameters1..10 and the selected
+prior used for assignment. Selection is restored to the supplied render state
+before whole6F5190→6F64A0→709A90/70AA60→70A6FD executes. No persistent group state
+is duplicated. `assignment_controls` records eligible/ineligible-owner native
+before/after fields in mode0 and mode1; timer bytes stay unchanged.
+
+Original7BB020/7BB050 fill,7BAD90/7BADC0 outline and
+4A66D0→4A5EB0→434B90→434500→434120 font stores execute to their real returns.
+`text_draws` exposes native rectangles/text/origin/packed owner word, stage
+counts and actual glyph stores; `overwritten_group_pixels` demonstrates the
+positive per-parent opaque and later-health overlap. A127/63/2/0, oldZ0,
+selected/hover/absent/sinking, cleared/unassigned and viewport clipping are
+bounded controls. Font/rectangle writes bypass A/Z; they are independent of
+4BFD30's line material. The physical Gold RGB prior comes from the consumed
+native House-color owner on the same RULESMD hash, then original code packs565.
+Normal STOCK_DIGITAL GAME.FNT resolves ra2.mix/local.mix with no loose override;
+its exact physical hash and original loader read ranges are recorded.
+
+Full Unit construction/COM, Unlimbo, selection and ownership lifecycle,
+collision-valid dense placement, VXL body, whole Display/frame, non-allied
+Techno+210 and other status families remain outside these controls. Building
+PipScale2 is Tiberium and exits709A90 at709B68 before the number tail; it is not
+Ammo1. Original constructor Scenario RNG/passive timer initialization is
+recorded separately from unchanged measured draw actor/A/Z and zero draw RNG.
+Whole DrawExtras/health/pip-tail and other RTTI lifecycle routes remain
+OPEN/PARTIAL.
+
+Affected self-heal controls reuse the existing House counter/leaf owner from
+`tools/selfheal_oracle.py`: `input.self_heal_infantry` and `self_heal_units`
+are declared House priors, and `actor_results.self_heal_queries` records real
+50D9C0/50D9D0 results. Original General ReadInt blocks66E6E2/66E715 consume each
+physical layer's SelfHealInfantryFrames/UnitFrames, retaining50/75. The stock
+E1 type/Infantry/Walk setup reuses the passenger prerequisite owner. No new
+House counter, Infantry VM/bootstrap or simulation lifecycle is introduced.
+
+At point[80,80], actual healthy MTNK self-heal draws PIPSframe20 at[103,58]
+(relative[23,-22]); E1 draws frame13 at[95,55] (relative[15,-25]). An explicit
+MTNK Organic=yes scenario boundary executes original715024..715045 ReadBool:
+its frame13 still uses the Unit anchor[103,58]. PixelSelectionBracketDelta11
+through native71415F..714179 shifts health while self-heal stays at[103,58].
+The anchor follows RTTI, rather than the frame/organic arm; self-heal does not
+add the bracket delta. Healthy600 markers bypass A/Z, through actual4960A0
+(frame20) or4912B0 (frame13). The positive two-parent self-heal/group row records
+later opaque group stores overwriting earlier marker pixels.
+
+These five added controls cover affected material/geometry/order consumers.
+House grant/revoke and self-heal simulation timing remain their existing
+owners; only an admitted counter prior is exercised here. The separate damaged
+first-six-frame601 material branch remains an explicit residual, not an extra
+draw: original70A626 chooses one600 or601 call.
+
+`--repair-wrench` adds ordinary repairing GAPOWR to the same Building-health
+runtime and phase recorder. It preserves every historical mode and sidecar.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --repair-wrench --check
+```
+
+`repair_wrench.json` supplies `readers`, physical inputs, the actual MOUSEPAL N1
+palette, `raster_controls` and `composition_controls` to the shared status GPU
+consumer. The existing palette owner optionally executes original startup
+52C136..52C1EA, including physical MOUSEPAL copy/expansion and complete Convert
+construction; original45E98D..45E9A3 loads WRENCH.SHP. Archive hashes identify
+candidate inputs; normal STOCK_DIGITAL AssetManager checks independently gate
+winner and loose-override precedence. This fixture does not emulate archive
+search. Existing PALETTE N53 remains available for health in complete Extras.
+
+Component `input.entry_boundary="extras_prefix"` starts actual6F5190 and stops
+before6F534E, after its wrench branch, or at the earlier sinking return. It
+executes the real RTTI/repair-byte/Cell487950 gates,459EF0 render coordinates,
+Tactical projection, SpeedNormalize/frame arithmetic and every4AED70/493DF0
+pixel store. It does not treat this prefix as whole DrawExtras. The frame0 and
+frame6 controls, A127/63/2/0, oldZ0 and actual viewport clipping establish E00
+A-consuming/no-Z stores with the N1 table. N1 produces identical colors for all
+four A controls. Selected/hover/other-owner inputs retain the wrench; repair-off,
+sinking and shrouded-cell inputs suppress it. Cell flags08 alone are admitted,
+which differs from a UI reveal-and-gap approximation. These are declared
+render-consumer priors, not native repair, ownership or vision lifecycles.
+
+Complete composition rows execute Behind, whole first Extras, actual admitted
+43CEA0→43D290 body and whole late Extras. Wrench precedes bracket/rank/health
+inside each Extras. Physical TMP ground, GGPOWR body, BUILDNGZ and ColorScheme
+reuse their existing native owners; GAPOWR has NULL BibShape. The neighbor is
+another stock GAPOWR two cells east, with disjoint 2×2 foundations, traversed
+after the repairing actor in both supplied parent phases. Sparse ground and
+before-late color/Z samples plus final pixels are the GPU seam; body crop hashes
+and actual body-admission records identify the executed interval. This is not a
+GPU body comparison or whole Display traversal. `body_overwritten_wrench_pixels`
+and `overwritten_wrench_pixels` expose actual positive overwritten stores,
+including later-neighbor status over the earlier wrench. Their values come only
+from original execution, rather than inferred geometry overlap.
+
+Full Rules/BuildingType constructors and45FE50 readers consume RULESMD,
+LANGRULE when present, selected MPBattleMD and XMP03T4; ARTMD is fixed. The new
+mode additionally records native constructor/layer Strength, Cost, Repairable
+and ClickRepairable. The supplied private Building repair byte belongs to the
+existing repair owner; command admission, Flash7, payment, healing and every stop
+remain its production lifecycle tests. Drawing itself writes no actor/timer,
+consumes no RNG and calls no detach. Arbitrary Building types, missing resources,
+large foundations, other status families and whole function/class coverage stay
+OPEN/PARTIAL.

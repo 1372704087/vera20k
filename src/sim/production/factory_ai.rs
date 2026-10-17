@@ -260,6 +260,7 @@ fn start_factory(
         FactoryHolder::Building(building),
         type_id,
         effects,
+        false,
     )
     .is_none()
     {

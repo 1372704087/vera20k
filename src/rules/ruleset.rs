@@ -1295,6 +1295,8 @@ pub struct GeneralRules {
     /// reads exact CheerSound through ReadString128/VocFind7514D0 with
     /// prior-ID retention. The fixed SOUNDMD binder owns name resolution.
     cheer_sound: Option<String>,
+    /// General.MaximumCheerRate: ctor665D92=1, ReadGeneral66EBD4 signed/current-default.
+    maximum_cheer_rate: i32,
     /// `[AudioVisual] ImpactWaterSound=` / `ImpactLandSound=`
     /// (`RulesClass+0x200` / `+0x204`, `RulesClass::ReadAudioVisual`
     /// `0x00669924` / `0x00669965`): a crash impact's fallback cue when the
@@ -2115,6 +2117,8 @@ impl PrismSupportRules {
 /// RulesClass665650, stores667371/66737B/667385 at+14F8/+14FC/+1500.
 /// Original gamemd SHA1cdd1180; ReadGeneral670C13..670C6C keeps prior values.
 pub(crate) const DEFAULT_SURVIVOR_DIVISORS: [i32; 3] = [200, 100, 300];
+/// RulesClass665D92 initializes retained General.MaximumCheerRate (+580).
+pub(crate) const DEFAULT_MAXIMUM_CHEER_RATE: i32 = 1;
 
 impl Default for GeneralRules {
     fn default() -> Self {
@@ -2359,6 +2363,7 @@ impl Default for GeneralRules {
             time_warp_out_sound: None,
             time_warp_in_sound: None,
             cheer_sound: None,
+            maximum_cheer_rate: DEFAULT_MAXIMUM_CHEER_RATE,
             impact_water_sound: None,
             impact_land_sound: None,
             sinking_sound: None,
@@ -2835,6 +2840,11 @@ impl GeneralRules {
 
     pub fn time_warp_in_sound(&self) -> Option<&str> {
         self.time_warp_in_sound.as_deref()
+    }
+
+    /// Signed retained input-rate value read by AllToCheer730F40.
+    pub fn maximum_cheer_rate(&self) -> i32 {
+        self.maximum_cheer_rate
     }
 
     pub(crate) fn cheer_sound(&self) -> Option<&str> {
@@ -3480,6 +3490,7 @@ impl GeneralRules {
             time_warp_out_sound: None,
             time_warp_in_sound: None,
             cheer_sound: None,
+            maximum_cheer_rate: general.read_int("MaximumCheerRate", defaults.maximum_cheer_rate),
             impact_water_sound: audio_visual
                 .read_name("ImpactWaterSound", 0x80)
                 .map(str::to_owned),
@@ -4111,6 +4122,7 @@ impl RuleSet {
             rules.general.soviet_survivor_divisor,
             rules.general.third_survivor_divisor,
         ] = processed.survivor_divisors();
+        rules.general.maximum_cheer_rate = processed.maximum_cheer_rate();
         let mut weapon_name_counts = HashMap::<String, usize>::new();
         for (name, ..) in processed.weapon_states() {
             *weapon_name_counts
@@ -5432,7 +5444,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v19".hash(&mut hasher);
+        b"rules-simulation-config-v20".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5472,6 +5484,7 @@ impl RuleSet {
         self.general.allied_survivor_divisor.hash(&mut hasher);
         self.general.soviet_survivor_divisor.hash(&mut hasher);
         self.general.third_survivor_divisor.hash(&mut hasher);
+        self.general.maximum_cheer_rate.hash(&mut hasher);
         self.general.patrol_scan_minutes.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);
         if self

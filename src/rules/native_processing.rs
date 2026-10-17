@@ -930,6 +930,13 @@ impl ProcessedRulesLayers {
             .rules_survivor_divisors
     }
 
+    /// Retained General.MaximumCheerRate at Rules+580 (ReadGeneral66EBD4).
+    pub(crate) fn maximum_cheer_rate(&self) -> i32 {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_maximum_cheer_rate
+    }
+
     /// Consume only the typed-reader compatibility projection and deliberately
     /// discard the native constructor/registry receipt.
     ///
@@ -1140,6 +1147,7 @@ pub(crate) struct NativeRulesRegistryState {
     rules_parachute_max_fall_rate: i32,
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
+    rules_maximum_cheer_rate: i32,
     rules_line_trail_override: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_patrol_scan_minutes: NativeF64Bits,
@@ -1175,6 +1183,7 @@ impl Default for NativeRulesRegistryState {
             rules_parachute_max_fall_rate: -3,
             rules_no_parachute_max_fall_rate: -100,
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
+            rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_line_trail_override: [0; 3],
             rules_prism_support: PrismSupportRules::default(),
             rules_patrol_scan_minutes: crate::rules::ruleset::GeneralRules::default()
@@ -1337,6 +1346,7 @@ impl NativeRulesRegistryState {
             rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
             rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: self.rules_survivor_divisors,
+            rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
             rules_line_trail_override: self.rules_line_trail_override,
             rules_prism_support: self.rules_prism_support,
             rules_patrol_scan_minutes: self.rules_patrol_scan_minutes,
@@ -1592,6 +1602,7 @@ struct RulesPassProcessor {
     rules_parachute_max_fall_rate: i32,
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
+    rules_maximum_cheer_rate: i32,
     rules_line_trail_override: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_patrol_scan_minutes: NativeF64Bits,
@@ -1632,6 +1643,7 @@ impl Default for RulesPassProcessor {
             rules_no_parachute_max_fall_rate: NativeRulesRegistryState::default()
                 .rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
+            rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_line_trail_override: NativeRulesRegistryState::default()
                 .rules_line_trail_override,
             rules_prism_support: PrismSupportRules::default(),
@@ -1666,6 +1678,7 @@ impl RulesPassProcessor {
             rules_parachute_max_fall_rate: registry_state.rules_parachute_max_fall_rate,
             rules_no_parachute_max_fall_rate: registry_state.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: registry_state.rules_survivor_divisors,
+            rules_maximum_cheer_rate: registry_state.rules_maximum_cheer_rate,
             rules_line_trail_override: registry_state.rules_line_trail_override,
             rules_prism_support: registry_state.rules_prism_support,
             rules_patrol_scan_minutes: registry_state.rules_patrol_scan_minutes,
@@ -2096,6 +2109,10 @@ impl RulesPassProcessor {
         let Some(section) = pass.section("General") else {
             return;
         };
+        // ReadGeneral66EBD4..66EBEE: exact-case signed ReadInt5276D0,
+        // current Rules+580 as default, no clamp. Ctor665D92 stores1.
+        self.rules_maximum_cheer_rate =
+            section.read_int("MaximumCheerRate", self.rules_maximum_cheer_rate);
         // General66EC37/66EC57 read current RulesClass values as defaults.
         // Both survive empty/missing later passes and destructive Type resets.
         self.rules_missile_rot_var =
@@ -3164,6 +3181,7 @@ impl RulesPassProcessor {
                     rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
                     rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
                     rules_survivor_divisors: self.rules_survivor_divisors,
+                    rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
                     rules_line_trail_override: self.rules_line_trail_override,
                     rules_prism_support: self.rules_prism_support,
                     rules_patrol_scan_minutes: self.rules_patrol_scan_minutes,

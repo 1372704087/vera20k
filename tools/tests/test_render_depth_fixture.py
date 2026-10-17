@@ -72,6 +72,24 @@ def decode_iso_cells(section):
 
 
 class RenderDepthFixtureTests(unittest.TestCase):
+    def test_house_self_heal_uses_stock_grant_and_damage_actors(self):
+        for mode, fraction in [('recovery', '256'), ('removal', '32')]:
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(house_self_heal=mode))
+                shop = ini['Structures']['1'].split(',')
+                self.assertEqual(shop[:5], ['Americans', 'CAMACH', fraction, '44', '50'])
+                units = [entry.split(',') for entry in ini['Units'].values()]
+                self.assertEqual([entry[:3] for entry in units],
+                                 [['Americans', 'MTNK', '256'], ['Americans', 'MTNK', '256']])
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                for x in (44, 45):
+                    for y in (50, 51):
+                        self.assertEqual(cells[x, y], (0, 0, 0))
+                for section in ('General', 'MTNK', 'CAMACH', '105mm', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(house_self_heal='recovery', attack_order_voice='unit')
+
     def test_attack_voice_has_clear_stock_targets_and_no_gameplay_overrides(self):
         for target in ('unit', 'building'):
             with self.subTest(target=target):

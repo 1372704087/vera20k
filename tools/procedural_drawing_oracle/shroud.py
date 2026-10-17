@@ -21,6 +21,8 @@ scene and same health recorder for GAPOWR pips and both Extras phases.
 rank chevrons and rank-before-health ordering.
 ``--ammo-pips`` uses the same mobile-prefix/recorder owner for Aircraft/Fly,
 ordinary ORCA ammo, actual receiver rearm and shared708C30 numeric controls.
+``--self-heal-status`` adds damaged phase601, four General defaults/readers
+and bounded divide-fault ordering to the existing group/status runtime.
 """
 from functools import lru_cache
 import hashlib
@@ -28,7 +30,7 @@ import json
 from pathlib import Path
 import struct
 
-from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+from unicorn import UC_HOOK_CODE, UC_HOOK_INTR, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX,
                               UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_EDX, UC_X86_REG_EIP, UC_X86_REG_ESI,
                               UC_X86_REG_ESP, UC_X86_REG_FPCW)
@@ -1127,7 +1129,7 @@ def _building_health_fields(m, typ, *, repair=False):
 
 class _HealthRecorder:
     """One observer for ordinary health and phase-aware native composition."""
-    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False, scales=False, group_status=False, wrench=False):
+    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False, scales=False, group_status=False, wrench=False, self_heal=False):
         from tools.projectile_oracle.bridge_render_shape import PIXELS, Z, A
         u = m.u
         self.stores, self.draws, self.entries, self.rng = [], [], [], []
@@ -1192,8 +1194,20 @@ class _HealthRecorder:
                 if phase_aware:
                     self.draws[-1].update(phase=self.phase, has_zshape=bool(args[10]),
                         zshape_frame=args[11], zshape_offset=args[12:14])
+                if self_heal:
+                    self.draws[-1].update(destination_words=[],dispatch=[])
+            elif self_heal and pc in (0x4AF144,0x4AF1DA) and self.active:
+                pointer=u.reg_read(UC_X86_REG_EAX)
+                vt=m.read32(pointer)
+                result=dict(return_pc=f'{pc:08X}',vtable=f'{vt:08X}',
+                    blit_entry=f'{m.read32(vt+4):08X}')
+                if self.draws[-1]['flags']==0x601:
+                    result['half_mask']=m.read32(pointer+4)&65535
+                if result not in self.draws[-1]['dispatch']:
+                    self.draws[-1]['dispatch'].append(result)
             elif (pc in (0x493DF0, 0x4912B0, 0x4990E0, 0x497390)
-                  or ((scales or group_status) and pc==0x4960A0)) and self.active:
+                  or ((scales or group_status) and pc==0x4960A0)
+                  or (self_heal and pc in (0x492670,0x496250))) and self.active:
                 vt = m.read32(u.reg_read(UC_X86_REG_ECX))
                 leaf = dict(entry=f'{pc:08X}', vtable=f'{vt:08X}')
                 if leaf not in self.draws[-1]['leaves']:
@@ -1204,6 +1218,11 @@ class _HealthRecorder:
                     self.draws[-1]['a_reads'] += 1
                 elif Z <= address < Z + size[0] * size[1] * 2:
                     self.draws[-1]['z_reads'] += 1
+                elif self_heal and PIXELS <= address < PIXELS + size[0] * size[1] * 2:
+                    for offset in range(0,_size,2):
+                        index=(address+offset-PIXELS)//2
+                        value=struct.unpack('<H',u.mem_read(address+offset,2))[0]
+                        self.draws[-1]['destination_words'].append([index%size[0],index//size[0],value])
         def write(_u, _access, address, length, value, _data):
             if PIXELS <= address < PIXELS + size[0] * size[1] * 2:
                 for offset in range(0, length, 2):
@@ -1341,7 +1360,7 @@ def _rank_vtable_bindings(m):
     return rows
 
 
-def _status_reader_block(m, begin, end, registers):
+def _status_reader_block(m, begin, end, registers, *, stack_delta=0):
     """One unchanged caller block in the existing native reader owner."""
     from tools.spatial_oracle.building_body_rules import SP as reader_sp
     u = m.u
@@ -1350,7 +1369,7 @@ def _status_reader_block(m, begin, end, registers):
     for register, value in registers.items():
         u.reg_write(register, value)
     native.run_checked(u, begin, end)
-    assert u.reg_read(UC_X86_REG_ESP) == reader_sp
+    assert u.reg_read(UC_X86_REG_ESP) == reader_sp+stack_delta
 
 
 def _passenger_type_fields(m, typ, infantry=False, building=False, *, ammo=False):
@@ -1540,6 +1559,207 @@ def _control_group_cases(base):
              actors=[base,dict(base,location=[2846,5090,0],group_commands=[assign(10)])])]
 
 
+def _self_heal_cases(base):
+    """Additive supplied status inputs; every phase and pixel is native output."""
+    unit=dict(base,health=150,group_commands=[])
+    infantry=dict(unit,type_name='E1',kind='infantry',health=60)
+    rows=[dict(name=f'unit_frame_{frame}',binary_frame=frame,self_heal_units=1,
+               actors=[unit]) for frame in (5,6,74,75)]
+    rows += [dict(name='unit_heal_to_full',binary_frame=75,self_heal_units=1,
+                  actors=[dict(unit,health=299,native_ai_before_draw=True)]),
+             dict(name='unit_negative_frame',binary_frame=-7,self_heal_units=1,actors=[unit])]
+    rows += [dict(name=f'infantry_frame_{frame}',binary_frame=frame,
+                  self_heal_infantry=1,actors=[infantry]) for frame in (49,50)]
+    rows += [dict(name=f'organic_unit_frame_{frame}',binary_frame=frame,
+                  self_heal_infantry=1,scenario_patch='[MTNK]\nOrganic=yes\n',
+                  actors=[unit]) for frame in (49,50)]
+    rows += [dict(name='unit_a0_z0',binary_frame=5,self_heal_units=1,
+                  a_value=0,old_z=0,actors=[unit]),
+             dict(name='unit_clipped',binary_frame=5,self_heal_units=1,
+                  clip=[0,0,104,120],actors=[unit]),
+             dict(name='ordered_two_markers',binary_frame=5,self_heal_units=1,
+                  actors=[unit,unit]),
+             dict(name='ordered_marker_group',binary_frame=5,self_heal_units=1,
+                  actors=[unit,dict(unit,location=[2846,5090,0],
+                      group_commands=[dict(operation='assign',group=10,selected=True)])])]
+    return rows
+
+
+_SELF_HEAL_FIELDS=(('SelfHealInfantryFrames',0x30),('SelfHealInfantryAmount',0x34),
+                   ('SelfHealUnitFrames',0x38),('SelfHealUnitAmount',0x3C))
+
+
+def _self_heal_general_fields(m,rules):
+    return {key:struct.unpack('<i',m.u.mem_read(rules+offset,4))[0]
+            for key,offset in _SELF_HEAL_FIELDS}
+
+
+def _self_heal_general_blocks(m,rules):
+    # Original fourth store follows SUB ESP,1C; preserve that native frame
+    # effect rather than moving the store or replacing the reader return.
+    from tools.spatial_oracle.building_body_rules import RULES
+    _status_reader_block(m,0x66E6E2,0x66E74B,
+        {UC_X86_REG_ESI:rules,UC_X86_REG_EDI:RULES},stack_delta=-0x1C)
+
+
+def _self_heal_reader_controls(m):
+    """Four current-default reads in the same native cache/constructor owner."""
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.spatial_oracle.building_body_rules import RULES,SP as reader_sp
+    rules=m.alloc(0x3000)
+    m.invoke(0x665650,rules)
+    constructor=_self_heal_general_fields(m,rules)
+    rows,reads=[],[]
+    u=m.u
+    def observe(_u,pc,_size,_data):
+        if pc==0x5276D0:
+            sp=u.reg_read(UC_X86_REG_ESP)
+            key=m.string(m.read32(sp+8))
+            if key in constructor:
+                reads.append(dict(reader=f'{pc:08X}',section=m.string(m.read32(sp+4)),
+                    key=key,default=struct.unpack('<i',u.mem_read(sp+12,4))[0]))
+    hook=u.hook_add(UC_HOOK_CODE,observe)
+    empty={'General':dict(Unrelated='1',**dict.fromkeys(constructor,''))}
+    cases=[('missing_section',{}),('missing_keys',{'General':{'Unrelated':'1'}}),
+           ('empty_values_omitted',empty),
+           ('zero_values',{'General':dict.fromkeys(constructor,'0')}),
+           ('signed_values',{'General':dict(zip(constructor,('-50','-20','-75','-5')))}),
+           ('retained_missing_section',{}),
+           ('retained_missing_keys',{'General':{'Unrelated':'1'}}),
+           ('retained_empty_values_omitted',empty),
+           ('exact_case',{'General':{key.lower():'99' for key in constructor}}),
+           ('partial_override',{'General':{'SelfHealUnitAmount':'7'}}),
+           ('raw_cached_empty_values',{'General':dict.fromkeys(constructor,'')})]
+    for name,sections in cases:
+        before=_self_heal_general_fields(m,rules)
+        text=''.join(f'[{section}]\n'+''.join(f'{key}={value}\n' for key,value in keys.items())
+                     for section,keys in sections.items())
+        raw_cache=name=='raw_cached_empty_values'
+        cached=sections if raw_cache else lexical(text.encode('latin1'),set(sections))[0]
+        m.rules_cache(cached)
+        u.mem_write(reader_sp,words(native.RET_MAGIC,RULES))
+        u.reg_write(UC_X86_REG_ESP,reader_sp)
+        u.reg_write(UC_X86_REG_ECX,rules)
+        stop=native.run_checked(u,0x66D530,(0x66D55E,0x671E8E),
+            required_addresses=(0x66D54C,0x66D558))
+        admitted=stop==0x66D55E
+        start=len(reads)
+        if admitted:_self_heal_general_blocks(m,rules)
+        rows.append(dict(name=name,input_text=text,sections=cached,raw_cached_values=raw_cache,before=before,
+            general_admitted=admitted,reads=reads[start:],after=_self_heal_general_fields(m,rules)))
+    u.hook_del(hook)
+    return dict(constructor=constructor,retained_history=rows)
+
+
+def _self_heal_execution(m,run,expected_divide=None):
+    """Require the actual architectural interrupt, never an early-stop guess."""
+    u=m.u
+    interrupts=[]
+    # A trapped emulated CPU is terminal for this control. Restore its prior
+    # CPU context after recording #DE so a later independent control cannot
+    # inherit Unicorn's pending exception and report a synthetic double fault.
+    prior=u.context_save() if expected_divide else None
+    def interrupt(_u,number,_data):
+        interrupts.append(dict(number=number,pc=f'{u.reg_read(UC_X86_REG_EIP):08X}'))
+        u.emu_stop()
+    hook=u.hook_add(UC_HOOK_INTR,interrupt)
+    try:
+        try:run()
+        except native.NativeExecutionError as error:
+            expected=[dict(number=0,pc=f'{expected_divide:08X}')] if expected_divide else []
+            if (not expected or error.diagnostics['reason']!='early_stop'
+                    or interrupts!=expected):raise
+            return dict(kind='x86_divide_error',interrupt=0,pc=f'{expected_divide:08X}')
+        assert expected_divide is None and not interrupts
+        return None
+    finally:
+        u.hook_del(hook)
+        if prior is not None:u.context_restore(prior)
+
+
+def _run_self_heal_ai(m,actor,*,expect_fault=None):
+    """Original House-heal arm only, after the separate alive/per-object arm.
+
+    Has/Step retain tools.selfheal_oracle's existing identities and bodies.
+    No arithmetic, query result, smoke callback or native instruction is replaced.
+    """
+    from tools import selfheal_oracle as selfheal
+    from tools.spatial_oracle.building_body_rules import SP as reader_sp
+    u=m.u
+    events,writes,rng=[],[],[]
+    def observe(_u,pc,_size,_data):
+        if pc in (0x6FA7EE,0x6FA8E2,selfheal.HAS_INF,selfheal.HAS_UNIT,
+                  selfheal.STEP_INF,selfheal.STEP_UNIT,0x6FA897):
+            events.append(f'{pc:08X}')
+        if pc in (0x65C780,0x65C7E0):rng.append(f'{pc:08X}')
+    def write(_u,_access,address,length,value,_data):
+        if actor<=address<actor+0x900:
+            writes.append(dict(offset=address-actor,bytes=length,value=value))
+    hooks=[u.hook_add(UC_HOOK_CODE,observe),u.hook_add(UC_HOOK_MEM_WRITE,write)]
+    before=bytes(u.mem_read(actor,0x900))
+    u.mem_write(reader_sp,words(native.RET_MAGIC))
+    for register,value in ((UC_X86_REG_ESP,reader_sp),(UC_X86_REG_ESI,actor),(UC_X86_REG_EBP,0)):
+        u.reg_write(register,value)
+    try:
+        fault=_self_heal_execution(m,lambda:native.run_checked(u,0x6FA793,0x6FA941),expect_fault)
+    finally:
+        for hook in hooks:u.hook_del(hook)
+    assert bool(fault)==bool(expect_fault) and not rng
+    after=bytes(u.mem_read(actor,0x900))
+    assert before[:0x6C]==after[:0x6C] and before[0x70:]==after[0x70:]
+    return dict(entry='006FA793',stop=f'{expect_fault or 0x6FA941:08X}',events=events,
+        fault=fault,health_before=struct.unpack_from('<i',before,0x6C)[0],
+        health_after=struct.unpack_from('<i',after,0x6C)[0],actor_writes=writes,
+        rng_entries=rng,timer_bytes_unchanged=True,detach_calls=[])
+
+
+def _self_heal_divide_controls(m,rules,house,actors,templates,point,clip):
+    """Bounded actual AI-vs-drawing divide admission and trap ordering."""
+    from tools import selfheal_oracle as selfheal
+    u=m.u
+    saved_fields=bytes(u.mem_read(rules+0x30,16))
+    rows=[]
+    for type_name,offset,own,ai_divide,draw_divide in (
+            ('MTNK',0x38,selfheal.HG_UNIT,0x6FA7EE,0x70A5B5),
+            ('E1',0x30,selfheal.HG_INF,0x6FA8E2,0x70A549)):
+        actor=actors[type_name]
+        for path,period,frame,count in (
+                ('ai',0,75,0),('ai',0,75,1),('ai',-1,-2147483648,0),
+                ('draw',0,75,0),('draw',0,75,1),
+                ('draw',-1,-2147483648,0),('draw',-1,-2147483648,1)):
+            u.mem_write(actor,templates[type_name])
+            u.mem_write(actor+0x21C,words(house))
+            u.mem_write(actor+0x6C,words(150 if type_name=='MTNK' else 60))
+            u.mem_write(actor+0x83,b'\1')
+            u.mem_write(actor+0x9C,words(2688,5248,0))
+            u.mem_write(house+selfheal.HG_INF,words(count if own==selfheal.HG_INF else 0))
+            u.mem_write(house+selfheal.HG_UNIT,words(count if own==selfheal.HG_UNIT else 0))
+            u.mem_write(rules+offset,words(period))
+            u.mem_write(0xA8ED84,words(frame))
+            expected=ai_divide if path=='ai' else draw_divide if count else None
+            if path=='ai':
+                result=_run_self_heal_ai(m,actor,expect_fault=expected)
+            else:
+                events,rng=[],[]
+                def observe(_u,pc,_size,_data):
+                    if pc in (selfheal.HAS_INF,selfheal.HAS_UNIT,draw_divide):
+                        events.append(f'{pc:08X}')
+                    if pc in (0x65C780,0x65C7E0):rng.append(f'{pc:08X}')
+                hook=u.hook_add(UC_HOOK_CODE,observe)
+                before=bytes(u.mem_read(actor,0x900))
+                try:
+                    fault=_self_heal_execution(m,lambda:m.invoke(0x6F5190,actor,(point,clip)),expected)
+                finally:u.hook_del(hook)
+                assert bool(fault)==bool(expected) and before==bytes(u.mem_read(actor,0x900))
+                assert not rng
+                result=dict(entry='006F5190',events=events,fault=fault,actor_unchanged=True,
+                    rng_entries=rng,timer_bytes_unchanged=True,detach_calls=[])
+            rows.append(dict(type_name=type_name,path=path,period=period,binary_frame=frame,
+                house_count=count,**result))
+    u.mem_write(rules+0x30,saved_fields)
+    return rows
+
+
 def _prepare_ammo_state(m,actor,typ,mode):
     """Native initialization, admitted-release prefix and actual radio receiver.
 
@@ -1627,7 +1847,7 @@ def _ammo_fill_controls(m,types,templates,actor,manager,manager_template,nodes,p
     return rows
 
 
-def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=False, groups=False, wrench=False):
+def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=False, groups=False, wrench=False, self_heal=False):
     """Original ordinary Unit/Building health through shared physical SHP stores.
 
     PaletteReader owns the one VM, native INI caches and palette constructors;
@@ -1639,7 +1859,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
     from tools.rules_oracle.weapon_laser import physical_layers
     from tools.spatial_oracle.building_body_rules import RULES, SP as READER_SP
 
-    assert sum((building,rank,passenger,ammo,groups,wrench))<=1
+    assert sum((building,rank,passenger,ammo,groups,wrench,self_heal))<=1
+    groups=groups or self_heal
     building=building or wrench
     scales=passenger or ammo
     mobile_status=rank or scales or groups
@@ -1734,6 +1955,9 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
         if groups:
             base.update(self_heal_infantry_frames=m.read32(rules+0x30),
                         self_heal_unit_frames=m.read32(rules+0x38))
+            if self_heal:
+                base.update(self_heal_infantry_amount=m.read32(rules+0x34),
+                            self_heal_unit_amount=m.read32(rules+0x3C))
         if scales:
             base.update(_passenger_type_fields(m,typ,ammo=ammo))
         return dict(base, condition_yellow=yellow, condition_red=red)
@@ -1792,8 +2016,11 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                     if begin==0x5F94D3:registers.update({UC_X86_REG_EBX:p,UC_X86_REG_EBP:p+0x24})
                     _status_reader_block(m,begin,end,registers)
             if m.invoke(0x526810,RULES,(m.cstring('General'),)):
-                for begin,end in ((0x66E6E2,0x66E6FB),(0x66E715,0x66E72F)):
-                    _status_reader_block(m,begin,end,{UC_X86_REG_ESI:rules,UC_X86_REG_EDI:RULES})
+                if self_heal:
+                    _self_heal_general_blocks(m,rules)
+                else:
+                    for begin,end in ((0x66E6E2,0x66E6FB),(0x66E715,0x66E72F)):
+                        _status_reader_block(m,begin,end,{UC_X86_REG_ESI:rules,UC_X86_REG_EDI:RULES})
         if scales:
             type_results={}
             for type_name,p in types.items():
@@ -1857,7 +2084,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                            reads=reads[mark:], after=fields()))
         if groups:
             layers[-1]['self_heal_keys']={section:{key:value for key,value in keys.items() if key in
-                ('Organic','SelfHealInfantryFrames','SelfHealUnitFrames')}
+                ('Organic','SelfHealInfantryFrames','SelfHealUnitFrames',
+                 *(['SelfHealInfantryAmount','SelfHealUnitAmount'] if self_heal else []))}
                 for section,keys in sections.items()}
         if scales:
             layers[-1]['types']=type_results
@@ -1989,6 +2217,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             disguised_as_current_house=False,sensor_count=0,disguise_detect_count=0,
             group_commands=[dict(operation='assign',group=1,selected=True)])
         cases=_control_group_cases(base_actor)
+        if self_heal:cases=_self_heal_cases(base_actor)
     if wrench:
         base_actor.update(type_name='GAPOWR',kind='building',health=600,selected=False,
                           repairing=True,owner_is_current=True)
@@ -2016,6 +2245,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             for cell in scene['cells']:u.mem_write(cell+0x12C,words(spec.get('cell_bits',0x18)))
         if groups:
             from tools import selfheal_oracle as selfheal
+            if self_heal:u.mem_write(0xA8ED84,words(spec['binary_frame']))
             for key,offset in (('self_heal_infantry',selfheal.HG_INF),('self_heal_units',selfheal.HG_UNIT)):
                 u.mem_write(house+offset,words(spec.get(key,0)))
             patch_sections,_=lexical(spec.get('scenario_patch','').encode(),set(group_types))
@@ -2037,7 +2267,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             u.mem_write(buffer - 16, guard)
             u.mem_write(buffer + size[0] * size[1] * 2, guard)
         recorder = _HealthRecorder(m,size,shape_names,phase_aware=building or mobile_status,
-                                   rank=rank,scales=scales,group_status=groups,wrench=wrench)
+                                   rank=rank,scales=scales,group_status=groups,wrench=wrench,self_heal=self_heal)
         text_recorder=group_text.TextRecorder(m,recorder,size) if groups else None
         stores, draws, entries, rng, actors = (recorder.stores, recorder.draws,
                                              recorder.entries, recorder.rng, [])
@@ -2069,6 +2299,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             if groups:
                 u.mem_write(house+0x56F9,bytes(house_rgb))
                 group_events=group_text.apply_group_commands(m,actor,house,supplied['group_commands'])
+                if self_heal and supplied.get('native_ai_before_draw'):
+                    native_ai=_run_self_heal_ai(m,actor)
             if ammo:
                 ammo_events=_prepare_ammo_state(m,actor,typ,supplied['ammo_initialization'])
             cargo_events=[]
@@ -2153,6 +2385,9 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                         delta=struct.unpack('<i',u.mem_read(group_types[supplied['type_name']]+0x3E0,4))[0]),
                     self_heal_queries=dict(infantry=bool(m.invoke(selfheal.HAS_INF,house)&255),
                                            units=bool(m.invoke(selfheal.HAS_UNIT,house)&255)))
+                if self_heal:
+                    actors[-1]['health_after_native_ai']=m.read32(actor+0x6C)
+                    if supplied.get('native_ai_before_draw'):actors[-1]['native_ai']=native_ai
             draw_fpcw=u.reg_read(UC_X86_REG_FPCW)
             if wrench:
                 u.mem_write(READER_SP,words(native.RET_MAGIC,point,clip))
@@ -2187,20 +2422,30 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                 assert [stage['stage'] for stage in text['stages']]==['fill','outline','glyph']
                 assert not any(stage[key] for stage in text['stages'] for key in
                                ('a_reads','z_reads','a_writes','z_writes'))
-            if case['name'].startswith('ordered_'):
+            if case['name'].startswith('ordered_') and not self_heal:
                 first_text=next(text for text in text_recorder.rows if text['actor']==0)
                 rows[-1]['overwritten_group_pixels']=sorted({(x,y,value,
                     struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0])
                     for x,y,value in first_text['glyph_stores']
                     if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},key=lambda p:(p[1],p[0]))
-            if 'self_heal' in case['name']:
+            if 'self_heal' in case['name'] or self_heal:
                 marker_draws=[draw for draw in draws if draw['asset']=='PIPS.SHP' and draw['frame'] in (13,20)]
                 rows[-1]['overwritten_self_heal_pixels']=sorted({(x,y,value,
                     struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0])
                     for draw in marker_draws for x,y,value in stores[slice(*draw['store_range'])]
                     if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},key=lambda p:(p[1],p[0]))
-                assert marker_draws and all(draw['flags']==0x600 and not any(draw[key] for key in
+                assert marker_draws and all(draw['flags'] in ((0x600,0x601) if self_heal else (0x600,)) and not any(draw[key] for key in
                     ('a_reads','z_reads','a_writes','z_writes')) for draw in marker_draws)
+                if self_heal:
+                    for draw in marker_draws:
+                        draw['native_stores']=stores[slice(*draw['store_range'])]
+                    if case['name']=='ordered_two_markers':
+                        first={(x,y):value for x,y,value in marker_draws[0]['native_stores']}
+                        second={(x,y):value for x,y,value in marker_draws[1]['native_stores']}
+                        rows[-1]['twice_darkened_pixels']=[[x,y,old,second[x,y]]
+                            for x,y,old in marker_draws[1]['destination_words']
+                            if first.get((x,y))==old and old!=second[x,y]]
+                        assert rows[-1]['twice_darkened_pixels']
         if rank and case['name']=='ordered_overlap':
             first_rank=next(draw for draw in draws if draw['actor']==0 and draw['frame']==14)
             rows[-1]['overwritten_rank_pixels']=sorted({(x,y,value,
@@ -2253,7 +2498,6 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
         result['vtable_bindings'] = _rank_vtable_bindings(m)
     if groups:
         result.update(status_runtime={'MTNK':rank_runtime['evidence']},
-            assignment_controls=group_text.assignment_controls(m,actor_template),
             house_color=dict(name='Gold',native_source='house_color.json Gold scalar House50B840/500DF7',rgb=house_rgb),
             native_font=dict(chain='434AD0->433880->433990->434700',
                 runtime_fields={k:v for k,v in native_font['font_meta'].items() if k not in
@@ -2263,9 +2507,17 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
         result['status_runtime']['E1']=prepared_infantry['evidence']
         result['readers']['type_results']={name:dict(strength=m.read32(p+0xA0),
             delta=m.read32(p+0x3E0),organic=bool(u.mem_read(p+0xD97,1)[0])) for name,p in group_types.items()}
-        assert all(next(row for row in rows if row['name']==name)['overwritten_group_pixels']
-                   for name in ('ordered_groups','ordered_health'))
-        assert next(row for row in rows if row['name']=='ordered_self_heal_group')['overwritten_self_heal_pixels']
+        if self_heal:
+            result['divide_controls']=_self_heal_divide_controls(m,rules,house,
+                group_actors,group_templates,point,clip)
+            result['reader_controls']=_self_heal_reader_controls(m)
+            assert original_code==sha(u.mem_read(0x401000,0x3E0000))
+            assert original_vtables==bytes(u.mem_read(0x7F5C70,0x750))
+        else:
+            result['assignment_controls']=group_text.assignment_controls(m,actor_template)
+            assert all(next(row for row in rows if row['name']==name)['overwritten_group_pixels']
+                       for name in ('ordered_groups','ordered_health'))
+            assert next(row for row in rows if row['name']=='ordered_self_heal_group')['overwritten_self_heal_pixels']
     if scales:
         if passenger:result['read_pip']=pip_controls
         result['readers'].update(type_constructors=type_constructors,
@@ -2577,6 +2829,30 @@ def control_group_status_metadata():
             self_heal_shape=0x70A6BB,self_heal_plain_leaf=0x4960A0))
 
 
+def self_heal_status_metadata():
+    from tools import selfheal_oracle as selfheal
+    return native.provenance(
+        scope='Damaged MTNK House self-heal status601 and affected Infantry/Organic Unit phases, original pixels and four current-default General readers',
+        assumptions=[
+            'Additive mode of the existing selected-health/group-status generator. One PaletteReader owns original image, allocator, native INI cache, Rules/UnitType/InfantryType constructors, palette startup and Surface/circular A/Z. Existing mobile constructor-prefix, House query/step identities and font owners are reused; no VM/parser/palette/raster/numeric implementation is copied. Historical control_group_status payload and its scope remain separate.',
+            'Physical RULESMD from expandmd01, optional loose LANGRULE, MPBattleMD and XMP03T4 feed the existing native lexical/cache transport and original selected type/General/AudioVisual read-store blocks. Original665650 defaults the four General fields1000/1/1000/1. Original66E6E2..66E74B reads exact keys in InfantryFrames/Amount, UnitFrames/Amount order with current-field defaults; no clamp/postpass is present in that block. Reader controls supply explicit cached empty strings because physical lexical transport drops empty entries. Original66D530 admission prefix executes before each retained-history read.',
+            'Stock MTNK Strength300/nonorganic and E1 Strength125/Organic are native constructor/physical-reader outputs. Explicit Organic=yes uses its original reader/store block and is restored through the same reader. Supplied actor health, House counts, signed global frame, selection/hover, position, camera and legal Surface clip are render-consumer priors. They do not prove natural damage, capture/House-grant/revoke, selection, collision-valid dense placement or full simulation lifecycles.',
+            'Whole6F5190->6F64A0->709A90/70AA60 executes. Admitted damaged signed Frame remainder<=5 chooses one601 draw; other phases and the actual native299->300 heal transition choose600. Native4AED70 centering/clipping, plain/RLE pickers, row walkers and492670/496250 destination-half leaves execute unchanged. Every retained marker pixel is native output, with actual dispatch/mask and destination reads observed. Original PIPS21frame/PIPBRD/PALETTE and GAME.FNT physical winners are unchanged.',
+            'Two prepared same-position parents prove positive non-idempotent composition; each original health->marker->group sequence executes separately. An ordered neighboring group control also retains final native pixels. A0/Z0 and partial clipping are component controls. Existing all-word native_packed half goldens own the numeric kernel; this corpus adds no independently calculated half-word golden.',
+            'Bounded original House-heal AI6FA793..6FA941 starts after the separate alive/per-object heal arm and stops before cloak update. Actual Has/Step bodies execute; the supplied attached-smoke pointer is null. Zero period and INT_MIN/-1 reach native x86 IDIV interrupt0 even at count0 in AI, while whole drawing queries the House first and skips division at count0. Trap controls restore only their prior emulator CPU context after recording the terminal exception, preventing an inherited pending exception from manufacturing a later double fault; no gameplay state or arithmetic is supplied. Ordinary phase/timer/lifecycle facts may rest on original instructions and production behavior tests.',
+            'Original code/vtables, draw actor bytes and A/Z remain unchanged. Measured draw/House-heal arms request no RNG, write no timers and call no detach; the native full-heal control changes Health only. Constructor-prefix Scenario RNG/passive timer initialization is retained separately. The Unit smoke F8 call site is observed but no nonnull smoke lifecycle, whole Techno/House/DrawExtras function, GPU frame or full native game is claimed.',
+        ],substitutions=[
+            'Inherited allocator/delete/CRT TLS and immutable physical file/archive transports plus BSurface/circular A/Z memory replace platform services. Existing font owner supplies file reads, bounded CRT digit formatting and Win32 SetRect. No reached gameplay predicate, division, reader result, palette conversion, dispatch, shape/glyph decoder or pixel leaf is replaced.',
+        ],entry_points=dict(rules_ctor=0x665650,general_admission=0x66D530,
+            general_read_begin=0x66E6E2,general_read_end=0x66E74B,read_int=0x5276D0,
+            ai_begin=0x6FA793,ai_end=0x6FA941,ai_unit_divide=0x6FA7EE,
+            ai_infantry_divide=0x6FA8E2,has_infantry=selfheal.HAS_INF,
+            has_unit=selfheal.HAS_UNIT,extras=0x6F5190,health=0x6F64A0,
+            pip_tail=0x709A90,draw_unit_divide=0x70A5B5,draw_infantry_divide=0x70A549,
+            self_heal_shape=0x70A6BB,shape=0x4AED70,plain_half_leaf=0x492670,
+            rle_half_leaf=0x496250))
+
+
 def unit_health_metadata():
     return native.provenance(
         scope='Ordinary rookie MTNK selected/hover health strip through original Extras/health/pip-tail and physical SHP pixels',
@@ -2602,6 +2878,20 @@ def unit_health_metadata():
 
 if __name__=='__main__':
     import sys
+    if '--self-heal-status' in sys.argv[1:]:
+        native.finish_vectors(lambda:generate_unit_health(self_heal=True),
+            Path(__file__).with_name('self_heal_status.json'),
+            argv=[arg for arg in sys.argv[1:] if arg!='--self-heal-status'],
+            provenance=self_heal_status_metadata,
+            source_paths={'oracle':Path(__file__),
+                'house_arithmetic_owner':Path('tools/selfheal_oracle.py'),
+                'font_owner':Path('tools/control_group_text_oracle.py'),
+                'palette_owner':Path('tools/projectile_oracle/bridge_render_inputs_palette.py'),
+                'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
+                'reader_owner':Path('tools/projectile_oracle/bridge_render_inputs.py'),
+                'physical_layers':Path('tools/rules_oracle/weapon_laser.py'),
+                'stock_owner':Path(stock.__file__)})
+        raise SystemExit(0)
     if '--repair-wrench' in sys.argv[1:]:
         native.finish_vectors(lambda:generate_unit_health(wrench=True),
             Path(__file__).with_name('repair_wrench.json'),

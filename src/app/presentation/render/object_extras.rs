@@ -2,9 +2,10 @@
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
-use crate::render::batch::{BatchRenderer, BatchTexture};
+use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
 use crate::render::selection_overlay::SelectionOverlay;
-use crate::render::terrain_draw::TerrainDrawRenderer;
+use crate::render::tactical_draw_plan::RenderZPolicy;
+use crate::render::terrain_draw::{PackedCompositePiece, PackedSpriteKind, TerrainDrawRenderer};
 
 /// Native6F5190/70A990/6F64A0: rank and PIPBRD E00 consume A (493DF0);
 /// PIPS/PIPS2 600 bypasses A (4912B0). Neither shape reads or writes Z. Commands
@@ -46,6 +47,7 @@ pub(super) fn draw_object_extras(
             batch,
             overlay,
             buffer,
+            &layer.extras_instances,
             font,
             &layer.extras_runs[start..next],
         );
@@ -64,100 +66,222 @@ pub(super) fn draw_status_runs(
     batch: &BatchRenderer,
     overlay: Option<&SelectionOverlay>,
     buffer: Option<&wgpu::Buffer>,
+    instances: &[SpriteInstance],
     font: Option<&BatchTexture>,
     runs: &[ObjectExtrasRun],
 ) {
+    let (Some(overlay), Some(buffer)) = (overlay, buffer) else {
+        return;
+    };
     let mut pass = begin_main_load_pass(encoder, color, depth);
     pass.set_scissor_rect(clip[0], clip[1], clip[2], clip[3]);
     let mut next = 0;
+    let mut pieces = Vec::new();
     while next < runs.len() {
+        if pulse_marker(&runs[next], instances).is_some() {
+            //70A64C601 is non-idempotent. Only complete, disjoint parent
+            //status clips may commute: prefixes, packed markers, then groups.
+            //Any marker/health/scale/font overlap ends this adjacent batch.
+            let end = next
+                + terrain.disjoint_sprite_prefix(
+                    runs[next..]
+                        .iter()
+                        .take_while(|run| pulse_marker(run, instances).is_some())
+                        .map(|run| status_instances(run, instances)),
+                    clip,
+                );
+            debug_assert!(end > next);
+            pieces.clear();
+            for run in &runs[next..end] {
+                draw_status_prefix(&mut pass, batch, overlay, buffer, run, 1);
+                let (index, instance) = pulse_marker(run, instances).unwrap();
+                pieces.push(PackedCompositePiece {
+                    index,
+                    instance,
+                    source: &overlay.pips().unwrap().texture().bind_group,
+                    material: batch.default_zshape_bind_group(),
+                    kind: PackedSpriteKind::IndexMask,
+                });
+            }
+            drop(pass);
+            terrain.note_external_passes(encoder, 1);
+            // Original492670/496250 half each nonzero-index destination,
+            // ignoring palette/A/Z. Overlapping parents never share this mask.
+            terrain.draw_packed_composite(
+                encoder,
+                color,
+                depth,
+                batch,
+                buffer,
+                &pieces,
+                RenderZPolicy::None,
+                Some(clip),
+            );
+            pass = begin_main_load_pass(encoder, color, depth);
+            pass.set_scissor_rect(clip[0], clip[1], clip[2], clip[3]);
+            for run in &runs[next..end] {
+                draw_status_group(&mut pass, batch, overlay, buffer, font, run);
+            }
+            next = end;
+            continue;
+        }
         let end = rank_run_end(runs, next);
-        let ObjectExtrasRun::Status {
-            wrench,
-            rank,
-            background,
-            fills,
-            scale,
-            self_heal,
-            group_rectangles,
-            group_text,
-            ..
-        } = &runs[next]
-        else {
+        let run = &runs[next];
+        draw_status_prefix(&mut pass, batch, overlay, buffer, run, (end - next) as u32);
+        let ObjectExtrasRun::Status { self_heal, .. } = run else {
             unreachable!("line parents fence status attachment passes");
         };
-        if let (Some(overlay), Some(buffer)) = (overlay, buffer) {
-            if let (Some(index), Some(shape)) = (wrench, overlay.repair_wrench()) {
-                //6F5340 uses Init52C1D8's MOUSEPAL N1 Convert, E00/493DF0.
-                // The producer supplies its palette; this existing material
-                // consumes A and bypasses Z for both native Extras visits.
-                batch.draw_passthrough_range(&mut pass, shape.texture(), buffer, *index, 1);
-            }
-            if let (Some(index), Some(shape)) = (rank, overlay.pips()) {
-                batch.draw_passthrough_range(
-                    &mut pass,
-                    shape.texture(),
-                    buffer,
-                    *index,
-                    (end - next) as u32,
-                );
-            }
-            if let (Some(index), Some(shape)) = (background, overlay.pipbrd()) {
-                batch.draw_passthrough_range(&mut pass, shape.texture(), buffer, *index, 1);
-            }
-            if let Some(shape) = overlay.pips() {
-                batch.draw_with_buffer_passthrough_range(
-                    &mut pass,
-                    shape.texture(),
-                    buffer,
-                    fills.start,
-                    fills.end - fills.start,
-                );
-            }
-            if let Some(shape) = overlay.scale_pips() {
-                //709A90 uses physical PIPS2 through the same plain600,
-                //neutral-A/no-Z store owner as health and garrison fills.
-                batch.draw_with_buffer_passthrough_range(
-                    &mut pass,
-                    shape.texture(),
-                    buffer,
-                    scale.start,
-                    scale.end - scale.start,
-                );
-            }
-            if let (Some(index), Some(shape)) = (self_heal, overlay.pips()) {
-                batch.draw_with_buffer_passthrough_range(
-                    &mut pass,
-                    shape.texture(),
-                    buffer,
-                    *index,
-                    1,
-                );
-            }
-            //70A6FD..70A987: each parent's black fill, packed House outline,
-            //then GAME.FNT glyph. Surface7BB050/7BADC0/434120 bypass A/Z.
-            batch.draw_with_buffer_passthrough_range(
-                &mut pass,
-                overlay.white_texture(),
-                buffer,
-                group_rectangles.start,
-                group_rectangles.end - group_rectangles.start,
+        if let (Some(index), Some(shape)) = (self_heal, overlay.pips()) {
+            assert_eq!(
+                instances[*index as usize].draw_state.native_selector_bits(),
+                0
             );
-            if let Some(font) = font {
-                batch.draw_with_buffer_passthrough_range(
-                    &mut pass,
-                    font,
-                    buffer,
-                    group_text.start,
-                    group_text.end - group_text.start,
-                );
-            }
+            batch.draw_with_buffer_passthrough_range(&mut pass, shape.texture(), buffer, *index, 1);
         }
+        draw_status_group(&mut pass, batch, overlay, buffer, font, run);
         next = end;
     }
-    // Account closed passes even when clipped line batches emitted none.
     drop(pass);
     terrain.note_external_passes(encoder, 1);
+}
+
+fn pulse_marker<'a>(
+    run: &ObjectExtrasRun,
+    instances: &'a [SpriteInstance],
+) -> Option<(u32, &'a SpriteInstance)> {
+    let ObjectExtrasRun::Status {
+        self_heal: Some(index),
+        ..
+    } = run
+    else {
+        return None;
+    };
+    let instance = &instances[*index as usize];
+    (instance.draw_state.native_selector_bits() == 1).then_some((*index, instance))
+}
+
+/// Ranges are owned by lowering. Include every emitted status family, even
+/// empty/split-prefix runs; holes can only make the conservative bound larger.
+fn status_instances<'a>(
+    run: &ObjectExtrasRun,
+    instances: &'a [SpriteInstance],
+) -> &'a [SpriteInstance] {
+    let ObjectExtrasRun::Status {
+        wrench,
+        rank,
+        background,
+        fills,
+        scale,
+        self_heal,
+        group_rectangles,
+        group_text,
+        ..
+    } = run
+    else {
+        unreachable!("a pulse belongs to a status run");
+    };
+    let mut first = u32::MAX;
+    let mut last = 0;
+    for index in [*wrench, *rank, *background, *self_heal]
+        .into_iter()
+        .flatten()
+    {
+        first = first.min(index);
+        last = last.max(index + 1);
+    }
+    for range in [fills, scale, group_rectangles, group_text] {
+        if !range.is_empty() {
+            first = first.min(range.start);
+            last = last.max(range.end);
+        }
+    }
+    &instances[first.min(last) as usize..last as usize]
+}
+
+fn draw_status_prefix<'a>(
+    pass: &mut wgpu::RenderPass<'a>,
+    batch: &'a BatchRenderer,
+    overlay: &'a SelectionOverlay,
+    buffer: &'a wgpu::Buffer,
+    run: &ObjectExtrasRun,
+    rank_count: u32,
+) {
+    let ObjectExtrasRun::Status {
+        wrench,
+        rank,
+        background,
+        fills,
+        scale,
+        ..
+    } = run
+    else {
+        unreachable!("line parents fence status attachment passes");
+    };
+    if let (Some(index), Some(shape)) = (wrench, overlay.repair_wrench()) {
+        //6F5340: MOUSEPAL N1, E00/493DF0 consumes A and bypasses Z.
+        batch.draw_passthrough_range(pass, shape.texture(), buffer, *index, 1);
+    }
+    if let (Some(index), Some(shape)) = (rank, overlay.pips()) {
+        batch.draw_passthrough_range(pass, shape.texture(), buffer, *index, rank_count);
+    }
+    if let (Some(index), Some(shape)) = (background, overlay.pipbrd()) {
+        batch.draw_passthrough_range(pass, shape.texture(), buffer, *index, 1);
+    }
+    if let Some(shape) = overlay.pips() {
+        batch.draw_with_buffer_passthrough_range(
+            pass,
+            shape.texture(),
+            buffer,
+            fills.start,
+            fills.end - fills.start,
+        );
+    }
+    if let Some(shape) = overlay.scale_pips() {
+        //709A90 physical PIPS2 uses plain600 neutral-A/no-Z stores.
+        batch.draw_with_buffer_passthrough_range(
+            pass,
+            shape.texture(),
+            buffer,
+            scale.start,
+            scale.end - scale.start,
+        );
+    }
+}
+
+fn draw_status_group<'a>(
+    pass: &mut wgpu::RenderPass<'a>,
+    batch: &'a BatchRenderer,
+    overlay: &'a SelectionOverlay,
+    buffer: &'a wgpu::Buffer,
+    font: Option<&'a BatchTexture>,
+    run: &ObjectExtrasRun,
+) {
+    let ObjectExtrasRun::Status {
+        group_rectangles,
+        group_text,
+        ..
+    } = run
+    else {
+        unreachable!("line parents fence status attachment passes");
+    };
+    //70A6FD..70A987: black fill, packed House outline, GAME.FNT glyph;
+    //Surface7BB050/7BADC0/434120 bypass A/Z.
+    batch.draw_with_buffer_passthrough_range(
+        pass,
+        overlay.white_texture(),
+        buffer,
+        group_rectangles.start,
+        group_rectangles.end - group_rectangles.start,
+    );
+    if let Some(font) = font {
+        batch.draw_with_buffer_passthrough_range(
+            pass,
+            font,
+            buffer,
+            group_text.start,
+            group_text.end - group_text.start,
+        );
+    }
 }
 
 /// Only adjacent rank-only parents with contiguous uploaded instances can

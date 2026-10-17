@@ -1022,10 +1022,10 @@ pub(crate) fn techno_extras_for_parent(
                 .extend(instance(art, frame, (x, sy + delta + scale_y), 0.0004));
         }
     }
-    //70A614..6BB: the existing House bonus owner selects the full-health
-    //plain600 marker. Keep its consumer in this parent's status sequence.
-    //Damaged first-six-frame flags601 behavior remains an explicit residual;
-    //this migration preserves that existing marker policy.
+    //70A50C..6BB: House admission precedes signed frame division, even for
+    //a healthy object. Damaged remainder<=5 uses601 destination-halving;
+    //otherwise the same icon/frame uses ordinary600. Native controls:
+    //procedural_drawing_oracle/self_heal_status. No render timer is retained.
     if entity_status_pips_drawable(sim, entity, hovered_id, observer_id, Some(rules)) {
         let (infantry_heal, unit_heal) = sim.houses.get(&entity.owner()).map_or((0, 0), |house| {
             (house.self_heal_infantry(), house.self_heal_units())
@@ -1033,8 +1033,22 @@ pub(crate) fn techno_extras_for_parent(
         if let Some(arm) =
             self_heal_pip(entity.category(), object.organic, infantry_heal, unit_heal)
         {
+            let period = match arm {
+                SelfHealPip::Organic => rules.general.self_heal_infantry_frames,
+                SelfHealPip::Units => rules.general.self_heal_unit_frames,
+            };
+            let frame = sim.session.binary_frame as i32;
+            let remainder = frame.checked_rem(period).unwrap_or_else(|| {
+                panic!("native self-heal marker IDIV fault at 0070A549/0070A5B5: frame={frame} period={period}")
+            });
+            let selector = u8::from(remainder <= 5 && entity.health.current() < object.strength);
             let (offset_x, offset_y) = self_heal_pip_offset(entity.category());
-            strip.self_heal = instance(shape, arm.frame(), (sx + offset_x, sy + offset_y), 0.0004);
+            strip.self_heal = instance(shape, arm.frame(), (sx + offset_x, sy + offset_y), 0.0004)
+                .map(|mut instance| {
+                    instance.draw_state =
+                        crate::render::draw_state::DrawState::from_native_selector(0, selector);
+                    instance
+                });
         }
     }
     strip

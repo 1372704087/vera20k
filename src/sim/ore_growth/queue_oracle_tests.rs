@@ -912,6 +912,206 @@ fn native_due_spread_driver_runs_when_special_spreads_is_off() {
     }
 }
 
+/// Run the production ore owners from the already loaded physical queue state
+/// with the original control's independent seed. This excludes other World AI;
+/// the ordinary frame below separately checks publication and real retirement.
+fn compare_authored_natural_phases(
+    scene: &crate::headless_scenario::HeadlessScenario,
+    capacity: u32,
+) {
+    use crate::sim::rng::MainRng;
+
+    let native = crate::test_fixture::json("tools/spatial_oracle/ore_authored_natural.json");
+    let sim = scene.sim();
+    let hash = sim.state_hash();
+    let rules = &scene.runtime.resources.rules;
+    let registry = &scene.runtime.resources.overlay_registry;
+    let mut state = sim.production.ore_growth_state.clone();
+    let mut grid = sim.overlay_grid.as_ref().unwrap().clone();
+    let mut terrain = sim.resolved_terrain.as_ref().unwrap().clone();
+    terrain.bind_shared_cell_dummy(terrain.shared_cell_dummy().fork_query_identity());
+    let objects = TiberiumPlacementObjectContext::new(
+        sim.entities(),
+        sim.occupancy(),
+        rules,
+        &sim.interner,
+        &sim.production.terrain_object_cells,
+    );
+    let seed = native["inputs"]["seed"].as_u64().unwrap();
+    let mut rng = SimRng::new(seed);
+    let main = MainRng::new(seed);
+    let mapgen = SimRng::new(seed);
+    let config = &sim.production.ore_growth_config;
+    assert_eq!(
+        config.grows,
+        native["inputs"]["session"]["basic_growth_enabled"]
+            .as_bool()
+            .unwrap()
+    );
+    assert!(config.spreads && config.tiberium_grows_flag);
+    compare_queues(
+        &state,
+        &native["initial"],
+        capacity,
+        "physical natural initial",
+    );
+    let streams = |rng: &SimRng| {
+        json!({
+            "scenario": rng.native_state_hex(), "main": main.native_state_hex(),
+            "mapgen": mapgen.native_state_hex(),
+        })
+    };
+    assert_eq!(streams(&rng), native["initial"]["rng_states"]);
+    let steps = native["steps"].as_array().unwrap();
+    let last = steps.last().unwrap()["frame"].as_u64().unwrap() as u32;
+    let mut previous_cells = grid.cells().to_vec();
+    let mut construction_count = 0;
+    let mut native_cursor = native["initial"]["runtime_id_cursor"].as_u64().unwrap();
+    for frame in 0..=last {
+        let expected_step = steps
+            .iter()
+            .find(|step| step["frame"].as_u64() == Some(u64::from(frame)));
+        if let Some(step) = expected_step {
+            for change in step["changed"].as_array().unwrap() {
+                let before = &change["before"];
+                let cell = at(&before["cell"]);
+                let overlay = grid.cell(cell.0, cell.1);
+                let resolved = terrain.cell(cell.0, cell.1).unwrap();
+                assert_eq!(
+                    json!(overlay.overlay_id.map(i32::from).unwrap_or(-1)),
+                    before["overlay"]
+                );
+                assert_eq!(json!(overlay.overlay_data), before["density"]);
+                assert_eq!(json!(resolved.level), before["level"]);
+                assert_eq!(json!(resolved.slope_type), before["slope"]);
+                assert_eq!(
+                    json!(objects.object_view().ground_object_present(cell)),
+                    before["has_ground_object"],
+                    "native source/target object prior at {cell:?}"
+                );
+            }
+        }
+        let ((growth, spread), draws) = crate::sim::rng::trace_draws(|| {
+            let growth = state.tick_native_growth_driver(
+                &mut grid,
+                registry,
+                &rules.tiberium_types,
+                Some(&terrain),
+                &sim.production.tiberium_spawning_terrain_cells,
+                Some(objects),
+                &mut rng,
+                frame,
+                config.grows,
+                config.spreads,
+                config.tiberium_grows_flag,
+                None,
+                None,
+                None,
+            );
+            let spread = state.tick_native_spread_driver(
+                &mut grid,
+                registry,
+                &rules.tiberium_types,
+                Some(&terrain),
+                &sim.production.tiberium_spawning_terrain_cells,
+                Some(objects),
+                &mut rng,
+                frame,
+                config.grows,
+                config.spreads,
+                None,
+                None,
+                None,
+            );
+            (growth, spread)
+        });
+        let Some(step) = expected_step else {
+            assert!(draws.is_empty(), "native no-op frame {frame}");
+            assert_eq!(growth.processor_calls, 0);
+            assert_eq!(spread.processor_calls, 0);
+            continue;
+        };
+        let expected = step.get("after").unwrap_or_else(|| {
+            &steps
+                .iter()
+                .find(|prior| prior["frame"] == step["same_after_as_frame"])
+                .unwrap()["after"]
+        });
+        let name = format!("physical natural frame {frame}");
+        compare_queues(&state, expected, capacity, &name);
+        assert_eq!(streams(&rng), expected["rng_states"], "{name}: all streams");
+        let native_draws: Vec<_> = step["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["kind"] == "random")
+            .map(|event| &event["raw"])
+            .collect();
+        let rust_draws: Vec<_> = draws.iter().map(|draw| &draw["value"]).collect();
+        assert_eq!(rust_draws, native_draws, "{name}: raw draw order");
+        assert_eq!(json!(draws.len()), step["draw_count"]);
+        let constructions = spread.into_overlay_constructions();
+        construction_count += constructions.len();
+        let cursor = expected["runtime_id_cursor"].as_u64().unwrap();
+        assert_eq!(
+            constructions.len() as u64,
+            cursor - native_cursor,
+            "{name}: constructor delta"
+        );
+        assert_eq!(json!(constructions.len()), step["pending_before_drain"]);
+        native_cursor = cursor;
+        let actual_changes: BTreeMap<_, _> = grid
+            .cells()
+            .iter()
+            .zip(&previous_cells)
+            .enumerate()
+            .filter(|(_, (after, before))| after != before)
+            .map(|(index, (after, _))| {
+                let cell = (
+                    (index % usize::from(grid.width())) as u16,
+                    (index / usize::from(grid.width())) as u16,
+                );
+                let value = crate::sim::tiberium::tiberium_cell_view(
+                    &grid,
+                    registry,
+                    &rules.tiberium_types,
+                    cell,
+                )
+                .map_or(0, |resource| resource.nominal_value);
+                (
+                    cell,
+                    json!({"overlay": after.overlay_id.map(i32::from).unwrap_or(-1),
+                    "density": after.overlay_data, "value": value}),
+                )
+            })
+            .collect();
+        let expected_changes: BTreeMap<_, _> = step["changed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|change| {
+                let after = &change["after"];
+                (
+                    at(&after["cell"]),
+                    json!({"overlay": after["overlay"],
+                    "density": after["density"], "value": after["value"]}),
+                )
+            })
+            .collect();
+        assert_eq!(
+            actual_changes, expected_changes,
+            "{name}: every changed cell"
+        );
+        previous_cells.clone_from_slice(grid.cells());
+    }
+    assert_eq!(json!(construction_count), native["constructed_overlays"]);
+    assert_eq!(
+        sim.state_hash(),
+        hash,
+        "component fork leaves ordinary World input untouched"
+    );
+}
+
 /// Normal authored load, not the supplied-state oracle fixture above. Native
 /// Logic55B4D7/55B4DC runs growth then spread; Cell483780 places amount3 through
 /// 487190 and Mark5FC570. Numeric reload controls remain ore_queue.json's original
@@ -1113,6 +1313,7 @@ fn retail_authored_first_ore_frame_publishes_cells_and_retires_transient_overlay
             scene.map.header.height as u16
         )
     );
+    compare_authored_natural_phases(&scene, native["capacity"].as_u64().unwrap() as u32);
     let class = &state.native_tiberium_state().classes[riparius.0 as usize];
     // Queue initialization precedes the final InitCellAttributes(0) and
     // Technos; never reconstruct its expected membership from final L0 cells.

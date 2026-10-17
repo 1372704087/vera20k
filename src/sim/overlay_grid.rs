@@ -1096,17 +1096,6 @@ pub fn recalc_overlay_passability(
     cleared_resource_for_slope || projection_changed
 }
 
-/// A request to damage a wall overlay at a specific cell.
-///
-/// Native `DestroyOverlay` receives the weapon's raw signed damage. Literal
-/// `-1` is the forced-destruction sentinel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WallDamageEvent {
-    pub rx: u16,
-    pub ry: u16,
-    pub damage: i32,
-}
-
 /// Ordered writes produced by one `DestroyOverlay` call, including its inline
 /// recursive cardinal chain and fixed post-destruction cleanup fan-out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

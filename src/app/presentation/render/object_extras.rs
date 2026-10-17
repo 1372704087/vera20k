@@ -1,4 +1,4 @@
-//! Replay wrench, rank, health, scale pips and building lines in Extras order.
+//! Replay clock, wrench, rank, health, scale pips and lines in Extras order.
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
@@ -31,7 +31,7 @@ pub(super) fn draw_object_extras(
             continue;
         }
         // Adjacent status parents share one attachment pass; each keeps its
-        // wrench->rank->border->fill->scale->self-heal->group order. Lines fence Z.
+        // clock->wrench->rank->border->fill->scale->heal->group order. Lines fence Z.
         let start = next;
         while matches!(
             layer.extras_runs.get(next),
@@ -168,6 +168,7 @@ fn status_instances<'a>(
     instances: &'a [SpriteInstance],
 ) -> &'a [SpriteInstance] {
     let ObjectExtrasRun::Status {
+        bomb_clock,
         wrench,
         rank,
         background,
@@ -183,7 +184,7 @@ fn status_instances<'a>(
     };
     let mut first = u32::MAX;
     let mut last = 0;
-    for index in [*wrench, *rank, *background, *self_heal]
+    for index in [*bomb_clock, *wrench, *rank, *background, *self_heal]
         .into_iter()
         .flatten()
     {
@@ -208,6 +209,7 @@ fn draw_status_prefix<'a>(
     rank_count: u32,
 ) {
     let ObjectExtrasRun::Status {
+        bomb_clock,
         wrench,
         rank,
         background,
@@ -218,6 +220,10 @@ fn draw_status_prefix<'a>(
     else {
         unreachable!("line parents fence status attachment passes");
     };
+    if let (Some(index), Some(shape)) = (bomb_clock, overlay.bomb_clock()) {
+        //6F524E: MOUSEPAL N1, E00/493DF0 consumes A and bypasses Z.
+        batch.draw_passthrough_range(pass, shape.texture(), buffer, *index, 1);
+    }
     if let (Some(index), Some(shape)) = (wrench, overlay.repair_wrench()) {
         //6F5340: MOUSEPAL N1, E00/493DF0 consumes A and bypasses Z.
         batch.draw_passthrough_range(pass, shape.texture(), buffer, *index, 1);
@@ -350,6 +356,7 @@ fn draw_status_text_material<'a>(
 /// increasing instance order preserves the retained Display order.
 fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
     let ObjectExtrasRun::Status {
+        bomb_clock: None,
         wrench: None,
         rank: Some(first),
         background: None,
@@ -372,6 +379,7 @@ fn rank_run_end(runs: &[ObjectExtrasRun], start: usize) -> usize {
     }
     let mut end = start + 1;
     while let Some(ObjectExtrasRun::Status {
+        bomb_clock: None,
         wrench: None,
         rank: Some(index),
         background: None,
@@ -403,6 +411,7 @@ mod tests {
     fn rank(index: u32) -> ObjectExtrasRun {
         ObjectExtrasRun::Status {
             parent: u64::from(index),
+            bomb_clock: None,
             wrench: None,
             rank: Some(index),
             background: None,
@@ -446,6 +455,7 @@ mod tests {
             rank(1),
             ObjectExtrasRun::Status {
                 parent: 2,
+                bomb_clock: None,
                 wrench: None,
                 rank: Some(2),
                 background: Some(3),
@@ -458,6 +468,7 @@ mod tests {
             rank(5),
             ObjectExtrasRun::Status {
                 parent: 6,
+                bomb_clock: None,
                 wrench: None,
                 rank: None,
                 background: None,
@@ -477,6 +488,7 @@ mod tests {
             rank(10),
             ObjectExtrasRun::Status {
                 parent: 11,
+                bomb_clock: None,
                 wrench: None,
                 rank: Some(11),
                 background: None,

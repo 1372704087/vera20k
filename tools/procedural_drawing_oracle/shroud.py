@@ -23,6 +23,8 @@ rank chevrons and rank-before-health ordering.
 ordinary ORCA ammo, actual receiver rearm and shared708C30 numeric controls.
 ``--self-heal-status`` adds damaged phase601, four General defaults/readers
 and bounded divide-fault ordering to the existing group/status runtime.
+``--bomb-clock`` executes native Attach/visibility, the clock prefix and
+complete Extras on MTNK, plus the shared GAPOWR body/late composition.
 """
 from functools import lru_cache
 import hashlib
@@ -875,7 +877,7 @@ def _prepare_flat_cells(m, xs, ys):
 
 def _building_ground_runtime(*, type_name='GAPOWR', render_ground=True, wrench=False,
                              prepared_files=None, extra_art_names=(), building_registry=False,
-                             power=False):
+                             power=False, cell_geometry=False):
     """Actual flat TMP + placed GAPOWR body depth, on the existing TMP VM.
 
     Only the native depth plane's row runs cross to the line-consumer control.
@@ -890,6 +892,10 @@ def _building_ground_runtime(*, type_name='GAPOWR', render_ground=True, wrench=F
 
     m, terrain, _files = tmp.prepare(tmp_names=('clear01.tem',), prepared_files=prepared_files)
     u, layers = m.u, physical_layers()
+    if cell_geometry:
+        from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry
+        geometry=initialize_discovery_geometry(m.invoke,m.read32,u)
+        assert m.read32(0x89E7C0)==m.read32(0xABDE88)==104
     if prepared_files is not None:
         m.assets.update({name.upper(): raw for name, raw in prepared_files.items() if raw is not None})
     sources = []
@@ -986,12 +992,14 @@ def _building_ground_runtime(*, type_name='GAPOWR', render_ground=True, wrench=F
             u.reg_write(UC_X86_REG_ECX, cell)
             native.run_checked(u, 0x480350, native.RET_MAGIC, count=12000000, timeout_us=120000000)
             ground_cells += 1
-    return dict(m=m,u=u,typ=typ,building=building,house=house,tactical=tactical,
+    result=dict(m=m,u=u,typ=typ,building=building,house=house,tactical=tactical,
                 point=point,clip=clip,coord=coord,vtable=vtable,sources=sources,
                 layer_reads=layer_reads,terrain=terrain,color_scheme=color_scheme,
                 ground_cells=ground_cells,original_code=original_code,alpha=alpha,
                 constructor_fields=constructor_fields,type_layer_fields=type_layer_fields,
                 cells=cells)
+    if cell_geometry:result['geometry_startup']=geometry
+    return result
 
 
 def building_bracket_ground():
@@ -1142,7 +1150,7 @@ def _building_health_fields(m, typ, *, repair=False, power=False):
 
 class _HealthRecorder:
     """One observer for ordinary health and phase-aware native composition."""
-    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False, scales=False, group_status=False, wrench=False, self_heal=False):
+    def __init__(self, m, size, shape_names, *, phase_aware=False, rank=False, scales=False, group_status=False, wrench=False, self_heal=False, bomb=False):
         from tools.projectile_oracle.bridge_render_shape import PIXELS, Z, A
         u = m.u
         self.stores, self.draws, self.entries, self.rng = [], [], [], []
@@ -1167,6 +1175,20 @@ class _HealthRecorder:
                 if pc==0x6F52AF:
                     self.gates.append(dict(actor=self.actor_index,gate='cell_shrouded',
                                            result=u.reg_read(UC_X86_REG_EAX)&255))
+            if bomb:
+                if pc in (0x487950,0x586360,0x5F65A0,0x438A00):
+                    callback=dict(actor=self.actor_index,entry=f'{pc:08X}')
+                    if pc==0x487950:
+                        callback['cell']=list(struct.unpack('<2h',u.mem_read(u.reg_read(UC_X86_REG_ECX)+0x24,4)))
+                    elif pc==0x586360:
+                        callback['coord']=rally.ints(u,m.read32(u.reg_read(UC_X86_REG_ESP)+4),3)
+                    self.callbacks.append(callback)
+                if pc==0x6F51E8:
+                    self.gates.append(dict(actor=self.actor_index,gate='cell_shrouded',
+                                           result=u.reg_read(UC_X86_REG_EAX)&255))
+                if pc==0x6F5235:
+                    self.numeric.append(dict(actor=self.actor_index,result='clock_frame',
+                        value=struct.unpack('<i',words(u.reg_read(UC_X86_REG_EAX)))[0]))
             if rank or scales:
                 if pc in (0x746750,0x5227F0,0x4DA4E0,0x55ABC0,0x703860,
                           0x5657A0,0x4870D0,0x4870F0,0x4F9A50):
@@ -1258,7 +1280,8 @@ class _HealthRecorder:
             self.u.hook_del(hook)
 
 
-def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540, aircraft=False):
+def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540, aircraft=False,
+                       existing_cells=None):
     """Existing original mobile/Foot prefix and locomotor constructor, in this VM.
 
     CoCreate/whole typed Unit constructor and Unlimbo are excluded priors.
@@ -1297,7 +1320,10 @@ def _prepare_unit_rank(m, typ, actor, house, *, locomotor_ctor=0x4AF540, aircraf
     enemy = m.alloc(0x18000)
     u.mem_write(house+0x30,words(0))
     u.mem_write(enemy+0x30,words(1))
-    table,cells = _prepare_flat_cells(m,range(8,13),range(18,24))
+    if existing_cells is None:
+        _table,cells = _prepare_flat_cells(m,range(8,13),range(18,24))
+    else:
+        cells=existing_cells
     by_coord = {tuple(struct.unpack('<2h',u.mem_read(cell+0x24,4))):cell for cell in cells}
     locomotor_evidence = dict(drive_constructor='004AF540',
         drive_visual_callback=f'{m.read32(m.read32(locomotor+4)+0x34):08X}')
@@ -1476,7 +1502,7 @@ def _prepare_status_passengers(m, types, house):
     from tools.spatial_oracle.building_body_rules import SP as reader_sp
     u=m.u
     passengers={}
-    for name in (name for name in ('E1','ENGINEER') if name in types):
+    for name in (name for name in ('E1','ENGINEER','IVAN') if name in types):
         actor,walk=m.alloc(0x900),m.alloc(0x100)
         requests=[]
         def rng(_u,pc,_size,_data):
@@ -1860,7 +1886,7 @@ def _ammo_fill_controls(m,types,templates,actor,manager,manager_template,nodes,p
     return rows
 
 
-def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=False, groups=False, wrench=False, self_heal=False):
+def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=False, groups=False, wrench=False, self_heal=False, bomb=False):
     """Original ordinary Unit/Building health through shared physical SHP stores.
 
     PaletteReader owns the one VM, native INI caches and palette constructors;
@@ -1872,11 +1898,11 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
     from tools.rules_oracle.weapon_laser import physical_layers
     from tools.spatial_oracle.building_body_rules import RULES, SP as READER_SP
 
-    assert sum((building,rank,passenger,ammo,groups,wrench,self_heal))<=1
+    assert sum((building,rank,passenger,ammo,groups,wrench,self_heal,bomb))<=1
     groups=groups or self_heal
     building=building or wrench
     scales=passenger or ammo
-    mobile_status=rank or scales or groups
+    mobile_status=rank or scales or groups or bomb
     # These named archive bytes are the normal STOCK_DIGITAL AssetManager
     # winners, independently resolved before admitting the historical modes.
     # New WRENCH/MOUSEPAL archive candidates require the production consumer's
@@ -1900,6 +1926,13 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                      'd1ee6a305cd65c91a9b29db7c83c2f3acc4e15a3bb41082844e4c4dd0e2de8a2'),
                     ('MOUSEPAL.PAL','ra2.mix','cache.mix',
                      '4dcbe78b534a58fc972bce4b25aa58a2a56c9a5bb0ffbfcf5d6194be5dbde60c'))
+    if bomb:
+        winners += (('BOMBCURS.SHP','ra2.mix','cache.mix',
+                     '03acfe1ee467a23e21658d3a308390633b6027e9be5b2ef839ce49742d5bd9e6'),
+                    ('MOUSEPAL.PAL','ra2.mix','cache.mix',
+                     '4dcbe78b534a58fc972bce4b25aa58a2a56c9a5bb0ffbfcf5d6194be5dbde60c'),
+                    ('WRENCH.SHP','ra2.mix','cache.mix',
+                     'd1ee6a305cd65c91a9b29db7c83c2f3acc4e15a3bb41082844e4c4dd0e2de8a2'))
     physical, assets = [], {}
     for name, outer_name, inner_name, expected in winners:
         outer = (native.configured_gamemd().parent / outer_name).read_bytes()
@@ -1916,7 +1949,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
         font_raw=stock.mix(stock.mix(outer)[stock.mix_hash('local.mix')])[stock.mix_hash('GAME.FNT')]
         assert sha(font_raw)=='ec8d6d85db3eedf5a862cc6ffb87bfad4c77279dd946bc2d30879ad9140c8d3f'
         physical.append(dict(name='GAME.FNT',archive='ra2.mix/local.mix',bytes=len(font_raw),sha256=sha(font_raw)))
-    scene = (_building_ground_runtime(type_name='NABNKR',render_ground=False) if passenger
+    scene = (_building_ground_runtime(wrench=True,cell_geometry=True) if bomb else
+             _building_ground_runtime(type_name='NABNKR',render_ground=False) if passenger
              else _building_ground_runtime(wrench=wrench) if building else None)
     m = scene['m'] if scene else palette.PaletteReader({})
     if scene:
@@ -1927,8 +1961,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
     if building:
         rules, typ = m.rules, scene['typ']
     else:
-        rules, typ = m.rules if passenger else m.alloc(0x3000), m.alloc(0x1900)
-        if not passenger:
+        rules, typ = m.rules if passenger or bomb else m.alloc(0x3000), m.alloc(0x1900)
+        if not passenger and not bomb:
             m.invoke(0x665650, rules)
             u.mem_write(0x8871E0, words(rules))
         u.mem_write(0xA8EB00, words(0x7EB6D4, m.alloc(4096), 1024, 1, 0, 10))
@@ -1973,6 +2007,10 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                             self_heal_unit_amount=m.read32(rules+0x3C))
         if scales:
             base.update(_passenger_type_fields(m,typ,ammo=ammo))
+        if bomb:
+            base.update(zip(('ivan_damage','ivan_timed_delay','ivan_icon_flicker_rate'),
+                (struct.unpack('<i',u.mem_read(rules+offset,4))[0]
+                 for offset in (0xFCC,0xFD0,0xFD8))))
         return dict(base, condition_yellow=yellow, condition_red=red)
 
     def tail_type():
@@ -1997,7 +2035,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             layers.append(dict(file=name, archive=archive, absent=True))
             continue
         section_name = 'GAPOWR' if building else 'ORCA' if ammo else 'FV' if passenger else 'MTNK'
-        sections, _ = lexical(raw, {*group_types,'General','AudioVisual'} if groups else {*types,'MultipleMindControlTank','AudioVisual'} if scales
+        sections, _ = lexical(raw, {section_name,'AudioVisual','CombatDamage','IVAN','IvanBomber','IvanBomb','IvanWH'} if bomb else {*group_types,'General','AudioVisual'} if groups else {*types,'MultipleMindControlTank','AudioVisual'} if scales
                                       else {section_name,'AudioVisual'})
         # These ordinary-tail keys are absent in the selected physical stack.
         # Keep native constructor values; don't invent a partial full reader.
@@ -2083,6 +2121,12 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                 u.reg_write(UC_X86_REG_EDI, RULES)
                 native.run_checked(u, begin, end)
                 assert u.reg_read(UC_X86_REG_ESP) == READER_SP
+        if bomb:
+            combat_admitted=bool(m.invoke(0x526810,RULES,(m.read32(0x7F0C84),)))
+            if combat_admitted:
+                for begin,end in ((0x66C5AE,0x66C5CE),(0x66C5CE,0x66C606),
+                                  (0x66C611,0x66C631)):
+                    _status_reader_block(m,begin,end,{UC_X86_REG_ESI:rules,UC_X86_REG_EDI:RULES})
         layers.append(dict(file=name, archive=archive, sha256=sha(raw),
                            section_admitted=admitted, audiovisual_admitted=av_admitted,
                            selected_keys={s:{k:v for k,v in keys.items() if k in
@@ -2102,6 +2146,10 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                 for section,keys in sections.items()}
         if scales:
             layers[-1]['types']=type_results
+        if bomb:
+            layers[-1].update(combat_damage_admitted=combat_admitted,
+                bomb_keys={section:keys for section,keys in sections.items()
+                    if section in ('CombatDamage','IVAN','IvanBomber','IvanBomb','IvanWH')})
     u.hook_del(hook)
     if not scene:
         palette.initialize(m)
@@ -2116,7 +2164,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
     table, count = m.read32(convert + 0x170), m.read32(convert + 0x16C)
     palette_result = dict(global_address='0x87F6C4', bytes_per_pixel=m.read32(convert + 4),
                           shade_count=count, table_sha256=sha(u.mem_read(table, count * 512)))
-    if wrench:
+    if wrench or bomb:
         health_palette=palette_result
         palette.initialize_mouse(m)
         convert=m.read32(0x87F6C8)
@@ -2130,12 +2178,16 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
         u.mem_write(pointer, assets[name])
         u.mem_write(global_, words(pointer))
         shape_names[pointer] = name
-    if wrench:
+    if wrench or bomb:
         # Exact original filename/load/publication, after unrelated POWEROFF.
         _status_reader_block(m,0x45E98D,0x45E9A3,{})
         wrench_shape=m.read32(0x89DDC8)
         assert wrench_shape and bytes(u.mem_read(wrench_shape,len(assets['WRENCH.SHP'])))==assets['WRENCH.SHP']
         shape_names[wrench_shape]='WRENCH.SHP'
+    if bomb:
+        bomb_shape=m.read32(rules+0xFE0)
+        assert bomb_shape and bytes(u.mem_read(bomb_shape,len(assets['BOMBCURS.SHP'])))==assets['BOMBCURS.SHP']
+        shape_names[bomb_shape]='BOMBCURS.SHP'
     if building:
         house, actor, tactical, coord, point, clip = (scene[key] for key in
             ('house', 'building', 'tactical', 'coord', 'point', 'clip'))
@@ -2147,17 +2199,66 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             other_house=m.alloc(0x18000)
             render_coord,render_point=m.alloc(12),m.alloc(8)
     else:
-        if not passenger:
+        if not passenger and not bomb:
             u.mem_map(MEM, 0x200000)
         house, actor, tactical, coord, point, clip = (m.alloc(n) for n in
                                                       (0x18000, 0x900, 0x200, 12, 8, 16))
-    if rank or groups:
-        rank_runtime = _prepare_unit_rank(m, typ, actor, house)
+    if rank or groups or bomb:
+        rank_runtime = _prepare_unit_rank(m, typ, actor, house,
+            existing_cells=scene['cells'] if bomb else None)
         actor_template = bytes(u.mem_read(actor,0x900))
         if groups:
             prepared_infantry=_prepare_status_passengers(m,{'E1':group_types['E1']},house)['E1']
             group_actors={'MTNK':actor,'E1':prepared_infantry['actor']}
             group_templates={'MTNK':actor_template,'E1':prepared_infantry['template']}
+    if bomb:
+        # One existing ground VM also owns the mobile prefix and an ordinary
+        # Infantry prefix. Original Attach/UpdateAll create the retained bomb;
+        # no host-computed clock frame or end time initializes it.
+        ground_planes={name:bytes(u.mem_read(address,51200))
+            for name,address in (('color',PIXELS),('z',Z),('a',A))}
+        building_template=bytes(u.mem_read(scene['building'],0x800))
+        shape_names[m.read32(scene['typ']+0xA4)]='GGPOWR.SHP'
+        u.mem_write(0x887568,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+        ivan_type=m.alloc(0x2000)
+        m.invoke(0x5236A0,ivan_type,(m.cstring('IVAN'),))
+        prepared_ivan=_prepare_status_passengers(m,{'IVAN':ivan_type},house)['IVAN']
+        planter=prepared_ivan['actor']
+        u.mem_write(planter+0x21C,words(house))
+        u.mem_write(0xA8B238,words(1))
+        # Native ctor -1 sound IDs isolate drawing; audio is independently
+        # consumed by bomb_class.json, not silently emulated in this VM.
+        assert m.read32(rules+0x20C)==m.read32(rules+0x210)==0xFFFFFFFF
+        list_items,array_items=m.alloc(4096),m.alloc(4096)
+        u.mem_write(0x87F5D8,words(0x7EB6D4,list_items,1024,1,0,10))
+        u.mem_write(0x87F5F0,words(0x7EB6D4,m.alloc(4096),1024,1,0,10))
+        u.mem_write(0x89C668,words(0x7EB6D4,array_items,1024,1,0,10))
+        def attach_bomb(receiver,supplied):
+            u.mem_write(receiver+0x38,words(0));u.mem_write(receiver+0x68,b'\0')
+            if supplied.get('bomb_start_frame') is None:
+                return None
+            u.mem_write(0xA8ED84,words(supplied['bomb_start_frame']))
+            u.mem_write(0xA83D4C,words(house))
+            u.mem_write(0x87F5E8,words(0));u.mem_write(0x89C678,words(0))
+            entries=[]
+            def observe_attach(_u,pc,_size,_data):
+                if pc in (0x438E70,0x438BF0,0x50B6F0):entries.append(f'{pc:08X}')
+            attach_hook=u.hook_add(UC_HOOK_CODE,observe_attach)
+            m.invoke(0x438E70,0x87F5D8,(planter,receiver))
+            for _ in range(2 if supplied.get('bomb_visible',True) else 1):
+                m.invoke(0x438BF0,0x87F5D8)
+            u.hook_del(attach_hook)
+            record=m.read32(receiver+0x38)
+            assert record and m.read32(record+0x2C)==receiver
+            state=dict(kind=m.read32(record+0x30),
+                start_frame=struct.unpack('<i',u.mem_read(record+0x34,4))[0],
+                end_frame=struct.unpack('<i',u.mem_read(record+0x38,4))[0],
+                visible=bool(u.mem_read(receiver+0x68,1)[0]),
+                visibility_countdown=m.read32(0x87F608),
+                attach_entries=[entry for entry in entries if entry=='00438E70'],
+                refresh_entries=[entry for entry in entries if entry=='00438BF0'])
+            assert state['kind']==0 and state['visible']==supplied.get('bomb_visible',True)
+            return state
     if scales:
         status_runtimes,actor_templates={},{}
         for name in (('ORCA','FV','MIND','HARV') if ammo else ('FV','MIND','HARV','LCRF')):
@@ -2243,6 +2344,33 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             dict(name='sinking',actors=[dict(base_actor,sinking=True)]),
             dict(name='shrouded',cell_bits=0),dict(name='ground_open_only',cell_bits=8),
             dict(name='clipped',actors=[dict(base_actor,location=[2368,5568,0])])]
+    if bomb:
+        base_actor.update(type_name='MTNK',kind='unit',rank='rookie',selected=False,
+            owner_is_current=True,owned_by_current_house=True,cloak_state=0,cloak_progress=0,
+            disguised=False,disguised_as_current_house=False,sensor_count=0,
+            disguise_detect_count=0,bomb_start_frame=1000,bomb_visible=True)
+        cases=[dict(name=f'armed_a{a}',a_value=a) for a in (127,63,2,0)]
+        cases += [dict(name=f'frame_{frame}',frame=frame)
+                  for frame in (1007,1008,1016,1074,1075,1375,1449,1450)]
+        cases += [dict(name='occluding_z',old_z=0),
+            dict(name='not_visible',actors=[dict(base_actor,bomb_visible=False)]),
+            dict(name='no_bomb',actors=[dict(base_actor,bomb_start_frame=None)]),
+            dict(name='selected',actors=[dict(base_actor,selected=True)]),
+            dict(name='hovered',actors=[dict(base_actor,hovered=True)]),
+            dict(name='sinking',actors=[dict(base_actor,sinking=True)]),
+            dict(name='shrouded',cell_bits=0),dict(name='ground_open_only',cell_bits=8),
+            dict(name='different_start',actors=[dict(base_actor,bomb_start_frame=925)]),
+            dict(name='global_clip',clip=[0,0,10,10]),
+            dict(name='clipped',actors=[dict(base_actor,location=[2364,5572,0])]),
+            dict(name='elevated_projected_open',cell_bits=0,
+                cell_overrides=[dict(cell=[10,20],level=2,bits=0),dict(cell=[9,19],bits=8)],
+                actors=[dict(base_actor,location=[2688,5248,208])]),
+            dict(name='elevated_origin_open',cell_bits=0,
+                cell_overrides=[dict(cell=[10,20],level=2,bits=8)],
+                actors=[dict(base_actor,location=[2688,5248,208])]),
+            dict(name='ordered_overlap',actors=[dict(base_actor,selected=True),
+                dict(base_actor,selected=True,health=75,bomb_start_frame=925,
+                     location=[2705,5231,0])])]
     rows = []
     original_code = sha(u.mem_read(0x401000, 0x3E0000))
     original_vtables = bytes(u.mem_read(0x7F5C70, 0x750))
@@ -2256,6 +2384,16 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             u.mem_write(0xA8ED84,words(spec['frame']))
             u.mem_write(0xA8EB60,words(spec['speed']))
             for cell in scene['cells']:u.mem_write(cell+0x12C,words(spec.get('cell_bits',0x18)))
+        if bomb:
+            spec.update(entry_boundary='complete_extras',frame=case.get('frame',1000),
+                        tactical_clip=rally.ints(u,0x886FA0,4))
+            for cell in scene['cells']:
+                u.mem_write(cell+0x12C,words(spec.get('cell_bits',0x18)))
+                u.mem_write(cell+0x11B,b'\0')
+            for override in spec.get('cell_overrides',[]):
+                cell=rank_runtime['cells'][tuple(override['cell'])]
+                u.mem_write(cell+0x11B,bytes([override.get('level',0)&255]))
+                u.mem_write(cell+0x12C,words(override['bits']))
         if groups:
             from tools import selfheal_oracle as selfheal
             if self_heal:u.mem_write(0xA8ED84,words(spec['binary_frame']))
@@ -2280,7 +2418,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             u.mem_write(buffer - 16, guard)
             u.mem_write(buffer + size[0] * size[1] * 2, guard)
         recorder = _HealthRecorder(m,size,shape_names,phase_aware=building or mobile_status,
-                                   rank=rank,scales=scales,group_status=groups,wrench=wrench,self_heal=self_heal)
+                                   rank=rank,scales=scales,group_status=groups,wrench=wrench,self_heal=self_heal,bomb=bomb)
         text_recorder=group_text.TextRecorder(m,recorder,size) if groups else None
         stores, draws, entries, rng, actors = (recorder.stores, recorder.draws,
                                              recorder.entries, recorder.rng, [])
@@ -2289,7 +2427,7 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             if groups:actor=group_actors[supplied['type_name']]
             is_garrison=passenger and supplied['type_name']=='NABNKR'
             u.mem_write(actor,group_templates[supplied['type_name']] if groups else actor_templates[supplied['type_name']] if scales else
-                        actor_template if building or rank or groups else bytes(0x900))
+                        actor_template if building or rank or groups or bomb else bytes(0x900))
             if not building and not mobile_status:
                 u.mem_write(actor, words(0x7F5C70))
                 u.mem_write(actor + 0x6C4, words(typ))
@@ -2309,6 +2447,12 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             if wrench:
                 u.mem_write(actor+0x6E8,bytes([supplied['repairing']]))
                 u.mem_write(actor+0x21C,words(house if supplied['owner_is_current'] else other_house))
+            if bomb:
+                # Supplied placement boundary: the constructor prefix starts
+                # in limbo, while both native Display visits require placement.
+                u.mem_write(actor+0x81,b'\0')
+                bomb_state=attach_bomb(actor,supplied)
+                u.mem_write(0xA8ED84,words(spec['frame']))
             if groups:
                 u.mem_write(house+0x56F9,bytes(house_rgb))
                 group_events=group_text.apply_group_commands(m,actor,house,supplied['group_commands'])
@@ -2375,6 +2519,11 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                     render_point=rally.ints(u,render_point,2),render_projection_admitted=render_admitted)
             if mobile_status and not is_garrison:
                 actors[-1].update(rank_setter=dict(entry=f'{setter:08X}',args=list(args)))
+            if bomb:
+                record=m.read32(actor+0x38)
+                bomb_before=bytes(u.mem_read(record,0x5C)) if record else None
+                actors[-1].update(bomb=bomb_state,
+                    clock_frame=m.invoke(0x438A00,record) if record else None)
             if passenger:
                 current_type=types[supplied['type_name']]
                 actors[-1].update(cargo_operations=cargo_events,cargo_entries=cargo_entries,
@@ -2411,6 +2560,8 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                 m.invoke(entry, actor, (point, clip, 0) if direct_health else (point, clip))
             recorder.finish()
             assert bytes(u.mem_read(actor, actor_size)) == before
+            if bomb and record:
+                assert bytes(u.mem_read(record,0x5C))==bomb_before
             if is_garrison:
                 u.mem_write(types['E1']+0xDFC,e1_before_pips)
         if text_recorder:text_recorder.close()
@@ -2472,6 +2623,13 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
                 for draw in draws if draw['actor']==0 and draw['asset']=='PIPS2.SHP'
                 for x,y,value in stores[slice(*draw['store_range'])]
                 if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},key=lambda p:(p[1],p[0]))
+        if bomb and case['name']=='ordered_overlap':
+            first_clock=next(draw for draw in draws if draw['asset']=='BOMBCURS.SHP')
+            rows[-1]['overwritten_bomb_pixels']=sorted({(x,y,value,
+                struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0])
+                for x,y,value in stores[slice(*first_clock['store_range'])]
+                if value!=struct.unpack_from('<H',raw,(y*size[0]+x)*2)[0]},key=lambda p:(p[1],p[0]))
+            assert rows[-1]['overwritten_bomb_pixels']
         if building or mobile_status:
             rows[-1]['store_count'] = len(rows[-1].pop('stores'))
             for draw in draws:
@@ -2483,6 +2641,11 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             rows[-1].update(gates=recorder.gates,callbacks=recorder.callbacks)
             assert all(draw['asset']=='WRENCH.SHP' and draw['flags']==0xE00
                 and not any(draw[key] for key in ('z_reads','z_writes','a_writes')) for draw in draws)
+        if bomb:
+            rows[-1].update(gates=recorder.gates,callbacks=recorder.callbacks,
+                           numeric_results=recorder.numeric)
+            assert all(draw['flags']==0xE00 and not any(draw[key] for key in
+                ('z_reads','z_writes','a_writes')) for draw in draws if draw['asset']=='BOMBCURS.SHP')
         if scales:
             rows[-1].update(numeric_results=recorder.numeric,drawing_fpcw=draw_fpcw)
             assert all(draw['flags']==0x600 and not any(draw[key] for key in
@@ -2576,10 +2739,32 @@ def generate_unit_health(*, building=False, rank=False, passenger=False, ammo=Fa
             scene, ground_planes, actor_template, shape_names,wrench=wrench)
         if wrench:
             result['health_palette']=health_palette
+    if bomb:
+        result.update(status_runtime={'MTNK':rank_runtime['evidence'],
+                                      'IVAN':prepared_ivan['evidence']},
+                      health_palette=health_palette,
+                      bomb_state_reference='tools/spatial_oracle/bomb_class.json',
+                      geometry_startup=scene['geometry_startup'])
+        for cell in scene['cells']:
+            u.mem_write(cell+0x12C,words(0x18));u.mem_write(cell+0x11B,b'\0')
+        u.mem_write(0x887324,words(scene['tactical']))
+        u.mem_write(0x886FA0,words(0,0,160,160));u.mem_write(0xB0CE30,words(160,160))
+        result['readers'].update(building_type_layers=scene['layer_reads'],
+                                building_type_layer_fields=scene['type_layer_fields'])
+        result['physical_inputs']+=scene['sources']
+        result['physical_inputs'].append(dict(name='ARTMD.INI',archive='ra2md.mix/localmd.mix',
+            bytes=len(m.assets['ARTMD.INI']),sha256=sha(m.assets['ARTMD.INI'])))
+        result['terrain_inputs']=scene['terrain']
+        result['body_priors']=dict(ground_cells=scene['ground_cells'],bib_null=True,
+                                  color_scheme=scene['color_scheme'])
+        result['composition_controls']=_building_health_composition(scene,ground_planes,
+            building_template,shape_names,wrench=True,bomb=attach_bomb)
+        assert original_code==sha(u.mem_read(0x401000,0x3E0000))
     return result
 
 
-def _building_health_composition(scene, ground, actor_template, shape_names, *, wrench=False):
+def _building_health_composition(scene, ground, actor_template, shape_names, *, wrench=False,
+                                 bomb=None):
     """Whole Extras/body/late Extras in the existing native ground owner.
 
     Only pixels addressed by actual health stores cross the consumer boundary;
@@ -2609,7 +2794,11 @@ def _building_health_composition(scene, ground, actor_template, shape_names, *, 
             u.mem_write(actor+0x6E8,b'\1')
             u.mem_write(neighbor+0x6C,words(187))
             for cell in scene['cells']:u.mem_write(cell+0x12C,words(0x18))
-        recorder = _HealthRecorder(m, size, shape_names, phase_aware=True)
+        bomb_state=None
+        if bomb:
+            bomb_state=bomb(actor,dict(bomb_start_frame=1000,bomb_visible=True))
+            u.mem_write(0xA8ED84,words(1000))
+        recorder = _HealthRecorder(m, size, shape_names, phase_aware=True,bomb=bool(bomb))
         snapshots, planes, depth_planes = [], {}, {}
         def run_phase(phase, receiver, entry, actor_index):
             recorder.actor_index, recorder.phase = actor_index, phase
@@ -2646,7 +2835,8 @@ def _building_health_composition(scene, ground, actor_template, shape_names, *, 
         assert not recorder.rng and bytes(u.mem_read(A,51200)) == ground['a']
         health_draws = [draw for draw in recorder.draws if draw['asset']=='PIPS.SHP']
         assert len(health_draws)==(60 if wrench and with_neighbor else 30)
-        status_draws=[draw for draw in recorder.draws if draw['asset'] in ('PIPS.SHP','WRENCH.SHP')] if wrench else health_draws
+        status_draws=[draw for draw in recorder.draws if draw['asset'] in
+                      ('PIPS.SHP','WRENCH.SHP',*(['BOMBCURS.SHP'] if bomb else []))] if wrench else health_draws
         touched = sorted({(x,y) for draw in status_draws
             for x,y,_word in recorder.stores[slice(*draw['store_range'])]}, key=lambda p:(p[1],p[0]))
         def samples(raw):
@@ -2667,6 +2857,12 @@ def _building_health_composition(scene, ground, actor_template, shape_names, *, 
                 for x,y,word in recorder.stores[slice(*draw['store_range'])]}
             wrench_overwrites=[[x,y,word,struct.unpack_from('<H',final,(y*160+x)*2)[0]]
                 for (x,y),word in sorted(wrench_pixels.items(),key=lambda v:(v[0][1],v[0][0]))
+                if struct.unpack_from('<H',final,(y*160+x)*2)[0]!=word]
+        if bomb:
+            bomb_pixels={(x,y):word for draw in recorder.draws if draw['asset']=='BOMBCURS.SHP'
+                for x,y,word in recorder.stores[slice(*draw['store_range'])]}
+            bomb_overwrites=[[x,y,word,struct.unpack_from('<H',final,(y*160+x)*2)[0]]
+                for (x,y),word in sorted(bomb_pixels.items(),key=lambda v:(v[0][1],v[0][0]))
                 if struct.unpack_from('<H',final,(y*160+x)*2)[0]!=word]
         for draw in recorder.draws:
             begin, end = draw.pop('store_range')
@@ -2691,6 +2887,12 @@ def _building_health_composition(scene, ground, actor_template, shape_names, *, 
                 body_overwritten_wrench_pixels=[row for row in overwritten if tuple(row[:2]) in wrench_touched],
                 entry_boundary='complete_extras_body',frame=0,speed=4)
             rows[-1]['body_overwritten_health_pixels']=[row for row in overwritten if tuple(row[:2]) in health_touched]
+        if bomb:
+            rows[-1].update(overwritten_bomb_pixels=bomb_overwrites,
+                body_overwritten_bomb_pixels=[row for row in overwritten if tuple(row[:2]) in bomb_pixels],
+                gates=recorder.gates,callbacks=recorder.callbacks,numeric_results=recorder.numeric,
+                entry_boundary='complete_extras_body',frame=1000,bomb=bomb_state)
+            rows[-1]['input']['actors'][0].update(bomb_start_frame=1000,bomb_visible=True)
     assert scene['original_code'] == sha(u.mem_read(0x401000,0x3E0000))
     return rows
 
@@ -3076,6 +3278,35 @@ def primary_factory_status_metadata(*, power=False):
     return result
 
 
+def bomb_clock_metadata():
+    return native.provenance(
+        scope='Ordinary IVAN attached MTNK clock through complete Extras and GAPOWR clock/wrench/health body composition',
+        assumptions=[
+            'One opt-in bomb mode extends generate_unit_health, _HealthRecorder, existing mobile/Infantry prefixes and _building_health_composition in the same PaletteReader/TMP VM. Original allocation, native INI cache/reader, geometry startup, Surface/circular A/Z, palette, SHP and body owners are shared. No second VM, parser, palette expansion, clock formula, bomb state machine, rasterizer or body mask supplies expected output. Historical modes retain their allocation and startup order.',
+            'Whole Rules665650 yields IvanDamage100, IvanTimedDelay450 and IvanIconFlickerRate8. Original exact CombatDamage HasSection526810 and current-default signed ReadInt5276D0 blocks66C5AE..66C606/66C611..66C631 consume physical RULESMD, absent optional LANGRULE, MPBattleMD and XMP03T4. Actual66C5F4 literalBOMBCURS.SHP lookup5B40B0 publishesRulesFE0. Final physical tuning450/450/8 and MTNKStrength300 are recorded per layer. Raw IVAN/IvanBomber/IvanBomb/IvanWH lexical keys identify the route but are not a claimed full native weapon reader. Full GAPOWR45DD90/45FE50 and fixed ARTMD remain the existing composition owner.',
+            'Physical BOMBCURS/WRENCH/MOUSEPAL archive candidates are recorded independently. Original Init52C136..52C1EA executes literal MOUSEPAL load, copy/expansion and complete N1 Convert48E740/48EBF0 publication87F6C8. The normal STOCK_DIGITAL AssetManager consumer must independently establish archive winner and loose precedence; native archive loading is not executed. Existing PALETTE N53 remains available for health and PIPBRD.',
+            'Actual original Infantry517A50..517AE6 prefix with IVAN type5236A0 and Unit7353C0..7354CE/Drive prefix prepare stable actors; whole typed constructors, COM and Unlimbo are excluded. Original438E70 Attach creates each record from supplied bomb_start_frame and original438BF0 UpdateAll runs twice for visible, once before visibility refresh for false. Kind0, native start/end, BombVisible68, countdown45/0 and clock438A00 results are outputs. Null bomb, sinking, selection/hover, health, House/placement and supplied frame are consumer controls, not a complete bullet/command/damage/reveal lifecycle.',
+            'BombClass/BombList gameplay remains independently consumed by tools/spatial_oracle/bomb_class.json and src/sim/bomb_tests.rs, including actual bullet IvanBomb/BombDisarm arms, attach gates, visibility/detectors, strict Frame>end expiry, detonation/defuse and bookkeeping. The clock fixture retains native constructor soundIDs -1, so audio is deliberately outside its reached path; independent BombClass controls retain those audio boundaries. No death-kind1 or spent-record lifecycle coverage is claimed by this ordinary timed profile.',
+            'Every component row executes complete6F5190, including sinking3CD, BombVisible68/AttachedBomb38 and actual Cell487950/47B3A0/586360 gates, virtual render coordinate5F65A0, Tactical6D2140, original438A00 arithmetic and actual4AED70/picker/rowwalker/493DF0. FlagsE00/remap0/zAdjust0/gradient0/brightness1000 readA and bypassZ. Physical N1 yields the same pixels forA127/63/2/0; oldZ0 does not occlude. Actor/bomb bytes andA/Z remain unchanged, with no drawing RNG, timer write or detach.',
+            'Global tactical clip886FA0 differs from supplied parent bounds in global_clip; nativeclock still draws through the global clip while subsequent status families use their own bounds. Cell bit08-only is admitted. Existing initialize_discovery_geometry executes original CRT startup before native Cell construction; raised level2 yields groundZ208. Elevated_projected_open admits projected cell9,19 despite origin10,20 hidden, while elevated_origin_open rejects origin-only reveal. Terrain flags/levels and placement are declared consumer priors, not a native reveal lifecycle or whole world frame.',
+            'The two-clock overlap records positive native overwritten pixels with each parent clock preceding its own health. Two GAPOWR controls reuse actual flatCells/TMP, full Building43B740/idle44D6A0, BUILDNGZ45E8F0 and43CEA0->455C20/459EF0->43D290->705E00 body/shadow. Whole Behind, complete first Extras, actual admitted body and complete late Extras execute in supplied parent order. Clock precedes repairing wrench and health inside both visits. Sparse ground/before-late packed colors/Z and final status-addressed pixels are consumed, with actual positive body/status overwrite witnesses. Full Display traversal, GPU body parity, arbitrary assets/types and whole functions/classes remain open.',
+            'Attach setup writes original kind0/start/end and list visibility countdown1; UpdateAll decrements to0 then writes45 and carrier68/redraw80. Native actor constructor RNG/passive timers are recorded separately from drawing. Original code and Unit vtables remain unchanged. The measured draw/query intervals make no RNG request, timer write or detach call; no gameplay update order or simulation authority is replaced.',
+        ],substitutions=[
+            'Existing successful allocation/delete/CRT TLS and immutable physical file/archive transports replace platform services. RGB565 BSurface/circular A/Z memory replaces DirectDraw. Cached lexical INI indexes, retained actor/Houses and supplied traversal/terrain are explicit inputs. No reached Attach, visibility, clock, Cell, palette, projection, shape, body or pixel function result or original instruction is substituted.',
+        ],entry_points=dict(rules_ctor=0x665650,combat_reader=0x66BBB0,
+            damage_begin=0x66C5AE,delay_begin=0x66C5CE,flicker_begin=0x66C611,
+            bomb_shape_load=0x66C5F4,unit_ctor_begin=0x7353C0,unit_ctor_stop=0x7354CE,
+            infantry_ctor_begin=0x517A50,infantry_ctor_stop=0x517AE6,
+            attach=0x438E70,update_all=0x438BF0,clock_frame=0x438A00,
+            extras=0x6F5190,clock_end=0x6F5253,cell_shrouded=0x487950,
+            cell_ground=0x47B3A0,coord_shrouded=0x586360,
+            unit_render_coords=0x5F65A0,building_render_coords=0x459EF0,
+            projection=0x6D2140,mouse_palette_begin=0x52C136,mouse_palette_end=0x52C1EA,
+            convert_ctor=0x48E740,shape=0x4AED70,picker=0x490B90,leaf=0x493DF0,
+            first_extras_caller=0x6D9153,late_extras_caller=0x6D9789,
+            behind=0x6F60D0,body_admission=0x43CEA0,body=0x43D290))
+
+
 def repair_wrench_metadata():
     return native.provenance(
         scope='Ordinary repairing GAPOWR wrench prefix and complete first-Extras/body/late-Extras composition',
@@ -3312,6 +3543,21 @@ if __name__=='__main__':
                 'tmp_owner':Path('tools/spatial_oracle/tmp_clear_render.py'),
                 'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
                 'reader_owner':Path('tools/projectile_oracle/bridge_render_inputs.py'),
+                'stock_owner':Path(stock.__file__)})
+        raise SystemExit(0)
+    if '--bomb-clock' in sys.argv[1:]:
+        native.finish_vectors(lambda:generate_unit_health(bomb=True),
+            Path(__file__).with_name('bomb_clock.json'),
+            argv=[arg for arg in sys.argv[1:] if arg!='--bomb-clock'],
+            provenance=bomb_clock_metadata,
+            source_paths={'oracle':Path(__file__),
+                'bomb_gameplay_owner':Path('tools/spatial_oracle/bomb_class.py'),
+                'geometry_owner':Path('tools/spatial_oracle/trigger_action_values.py'),
+                'palette_owner':Path('tools/projectile_oracle/bridge_render_inputs_palette.py'),
+                'surface_owner':Path('tools/projectile_oracle/bridge_render_shape.py'),
+                'reader_owner':Path('tools/projectile_oracle/bridge_render_inputs.py'),
+                'tmp_owner':Path('tools/spatial_oracle/tmp_clear_render.py'),
+                'physical_layers':Path('tools/rules_oracle/weapon_laser.py'),
                 'stock_owner':Path(stock.__file__)})
         raise SystemExit(0)
     if '--repair-wrench' in sys.argv[1:]:

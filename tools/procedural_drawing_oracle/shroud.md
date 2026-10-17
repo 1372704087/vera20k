@@ -700,6 +700,74 @@ consumes no RNG and calls no detach. Arbitrary Building types, missing resources
 large foundations, other status families and whole function/class coverage stay
 OPEN/PARTIAL.
 
+## Ordinary Crazy Ivan bomb clock
+
+`--bomb-clock` extends the same native status generator and recorder with
+ordinary IVAN attachment, MTNK clock drawing and the existing GAPOWR
+first-Extras/body/late-Extras composition. Historical modes remain unchanged.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m tools.procedural_drawing_oracle.shroud --bomb-clock --check
+```
+
+`bomb_clock.json` exposes `readers`, `physical_inputs`, actual MOUSEPAL N1
+`palette`, independent `health_palette`, `status_runtime`, `raster_controls`
+and `composition_controls` to the shared GPU status consumer. Whole
+Rules665650 establishes constructor defaults100/450/8 for IvanDamage,
+IvanTimedDelay and IvanIconFlickerRate. Original current-default ReadInt5276D0
+blocks read the physical RULESMD/LANGRULE/Battle/XMP03T4 layers, ending450/450/8;
+native66C5F4 loads literalBOMBCURS.SHP intoRulesFE0. The clock has no ART section.
+Original Init52C136..52C1EA loads/expands physical MOUSEPAL and builds its N1
+Convert87F6C8. Asset candidate hashes are retained; the independent production
+AssetManager consumer establishes normal winner and loose-file precedence.
+
+The existing native Infantry/Unit prefixes and Drive prepare actors in the same
+PaletteReader/TMP VM. Actual Attach438E70 creates the record at each supplied
+`bomb_start_frame`; UpdateAll438BF0 twice refreshes native BombVisible68, while
+one call leaves an armed, unshown record. `actor_results[].bomb` records native
+kind/start/end/visible/countdown and actual Attach/refresh entries. The sibling
+`clock_frame` is the original438A00 result. Source `bomb_visible` describes the
+requested refresh boundary; no host-computed end/frame or second state machine
+initializes a golden. Constructor soundIDs stay-1 in this rendering profile.
+The independently consumed `tools/spatial_oracle/bomb_class.json` owns native
+bullet admission, visibility/detectors, sound, strict expiry, blast/defuse and
+pointer cleanup; production Bomb remains the exclusive gameplay owner.
+
+Component `input.entry_boundary="complete_extras"` executes whole6F5190:
+sinking3CD rejects everything; BombVisible68/AttachedBomb38 admit the clock,
+then actual Cell487950/47B3A0/586360 and render-coordinate/Tactical projection
+execute. Native4AED70/493DF0 draws flagsE00, remap0, Z-adjust0, gradient0 and
+brightness1000. It consumesA and bypassesZ; N1 gives identical RGB565 colors
+atA127/63/2/0, even with oldZ0. Selected and hover controls retain clock before
+their health; absent bomb, unshown, shrouded and sinking controls suppress it.
+Frame/blink/hand/end-boundary controls call original438A00, whose arithmetic
+already has consumed BombClass controls. Kind1/death bookkeeping remains outside
+this ordinary timed profile.
+
+The clock explicitly passes global tactical clip886FA0 at6F522A. `global_clip`
+supplies a different parent rectangle and retains the clock's actual global
+clip. Cell raw bit08 alone admits it. Two raised controls use the existing
+`initialize_discovery_geometry` owner before Cells: original CRT startup yields
+Cell/shroud level104, level2 gives groundZ208, and native487950 projects origin
+cell10,20 into9,19. `cell_overrides` declares each native cell/level/bits input.
+Projected-only reveal admits the clock; origin-only reveal rejects it. These
+are visibility-consumer controls, with no native reveal lifecycle claimed.
+
+`ordered_overlap` records positive first-clock overwrites by the later parent.
+The GAPOWR controls share original flat TMP, Building/idle, BUILDNGZ and body
+owners. Complete Behind/first Extras/body/late Extras execute with the clock
+before wrench and health in each visit, plus one later neighboring GAPOWR.
+Sparse ground/before-late color/Z and final status pixels cross to the GPU
+consumer; actual body/status clock overwrites are retained as witnesses. This
+does not compare GPU body raster or execute a whole Display traversal.
+
+Drawing preserves actor/bomb bytes andA/Z and has no RNG, timer write or detach.
+Setup Attach writes start/end/countdown1, then UpdateAll writes countdown0/45
+and carrier visibility/redraw; constructor RNG/passive timers are recorded
+separately. Selection, placement, supplied frame/terrain/House and traversal
+are explicit consumer priors. Other types, missing assets, arbitrary clocks,
+full DrawExtras/Bomb functions, and whole native frame coverage remain open.
+
 ## Ordinary selected GAPOWR Power/Drain text
 
 `--building-power-status` adds `building_power_status.json/.meta.json` through

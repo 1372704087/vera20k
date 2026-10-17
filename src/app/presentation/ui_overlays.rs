@@ -768,100 +768,6 @@ pub(crate) fn self_heal_pip(
 //   through the live input membership in `build_control_group_status_instances`
 //   above; the self-heal status pip is ported below.
 //
-/// The Crazy Ivan bomb clock, `TechnoClass::DrawExtras @ 0x006F5190`
-/// (0x006F519B..0x006F524E): over a carrier being drawn (DrawExtras is reached
-/// only from the tactical render loop, `0x006D9153`, so never in limbo or a
-/// transport) that is not sinking (`+0x3CD`), whose
-/// BombVisible (`+0x68`) holds for the local player and whose cell is not
-/// shrouded (`0x00487950`), BOMBCURS.SHP frame `BombClass::GetClockFrame`
-/// centered (flags `0xE00`) on the render point (`vt+0xAC`: a building's art
-/// anchor, `0x00459EF0`, else its coordinate; `CoordsToClient2 @ 0x006D2140`).
-/// Drawn before the veterancy chevrons (0x006F5382), as there.
-pub(crate) fn build_bomb_clock_instances(
-    state: &AppState,
-    sw: f32,
-    sh: f32,
-) -> Vec<SpriteInstance> {
-    let (Some(sim), Some(overlay), Some(rules)) = (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.selection_overlay,
-        state.rules(),
-    ) else {
-        return Vec::new();
-    };
-    let Some(clock) = overlay.bomb_clock() else {
-        return Vec::new();
-    };
-    let ignore_visibility = state.match_state.sandbox_full_visibility;
-    let local = preferred_local_owner_name(state).and_then(|name| sim.interner.get(&name));
-    // `GetClockFrame` reads the frame the draw sees: the next one to run.
-    let frame = sim.session.binary_frame as i32;
-    let mut instances = Vec::new();
-    for &carrier in sim.bomb_carriers() {
-        let Some(entity) = sim.entities().get(carrier) else {
-            continue;
-        };
-        let Some(bomb) = entity.bomb else {
-            continue;
-        };
-        if entity.lifecycle.in_limbo()
-            || entity.passenger_role.is_inside_transport()
-            || entity.sinking.is_active()
-        {
-            continue;
-        }
-        if !ignore_visibility {
-            let Some(local) = local else {
-                continue;
-            };
-            let (rx, ry) = (entity.position.rx(), entity.position.ry());
-            if !sim.bomb_seen_by(carrier, local)
-                || !sim.fog.is_cell_revealed(local, rx, ry)
-                || sim.fog.is_cell_gap_covered(local, rx, ry)
-            {
-                continue;
-            }
-        }
-        let Some(index) = bomb
-            .clock_frame(
-                frame,
-                rules.combat_damage.ivan_timed_delay,
-                rules.combat_damage.ivan_icon_flicker_rate,
-            )
-            .and_then(|index| usize::try_from(index).ok())
-        else {
-            continue;
-        };
-        let point = crate::render::locomotor_visual::screen_position(entity);
-        let point = if entity.category() == EntityCategory::Structure {
-            crate::render::locomotor_visual::building_art_anchor(point.0, point.1)
-        } else {
-            point
-        };
-        let Some(instance) = clock.instance(index, point, 0.0006) else {
-            continue;
-        };
-        if in_view(
-            instance.position[0],
-            instance.position[1],
-            instance.size[0],
-            instance.size[1],
-            state.match_state.input.camera_x,
-            state.match_state.input.camera_y,
-            sw,
-            sh,
-            48.0,
-        ) {
-            instances.push(instance);
-        }
-    }
-    instances
-}
-
 /// The repair wrench's WRENCH.SHP frame at `frame`
 /// (`TechnoClass::DrawExtras 0x006F52D8..0x006F532B`): a cycle of
 /// `SpeedNormalize(14) / 4` frames (at least 2) spread over frames 0..=6,
@@ -880,9 +786,11 @@ pub(crate) struct StatusViewport {
     pub ignore_visibility: bool,
 }
 
-/// One Display parent's wrench, rank, health and pip commands in Extras order.
+/// One Display parent's clock, wrench, rank, health and pip commands in Extras order.
 #[derive(Debug, Default)]
 pub(crate) struct TechnoExtras {
+    ///6F519B..524E: BOMBCURS/MOUSEPAL N1 prefix, before every other status.
+    pub bomb_clock: Option<SpriteInstance>,
     ///6F5253..5345: WRENCH/MOUSEPAL N1 prefix, before rank and Building lines.
     pub wrench: Option<SpriteInstance>,
     pub rank: Option<SpriteInstance>,
@@ -897,7 +805,7 @@ pub(crate) struct TechnoExtras {
     pub group: StatusTextOverlayInstances,
 }
 
-/// One Techno DrawExtras6F5190 parent, wrench prefix, rank, then health6F64A0.
+/// One Techno DrawExtras6F5190 parent: clock, wrench, rank, then health6F64A0.
 /// Rank70A990 precedes the selected/hovered health gate at6F5388. It uses
 /// the shared cloak/disguise and raw Veterancy owners, with opaque status art.
 /// Ordinary MTNK is executed in procedural_drawing_oracle/unit_rank.json;
@@ -911,6 +819,8 @@ pub(crate) struct TechnoExtras {
 /// Source/executable controls: procedural_drawing_oracle/building_health.json
 /// and unit_health.json. Stock selected/hovered GAPOWR and mobile coverage;
 /// conditional pip/status tails remain with their existing owners.
+/// Clock prefix6F519B..524E and its body/parent overlap execute in
+/// procedural_drawing_oracle/bomb_clock.json with physical BOMBCURS/MOUSEPAL.
 /// No RNG, timer, detach or retained presentation state changes here.
 pub(crate) fn techno_extras_for_parent(
     sim: &crate::sim::world::Simulation,
@@ -927,10 +837,16 @@ pub(crate) fn techno_extras_for_parent(
     if entity.sinking.is_active() || entity.passenger_role.is_inside_transport() {
         return strip;
     }
-    //6F5253..5345 precedes the observer/selection/health gates. The same
-    // frame-local command is replayed in both native Building Extras visits.
-    if entity.category() == EntityCategory::Structure
-        && entity.repairing.is_on()
+    //6F519B..524E clock and6F5253..5345 wrench precede observer/selection
+    // admission. Both use the existing per-parent MOUSEPAL N1 material; the
+    // clock's886FA0 clip is the tactical viewport, not a sprite's body bounds.
+    let bomb_visible = entity.bomb.is_some()
+        && (viewport.ignore_visibility
+            || local_owner
+                .and_then(|name| sim.interner.get(name))
+                .is_some_and(|viewer| sim.bomb_seen_by(entity.stable_id(), viewer)));
+    let repairing = entity.category() == EntityCategory::Structure && entity.repairing.is_on();
+    if (bomb_visible || repairing)
         && (viewport.ignore_visibility
             || local_owner
                 .and_then(|name| sim.interner.get(name))
@@ -944,26 +860,29 @@ pub(crate) fn techno_extras_for_parent(
                         (entity.position.rx(), entity.position.ry()),
                     )
                 }))
-        && let Some(wrench) = overlay.repair_wrench()
-        && let Ok(frame) = usize::try_from(repair_wrench_frame(
-            sim.session.binary_frame as i32,
-            &sim.session.game_options,
-        ))
     {
-        // Building459EF0 is its render point, distinct from foundation-centre
-        // GetCoords447AC0 used by the health/line callers below.
-        let location = crate::sim::movement::ground_pose::object_location(
-            entity,
-            sim.resolved_terrain.as_ref(),
-        );
-        let (render, _) =
-            crate::sim::movement::ground_pose::building_render_order_parts(location, false, false);
+        // Virtual+AC: Building459EF0 uses Location-128XY; the ordinary
+        // mobile5F65A0 uses its existing GetCoords owner. Tactical6D2140
+        // projects integer XYZ, independently of the status caller's point.
+        let render = if entity.category() == EntityCategory::Structure {
+            let location = crate::sim::movement::ground_pose::object_location(
+                entity,
+                sim.resolved_terrain.as_ref(),
+            );
+            crate::sim::movement::ground_pose::building_render_order_parts(location, false, false).0
+        } else {
+            crate::sim::movement::ground_pose::object_get_coords(
+                entity,
+                sim.resolved_terrain.as_ref(),
+            )
+        };
         let point = crate::util::lepton::absolute_leptons_to_screen(render.x, render.y, render.z);
-        if let Some(mut instance) = wrench.instance(frame, point, 0.0) {
-            // Init52C1D8 constructs MOUSEPAL with N1. E00/493DF0 reads A,
-            // whose row offsets are all zero for N1; neither reads nor writes Z.
+        let prefix = |shape: &crate::render::selection_overlay::CenteredShapeStrip, frame| {
+            let mut instance = shape.instance(frame, point, 0.0)?;
+            // Init52C1D8 MOUSEPAL N1; E00/493DF0 consumes A with zero
+            // row offsets and performs opaque packed stores, bypassing Z.
             instance.palette_light = crate::render::palette_light::PaletteLight::plain(1, 1000);
-            if in_view(
+            in_view(
                 instance.position[0],
                 instance.position[1],
                 instance.size[0],
@@ -973,9 +892,29 @@ pub(crate) fn techno_extras_for_parent(
                 viewport.size[0],
                 viewport.size[1],
                 48.0,
-            ) {
-                strip.wrench = Some(instance);
-            }
+            )
+            .then_some(instance)
+        };
+        if bomb_visible
+            && let (Some(bomb), Some(rules), Some(shape)) =
+                (entity.bomb, rules, overlay.bomb_clock())
+            && let Some(frame) = bomb.clock_frame(
+                sim.session.binary_frame as i32,
+                rules.combat_damage.ivan_timed_delay,
+                rules.combat_damage.ivan_icon_flicker_rate,
+            )
+            && let Ok(frame) = usize::try_from(frame)
+        {
+            strip.bomb_clock = prefix(shape, frame);
+        }
+        if repairing
+            && let Some(shape) = overlay.repair_wrench()
+            && let Ok(frame) = usize::try_from(repair_wrench_frame(
+                sim.session.binary_frame as i32,
+                &sim.session.game_options,
+            ))
+        {
+            strip.wrench = prefix(shape, frame);
         }
     }
     let Some(observer) = admitted_techno_observer(sim, entity, local_owner, rules) else {

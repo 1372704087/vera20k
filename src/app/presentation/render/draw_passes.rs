@@ -614,27 +614,8 @@ pub(super) fn dispatch_draw_passes(
             objects,
         );
     }
-    let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
-    pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
-    // The Crazy Ivan bomb clock, drawn before the veterancy chevrons that
-    // share the occupant pass, as `DrawExtras` orders them.
-    let bomb_clock_tex = state
-        .match_state
-        .match_presentation
-        .selection_overlay
-        .as_ref()
-        .and_then(|o| o.bomb_clock())
-        .map(|clock| clock.texture());
-    draw_pooled_no_depth(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        bomb_clock_tex,
-        "bomb_clocks",
-    );
     // Original6D4664 -> Spotlight5FFFA0 edits the destination after the first
     // rally pass. Preserve this overlap, including the rally's black shadow.
-    drop(pass);
     state
         .renderer
         .combat_light_renderer

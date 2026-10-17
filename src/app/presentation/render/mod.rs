@@ -511,7 +511,6 @@ fn upload_to_gpu(
         "building_radius_rings",
         &ui.radius_ring,
     );
-    pool.upload(&state.renderer.gpu, "bomb_clocks", &ui.bomb_clock);
     pool.upload(&state.renderer.gpu, "software_cursor", &ui.software_cursor);
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);
     pool.upload(

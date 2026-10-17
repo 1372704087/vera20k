@@ -907,7 +907,7 @@ pub(crate) fn resolve_weapon_index<'a>(
 /// `HouseClass::Is_Ally_ByObject @ 0x004F9A90` reduced to house identity:
 /// same house, or the asker's alliance bit for the other house. Without an
 /// alliance map only the same-house case is knowable.
-pub(crate) fn is_ally_by_object(
+pub fn is_ally_by_object(
     alliances: Option<&HouseAllianceMap>,
     interner: &StringInterner,
     asker: InternedId,

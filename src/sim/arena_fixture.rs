@@ -316,6 +316,12 @@ pub fn install_status_miner_cargo(
     entity.miner = Some(miner);
 }
 
+/// Explicit Foot+694 prior for an object-action consumer comparison. Actual
+/// attachment, detachment and parasite AI remain with the parasite owner.
+pub fn install_action_infestation(entity: &mut crate::sim::game_entity::GameEntity, owner: u64) {
+    entity.parasite.set_eater_for_test(Some(owner));
+}
+
 /// Explicit retained-count prior for a drawing comparison. Capture and release
 /// gameplay remains covered by the production Mastermind fixture.
 pub fn install_status_capture_count(

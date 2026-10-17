@@ -10,6 +10,7 @@
 use crate::app::AppState;
 use crate::app::presentation::sidebar_render::{current_sidebar_theme, current_sidebar_view};
 use crate::assets::csf_file::{CsfArg, format_csf};
+use crate::map::entities::EntityCategory;
 use crate::render::batch::SpriteInstance;
 use crate::ui::game_screen::GameScreen;
 use crate::ui::tooltips::{TipRect, TipRegion};
@@ -227,12 +228,20 @@ fn tactical_world_tip_text(
     let Some(entity) = picked.and_then(|id| view.entities().get(id)) else {
         return String::new();
     };
-    // Display4AE616's local-owned arm reaches virtual+90 directly;
-    // Building459ED0 returns its Type+60, owned by type_ui_name. Nonlocal
-    // Building admission, special Foot names and non-Techno/resource names
-    // remain unported; do not substitute a generic actual-type name for them.
+    // Display4AE616's local-owned arm reaches virtual+90 directly.
+    // Building459ED0 returns Type+60. Infantry51F2C0's ordinary arm does too:
+    // ownerHouse4F9A50(currentHouse) is true for identity even when disguised.
+    // Source: `tools.native_inspect disasm 0x51F2C0 --bytes 0x65`.
+    // Residual: Nominal crew's runtime+6D9 is not represented (crew_survival);
+    // its earlier TXT_TECHNICIAN return requires the shared crew/House-count
+    // mechanism. This covers constructor-default own infantry, including E2.
+    // Nonlocal admission/names, special Unit and non-Techno/resource names
+    // remain unported; do not substitute their generic actual-type name.
     if entity.owner() != viewer
-        || entity.category() != crate::map::entities::EntityCategory::Structure
+        || !matches!(
+            entity.category(),
+            EntityCategory::Structure | EntityCategory::Infantry
+        )
     {
         return String::new();
     }
@@ -696,6 +705,24 @@ mod tests {
 
     #[test]
     fn mapped_own_reactor_tip_uses_retail_ui_name_and_clears_after_limbo() {
+        assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
+            "NAPOWR",
+            "Building459ED0",
+        );
+    }
+
+    #[test]
+    fn mapped_own_conscript_tip_uses_retail_ui_name_and_clears_after_limbo() {
+        assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
+            "E2",
+            "Infantry51F2C0 flag-zero own-House arm",
+        );
+    }
+
+    fn assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
+        type_id: &str,
+        native_name_body: &str,
+    ) {
         use crate::sim::house_state::HouseState;
         use crate::sim::runtime::SimRuntime;
         use crate::sim::world::{Simulation, UninitContext};
@@ -722,13 +749,14 @@ mod tests {
         sim.fog = crate::sim::vision::FogState::new(32, 32);
         sim.fog
             .reveal_cells_for_owner(owner, (0..32).flat_map(|y| (0..32).map(move |x| (x, y))));
-        // Admitted, mapped Building prior. Paid construction is a separate
-        // production witness; this test exercises the actual text/pick owners.
-        let reactor = sim
-            .spawn_object("NAPOWR", "Russians", 14, 14, 0, &rules)
+        // Admitted, mapped constructor prior. Paid production is a separate
+        // witness; this test exercises the actual text/pick owners. Stock E2
+        // begins native Infantry+6D9 clear (517A98), with Nominal absent/false.
+        let entity_id = sim
+            .spawn_object(type_id, "Russians", 14, 14, 0, &rules)
             .unwrap();
         let world = crate::app::presentation::instances::interpolated_screen_position_entity(
-            sim.entities().get(reactor).unwrap(),
+            sim.entities().get(entity_id).unwrap(),
         );
         let heights = sim.resolved_terrain.as_ref().unwrap().build_height_map();
         let order = crate::app::presentation::instances::tactical_entity_encounter_order(&sim);
@@ -748,7 +776,7 @@ mod tests {
                 Some(&sim.interner),
                 sim.resolved_terrain.as_ref(),
             ),
-            Some(reactor),
+            Some(entity_id),
             "fixture must reach the same ordinary picker before testing the text"
         );
         let mut runtime = SimRuntime::from_simulation(sim);
@@ -756,7 +784,7 @@ mod tests {
         let name_key = runtime
             .resources
             .rules
-            .object("NAPOWR")
+            .object(type_id)
             .unwrap()
             .ui_name
             .as_deref()
@@ -772,11 +800,14 @@ mod tests {
             world,
             false,
         );
-        assert_eq!(text, expected, "mapped own Building459ED0 returns Type+60");
+        assert_eq!(
+            text, expected,
+            "mapped own {type_id}: {native_name_body} returns Type+60"
+        );
         assert_eq!(
             runtime.simulation.state_hash(),
             prior_hash,
-            "text resolution preserves state/RNG"
+            "text resolution preserves canonical state and Scenario RNG"
         );
 
         let mut tips = crate::ui::tooltips::TooltipService::new();
@@ -790,7 +821,7 @@ mod tests {
         tips.poll(1000);
         assert_eq!(tips.active().unwrap().text, expected);
         runtime.simulation.techno_limbo_with_context(
-            reactor,
+            entity_id,
             UninitContext::with_rules(&runtime.resources.rules),
         );
         let text = tactical_world_tip_text(

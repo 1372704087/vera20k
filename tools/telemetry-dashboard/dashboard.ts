@@ -769,6 +769,7 @@ function outsideRow(ms: number, frameTotal: number): string {
   const percent = ms > 0.01 ? `${fmt((ms / Math.max(frameTotal, 0.0001)) * 100, 1)}%` : "—";
   return (
     `<tr><td class="ph-name">${t("rnd.outside")}</td>` +
+    `<td class="ph-bar"></td>` +
     `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
     `<td class="ph-pct">—</td>` +
     `<td class="ph-pct">${percent}</td></tr>`
@@ -832,8 +833,8 @@ function renderPhaseTable(
       // too short to compare at a glance.
       return (
         `<tr><td class="ph-name">${label}</td>` +
-        `<td class="ph-ms" style="--share:${ofSim.toFixed(2)}%">` +
-        `<span class="ph-fill"></span><b>${fmtPhase(ms)}</b></td>` +
+        `<td class="ph-bar" style="--share:${ofSim.toFixed(2)}%"><span class="ph-fill"></span></td>` +
+        `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
         `<td class="ph-pct">${ms > 0 ? `${fmt(ofSim, 1)}%` : "—"}</td>` +
         `<td class="ph-pct">${ms > 0 ? `${fmt(ofFrame, 1)}%` : "—"}</td></tr>`
       );
@@ -861,13 +862,14 @@ function renderPhaseTable(
   const renderBody =
     renderRows.length === 0
       ? ""
-      : `<tbody><tr class="ph-group"><td colspan="4">${t("rnd.group")}</td></tr>` +
+      : `<tbody><tr class="ph-group"><td colspan="5">${t("rnd.group")}</td></tr>` +
         renderRows
           .map(
             ({ label, ms }) =>
               `<tr><td class="ph-name">${label}</td>` +
-              `<td class="ph-ms" style="--share:${share(ms, renderTotal).toFixed(2)}%">` +
-              `<span class="ph-fill"></span><b>${fmtPhase(ms)}</b></td>` +
+              `<td class="ph-bar" style="--share:${share(ms, renderTotal).toFixed(2)}%">` +
+              `<span class="ph-fill"></span></td>` +
+              `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
               `<td class="ph-pct">—</td>` +
               `<td class="ph-pct">${ms > 0 ? `${fmt(share(ms, frameTotal), 1)}%` : "—"}</td></tr>`,
           )
@@ -884,20 +886,23 @@ function renderPhaseTable(
   const foot =
     `<tfoot>` +
     `<tr><td class="ph-name">${t("rep.phaseTotal")}</td>` +
+    `<td class="ph-bar"></td>` +
     `<td class="ph-ms"><b>${fmtPhase(simTotal)}</b></td>` +
     `<td class="ph-pct">100%</td>` +
     `<td class="ph-pct">${fmt(share(simTotal, frameTotal), 1)}%</td></tr>` +
     `<tr><td class="ph-name">${t("rep.render")}</td>` +
+    `<td class="ph-bar"></td>` +
     `<td class="ph-ms"><b>${fmtPhase(renderMs)}</b></td>` +
     `<td class="ph-pct">—</td>` +
     `<td class="ph-pct">${fmt(share(renderMs, frameTotal), 1)}%</td></tr>` +
     `<tr><td class="ph-name">${t("rep.whole")}</td>` +
+    `<td class="ph-bar"></td>` +
     `<td class="ph-ms"><b>${fmtPhase(frameTotal)}</b></td>` +
     `<td class="ph-pct">—</td><td class="ph-pct">100%</td></tr>` +
     `</tfoot>`;
 
   table.innerHTML =
-    `<thead><tr><th>${t("th.phase")}</th><th>${t("th.ms")}</th>` +
+    `<thead><tr><th>${t("th.phase")}</th><th class="ph-bar-col"></th><th>${t("th.ms")}</th>` +
     `<th>${t("th.shareSim")}</th><th>${t("th.shareFrame")}</th></tr></thead>` +
     `<tbody>${body}</tbody>${renderBody}${foot}`;
   if (scroller) scroller.scrollTop = scrollTop;
@@ -930,13 +935,14 @@ function readLedgerRows(): LedgerRow[] {
     if (tr.closest("thead")) return;
     const cells = tr.querySelectorAll("td");
     if (cells.length === 0) return;
-    const barCell = tr.querySelector("td.ph-ms") as HTMLElement | null;
+    const barCell = tr.querySelector("td.ph-bar") as HTMLElement | null;
     const bar = barCell ? Number.parseFloat(barCell.style.getPropertyValue("--share")) : 0;
+    const offset = cells.length === 1 ? 0 : 1;
     rows.push({
       name: (cells[0]?.textContent ?? "").trim(),
-      ms: (cells[1]?.textContent ?? "").trim(),
-      sim: (cells[2]?.textContent ?? "").trim(),
-      frame: (cells[3]?.textContent ?? "").trim(),
+      ms: (cells[1 + offset]?.textContent ?? "").trim(),
+      sim: (cells[2 + offset]?.textContent ?? "").trim(),
+      frame: (cells[3 + offset]?.textContent ?? "").trim(),
       bar: Number.isFinite(bar) ? bar : 0,
       group: tr.classList.contains("ph-group"),
       foot: tr.closest("tfoot") !== null,
@@ -1382,7 +1388,7 @@ function buildReportHtml(): string | null {
   const rows = ledger
     .map((row) =>
       row.group
-        ? `<tr class="group"><td colspan="4">${escapeHtml(row.name)}</td></tr>`
+        ? `<tr class="group"><td colspan="5">${escapeHtml(row.name)}</td></tr>`
         : `<tr class="${row.foot ? "foot" : ""}"><td>${escapeHtml(row.name)}</td>` +
           `<td class="n">${row.ms}</td><td class="n">${row.sim}</td>` +
           `<td class="n">${row.frame}</td></tr>`,

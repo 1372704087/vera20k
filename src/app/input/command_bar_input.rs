@@ -86,7 +86,7 @@ pub(super) fn apply(state: &mut AppState, result: u16) -> bool {
         return false;
     }
     // Original6D0660 routes these IDs by command identity. Existing action
-    // owners retain gameplay authority; unsupported Beacon/Cheer
+    // owners retain gameplay authority; unsupported Beacon
     // mechanics remain the same explicit residual as their keyboard commands.
     crate::app::input::dispatch::dispatch_command_bar(
         state,

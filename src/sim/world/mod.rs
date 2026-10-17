@@ -44,6 +44,8 @@ pub(crate) use gap_generator::GapGeneratorRuntime;
 pub(crate) use gap_generator::LastOperational;
 mod house_base;
 mod house_defeat;
+#[cfg(test)]
+mod house_cheer_tests;
 pub(crate) use house_defeat::HouseBlowupSubset;
 mod ion_blast;
 pub(crate) use house_base::HouseBaseState;

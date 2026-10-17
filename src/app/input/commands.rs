@@ -860,6 +860,10 @@ pub(super) fn schedule_command_in_sim(
             let record = sim.encode_scatter_record(owner_id, entity_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
         }
+        Command::Cheer => {
+            let record = sim.encode_cheer_record(owner_id)?;
+            SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
+        }
         Command::ExitMatch => {
             let record = sim.encode_exit_record(owner_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
@@ -967,6 +971,39 @@ pub(crate) fn try_schedule_command(
 /// Preserve the existing unit-returning command boundary for ordinary callers.
 pub(crate) fn schedule_command(state: &mut AppState, owner: &str, payload: Command) {
     let _ = try_schedule_command(state, owner, payload);
+}
+
+/// AllToCheer536C00 ->730F30. The input owner retains only its admission
+/// frame; the ordinary scheduler and native Event2D codec own the command.
+pub(crate) fn queue_house_cheer(state: &mut AppState) {
+    let Some(owner) = preferred_local_owner_name(state) else {
+        return;
+    };
+    let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
+        return;
+    };
+    let _ = queue_house_cheer_in_sim(
+        &mut runtime.simulation,
+        &runtime.resources.rules,
+        &mut state.match_state.input,
+        &owner,
+    );
+}
+
+pub(super) fn queue_house_cheer_in_sim(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    input: &mut crate::app::input::state::MatchInputState,
+    owner: &str,
+) -> Option<u64> {
+    let current_frame = sim.session.binary_frame as i32;
+    let input_locked = sim.session.input_locked();
+    input.try_issue_cheer(
+        current_frame,
+        rules.general.maximum_cheer_rate(),
+        input_locked,
+        || schedule_command_in_sim(sim, owner, Command::Cheer),
+    )
 }
 
 pub(crate) fn is_playable_house_name(name: &str) -> bool {

@@ -2378,10 +2378,15 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
             # These are observations of actual Command values, not profile
             # orders. Preserve their serde payload without translating input
             # actions or maintaining a second gameplay-command whitelist.
-            payload = require_object(command['payload'], f'{command_label}.payload')
-            if len(payload) != 1 or not next(iter(payload)):
-                raise ValidationError(f'{command_label}.payload must be one tagged Command')
-            require_object(next(iter(payload.values())), f'{command_label}.payload arguments')
+            payload = command['payload']
+            if isinstance(payload, str):
+                if not payload:
+                    raise ValidationError(f'{command_label}.payload must be a nonempty Command tag')
+            else:
+                payload = require_object(payload, f'{command_label}.payload')
+                if len(payload) != 1 or not next(iter(payload)):
+                    raise ValidationError(f'{command_label}.payload must be one tagged Command')
+                require_object(next(iter(payload.values())), f'{command_label}.payload arguments')
     if sample_count > MAX_OBSERVATION_SAMPLES:
         raise ValidationError(f'{label} exceeds its retained sample budget')
     return sample_count

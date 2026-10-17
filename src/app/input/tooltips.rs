@@ -162,18 +162,84 @@ fn tactical_cell_tip_text(
     world: (f32, f32),
     cursor_coordinates: bool,
     localize: impl FnOnce(&str) -> String,
-) -> String {
+) -> Option<String> {
     let point = crate::map::terrain::screen_to_plane_leptons(world.0, world.1);
     if cursor_coordinates {
-        return format!("({},{})", point.x / 256, point.y / 256);
+        return Some(format!("({},{})", point.x / 256, point.y / 256));
     }
     let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
     let cell = cells.lookup_world(point.x, point.y);
     if crate::sim::vision::cell_ground_mapped(fog, terrain, viewer, cell) {
-        String::new()
+        None
     } else {
-        localize(TIP_LABEL_SHADOW)
+        Some(localize(TIP_LABEL_SHADOW))
     }
+}
+
+/// Display4AE4F0's tactical region text. World is in projected world pixels,
+/// shared with the ordinary tactical pointer picker. Source:
+/// `python -m tools.native_inspect disasm 0x4AE4F0 --bytes 0x1B5`.
+fn tactical_world_tip_text(
+    view: crate::sim::runtime::SimView<'_>,
+    rules: &crate::rules::ruleset::RuleSet,
+    height_map: &std::collections::BTreeMap<(u16, u16), u8>,
+    csf: Option<&crate::assets::csf_file::CsfFile>,
+    world: (f32, f32),
+    cursor_coordinates: bool,
+) -> String {
+    let Some((terrain, viewer)) = view.resolved_terrain().zip(view.session().current_house())
+    else {
+        return String::new();
+    };
+    if let Some(text) = tactical_cell_tip_text(
+        view.fog(),
+        terrain,
+        viewer,
+        world,
+        cursor_coordinates,
+        |key| {
+            csf.map(|csf| csf.text(key).into_owned())
+                .unwrap_or_default()
+        },
+    ) {
+        return text;
+    }
+    // ProcessClickCoords692300 uses TacticalPick6DA380's retained Display
+    // registrations. Share the normal click owner, including live admission
+    // and foundation fallback, instead of keeping a tooltip object pointer.
+    let sim = view.simulation();
+    let order = crate::app::presentation::instances::tactical_entity_encounter_order(sim);
+    let picked = crate::app::input::entity_pick::pick_entity_at_point(
+        view.entities(),
+        &order,
+        Some(view.fog()),
+        Some(view.interner().resolve(viewer)),
+        world.0,
+        world.1,
+        crate::app::input::dispatch::CLICK_SELECT_RADIUS,
+        Some(rules),
+        Some(&sim.houses),
+        height_map,
+        crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
+        Some(view.interner()),
+        Some(terrain),
+    );
+    let Some(entity) = picked.and_then(|id| view.entities().get(id)) else {
+        return String::new();
+    };
+    // Display4AE616's local-owned arm reaches virtual+90 directly;
+    // Building459ED0 returns its Type+60, owned by type_ui_name. Nonlocal
+    // Building admission, special Foot names and non-Techno/resource names
+    // remain unported; do not substitute a generic actual-type name for them.
+    if entity.owner() != viewer
+        || entity.category() != crate::map::entities::EntityCategory::Structure
+    {
+        return String::new();
+    }
+    rules
+        .object(view.interner().resolve(entity.type_ref()))
+        .map(|object| crate::assets::csf_file::type_ui_name(object.ui_name.as_deref(), csf))
+        .unwrap_or_default()
 }
 
 fn tactical_tip_text(state: &AppState) -> String {
@@ -188,8 +254,7 @@ fn tactical_tip_text(state: &AppState) -> String {
     {
         return String::new();
     }
-    let Some((terrain, viewer)) = view.resolved_terrain().zip(view.session().current_house())
-    else {
+    let Some(rules) = state.rules() else {
         return String::new();
     };
     let world = crate::app::match_runtime::sim_tick::screen_point_to_world(
@@ -197,15 +262,14 @@ fn tactical_tip_text(state: &AppState) -> String {
         input.cursor_x,
         input.cursor_y,
     );
-    tactical_cell_tip_text(
-        view.fog(),
-        terrain,
-        viewer,
+    tactical_world_tip_text(
+        view,
+        rules,
+        state.height_map(),
+        state.process_assets.csf.as_ref(),
         world,
         input.cursor_coordinates,
-        |key| csf_text(state, key),
     )
-    // The later object/cloak/resource tooltip ladder remains a separate path.
 }
 
 /// Callback479050 reads WWMouse+0C through virtual+28 (7B89F0), returning
@@ -631,6 +695,121 @@ mod tests {
     }
 
     #[test]
+    fn mapped_own_reactor_tip_uses_retail_ui_name_and_clears_after_limbo() {
+        use crate::sim::house_state::HouseState;
+        use crate::sim::runtime::SimRuntime;
+        use crate::sim::world::{Simulation, UninitContext};
+
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let csf = crate::app::loading::init::load_csf(&assets).expect("physical retail CSF");
+        let rules = retail.rules;
+        let mut sim = Simulation::with_seed(0x4AE4_F000);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.intern("Russians");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
+        sim.session.house_order.push(owner);
+        sim.session.current_house = Some(owner);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        sim.fog = crate::sim::vision::FogState::new(32, 32);
+        sim.fog
+            .reveal_cells_for_owner(owner, (0..32).flat_map(|y| (0..32).map(move |x| (x, y))));
+        // Admitted, mapped Building prior. Paid construction is a separate
+        // production witness; this test exercises the actual text/pick owners.
+        let reactor = sim
+            .spawn_object("NAPOWR", "Russians", 14, 14, 0, &rules)
+            .unwrap();
+        let world = crate::app::presentation::instances::interpolated_screen_position_entity(
+            sim.entities().get(reactor).unwrap(),
+        );
+        let heights = sim.resolved_terrain.as_ref().unwrap().build_height_map();
+        let order = crate::app::presentation::instances::tactical_entity_encounter_order(&sim);
+        assert_eq!(
+            crate::app::input::entity_pick::pick_entity_at_point(
+                sim.entities(),
+                &order,
+                Some(&sim.fog),
+                Some("Russians"),
+                world.0,
+                world.1,
+                0.0,
+                Some(&rules),
+                Some(&sim.houses),
+                &heights,
+                None,
+                Some(&sim.interner),
+                sim.resolved_terrain.as_ref(),
+            ),
+            Some(reactor),
+            "fixture must reach the same ordinary picker before testing the text"
+        );
+        let mut runtime = SimRuntime::from_simulation(sim);
+        runtime.resources.rules = rules;
+        let name_key = runtime
+            .resources
+            .rules
+            .object("NAPOWR")
+            .unwrap()
+            .ui_name
+            .as_deref()
+            .unwrap();
+        let expected = csf.text(name_key).into_owned();
+        assert!(!expected.is_empty());
+        let prior_hash = runtime.simulation.state_hash();
+        let text = tactical_world_tip_text(
+            runtime.view(),
+            &runtime.resources.rules,
+            &heights,
+            Some(&csf),
+            world,
+            false,
+        );
+        assert_eq!(text, expected, "mapped own Building459ED0 returns Type+60");
+        assert_eq!(
+            runtime.simulation.state_hash(),
+            prior_hash,
+            "text resolution preserves state/RNG"
+        );
+
+        let mut tips = crate::ui::tooltips::TooltipService::new();
+        let region = |text| TipRegion {
+            id: 500,
+            rect: TipRect::new(0, 0, 100, 100),
+            text,
+        };
+        tips.sync_regions(&[region(text)]);
+        tips.on_mouse_move(20, 20, 0);
+        tips.poll(1000);
+        assert_eq!(tips.active().unwrap().text, expected);
+        runtime.simulation.techno_limbo_with_context(
+            reactor,
+            UninitContext::with_rules(&runtime.resources.rules),
+        );
+        let text = tactical_world_tip_text(
+            runtime.view(),
+            &runtime.resources.rules,
+            &heights,
+            Some(&csf),
+            world,
+            false,
+        );
+        assert!(text.is_empty(), "the live picker must drop a Limbo object");
+        tips.sync_regions(&[region(text)]);
+        assert!(
+            tips.active().is_none(),
+            "the existing region must discard the old name"
+        );
+    }
+
+    #[test]
     fn tactical_ground_tip_uses_plane_receiver_and_direct_ground_byte() {
         use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
         use crate::sim::vision::FogState;
@@ -654,16 +833,16 @@ mod tests {
         let point = (0.0, 615.0); // Native plane(5120,5120,0), receiver20,20.
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, viewer, point, false, str::to_owned),
-            "TXT_SHADOW"
+            Some("TXT_SHADOW".to_owned())
         );
         fog.set_ground_bits_for_test(viewer, 20, 20, 8);
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, viewer, point, false, str::to_owned),
-            ""
+            None
         );
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, other, point, false, str::to_owned),
-            "TXT_SHADOW"
+            Some("TXT_SHADOW".to_owned())
         );
         // Gap6FB3B8 clears the same native bit8 that Display4AE5D0 reads.
         // Its canonical knowledge decision must win over the legacy cache.
@@ -671,7 +850,7 @@ mod tests {
         assert!(!fog.is_cell_revealed(viewer, 20, 20));
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, viewer, point, false, str::to_owned),
-            "TXT_SHADOW"
+            Some("TXT_SHADOW".to_owned())
         );
         // The production Display text owner must use its plane XYZ for the
         // coordinate branch too, despite real level6 below this cursor.
@@ -679,13 +858,13 @@ mod tests {
             tactical_cell_tip_text(&fog, &terrain, viewer, point, true, |_| panic!(
                 "CursorCheat precedes localized shroud text"
             )),
-            "(20,20)"
+            Some("(20,20)".to_owned())
         );
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, viewer, (-2006.0, 15.0), true, |_| panic!(
                 "CursorCheat precedes localized shroud text"
             )),
-            "(-33,33)"
+            Some("(-33,33)".to_owned())
         );
         let before_dummy = terrain.shared_cell_dummy().snapshot();
         assert_eq!(
@@ -697,7 +876,7 @@ mod tests {
                 false,
                 str::to_owned
             ),
-            "TXT_SHADOW"
+            Some("TXT_SHADOW".to_owned())
         );
         assert_eq!(
             terrain.shared_cell_dummy().snapshot(),

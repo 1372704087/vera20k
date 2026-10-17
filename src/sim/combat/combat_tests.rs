@@ -1309,7 +1309,7 @@ fn retail_gassed_infantry_scatters_and_fears() {
             victim.infantry.as_ref().map(|man| man.fear_level()),
             victim.navigation.nav_com().is_some(),
             victim.mission.queued().known(),
-            pings.iter().any(|ping| ping.miner),
+            !pings.is_empty(),
         )
     };
     use MissionType::{Guard, Harmless, Hunt, Move};
@@ -8773,8 +8773,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
         "structure hit pings"
     );
     let ev = &result.consequences.effects().under_attack_events[0];
-    assert!(!ev.miner);
-    assert!(ev.structure);
+    assert_eq!(ev.victim_type, test_intern("CAGAS"));
     assert_eq!(ev.owner, test_intern("Defender"));
     assert_eq!((ev.rx, ev.ry), (8, 5));
 
@@ -8787,8 +8786,10 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
         1,
         "harvester hit pings"
     );
-    assert!(result.consequences.effects().under_attack_events[0].miner);
-    assert!(!result.consequences.effects().under_attack_events[0].structure);
+    assert_eq!(
+        result.consequences.effects().under_attack_events[0].victim_type,
+        test_intern("HARV")
+    );
 
     // SAME-owner structure damage → still pings: `BuildingClass::
     // ReceiveDamage` never compares the source's house before
@@ -8941,7 +8942,10 @@ fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
         1,
         "survivor hit pings"
     );
-    assert!(result.consequences.effects().under_attack_events[0].miner);
+    assert_eq!(
+        result.consequences.effects().under_attack_events[0].victim_type,
+        test_intern("HARV")
+    );
     assert!(
         result.consequences.effects().unit_lost_events.is_empty(),
         "nothing died"

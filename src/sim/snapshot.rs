@@ -1105,7 +1105,10 @@ use crate::sim::world::Simulation;
 // 398 -> 399: PowerState no longer serializes the obsolete theoretical total.
 // Power's rated input is read from the already-saved canonical House list.
 // 399 -> 400: local view carries retained Power bands/cache/Flash/active state.
-const SNAPSHOT_VERSION: u32 = 400;
+// 400 -> 401: retain native scenario House names independently of internal
+// owner keys and display handles; authored-object admission cannot reconstruct
+// them from mutable human flags or country after loading.
+const SNAPSHOT_VERSION: u32 = 401;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1370,6 +1373,11 @@ pub enum SnapshotRestoreError {
     },
     #[error("house {owner} has invalid produced history: {reason}")]
     InvalidHouseProductionHistory {
+        owner: crate::sim::intern::InternedId,
+        reason: &'static str,
+    },
+    #[error("house {owner} has invalid native scenario name state: {reason}")]
+    InvalidHouseScenarioName {
         owner: crate::sim::intern::InternedId,
         reason: &'static str,
     },
@@ -2690,6 +2698,21 @@ impl Simulation {
         {
             return Err(SnapshotRestoreError::InvalidCurrentHouse { owner });
         }
+        let scenario_names_admitted = self
+            .houses
+            .values()
+            .any(|house| house.native_scenario_name().is_some());
+        let mut named_house_order = std::collections::BTreeSet::new();
+        if scenario_names_admitted {
+            for &owner in &self.session.house_order {
+                if !named_house_order.insert(owner) || !self.houses.contains_key(&owner) {
+                    return Err(SnapshotRestoreError::InvalidHouseScenarioName {
+                        owner,
+                        reason: "native House array must contain each registered House once",
+                    });
+                }
+            }
+        }
         // VERA-internal terminal admission invariant. UnInit clears the policy
         // before marking the object dead; pending deletion needs no new visit.
         // A borrowed consequence packet cannot survive a save boundary.
@@ -2716,6 +2739,17 @@ impl Simulation {
             }
         }
         for (&owner, house) in &self.houses {
+            house.validate_scenario_name().map_err(|reason| {
+                SnapshotRestoreError::InvalidHouseScenarioName { owner, reason }
+            })?;
+            if scenario_names_admitted
+                && (house.native_scenario_name().is_none() || !named_house_order.contains(&owner))
+            {
+                return Err(SnapshotRestoreError::InvalidHouseScenarioName {
+                    owner,
+                    reason: "admitted scenario requires a name for every registered House",
+                });
+            }
             house.validate_production_history().map_err(|reason| {
                 SnapshotRestoreError::InvalidHouseProductionHistory { owner, reason }
             })?;
@@ -4742,8 +4776,10 @@ mod tests {
         // 395 -> 396: actual Spark link/target and retained Particle bodies.
         // 396 -> 397: retained Particle has independent Alive and Limbo.
         // 397 -> 398: per-family/type produced history for lifetime limits.
+        // 398 -> 399: remove the derived theoretical-power cache.
         // 399 -> 400: retain the local Power bar projection.
-        assert_eq!(super::SNAPSHOT_VERSION, 400);
+        // 400 -> 401: retained native House names and their array binding.
+        assert_eq!(super::SNAPSHOT_VERSION, 401);
     }
 
     #[test]

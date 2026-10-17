@@ -423,6 +423,15 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         .borrow_mut()
         .clear();
     // Fresh SidebarClass admission silently seeds its first projection.
+    // ClearScene685573 -> Mouse5BDF50 -> Sidebar6A5030 -> Power63F730:
+    // fresh matches clear the retained Power fields. The saved-load route
+    // shares install_world_presentation but has a distinct NoInit contract.
+    let wall_ms = state.radar_presentation_ms(std::time::Instant::now());
+    state
+        .match_state
+        .match_presentation
+        .power_bar_anim
+        .reset(wall_ms);
     state
         .match_state
         .match_presentation

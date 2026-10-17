@@ -60,7 +60,7 @@ fn av_ambient_inputs_follow_native_reads_cold_handoffs_save_and_type_reset() {
                 &IniFile::empty(),
                 trace
                     .into_registry_state_discarding_events()
-                    .destructive_reset(),
+                    .destructive_reset(&pass),
             )
             .unwrap();
         assert_eq!(state(&after_reset), row["after"]);

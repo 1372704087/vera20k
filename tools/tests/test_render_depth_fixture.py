@@ -182,6 +182,45 @@ class RenderDepthFixtureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_fixture(building_repair=True, walls_only=True)
 
+    def test_ifv_welding_reproduces_authored_maps_with_stock_rows_and_health_control(self):
+        expected = (
+            ('repair', '64', 74022,
+             '23617439622e35879cf0915dff3bc280ede3d3cd369cc2d5727b6e408ae331b5'),
+            ('full-health', '256', 74023,
+             'e9ed190e47e7452efe4588773973d85030d3d7d0309e5b6536678950ec6f09d4'),
+        )
+        for mode, fraction, size, digest in expected:
+            with self.subTest(mode=mode):
+                authored = build_fixture(ifv_welding=mode).encode('ascii')
+                self.assertEqual((len(authored), hashlib.sha256(authored).hexdigest()),
+                                 (size, digest))
+                ini = parse_ini(authored.decode('ascii'))
+                self.assertEqual(ini['Units']['0'].split(',')[:5],
+                                 ['Americans', 'FV', '256', '48', '48'])
+                self.assertEqual(ini['Units']['1'].split(',')[:5],
+                                 ['Americans', 'MTNK', fraction, '49', '48'])
+                self.assertEqual(ini['Units']['2'].split(',')[:5],
+                                 ['Americans', 'MTNK', '256', '49', '49'])
+                self.assertEqual([row.split(',')[:5] for row in ini['Infantry'].values()],
+                                 [['Americans', 'ENGINEER', '256', '48', '47'],
+                                  ['Americans', 'E1', '256', '47', '48']])
+                self.assertEqual(ini['Structures']['0'].split(',')[:5],
+                                 ['Computer1', 'GAPOWR', '256', '60', '60'])
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                for section in ('Units', 'Infantry', 'Structures'):
+                    for row in ini[section].values():
+                        fields = row.split(',')
+                        self.assertEqual(cells[int(fields[3]), int(fields[4])], (0, 0, 0))
+                self.assertTrue(all(value == 255 for value in
+                                    decode_overlay_section(ini['OverlayPack'])))
+                for section in ('General', 'FV', 'MTNK', 'ENGINEER', 'E1',
+                                'RepairBullet', 'WeldingSys', 'WeldingSpark', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(ifv_welding='repair', attack_order_voice='unit')
+        with self.assertRaises(ValueError):
+            build_fixture(ifv_welding='unknown')
+
     def test_existing_fixture_modes_keep_their_authored_bytes(self):
         # Captured from HEAD's generator before the separate --cliff-back mode.
         # Preserve both map payloads, including compression and entity order.

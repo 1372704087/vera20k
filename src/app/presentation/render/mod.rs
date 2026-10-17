@@ -226,12 +226,23 @@ pub(crate) fn render_game(
         .match_presentation
         .cached_overlay_instances = world.overlay;
 
-    let combat_lights = {
+    // A single immutable upload serves System body slots and the distinct
+    // late5FFFA0 vector. Neither phase can rewrite another light's slot.
+    let mut combat_lights = Vec::new();
+    for layer in &mut world.object_layers {
+        layer.light_record_base = combat_lights.len();
+        combat_lights.extend_from_slice(&layer.light_records);
+    }
+    let persistent_light_start = combat_lights.len();
+    {
         let presentation = &state.match_state.match_presentation;
-        presentation
-            .combat_lights
-            .draw_records(&mut presentation.detail.borrow_mut())
-    };
+        combat_lights.extend(
+            presentation
+                .combat_lights
+                .draw_records(&mut presentation.detail.borrow_mut()),
+        );
+    }
+    let persistent_lights = persistent_light_start..combat_lights.len();
     state.renderer.combat_light_renderer.prepare(
         &state.renderer.gpu,
         &combat_lights,
@@ -295,13 +306,21 @@ pub(crate) fn render_game(
         .as_ref()
         .map(crate::render::electric_bolt::ElectricBoltPalette::from_palette);
     let radial_selection = crate::app::input::dispatch::selected_stable_ids_in_order(
-        state.match_state.sim_runtime.as_ref().map(|rt| &rt.simulation),
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
         state.rules(),
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
     let radials = crate::app::presentation::radial_indicators::build(
-        state.match_state.sim_runtime.as_ref().map(|rt| &rt.simulation),
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
         state.rules(),
         &radial_selection,
         &state.match_state.match_presentation.house_color_map,
@@ -354,7 +373,10 @@ pub(crate) fn render_game(
         &gpu.device,
         &gpu.queue,
         presentation.lasers.draws(),
-        bolt_lines,
+        bolt_lines
+            .iter()
+            .copied()
+            .map(crate::render::surface_line::SurfaceDraw::Line),
         segments,
         &radials,
         viewport,
@@ -367,14 +389,14 @@ pub(crate) fn render_game(
     );
     for layer in &mut world.object_layers {
         layer.line_batches = layer
-            .before_lines
+            .surface_draws
             .iter()
             .map(|lines| {
                 terrain.prepare_surface_lines(
                     &gpu.device,
                     &gpu.queue,
                     std::iter::empty(),
-                    lines,
+                    lines.iter().copied(),
                     &[],
                     &[],
                     viewport,
@@ -391,7 +413,10 @@ pub(crate) fn render_game(
                     &gpu.device,
                     &gpu.queue,
                     std::iter::empty(),
-                    &layer.extras_lines[lines.clone()],
+                    layer.extras_lines[lines.clone()]
+                        .iter()
+                        .copied()
+                        .map(crate::render::surface_line::SurfaceDraw::Line),
                     &[],
                     &[],
                     viewport,
@@ -421,6 +446,7 @@ pub(crate) fn render_game(
             object_layers: &world.object_layers,
             building_status_text: &world.building_status_text,
             surface_effects,
+            persistent_lights,
             sidebar_unavailable: &sidebar.unavailable,
             sidebar_flash: &sidebar.flash,
             sidebar_gclock: &sidebar.gclock,

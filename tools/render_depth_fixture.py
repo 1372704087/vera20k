@@ -12,6 +12,8 @@ Usage:
     python tools/render_depth_fixture.py target/stock-e1-feedback-removal.map --damage-feedback removal
     python tools/render_depth_fixture.py target/move-voice.map --move-order-voice multiple
     python tools/render_depth_fixture.py target/bomb-clock.map --bomb-clock
+    python tools/render_depth_fixture.py target/ordinary-ifv-welding.map --ifv-welding
+    python tools/render_depth_fixture.py target/ordinary-ifv-full-health.map --ifv-welding full-health
 
 This writes only the requested map. It neither edits game configuration nor
 launches either engine. The cliff fixture deliberately focuses on one cliff
@@ -143,12 +145,15 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
                   house_self_heal: str | None = None,
                   damage_feedback: str | None = None,
                   move_order_voice: str | None = None,
-                  bomb_clock: bool = False) -> str:
+                  bomb_clock: bool = False,
+                  ifv_welding: str | None = None) -> str:
     """Keep comparison geometry stable within each selectable scene."""
     if house_self_heal not in (None, 'recovery', 'removal'):
         raise ValueError('Unknown House self-heal scene')
     if damage_feedback not in (None, 'single', 'removal'):
         raise ValueError('Unknown damage-feedback scene')
+    if ifv_welding not in (None, 'repair', 'full-health'):
+        raise ValueError('Unknown IFV welding scene')
     move_voices = {
         'stock': None,
         'multiple': 'GenAllVehicleMove,IFVMove',
@@ -162,11 +167,13 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
         raise ValueError('Choose a unit or building attack target')
     if sum((walls_only, cliff_back, building_brackets, building_repair,
             attack_order_voice is not None, house_self_heal is not None,
-            damage_feedback is not None, move_order_voice is not None, bomb_clock)) > 1:
+            damage_feedback is not None, move_order_voice is not None, bomb_clock,
+            ifv_welding is not None)) > 1:
         raise ValueError('Choose one comparison mode')
     building_brackets = building_brackets or building_repair
     command_scene = bomb_clock or any(mode is not None for mode in
-                        (attack_order_voice, house_self_heal, damage_feedback, move_order_voice))
+                        (attack_order_voice, house_self_heal, damage_feedback,
+                         move_order_voice, ifv_welding))
     walls_only = walls_only or building_brackets or command_scene
 
     def high(x, y):
@@ -276,10 +283,12 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
     if command_scene:
         # One near damage target and one distant opponent keep ordinary
         # Attack/Stop observations separate from immediate victory.
-        # Damage scenes use untouched retail types, health, weapons and voices;
-        # movement controls below override only the tested VoiceMove string.
+        # Stock types and weapons remain unchanged; individual scenes below
+        # author map health fractions or the tested VoiceMove reader input.
         # Keep a building's foundation-centre target comfortably in range.
-        unit_target = bomb_clock or move_order_voice is not None or damage_feedback is not None or house_self_heal is not None or attack_order_voice == 'unit'
+        unit_target = (bomb_clock or move_order_voice is not None
+                       or damage_feedback is not None or house_self_heal is not None
+                       or ifv_welding is not None or attack_order_voice == 'unit')
         near, far = (C + (4 if unit_target else 3), C), (C + 12, C + 12)
         unit_cell, plant_cell = (near, far) if unit_target else (far, near)
         structures = [f'0=Computer1,GAPOWR,256,{plant_cell[0]},{plant_cell[1]},0,None,0,0,1,0,0,None,None,None,0,0']
@@ -305,6 +314,20 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
             # retaliation. No bomb, visibility, weapon or fuse override.
             units = [f'0=Americans,MTNK,256,{C+1},{C},64,Guard,None,0,-1,0,-1,1,1']
             infantry = [f'0=Americans,IVAN,256,{C},{C},0,Guard,64,None,0,-1,0,1,1']
+        if ifv_welding:
+            # Stock actors admit normal boarding and friendly repair orders.
+            # Only map health fractions differ in the full-health control;
+            # no cargo, effect or type is injected.
+            target_health = 256 if ifv_welding == 'full-health' else 64
+            units = [
+                f'0=Americans,FV,256,{C},{C},64,Guard,None,0,-1,0,-1,1,1',
+                f'1=Americans,MTNK,{target_health},{C+1},{C},192,Guard,None,0,-1,0,-1,1,1',
+                f'2=Americans,MTNK,256,{C+1},{C+1},192,Guard,None,0,-1,0,-1,1,1',
+            ]
+            infantry = [
+                f'0=Americans,ENGINEER,256,{C},{C-1},0,Guard,64,None,0,-1,0,1,1',
+                f'1=Americans,E1,256,{C-1},{C},0,Guard,64,None,0,-1,0,1,1',
+            ]
         if damage_feedback:
             # Full-health stock E1 crosses the real health threshold under
             # ordinary friendly ForceAttack. Additional stock tanks permit
@@ -339,8 +362,18 @@ Allies=Computer1
 Color=DarkRed
 ''' if building_brackets or command_scene else ''
 
+    name = 'C24 Ordinary Engineer IFV Welding' if ifv_welding else 'Depth Continuation - ' + (
+        'Ivan Bomb Clock' if bomb_clock else
+        'Move Voice ' + move_order_voice if move_order_voice else
+        'GI Fear ' + damage_feedback if damage_feedback else
+        'House Self Heal' if house_self_heal else
+        'Attack Voice ' + attack_order_voice if attack_order_voice else
+        'Building Repair' if building_repair else
+        'Building Brackets' if building_brackets else
+        'Cliff Back Edge' if cliff_back else 'Walls and Cliff'
+    )
     return f'''[Basic]
-Name=Depth Continuation - {'Ivan Bomb Clock' if bomb_clock else 'Move Voice ' + move_order_voice if move_order_voice else 'GI Fear ' + damage_feedback if damage_feedback else 'House Self Heal' if house_self_heal else 'Attack Voice ' + attack_order_voice if attack_order_voice else 'Building Repair' if building_repair else 'Building Brackets' if building_brackets else 'Cliff Back Edge' if cliff_back else 'Walls and Cliff'}
+Name={name}
 NewINIFormat=4
 Player=Americans
 HomeCell={(C + 1) * 1000 + (C - 5)}
@@ -463,6 +496,10 @@ def main() -> None:
         '--bomb-clock', action='store_true',
         help='Use a stock Crazy Ivan and friendly tank for ordinary planting and fuse retirement',
     )
+    modes.add_argument(
+        '--ifv-welding', nargs='?', const='repair', choices=('repair', 'full-health'),
+        help='Use a stock Engineer/FV and owned tanks; full-health changes only the target map health fraction',
+    )
     args = parser.parse_args()
     mission = build_fixture(walls_only=args.walls_only, cliff_back=args.cliff_back,
                             building_brackets=args.building_brackets,
@@ -471,7 +508,8 @@ def main() -> None:
                             house_self_heal=args.house_self_heal,
                             damage_feedback=args.damage_feedback,
                             move_order_voice=args.move_order_voice,
-                            bomb_clock=args.bomb_clock)
+                            bomb_clock=args.bomb_clock,
+                            ifv_welding=args.ifv_welding)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(mission, encoding='ascii')
     print(f'Wrote {args.output} ({len(mission)} characters)')

@@ -1093,10 +1093,16 @@ use crate::sim::world::Simulation;
 // House prediction gates; NoInit resets only their predicted clocks.
 // Bumped 394 -> 395: retained General.MaximumCheerRate in Rules/registry
 // serialization; Cheer command appended without renumbering existing variants.
-// 395 -> 396: House retains per-family/type successful-production history.
+// 395 -> 396: Techno+308 stores its actual Spark system handle instead of
+// an approximate expiry tick. Particle systems retain a TargetKind (including
+// Cells) instead of an entity-only target, and retain removed child bodies
+// until the common deferred drain. Old layouts cannot resume these states.
+// 396 -> 397: retained Particle bodies preserve Object+81 independently of
+// Alive, so the shared Object Limbo/UnInit owners can resume either boundary.
+// 397 -> 398: House retains per-family/type successful-production history.
 // Older saves contain its score total only and cannot reconstruct lifetime
 // BuildLimit admission from the currently owned objects.
-const SNAPSHOT_VERSION: u32 = 396;
+const SNAPSHOT_VERSION: u32 = 398;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1310,6 +1316,11 @@ pub enum SnapshotError {
 /// Structural failures found before a deserialized simulation is admitted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SnapshotRestoreError {
+    #[error("invalid detached Particle {object_id}: {reason}")]
+    InvalidDetachedParticleState {
+        object_id: u64,
+        reason: &'static str,
+    },
     #[error("invalid saved TechnoType TechLevel state: {reason}")]
     InvalidTypeTechLevels { reason: String },
     #[error("invalid scalable Bullet runtime: {0}")]
@@ -1838,6 +1849,15 @@ impl RestoredObjectIndex {
                 Self::register(&mut identities, "ParticleSystemStore.children", id, id)?;
                 highest_id = highest_id.max(id);
             }
+        }
+        for (registry_id, particle, _, _) in sim.substrate.particle_systems.detached_particles() {
+            Self::register(
+                &mut identities,
+                "ParticleSystemStore.detached",
+                registry_id,
+                particle.stable_id(),
+            )?;
+            highest_id = highest_id.max(registry_id);
         }
         for (&registry_id, terrain) in &sim.production.terrain_objects {
             Self::register(
@@ -2400,12 +2420,24 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(system_id) = entity.damage_smoke_system_id.system() {
+        for (field, system_id) in [
+            (
+                "spark_particle_system",
+                entity.spark_particle_system.system(),
+            ),
+            (
+                "damage_smoke_system_id",
+                entity.damage_smoke_system_id.system(),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(field, system)| system.map(|id| (field, id)))
+        {
             require_resolved_reference(
                 particle_system_ids.contains(&system_id),
                 "EntityStore",
                 entity_id,
-                "damage_smoke_system_id",
+                field,
                 "ParticleSystemStore",
                 system_id,
             )?;
@@ -2462,21 +2494,23 @@ fn restore_object_references(
     for (&system_id, system) in sim.substrate.particle_systems.iter() {
         if let Some(owner_id) = system.owner_entity {
             require_resolved_reference(
-                entity_ids.contains(&owner_id),
+                entity_ids.contains(&owner_id)
+                    || sim.production.terrain_objects.contains_key(&owner_id),
                 "ParticleSystemStore",
                 system_id,
                 "owner_entity",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 owner_id,
             )?;
         }
-        if let Some(attached_id) = system.attached_entity {
+        if let Some(crate::sim::combat::TargetKind::Entity(attached_id)) = system.target_ref {
             require_resolved_reference(
-                entity_ids.contains(&attached_id),
+                entity_ids.contains(&attached_id)
+                    || sim.production.terrain_objects.contains_key(&attached_id),
                 "ParticleSystemStore",
                 system_id,
-                "attached_entity",
-                "EntityStore",
+                "target_ref",
+                "EntityStore or TerrainObjectStore",
                 attached_id,
             )?;
         }
@@ -2730,6 +2764,24 @@ impl Simulation {
             .pending_delete
             .object_tickets()
             .collect::<BTreeSet<_>>();
+        for (object_id, _, alive, in_limbo) in self.substrate.particle_systems.detached_particles()
+        {
+            if seen_logic.contains(&object_id)
+                || (in_limbo && self.display_layers().layer_of(object_id).is_some())
+                || (!alive && !in_limbo)
+            {
+                return Err(SnapshotRestoreError::InvalidDetachedParticleState {
+                    object_id,
+                    reason: "detached body remains in Logic, limbo body remains in Display, or dead body is not in limbo",
+                });
+            }
+            if !alive && !pending_delete_ids.contains(&object_id) {
+                return Err(SnapshotRestoreError::MissingDeferredDeleteIdentity {
+                    registry: "ParticleSystemStore.detached",
+                    object_id,
+                });
+            }
+        }
         for ticket in self.substrate.pending_delete.retained_tickets() {
             use crate::sim::world::DeferredDeleteTicket;
             let (registry, identity, resolves) = match ticket {
@@ -4684,8 +4736,10 @@ mod tests {
         // 392 -> 393: reject cargo with the old mid-track boarding semantics.
         // 393 -> 394: saved requests/gates, with NoInit clock reset.
         // 394 -> 395: retained Cheer rate and the appended Cheer command.
-        // 395 -> 396: per-family/type produced history for lifetime limits.
-        assert_eq!(super::SNAPSHOT_VERSION, 396);
+        // 395 -> 396: actual Spark link/target and retained Particle bodies.
+        // 396 -> 397: retained Particle has independent Alive and Limbo.
+        // 397 -> 398: per-family/type produced history for lifetime limits.
+        assert_eq!(super::SNAPSHOT_VERSION, 398);
     }
 
     #[test]
@@ -7741,10 +7795,16 @@ mod tests {
             let mut system =
                 ParticleSystem::test_fixture(particle_id, ParticleSystemTypeId(0), IVec3::ZERO);
             system.facing = 0x1d;
-            system.attached_entity = Some(entity_id);
+            system.target_ref = Some(crate::sim::combat::TargetKind::Entity(entity_id));
             system.owner_entity = Some(entity_id);
             system
         });
+        sim.substrate
+            .entities
+            .get_mut(entity_id)
+            .unwrap()
+            .spark_particle_system
+            .bind(Some(particle_id));
         sim.set_logic_order_for_test(vec![particle_id, entity_id]);
 
         let bytes = GameSnapshot::save_validated(&sim, 7, 8, "Restore fixture", 9);
@@ -7800,7 +7860,20 @@ mod tests {
             .get(particle_id)
             .expect("particle system");
         assert_eq!(system.owner_entity, Some(entity_id));
-        assert_eq!(system.attached_entity, Some(entity_id));
+        assert_eq!(
+            system.target_ref,
+            Some(crate::sim::combat::TargetKind::Entity(entity_id))
+        );
+        assert_eq!(
+            restored
+                .substrate
+                .entities
+                .get(entity_id)
+                .unwrap()
+                .spark_particle_system
+                .system(),
+            Some(particle_id)
+        );
     }
 
     #[test]
@@ -7826,7 +7899,7 @@ mod tests {
             let mut system =
                 ParticleSystem::test_fixture(particle_id, ParticleSystemTypeId(0), IVec3::ZERO);
             system.facing = 0x1d;
-            system.attached_entity = Some(999);
+            system.target_ref = Some(crate::sim::combat::TargetKind::Entity(999));
             system.owner_entity = Some(entity_id);
             system
         });
@@ -7836,8 +7909,8 @@ mod tests {
             Err(SnapshotRestoreError::UnresolvedObjectReference {
                 source_registry: "ParticleSystemStore",
                 source_id: particle_id,
-                field: "attached_entity",
-                target_registry: "EntityStore",
+                field: "target_ref",
+                target_registry: "EntityStore or TerrainObjectStore",
                 target_id: 999,
             })
         );
@@ -7857,8 +7930,8 @@ mod tests {
                 .particle_systems
                 .get(particle_id)
                 .expect("particle system")
-                .attached_entity,
-            Some(999),
+                .target_ref,
+            Some(crate::sim::combat::TargetKind::Entity(999)),
             "failed restoration must not sanitize the unresolved strong reference"
         );
     }

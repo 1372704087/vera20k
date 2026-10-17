@@ -112,8 +112,8 @@ cargo run --release --bin vera20k
 [ادعم VERA20k عبر PayPal](https://paypal.me/vera20k). تُوزَّع جميع التبرعات المستلمة على
 المساهمين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
 
-يمكن لمؤسس VERA20k إرسال الدفعات عبر PayPal أو Vipps أو التحويل البنكي SEPA أو Bitcoin أو UnionPay
-(الصين) أو Alipay. يُرجى من المساهمين الانضمام إلى [Discord](https://discord.gg/kmjRUn5m5F)
+تُرسل الدفعات إلى المساهمين عبر PayPal أو UnionPay (الصين) أو Alipay أو Vipps أو التحويل البنكي SEPA
+أو Bitcoin. يُرجى من المساهمين الانضمام إلى [Discord](https://discord.gg/kmjRUn5m5F)
 أو مجموعة QQ (1097193563) حتى يتمكن المؤسس من التواصل معهم لترتيب الدفعات.
 
 ## شكر ومعلومات قانونية

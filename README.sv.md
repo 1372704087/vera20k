@@ -111,8 +111,8 @@ Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget 
 [Stöd VERA20k via PayPal](https://paypal.me/vera20k). Alla mottagna donationer fördelas till
 medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
 
-VERA20k:s grundare kan betala ut pengar via PayPal, Vipps, SEPA-banköverföring, Bitcoin, UnionPay
-(Kina) eller Alipay. Medverkande bör gå med i [Discord](https://discord.gg/kmjRUn5m5F) eller
+Utbetalningar till medverkande görs via PayPal, UnionPay (Kina), Alipay, Vipps,
+SEPA-banköverföring eller Bitcoin. Medverkande bör gå med i [Discord](https://discord.gg/kmjRUn5m5F) eller
 QQ-gruppen (1097193563) så att grundaren kan kontakta dem för att ordna utbetalningar.
 
 ## Tack och juridisk information

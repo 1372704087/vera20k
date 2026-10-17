@@ -113,8 +113,8 @@ Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 [TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
 bulunanlara dağıtılır.
 
-VERA20k'nin kurucusu PayPal, Vipps, SEPA banka havalesi, Bitcoin, UnionPay (Çin) veya Alipay üzerinden
-ödeme yapabilir. Katkıda bulunanlar [Discord](https://discord.gg/kmjRUn5m5F) ya da QQ grubuna
+Katkıda bulunanlara ödemeler PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
+Bitcoin üzerinden yapılır. Katkıda bulunanlar [Discord](https://discord.gg/kmjRUn5m5F) ya da QQ grubuna
 (1097193563) katılmalıdır; böylece kurucu kendileriyle iletişime geçip ödemeleri ayarlayabilir.
 
 ## Teşekkürler ve yasal bilgiler

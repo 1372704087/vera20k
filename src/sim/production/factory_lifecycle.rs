@@ -652,7 +652,7 @@ pub(super) fn record_last_built(
     if let Some(house) = sim.houses.get_mut(&owner) {
         house.record_built_type(category, type_index);
         if scores {
-            house.stats.record_built();
+            house.record_scored_production(category, type_index);
         }
     }
     if let Some(sound) = sound {

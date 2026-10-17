@@ -397,7 +397,7 @@ def snapshot(u, background, old_z):
 
 
 def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
-            boundary_only=False, reset_surface=True):
+            boundary_only=False, reset_surface=True, allow_empty_frame=False):
     assert wall or not shadow
     assert body or ore or wall or not boundary_only
     case = dict(type='TIB01' if ore else 'BRIDGE1',
@@ -479,7 +479,19 @@ def execute(m, types, case, *, body=False, ore=False, wall=False, shadow=False,
         required |= {0x490E50, 0x437A10, 0x4990E0 if body or ore or wall else 0x497390}
     if wall:
         required.discard(0x4990E0)
-        assert any(p in reached for p in leaves)
+        if not allow_empty_frame:
+            assert any(p in reached for p in leaves)
+    # Only the opt-in low bridge component accepts a native empty SHP crop.
+    # A bound physical image and actual Shape call are still mandatory; zero
+    # crop is read by original69E7E0, never manufactured by the host.
+    if allow_empty_frame:
+        assert draws
+        m.invoke(0x69E7E0, shp, (RECT, draws[0]['frame']))
+        if ints(u, RECT, 4)[2:] == [0, 0]:
+            required -= {0x490E50, 0x437A10, 0x4990E0, 0x497390}
+            assert not rows and not any(p in reached for p in leaves)
+        else:
+            assert any(p in reached for p in leaves)
     assert draws and required.issubset(reached)
     if ore:
         # The original coordinate selector can bind another image than the
@@ -546,10 +558,11 @@ def pixel_rows(m):
     return rows
 
 
-def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True):
+def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True,
+              native_cells=None, native_tactical=None, native_dummy=None, native_rectangles=True):
     """Original Tactical loop order; map/visibility and draw calls are sinks."""
     u = m.u
-    tactical = m.alloc(0xE20)
+    tactical = m.alloc(0xE20) if native_tactical is None else native_tactical
     u.mem_write(tactical + 0xB0, dwords(*view_origin))
     u.mem_write(0xB0CE30, dwords(WIDTH, HEIGHT))
     u.mem_write(0xB0CD48, struct.pack('<Q', 0x3FC25E5374344960))
@@ -562,19 +575,32 @@ def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True):
     u.reg_write(UC_X86_REG_EDI, tactical)
     u.reg_write(UC_X86_REG_EBP, 2)
     calls, coords = [], []
+    rectangles, pending = [], {}
+    if native_cells is not None:
+        assert native_dummy is not None and m.read32(native_dummy + 0x44) == 0xFFFFFFFF
+        u.mem_write(0x887324, dwords(tactical))
 
     def observe(_u, address, _size, _data):
         sp = u.reg_read(UC_X86_REG_ESP)
+        if address in pending:
+            piece, output, xy = pending.pop(address)
+            rectangles.append(dict(piece=piece, coords=xy, rect=ints(u,output,4)))
         if address == 0x568300:
             m.ret(1, 4)
         elif address == 0x5657A0:
             coords[:] = struct.unpack('<2h', u.mem_read(m.read32(sp + 4), 4))
-            u.mem_write(CELL + 0x24, struct.pack('<2h', *coords))
-            m.ret(CELL, 4)
+            if native_cells is None:
+                u.mem_write(CELL + 0x24, struct.pack('<2h', *coords))
+                m.ret(CELL, 4)
+            else:
+                m.ret(native_cells.get(tuple(coords),native_dummy),4)
         elif address in (0x47FB90, 0x47FDE0):
             output = m.read32(sp + 4)
-            u.mem_write(output, dwords(0, 0, WIDTH, HEIGHT))
-            m.ret(output, 4)
+            if native_cells is None or not native_rectangles:
+                u.mem_write(output, dwords(0, 0, WIDTH, HEIGHT))
+                m.ret(output, 4)
+            else:
+                pending[m.read32(sp)] = ('body' if address == 0x47FB90 else 'shadow',output,list(coords))
         elif address in (0x47F6A0, 0x47F510):
             calls.append(dict(piece='body' if address == 0x47F6A0 else 'shadow',
                               coords=list(coords), point=ints(u, m.read32(sp + 4), 2)))
@@ -585,8 +611,13 @@ def traversal(m, *, origin=(10, 20), view_origin=(0, 0), require_draws=True):
                 required_addresses=((0x6D7001, 0x6D7031, 0x6D719F) if require_draws
                                     else (0x6D6EDA, 0x6D7031)))
     u.hook_del(hook)
-    return dict(entry='006D6E5B', end='006D71D3', origin=list(origin),
-                max_diagonal=2, cells_per_diagonal=3, calls=calls)
+    result = dict(entry='006D6E5B', end='006D71D3', origin=list(origin),
+                  max_diagonal=2, cells_per_diagonal=3, calls=calls)
+    if native_cells is not None:
+        assert not pending
+        result.update(rectangles=rectangles,view_origin=list(view_origin),
+            boundary='Supplied sparse selected Cell lookup/native-constructed empty Dummy and map visibility admission. Original47FB90/47FDE0/6D2140/rectangle intersection execute; actual admitted body/shadow calls are recorded sinks.')
+    return result
 
 
 def generate():
@@ -877,6 +908,61 @@ def generate_ore():
                 rows=rows, controls=controls, lifecycle=sequence, radar=generate_radar(m, types))
 
 
+def prepare_selected_tiles(m, assets, inputs, selected):
+    """One selected-theater/TMP/lighting owner for Cell raster components."""
+    from tools.spatial_oracle import tmp_clear_render as tile
+    u = m.u
+    initial = selected[0][1]
+    # Same original theater reader and TMP loader, with one sparse registry
+    # entry per actual selected tile. Different wall cells need not share TMP.
+    tiles, mapping = tile.theater_tile_files(m, assets['TEMPERATMD.INI'], initial['tile'], 'tem')
+    tile_ids = list(dict.fromkeys(cell['tile'] for _,cell in selected))
+    mappings = [mapping]
+    for tile_id in tile_ids:
+        if tile_id != initial['tile']:
+            other_tiles, other_mapping = tile.theater_tile_files(m, assets['TEMPERATMD.INI'],tile_id,'tem')
+            assert other_tiles == tiles
+            mappings.append(other_mapping)
+    filenames = tuple(dict.fromkeys(tiles[tile_id] for tile_id in tile_ids))
+    filename = tiles[initial['tile']]
+    extra, extra_sources = physical_assets(tile=True, tmp_names=filenames)
+    m.assets.update(extra)
+    inputs['sources'].extend(row for row in extra_sources if row['name'].lower() in filenames)
+    for entry in (0x7C5F3D,0x7C5FFF): m.invoke(entry,0)
+    m.phase='authored_fence_tmp_load' # Shared physical-file receipt label.
+    heads, file_io = tile.load_tmp_files(m,{name:extra[name.upper()] for name in filenames})
+    registry = m.alloc(len(tiles)*4)
+    for tile_id in tile_ids:u.mem_write(registry+tile_id*4,dwords(heads[tiles[tile_id]]))
+    u.mem_write(0xA8ED2C,dwords(registry));u.mem_write(0xA8ED38,dwords(len(tiles)))
+    for entry in (0x6D1830,0x6D18C0,0x6D1BB0):m.invoke(entry,0)
+    lighting = tile.profile(m,assets['XMP03T4.MAP'])
+    return tiles, mapping, mappings, filenames, filename, heads, file_io, lighting
+
+
+def prepare_lit_cell(m, cell, head, lighting, name):
+    """Original Cell constructor/coordinate, TMP metadata and480350 lighting."""
+    from tools.spatial_oracle import tmp_clear_render as tile
+    from tools.spatial_oracle.bridge_recalc_presentation import SELECTOR_FLAG
+    u = m.u
+    m.invoke(0x47BBF0,CELL)
+    pair=m.alloc(4);u.mem_write(pair,struct.pack('<hh',*cell['cell']))
+    m.invoke(0x485240,CELL,(pair,))
+    u.mem_write(CELL+0x38,dwords(cell['tile']))
+    slope=m.invoke(0x5471B0,head,(cell['subtile'],))&255
+    land=m.invoke(0x544BE0,head,(cell['subtile'],))
+    assert slope==cell['slope']
+    u.mem_write(CELL+0x11A,bytes((cell['subtile'],cell['level'],slope,0)))
+    u.mem_write(CELL+0xEC,dwords(land))
+    u.mem_write(SELECTOR_FLAG,b'\1')
+    # Original Cell lighting/TMP path produces top +10A and common +10C.
+    # The ordinary low-bridge branch consumes common +10C. Discard this
+    # framebuffer before the separate overlay caller component executes.
+    floor=tile.execute(m,dict(name=name+'_lighting',coords=cell['cell'],level=cell['level'],
+        cell_point=[96,120],scene_lighting=lighting),current_cell=CELL,
+        current_cells={tuple(cell['cell']):CELL})
+    return floor
+
+
 def generate_authored_fence(*, cpu_filename='authored_fence.json', wall_name='CAFNCB',
                             selected_states=(), wall_materials=()):
     """Native wall states through the same physical Cell/material/raster owner.
@@ -885,10 +971,8 @@ def generate_authored_fence(*, cpu_filename='authored_fence.json', wall_name='CA
     write new wall states or prescribe colors. Default CAFNCB output is retained.
     """
     import json
-    from tools.spatial_oracle import tmp_clear_render as tile
     from tools.spatial_oracle.shrapnel_repair.map_facts import decode_cells
     from tools.projectile_oracle.bridge_render_inputs_palette import color_scheme_palette
-    from tools.spatial_oracle.bridge_recalc_presentation import SELECTOR_FLAG
     cpu_path = Path(__file__).with_name('anytown_damage').joinpath(cpu_filename)
     cpu = json.loads(cpu_path.read_text())
     assert cpu['native_sha256'] == NATIVE_SHA256
@@ -964,29 +1048,8 @@ def generate_authored_fence(*, cpu_filename='authored_fence.json', wall_name='CA
             and (change['after']['data']&15)!=(change['before']['data']&15))
         selected.append(('changed_endpoint',endpoint))
         selected.append(('removed_source',history['steps'][-1]['source']))
-    # Same original theater reader and TMP loader, with one sparse registry
-    # entry per actual selected tile. Different wall cells need not share TMP.
-    tiles, mapping = tile.theater_tile_files(m, assets['TEMPERATMD.INI'], initial['tile'], 'tem')
-    tile_ids = list(dict.fromkeys(cell['tile'] for _,cell in selected))
-    mappings = [mapping]
-    for tile_id in tile_ids:
-        if tile_id != initial['tile']:
-            other_tiles, other_mapping = tile.theater_tile_files(m, assets['TEMPERATMD.INI'],tile_id,'tem')
-            assert other_tiles == tiles
-            mappings.append(other_mapping)
-    filenames = tuple(dict.fromkeys(tiles[tile_id] for tile_id in tile_ids))
-    filename = tiles[initial['tile']]
-    extra, extra_sources = physical_assets(tile=True, tmp_names=filenames)
-    m.assets.update(extra)
-    inputs['sources'].extend(row for row in extra_sources if row['name'].lower() in filenames)
-    for entry in (0x7C5F3D,0x7C5FFF): m.invoke(entry,0)
-    m.phase='authored_fence_tmp_load' # Shared physical-file receipt label.
-    heads, file_io = tile.load_tmp_files(m,{name:extra[name.upper()] for name in filenames})
-    registry = m.alloc(len(tiles)*4)
-    for tile_id in tile_ids:u.mem_write(registry+tile_id*4,dwords(heads[tiles[tile_id]]))
-    u.mem_write(0xA8ED2C,dwords(registry));u.mem_write(0xA8ED38,dwords(len(tiles)))
-    for entry in (0x6D1830,0x6D18C0,0x6D1BB0):m.invoke(entry,0)
-    lighting = tile.profile(m,assets['XMP03T4.MAP'])
+    tiles, mapping, mappings, filenames, filename, heads, file_io, lighting = prepare_selected_tiles(
+        m,assets,inputs,selected)
     (_unused, _globals), scheme = color_scheme_palette('LightGold',owner=m,physical_assets=assets)
     house=m.alloc(0x16060);u.mem_write(house+0x16054,dwords(scheme['color_index']))
     u.mem_write(0xA83D4C,dwords(house))
@@ -1003,22 +1066,7 @@ def generate_authored_fence(*, cpu_filename='authored_fence.json', wall_name='CA
     rows=[]
     for index,(name, cell) in enumerate(selected):
         if not selected_states:assert cell['tile']==initial['tile'] and cell['subtile']==initial['subtile']
-        head = heads[tiles[cell['tile']]]
-        m.invoke(0x47BBF0,CELL)
-        pair=m.alloc(4);u.mem_write(pair,struct.pack('<hh',*cell['cell']))
-        m.invoke(0x485240,CELL,(pair,))
-        u.mem_write(CELL+0x38,dwords(cell['tile']))
-        slope=m.invoke(0x5471B0,head,(cell['subtile'],))&255
-        land=m.invoke(0x544BE0,head,(cell['subtile'],))
-        assert slope==cell['slope']
-        u.mem_write(CELL+0x11A,bytes((cell['subtile'],cell['level'],slope,0)))
-        u.mem_write(CELL+0xEC,dwords(land))
-        u.mem_write(SELECTOR_FLAG,b'\1')
-        # Original Cell lighting/TMP path produces +10A. Its framebuffer is
-        # discarded before the separate wall caller component executes.
-        floor=tile.execute(m,dict(name=name+'_lighting',coords=cell['cell'],level=cell['level'],
-            cell_point=[96,120],scene_lighting=lighting),current_cell=CELL,
-            current_cells={tuple(cell['cell']):CELL})
+        floor=prepare_lit_cell(m,cell,heads[tiles[cell['tile']]],lighting,name)
         row=execute(m,types,dict(name=name,type=wall_name,coords=cell['cell'],level=cell['level'],
             flags=cell['flags'],state=cell['data'],overlay_id=cell['overlay'],cell_point=[96,120]),wall=True)
         row['native_cell']=cell
@@ -1083,6 +1131,120 @@ def concrete_wall_metadata():
     data['entry_points'].update(cell_shadow='0x0047F510',shadow_rectangle='0x0047FDE0',
         tactical_shadow_call='0x006D719F',plain_shadow_leaf='0x00493830',rle_shadow_leaf='0x00497390')
     return data
+
+
+def generate_low_concrete_bridge():
+    """Retained native mission states through the shared Cell/ISO raster owner."""
+    from tools.spatial_oracle.shrapnel_repair.packet_io import read_result
+    from tools.spatial_oracle.shrapnel_repair.map_facts import decode_cells
+    cpu_path = Path(__file__).with_name('anytown_damage').joinpath('mission.json.gz')
+    cpu_hash = hashlib.sha256(cpu_path.read_bytes()).hexdigest()
+    cpu = read_result(cpu_path)
+    assert cpu['native_sha256'] == NATIVE_SHA256 and cpu['failure'] is None
+    # These paths refer to actual executed native states, not new fixture states.
+    paths = (
+        ('loaded_center', ('frames',0,'target')),
+        ('damaged_center', ('impacts',1,'after')),
+        ('collapsed_center', ('impacts',2,'after')),
+        ('damaged_west_empty', ('resident_trace',56,'before')),
+        ('damaged_east_empty', ('resident_trace',60,'before')),
+    )
+    selected, refs = [], []
+    for name,path in paths:
+        state = cpu
+        for key in path:state=state[key]
+        selected.append((name,dict(cell=state['coord'],data=state['state'],
+            **{key:state[key] for key in ('overlay','tile','subtile','level','slope','flags')})))
+        refs.append(dict(file='anytown_damage/mission.json.gz',path=list(path)))
+    assert [(c['overlay'],c['data']) for _,c in selected] == [(216,1),(220,1),(232,1),(220,0),(220,2)]
+    names=('LOBRDB12','LOBRDB16','LOBRDB28')
+    materials=tuple(name+'.TEM' for name in names)
+    # Reuse the existing selected-theater resource bundle. These actual types
+    # are NOT Wall types: original readers below establish their own flags.
+    m,types,inputs=prepare(wall=True,wall_types=names,wall_materials=materials)
+    u=m.u
+    assets,_=physical_assets(wall=True,wall_materials=materials)
+    _,physical=decode_cells(assets['XMP03T4.MAP'])
+    source=next(row for row in inputs['sources'] if row['name']=='XMP03T4.MAP')
+    assert source['sha256']==cpu['world']['physical_map_sha256']
+    inputs['overlay_images']=inputs.pop('wall_images')
+    inputs['effective_types']=[]
+    for name in names:
+        typ=types[name]; image=m.read32(typ+0xA4);raw=assets[name+'.TEM']
+        assert image and image==m.asset_ptr[name+'.TEM']
+        assert bytes(u.mem_read(image,len(raw)))==raw
+        flags={key:u.mem_read(typ+offset,1)[0] for key,offset in (
+            ('wall',0x2A8),('tiberium',0x2A9),('crate',0x2AA),('draw_flat',0x2B3),
+            ('is_rubble',0x2B4),('is_a_rock',0x2B5))}
+        assert flags==dict(wall=0,tiberium=0,crate=0,draw_flat=1,is_rubble=0,is_a_rock=0)
+        assert u.mem_read(typ+0x22C,1)[0]==1
+        inputs['effective_types'].append(dict(name=name,index=m.read32(typ+0x294),
+            image=m.string(typ+0x1F8),flags=flags,raw_frames=struct.unpack_from('<H',raw,6)[0],
+            image_payload_sha256=hashlib.sha256(bytes(u.mem_read(image,len(raw)))).hexdigest()))
+    for _,cell in selected:
+        authored=physical[tuple(cell['cell'])]
+        assert (authored['tile'],authored['subtile'],authored['level'])==(cell['tile'],cell['subtile'],cell['level'])
+        assert cell['flags']==2 and cell['level']==4 and cell['slope']==0
+    tiles,mapping,mappings,filenames,filename,heads,file_io,lighting=prepare_selected_tiles(m,assets,inputs,selected)
+    inputs.update(lighting=lighting,tmp=dict(names=list(filenames),mappings=mappings,file_io=file_io,
+        boundary='Shared original theater reader/TMP loader and supplied sparse selected primary registry. Original480350 supplies Cell lighting before each separate overlay raster.'))
+    dummy=m.alloc(0x148);m.invoke(0x47BBF0,dummy)
+    assert m.read32(dummy+0x44)==0xFFFFFFFF
+    tactical=m.alloc(0xE20)
+    rows=[]
+    for (name,cell),ref in zip(selected,refs):
+        floor=prepare_lit_cell(m,cell,heads[tiles[cell['tile']]],lighting,name)
+        typ=next(name for name,pointer in types.items() if m.read32(pointer+0x294)==cell['overlay'])
+        case=dict(name=name,type=typ,coords=cell['cell'],level=cell['level'],
+            flags=cell['flags'],state=cell['data'],overlay_id=cell['overlay'],cell_point=[96,120])
+        row=execute(m,types,case,wall=True,allow_empty_frame=True)
+        row['native_cell']=cell;row['native_cpu_source']=ref
+        row['lighting_output']={key:floor['output'][key] for key in
+            ('top_scalar','bottom_scalar','common_scalar','cell_normalized_rgb','convert_rgb_key')}
+        row['shadow']=execute(m,types,case|dict(name=name+'_shadow'),wall=True,shadow=True,allow_empty_frame=True)
+        repeated=execute(m,types,case,wall=True,allow_empty_frame=True)
+        assert repeated['output']==row['output'] and repeated['draws']==row['draws']
+        row['body_then_shadow']=execute(m,types,case|dict(name=name+'_body_then_shadow'),
+            wall=True,shadow=True,reset_surface=False,allow_empty_frame=True)
+        assert row['shadow']['native_rect'][2:]==[0,0] and not row['shadow']['output']['runs']
+        assert row['body_then_shadow']['output']==row['output']
+        # Obtain the selected point from the original Tactical suffix, using
+        # its existing explicit full-rectangle transport only for this point
+        # observation. Then execute the suffix AGAIN with actual Cell bounds.
+        cells={tuple(cell['cell']):CELL}
+        projection=traversal(m,origin=tuple(cell['cell']),require_draws=False,
+            native_cells=cells,native_dummy=dummy,native_tactical=tactical,native_rectangles=False)
+        point=next(call['point'] for call in projection['calls'] if call['piece']=='body')
+        view=tuple(point[i]-case['cell_point'][i] for i in range(2))
+        row['native_traversal']=traversal(m,origin=tuple(cell['cell']),view_origin=view,require_draws=False,
+            native_cells=cells,native_dummy=dummy,native_tactical=tactical)
+        row['native_traversal']['projection_point_at_zero_view']=point
+        body_calls=[call for call in row['native_traversal']['calls'] if call['piece']=='body']
+        assert bool(body_calls)==bool(row['output']['runs'])
+        assert not any(call['piece']=='shadow' for call in row['native_traversal']['calls'])
+        rows.append(row)
+    assert [bool(row['output']['runs']) for row in rows]==[True,True,False,False,False]
+    assert hashlib.sha256(cpu_path.read_bytes()).hexdigest()==cpu_hash,'native CPU gzip changed during raster execution'
+    inputs['native_cpu_source']=dict(file='anytown_damage/mission.json.gz',sha256=cpu_hash,selections=refs,
+        boundary='Executed isolated native mission states. World rawflags0 versus native flags2 is draw-equivalent only in the selected47F6A0/47F510/480110/47FB90/47FDE0 bodies: only bit80 is read there. No whole map loader, flag producer or native/full-match epoch equivalence is claimed.')
+    values=set(struct.unpack('<'+'H'*COUNT,u.mem_read(A,COUNT*2)))
+    assert values=={127}
+    return dict(native_sha256=NATIVE_SHA256,inputs=inputs,
+        surface=dict(width=WIDTH,height=HEIGHT,baseline=32768,bytes_per_pixel=2,a_uniform=True,a_value=values.pop()),rows=rows)
+
+
+def low_concrete_bridge_metadata():
+    return provenance(scope='Five TEMPERATE ordinary low-concrete bridge native raster components:216/220/232 center data1 and220 flank data0/2. Actual positive/empty image, Cell body/shadow, same-surface composition, selected TMP lighting and original Tactical bounds. No whole frame/map/gameplay equivalence.',
+        assumptions=[
+            'Existing mission.json.gz original executed states and physical XMP03T4 tile/level tuples supply inputs. Native flags2 are retained; production flags0 relation is a static bit80-only read proof in the selected drawing bodies, excluding unrelated upstream flags/visibility.',
+            'Shared full Overlay registry/reader, ART Image/Theater reads, original5FE620 and5FEDE0 bind physical LOBRDB12/16/28.TEM. Actual image payload bytes, default flags and six-frame domain are asserted. ISO default LightConvert and selected TMP loader/480350 Cell scalar execute; no current-House remap or Rust-provided material input is used.',
+            'Each row directly executes original47F6A0 and47F510, repeats body to check equality, then executes shadow on the same PIXELS/Z/A without reset. Original69E7E0 zero crop legitimizes missing leaf work; bound image and actual Shape entry remain required. Two bodies draw, three bodies and all shadows have actual empty crops. No synthetic empty JSON or invalid minus-one direct caller is used.',
+            'Original Tactical6D6E5B..6D71D3 suffix uses supplied sparse selected Cell lookup, native-constructed empty Dummy and true map visibility. A declared full-rectangle point observation obtains native projection before the final pass; final47FB90/47FDE0/6D2140/69E7E0 and intersections execute. Draw calls in that final suffix are recorded sinks, not a whole Tactical execution. Raster components execute the real draw bodies separately.',
+            'Supplied192x160 surface, cell point96,120, white background, oldZ65535 and neutral A127 bound the component. Native color/Z runs are observed, not computed. Normal production visitor/GPU tests separately test live identity/data, actual A and presentation determinism.',
+        ],substitutions=['Shared PaletteReader successful allocator/TLS/physical resource transports and selected Cell/TMP surface priors. Tactical map/visibility lookup and draw sinks are explicit; the final bounds, projection, clipping, palette, rowwalker and raster leaves are original.'],
+        entry_points=dict(cell_body=0x47F6A0,cell_shadow=0x47F510,body_bounds=0x47FB90,
+            shadow_bounds=0x47FDE0,shape_bounds=0x69E7E0,projection=0x6D2140,
+            cell_tile=0x480350,type_ctor=0x5FE250,type_read=0x5FE770,theater=0x5FE620,get_image=0x5FEDE0))
 
 
 def generate_ore_natural():
@@ -1201,12 +1363,13 @@ if __name__ == '__main__':
     modes.add_argument('--ore-natural', action='store_true')
     modes.add_argument('--authored-fence', action='store_true')
     modes.add_argument('--concrete-wall', action='store_true')
+    modes.add_argument('--low-concrete-bridge', action='store_true')
     modes.add_argument('--tile', action='store_true')
     modes.add_argument('--placement', action='store_true')
     modes.add_argument('--smudge', action='store_true')
     modes.add_argument('--cliff', action='store_true')
     selected, remaining = parser.parse_known_args()
-    if selected.authored_fence or selected.concrete_wall:
+    if selected.authored_fence or selected.concrete_wall or selected.low_concrete_bridge:
         from functools import partial
         generator, metadata_selected, output = generate_authored_fence, authored_fence_metadata, 'wall_render.json'
         if selected.concrete_wall:
@@ -1220,6 +1383,8 @@ if __name__ == '__main__':
                     ('removed_source',0,('steps',5,'source')),
                 ))
             metadata_selected, output = concrete_wall_metadata, 'concrete_wall_render.json'
+        if selected.low_concrete_bridge:
+            generator, metadata_selected, output = generate_low_concrete_bridge, low_concrete_bridge_metadata, 'low_concrete_bridge_render.json'
         source_names = (
                            'native_oracle.py','oracle_sources.py',
                            'spatial_oracle/bridge_shadow_render.py','spatial_oracle/bridge_constructor.py',
@@ -1248,6 +1413,24 @@ if __name__ == '__main__':
                 'spatial_oracle/map_queries.py','spatial_oracle/terrain_recalc.py',
                 'spatial_oracle/bridge_damage_admission.py','native_slope.py',
                 'bridge_click_oracle.py','rmg_oracle/gen_rng_vectors.py','palette_oracle/check.py',
+            )
+        if selected.low_concrete_bridge:
+            # UTF-8 source guards only: read_result's gzip input is guarded
+            # as binary before/after generate_low_concrete_bridge, not decoded
+            # by finish_vectors/source_paths.
+            source_names += (
+                'spatial_oracle/anytown_damage/mission.py',
+                'spatial_oracle/anytown_damage/mission_publication.py',
+                'spatial_oracle/anytown_damage/mission.meta.json',
+                'spatial_oracle/anytown_damage/mission_promotion.json',
+                'spatial_oracle/shrapnel_repair/packet_io.py',
+                'spatial_oracle/shrapnel_repair/promotion.json',
+                'rules_oracle/theater_general_reader.py','native_slope.py',
+                'rules_oracle/bridge_anim_lists.py','rules_oracle/bridge_landing_inputs.py',
+                'projectile_oracle/flat_art.py','projectile_oracle/bridge_render.py',
+                'spatial_oracle/bridge_damage_admission.py','bridge_click_oracle.py',
+                'rmg_oracle/gen_rng_vectors.py','palette_oracle/check.py',
+                'spatial_oracle/map_queries.py','spatial_oracle/terrain_recalc.py',
             )
         finish_vectors(generator,Path(__file__).with_name(output),
                        provenance=metadata_selected,argv=remaining,

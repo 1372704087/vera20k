@@ -2586,3 +2586,20 @@ The previous bounded actor/GPU comparisons and native-parity limits remain.
 ### Occupied crate slots
 
 Set `observe_crates: true` to read the existing MapClass crate-slot authority at each committed boundary. Each frame adds `crates` in ascending slot order, containing only occupied slots: `slot`, signed packed `cell`, raw timer `start_frame`/`aux`/`duration`, and current real-grid `overlay` (`id`, `data`, or null for a missing grid). Empty coordinates disappear; accepted ghosts remain visible to the observation even without an overlay. This projection never performs a gameplay map lookup or stamps the shared Dummy, places crates, or changes timers. It supports locating a naturally generated startup crate and observing ordinary movement pickup, replacement and cleanup. Each occupied slot counts toward the existing sample budget. Omit the flag or set it false to preserve existing frame fields.
+
+
+### Starting tank and ordinary low concrete bridge
+
+[map_observation.low-concrete-bridge.example.json](map_observation.low-concrete-bridge.example.json)
+uses the stock Battle opening on XMP03T4 with the local player at start1. Its
+starting MTNK1374 moves from (88,35) to the bank (87,50), then receives an ordinary
+ForceAttackCell order for (87,54). No unit is spawned or relocated by the observer.
+The camera covers the bridge and its three width cells at x86..88/y54.
+
+The bridge's live identity changes from LOBRDB12 through LOBRDB16 to LOBRDB28.
+Width data0/1/2 remains distinct. LOBRDB28 is a retained overlay with empty art,
+not an erased cell. Bridge mutation mirrors live Terrain and OverlayGrid
+synchronously; the retained render-index entries remain anchors, and their live
+identity resolves at draw time. Generic placement upserts are not required for
+every bridge transition. The profile records ordinary gameplay and rendering;
+its shot count and timing are not native mission/RNG goldens.

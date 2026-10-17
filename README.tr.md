@@ -77,9 +77,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-`ra2_dir` yolunu ters eğik çizgi yerine eğik çizgiyle yazın, örneğin `C:/Games/RA2`. Oynamak için
-`--release` kullanın; debug derlemeleri çok yavaş. Günlük dosyası `logs/ra2.log` konumundadır.
-
 ## Nasıl çalışıyoruz
 
 Kodun büyük bölümünü yapay zekâ kodlama ajanları yazıyor. Ajanlar özgün motoru Ghidra ile

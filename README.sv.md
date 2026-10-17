@@ -38,6 +38,26 @@ Flerspelarläge, kampanjer och originalets AI saknas fortfarande. Flygplan, sinn
 broar och flera vapen och effekter behöver mer arbete. Vi har ännu inte demonstrerat slag
 med 30 spelare och 20 000 enheter.
 
+## Arkitektur
+
+Motorn har tre huvuddelar:
+
+- **Simulering:** Ansvarar för speltillstånd och spellogik.
+- **Rendering:** En helt ny GPU-renderingspipeline som använder originalets spelresurser,
+  byggd för att bevara originalets utseende.
+- **Applikation:** Hanterar inmatning, menyer, ljud och plattformsintegration och kopplar ihop systemen.
+
+Denna uppdelning stöder deterministiskt spel.
+
+Pilarna visar dataflödet:
+
+```mermaid
+flowchart LR
+    App[Applikation] -->|Kommandon| Sim[Simulering]
+    Sim -->|Världstillstånd| App
+    App -->|Renderingsdata| Render[Rendering]
+```
+
 ## Bygg och kör
 
 Du behöver:

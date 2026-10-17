@@ -39,6 +39,26 @@ Mehrspielermodus, Kampagnen und die ursprüngliche KI fehlen noch. Flugzeuge,
 Gedankenkontrolle, Brücken und mehrere Waffen und Effekte brauchen noch Arbeit.
 Schlachten mit 30 Spielern und 20.000 Einheiten haben wir bisher nicht demonstriert.
 
+## Architektur
+
+Die Engine besteht aus drei Hauptteilen:
+
+- **Simulation:** Verwaltet Spielzustand und Spiellogik.
+- **Rendering:** Eine völlig neue GPU-Rendering-Pipeline mit den ursprünglichen Spieldaten,
+  gebaut, um das ursprüngliche Erscheinungsbild zu bewahren.
+- **Anwendung:** Übernimmt Eingaben, Menüs, Audio und Plattformintegration und verbindet die Systeme.
+
+Diese Trennung unterstützt einen deterministischen Spielablauf.
+
+Die Pfeile zeigen den Datenfluss:
+
+```mermaid
+flowchart LR
+    App[Anwendung] -->|Befehle| Sim[Simulation]
+    Sim -->|Weltzustand| App
+    App -->|Zeichendaten| Render[Rendering]
+```
+
 ## Kompilieren und starten
 
 Du brauchst:

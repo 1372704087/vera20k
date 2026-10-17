@@ -38,6 +38,26 @@ Multiplayer, campaigns and the original AI are still missing. Aircraft, mind con
 and several weapons and effects need more work. We haven't demonstrated 30-player,
 20,000-unit battles yet.
 
+## Architecture
+
+The engine has three main parts:
+
+- **Simulation:** Owns gameplay state and logic.
+- **Rendering:** An absolutely new GPU rendering pipeline using the original game assets, built
+  to preserve the original look.
+- **Application:** Handles input, menus, audio, and platform integration, connecting the systems.
+
+This separation supports deterministic gameplay.
+
+Arrows show data flow:
+
+```mermaid
+flowchart LR
+    App[Application] -->|Commands| Sim[Simulation]
+    Sim -->|World state| App
+    App -->|Draw data| Render[Rendering]
+```
+
 ## Build and run
 
 You need:

@@ -38,6 +38,26 @@ oynanabiliyor. Orijinal ve rastgele oluşturulan haritalar, menüler, üs kurma,
 ve çeşitli silahlar ile efektler üzerinde daha fazla çalışmamız gerekiyor. Henüz 30 oyunculu,
 20.000 birimli savaşlar göstermedik.
 
+## Mimari
+
+Motorun üç ana bölümü vardır:
+
+- **Simülasyon:** Oyun durumunu ve mantığını yönetir.
+- **Görüntüleme:** Orijinal oyun kaynaklarını kullanan, orijinal görünümü korumak için
+  oluşturulmuş tamamen yeni bir GPU görüntüleme hattı.
+- **Uygulama:** Girdi, menüler, ses ve platform entegrasyonunu yönetir, sistemleri birbirine bağlar.
+
+Bu ayrım deterministik oynanışı destekler.
+
+Oklar veri akışını gösterir:
+
+```mermaid
+flowchart LR
+    App[Uygulama] -->|Komutlar| Sim[Simülasyon]
+    Sim -->|Dünya durumu| App
+    App -->|Çizim verileri| Render[Görüntüleme]
+```
+
 ## Derleme ve çalıştırma
 
 Gerekenler:

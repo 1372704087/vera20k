@@ -2,6 +2,7 @@
 //! Other status families retain their existing owners and open parity bounds.
 use super::draw_plan_lowering::{ObjectExtrasRun, ObjectLayerPass};
 use crate::app::presentation::sidebar_render::begin_main_load_pass;
+use crate::app::presentation::ui_overlays::StatusTextRun;
 use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
 use crate::render::selection_overlay::SelectionOverlay;
 use crate::render::tactical_draw_plan::RenderZPolicy;
@@ -266,20 +267,80 @@ fn draw_status_group<'a>(
     };
     //70A6FD..70A987: black fill, packed House outline, GAME.FNT glyph;
     //Surface7BB050/7BADC0/434120 bypass A/Z.
+    draw_status_text_material(
+        pass,
+        batch,
+        overlay.white_texture(),
+        font,
+        buffer,
+        group_rectangles.clone(),
+        group_text.clone(),
+    );
+}
+
+/// Building43E7B0/70AA60's one ordered text pass at Tactical6D957A. The
+/// frame producer retains BuildingClass::Array order; each backing/outline
+/// and glyph is submitted before the following Building's label.
+pub(super) fn draw_building_status_text(
+    encoder: &mut wgpu::CommandEncoder,
+    color: &wgpu::TextureView,
+    depth: &wgpu::TextureView,
+    terrain: &mut TerrainDrawRenderer,
+    clip: [u32; 4],
+    batch: &BatchRenderer,
+    overlay: Option<&SelectionOverlay>,
+    buffer: Option<&wgpu::Buffer>,
+    font: Option<&BatchTexture>,
+    runs: &[StatusTextRun],
+) {
+    let (Some(overlay), Some(buffer)) = (overlay, buffer) else {
+        return;
+    };
+    if runs.is_empty() {
+        return;
+    }
+    let mut pass = begin_main_load_pass(encoder, color, depth);
+    pass.set_scissor_rect(clip[0], clip[1], clip[2], clip[3]);
+    for run in runs {
+        draw_status_text_material(
+            &mut pass,
+            batch,
+            overlay.white_texture(),
+            font,
+            buffer,
+            run.rectangles.clone(),
+            run.text.clone(),
+        );
+    }
+    drop(pass);
+    terrain.note_external_passes(encoder, 1);
+}
+
+/// Surface7BB050/7BADC0/434120: opaque black backing, packed House-color
+/// outline, then GAME.FNT. Both native text callers bypass A and Z.
+fn draw_status_text_material<'a>(
+    pass: &mut wgpu::RenderPass<'a>,
+    batch: &'a BatchRenderer,
+    white: &'a BatchTexture,
+    font: Option<&'a BatchTexture>,
+    buffer: &'a wgpu::Buffer,
+    rectangles: std::ops::Range<u32>,
+    text: std::ops::Range<u32>,
+) {
     batch.draw_with_buffer_passthrough_range(
         pass,
-        overlay.white_texture(),
+        white,
         buffer,
-        group_rectangles.start,
-        group_rectangles.end - group_rectangles.start,
+        rectangles.start,
+        rectangles.end - rectangles.start,
     );
     if let Some(font) = font {
         batch.draw_with_buffer_passthrough_range(
             pass,
             font,
             buffer,
-            group_text.start,
-            group_text.end - group_text.start,
+            text.start,
+            text.end - text.start,
         );
     }
 }

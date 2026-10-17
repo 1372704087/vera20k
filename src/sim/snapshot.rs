@@ -1071,7 +1071,9 @@ use crate::sim::world::Simulation;
 // 382 -> 383: Factory+71 persists automatic-recovery eligibility separately
 // from +70 suspension. System holds must survive load and retain their owner.
 // 383 -> 385: Drive retains its native +64 straight/crush track flag.
-const SNAPSHOT_VERSION: u32 = 385;
+// 385 -> 386: retained Building primary flags are sets per owner/category.
+// Manual448160 preserves limbo peers and queued events can toggle them later.
+const SNAPSHOT_VERSION: u32 = 386;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2559,8 +2561,8 @@ fn restore_object_references(
     }
 
     // The primary-factory links (the native primary byte, written by
-    // Building448070 and the player's cycle order) name objects by id.
-    // Restore prunes ids the validated object graph no longer holds.
+    // Building448070/448160) name objects by id. Restore retains limbo
+    // flags and prunes ids the validated object graph no longer holds.
     sim.production.retain_primary_factory_links(&entity_ids);
 
     Ok(())
@@ -4604,7 +4606,9 @@ mod tests {
         // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
         // 381 -> 382: retained Secret Lab rules, membership and reward.
         // 382 -> 383: private Factory+71 automatic-recovery eligibility.
-        assert_eq!(super::SNAPSHOT_VERSION, 385);
+        // 383 -> 385: Drive straight/crush track flag.
+        // 385 -> 386: retained primary flags include matching limbo peers.
+        assert_eq!(super::SNAPSHOT_VERSION, 386);
     }
 
     #[test]

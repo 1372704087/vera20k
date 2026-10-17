@@ -25,19 +25,40 @@ das Projekt entwickelt.
 
 1. Spielmechanik, Grafik und Atmosphäre des ursprünglichen Red Alert 2: Yuri's Revenge bewahren.
 2. Größere Schlachten ermöglichen: bis zu **30 Spieler** und **20.000 Einheiten** auf 500×500-Karten.
-3. Bekannte RTS-Funktionen integrieren, alte wie neue, und einige, die es noch nie gab.
+3. Bekannte RTS-Funktionen integrieren und einige, die es noch nie gab.
 4. Integrierter Mehrspieler-Client
 
 ## Aktueller Stand
 
-**Mitten in der Entwicklung.** Lokale Gefechte gegen eine einfache KI sind unter Windows
-spielbar. Originalkarten und zufällig generierte Karten, Menüs, Basisbau, Rohstoffernte,
-Kämpfe sowie Speichern und Laden sind vorhanden, aber es gibt noch viel zu verbessern
-und fertigzustellen.
+**In aktiver Entwicklung.**
 
-Mehrspielermodus, Kampagnen und die ursprüngliche KI fehlen noch. Flugzeuge,
-Gedankenkontrolle, Brücken und mehrere Waffen und Effekte brauchen noch Arbeit.
-Schlachten mit 30 Spielern und 20.000 Einheiten haben wir bisher nicht demonstriert.
+- **Gefechte:** Unter Windows, Linux und macOS spielbar, mit Originalkarten und zufällig
+  generierten Karten, Basisbau, Rohstoffernte, Kämpfen sowie Speichern und Laden.
+- **Kampagnen:** Missionen lassen sich starten; die Unterstützung bleibt unvollständig.
+- **KI:** Teile der ursprünglichen KI übernehmen den Basisbau und skriptgesteuerte Angriffe.
+- **Laufende Arbeiten:** Spielverhalten, Grafik und Leistung.
+- **Mehrspielermodus:** Netzwerkspiel ist noch nicht verfügbar.
+- **Größenordnung:** Schlachten mit 30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
+
+## Architektur
+
+Die Engine besteht aus drei Hauptteilen:
+
+- **Simulation:** Verwaltet Spielzustand und Spiellogik.
+- **Rendering:** Eine völlig neue GPU-Rendering-Pipeline mit den ursprünglichen Spieldaten,
+  gebaut, um das ursprüngliche Erscheinungsbild zu bewahren.
+- **Anwendung:** Übernimmt Eingaben, Menüs, Audio und Plattformintegration und verbindet die Systeme.
+
+Diese Trennung unterstützt einen deterministischen Spielablauf.
+
+Die Pfeile zeigen den Datenfluss:
+
+```mermaid
+flowchart LR
+    App[Anwendung] -->|Befehle| Sim[Simulation]
+    Sim -->|Weltzustand| App
+    App -->|Zeichendaten| Render[Rendering]
+```
 
 ## Kompilieren und starten
 
@@ -70,6 +91,11 @@ Der Großteil des Codes wird von KI-Programmieragenten geschrieben. Sie untersuc
 ursprüngliche Engine mit Ghidra, übertragen dann ihr Verhalten nach Rust und prüfen es mit
 [Vergleichswerkzeugen](tools/native_oracle.md) und Spieltests. Die Agenten folgen
 [AGENTS.md](AGENTS.md).
+
+## Anpassung
+
+Optionale Funktionen (z. B. aus Ares) sollen sich über INI-Dateien konfigurieren und,
+wo sinnvoll, im Client ein- und ausschalten lassen.
 
 ## Mitmachen
 

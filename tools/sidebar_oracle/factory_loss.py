@@ -18,7 +18,7 @@ from unicorn.x86_const import (
     UC_X86_REG_EBP, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_EDI, UC_X86_REG_EIP,
 )
 
-from tools.native_oracle import finish_vectors, provenance, run_checked
+from tools.native_oracle import NativeCallTrace, RET_MAGIC, finish_vectors, provenance, run_checked
 from tools.rules_oracle.bridge_child_sound import sections
 from tools.sidebar_oracle import cameo_order as c
 from tools.spatial_oracle import building_construction as bc
@@ -1622,9 +1622,513 @@ def metadata():
     return record
 
 
+def naval_output_type_state(m, name):
+    """Observe selected native fields; never decide exit or animation admission."""
+    u, read, p = m.u, m.read32, m.types[name]
+    signed = lambda off: struct.unpack('<i', u.mem_read(p + off, 4))[0]
+    result = dict(name=name, pointer=p, native_name=m.string(p + 0x24),
+                  strength=signed(0xA0), cost=signed(0x610),
+                  naval=u.mem_read(p + 0xCCE, 1)[0],
+                  deploy_time_f64_hex=bytes(u.mem_read(p + 0x3C8, 8)).hex())
+    if name == 'GAYARD':
+        result.update(factory=signed(0xEB8), foundation=signed(0xEF0),
+            weapons_factory=u.mem_read(p + 0x16BD, 1)[0],
+            refinery=u.mem_read(p + 0x16BB, 1)[0],
+            weeder=u.mem_read(p + 0x16BC, 1)[0],
+            production_anim=m.string(p + 0x116C),
+            production_anim_damaged=m.string(p + 0x117C),
+            idle_anim=m.string(p + 0x1414), idle_anim_damaged=m.string(p + 0x1424),
+            idle_control=list(struct.unpack('<3i', u.mem_read(p + 0xF10, 12))))
+    return result
+
+
+def naval_output_inputs(root):
+    """Add stock GAYARD to the existing stock Ship/Anim input-reader owner."""
+    from tools.spatial_oracle import building_death_anims as death
+    from tools.spatial_oracle.anytown_damage import next_family_native as identity
+
+    # Existing grapple_inputs owns DEST/ASW, Ship GUID, splash and wake readers.
+    # Its SQD and inherited Engineer/MTNK inputs are unused preparation, not a
+    # second parser, scheduler or executable image assembled for this profile.
+    m = death.grapple_inputs(root)
+    m.reserve_arena(0x800000)
+    u = m.u
+    m.phase = 'setup_naval_output_inputs'
+    art = sections((root / 'ARTMD.INI').read_bytes())
+    anim_names = tuple(name for name in art if name.startswith('GAYARD_'))
+    art_names = set(m.death_art_input_sections) | set(anim_names) | {
+        'GAYARD', 'SQD', 'DEST', 'ASW', 'SQDG', 'WAKE1',
+        'H2O_EXP1', 'H2O_EXP2', 'H2O_EXP3'}
+    selected_art = {name: values for name, values in art.items() if name in art_names}
+    # Reader already loaded physical cache members. RawFile transport admits
+    # only those exact members; unexpected filename prerequisites fail closed.
+    m.platform_audio.configure_transport(prepared_files=dict(m.assets))
+    m.make_ini(selected_art)
+    art_cache = bytes(u.mem_read(c.INI, 0x40))
+    typ = m.alloc(0x2000)
+    m.invoke(0x45DD90, typ, (m.cstring('GAYARD'),))
+    m.types['GAYARD'] = typ
+    defaults = naval_output_type_state(m, 'GAYARD')
+    # Preserve selected physical registration order; original lookup/constructors
+    # own type identities. This is a sparse catalog, not full Rules::Process.
+    listed = sections((root / 'RULESMD.INI').read_bytes())['Animations'].values()
+    ordered_anims = list(dict.fromkeys(name for name in listed if name in anim_names))
+    ordered_anims.extend(name for name in anim_names if name not in ordered_anims)
+    for name in ordered_anims:
+        m.invoke(0x428B80, m.cstring(name))
+    layers = []
+    for filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'):
+        path = root / filename
+        if not path.exists():
+            assert filename == 'LANGRULE.INI'
+            layers.append(dict(file=filename, absent=True))
+            continue
+        raw = path.read_bytes()
+        physical = sections(raw)
+        m.make_ini({name: values for name, values in physical.items()
+                    if name in ('GAYARD', 'General', 'AudioVisual')})
+        ini = m.alloc(0x40)
+        u.mem_write(ini, bytes(u.mem_read(c.INI, 0x40)))
+        u.mem_write(c.INI, art_cache)
+        admitted = m.invoke(0x45FE50, typ, (ini,)) & 255
+        layers.append(dict(file=filename, sha256=hashlib.sha256(raw).hexdigest(),
+            physical_section=physical.get('GAYARD', {}), admitted_al=admitted,
+            retained=naval_output_type_state(m, 'GAYARD')))
+    u.mem_write(c.INI, art_cache)
+    anims = []
+    for name in ordered_anims:
+        p = m.invoke(0x428B80, m.cstring(name))
+        mark = len(m.asset_loaded)
+        result = m.invoke(0x427D00, p, (c.INI,))
+        anims.append(dict(pointer=p, **m.result(name, p, result),
+                          physical_art=selected_art[name],
+                          asset_loads=m.asset_loaded[mark:]))
+    # The optional parameter reuses this joined INI reader for TileSet ReadInt.
+    # The existing TheaterReader still owns General/project in its separate
+    # prerequisite VM; no second runtime or new theater parser is introduced.
+    previous = identity.ri.ASSETS
+    identity.ri.ASSETS = root
+    try:
+        theater = identity.theater(tile_reader=m)
+    finally:
+        identity.ri.ASSETS = previous
+        u.mem_write(c.INI, art_cache)
+    assert m.string(typ + 0x116C) and m.string(typ + 0x1414)
+    assert u.mem_read(typ + 0xCCE, 1)[0] == 1
+    assert u.mem_read(typ + 0x16BD, 1)[0] == 1
+    assert u.mem_read(m.types['DEST'] + 0xCCE, 1)[0] == 1
+    m.naval_output_theater = theater
+    water = theater['globals'][0xAA0738]
+    theater_receipt = {key:theater[key] for key in ('sha256', 'general', 'globals', 'count')}
+    theater_receipt.update(tiles={i:theater['tiles'][i] for i in (0, water)},
+        sets=[row for row in theater['sets'] if row['base'] in (0, water)])
+    m.naval_output_receipts = dict(constructor_default=defaults, layers=layers,
+        inherited_ship_layers=m.grapple_layers,
+        selected_types=[naval_output_type_state(m, name) for name in ('GAYARD', 'DEST')],
+        physical_art={name: selected_art[name] for name in ('GAYARD', 'DEST', 'ASW')},
+        animations=anims, theater=theater_receipt,
+        mission_control={name:bytes(u.mem_read(0xA8E3A8 + mission * 32, 32)).hex()
+                         for name, mission in (('Guard', 5), ('Unload', 16))})
+    return m
+
+
+def naval_output_history(inputs, root, case):
+    """Original naval ExitObject followed by the existing live Logic tick owner."""
+    from types import SimpleNamespace
+    from tools.spatial_oracle import building_death_anims as death
+    from tools.spatial_oracle import engineer_repair_admission as er
+    from tools.spatial_oracle.anim_bouncer_launch import constructor_state
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.spatial_oracle.anytown_damage.navigation_inputs import bind_primary_tiles
+    from tools.spatial_oracle.anytown_damage.unit_unlimbo import initialize_unit_geometry
+    from tools.spatial_oracle.refinery_dock import cell, place_building
+    from tools.spatial_oracle.unit_source_scatter import SCENARIO
+    from tools.rules_oracle.bridge_anim_inputs import Reader
+
+    f = death.joined_fixture(inputs, 374, seed=case['seed'], building_ai=True,
+                             unit_startup=True)
+    u, read = f.u, f.read32
+    view = SimpleNamespace(u=u, alloc=f.allocate, read32=read,
+        invoke=lambda address, obj=0, args=(): bc.invoke(u, address, obj, *args))
+    view.cstring = lambda name: Reader.cstring(view, name)
+    rngs = dict(main=0x886B88, scenario=SCENARIO + 0x218, mapgen=0xABE890)
+    # One declared seed boundary after inherited, unrelated fixture admission.
+    # From here selected constructors/placement/Logic/expiry share the streams.
+    for pointer in rngs.values():
+        bc.invoke(u, 0x65C6D0, pointer, case['seed'])
+    rng_initial = f.rng()
+    draw_start, advance_start = len(f.draws), len(f.advances)
+    allocation_start, event_start = len(f.allocations), len(f.events)
+    u.mem_write(bc.FRAME, c.dwords(0))
+    u.mem_write(0xA8B218, bytes(inputs.u.mem_read(0xA8B218, 24)))
+    for entry in (0x69EBF0, 0x4E6BE0, 0x629190, 0x6B6C10):
+        bc.invoke(u, entry, 0)
+    for house in f.owner_houses:
+        for offset in (0x553C, 0x558C):
+            bc.invoke(u, 0x49F9B0, house + offset)
+        bc.invoke(u, 0x748FD0, house + 0x328)
+    geometry = initialize_unit_geometry(SimpleNamespace(m=view, u=u,
+        resident=SimpleNamespace(rngs=rngs)))
+    theater = inputs.naval_output_theater
+    u.mem_write(0xA8ED28, c.dwords(0x7EB6D4, 0x44000000, theater['count'],
+                                  1, theater['count'], 10))
+    water = theater['globals'][0xAA0738]
+    tiles = bind_primary_tiles(view, theater, (0, water), preserve_abstract_registry=True)
+    # Keep the selected membership receipts, rather than duplicate the shared
+    # binder's complete unrelated theater catalog in every control.
+    tiles['archive_inputs']['members'] = [row for row in tiles['archive_inputs']['members']
+                                          if row['tile'] in (0, water)]
+    for address, value in theater['globals'].items():
+        u.mem_write(address, c.dwords(value))
+    water_cells = [(x, y) for y in range(13, 28) for x in range(14, 28)]
+    # Only physical primary tile/subtile is supplied. Real Cell Recalc derives
+    # land; real FNPC/UnitCanEnter/Unlimbo later decide whether DEST fits.
+    for y in range(1, 32):
+        for x in range(1, 32):
+            p = cell(x, y)
+            tile = water if (x, y) in water_cells else 0
+            u.mem_write(p + 0x38, c.dwords(tile))
+            u.mem_write(p + 0x11A, b'\0')
+            bc.invoke(u, 0x47D2B0, p, 0xFFFFFFFF)
+    assert all(read(cell(x, y) + 0xEC) == 2 for x, y in water_cells)
+
+    yard, product = f.allocate(0x1000), f.allocate(0x1000)
+    peer = f.allocate(0x1000) if case['sparse_contact'] else 0
+    selected_anims, calls, timer_writes, transitions = set(), [], [], []
+    trace = NativeCallTrace(u, read, calls)
+    names = {yard:'yard', product:'product', peer:'contact_peer', er.HOUSE:'local_house'}
+    specs = {
+        0x443C60: ('exit_object', 2, 8),
+        0x65AE30: ('in_radio_contact', 0, 0),
+        0x5B35E0: ('queue_mission', 2, 8), 0x5B3570: ('commence', 0, 0),
+        0x737BA0: ('unit_unlimbo', 2, 8),
+        0x4D3780: ('foot_mark', 1, 4), 0x4DB810: ('foot_set_location', 1, 4),
+        0x44D880: ('mission_unload', 0, 0),
+        0x4A51F0: ('door_open', 2, 8), 0x4A5150: ('door_update', 0, 0),
+        0x44D6A0: ('return_to_idle', 2, 8),
+        0x451E40: ('clear_slot', 1, 4),
+        0x44E8F0: ('building_pointer_expired', 2, 8),
+        0x451B40: ('slot_expired', 1, 4),
+    }
+    observed_entries = {0x451890:'slot_allocate', 0x421EA0:'anim_constructor',
+        0x4255B0:'anim_uninit', 0x5F65F0:'object_uninit',
+        0x5F5280:'object_detach', 0x70D4A0:'techno_detach',
+        0x7258D0:'announce_expiry', 0x725C70:'deferred_drain',
+        0x426590:'anim_scalar_delete', 0x4228E0:'anim_destructor',
+        0x5F3B80:'object_destructor', 0x56DC20:'find_nearby_passable'}
+
+    def i32(address):
+        return struct.unpack('<i', u.mem_read(address, 4))[0]
+
+    def members(vector):
+        return [read(read(vector + 4) + i * 4) for i in range(read(vector + 16))]
+
+    def object_state(p):
+        if not p:
+            return None
+        return dict(pointer=p, id=read(p + 0x10), health=i32(p + 0x6C),
+            alive=u.mem_read(p + 0x90, 1)[0], limbo=u.mem_read(p + 0x81, 1)[0],
+            marked=u.mem_read(p + 0x74, 1)[0], logic=u.mem_read(p + 0x98, 1)[0],
+            in_playfield=u.mem_read(p + 0x3D5, 1)[0],
+            location=list(struct.unpack('<3i', u.mem_read(p + 0x9C, 12))),
+            current=i32(p + 0xAC), queued=i32(p + 0xB4), status=i32(p + 0xBC),
+            ai_counter=read(p + 0xC4), mission_start=i32(p + 0xC0),
+            dispatch_timer=[i32(p + 0xC8), i32(p + 0xD0)],
+            tether=u.mem_read(p + 0x418, 1)[0],
+            radio_capacity=read(p + 0xE8),
+            contacts=[read(read(p + 0xE4) + i * 4) for i in range(read(p + 0xE8))])
+
+    def state(*, with_rng=False):
+        slots = [read(yard + 0x55C + i * 4) for i in range(21)]
+        anims = members(0xA8E9A8)
+        result = dict(frame=read(bc.FRAME), game_speed=i32(0xA8EB60), producer=object_state(yard),
+            product=object_state(product), peer=object_state(peer),
+            bstate=i32(yard + 0x534), queued_bstate=i32(yard + 0x538),
+            ready=u.mem_read(yard + 0x6DD, 1)[0],
+            stage=list(struct.unpack('<5i', u.mem_read(yard + 0xFC, 20))),
+            door=dict(active=u.mem_read(yard + 0x368, 1)[0],
+                opening=u.mem_read(yard + 0x369, 1)[0],
+                timer=[i32(yard + 0x358), i32(yard + 0x360)],
+                retained_duration=i32(yard + 0x364)),
+            slots=[dict(slot=i, pointer=p, id=read(p + 0x10) if p else None,
+                        type=f.string(read(p + 0xC8) + 0x24) if p else None)
+                   for i, p in enumerate(slots)],
+            selected_anims=[dict(pointer=p, type=f.string(read(p + 0xC8) + 0x24),
+                in_anim_array=p in anims, in_logic=p in members(0x87F778),
+                **constructor_state(u, p)) for p in sorted(selected_anims)],
+            logic_members=members(0x87F778), deferred_members=members(0xB0F698),
+            identity_cursor=read(SCENARIO + 0x214),
+            lifecycle_bytes={f'{off:03X}':u.mem_read(yard + off, 1)[0]
+                             for off in (0x6E4, 0x6E6, 0x6E8, 0x6E9, 0x6EA)},
+            scenario_active=u.mem_read(0xA8E9A0, 1)[0],
+            scenario_scope=read(0xA8E7AC))
+        if with_rng:
+            result['rng'] = f.rng()
+        return result
+
+    def record_returns(pc, sp):
+        for index in trace.returned(pc, sp):
+            row = calls[index]
+            row['returned_frame'] = read(bc.FRAME)
+            promoted = row['name'] == 'commence' and bool(row['return_eax'] & 255)
+            if (row['name'] in ('exit_object', 'mission_unload') or promoted) and int(row['ecx'], 16) == yard:
+                row['return_state'] = state(with_rng=row['name'] in ('exit_object', 'mission_unload'))
+                transitions.append(dict(event=row['name'] + '_return', call=index,
+                                        frame=read(bc.FRAME)))
+
+    def observe(_u, pc, _size, _data):
+        sp, this = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        record_returns(pc, sp)
+        if pc in specs and (this in names or (pc == 0x4A51F0 and this == yard + 0x350)
+                            or (pc == 0x4A5150 and this == yard + 0x350)):
+            index = trace.entered(pc, sp, specs[pc])
+            calls[index].update(frame=read(bc.FRAME), phase=f.phase,
+                                receiver=names.get(this, 'yard_door'))
+            if pc in (0x443C60, 0x44D880) and this == yard:
+                calls[index]['entry_state'] = state(with_rng=True)
+            if pc in (0x737BA0, 0x4DB810):
+                calls[index]['coordinate'] = list(struct.unpack('<3i', u.mem_read(read(sp + 4), 12)))
+            if pc == 0x737BA0:
+                calls[index]['facing_input'] = read(sp + 8)
+        elif pc in observed_entries:
+            row = dict(name=observed_entries[pc], entry=f'{pc:08X}',
+                caller=f'{read(sp):08X}', frame=read(bc.FRAME), phase=f.phase, this=this)
+            if pc == 0x421EA0:
+                typ = read(sp + 4)
+                row['type'] = f.string(typ + 0x24)
+                if row['type'].startswith('GAYARD_'):
+                    selected_anims.add(this)
+            elif pc == 0x451890:
+                row['slot'] = read(sp + 8)
+            elif pc == 0x451E40:
+                row['slot'] = read(sp + 4)
+            elif pc in (0x5F5280, 0x70D4A0):
+                row['argument'] = read(sp + 4)
+            elif pc == 0x7258D0:
+                row['control_dl'] = u.reg_read(UC_X86_REG_EDX) & 255
+            if (this in selected_anims or this == yard
+                    or pc in (0x421EA0, 0x725C70, 0x56DC20)):
+                calls.append(row)
+
+    def write(_u, _access, address, size, value, _data):
+        # Field-write receipts, not another clock/mission implementation.
+        if (yard + 0xAC <= address < yard + 0xD4
+                or yard + 0x350 <= address < yard + 0x36A
+                or yard + 0x534 <= address < yard + 0x53C
+                or yard + 0x55C <= address < yard + 0x5B0
+                or address == yard + 0x6DD):
+            timer_writes.append(dict(pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',
+                phase=f.phase, frame=read(bc.FRAME), offset=address - yard,
+                size=size, before=bytes(u.mem_read(address, size)).hex(), value=value))
+
+    hooks = [u.hook_add(UC_HOOK_CODE, observe), u.hook_add(UC_HOOK_MEM_WRITE, write)]
+
+    def invoke(address, obj=0, *args):
+        # Whole ExitObject plus the shared per-instruction observers can
+        # exceed the default wall budget under host load. Keep the original
+        # two-million-instruction bound and all endpoint/fault checks.
+        result = bc.invoke(u, address, obj, *args,
+            timeout_us=30_000_000 if address == 0x443C60 else 10_000_000)
+        record_returns(RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+        return result
+
+    # Mission.tick is the existing Logic/frame/drain owner. This adapter only
+    # supplies its observation API names on the same joined VM and allocator.
+    f.m = view
+    f.resident = SimpleNamespace(trace=[], ptrs={(18, 17):cell(18, 17)},
+        snapshot=lambda p: dict(tile=read(p + 0x38), land=read(p + 0xEC),
+                                ground_head=read(p + 0xE4)))
+    f.frames = []
+    f.state = state
+    try:
+        f.phase = 'setup_selected_yard_constructor'
+        f.building('GAYARD', yard, 0, constructor_only=True)
+        constructor = dict(f.building_constructor)
+        ctor_type, ctor_owner = read(yard + 0x520), read(yard + 0x21C)
+        ctor_prefix = bytes(u.mem_read(yard, 8))
+        ctor_flags = read(yard + 0x14)
+        assert ctor_type == f.types['GAYARD'] and ctor_owner == er.HOUSE
+        constructor.update(type_pointer=ctor_type, owner=ctor_owner)
+        constructor['lifecycle_bytes'] = {
+            f'{off:03X}':u.mem_read(yard + off, 1)[0]
+            for off in (0x6E4, 0x6E6, 0x6E8, 0x6E9, 0x6EA)}
+        assert constructor['lifecycle_bytes']['6E6'] == 0
+        assert constructor['lifecycle_bytes']['6E8'] == 0
+        assert constructor['lifecycle_bytes']['6EA'] == 1
+        radio_ctor = dict(capacity=read(yard + 0xE8), items=read(yard + 0xE4),
+            bytes_hex=bytes(u.mem_read(yard + 0xE0, 16)).hex())
+        place_building(u, yard, (18, 17), constructor_abstract_flags=ctor_flags)
+        # The inherited admitted-position helper carries its partial refinery
+        # type/House prior. Keep this full constructor's actual identities, as
+        # the existing non-constructor-only Building fixture does for its type.
+        u.mem_write(yard + 0x520, c.dwords(ctor_type))
+        u.mem_write(yard + 0x21C, c.dwords(ctor_owner))
+        assert bytes(u.mem_read(yard, 8)) == ctor_prefix
+        assert read(yard + 0x14) == ctor_flags
+        assert bytes(u.mem_read(yard + 0xE0, 16)).hex() == radio_ctor['bytes_hex']
+        # Explicit already-completed/admitted healthy producer boundary; native
+        # constructor values/IDs and native radio storage are retained.
+        # 6E4 is the declared completed-opening prior (native446A6E writer).
+        # Retain constructor6E6=0 (damaged art),6E8=0 (no paid repair),
+        # actual InitManagers-derived6E9, and constructor6EA=1 unchanged.
+        # A Buildup name alone is not an established6E9 producer: full43B740
+        # already calls442C40, whose442CB2..442CCF branch tests the original
+        # type vtC0/465960 returned resource before writing6E9.
+        for offset, value in ((0x90, 1), (0x81, 0), (0x74, 0), (0x98, 0), (0x6E4, 1)):
+            u.mem_write(yard + offset, bytes([value]))
+        u.mem_write(yard + 0x534, c.dwords(-1, -1))
+        u.mem_write(yard + 0x544, c.dwords(read(yard + 0x6C)))
+        assert invoke(0x43F180, yard, 3) & 255
+        assert invoke(0x55BAA0, 0x87F778, yard, 0) & 255
+        f.house_prior(er.HOUSE, (yard,), native_building_counts=True)
+        f.phase = 'setup_original_idle'
+        invoke(0x44D6A0, yard, 0, 1)
+        # The supplied settled prior has the ordinary current Guard mission.
+        # The selected ExitObject's later Unload is never manually commenced.
+        invoke(0x5B3570, yard)
+        if not read(yard + 0x5A4):
+            # Explicit already-running Idle18 boundary if BeginIdle alone does
+            # not initialize it. Execute the existing slot/Anim constructor
+            # owner with the actual native-read slot name; no slot/Anim state
+            # or subsequent replacement answer is supplied.
+            invoke(0x451890, yard, f.types['GAYARD'] + 0x1414, 18, 0, 0, 0)
+        assert read(yard + 0x5A4), 'Original stock Idle18 allocation failed; prerequisite open'
+        # Native full constructors create both the held DEST and optional actual
+        # peer. No Factory progress/payment, type mutation or object UID supplied.
+        f.phase = 'setup_completed_held_dest_constructor'
+        invoke(0x7353C0, product, f.types['DEST'], er.HOUSE)
+        assert u.mem_read(product + 0x81, 1)[0] == 1
+        if peer:
+            invoke(0x7353C0, peer, f.types['DEST'], er.HOUSE)
+            location = f.allocate(12)
+            u.mem_write(location, c.dwords(26 * 256 + 128, 25 * 256 + 128, 0))
+            assert invoke(0x737BA0, peer, location, 128) & 255
+            capacity = max(3, radio_ctor['capacity'])
+            contacts = f.allocate(4 * capacity)
+            u.mem_write(contacts, c.dwords(*(peer if i == 2 else 0 for i in range(capacity))))
+            u.mem_write(yard + 0xE4, c.dwords(contacts, capacity, 1))
+        phases = [dict(label='settled_idle', state=state(with_rng=True))]
+        f.phase = 'selected_original_exit'
+        if case['inactive_scenario']:
+            u.mem_write(0xA8E9A0, b'\0')
+        second_arg = read(0xA8EF98)
+        answer = invoke(0x443C60, yard, product, second_arg)
+        phases.append(dict(label='exit_return', returned_eax=answer, state=state(with_rng=True)))
+        visits = []
+        if case['inactive_scenario']:
+            assert answer == 0 and read(yard + 0xB4) == 16
+            assert u.mem_read(product + 0x81, 1)[0] == 1
+        elif case['sparse_contact']:
+            assert answer == 2 and i32(yard + 0xB4) == -1
+            Mission.tick(f, snapshot_cell=(18, 17))
+            record_returns(RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+            phases.append(dict(label='next_logic_pass', state=state(with_rng=True)))
+            assert not any(row['name'] == 'mission_unload' for row in calls)
+        else:
+            assert answer == 2 and i32(yard + 0xAC) == 5 and i32(yard + 0xB4) == 16
+            initial_idle = read(yard + 0x5A4)
+            seen_production, seen_guard, restored = False, False, False
+            previous_signature = None
+            for _ in range(400):
+                Mission.tick(f, snapshot_cell=(18, 17))
+                record_returns(RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+                snapshot = state()
+                signature = (snapshot['producer']['current'], snapshot['producer']['queued'],
+                    snapshot['producer']['status'], snapshot['bstate'], snapshot['ready'],
+                    snapshot['door']['active'], snapshot['door']['opening'],
+                    tuple((s['slot'], s['pointer']) for s in snapshot['slots']))
+                if signature != previous_signature:
+                    visits.append(snapshot)
+                    previous_signature = signature
+                if read(yard + 0x57C) and not seen_production:
+                    seen_production = True
+                    phases.append(dict(label='production_started', state=state(with_rng=True)))
+                if seen_production and i32(yard + 0xAC) == 5 and not seen_guard:
+                    seen_guard = True
+                    phases.append(dict(label='guard_after_unload', state=state(with_rng=True)))
+                if seen_production and not read(yard + 0x57C) and read(yard + 0x5A4):
+                    restored = True
+                    phases.append(dict(label='idle_restored', state=state(with_rng=True)))
+                    assert read(yard + 0x5A4) != initial_idle
+                    break
+                f.frames.clear()
+            assert seen_production and seen_guard and restored, 'Live stock18/8/18 chain not reached'
+        assert not trace.pending, trace.pending
+        assert not f.pending, f.pending
+        assert f.code_unchanged()
+        return dict(input=case, setup=dict(yard_constructor=constructor,
+            radio_constructor=radio_ctor, radio_supplied_capacity=read(yard + 0xE8),
+            sparse_array_is_synthetic=bool(peer and radio_ctor['capacity'] < 3),
+            yard_cell=[18, 17], water_cells=[list(xy) for xy in water_cells],
+            physical_tiles=tiles, geometry=geometry,
+            inherited_actors=dict(gapowr=er.BLD, mtnk=f.source),
+            exit_second_argument_global='00A8EF98', exit_second_argument=second_arg),
+            phases=phases, visits=visits, transitions=transitions, calls=calls,
+            timer_writes=timer_writes, allocations=f.allocations[allocation_start:],
+            inherited_events=[row for row in f.events[event_start:]
+                if row.get('event') in ('slot_allocate', 'anim_ctor', 'logic_add',
+                    'logic_remove', 'scalar_delete', 'anim_dtor', 'object_dtor',
+                    'arena_release', 'operational_edge', 'sound_play')],
+            reached_entries=[f'{pc:08X}' for pc in sorted(f.executed)
+                if pc in set(specs) | set(observed_entries)],
+            rng_initial=rng_initial,
+            rng_final=f.rng(), draws=f.draws[draw_start:],
+            advances=f.advances[advance_start:], original_code_unchanged=True)
+    finally:
+        for hook in hooks:
+            u.hook_del(hook)
+
+
+def naval_output_generate():
+    root = Path(os.environ['VERA20K_FACTORY_NAVAL_ASSETS'])
+    inputs = naval_output_inputs(root)
+    controls = [
+        dict(name='stock_dest_no_rally', seed=31, sparse_contact=False, inactive_scenario=False),
+        dict(name='sparse_actual_contact_slot2', seed=31, sparse_contact=True, inactive_scenario=False),
+        dict(name='inactive_scenario_refuses_unlimbo', seed=31, sparse_contact=False, inactive_scenario=True),
+    ]
+    return dict(schema=1, source='unicorn/gamemd.exe',
+        input_receipts=inputs.naval_output_receipts,
+        controls=[naval_output_history(inputs, root, case) for case in controls])
+
+
+def naval_output_metadata():
+    result = provenance(
+        scope='Stock GAYARD/DEST original ExitObject, deferred producer Unload and live18/8/18 animation cleanup',
+        assumptions=[
+            'Reuse existing grapple_inputs/joined_fixture readers, runtime, allocator, native Ship/COM factories, physical TMP binder and Mission.tick Logic/frame/drain owner. Theater General/project uses its existing separate prerequisite TheaterReader VM; TileSet ReadInt reuses the joined reader. This is not full process/Rules/map loading.',
+            'Physical RULESMD, optional LANGRULE, MPBattleMD and Hills layers feed original selected type readers; ARTMD is unlayered. A sparse registered type/animation catalog and physical raw-file cache remain input boundaries. Constructor defaults and each GAYARD retained reader result are recorded.',
+            'The producer is supplied healthy/completed/online/admitted at18,17, with6E4=1 as the446A6E completed-opening boundary. Constructor6E6=0,6E8=0,6EA=1 and actual InitManagers-derived6E9 are retained and recorded, without arming damaged art or paid repair. Full Building43B740, native Mark3, Logic admission and Idle transition execute; full construction/Unlimbo/GrandOpening is outside this settled boundary. Full Unit7353C0 creates a held limbo DEST. Factory payment/progress/House placement policy is excluded.',
+            'Whole ExitObject443C60 receives the held DEST and literal active caller globalA8EF98. No rally is supplied. Original InRadioContact, QueueMission, FNPC, UnitUnlimbo, Mark0/SetLocation/Mark1 and live BuildingAI/Unload/Door/AnimAI/expiry/deferred drain execute without gameplay return substitution.',
+            'One original seed boundary initializes all3 complete RNG objects after inherited Engineer/MTNK fixture admission and before selected constructors. Full buffers remain uninterrupted through selected phase boundaries; requests, raw ranged advances, allocations, IDs, mission/Door/slot writes and detach/expiry calls are observed. Each state reads actual GameOptions+A8EB60, inherited from the Construction fixture supplied stored speed3; complete options loading is excluded.',
+            'Sparse actual-contact control uses a real constructed/on-map DEST at slot2. Native constructor capacity and supplied array capacity are both recorded; a capacity extension is explicitly synthetic, not a stock capacity/reachability claim. The failure control supplies ScenarioActive=false and observes real refusal; ordinary blocked-exit integration is a separate Rust/runtime bound.',
+        ],
+        substitutions=[
+            'Inherited physical-cache lexical indexes/raw-byte IO, arena allocation/delete, CRT TLS, Windows COM/audio transport and existing presentation sinks are unchanged. Physical tile/subtile/map/House and settled producer priors are supplied; no FNPC, Unlimbo, radio, queue, mission, animation or expiry answer is supplied.',
+            'Inherited GAPOWR/MTNK actors remain in the joined object world. Global House/Factory/Scenario phases outside existing Mission.tick object pass, native client command production, real payment and rendering/audio hardware output are excluded.',
+        ],
+        entry_points=dict(exit_object=0x443C60, in_radio_contact=0x65AE30,
+            queue=0x5B35E0, commence=0x5B3570, building_ai=0x43FB20,
+            mission_unload=0x44D880, idle=0x44D6A0, door_open=0x4A51F0,
+            door_update=0x4A5150, unit_ctor=0x7353C0, unit_unlimbo=0x737BA0,
+            foot_mark=0x4D3780, foot_set_location=0x4DB810,
+            fnpc=0x56DC20, anim_ai=0x423AC0, pointer_expired=0x44E8F0,
+            slot_expired=0x451B40, deferred_drain=0x725C70,
+            logic_begin=0x55B5FF, logic_end=0x55B61B))
+    root = Path(os.environ['VERA20K_FACTORY_NAVAL_ASSETS'])
+    result['retail_inputs'] = {p.name:hashlib.sha256(p.read_bytes()).hexdigest()
+                               for p in sorted(root.iterdir()) if p.is_file()}
+    result['retail_inputs'].setdefault('LANGRULE.INI', None)
+    return result
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if '--system-hold' in args:
+    if '--naval-output' in args:
+        args.remove('--naval-output')
+        finish_vectors(naval_output_generate, Path(__file__).with_name('factory_naval_output.json'),
+                       provenance=naval_output_metadata, argv=args)
+    elif '--system-hold' in args:
         args.remove('--system-hold')
         finish_vectors(system_hold_generate, Path(__file__).with_name('factory_system_hold.json'),
                        provenance=system_hold_metadata, argv=args)

@@ -2738,3 +2738,32 @@ synchronously; the retained render-index entries remain anchors, and their live
 identity resolves at draw time. Generic placement upserts are not required for
 every bridge transition. The profile records ordinary gameplay and rendering;
 its shot count and timing are not native mission/RNG goldens.
+
+### Paid Allied shipyard output
+
+[map_observation.naval-yard-unload.example.json](map_observation.naval-yard-unload.example.json)
+loads [naval_yard_unload.map](map_observation/examples/naval_yard_unload.map)
+with stock Battle rules and assets. The authored scene supplies a completed
+Allied construction yard, power plant and shipyard, water terrain, a distant
+inactive opponent and one remote local tank needed by the atlas fixture. It
+supplies no Destroyer, Factory progress, animation completion or rule overrides.
+The ordinary command producer queues one DEST after step10; the vehicle tab is
+opened through the sidebar gesture before the order.
+
+Materialize the profile with an absolute `selected_map_file`, use a fresh runtime
+directory containing the normal `config.toml`, and run the fast build through
+the capture command above. The matching
+[expectations](map_observation.naval-yard-unload.expectations.json) retain the
+original paid identity from its limbo phase through delivery, House payment,
+producer Unload/state4 and final Guard without radio contact. Inspect the full
+`building.animation_slots` and selected global animations to follow the actual
+Idle18 → Production8 → Idle18 identities and retirement. No observation arms
+those transitions. A shorter run ending during the observed Production interval
+retains its GPU frame; compare its complete actor/House prefix with the full run.
+
+This is a connected Rust loader, production and rendering observation. Original
+naval ExitObject and Unload evidence, including physical readers and uninterrupted
+RNG boundaries, is separately bounded in
+[factory_naval_output.md](sidebar_oracle/factory_naval_output.md). The native
+fixture starts with an admitted producer and completed held product; it does not
+establish whole native House/Factory scheduling, payment or pixel/audio parity.

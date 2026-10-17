@@ -12,7 +12,7 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::occupancy::OccupancyGrid;
+use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 
 /// The arm of `BuildingClass::ExitObject_Main @ 0x00443C60` that releases a
 /// produced Unit or Infantry. The producer's BuildingType alone picks it
@@ -199,6 +199,7 @@ pub(super) fn naval_exit_cell(
         speed_type,
         sim.path_grid(),
         &sim.substrate.occupancy,
+        &sim.substrate.raw_cell_occupation,
         &sim.substrate.entities,
         sim.resolved_terrain.as_ref(),
         sim.overlay_grid.as_ref(),
@@ -227,6 +228,7 @@ fn find_naval_unit_delivery_cell(
     speed_type: SpeedType,
     path_grid: Option<&crate::sim::pathfinding::PathGrid>,
     occupancy: &OccupancyGrid,
+    raw_occupation: &RawCellOccupationGrid,
     entities: &EntityStore,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     overlay_grid: Option<&crate::sim::overlay_grid::OverlayGrid>,
@@ -260,6 +262,7 @@ fn find_naval_unit_delivery_cell(
     let Some(query) = nearby_query_for_naval_unit_delivery(
         speed_type,
         grid,
+        raw_occupation,
         resolved_terrain,
         overlay_grid,
         zone_grid,
@@ -362,6 +365,7 @@ fn naval_rally_walk_candidate(
 fn nearby_query_for_naval_unit_delivery<'a>(
     speed_type: SpeedType,
     grid: &'a crate::sim::pathfinding::PathGrid,
+    raw_occupation: &'a RawCellOccupationGrid,
     resolved_terrain: Option<&'a ResolvedTerrainGrid>,
     overlay_grid: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
     zone_grid: Option<&'a crate::sim::pathfinding::zone_map::ZoneGrid>,
@@ -374,20 +378,27 @@ fn nearby_query_for_naval_unit_delivery<'a>(
     let (size_width, size_height) = map_size?;
     Some(NearbyQuery {
         native_cells: None,
-        raw_occupation: None,
+        // 4443DC -> FNPC56DC20 -> rectangle56E7C0 -> Cell4834A0's Float
+        // arm reads the selected raw plane with both ignore flags false
+        // (56E854..858/483550..570). Final object-list occupancy being off
+        // does not admit a marked yard footprint. Reuse the live grid owner;
+        // otherwise FNPC picks inside the yard and the later Unlimbo refuses.
+        // Original control: factory_naval_output; shared raw goldens:
+        // tools/spatial_oracle/nearby_raw_occupation.{py,json,meta.json}.
+        raw_occupation: Some(raw_occupation),
         passability: PassabilityArgs {
             // Unit vtable +0x84 -> +0x88 -> UnitType+0x67C.
             speed_type,
             required_zone_id: None,
-            // Literal caller argument 5 at 0x0044434B..0x004443DC.
+            // Caller argument5 is literal0 at 4443B4 (MovementZone::Normal).
             movement_zone: MovementZone::Normal,
             bridge_aware_zone: false,
         },
         footprint: NearbyFootprint::SINGLE,
         allow_bridge_cells: true,
         check_height: false,
-        // Arguments 11 and 15 are both false. Immediate UnitClass::Unlimbo,
-        // not FNPC, owns the one occupancy/CanEnter/Mark decision.
+        // Final object-list occupancy is off; Cell passability still reads
+        // the actual occupation bytes above. Unlimbo then owns CanEnter/Mark.
         check_occupancy: false,
         radius_cap: map_owned_radius_cap(size_width, size_height),
         // The caller passes a pointer to CellStruct(0,0); FNPC maps that value
@@ -396,8 +407,8 @@ fn nearby_query_for_naval_unit_delivery<'a>(
         path_grid: Some(grid),
         resolved_terrain,
         overlay_grid,
-        // Both caller occupancy flags are false, so this query must not let
-        // CellRect's compatibility object-list projection recreate one.
+        // Do not substitute CellRect's compatibility object-list projection
+        // for those raw bytes or add FNPC's disabled final occupancy check.
         occupancy: None,
         entities: None,
         zone_grid,
@@ -932,9 +943,11 @@ mod tests {
             cell.base_speed_costs.float = Some(100);
         }
         let grid = PathGrid::from_resolved_terrain(&terrain);
+        let raw = RawCellOccupationGrid::new();
         let query = nearby_query_for_naval_unit_delivery(
             SpeedType::Float,
             &grid,
+            &raw,
             Some(&terrain),
             None,
             None,
@@ -962,6 +975,26 @@ mod tests {
             crate::sim::find_nearby_cell::find_nearby_passable_cell((3, 2), &query, 1),
             Some((3, 1)),
             "live frame modulo chooses the second engine-ordered survivor"
+        );
+
+        let mut occupied = raw.clone();
+        occupied.mark_ground(2, 1, crate::sim::occupancy::BUILDING_OCCUPATION_BIT);
+        let occupied_query = nearby_query_for_naval_unit_delivery(
+            SpeedType::Float,
+            &grid,
+            &occupied,
+            Some(&terrain),
+            None,
+            None,
+            Some(test_playfield_bounds()),
+            Some((7, 7)),
+        )
+        .unwrap();
+        assert_eq!(
+            crate::sim::find_nearby_cell::find_nearby_passable_cell((3, 2), &occupied_query, 0),
+            Some((3, 1)),
+            "56E854..858 disables neither raw plane: a marked foundation is rejected \
+             even with final object-list occupancy off"
         );
     }
 
@@ -1085,6 +1118,7 @@ mod tests {
                 SpeedType::Float,
                 Some(&grid),
                 &occupancy,
+                &RawCellOccupationGrid::new(),
                 &entities,
                 Some(&land_failure),
                 None,

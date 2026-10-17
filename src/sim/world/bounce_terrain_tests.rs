@@ -116,7 +116,7 @@ fn fixture(case: &Value) -> Simulation {
                 id,
                 MovementLayer::Ground,
                 None,
-                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+                crate::sim::occupancy::CellListInsertion::from_category(category),
             );
         }
     }

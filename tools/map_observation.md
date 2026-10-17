@@ -2750,6 +2750,14 @@ The unit exits the barracks and moves to
 (33,88); selection and two command-bar Deploy gestures start and stop its
 normal self-fire. The resulting field fades after undeployment.
 
+[map_observation.radiation-snow.example.json](map_observation.radiation-snow.example.json)
+uses the archived two-player XXmas.MAP in Battle mode. Its natural SMCV1207
+builds the same paid prerequisites before DESO1374 exits the barracks and moves
+to (37,86). The two ordinary command-bar gestures deploy and undeploy it.
+The selected flat Snow cell uses the complete eight-file Clear01.sno family;
+the source's Snow color branch is compared through the same lifecycle, lighting
+and TMP owners as the Temperate case.
+
 The cursor rests on the sidebar at (700,500), so selection does not leave an
 animated world-order cursor in the final frame. The profile records ordinary
 production and visible field cleanup. Its elapsed frames, object IDs and RNG

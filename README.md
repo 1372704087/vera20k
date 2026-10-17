@@ -109,7 +109,7 @@ Contributions are licensed under the GPLv3, like the rest of the project; there'
 ## Support <a href="https://paypal.me/vera20k"><img src="https://img.shields.io/badge/PayPal-Donate-0070BA?style=flat&amp;logo=paypal&amp;logoColor=white" alt="Support VERA20k via PayPal" height="20" align="middle"></a>
 
 [Support VERA20k via PayPal](https://paypal.me/vera20k). All donations received are distributed
-to external contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
+to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
 
 The VERA20k founder can send payouts via PayPal, Vipps, SEPA bank transfer, Bitcoin,
 UnionPay (China), or Alipay. Contributors should join [Discord](https://discord.gg/kmjRUn5m5F) or the QQ group

@@ -104,7 +104,7 @@ cargo run --release --bin vera20k
 ## สนับสนุนโครงการ <a href="https://paypal.me/vera20k"><img src="https://img.shields.io/badge/PayPal-Donate-0070BA?style=flat&amp;logo=paypal&amp;logoColor=white" alt="สนับสนุน VERA20k ผ่าน PayPal" height="20" align="middle"></a>
 
 [สนับสนุน VERA20k ผ่าน PayPal](https://paypal.me/vera20k) เงินบริจาคทั้งหมดที่ได้รับจะจัดสรรให้
-ผู้มีส่วนร่วมจากภายนอกตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)
+ผู้มีส่วนร่วมตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)
 
 ผู้ก่อตั้ง VERA20k สามารถจ่ายเงินผ่าน PayPal, Vipps, การโอนเงินผ่านธนาคารแบบ SEPA, Bitcoin, UnionPay
 (จีน) หรือ Alipay ผู้มีส่วนร่วมควรเข้าร่วม [Discord](https://discord.gg/kmjRUn5m5F) หรือกลุ่ม QQ

@@ -110,7 +110,7 @@ Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
 ## Destek <a href="https://paypal.me/vera20k"><img src="https://img.shields.io/badge/PayPal-Donate-0070BA?style=flat&amp;logo=paypal&amp;logoColor=white" alt="VERA20k'yi PayPal üzerinden destekleyin" height="20" align="middle"></a>
 
 [VERA20k'yi PayPal üzerinden destekleyin](https://paypal.me/vera20k). Alınan tüm bağışlar,
-[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre dışarıdan katkıda
+[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
 bulunanlara dağıtılır.
 
 VERA20k'nin kurucusu PayPal, Vipps, SEPA banka havalesi, Bitcoin, UnionPay (Çin) veya Alipay üzerinden

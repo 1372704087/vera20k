@@ -110,7 +110,7 @@ Ghidra, затем переносят его поведение на Rust и п�
 ## Поддержка проекта <a href="https://paypal.me/vera20k"><img src="https://img.shields.io/badge/PayPal-Donate-0070BA?style=flat&amp;logo=paypal&amp;logoColor=white" alt="Поддержать VERA20k через PayPal" height="20" align="middle"></a>
 
 [Поддержать VERA20k через PayPal](https://paypal.me/vera20k). Все полученные пожертвования
-распределяются между сторонними участниками проекта согласно
+распределяются между участниками проекта согласно
 [журналу вкладов TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
 
 Основатель VERA20k может отправлять выплаты через PayPal, Vipps, банковский перевод SEPA, Bitcoin,

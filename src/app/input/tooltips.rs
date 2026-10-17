@@ -208,6 +208,23 @@ fn tactical_tip_text(state: &AppState) -> String {
     // The later object/cloak/resource tooltip ladder remains a separate path.
 }
 
+/// Callback479050 reads WWMouse+0C through virtual+28 (7B89F0), returning
+/// NULL at47905F for negative display depth before Mouse6D1800 resolves text.
+/// Show724AD0 clears an active NULL tip without changing its timer; the
+/// service's empty-text path preserves that behavior. Direct descriptor
+/// labels (repair6AC130/sell6AC0DD) bypass this callback in Show724AD0.
+/// Source: `python -m tools.native_inspect disasm 0x479050 --bytes 0x26`.
+fn dynamic_tip_text(
+    cursor: crate::app::input::cursor::CursorVisibility,
+    resolve: impl FnOnce() -> String,
+) -> String {
+    if cursor.is_visible() {
+        resolve()
+    } else {
+        String::new()
+    }
+}
+
 /// gamemd re-formats a tab/scroll tip as `"<tip>\n(<Tip:Disabled>)"` when the
 /// gadget's enable test fails. Cameo tips return before this step, and the
 /// repair/sell ids never reach it. `disabled == false` returns the tip
@@ -257,6 +274,7 @@ fn sync_in_game_regions(state: &mut AppState) {
         return;
     };
     let frame = state.sidebar_frame();
+    let cursor = state.match_state.input.cursor_visibility;
     let mut regions: Vec<TipRegion> = Vec::with_capacity(9 + view.items.len());
     // Set_View_Dimensions4A8960 (registration4A8B50) registers the viewport as
     // dynamic region500. CursorCheat537EF0 toggles its coordinate text at
@@ -265,28 +283,31 @@ fn sync_in_game_regions(state: &mut AppState) {
     regions.push(TipRegion {
         id: 500,
         rect: TipRect::new(x as i32, y as i32, width as i32, height as i32),
-        text: tactical_tip_text(state),
+        text: dynamic_tip_text(cursor, || tactical_tip_text(state)),
     });
     // Power meter first: gamemd asks the power bar for a tip before the
     // sidebar gadget ids, and registration order decides the hit here.
+    // Gadget idle republishes these retained House values each unlocked pump.
     let power_rect = crate::ui::sidebar::power_bar_rect(
         &view.layout,
         state.match_state.match_presentation.sidebar_layout_spec,
     );
-    let power_text = state
-        .process_assets
-        .csf
-        .as_ref()
-        .map(|csf| {
-            format_csf(
-                csf.text(TIP_LABEL_POWER_DRAIN).as_ref(),
-                &[
-                    CsfArg::Int(i64::from(view.power_produced)),
-                    CsfArg::Int(i64::from(view.power_drained)),
-                ],
-            )
-        })
-        .unwrap_or_default();
+    let power_text = dynamic_tip_text(cursor, || {
+        state
+            .process_assets
+            .csf
+            .as_ref()
+            .map(|csf| {
+                format_csf(
+                    csf.text(TIP_LABEL_POWER_DRAIN).as_ref(),
+                    &[
+                        CsfArg::Int(i64::from(view.power_produced)),
+                        CsfArg::Int(i64::from(view.power_drained)),
+                    ],
+                )
+            })
+            .unwrap_or_default()
+    });
     regions.push(TipRegion {
         id: ID_POWER_TIP,
         rect: tip_rect(frame, power_rect),
@@ -297,7 +318,9 @@ fn sync_in_game_regions(state: &mut AppState) {
             .get(i)
             .copied()
             .unwrap_or(TIP_LABELS_TAB[TIP_LABELS_TAB.len() - 1]);
-        let text = with_disabled_suffix(state, csf_text(state, label), tab.disabled);
+        let text = dynamic_tip_text(cursor, || {
+            with_disabled_suffix(state, csf_text(state, label), tab.disabled)
+        });
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_TAB_BASE as u32 + i as u32,
             rect: tip_rect(frame, tab.rect),
@@ -321,27 +344,29 @@ fn sync_in_game_regions(state: &mut AppState) {
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_SCROLL_DOWN as u32,
             rect: tip_rect(frame, view.scroll_down_button.rect),
-            text: csf_text(state, TIP_LABEL_SCROLL_DOWN),
+            text: dynamic_tip_text(cursor, || csf_text(state, TIP_LABEL_SCROLL_DOWN)),
         });
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_SCROLL_UP as u32,
             rect: tip_rect(frame, view.scroll_up_button.rect),
-            text: csf_text(state, TIP_LABEL_SCROLL_UP),
+            text: dynamic_tip_text(cursor, || csf_text(state, TIP_LABEL_SCROLL_UP)),
         });
     }
     for (slot, item) in view.items.iter().enumerate() {
-        let text = if item.is_superweapon {
-            // The retained view carries the same native UIName used for
-            // ordering. Supers display it verbatim, without a cost suffix.
-            item.display_name.clone()
-        } else {
-            let money_format = state
-                .process_assets
-                .csf
-                .as_ref()
-                .map(|csf| csf.text(CAMEO_TIP_MONEY_FORMAT));
-            cameo_tip_text(money_format.as_deref(), &item.display_name, item.cost)
-        };
+        let text = dynamic_tip_text(cursor, || {
+            if item.is_superweapon {
+                // The retained view carries the same native UIName used for
+                // ordering. Supers display it verbatim, without a cost suffix.
+                item.display_name.clone()
+            } else {
+                let money_format = state
+                    .process_assets
+                    .csf
+                    .as_ref()
+                    .map(|csf| csf.text(CAMEO_TIP_MONEY_FORMAT));
+                cameo_tip_text(money_format.as_deref(), &item.display_name, item.cost)
+            }
+        });
         regions.push(TipRegion {
             id: CAMEO_TIP_ID_BASE + slot as u32,
             rect: tip_rect(frame, item.rect),
@@ -535,6 +560,75 @@ mod tests {
 
     /// Retail English `TXT_MONEY_FORMAT_2`.
     const RETAIL_MONEY_FORMAT_2: &str = "%s $%d";
+
+    #[test]
+    fn hidden_dynamic_provider_clears_power_tip_and_retains_its_timer() {
+        use crate::app::input::cursor::CursorVisibility;
+        use crate::ui::tooltips::{TOOLTIP_DURATION_MS, TooltipService};
+
+        let mut cursor = CursorVisibility::default();
+        let region = |cursor| TipRegion {
+            id: ID_POWER_TIP,
+            rect: TipRect::new(0, 0, 8, 100),
+            // Only the provider admission is under test; text is opaque here.
+            text: dynamic_tip_text(cursor, || "power tip".to_owned()),
+        };
+        let mut tips = TooltipService::new();
+        tips.sync_regions(&[region(cursor)]);
+        tips.on_mouse_move(5, 50, 0);
+        tips.poll(1000);
+        let shown = tips.active().unwrap().clone();
+
+        // Production input46's ordinary depth0 -> -1 transition.
+        cursor.apply_input_lock(true, false);
+        tips.sync_regions(&[region(cursor)]);
+        assert!(tips.active().is_none(), "479050 returns NULL while hidden");
+
+        // Unlock before the retained duration expires, without a new move.
+        cursor.apply_input_lock(false, true);
+        tips.sync_regions(&[region(cursor)]);
+        let expiry = shown.shown_at_ms + TOOLTIP_DURATION_MS;
+        tips.poll(expiry - 1);
+        assert!(
+            tips.active().is_none(),
+            "visibility does not rearm the timer"
+        );
+        tips.poll(expiry);
+        assert_eq!(tips.active().unwrap().shown_at_ms, expiry);
+
+        // Let that timer fire while hidden instead: the failed resolve leaves
+        // no further timer, so a later unlock needs a genuine mouse event.
+        cursor.apply_input_lock(true, false);
+        tips.sync_regions(&[region(cursor)]);
+        tips.poll(expiry + TOOLTIP_DURATION_MS);
+        cursor.apply_input_lock(false, true);
+        tips.sync_regions(&[region(cursor)]);
+        tips.poll(expiry + 2 * TOOLTIP_DURATION_MS);
+        assert!(tips.active().is_none());
+        tips.on_mouse_move(6, 50, expiry + 2 * TOOLTIP_DURATION_MS);
+        tips.poll(expiry + 2 * TOOLTIP_DURATION_MS + 1000);
+        assert_eq!(tips.active().unwrap().id, ID_POWER_TIP);
+    }
+
+    #[test]
+    fn dynamic_provider_uses_cursor_depth_before_resolving_any_text() {
+        use crate::app::input::cursor::CursorVisibility;
+
+        for (level, expected_resolution) in [(-3, false), (-1, false), (0, false), (1, true)] {
+            let mut cursor = CursorVisibility::default();
+            cursor.restore_level(level);
+            // A locked Scenario can retain positive cursor depth. The native
+            // predicate is WWMouse's signed depth, not the Scenario flag.
+            cursor.apply_input_lock(true, false);
+            let mut resolved = false;
+            let text = dynamic_tip_text(cursor, || {
+                resolved = true;
+                "dynamic text".to_owned()
+            });
+            assert_eq!(resolved, expected_resolution, "prior depth{level}");
+            assert_eq!(text.is_empty(), !expected_resolution);
+        }
+    }
 
     #[test]
     fn tactical_ground_tip_uses_plane_receiver_and_direct_ground_byte() {

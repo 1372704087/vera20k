@@ -10,6 +10,10 @@
 #[path = "campaign_house_bootstrap_tests.rs"]
 mod campaign_house_bootstrap_tests;
 
+#[cfg(test)]
+#[path = "scenario_house_name_retail_tests.rs"]
+mod scenario_house_name_retail_tests;
+
 use std::collections::HashMap;
 
 use crate::map::entities::EntityCategory;
@@ -1574,6 +1578,13 @@ pub fn populate_special_houses(sim: &mut Simulation, house_roster: &HouseRoster,
         );
         // The House constructor builds its whole Supers vector.
         crate::sim::superweapon::construct_house_supers(sim, rules, name_id, false);
+        // House4F62BA copies its HouseType's ID. These fixed-tail Houses do
+        // not pass the generated participant-name writers below.
+        house.initialize_scenario_name(
+            rules
+                .scenario_country_name(Some(country_name))
+                .unwrap_or(country_name),
+        );
         // Stock Neutral/Special are MultiplayPassive, which keeps them out of
         // defeat evaluation and out of the game-over alive scan. `country_name`
         // is always concrete here — the roster's `Country=` when the map named
@@ -1612,6 +1623,15 @@ pub fn populate_launch_houses(
         );
         // The House constructor builds its whole Supers vector.
         crate::sim::superweapon::construct_house_supers(sim, rules, name_id, false);
+        // Offline CreateHouses68804A..688092 /688210..688252 overwrite the
+        // constructor name independently of the participant display handle.
+        // Every computer keeps the same native name; its internal key stays
+        // distinct, so FromName can select the first array entry.
+        house.initialize_scenario_name(if slot.is_human {
+            "<human player>"
+        } else {
+            "Computer"
+        });
         // `ScenarioClass::Create_Houses` passes every launch house through
         // `HouseClass::SetDifficulty` (humans with 1, `0x00688132`; computer
         // slots with their own, `0x006882B9`); Neutral and Special are never
@@ -2411,7 +2431,7 @@ impl ScenarioBootstrapRng {
                     Some(rules),
                     Some(&map_data.ini),
                 );
-                initialize_campaign_current_house(&mut simulation, house_roster, &map_data.ini);
+                initialize_campaign_current_house(&mut simulation, &map_data.ini);
                 simulation
                     .native_unique_ids
                     .as_mut()
@@ -2577,12 +2597,11 @@ impl Simulation {
 
 /// Campaign68ACAA chooses Basic.Player with a 20-byte ReadString buffer,
 /// byte-exact House name lookup50C170, and index0 fallback on a miss.
-/// Evidence: docs/research/PHASE3_CURRENT_HOUSE_IDENTITY_GHIDRA_REPORT.md.
+/// Source: original68ACAA..68AD18 and the consumed campaign_start_houses corpus.
 /// Empty dev substrates retain unavailable identity; this is not a claim that
 /// native can launch an empty House array.
 pub fn initialize_campaign_current_house(
     sim: &mut Simulation,
-    roster: &HouseRoster,
     ini: &crate::rules::ini_parser::IniFile,
 ) {
     let requested = ini
@@ -2590,10 +2609,9 @@ pub fn initialize_campaign_current_house(
         .map(|section| section.read_string("Player", "", 20))
         .unwrap_or_default();
     // Interning folds lookup case and preserves the first spelling it saw.
-    // The native strcmp reads the original House definition instead.
-    sim.session.current_house = roster
-        .find_house_index(&requested)
-        .and_then(|index| sim.session.house_order.get(index).copied())
+    // The native strcmp reads the retained raw House name instead.
+    sim.session.current_house = sim
+        .scenario_house_named(&requested)
         .or_else(|| sim.session.house_order.first().copied());
     if let Some(owner) = sim.session.current_house {
         // Original 68AD0C/68AD18 set the selected House's +1EC/+1ED.
@@ -2683,6 +2701,9 @@ pub fn initialize_map_roster_houses(
                 rules.general.attack_delay,
             );
         }
+        // HouseReadINI500A62..500A7B overwrites the constructor's country ID
+        // with the bounded roster entry before any object reader runs.
+        house_state.initialize_scenario_name(&house.name);
         house_state.multiplay_passive =
             crate::sim::house_state::resolve_multiplay_passive(rules, country_name);
         if let Some(rules) = rules {
@@ -2804,7 +2825,6 @@ mod tests {
         ] {
             initialize_campaign_current_house(
                 &mut sim,
-                &roster,
                 &IniFile::from_str(&format!("[Basic]\n{input}\n")),
             );
             assert_eq!(sim.session.current_house, Some(expected));

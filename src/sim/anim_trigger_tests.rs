@@ -163,7 +163,7 @@ fn simulation_for_history(rules: &RuleSet, row: &Value) -> Simulation {
     sim
 }
 
-fn assert_state(sim: &Simulation, id: AnimId, expected: &Value, context: &str) {
+pub(in crate::sim) fn assert_state(sim: &Simulation, id: AnimId, expected: &Value, context: &str) {
     let anim = sim.anim(id).unwrap();
     let retired = sim.substrate.pending_delete.contains_object(&id);
     let runtime = &anim.runtime;

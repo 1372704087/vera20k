@@ -3049,7 +3049,7 @@ mod debris_tests;
 
 #[cfg(test)]
 #[path = "anim_trigger_tests.rs"]
-mod trigger_tests;
+pub(in crate::sim) mod trigger_tests;
 
 #[cfg(test)]
 mod tests {

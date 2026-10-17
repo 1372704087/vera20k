@@ -1035,3 +1035,303 @@ fn random_unit_crate_keeps_rejected_draws_before_an_eligible_vehicle() {
         expected.native_state_hex()
     );
 }
+
+/// Original481A00→56BD40→4824A0→421EA0/423AC0/725C70. The native
+/// corpus independently seeds each stream at the pickup boundary, after an
+/// original placement; geometry/House priors are explicit, not a native map
+/// bootstrap claim. The ordinary app Move capture covers that integration.
+#[test]
+fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
+    use crate::sim::rng::{MainRng, SimRng};
+    use serde_json::json;
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("Hills.mmx")
+    else {
+        return;
+    };
+    let rows = crate::test_fixture::json("tools/spatial_oracle/cash_crate.json");
+    let raw_shp = crate::rules::retail_ini_fixture::retail_archive_bytes("MONEY.SHP")
+        .expect("physical MONEY artwork");
+    let mut rules = retail.rules;
+    let count = crate::assets::shp_file::ShpFile::frame_count_from_bytes(&raw_shp).unwrap();
+    rules.bind_anim_frame_count_for_test("MONEY", i32::from(count));
+    let registry = OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
+    let crate_id = registry.id_for_name("CRATE").unwrap();
+    for row in rows.as_array().unwrap() {
+        let input = &row["input"];
+        let name = input["name"].as_str().unwrap();
+        let native_art = &row["retail"]["art"];
+        assert_eq!(json!(count), native_art["raw_shp_frame_count"], "{name}");
+        assert_eq!(
+            crate::util::sha256::sha256_hex(&raw_shp),
+            native_art["asset_loads"][0]["sha256"].as_str().unwrap(),
+            "{name} actual SHP input"
+        );
+        assert_eq!(json!(rules.powerups.weights), row["retail"]["weights"]);
+        assert_eq!(
+            rules.powerups.anims[POWERUP_MONEY].as_deref(),
+            Some("MONEY")
+        );
+        assert_eq!(
+            rules.powerups.magnitudes[POWERUP_MONEY].bits(),
+            row["retail"]["money_magnitude"].as_f64().unwrap().to_bits()
+        );
+        assert_eq!(
+            rules.crate_rules.regen.bits(),
+            row["retail"]["regen_minutes"].as_f64().unwrap().to_bits()
+        );
+        let mut sim = Simulation::with_seed(input["placement_seed"].as_u64().unwrap());
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        sim.overlay_grid = Some(OverlayGrid::new(32, 32));
+        let size = &input["geometry"]["size"];
+        let local = &input["geometry"]["raw_local_size"];
+        // This is the corpus's supplied geometry, not a full Pack5 map load.
+        let header = crate::map::map_file::MapHeader {
+            theater: "TEMPERATE".into(),
+            fill: "Clear".into(),
+            level: 0,
+            width: size[2].as_u64().unwrap() as u32,
+            height: size[3].as_u64().unwrap() as u32,
+            local_left: local[0].as_u64().unwrap() as u32,
+            local_top: local[1].as_u64().unwrap() as u32,
+            local_width: local[2].as_u64().unwrap() as u32,
+            local_height: local[3].as_u64().unwrap() as u32,
+        };
+        sim.install_playfield_from_map_header(&header);
+        let bounds = sim.playfield_bounds.unwrap();
+        assert_eq!(
+            json!([
+                bounds.off_fc,
+                bounds.off_100,
+                bounds.off_104,
+                bounds.off_108
+            ]),
+            input["geometry"]["local_size"],
+            "{name} original clipped LocalSize"
+        );
+        assert_eq!(
+            json!(sim.map_rect().unwrap()),
+            input["geometry"]["map_rect"],
+            "{name} initialized MapRect"
+        );
+        sim.session.game_mode_nonzero = input["mode"].as_i64().unwrap() != 0;
+        // The joined native Anim fixture supplies its stored speed explicitly;
+        // normalized MONEY timing must use the same input through its owner.
+        sim.session.game_options.game_speed = input["game_speed"].as_i64().unwrap() as i32;
+        sim.session.game_options.crates = input["regenerate"].as_bool().unwrap_or(true);
+        sim.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
+        let owner = house(&mut sim, "Americans", true);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy
+            .set_credits_for_test(input["balance"].as_i64().unwrap() as i32);
+        // Native supplies one tracked building without a resident Building
+        // body. Install that prior through the existing tracking owner.
+        let yard = place_actor(
+            &mut sim,
+            owner,
+            (24, 24),
+            EntityCategory::Structure,
+            "GACNST",
+        );
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .tracking
+            .add_tracking(sim.substrate.entities.get_mut(yard).unwrap());
+        let actor = sim
+            .spawn_object("MTNK", "Americans", 10, 11, 0, &rules)
+            .unwrap();
+        let cell = (
+            input["pickup_cell"][0].as_i64().unwrap() as i16,
+            input["pickup_cell"][1].as_i64().unwrap() as i16,
+        );
+        let placement_seed = input["placement_seed"].as_u64().unwrap();
+        sim.scenario_rng = SimRng::new(placement_seed);
+        sim.main_rng = MainRng::new(placement_seed);
+        sim.mapgen_rng = SimRng::new(placement_seed);
+        assert!(super::super::place_crate(
+            &mut sim,
+            &rules,
+            &registry,
+            cell,
+            input
+                .get("scalar")
+                .map(|value| value.as_u64().unwrap() as u8)
+        ));
+        let slot_values = |sim: &Simulation| {
+            json!(
+                sim.crate_authority
+                    .slots()
+                    .iter()
+                    .filter(|slot| !slot.is_empty())
+                    .map(|slot| (
+                        slot.start_frame,
+                        slot.aux,
+                        slot.duration,
+                        slot.cell_x,
+                        slot.cell_y
+                    ))
+                    .collect::<Vec<_>>()
+            )
+        };
+        // Zero coordinates alone define an empty native slot. The supplied
+        // native arena zeroes unused timers; Rust constructs them paused (-1).
+        // Compare all live slots, including their timer words, without treating
+        // irrelevant unused timer storage as a gameplay difference.
+        let native_live_slots = |slots: &serde_json::Value| {
+            json!(
+                slots
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|slot| {
+                        slot[3].as_i64().unwrap() != 0 || slot[4].as_i64().unwrap() != 0
+                    })
+                    .collect::<Vec<_>>()
+            )
+        };
+        assert_eq!(
+            slot_values(&sim),
+            native_live_slots(&row["initial_slots"]),
+            "{name} original placement"
+        );
+        assert_eq!(overlay_at(&sim, cell), Some(crate_id));
+        while sim.native_identity_cursor().unwrap_or(0)
+            < row["id_cursor_before"].as_u64().unwrap() as u32
+        {
+            sim.next_native_runtime_id();
+        }
+        assert_eq!(
+            json!(sim.native_identity_cursor().unwrap()),
+            row["id_cursor_before"]
+        );
+        let seed = input["seed"].as_u64().unwrap();
+        sim.scenario_rng = SimRng::new(seed);
+        sim.main_rng = MainRng::new(seed);
+        sim.mapgen_rng = SimRng::new(seed);
+        let rng = |sim: &Simulation| {
+            json!({"scenario": sim.scenario_rng.native_state_hex(),
+            "main": sim.main_rng.native_state_hex(), "mapgen": sim.mapgen_rng.native_state_hex()})
+        };
+        assert_eq!(
+            rng(&sim),
+            row["rng_before"],
+            "{name} independent native seed input"
+        );
+        sim.sound_events.clear();
+        assert_eq!(
+            pickup_crate(
+                &mut sim,
+                &rules,
+                &registry,
+                cell,
+                actor,
+                crate::sim::world::FrameEffects::default()
+            ),
+            row["returned"].as_u64().unwrap() != 0
+        );
+        assert_eq!(
+            json!(sim.houses[&owner].economy.credits()),
+            row["balance"],
+            "{name}"
+        );
+        assert_eq!(
+            slot_values(&sim),
+            native_live_slots(&row["final_slots"]),
+            "{name} replacement ordering"
+        );
+        assert_eq!(overlay_at(&sim, cell), None, "{name} old image removed");
+        assert_eq!(rng(&sim), row["rng_after"], "{name} all three streams");
+        assert_eq!(
+            json!(sim.native_identity_cursor().unwrap()),
+            row["id_cursor_after"]
+        );
+        assert_eq!(
+            sounds(&sim),
+            vec![("CrateMoney".into(), Some([owner, owner]))]
+        );
+        let sound_coord = sim
+            .sound_events
+            .iter()
+            .find_map(|event| match event {
+                SimSoundEvent::VocAt {
+                    sound_id,
+                    rx,
+                    ry,
+                    sub_x,
+                    sub_y,
+                    world_z_leptons,
+                    ..
+                } if sound_id == "CrateMoney" => {
+                    let position = crate::sim::components::Position::new(
+                        *rx,
+                        *ry,
+                        0,
+                        Some(*world_z_leptons),
+                        *sub_x,
+                        *sub_y,
+                    );
+                    let point = crate::sim::movement::ground_pose::position_world_coord(&position);
+                    Some(json!([point.x, point.y, point.z]))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let native_sound = row["pickup_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["call"] == "play_sound")
+            .unwrap();
+        assert_eq!(
+            sound_coord, native_sound["coord"],
+            "{name} retained sound center"
+        );
+        let anim = *sim
+            .anims()
+            .find(|(_, anim)| sim.resolve(anim.type_id) == "MONEY")
+            .unwrap()
+            .0;
+        crate::sim::anim_class::trigger_tests::assert_state(&sim, anim, &row["initial_anim"], name);
+        let history = row["history"].as_array().unwrap();
+        let last = history.last().unwrap()["frame"].as_u64().unwrap() as u32;
+        for frame in input["frame"].as_u64().unwrap() as u32..=last {
+            sim.session.binary_frame = frame;
+            sim.visit_anim(
+                anim,
+                &rules,
+                Some(&registry),
+                crate::sim::world::FrameEffects::default(),
+            );
+            if let Some(control) = history
+                .iter()
+                .find(|control| control["frame"].as_u64() == Some(u64::from(frame)))
+            {
+                crate::sim::anim_class::trigger_tests::assert_state(
+                    &sim,
+                    anim,
+                    &control["state"],
+                    name,
+                );
+            }
+        }
+        sim.process_pending_delete();
+        assert!(sim.anim(anim).is_none());
+        assert_eq!(json!(sim.anims().count()), row["cleanup"]["anim_count"]);
+        assert_eq!(
+            json!(sim.substrate.pending_delete.len()),
+            row["cleanup"]["pending_delete_count"]
+        );
+        assert_eq!(
+            json!(sim.native_identity_cursor().unwrap()),
+            row["id_cursor_after_cleanup"]
+        );
+        assert_eq!(
+            rng(&sim),
+            row["rng_after_cleanup"],
+            "{name} lifetime adds no draws"
+        );
+    }
+}

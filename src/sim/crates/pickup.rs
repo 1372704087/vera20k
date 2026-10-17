@@ -38,6 +38,7 @@
 use super::effects::{self, Multiplier, UnitCrateOutcome};
 use super::runtime::remove_pickup_crate;
 use super::{ForcedPostPrecheckFailure, place_one_random_crate, read_crate_mark_fields};
+use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -49,7 +50,6 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::sim::components::{DriveCoord, Position};
 use crate::sim::intern::InternedId;
-use crate::sim::movement::ground_pose;
 use crate::sim::rng::SimRng;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{SimSoundEvent, Simulation};
@@ -137,20 +137,40 @@ pub(super) fn select_pickup_outcome(
     }
 }
 
-/// The crate cell's centre coordinate on its ground (`0x0041C230` then
-/// `CellClass::ComputeGroundHeightAtCoord @ 0x0047B3A0` with the `(0x80,
-/// 0x80)` offset), as every arm and the anim tail build it.
-fn crate_center(sim: &Simulation, cell: (i16, i16)) -> DriveCoord {
-    let mut center = DriveCoord {
-        x: i32::from(cell.0).wrapping_mul(256).wrapping_add(128),
-        y: i32::from(cell.1).wrapping_mul(256).wrapping_add(128),
-        z: 0,
-    };
-    if let Some(terrain) = sim.resolved_terrain.as_ref() {
+/// Pickup directly centers the retained signed `Cell+0x24` words and calls
+/// `ComputeGroundHeightAtCoord @ 0x0047B3A0` with offset `(0x80, 0x80)`.
+/// The existing Cell486840/480A30 kernel owns that same arithmetic. This
+/// caller adapter preserves the receiver instead of doing another Map578080
+/// lookup from the original requested words.
+fn crate_center(
+    sim: &Simulation,
+    cell: (i16, i16),
+    receiver: Option<NativeCellIdentity>,
+) -> DriveCoord {
+    if let Some((terrain, receiver)) = sim.resolved_terrain.as_ref().zip(receiver) {
         let cells = NativeCellQuery::canonical(terrain);
-        center.z = ground_pose::query_ground_height(&cells, center).unwrap_or(0);
+        if let Some((x, y, z)) = crate::sim::cell_kernel::native_cell_own_coords(receiver, &cells) {
+            return DriveCoord {
+                x: x as i32,
+                y: y as i32,
+                z: z as i32,
+            };
+        }
     }
-    center
+    // Preserve the existing flat adapter for mapless/unsupported fixtures.
+    // Unsupported ground is not a native parity claim.
+    let center = crate::sim::cell_kernel::cell_center(
+        crate::sim::cell_kernel::CellCoordinate {
+            x: i32::from(cell.0),
+            y: i32::from(cell.1),
+        },
+        0,
+    );
+    DriveCoord {
+        x: center.x,
+        y: center.y,
+        z: center.z,
+    }
 }
 
 /// `CellClass+0xEC`, the land type the eligibility tests read
@@ -319,6 +339,12 @@ pub(crate) fn pickup_crate(
         return true;
     };
     let owner = actor.owner();
+    // 481A00 retains its caller's ESI Cell through synchronous effects. Carry
+    // identity, not an early coordinate: nested map misses can restamp Dummy.
+    let receiver = sim
+        .resolved_terrain
+        .as_ref()
+        .map(|terrain| NativeCellQuery::canonical(terrain).lookup(cell));
     let (overlay_id, _) = read_crate_mark_fields(sim, cell);
     let Some(overlay_id) = overlay_id else {
         return true;
@@ -417,7 +443,7 @@ pub(crate) fn pickup_crate(
         return true;
     }
     let magnitude = rules.powerups.magnitudes[powerup];
-    let center = crate_center(sim, cell);
+    let center = crate_center(sim, cell, receiver);
     let radius = rules.crate_rules.radius;
     let general = &rules.general;
     // The slot whose anim the tail spawns: the Unit arm's failure rewrites it
@@ -429,7 +455,7 @@ pub(crate) fn pickup_crate(
             let chosen = effects::choose_unit_crate_type(sim, rules, owner, preempted)
                 .map(|object| object.id.clone());
             let Some(type_id) = chosen else {
-                return spawn_pickup_anim(sim, rules, anim_slot, cell, center);
+                return spawn_pickup_anim(sim, rules, anim_slot, cell, receiver);
             };
             match effects::place_unit_crate(
                 sim,
@@ -452,7 +478,7 @@ pub(crate) fn pickup_crate(
                     return false;
                 }
                 UnitCrateOutcome::NoObject => {
-                    return spawn_pickup_anim(sim, rules, anim_slot, cell, center);
+                    return spawn_pickup_anim(sim, rules, anim_slot, cell, receiver);
                 }
                 UnitCrateOutcome::FellBackToMoney => {
                     // `0x0048245D`: only the slot copy is rewritten; the
@@ -471,6 +497,9 @@ pub(crate) fn pickup_crate(
                 // pays the actor's owner. Identical whenever the controlled
                 // house is the player's own, the campaign norm.
                 crate::sim::credit_income::add_credits(sim, owner, amount);
+                // 4824EF..482529 samples retained ESI after amount/credits;
+                // the independent 483307..483334 animation query follows sound.
+                let center = crate_center(sim, cell, receiver);
                 play_crate_sound(
                     sim,
                     general.crate_money_sound.as_deref(),
@@ -584,7 +613,7 @@ pub(crate) fn pickup_crate(
             _ => {}
         }
     }
-    spawn_pickup_anim(sim, rules, anim_slot, cell, center)
+    spawn_pickup_anim(sim, rules, anim_slot, cell, receiver)
 }
 
 /// `0x004832F5..0x00483389`: the slot's `[Powerups]` anim 200 leptons above
@@ -595,7 +624,7 @@ fn spawn_pickup_anim(
     rules: &RuleSet,
     slot: usize,
     cell: (i16, i16),
-    center: DriveCoord,
+    receiver: Option<NativeCellIdentity>,
 ) -> bool {
     let Some(anim) = rules.powerups.anims.get(slot).and_then(Option::as_deref) else {
         return true;
@@ -603,6 +632,8 @@ fn spawn_pickup_anim(
     let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
         return true;
     };
+    // 483307..483334 rereads the retained Cell only for an admitted anim.
+    let center = crate_center(sim, cell, receiver);
     let type_name = sim.interner.intern(anim);
     let mut descriptor = crate::sim::components::AnimClassSpawnDescriptor::new(
         type_name,

@@ -3,8 +3,10 @@
 import base64
 import configparser
 import hashlib
+import json
 import struct
 import unittest
+from pathlib import Path
 
 from tools.render_depth_fixture import (
     build_fixture, decode_fixture_lcw, decode_literal_lzo,
@@ -72,6 +74,34 @@ def decode_iso_cells(section):
 
 
 class RenderDepthFixtureTests(unittest.TestCase):
+    def test_move_voice_controls_keep_stock_actors_and_use_executed_reader_inputs(self):
+        native = json.loads((Path(__file__).resolve().parents[1] /
+                             'spatial_oracle/move_order_voice.json').read_text())
+        native_inputs = {
+            row['input']['sections'].get('MTNK', {}).get('VoiceMove')
+            for row in native['readers']['retained_controls']
+        }
+        stock = parse_ini(build_fixture(move_order_voice='stock'))
+        for mode in ('stock', 'multiple', 'unknown-first', 'unknown-only'):
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(move_order_voice=mode))
+                self.assertEqual(len(ini['Units']), 1)
+                self.assertEqual(ini['Units']['0'].split(',')[:5],
+                                 ['Americans', 'MTNK', '256', '48', '48'])
+                self.assertEqual(len(ini['Infantry']), 0)
+                self.assertEqual(ini['IsoMapPack5'], stock['IsoMapPack5'])
+                self.assertEqual(decode_iso_cells(ini['IsoMapPack5'])[48, 48], (0, 0, 0))
+                self.assertEqual(set(decode_overlay_section(ini['OverlayPack'])), {255})
+                for section in ('General', '105mm', 'AP', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+                if mode == 'stock':
+                    self.assertNotIn('MTNK', ini)
+                else:
+                    self.assertEqual(set(ini['MTNK']), {'VoiceMove'})
+                    self.assertIn(ini['MTNK']['VoiceMove'], native_inputs)
+        with self.assertRaises(ValueError):
+            build_fixture(move_order_voice='stock', damage_feedback='single')
+
     def test_damage_feedback_keeps_full_health_stock_actors_on_clear_ground(self):
         for mode, tanks in [('single', 1), ('removal', 5)]:
             with self.subTest(mode=mode):

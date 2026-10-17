@@ -42,8 +42,9 @@ impl ColorAddTable {
     }
 
     /// ReadColorAdd66D480, Process668C03..668C8B and Reset668B13..668B8E
-    /// enumerate the current section from slot 0, retaining the old tail. The
-    /// table's names are diagnostic; native consumers use only slot indexes.
+    /// enumerate the current section from slot 0, retaining its current tail.
+    /// Full Reset clears the table before LANG and that final root loop.
+    /// Names are diagnostic; native consumers use only slot indexes.
     /// RESIDUAL: native enumeration has no 16-entry clamp and overwrites
     /// adjacent Rules bytes on longer custom sections; VERA truncates to the
     /// actual table to preserve memory safety. Stock has 14 entries. Consumed
@@ -137,12 +138,15 @@ mod tests {
         serde_json::from_str(crate::test_fixture::text("tools/berserk_color.json")).unwrap()
     }
 
-    fn native_ini(row: &serde_json::Value) -> IniFile {
+    fn native_ini_sections(
+        sections: &serde_json::Value,
+        color_add_key_order: &serde_json::Value,
+    ) -> IniFile {
         let mut ini = IniFile::empty();
-        for (name, entries) in row["sections"].as_object().unwrap() {
+        for (name, entries) in sections.as_object().unwrap() {
             let mut section = IniSection::new(name.clone());
             let keys: Vec<_> = if name == "ColorAdd" {
-                row["color_add_key_order"]
+                color_add_key_order
                     .as_array()
                     .unwrap()
                     .iter()
@@ -164,6 +168,10 @@ mod tests {
             ini.replace_first_section(section);
         }
         ini
+    }
+
+    fn native_ini(row: &serde_json::Value) -> IniFile {
+        native_ini_sections(&row["sections"], &row["color_add_key_order"])
     }
 
     fn native_state(fields: &serde_json::Value) -> (ColorAddTable, ColorAddSelectors) {
@@ -199,6 +207,79 @@ mod tests {
             native.slots.each_ref().map(|slot| slot.rgb)
         );
         assert_eq!(indexes, native_indexes);
+    }
+
+    fn assert_native_rules(rules: &crate::rules::ruleset::RuleSet, expected: &serde_json::Value) {
+        assert_native_state(
+            &rules.color_add,
+            ColorAddSelectors {
+                laser_target_color: rules.general.laser_target_color,
+                iron_curtain_color: rules.general.iron_curtain_color,
+                berserk_color: rules.general.berserk_color,
+                force_shield_color: rules.general.force_shield_color,
+            },
+            expected,
+        );
+    }
+
+    #[test]
+    fn successive_scenario_resets_match_original_color_lifetime() {
+        use crate::rules::process_owner::{NativeRulesProcessOwner, NativeScenarioRulesPrefix};
+
+        // Whole original Reset6686C0 reaches root Process668A27, zero16 at
+        // 668A34..668A56, LANG668B05, root-only ColorAdd668B13..668B8E,
+        // then mode668BAA. The preceding scenario's map seeds every slot and
+        // selector through the production owner before that next reset.
+        let fixture = native_rules();
+        let history = &fixture["rules"]["reset_history"];
+        let seed = native_ini_sections(
+            &history["seed_sections"],
+            &history["seed_color_add_key_order"],
+        );
+        let mut compared = 0;
+        for row in history["cases"].as_array().unwrap() {
+            let lang_file = &row["lang_file"];
+            let lang_accepted = lang_file["read"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|read| read["status"] == 1);
+            // Inputs here are already-selected INI objects. Native file
+            // rejection and the separate campaign mode gate are not replayed
+            // by this test of the ordinary noncampaign rules lifetime.
+            if row["game_mode"] != 5 || (!lang_file["absent"].as_bool().unwrap() && !lang_accepted)
+            {
+                continue;
+            }
+            let root = native_ini_sections(&row["root_sections"], &row["root_color_add_key_order"]);
+            let lang =
+                lang_accepted.then(|| IniFile::from_str(lang_file["ascii"].as_str().unwrap()));
+            let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+                root,
+                lang,
+                IniFile::empty(),
+                std::sync::Arc::default(),
+            )
+            .unwrap();
+            let (first, _, _, _) = owner
+                .load_scenario(NativeScenarioRulesPrefix::NonCampaign(None), &seed)
+                .unwrap()
+                .into_parts();
+            assert_native_rules(&first, &row["before"]);
+            let mode = (!row["mode_sections"].is_null()).then(|| {
+                native_ini_sections(&row["mode_sections"], &row["mode_color_add_key_order"])
+            });
+            let (second, _, _, _) = owner
+                .load_scenario(
+                    NativeScenarioRulesPrefix::NonCampaign(mode.as_ref()),
+                    &IniFile::empty(),
+                )
+                .unwrap()
+                .into_parts();
+            assert_native_rules(&second, &row["after"]);
+            compared += 1;
+        }
+        assert_eq!(compared, 8);
     }
 
     #[test]
@@ -295,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn retained_color_defaults_survive_serialization_handoff_and_root_reset() {
+    fn retained_color_defaults_survive_serialization_handoff() {
         use crate::rules::native_processing::RulesLayerStack;
         use crate::rules::ruleset::RuleSet;
         let root = IniFile::from_str(
@@ -315,22 +396,6 @@ mod tests {
         assert_eq!(rules.general.laser_target_color, 4);
         assert_eq!(rules.general.force_shield_color, 6);
         assert_eq!(rules.color_add.slots[1].rgb, [4, 5, 6]);
-        let (_, trace) = continued.into_ini_and_native_type_construction_trace();
-        let root = IniFile::from_str("[ColorAdd]\nB=0,0,24\n");
-        let registry = trace
-            .into_registry_state_discarding_events()
-            .destructive_reset(&root);
-        let restored = RulesLayerStack::new(IniFile::empty())
-            .process_with_fixed_art_and_registry_state(&IniFile::empty(), registry)
-            .unwrap();
-        let rules = RuleSet::from_processed_rules(&restored).unwrap();
-        assert_eq!(rules.color_add.slots[0].rgb, [0, 0, 24]);
-        assert_eq!(rules.color_add.slots[1].rgb, [4, 5, 6]);
-        assert_eq!(rules.color_add.slots[2].rgb, [7, 8, 9]);
-        assert_eq!(rules.general.berserk_color, 4);
-        assert_eq!(rules.general.iron_curtain_color, 9);
-        assert_eq!(rules.general.laser_target_color, 4);
-        assert_eq!(rules.general.force_shield_color, 6);
     }
 
     #[test]

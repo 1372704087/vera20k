@@ -69,10 +69,7 @@ fn target_coord_offset_retains_only_reached_building_rules_passes() {
     assert_eq!(get(&retained, "HUT"), [-7, 20, 4]);
 
     let reset = tail
-        .process_with_fixed_art_and_registry_state(
-            &art,
-            state.destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
-        )
+        .process_with_fixed_art_and_registry_state(&art, state.destructive_reset())
         .unwrap();
     assert_eq!(get(&reset, "HUT"), [0; 3]);
 }
@@ -145,7 +142,7 @@ fn smoke_wind_reader_retains_layer_history_and_registry_reset() {
     let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
     let reset = receipt
         .into_registry_state_discarding_events()
-        .destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+        .destructive_reset();
     let continued = RulesLayerStack::new(IniFile::from_str("[General]\nOther=9\n"))
         .process_with_fixed_art_and_registry_state(&IniFile::empty(), reset)
         .unwrap();
@@ -210,7 +207,7 @@ fn falling_rate_limits_retain_layer_and_scene_reader_history() {
     let mut registry = receipt.into_registry_state_discarding_events();
     for reset in [false, true] {
         if reset {
-            registry = registry.destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+            registry = registry.destructive_reset();
         }
         let continued = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
             .process_with_fixed_art_and_registry_state(&IniFile::empty(), registry)
@@ -662,7 +659,7 @@ fn building_foundation_survives_registry_handoff_and_resets_with_owner() {
         &art,
         receipt
             .into_registry_state_discarding_events()
-            .destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
+            .destructive_reset(),
     )
     .unwrap();
     assert_eq!(
@@ -884,7 +881,7 @@ fn projectile_flat_survives_registry_handoff_and_resets_with_its_owner() {
             &art,
             receipt
                 .into_registry_state_discarding_events()
-                .destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
+                .destructive_reset(),
         )
         .unwrap();
     assert!(
@@ -994,7 +991,7 @@ fn anim_art_read_receipt_survives_handoff_and_follows_registry_reset() {
     let (_, receipt) = continued.into_ini_and_native_type_construction_trace();
     let reset = receipt
         .into_registry_state_discarding_events()
-        .destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+        .destructive_reset();
     assert_eq!(reset.anim_type_art_read_states().count(), 0);
     let after_reset = RulesLayerStack::new(IniFile::empty())
         .process_with_fixed_art_and_registry_state(&art, reset)
@@ -1584,7 +1581,7 @@ fn native_startup_prepass_repeat_and_reset_keep_each_phase_on_one_registry_owner
 
     let reset_state = prepass
         .into_registry_state_discarding_events()
-        .destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+        .destructive_reset();
     let processed = RulesLayerStack::new(root)
         .process_with_fixed_art_and_registry_state(&fixed_art, reset_state)
         .expect("post-reset full Process succeeds");

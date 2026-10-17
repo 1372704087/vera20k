@@ -96,7 +96,7 @@ fn weapon_registry_retains_original_damage_and_warhead_controls_through_save_and
             &IniFile::empty(),
             trace
                 .into_registry_state_discarding_events()
-                .destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
+                .destructive_reset(),
         )
         .unwrap();
     assert_eq!(

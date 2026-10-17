@@ -7014,7 +7014,7 @@ mod tests {
                         .unwrap()
                         .into_registry_state_discarding_events();
             } else if row["kind"] == "type_reset_and_process" {
-                retained = retained.destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+                retained = retained.destructive_reset();
             }
             // The empty Process after a cold read exposes retained RulesClass
             // fields without replaying the authored AudioVisual keys.
@@ -7693,7 +7693,7 @@ CellSpread=0
             &IniFile::empty(),
             trace
                 .into_registry_state_discarding_events()
-                .destructive_reset(&crate::rules::ini_parser::IniFile::empty()),
+                .destructive_reset(),
         )
         .unwrap();
         let rules = RuleSet::from_processed_rules(&after_reset).unwrap();

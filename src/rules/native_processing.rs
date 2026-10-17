@@ -60,6 +60,13 @@ pub enum RulesLayerKind {
     Scenario,
 }
 
+/// Whether these passes continue a live registry or enter Full_Init's reset.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RulesProcessContext {
+    Ordinary,
+    ScenarioReset,
+}
+
 #[derive(Debug, Clone)]
 struct RulesLayer {
     kind: RulesLayerKind,
@@ -147,12 +154,16 @@ impl RulesLayerStack {
         fixed_art: &IniFile,
         registry_state: NativeRulesRegistryState,
     ) -> Result<ProcessedRulesLayers, RulesError> {
-        self.process_with_fixed_art_and_registry_state_recovering(fixed_art, registry_state)
-            .map_err(NativeRulesProcessingFailure::into_error)
+        self.process_with_fixed_art_and_registry_state_recovering(
+            fixed_art,
+            registry_state,
+            RulesProcessContext::Ordinary,
+        )
+        .map_err(NativeRulesProcessingFailure::into_error)
     }
 
-    /// Continue Process calls while retaining the sole native registry owner
-    /// when a later pass fails.
+    /// Execute Process calls, optionally entering Full_Init's destructive
+    /// reset, while retaining the sole registry owner when a later pass fails.
     ///
     /// Native `RulesClass::Process @ 0x00668BF0` is not transactional. A
     /// Tiberium failure can occur after earlier constructors in the same pass
@@ -164,9 +175,26 @@ impl RulesLayerStack {
         &self,
         fixed_art: &IniFile,
         registry_state: NativeRulesRegistryState,
+        context: RulesProcessContext,
     ) -> Result<ProcessedRulesLayers, NativeRulesProcessingFailure> {
+        let (registry_state, mut root_color_add_reread) = match context {
+            RulesProcessContext::Ordinary => (registry_state, None),
+            RulesProcessContext::ScenarioReset => (
+                registry_state.destructive_reset(),
+                Some(&self.layers[0].ini),
+            ),
+        };
         let mut processor = RulesPassProcessor::with_registry_state(registry_state);
-        for (_, ini) in self.iter_passes() {
+        for (index, (kind, ini)) in self.iter_passes().enumerate() {
+            if index > 0
+                && kind != RulesLayerKind::LangRule
+                && let Some(root) = root_color_add_reread.take()
+            {
+                // Reset668B13..668B8E rereads only root ColorAdd after
+                // LANG668B05 and before mode668BAA/map68774F. In
+                // particular, LANG's AudioVisual selectors stay current.
+                processor.rules_color_add.apply_pass(root);
+            }
             if let Err(error) = processor.apply_pass(ini, fixed_art) {
                 let (_, partial_trace, _, _, _, _) = processor.finish();
                 return Err(NativeRulesProcessingFailure {
@@ -174,6 +202,15 @@ impl RulesLayerStack {
                     partial_trace: Box::new(partial_trace),
                 });
             }
+            if index == 0 && root_color_add_reread.is_some() {
+                // Reset668A34..668A56 clears all16 RGB triples AFTER root
+                // Process668A27. It leaves the four selector DWORDs alone.
+                // Whole original Reset controls: tools/berserk_color.json.
+                processor.rules_color_add = ColorAddTable::default();
+            }
+        }
+        if let Some(root) = root_color_add_reread {
+            processor.rules_color_add.apply_pass(root);
         }
         let (
             ini,
@@ -1262,9 +1299,10 @@ impl NativeRulesRegistryState {
     }
 
     /// Consume the pre-reset registry owner at Full_Init's destructive Rules
-    /// reset and return an owner with empty Type registries. RulesClass itself
-    /// survives 6686C0, retaining Gravity, detail thresholds and its other
-    /// scalar values for the first postpass.
+    /// Type-deletion phase and return an owner with empty Type registries.
+    /// RulesClass itself survives6686C0, retaining Gravity, detail thresholds
+    /// and its scalar values for the first root Process. The ColorAdd clear
+    /// and root reread occur later in RulesLayerStack's ScenarioReset context.
     ///
     /// Original reset retires every referenced Type: LightningWarhead detaches
     /// to null, while these Rules Anim references/list retain freed addresses.
@@ -1275,13 +1313,9 @@ impl NativeRulesRegistryState {
     ///
     /// Numeric-ID history is intentionally not represented here and therefore
     /// cannot be rewound by this operation.
-    pub(crate) fn destructive_reset(self, selected_rules_root: &IniFile) -> Self {
-        // Reset668B13..668B8E re-reads the selected root ColorAdd prefix.
-        // RulesClass survives, including the old tail and all four selectors.
-        let mut rules_color_add = self.rules_color_add;
-        rules_color_add.apply_pass(selected_rules_root);
+    pub(crate) fn destructive_reset(self) -> Self {
         Self {
-            rules_color_add,
+            rules_color_add: self.rules_color_add,
             rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
             rules_ambient_change_rate: self.rules_ambient_change_rate,

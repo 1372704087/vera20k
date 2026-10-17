@@ -3558,10 +3558,10 @@ def _berserk_colour_rules():
         u.mem_write(rules + offset, dwords(0x12345678))
     m.invoke(0x665650, rules)
 
-    def fields():
-        rgb = bytes(u.mem_read(rules + 0x1874, 48))
+    def fields(reader=m, address=rules):
+        rgb = bytes(reader.u.mem_read(address + 0x1874, 48))
         return dict(color_add=[list(rgb[i:i+3]) for i in range(0, 48, 3)],
-                    selectors={key: struct.unpack('<i', u.mem_read(rules + offset, 4))[0]
+                    selectors={key: struct.unpack('<i', reader.u.mem_read(address + offset, 4))[0]
                                for key, offset in selectors})
 
     constructor = fields()
@@ -3603,6 +3603,110 @@ def _berserk_colour_rules():
                     selector_read_order=[row['key'] for row in m.reads
                                          if row['key'] in dict(selectors)], after=fields())
 
+    def reset_histories():
+        """Whole original Reset, sharing the established VM/INI/RawFile owners."""
+        from tools.spatial_oracle.engineer_repair_admission import NativeAudioPlatform
+
+        seed_sections = {'ColorAdd': {f'Seed{i}': f'{i+1},{i+2},{i+3}' for i in range(16)},
+                         'AudioVisual': {key: str(11+i) for i, (key, _) in enumerate(selectors)}}
+        root = {'ColorAdd': {'Root': '0,0,24'}, 'AudioVisual': {'BerserkColor': '7'}}
+        # The original ReadCCFile/SaveToPipe/SHA path computed this Digest from
+        # these exact entries. Each present valid-file run verifies it natively.
+        lang = ('[ColorAdd]\nLANG0=7,8,9\nLANG1=30,31,32\n'
+                '[AudioVisual]\nLaserTargetColor=6\nBerserkColor=9\n'
+                '[Digest]\n1=5Z9CTq3TQS20/wfWQHiRlHIBMME=\n').encode('ascii')
+        mode = {'ColorAdd': {'Mode0': '51,52,53', 'Mode1': '54,55,56', 'Mode2': '57,58,59'},
+                'AudioVisual': {'IronCurtainColor': '15', 'BerserkColor': '3'}}
+        labels = {0x668A27: 'before_root_process', 0x668A2C: 'after_root_process',
+                  0x668A58: 'after_color_add_zero', 0x668B05: 'before_lang_process',
+                  0x668B0A: 'after_lang_process', 0x668B13: 'before_final_root_color_add',
+                  0x668B8E: 'after_final_root_color_add', 0x668BAA: 'before_mode_process',
+                  0x668BAF: 'before_file_cleanup'}
+        cases = []
+        inputs = [
+            ('partial_root_lang_absent', root, None, None, 5),
+            ('absent_root_lang_absent', {}, None, None, 5),
+            ('cached_empty_root_lang_absent', {'ColorAdd': {}}, None, None, 5),
+            ('partial_root_conflicting_lang', root, lang, None, 5),
+            ('absent_root_conflicting_lang', {}, lang, None, 5),
+            ('cached_empty_root_conflicting_lang', {'ColorAdd': {}}, lang, None, 5),
+            ('partial_root_empty_lang_file', root, b'', None, 5),
+            ('partial_root_missing_lang_digest', root, lang.split(b'[Digest]')[0], None, 5),
+            ('partial_root_conflicting_lang_then_mode', root, lang, mode, 5),
+            ('partial_root_mode_gated_by_game_mode', root, lang, mode, 0),
+            ('physical_root14_lang_absent', root_sections, None, None, 5),
+        ]
+        for name, root_input, lang_raw, mode_input, game_mode in inputs:
+            vm, address = fresh_reset()
+            memory = vm.u
+            vm.phase = name
+            platform = NativeAudioPlatform(vm, native.configured_gamemd().parent)
+            platform.configure_transport(prepared_files={'langrule.ini': lang_raw})
+            # Only OS file bytes/status are supplied; native CCFile Exists,
+            # ReadCCFile, INI loading, Digest comparison and destruction run.
+            memory.hook_add(UC_HOOK_CODE, lambda u, pc, size, data: platform.hook(u, pc, size))
+            CampaignReader.ordered_ini(vm, seed_sections)
+            vm.invoke(0x668BF0, address, (INI,))
+            before = fields(vm, address)
+            mode_object = 0
+            if mode_input is not None:
+                CampaignReader.ordered_ini(vm, mode_input)
+                mode_ini = vm.alloc(0x58)
+                memory.mem_write(mode_ini, bytes(memory.mem_read(INI, 0x40)))
+                mode_object = vm.alloc(0x40)
+                # Original5D67B0's existing-cache arm reads mode+38. The
+                # cached INI uses the same source-order transport as root.
+                memory.mem_write(mode_object + 0x38, dwords(mode_ini))
+            CampaignReader.ordered_ini(vm, root_input)
+            memory.mem_write(0xA8B238, dwords(game_mode, mode_object))
+            chronology, lang_read = [], []
+            lang_receiver = [None]
+            reached = set()
+
+            def observe(u, pc, _size, _data):
+                if pc in labels:
+                    chronology.append(dict(at=f'{pc:08X}', phase=labels[pc],
+                                           state=fields(vm, address)))
+                if pc in (0x6686C0, 0x668A4A, 0x668BE5, 0x5D67B0,
+                          0x4741F0, 0x525A60, 0x526470, 0x69E9E0):
+                    reached.add(f'{pc:08X}')
+                if (pc == 0x4741F0 and
+                        vm.read32(u.reg_read(UC_X86_REG_ESP)) == 0x668AE9):
+                    lang_receiver[0] = u.reg_read(UC_X86_REG_ECX)
+                if pc == 0x474311 and lang_receiver[0] is not None:
+                    lang_read.append(dict(status=u.reg_read(UC_X86_REG_EAX),
+                        computed_digest_hex=(bytes(u.mem_read(lang_receiver[0] + 0x41, 20)).hex()
+                            if '0069E9E0' in reached else None)))
+
+            memory.hook_add(UC_HOOK_CODE, observe)
+            vm.invoke(0x6686C0, address, (INI,))
+            # Retain evidence that no Reset instruction was patched by hooks.
+            original = native.file_span(native.image_bytes(), 0x6686C0, 0x526)[1]
+            assert bytes(memory.mem_read(0x6686C0, len(original))) == original
+            assert {'006686C0', '00668A4A', '00668BE5'} <= reached
+            if lang_raw == lang:
+                assert lang_read[0]['status'] == 1
+            cases.append(dict(name=name, root_sections=root_input,
+                root_color_add_key_order=list(root_input.get('ColorAdd', {})),
+                lang_file=dict(absent=lang_raw is None,
+                    ascii=None if lang_raw is None else lang_raw.decode('ascii'),
+                    sha256=None if lang_raw is None else hashlib.sha256(lang_raw).hexdigest(),
+                    read=lang_read),
+                mode_sections=mode_input,
+                mode_color_add_key_order=list((mode_input or {}).get('ColorAdd', {})),
+                game_mode=game_mode, before=before, chronology=chronology,
+                after=fields(vm, address), original_reset_bytes_unchanged=True,
+                lang_process_admitted=any(e['phase'] == 'before_lang_process' for e in chronology),
+                root_color_add_reread_admitted=any(
+                    e['phase'] == 'before_final_root_color_add' for e in chronology),
+                mode_process_admitted=any(e['phase'] == 'before_mode_process' for e in chronology),
+                reached=sorted(reached)))
+        return dict(seed_sections=seed_sections,
+                    seed_color_add_key_order=list(seed_sections['ColorAdd']), cases=cases,
+                    physical_root=dict(file=layers[0][0], archive=layers[0][1],
+                        bytes=len(layers[0][2]), sha256=hashlib.sha256(layers[0][2]).hexdigest()),
+                    physical_lang_absent=layers[1][2] is None)
+
     layers = physical_layers()
     wanted = {'ColorAdd', 'AudioVisual', 'CAOS', 'ChaosAttack', 'PsychGasCreate', 'MTNK'}
     physical = []
@@ -3638,8 +3742,8 @@ def _berserk_colour_rules():
         stages.append(read(selected, 'process'))
         physical.append(dict(file=name, archive=archive, bytes=len(raw),
                              sha256=hashlib.sha256(raw).hexdigest(), stages=stages))
-        # Reset's root ColorAdd reread is after optional LANGRULE Process and
-        # before mode Process. The absent-LANGRULE case follows this same order.
+        # This old per-reader slice deliberately has no reset zeroing. Whole
+        # Reset chronology/clearing/LANG precedence is in reset_history below.
         if (index == 0 and layers[1][2] is None) or index == 1:
             physical.append(dict(file='RULESMD.INI', root_colour_reread=True,
                                  stages=[read(root_sections, 'reset_root')]))
@@ -3704,7 +3808,8 @@ def _berserk_colour_rules():
     overflow = read({'ColorAdd': dict(seed, entry16='17,34,51')}, 'process')
     return dict(constructor_prefill_byte=0xA5, constructor=constructor,
                 physical=physical, retail=retail_fields, controls=controls,
-                malformed_rgb=malformed, overflow17=overflow, trigger_lexical=trigger)
+                malformed_rgb=malformed, overflow17=overflow, trigger_lexical=trigger,
+                reset_history=reset_histories())
 
 
 def _berserk_mtnk_image():
@@ -3969,7 +4074,8 @@ def berserk_colour_metadata():
         scope='Original ColorAdd/current-default colour-selector rules and prepared Image-resolved stock MTNK/GTNK indexed hull with DarkRed composite RGB565 cue; not a world, whole vehicle assembly or CAOS-shot replay.',
         assumptions=[
             'Original665650 executes after selected fields are prefilled; all16 ColorAdd triples and four selectors are observed after constructor writes.',
-            'Physical RULESMD, optional loose LANGRULE, MPBattleMD and XMP03T4 selected strings feed the existing Reader/Sound source-order INI cache. Full INI/archive loading, full Process/reset chronology and unrelated readers are excluded; original cold calls, Process prefix, reset root loop and whole AudioVisual reader execute.',
+            'Physical RULESMD, optional loose LANGRULE, MPBattleMD and XMP03T4 selected strings feed the existing Reader/Sound source-order INI cache. Existing cold/Process/reset_root rows remain individual reader slices: reset_root alone does not clear the table or establish reset chronology. Whole native Reset6686C0 through RET668BE5 executes separately in reset_history with native-Process-prefilled16-slot state and selected cached root/mode input; unrelated type discovery/full scenario loading and archive lookup remain outside these prepared records.',
+            'Whole Reset runs its root Process668A27, zeroes48 ColorAdd bytes668A34..668A56, optionally runs accepted LANGRULE Process668B05, then rereads only root ColorAdd668B13..668B8E and optionally mode Process668BAA. Selectors are not zeroed and the final root loop does not reread AudioVisual. Short root sections keep LANG tail after the zeroing; absent/empty root leaves that LANG prefix. Present LANG files execute original ReadCCFile4741F0/INI525A60/Digest verification over immutable raw OS file bytes. Empty file status0 reaches LANG Process; missing Digest status2 skips LANG Process, final root and mode. A valid Digest control reaches all selected phases. Cached mode+38 feeds original5D67B0 existing-cache arm; GameMode0 gates it off.',
             'Malformed RGB controls explicitly seed first sscanf output locals and record original scanner counts/locals. Later per-entry locals carry through the same native loop. First malformed values without these priors are uninitialized-stack dependent, not a native black default. Explicit cached empty entries are parser-bypass controls: physical INI loading drops empty entries and sections.',
             'Native ColorAdd loops enumerate the section count without a16-entry clamp. A bounded17-entry control records overwrite of the first selector low3 bytes. More than16 custom entries are memory-overflow behavior, not a safe native table size guarantee.',
             'The existing Unit arm owner supplies retained retail ColorAdd bytes; all16 entries are checked against the independently executed physical native table before drawing. Ordinary IronCurtainColor/BerserkColor arm inputs come from that native physical reader state; the Iron6 case is an explicit selector override.',
@@ -3982,12 +4088,18 @@ def berserk_colour_metadata():
         ],
         substitutions=[
             'Existing successful native allocation/CRT/immutable file-buffer and INI source-order cache transports replace platform IO; native body bytes and scalar/table readers are unchanged.',
+            'Whole Reset reuses select_anim_reset.fresh_reset and existing NativeAudioPlatform RawFile Win32 transport. LANGRULE is an explicit absent file or supplied immutable ASCII; allocation/free/TLS use the same established Reader boundary. Native file constructor/Exists/load/Digest/SHA/destructors, full Process calls and Reset bytes run unchanged. Root and positive mode use prepared ordered caches; mode object+38 is a declared already-loaded cache prior, not mode-file discovery.',
             'Existing building_barrel Machine observes native ObjectType filename submissions with available files and loaded-object sentinel seams, then stops before tailer scaling. Actual GTNK payload loaders and raster execute separately in their established owner.',
             'Foot GetZAdjust4DAFC0 returns explicit flat prior0. Its terrain producer is excluded; actual GetGradient4DB0A0 and all later depth tests run. No color, light, palette, clip or blitter result is supplied.',
         ],
         entry_points=dict(rules_ctor=0x665650, cold_colour_call=0x52D111,
                           colour_add_reader=0x66D480, process_colour_prefix=0x668BF0,
-                          reset_root_colour_loop=0x668B13, audio_visual=0x6691E0,
+                          reset=0x6686C0, reset_root_process=0x668A27,
+                          reset_color_add_zero=0x668A34, reset_lang_process=0x668B05,
+                          reset_root_colour_loop=0x668B13, reset_mode_process=0x668BAA,
+                          lang_file_reader=0x4741F0, ini_loader=0x525A60,
+                          ini_save_to_pipe=0x526470, sha_result=0x69E9E0,
+                          mode_cached_ini=0x5D67B0, audio_visual=0x6691E0,
                           rgb_reader=0x474B50, rgb_scanf=0x7CA530,
                           unit_type_ctor=0x7470D0, image_block=0x5F92F9,
                           art_voxel=0x5F961C, voxel_loader_caller=0x71609C,

@@ -140,7 +140,7 @@ fn type_reset_keeps_rules_gravity_but_discards_weapon_values() {
     let (_, trace) = processed.into_ini_and_native_type_construction_trace();
     let reset = trace
         .into_registry_state_discarding_events()
-        .destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+        .destructive_reset();
     assert_eq!(reset.rules_gravity, 12);
     assert!(reset.families.is_empty());
     let processed = RulesLayerStack::new(IniFile::empty())

@@ -117,7 +117,7 @@ fn native_tech_level_lifecycle_retains_prefix_values_then_retires_the_generation
     let bytes = bincode::serialize(&state).unwrap();
     let restored: NativeRulesRegistryState = bincode::deserialize(&bytes).unwrap();
     assert_stage(&restored, stage(native, "prefix_present_key"));
-    let reset = restored.destructive_reset(&crate::rules::ini_parser::IniFile::empty());
+    let reset = restored.destructive_reset();
     assert_stage(&reset, stage(native, "destructive_reset"));
     let fresh = layers
         .process_with_fixed_art_and_registry_state(&IniFile::empty(), reset)

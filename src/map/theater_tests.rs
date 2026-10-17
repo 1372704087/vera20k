@@ -613,6 +613,37 @@ fn active_retail_tile_shadow_route_is_dormant() {
 }
 
 #[test]
+fn retail_lunar_water_family_uses_the_original_postpass() {
+    use crate::map::rmg::tiles::TileIds;
+    use crate::util::sha256::sha256_hex;
+
+    let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let theater = load_theater(&mut assets, "LUNAR").expect("load retail Lunar theater");
+    let corpus = native_general_corpus();
+    let physical = corpus["physical"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["file"] == "lunarmd.ini")
+        .expect("original reader's physical Lunar input");
+    assert_eq!(
+        sha256_hex(&theater.ini_data),
+        physical["sha256"].as_str().unwrap()
+    );
+
+    // Original ReadTheater545150, 546C95..546CB9: seven specific globals
+    // become -1. In particular ShorePieces and WaterBridge are cleared too.
+    // Cell4865D0 still compares against absent bases; this is a production
+    // publication regression, not a supplied tile-base or native-world golden.
+    assert_eq!(theater.rmg_tiles.shore_pieces, None);
+    assert_eq!(theater.rmg_tiles.water_set, None);
+    assert_eq!(theater.rmg_tiles.water_bridge, None);
+    assert!(TileIds::resolve(&theater).is_water_shore_or_waterfall(0));
+}
+
+#[test]
 fn selected_retail_temperate_rmg_roles_reach_tile_ids() {
     use crate::map::rmg::tiles::{SpecialTerrain, TileIds};
     use crate::util::sha256::sha256_hex;
@@ -1089,7 +1120,7 @@ fn gsi_04_03a_bridge_ramp_predicate_remains_narrower_than_special_terrain() {
 }
 
 #[test]
-fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
+fn gsi_04_03a_lunar_postpass_preserves_other_declared_ranges() {
     let mut ini = String::from(
         "[General]\n\
          CliffSet=10\n\
@@ -1111,12 +1142,13 @@ fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
     let mut bridge_set = super::read_general_u16(general, "BridgeSet");
     let mut wood_bridge_set = super::read_general_u16(general, "WoodBridgeSet");
     let mut ranges = super::resolve_cliff_ranges(&lookup, general, bridge_set, wood_bridge_set);
+    let before = ranges;
     let mut rmg_tiles = RmgTileKeys {
         water_set: Some(17),
+        shore_pieces: Some(18),
+        water_bridge: Some(19),
         ..RmgTileKeys::default()
     };
-
-    assert!(ranges.is_special_terrain_tile(1, 0));
 
     super::apply_lunar_global_zeroing(
         "LUNAR",
@@ -1128,9 +1160,21 @@ fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
 
     assert_eq!(bridge_set, None);
     assert_eq!(wood_bridge_set, None);
-    assert_eq!(ranges, TheaterCliffRanges::default());
+    assert_eq!(
+        ranges,
+        TheaterCliffRanges {
+            cliff_set: None,
+            water_cliffs: None,
+            bridge_set: None,
+            wood_bridge_set: None,
+            ..before
+        }
+    );
+    assert_eq!(ranges.cliff_ramps, Some(1));
+    assert_eq!(ranges.waterfall_east, Some(1));
     assert_eq!(rmg_tiles.water_set, None);
-    assert!(!ranges.is_special_terrain_tile(1, 0));
+    assert_eq!(rmg_tiles.shore_pieces, None);
+    assert_eq!(rmg_tiles.water_bridge, None);
 }
 
 /// Helper: build a minimal TheaterData for variant-table tests. BridgeSet

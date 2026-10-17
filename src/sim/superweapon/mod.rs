@@ -21,6 +21,8 @@ mod cell_receiver_tests;
 mod charge_native_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod chronosphere_tests;
+#[cfg(any(test, feature = "test-support"))]
+mod chronosphere_lunar_retail_tests;
 mod fire;
 pub mod force_shield;
 pub mod genetic_converter;

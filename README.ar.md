@@ -99,14 +99,6 @@ cargo run --release --bin vera20k
 جنبًا إلى جنب مع الأصل وإخبارنا بما يبدو غير صحيح. افتح PR وسنتولى الأمر من هناك.
 النقاش يجري على [Discord](https://discord.gg/kmjRUn5m5F) وفي مجموعة QQ (1097193563).
 
-منطق اللعب في `src/sim/`، والرسم في `src/render/`، والقوائم والإدخال في `src/app/` و`src/ui/`؛
-ولا تحتاج إلى أدوات Python الموجودة في `tools/`.
-
-لتجربة تعديلاتك داخل اللعبة، شغّل `cargo run --profile fast --bin vera20k`. هذا البناء مُحسَّن مثل `--release`،
-لكنه يعيد بناء ما غيّرته فقط، فتعود إلى اللعب أسرع. قِس الأداء باستخدام `--release`.
-
-تُرخَّص المساهمات بموجب GPLv3 مثل بقية المشروع؛ ولا توجد اتفاقية CLA.
-
 ## الدعم
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="ادعم VERA20k عبر PayPal" height="40"></a>

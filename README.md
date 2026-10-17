@@ -97,15 +97,6 @@ Help is welcome. You can write code, refactor the engine, test the game, share i
 it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
 Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
 
-Gameplay is in `src/sim/`, rendering in `src/render/`, and menus and input in `src/app/` and
-`src/ui/`; you don't need the Python tools in `tools/`.
-
-To play-test your changes, run `cargo run --profile fast --bin vera20k`. It's optimized like
-`--release` but rebuilds only what you changed, so you're back in the game sooner. Measure
-performance with `--release`.
-
-Contributions are licensed under the GPLv3, like the rest of the project; there's no CLA.
-
 ## Support
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20k via PayPal" height="40"></a>

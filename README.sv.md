@@ -97,15 +97,6 @@ All hjälp är välkommen. Du kan skriva kod, refaktorera motorn, testa spelet, 
 spela det sida vid sida med originalet och berätta vad som känns fel. Öppna en PR så tar vi det
 därifrån. Diskussionen sker på [Discord](https://discord.gg/kmjRUn5m5F) och i QQ-gruppen (1097193563).
 
-Spelmekaniken finns i `src/sim/`, renderingen i `src/render/` och menyer och inmatning i
-`src/app/` och `src/ui/`; Python-verktygen i `tools/` behöver du inte.
-
-Speltesta dina ändringar med `cargo run --profile fast --bin vera20k`. Den är optimerad som
-`--release` men bygger bara om det du har ändrat, så du kommer snabbare tillbaka till spelet.
-Mät prestanda med `--release`.
-
-Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
-
 ## Stöd projektet
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20k via PayPal" height="40"></a>

@@ -96,14 +96,6 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 欢迎帮忙。你可以编写代码、重构引擎、测试游戏、提出想法，或对照原版游玩，告诉我们哪些地方感觉不对。
 直接提交 PR 即可，剩下的交给我们。讨论在 [Discord](https://discord.gg/kmjRUn5m5F) 和 QQ 群（1097193563）进行。
 
-游戏逻辑在 `src/sim/`，渲染在 `src/render/`，菜单和输入在 `src/app/` 和 `src/ui/`；
-你不需要 `tools/` 中的 Python 工具。
-
-要在游戏中试玩你的改动，请运行 `cargo run --profile fast --bin vera20k`。它和 `--release` 一样经过优化，
-但只重新编译你改动的部分，让你更快回到游戏。测量性能时请使用 `--release`。
-
-贡献内容与项目其余部分一样采用 GPLv3 许可证；无需签署 CLA。
-
 ## 支持项目
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="通过 PayPal 支持 VERA20k" height="40"></a>

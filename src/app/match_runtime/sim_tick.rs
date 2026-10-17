@@ -697,8 +697,8 @@ fn advance_in_game_runtime_mode(
             tick_lane,
         );
         // Native Strip AI6A8CF3 requests redraw throughout the authored
-        // flash window, even with no input. Reuse the one projection owner
-        // only in that window; ordinary idle ticks do not enumerate cameos.
+        // flash window, even with no input. Reuse the projection owner here;
+        // gadget idle below also republishes it on every unlocked pump.
         if frame_committed
             && state
                 .match_state

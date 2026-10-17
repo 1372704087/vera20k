@@ -32,7 +32,7 @@ mod placement_gpu_tests;
 #[cfg(test)]
 mod status_gpu_tests;
 #[cfg(test)]
-pub(crate) use draw_passes::draw_pooled_overlay_bodies;
+pub(crate) use draw_passes::{draw_bridge_shadows, draw_pooled_overlay_bodies};
 pub(crate) mod draw_plan_lowering;
 mod merge_passes;
 pub(crate) mod minimap_transaction;

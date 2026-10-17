@@ -1065,7 +1065,7 @@ pub(crate) fn draw_pooled_overlay_bodies<'a>(
 }
 
 /// Submit the bridge shadow cell sweep between overlay bodies and objects.
-pub(super) fn draw_bridge_shadows(
+pub(crate) fn draw_bridge_shadows(
     encoder: &mut wgpu::CommandEncoder,
     color: &wgpu::TextureView,
     depth: &wgpu::TextureView,

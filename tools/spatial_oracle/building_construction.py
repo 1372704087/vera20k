@@ -146,11 +146,11 @@ def building_fixture(case):
     return u, read32, building, frame, calls
 
 
-def invoke(u, entry, this, *args):
+def invoke(u, entry, this, *args, timeout_us=10_000_000):
     u.mem_write(SP, dwords(RET_MAGIC, *args))
     u.reg_write(UC_X86_REG_ECX, this)
     u.reg_write(UC_X86_REG_ESP, SP)
-    run_checked(u, entry, RET_MAGIC, count=2_000_000)
+    run_checked(u, entry, RET_MAGIC, count=2_000_000, timeout_us=timeout_us)
     return u.reg_read(UC_X86_REG_EAX)
 
 

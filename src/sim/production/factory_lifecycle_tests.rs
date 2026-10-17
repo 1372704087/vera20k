@@ -9,6 +9,184 @@ use super::{
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
 use crate::sim::{intern::InternedId, rng::SimRng, world::Simulation};
 
+/// Ordinary paid DEST from an already admitted Allied base. The water patch,
+/// completed buildings, running Idle animation and wallet are scene priors; payment, held identity,
+/// PLACE, producer missions and animation retirement all use the frame API.
+/// Original House4FB563 -> Building443C60/444187 and Unload44D880 ->
+/// Production8 expiry44E8F0 establish this lifecycle (gamemd SHA2561cdd).
+#[test]
+fn paid_destroyer_runs_shipyard_production_animation_through_idle_recovery() {
+    use crate::sim::command::{Command, CommandEnvelope};
+    use crate::sim::house_state::HouseState;
+    use crate::sim::mission::MissionType;
+    use crate::sim::runtime::{SimResources, SimRuntime};
+    use crate::sim::world::{FrameEffects, TickLane};
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("Hills.mmx")
+    else {
+        return;
+    };
+    let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let mut rules = retail.rules;
+    crate::map::theater::load_theater(&mut assets, "TEMPERATE").expect("retail temperate assets");
+    rules
+        .bind_scheduler_anim_assets(
+            &["GAYARD_A".into(), "GAYARD_C".into(), "GAYARD_D".into()],
+            &assets,
+            "tem",
+            "TEMPERATE",
+        )
+        .expect("production animation bounds come from physical retail SHPs");
+    let mut sim = Simulation::with_seed(0x4441_7500);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    super::tests::install_infantry_delivery_fixture_map(&mut sim);
+    let water = super::tests::water_terrain(64, 64);
+    let terrain = sim.resolved_terrain.as_mut().unwrap();
+    for y in 24..48 {
+        for x in 24..48 {
+            *terrain.cell_mut(x, y).unwrap() = water.cell(x, y).unwrap().clone();
+        }
+    }
+    let owner = sim.interner.intern("Americans");
+    let mut house = HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
+    house.project_country_mults(&rules, &sim.interner);
+    sim.houses.insert(owner, house);
+    sim.session.current_house = Some(owner);
+    let yard = 3;
+    for (id, name, x, y) in [
+        (1, "GACNST", 5, 10),
+        (2, "GAPOWR", 14, 10),
+        (yard, "GAYARD", 30, 30),
+    ] {
+        spawn_structure(&mut sim, &rules, id, "Americans", name, x, y);
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(rules.object(name).unwrap().strength);
+        sim.remove_entity_occupancy(id);
+        super::tests::stamp_type_foundation(&mut sim, &rules, id);
+        sim.add_entity_occupancy(id);
+        assert!(sim.register_live_object(id));
+    }
+    assert!(sim.rebuild_dynamic_navigation(&rules));
+    // The raw admitted-building fixture skips map-load GrandOpening. Supply
+    // its already-running Idle through the real slot/Anim constructor owner;
+    // no production animation, dispatch/completion or payment is armed here.
+    sim.set_building_anim_slot(yard, 18, false, false, 0, &rules)
+        .expect("the completed shipyard's physical Idle asset is bound");
+    let destroyer = sim.interner.get("DEST").unwrap();
+    let cost = sim.cost_of(owner, rules.object("DEST").unwrap(), &rules);
+    let mut runtime = SimRuntime {
+        simulation: sim,
+        resources: SimResources {
+            rules,
+            ..SimResources::empty()
+        },
+    };
+    for _ in 0..8 {
+        runtime
+            .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+            .expect("settle the admitted shipyard through ordinary visits");
+    }
+    let sim = &runtime.simulation;
+    assert!(
+        super::build_options_for_owner(sim, &runtime.resources.rules, "Americans")
+            .iter()
+            .any(|option| option.type_id == destroyer && option.enabled),
+        "the actual retail prerequisite owners admit DEST before the order"
+    );
+    let idle = sim
+        .substrate
+        .entities
+        .get(yard)
+        .unwrap()
+        .building_art
+        .anim_slots()[18]
+        .expect("stock idle animation is live before production");
+    assert_eq!(
+        sim.interner.resolve(sim.anim(idle).unwrap().type_id),
+        "GAYARD_A"
+    );
+    let mut product = None;
+    let mut production = None;
+    let mut delivered = false;
+    let mut recovered = false;
+    for step in 1..=2_000 {
+        let commands = if step == 1 {
+            vec![CommandEnvelope::new(
+                owner,
+                1,
+                Command::QueueProduction { type_id: destroyer },
+            )]
+        } else {
+            Vec::new()
+        };
+        runtime
+            .advance_frame(&commands, 67, TickLane::Ordinary, FrameEffects::default())
+            .expect("ordinary paid ship production frame");
+        let sim = &runtime.simulation;
+        let id = *product.get_or_insert_with(|| held_id(sim, owner, ProductionCategory::Ship));
+        let ship = sim
+            .substrate
+            .entities
+            .get(id)
+            .unwrap_or_else(|| panic!("the original paid DEST{id} must survive step{step}"));
+        assert_eq!(ship.type_ref(), destroyer);
+        let producer = sim.substrate.entities.get(yard).unwrap();
+        if !delivered && !ship.lifecycle.in_limbo() {
+            delivered = true;
+            assert!(ship.lifecycle.cell_marked());
+            assert_eq!(producer.mission.current().known(), Some(MissionType::Guard));
+            assert_eq!(producer.mission.queued().known(), Some(MissionType::Unload));
+            assert!(producer.radio_contacts.is_empty());
+            assert_eq!(ship.tether.partner(), None);
+            assert_eq!(sim.houses[&owner].economy.spent_credits(), cost);
+            assert_eq!(sim.houses[&owner].economy.credits(), 10_000 - cost);
+        }
+        if let Some(anim) = producer.building_art.anim_slots()[8] {
+            let retained = *production.get_or_insert(anim);
+            assert_eq!(
+                anim, retained,
+                "one Production animation per delivered ship"
+            );
+            assert_eq!(
+                sim.interner.resolve(sim.anim(anim).unwrap().type_id),
+                "GAYARD_D"
+            );
+            assert!(producer.building_art.anim_slots()[18].is_none());
+            assert!(
+                sim.anim(idle).is_none(),
+                "the original Idle was scalar-deleted"
+            );
+        } else if let Some(production) = production {
+            let restored = producer.building_art.anim_slots()[18]
+                .expect("normal Production expiry restores Idle");
+            assert_ne!(restored, idle);
+            assert_eq!(
+                sim.interner.resolve(sim.anim(restored).unwrap().type_id),
+                "GAYARD_A"
+            );
+            assert!(
+                sim.anim(production).is_none(),
+                "expired Production is retired"
+            );
+            assert_eq!(producer.mission.current().known(), Some(MissionType::Guard));
+            assert!(producer.radio_contacts.is_empty());
+            recovered = true;
+            break;
+        }
+    }
+    assert!(
+        delivered && production.is_some() && recovered,
+        "paid identity must reach Unload, live Production and natural Idle recovery"
+    );
+}
+
 pub(super) fn manager_rules() -> RuleSet {
     RuleSet::from_ini(&manager_ini()).expect("factory manager fixture")
 }

@@ -235,20 +235,26 @@ fn tactical_world_tip_text(
     // Residual: Nominal crew's runtime+6D9 is not represented (crew_survival);
     // its earlier TXT_TECHNICIAN return requires the shared crew/House-count
     // mechanism. This covers constructor-default own infantry, including E2.
-    // Nonlocal admission/names, special Unit and non-Techno/resource names
-    // remain unported; do not substitute their generic actual-type name.
-    if entity.owner() != viewer
-        || !matches!(
-            entity.category(),
-            EntityCategory::Structure | EntityCategory::Infantry
-        )
-    {
+    if entity.owner() != viewer {
         return String::new();
     }
-    rules
-        .object(view.interner().resolve(entity.type_ref()))
-        .map(|object| crate::assets::csf_file::type_ui_name(object.ui_name.as_deref(), csf))
-        .unwrap_or_default()
+    let Some(object) = rules.object(view.interner().resolve(entity.type_ref())) else {
+        return String::new();
+    };
+    match entity.category() {
+        EntityCategory::Structure | EntityCategory::Infantry => {}
+        // Exact ownership also makes Unit746750's observer-disguise +C8
+        // false. Unit746B20 then returns actual Type+60 when the first gate
+        // 70DC60 -> 717880 (signed TurretCount > 0) is false, as for HTNK.
+        // Source: `tools.native_inspect disasm 0x746B20 --bytes 0x165`.
+        EntityCategory::Unit if object.turret_count <= 0 => {}
+        // Positive TurretCount can reach HasTurretTooltips and the passenger/
+        // current-turret formatter (stock FV). Its retained readers and that
+        // name path remain unported; never replace it with the actual name.
+        // Nonlocal names and non-Techno/resource names also remain open.
+        _ => return String::new(),
+    }
+    crate::assets::csf_file::type_ui_name(object.ui_name.as_deref(), csf)
 }
 
 fn tactical_tip_text(state: &AppState) -> String {
@@ -719,6 +725,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn mapped_own_rhino_tip_uses_retail_ui_name_and_clears_after_limbo() {
+        assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
+            "HTNK",
+            "Unit746B20 own-House TurretCount<=0 arm",
+        );
+    }
+
     fn assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
         type_id: &str,
         native_name_body: &str,
@@ -752,6 +766,7 @@ mod tests {
         // Admitted, mapped constructor prior. Paid production is a separate
         // witness; this test exercises the actual text/pick owners. Stock E2
         // begins native Infantry+6D9 clear (517A98), with Nominal absent/false.
+        // Stock HTNK's TurretCount=0 bypasses Unit746B20's name formatter.
         let entity_id = sim
             .spawn_object(type_id, "Russians", 14, 14, 0, &rules)
             .unwrap();

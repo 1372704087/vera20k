@@ -354,7 +354,7 @@ impl SoundPlaybackInputs<'_> {
 }
 
 /// Tick the sidebar power bar animation (segment-by-segment transition).
-pub(crate) fn update_power_bar_anim(state: &mut AppState) {
+pub(crate) fn update_power_bar_anim(state: &mut AppState, wall_ms: u64) {
     let owner_name = preferred_local_owner_name(state);
     let (power_produced, power_drained) = match (
         state
@@ -398,8 +398,8 @@ pub(crate) fn update_power_bar_anim(state: &mut AppState) {
         power_produced,
         power_drained,
         theoretical,
+        wall_ms,
     );
-    state.match_state.match_presentation.power_bar_anim.tick();
 }
 
 /// Update radar availability from ECS and tick the radar chrome animation.

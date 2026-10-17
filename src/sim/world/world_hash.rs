@@ -1239,41 +1239,7 @@ impl Simulation {
                 b"building-factory-v1".hash(hasher);
                 building.hash(hasher);
             }
-            f.owner.hash(hasher);
-            (f.category as u8).hash(hasher);
-            f.insertion_seq.hash(hasher);
-            f.progress.hash(hasher);
-            f.step_rate_frames.hash(hasher);
-            f.step_timer.start_frame().hash(hasher);
-            f.step_timer.duration().hash(hasher);
-            f.balance.hash(hasher);
-            match &f.object {
-                Some(o) => {
-                    1u8.hash(hasher);
-                    o.type_id.hash(hasher);
-                    match o.entity_id {
-                        Some(e) => {
-                            1u8.hash(hasher);
-                            e.hash(hasher);
-                        }
-                        None => 0u8.hash(hasher),
-                    }
-                    o.completion_accounted.hash(hasher);
-                }
-                None => 0u8.hash(hasher),
-            }
-            f.on_hold.hash(hasher);
-            f.suspended.hash(hasher);
-            if f.has_changed() {
-                b"factory-changed-5d".hash(hasher);
-            }
-            // P5d: the queue-of-record (was the per-`BuildQueueItem` `queues_by_owner` fold,
-            // now retired). Folds in FIFO (`VecDeque`) order — deterministic by construction.
-            (f.queue.len() as u64).hash(hasher);
-            for e in &f.queue {
-                e.type_id.hash(hasher);
-                e.enqueue_order.hash(hasher);
-            }
+            f.hash_state(hasher);
         }
     }
 

@@ -91,8 +91,8 @@ impl HouseFactoryAbandonment {
 ///
 /// StartNext4CA60A passes force1. Failed FindFactory(0,1,1) then permits
 /// (1,0,1) at4FA45B, still rejecting Selling/InLimbo before construction.
-/// Offline/full-airfield held-start Resume semantics remain the residual on
-/// Factory::start_rate; the permanent-loss sale controls do not reach them.
+/// Only that fallback requests a held start from the shared Resume owner;
+/// the ordinary online path and Building factories pass false.
 ///
 /// Residual (building path): a building never queues in gamemd.
 /// Begin_Production refuses a building PRODUCE while the building factory runs
@@ -113,11 +113,14 @@ pub fn enqueue_by_type(
         return false;
     };
     let owner_id = sim.interner.intern(owner);
-    if find_factory(sim, rules, owner_id, obj, false, true, true).is_none()
-        && (!force || find_factory(sim, rules, owner_id, obj, true, false, true).is_none())
-    {
+    let held_start = if find_factory(sim, rules, owner_id, obj, false, true, true).is_some() {
+        false
+    } else if force && find_factory(sim, rules, owner_id, obj, true, false, true).is_some() {
+        // House4FA45B's forced fallback alone supplies Resume(1).
+        true
+    } else {
         return false;
-    }
+    };
     let category = production_category_for_object(obj);
     let type_interned = sim.interner.intern(type_id);
     if let Some((active, suspended)) = sim.production.factories.active_object(owner_id, category)
@@ -129,9 +132,14 @@ pub fn enqueue_by_type(
         // still links/returns0. Source: factory_hold_resume.md.
         let time_to_build = time_to_build(&time_to_build_inputs(sim, rules, owner_id, obj));
         let frame = sim.session.binary_frame;
-        sim.production
-            .factories
-            .resume(owner_id, category, time_to_build, frame);
+        let money = crate::sim::credit_income::available_money(sim, owner_id);
+        sim.production.factories.resume(
+            FactoryHolder::House(owner_id, category),
+            time_to_build,
+            frame,
+            held_start,
+            money,
+        );
         publish_cameo_factory_link(sim, owner_id, category, type_interned);
         return true;
     }
@@ -160,6 +168,7 @@ pub fn enqueue_by_type(
             FactoryHolder::House(owner_id, category),
             type_interned,
             effects,
+            held_start,
         )
         .expect("validated StartProduction type must construct one Techno");
     }
@@ -173,7 +182,9 @@ pub fn suspend_production(sim: &mut Simulation, owner: &str, category: Productio
         return false;
     };
     let frame = sim.session.binary_frame;
-    sim.production.factories.suspend(owner_id, category, frame)
+    sim.production
+        .factories
+        .suspend(owner_id, category, frame, true)
 }
 
 /// Start the build an active factory head holds. `HouseClass::Begin_Production
@@ -204,6 +215,7 @@ pub(super) fn start_active_production(
     holder: FactoryHolder,
     type_id: InternedId,
     effects: FrameEffects<'_>,
+    held_start: bool,
 ) -> Option<u64> {
     let owner_id = sim
         .production
@@ -228,9 +240,10 @@ pub(super) fn start_active_production(
     }
     let time_to_build = time_to_build(&time_to_build_inputs(sim, rules, owner_id, obj));
     let frame = sim.session.binary_frame;
+    let money = crate::sim::credit_income::available_money(sim, owner_id);
     sim.production
         .factories
-        .start_rate(holder, time_to_build, frame);
+        .resume(holder, time_to_build, frame, held_start, money);
     if let FactoryHolder::House(owner, category) = holder {
         publish_cameo_factory_link(sim, owner, category, type_id);
     }
@@ -464,7 +477,7 @@ fn finish_house_abandon(
 /// FactoryStartNext4CA5A0 pops exactly one type, then calls the single
 /// HouseBeginProduction port with force1 (4CA60A). FindFactory admission
 /// precedes StartProduction and the constructor/RNG/identity allocation.
-fn start_next_queued(
+pub(super) fn start_next_queued(
     sim: &mut Simulation,
     rules: &RuleSet,
     owner: InternedId,
@@ -804,6 +817,7 @@ pub fn complete_held_building_for_test(
         FactoryHolder::House(owner, category),
         type_id,
         FrameEffects::default(),
+        false,
     )
     .expect("the fixture constructs its object at StartProduction");
     assert!(sim.production.factories.test_arm_ready(owner, category));
@@ -834,6 +848,7 @@ pub(in crate::sim) fn construct_active_factory_fixture(
         FactoryHolder::House(owner, category),
         type_id,
         FrameEffects::default(),
+        false,
     )
 }
 
@@ -843,10 +858,10 @@ pub(in crate::sim) fn construct_active_factory_fixture(
 /// empty Factory deletion (50928C..5092A0). Queries and nested destruction
 /// always see the authoritative registry. No per-frame eligibility scan.
 ///
-/// Residual: offline-only Suspend(0)/resume at509240..509287 is not ported;
-/// GoOnline/GoOffline's independent Building+660 lifecycle is a separate open
-/// mechanism. Temporal start/stop has no native509140 callback. The ordinary
-/// last-barracks sale below reaches permanent loss, not those hold arms.
+/// A retained head with only offline factories enters Suspend(0); a later
+/// callback with an online factory resumes only a system hold (+70 && !+71).
+/// Temporal start/stop has no native509140 callback. GoOnline/GoOffline's
+/// independent Building+660 lifecycle remains a separate open mechanism.
 pub(in crate::sim) fn update_factory_queue(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -895,6 +910,35 @@ pub(in crate::sim) fn update_factory_queue(
             );
         }
         start_next_queued(sim, rules, owner, category, effects);
+    } else if let Some(type_id) = active
+        && let Some(object) = sim.object_type(type_id, rules)
+    {
+        //50922A..509287 only visits the ORIGINAL retained head. The loss
+        //branch above jumps past this even if StartNext constructs a successor.
+        if find_factory(sim, rules, owner, object, true, true, true).is_none() {
+            let frame = sim.session.binary_frame;
+            sim.production
+                .factories
+                .suspend(owner, category, frame, false);
+            //509252..50926E requests repaint of the active strip, without
+            //selection/EVA/membership changes. The client already redraws its
+            //existing FactoryView each frame; no second dirty-state owner.
+        } else if sim
+            .production
+            .factories
+            .automatic_resume_pending(owner, category)
+        {
+            let time_to_build = time_to_build(&time_to_build_inputs(sim, rules, owner, object));
+            let frame = sim.session.binary_frame;
+            let money = crate::sim::credit_income::available_money(sim, owner);
+            sim.production.factories.resume(
+                FactoryHolder::House(owner, category),
+                time_to_build,
+                frame,
+                false,
+                money,
+            );
+        }
     }
     if sim
         .production

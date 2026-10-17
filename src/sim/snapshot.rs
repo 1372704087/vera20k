@@ -1068,7 +1068,9 @@ use crate::sim::world::Simulation;
 // manual flag is removed. Older paused factories have incompatible state/layout.
 // 381 -> 382: retained Secret Lab rules/lists, House membership and per-
 // building fallback production. Startup assignment must not repeat on load.
-const SNAPSHOT_VERSION: u32 = 382;
+// 382 -> 383: Factory+71 persists automatic-recovery eligibility separately
+// from +70 suspension. System holds must survive load and retain their owner.
+const SNAPSHOT_VERSION: u32 = 383;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4600,7 +4602,8 @@ mod tests {
         // 379 -> 380: live type TechLevels and global constructor chronology.
         // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
         // 381 -> 382: retained Secret Lab rules, membership and reward.
-        assert_eq!(super::SNAPSHOT_VERSION, 382);
+        // 382 -> 383: private Factory+71 automatic-recovery eligibility.
+        assert_eq!(super::SNAPSHOT_VERSION, 383);
     }
 
     #[test]

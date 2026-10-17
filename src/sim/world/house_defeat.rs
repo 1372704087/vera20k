@@ -105,6 +105,45 @@ impl Simulation {
         self.queue_commands(generated);
     }
 
+    /// House4F9265..4F9302 consumes the private tech-tree request after
+    /// this House's production choices. Keep this suffix distinct from the
+    /// earlier power/rate assessment: a Temporal release requests both, and
+    /// neither supplies UpdateFactoryQueue509140 or resumes a system hold.
+    pub(in crate::sim) fn recheck_house_tech_tree(
+        &mut self,
+        owner: InternedId,
+        rules: &RuleSet,
+    ) -> Vec<crate::sim::command::CommandEnvelope> {
+        let mut generated = Vec::new();
+        // House4F927C/4F92ED clears1FC before either pass; a status
+        // change inside50AF10 can retain a request for the next frame.
+        if self
+            .houses
+            .get_mut(&owner)
+            .is_some_and(|house| house.take_tech_recheck())
+        {
+            if self.session.current_house == Some(owner) {
+                for type_id in
+                    crate::sim::production::construction_options_for_owner(self, rules, owner)
+                {
+                    self.lifecycle_outputs
+                        .push(super::LifecycleOutput::SidebarConstructionOption { owner, type_id });
+                }
+                self.lifecycle_outputs
+                    .push(super::LifecycleOutput::SidebarRecalculated { owner });
+            }
+            // Strip recalculation precedes4F92F6/4F92FD's Super
+            // revoke/grant passes. Carry generated ABANDON events
+            // to MainTick's post-Logic647260 dispatcher.
+            generated.extend(crate::sim::production::recalculate_strips(
+                self, rules, owner,
+            ));
+            crate::sim::superweapon::update_owned_supers(self, rules, owner);
+            crate::sim::superweapon::grant_provided_supers(self, rules, owner);
+        }
+        generated
+    }
+
     /// The house rung's per-house steps in HouseClass::Array order: each
     /// house's team creation (`0x004F8A00..0x004F8B08`,
     /// `sim::ai_team_creation`), its defeat gate (see the module doc), its
@@ -200,36 +239,7 @@ impl Simulation {
                 crate::sim::ai_base_building::update_production_choices(
                     self, rules, owner, registry,
                 );
-                // House4F927C/4F92ED clears1FC before either pass; a status
-                // change inside50AF10 can retain a request for the next frame.
-                if self
-                    .houses
-                    .get_mut(&owner)
-                    .is_some_and(|house| house.take_tech_recheck())
-                {
-                    if self.session.current_house == Some(owner) {
-                        for type_id in crate::sim::production::construction_options_for_owner(
-                            self, rules, owner,
-                        ) {
-                            self.lifecycle_outputs.push(
-                                super::LifecycleOutput::SidebarConstructionOption {
-                                    owner,
-                                    type_id,
-                                },
-                            );
-                        }
-                        self.lifecycle_outputs
-                            .push(super::LifecycleOutput::SidebarRecalculated { owner });
-                    }
-                    // Strip recalculation precedes4F92F6/4F92FD's Super
-                    // revoke/grant passes. Carry generated ABANDON events
-                    // to MainTick's post-Logic647260 dispatcher.
-                    generated.extend(crate::sim::production::recalculate_strips(
-                        self, rules, owner,
-                    ));
-                    crate::sim::superweapon::update_owned_supers(self, rules, owner);
-                    crate::sim::superweapon::grant_provided_supers(self, rules, owner);
-                }
+                generated.extend(self.recheck_house_tech_tree(owner, rules));
             }
             if let Some(house) = self.houses.get_mut(&owner) {
                 house.release_repair_latch(self.session.binary_frame);

@@ -3355,6 +3355,9 @@ mod tests {
             108,
         ));
         let factory = sim.production.factories.test_first_mut().unwrap();
+        // The kernel fixture supplies an already-running head. StartProduction
+        // itself now correctly leaves +70 stopped until the separate Resume.
+        factory.suspended = false;
         factory.step_rate_frames = 1;
         factory.step_timer = CdTimer::from_raw(0, 0);
         for id in [DEPOT, 1, 501] {

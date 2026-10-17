@@ -739,15 +739,10 @@ def sale_sidebar_metadata():
     return record
 
 
-def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
-    """Real Select/receive around Suspend1 and same-head Resume0.
-
-    Reuse the paid Russian fixture and its evidence collector. No held flag,
-    rate, timer, stage, event payload or admission result is supplied.
-    """
-    factory, product = sale_queue_start(m, 'E2')
-    if complete:
-        advance_factory_to_stage(m, factory, 54)
+def held_factory_observer(m, factory, product, *, extra_calls=(), extra_state=None,
+                          capture_rng_requests=False):
+    """One observer for paid-head hold controls; it supplies no gameplay state."""
+    assert m.get(factory + 0x58) == product
     m.watch.update({0x4FA910: ('house_suspend', 3, 12),
                     0x4C9E60: ('factory_suspend', 1, 4),
                     0x4CA6E0: ('factory_rate_rewrite', 0, 0),
@@ -762,7 +757,10 @@ def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
 
     def state():
         observed = sale_sidebar_state(m, factory)
-        return dict(frame=observed['frame'], factory=observed['factory'])
+        result = dict(frame=observed['frame'], factory=observed['factory'])
+        if extra_state is not None:
+            result.update(extra_state())
+        return result
 
     def identity_cursor():
         return m.get(m.get(0xA8B230) + 0x214)
@@ -771,8 +769,10 @@ def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
         return {key: hashlib.sha256(bytes.fromhex(raw)).hexdigest()
                 for key, raw in streams.items()}
 
-    def phase(label, operation):
+    def phase(label, operation, *, allow_detach=False, allow_construction=False,
+              allow_product_change=False, allow_rng=False):
         before, cursor = state(), identity_cursor()
+        previous_product = m.get(factory + 0x58)
         evidence = m.step(label, operation)
         after = state()
         calls = []
@@ -780,7 +780,7 @@ def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
             if row['name'] not in ('select_action', 'house_suspend', 'factory_suspend',
                     'begin_production', 'set_production_rate', 'type_find_factory',
                     'sidebar_link_factory', 'factory_rate_rewrite', 'time_to_build',
-                    'play_gui_sound', 'eva'):
+                    'play_gui_sound', 'eva', *extra_calls):
                 continue
             call = dict(name=row['name'], caller=row['caller'], args_raw=row['args'],
                         returned='return_eax' in row)
@@ -797,7 +797,7 @@ def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
                     call['force_low_byte'] = row['args'][3] & 255
             elif row['name'] == 'time_to_build':
                 call.update(return_i32=struct.unpack('<i', c.dwords(row['return_eax']))[0],
-                            held_object=int(row['ecx'], 16) == product)
+                            held_object=int(row['ecx'], 16) == m.get(factory + 0x58))
             elif row['name'] == 'eva':
                 call['request'] = m.inputs.string(int(row['ecx'], 16))
             calls.append(call)
@@ -815,18 +815,55 @@ def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
         destructors = sum(row['name'] in ('infantry_destructor', 'factory_scalar_delete')
                           for row in all_calls)
         before_rng, after_rng = evidence['before']['rng'], evidence['after']['rng']
-        assert evidence['native_code_unchanged'] and before_rng == after_rng
-        assert not evidence['rng_requests'] and not evidence['rng_advances']
-        assert constructors == detaches == destructors == identity_cursor() - cursor == 0
-        assert m.get(m.er.HOUSE + 0x53B0) == factory and m.get(factory + 0x58) == product
-        phases.append(dict(name=label, before=before, after=after,
+        # The inherited advance hook observes the inline raw step in Ranged
+        # (65C84B). Whole Random (65C780) has a separate store at65C79D;
+        # its existing request observation contains the full entry/return
+        # states. An enabled call advances once; a disabled call changes none.
+        raw_method_advances = sum(row['entry'] == 0x65C780
+            and row['state_before'] != row['state_after']
+            for row in evidence['rng_requests'])
+        assert evidence['native_code_unchanged']
+        if not allow_rng:
+            assert before_rng == after_rng
+            assert not evidence['rng_requests'] and not evidence['rng_advances']
+        if not allow_construction:
+            assert constructors == identity_cursor() - cursor == 0
+        if not allow_detach:
+            assert detaches == destructors == 0
+        assert m.get(m.er.HOUSE + 0x53B0) == factory
+        if not allow_product_change:
+            assert m.get(factory + 0x58) == previous_product
+        result = dict(name=label, before=before, after=after,
             events=sale_sidebar_events(m), calls=calls, timer_writes=timers,
             constructor_count=constructors, detach_count=detaches,
             destructor_count=destructors, identity_delta=identity_cursor() - cursor,
-            factory_identity_unchanged=True, held_identity_unchanged=True,
-            rng=dict(unchanged=True, request_count=len(evidence['rng_requests']),
-                raw_advance_count=len(evidence['rng_advances']),
-                before_sha256=hashes(before_rng), after_sha256=hashes(after_rng))))
+            factory_identity_unchanged=True,
+            held_identity_unchanged=m.get(factory + 0x58) == previous_product,
+            rng=dict(unchanged=before_rng == after_rng,
+                request_count=len(evidence['rng_requests']),
+                raw_advance_count=raw_method_advances + len(evidence['rng_advances']),
+                before_sha256=hashes(before_rng), after_sha256=hashes(after_rng)))
+        if capture_rng_requests:
+            result['rng'].update(requests=evidence['rng_requests'],
+                raw_method_advance_count=raw_method_advances,
+                range_inline_advance_count=len(evidence['rng_advances']),
+                range_inline_advances=evidence['rng_advances'])
+        phases.append(result)
+        return result
+
+    return state, phase, phases
+
+
+def hold_resume_control(m, name, *, poor_wallet=False, complete=False):
+    """Real Select/receive around Suspend1 and same-head Resume0.
+
+    Reuse the paid Russian fixture and its evidence collector. No held flag,
+    rate, timer, stage, event payload or admission result is supplied.
+    """
+    factory, product = sale_queue_start(m, 'E2')
+    if complete:
+        advance_factory_to_stage(m, factory, 54)
+    state, phase, phases = held_factory_observer(m, factory, product)
 
     initial = state()
     if complete:
@@ -912,6 +949,215 @@ def hold_resume_metadata():
             house_suspend=0x4FA910, factory_suspend=0x4C9E60, house_begin=0x4FA350,
             factory_resume=0x4C9EA0, factory_rate_rewrite=0x4CA6E0,
             time_to_build=0x6F47A0, factory_ai=0x4C9B20, spend_money=0x4F9790))
+    record['retail_inputs'] = sale_sidebar_metadata()['retail_inputs']
+    return record
+
+
+def temporal_building_link(m, building):
+    """Declared already-linked lone Temporal head, before its native notice tail."""
+    temporal = m.f.allocate(0x50)
+    m.u.mem_write(temporal, bytes(0x50))
+    m.u.mem_write(temporal + 0x28, c.dwords(building))
+    m.u.mem_write(building + 0x278, c.dwords(temporal))
+    return temporal
+
+
+def temporal_building_notice(m, temporal, building):
+    """Original71B0EA..71B14E:270, pause, dirty power/House1FC and Mark2."""
+    m.u.reg_write(UC_X86_REG_ESP, bc.SP)
+    m.u.reg_write(UC_X86_REG_ESI, temporal)
+    m.u.reg_write(UC_X86_REG_ECX, building)
+    run_checked(m.u, 0x71B0EA, 0x71B14E, count=2_000_000,
+                required_addresses=(0x4521C0,))
+    m.call_trace.returned(0x71B14E, m.u.reg_read(UC_X86_REG_ESP))
+
+
+def system_hold_observer(m, factory, product, building):
+    """Extend the same paid-head observer with the reached system lifecycle."""
+    m.watch.update({0x4521C0: ('building_pause', 0, 0),
+                    0x452210: ('building_resume', 0, 0),
+                    0x71ABC0: ('temporal_let_go', 0, 0),
+                    0x445880: ('building_limbo', 0, 0),
+                    0x44EBF0: ('building_detach_all', 1, 4),
+                    0x6ABCD0: ('production_tab', 1, 4),
+                    0x6A60A0: ('sidebar_flag_redraw', 1, 4),
+                    0x4F42F0: ('display_flag_redraw', 1, 4),
+                    0x4C9B20: ('factory_ai', 0, 0)})
+
+    def extra_state():
+        return dict(building_online=bool(m.u.mem_read(building + 0x660, 1)[0]),
+            building_limbo=bool(m.u.mem_read(building + 0x81, 1)[0]),
+            building_warped=bool(m.u.mem_read(building + 0x270, 1)[0]),
+            building_temporal_head=bool(m.get(building + 0x278)),
+            house_recheck=m.u.mem_read(m.er.HOUSE + 0x1FC, 1)[0],
+            house_power_dirty=m.u.mem_read(m.er.HOUSE + 0x5778, 1)[0],
+            sidebar_active_tab=m.get(c.SIDEBAR + 0x539C),
+            sidebar_redraw=m.u.mem_read(c.SIDEBAR + 0x53A6, 1)[0],
+            infantry_strip_redraw=m.u.mem_read(c.STRIPS[2] + 0x3C, 1)[0])
+
+    return held_factory_observer(m, factory, product, extra_state=extra_state,
+        capture_rng_requests=True,
+        extra_calls=('house_update_factory_queue', 'building_pause', 'building_resume',
+            'temporal_let_go', 'building_limbo', 'building_detach_all',
+            'production_tab', 'sidebar_flag_redraw', 'display_flag_redraw',
+            'factory_ai', 'start_next_queued', 'start_production',
+            'infantry_constructor', 'factory_completed'))
+
+
+def system_hold_lifecycle(m, name, *, user_hold=False, recovery='left'):
+    factory, product = sale_queue_start(m, 'E2', survivor=True)
+    backup = next(m.get(m.get(m.er.HOUSE + 0x6C) + i * 4)
+        for i in range(m.get(m.er.HOUSE + 0x78))
+        if (pointer := m.get(m.get(m.er.HOUSE + 0x6C) + i * 4)) != m.bar
+        and m.get(pointer + 0x520) == m.f.types['NAHAND'])
+    m.identities[backup] = 'backup_barracks'
+    temporal = temporal_building_link(m, backup)
+    state, phase, phases = system_hold_observer(m, factory, product, backup)
+    initial, rng_before = state(), m.f.rng()
+
+    def frame(offset):
+        m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + offset))
+
+    frame(1)
+    if user_hold:
+        phase('prior_user_right', lambda: m.click('E2', right=True, kind=16, tab=2))
+        phase('prior_user_suspend_receive', m.receive)
+    phase('temporal_building_notice', lambda: temporal_building_notice(m, temporal, backup))
+    frame(2)
+    phase('warp_alone_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    phase('begin_online_barracks_sale', lambda: m.invoke(0x447110, m.bar, 0xFFFFFFFF))
+    phase('online_barracks_limbo', lambda: m.invoke(0x445880, m.bar), allow_detach=True)
+    frame(3)
+    phase('offline_backup_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    frame(10)
+    phase('original_temporal_release', lambda: m.invoke(0x71ABC0, temporal))
+    phase('release_house_suffix', lambda: house_tail(m))
+    phase('release_rate_refresh', lambda: m.invoke(0x4CA6E0, m.er.HOUSE))
+    frame(11)
+    phase('release_alone_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    if recovery == 'callback':
+        phase('later_infantry_factory_callback', lambda: m.invoke(0x509140, m.er.HOUSE, 16, 0, 0))
+        frame(12)
+        phase('after_callback_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    else:
+        phase('same_head_left', lambda: m.click('E2', kind=16, tab=2))
+        phase('same_head_resume_receive', m.receive)
+        frame(12)
+        phase('after_left_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    return dict(name=name, inputs=dict(prior_user_hold=user_hold, recovery=recovery),
+                initial=initial, phases=phases, rng_before=rng_before, rng_after=m.f.rng())
+
+
+def system_resume_kernel(m, name, *, held_start=False, poor_wallet=False):
+    factory, product = sale_queue_start(m, 'E2')
+    state, phase, phases = system_hold_observer(m, factory, product, m.bar)
+    initial, rng_before = state(), m.f.rng()
+    m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + 1))
+    phase('system_suspend_kernel', lambda: m.invoke(0x4C9E60, factory, 0))
+    if poor_wallet:
+        phase('external_spend_wallet', lambda: m.invoke(0x4F9790, m.er.HOUSE,
+                                                       m.get(m.er.HOUSE + 0x30C)))
+    m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + 2))
+    phase('resume_kernel', lambda: m.invoke(0x4C9EA0, factory, int(held_start)))
+    phase('same_frame_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + 3))
+    phase('next_frame_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    return dict(name=name, inputs=dict(held_start=held_start, poor_wallet=poor_wallet),
+                initial=initial, phases=phases, rng_before=rng_before, rng_after=m.f.rng())
+
+
+def system_forced_promotion(m, name, *, poor_wallet=False):
+    factory, product = sale_queue_start(m, 'E2')
+    advance_factory_to_stage(m, factory, 54)
+    temporal = temporal_building_link(m, m.bar)
+    state, phase, phases = system_hold_observer(m, factory, product, m.bar)
+    initial, rng_before = state(), m.f.rng()
+    phase('declared_successful_delivery_completion', lambda: m.invoke(0x4CA1A0, factory),
+          allow_product_change=True)
+    phase('temporal_building_notice', lambda: temporal_building_notice(m, temporal, m.bar))
+    if poor_wallet:
+        phase('external_spend_wallet', lambda: m.invoke(0x4F9790, m.er.HOUSE,
+                                                       m.get(m.er.HOUSE + 0x30C)))
+    m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + 1))
+    phase('original_start_next_queued', lambda: m.invoke(0x4CA5A0, factory),
+          allow_construction=True, allow_product_change=True, allow_rng=True)
+    m.u.mem_write(bc.FRAME, c.dwords(initial['frame'] + 2))
+    phase('promoted_factory_ai', lambda: m.invoke(0x4C9B20, factory))
+    phase('original_temporal_release', lambda: m.invoke(0x71ABC0, temporal))
+    phase('later_infantry_factory_callback', lambda: m.invoke(0x509140, m.er.HOUSE, 16, 0, 0))
+    return dict(name=name, inputs=dict(poor_wallet=poor_wallet), initial=initial,
+                phases=phases, rng_before=rng_before, rng_after=m.f.rng())
+
+
+def system_hold_generate():
+    m = sale_sidebar_setup(sale_sidebar_root())
+    return dict(schema=1, type_inputs=m.inputs.sale_type_inputs,
+        lifecycle=[system_hold_lifecycle(m, 'system_hold_then_left'),
+                   system_hold_lifecycle(m, 'system_hold_then_callback', recovery='callback'),
+                   system_hold_lifecycle(m, 'user_hold_survives_callback',
+                                          user_hold=True, recovery='callback')],
+        resume=[system_resume_kernel(m, f'Resume{int(held_start)}_poor{int(poor)}',
+                                    held_start=held_start, poor_wallet=poor)
+                for held_start in (False, True) for poor in (False, True)],
+        forced_promotion=[system_forced_promotion(m, 'affordable'),
+                          system_forced_promotion(m, 'poor_wallet', poor_wallet=True)])
+
+
+def system_hold_metadata():
+    record = provenance(
+        scope='Paid E2 with offline backup: actual BuildingLimbo/House509140 system '
+              'hold, Temporal release, Left/receive or callback recovery, Resume0/1 '
+              'affordability, and actual forced StartNext promotion',
+        assumptions=[
+            'Reuse sale_sidebar_setup/sale_queue_start and the existing physical '
+            'Russian Type/country readers, VM, sized counters, flat-map/platform '
+            'priors, paid E2 and retained E2 successor. No pause, stage, timer, '
+            'event, FindFactory, affordability or resume answer is supplied.',
+            'A supplied lone-head Temporal link precedes original InitiateWarp '
+            'notice slice71B0EA..71B14E (270, pause, power/House dirty and Mark2). '
+            'Whole LetGo71ABC0, its real Building resume and Mark execute. Full '
+            'CLEG construction, attack/CanWarpTarget and the earlier chain insertion '
+            'are outside this supplied state boundary.',
+            'Whole SellBack447110 and BuildingLimbo445880 execute on the online '
+            'barracks; whole sale animation/crew/refund is outside this Limbo '
+            'boundary. Original509140, CanBuild, FindFactory, Suspend0 and local '
+            '6ABCD0/6A60A0 active-strip redraw execute without a gameplay sink.',
+            'Release runs the actual House dirty suffix and separate original '
+            'rate consumer4CA6E0 under prior House power99/0. A later509140 call '
+            'is the explicit same-category building-callback seam; those controls '
+            'do not execute a new Building construction/capture. The alternative '
+            'whole Left Select/local receive executes actual same-head Resume0.',
+            'Kernel matrix calls whole Suspend0/Resume0 or1 on an actual paid '
+            'head. Poor wallets use original SpendMoney for the current wallet. '
+            'Forced promotion first reaches54 via original FactoryAI, then calls '
+            'CompletedProduction as a declared successful-delivery boundary '
+            'without the preceding physical exit. Whole StartNext, forced '
+            'HouseBegin, original offline fallback, constructor and Resume1 run.',
+            'Every phase observes70/71/rate/meaningful timer/stage/balance, wallet, '
+            'held identity, FIFO, lifecycle calls and all three complete0x3F4 '
+            'RNG buffers. Full before/after streams are retained per control; '
+            'phases retain their hashes and actual draw counts. Promotion is '
+            'allowed its real constructor/identity/RNG effects, and declared '
+            'CompletedProduction releases its old product. Pure hold phases '
+            'assert zero draws and unchanged held/Factory identity. The existing '
+            'RAW65C780 request states count its separate65C79D advance; the '
+            'inherited65C84B hook counts only inline ranged advances. Techno '
+            'constructor6F3254/6F3259 consumes the Scenario word stored at3C8. '
+            'Timer+30 '
+            'opaque stack padding and whole native SAV/device/Draw are excluded.',
+        ],
+        substitutions=['Inherited physical-cache, allocator, OS/COM/DirectSound and '
+                       'observed EVA boundary services only; gameplay code unchanged.'],
+        entry_points=dict(building_notice=0x71B0EA, temporal_let_go=0x71ABC0,
+            building_pause=0x4521C0, building_resume=0x452210,
+            sell_back=0x447110, building_limbo=0x445880,
+            house_update_factory_queue=0x509140, factory_suspend=0x4C9E60,
+            factory_resume=0x4C9EA0, select_action=0x6AAD00,
+            local_receive=0x6474C7, factory_ai=0x4C9B20,
+            start_next=0x4CA5A0, factory_completed=0x4CA1A0,
+            house_begin=0x4FA350, factory_rate_rewrite=0x4CA6E0,
+            time_to_build=0x6F47A0, spend_money=0x4F9790,
+            production_tab=0x6ABCD0, sidebar_flag_redraw=0x6A60A0))
     record['retail_inputs'] = sale_sidebar_metadata()['retail_inputs']
     return record
 
@@ -1378,7 +1624,11 @@ def metadata():
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if '--hold-resume' in args:
+    if '--system-hold' in args:
+        args.remove('--system-hold')
+        finish_vectors(system_hold_generate, Path(__file__).with_name('factory_system_hold.json'),
+                       provenance=system_hold_metadata, argv=args)
+    elif '--hold-resume' in args:
         args.remove('--hold-resume')
         finish_vectors(hold_resume_generate, Path(__file__).with_name('factory_hold_resume.json'),
                        provenance=hold_resume_metadata, argv=args)

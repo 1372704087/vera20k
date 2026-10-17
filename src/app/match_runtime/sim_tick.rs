@@ -129,6 +129,9 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
                 outcome.kind,
             ),
         );
+        // Written after the outcome is latched so the report names the result,
+        // and while the phase stamps still describe this match alone.
+        crate::app::frame_report::write_match_report(state);
     }
 
     let voices_active = match (
@@ -642,6 +645,12 @@ fn advance_in_game_runtime_mode(
     mode: RuntimeAdvanceMode,
     startup_admitted: bool,
 ) {
+    // Browser switches arrive between frames and must be visible to this
+    // frame's decision — including unpause (which otherwise never runs the
+    // simulation pass again) and frame step (which the decision below reads).
+    // Same toggles as the Ctrl+Shift chord, so the two input paths cannot
+    // drift.
+    crate::app::telemetry_command::drain_and_apply(state);
     let frame_stepping = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
         && state.diag.debug_frame_step_requested;
     let pacer_timing_admits = match mode {
@@ -696,6 +705,19 @@ fn advance_in_game_runtime_mode(
     if decision.run_sim {
         let tick_lane = decision.tick_lane;
         let frame_committed = advance_one_simulation_frame(state, tick_lane, mouse_scroll);
+        // The dashboard's tick rate is committed ticks over wall time — not
+        // frames — so a pacer stall or a game-speed change reads honestly.
+        if frame_committed {
+            state
+                .match_state
+                .telemetry_tick_rate
+                .record(std::time::Instant::now());
+        }
+        // A frame step commits a tick that the cadence gate may skip, and the
+        // paused runtime will not publish again — echo it now.
+        if frame_stepping {
+            crate::app::telemetry_capture::publish_now(state);
+        }
         crate::app::presentation::sidebar_render::advance_sidebar_credits_after_frame(
             state,
             frame_committed,
@@ -859,6 +881,10 @@ fn advance_one_simulation_frame(
             };
             // F07: the runtime is the one production frame API — bound
             // resources, no caller-substitutable inputs.
+            // App-owned telemetry: the wall-clock cost of this frame's sim
+            // advance transaction, sampled beside the runtime (never inside
+            // `Simulation`).
+            let telemetry_advance_started = Instant::now();
             let mut output = {
                 let playback = match (
                     state.audio.sfx_player.as_mut(),
@@ -896,6 +922,10 @@ fn advance_one_simulation_frame(
                 )
                 .expect("simulation frame failed; prior world mutations remain")
             };
+            state
+                .match_state
+                .telemetry_timing
+                .push(telemetry_advance_started.elapsed().as_secs_f32() * 1000.0);
             let admitted_commands = output.take_admitted_commands();
             let SimFrameOutput {
                 tick: tick_result,
@@ -1222,6 +1252,40 @@ fn advance_one_simulation_frame(
         // map with holes left in it, which only appears well into a session.
         if census_tick.is_some_and(|tick| tick == 150 || (tick > 150 && tick % 900 == 0)) {
             crate::app::input::dispatch::report_black_cell_causes(state);
+        }
+
+        // Tick-cost telemetry on the same early-plus-minute cadence: one log
+        // line per window summarizing the app-owned timing ring, so soak runs
+        // carry the frame-cost trend in their logs without a dashboard
+        // attached. Utilization above 100% means the tick cost exceeded its
+        // budget and the pacer can no longer hold the tick rate.
+        if census_tick.is_some_and(|tick| tick == 150 || (tick > 150 && tick % 900 == 0)) {
+            let timing = state
+                .match_state
+                .telemetry_timing
+                .summarize(SIM_TICK_MS as f32);
+            log::info!(
+                "tick cost: last {:.2} ms, p50 {:.2} ms, p99 {:.2} ms, budget use {:.0}%",
+                timing.tick_ms,
+                timing.p50_ms,
+                timing.p99_ms,
+                timing.budget_utilization * 100.0
+            );
+        }
+
+        // Dashboard publish: ~11 Hz on committed ticks (every fourth frame at
+        // the 45 Hz sim step), read-only capture beside the runtime. The
+        // snapshot serializes once here; the server fans that string out
+        // without ever blocking this thread.
+        if let Some(tick) = census_tick
+            && tick % 4 == 0
+            && let Some(server) = state.diag.telemetry_server.as_ref()
+            && let Some(snapshot) = crate::app::telemetry_capture::capture_snapshot(state)
+        {
+            match serde_json::to_string(&snapshot) {
+                Ok(json) => server.publish(json),
+                Err(error) => log::warn!("telemetry snapshot serialization failed: {error}"),
+            }
         }
 
         for message in hud_messages {

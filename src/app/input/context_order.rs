@@ -1671,7 +1671,8 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                             .entities()
                             .get(id)
                             .and_then(|entity| {
-                                sim.interner.object_type(entity.type_ref(), &resources.rules)
+                                sim.interner
+                                    .object_type(entity.type_ref(), &resources.rules)
                             })
                             .is_some_and(
                                 crate::app::match_runtime::eva_producers::rally_point_announces,

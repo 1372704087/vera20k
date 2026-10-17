@@ -348,6 +348,15 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     let returns_scenario_rng_to_offline_shell = startup.launch_session().is_some();
     // A loaded world is not timed until the launch handoff reaches InGame.
     state.match_state.scenario_elapsed_clock.reset();
+    // The timing ring's window belongs to the outgoing timeline; a fresh one
+    // must not mix samples from two matches.
+    state.match_state.telemetry_timing.clear();
+    state.match_state.telemetry_tick_rate.clear();
+    // Frame-phase stamps are per match: a new scenario starts a fresh profile so
+    // the end-of-match report describes this match only.
+    if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+        runtime.simulation.reset_frame_profile();
+    }
     crate::app::loading::pump::clear_loading_state(state);
 
     // Close the outgoing diagnostic timeline before replacing its runtime.

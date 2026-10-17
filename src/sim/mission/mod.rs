@@ -12,8 +12,8 @@
 pub(crate) mod authority;
 pub(crate) mod capture;
 pub(crate) mod concrete_effects;
-pub(crate) mod enter;
 pub mod control;
+pub(crate) mod enter;
 pub(crate) mod leaf;
 pub(crate) mod mega_mission;
 pub(crate) mod readiness;

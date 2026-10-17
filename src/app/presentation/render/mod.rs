@@ -21,10 +21,10 @@
 
 #[cfg(test)]
 mod bridge_shadow_gpu_tests;
-#[cfg(test)]
-mod placement_gpu_tests;
 mod build_instances;
 mod draw_passes;
+#[cfg(test)]
+mod placement_gpu_tests;
 #[cfg(test)]
 pub(crate) use draw_passes::draw_pooled_overlay_bodies;
 pub(crate) mod draw_plan_lowering;
@@ -32,6 +32,7 @@ mod merge_passes;
 pub(crate) mod minimap_transaction;
 
 use anyhow::Result;
+use std::time::{Duration, Instant};
 
 // Re-export shared types so any remaining `use crate::app::presentation::render::Foo` imports still compile.
 // New code should import from `crate::app::types` directly.
@@ -69,6 +70,44 @@ impl GameRenderInstanceCounts {
     }
 }
 
+/// Wall-clock spans of one in-game render, in `render_game`'s phase order.
+///
+/// Sampled by the frame owner into the diagnostics meter; readers only ever see
+/// the rolling means, never an individual frame's spans.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RenderPhases {
+    /// Phase 1 — terrain, overlays, entities.
+    pub world: Duration,
+    /// Phase 2 — pathgrid / cell grid / heightmap overlays.
+    pub debug: Duration,
+    /// Phase 3 — shroud ABuffer rebuild (CPU blit + upload).
+    pub shroud: Duration,
+    /// Phase 4 — minimap update + UI instances.
+    pub ui: Duration,
+    /// Phase 5 — sidebar instances.
+    pub sidebar: Duration,
+    /// Phase 6 — instance upload to the GPU buffer pool.
+    pub upload: Duration,
+    /// Prep before phase 1 and everything after phase 6 (combat lights, terrain
+    /// prep, draw records) — the part no single phase owns.
+    pub other: Duration,
+}
+
+impl RenderPhases {
+    /// The seven spans in declaration order, for the meter and the wire.
+    pub(crate) fn spans(&self) -> [Duration; 7] {
+        [
+            self.world,
+            self.debug,
+            self.shroud,
+            self.ui,
+            self.sidebar,
+            self.upload,
+            self.other,
+        ]
+    }
+}
+
 /// Output retained from one production game render.
 ///
 /// `sidebar_view` is the existing UI handoff. The counts are observation-only
@@ -78,6 +117,8 @@ pub(crate) struct GameRenderOutput {
     pub instance_counts: GameRenderInstanceCounts,
     pub times: GameRenderTimes,
     pub particle_draws: Option<Vec<crate::app::presentation::instances::ParticleDrawObservation>>,
+    /// Phase spans of this render, for the diagnostics meter.
+    pub phases: RenderPhases,
 }
 
 /// Actual HUD update inputs observed by the frame owner, and the radar draw
@@ -98,6 +139,10 @@ pub(crate) fn render_game(
     encoder: &mut wgpu::CommandEncoder,
     times: GameRenderTimes,
 ) -> Result<GameRenderOutput> {
+    // Phase accounting for the dashboard's render breakdown. One clock read per
+    // phase boundary; the spans are handed back on `GameRenderOutput` and never
+    // written into the world here.
+    let render_started = Instant::now();
     // RadarClass::Draw 653100 consumes timeGetTime buckets. The frame owner
     // supplies wall time normally, or the map diagnostic's recorded OS input.
     if let Some(radar) = state.match_state.match_presentation.radar_anim.as_mut() {
@@ -128,10 +173,13 @@ pub(crate) fn render_game(
     let vsh = sh / z;
 
     // Phase 1: Build game-world instances (terrain, overlays, entities).
+    let phase1_started = Instant::now();
     let world = build_instances::build_world_instances(state, vsw, vsh);
+    let after_world = Instant::now();
 
     // Phase 2: Build debug overlay instances (pathgrid, cell grid, heightmap).
     let debug = build_instances::build_debug_instances(state, vsw, vsh);
+    let after_debug = Instant::now();
 
     // Phase 3: Rebuild shroud ABuffer (CPU blit + GPU upload). The final
     // building-bracket front redraw samples this CPU buffer during UI build.
@@ -168,16 +216,20 @@ pub(crate) fn render_game(
         .renderer
         .batch_renderer
         .bind_shroud(&state.renderer.gpu.device, shroud);
+    let after_shroud = Instant::now();
 
     // Phase 4: Update minimap + build UI instances (selection, health, placement).
     build_instances::update_minimap(state, &local_owner);
     let ui = build_instances::build_ui_instances(state, vsw, vsh);
+    let after_ui = Instant::now();
 
     // Phase 5: Build sidebar instances.
     let sidebar = build_instances::build_sidebar_instances(state);
+    let after_sidebar = Instant::now();
 
     // Phase 6: Upload all instances to GPU buffer pool.
     upload_to_gpu(state, &world, &debug, &ui, &sidebar);
+    let after_upload = Instant::now();
     state
         .match_state
         .match_presentation
@@ -334,11 +386,25 @@ pub(crate) fn render_game(
             object_layers: &world.object_layers,
         },
     );
+    // Prep before phase 1 plus everything after phase 6 is the `other` row:
+    // combat lights and terrain prep are real work, just not a named phase.
+    let finished = Instant::now();
+    let phases = RenderPhases {
+        world: after_world.duration_since(phase1_started),
+        debug: after_debug.duration_since(after_world),
+        shroud: after_shroud.duration_since(after_debug),
+        ui: after_ui.duration_since(after_shroud),
+        sidebar: after_sidebar.duration_since(after_ui),
+        upload: after_upload.duration_since(after_sidebar),
+        other: phase1_started.duration_since(render_started)
+            + finished.duration_since(after_upload),
+    };
     Ok(GameRenderOutput {
         instance_counts: sidebar.emitted_instance_counts(),
         sidebar_view: sidebar.view,
         times,
         particle_draws: world.particle_draws,
+        phases,
     })
 }
 

@@ -1443,7 +1443,15 @@ SpreadPercentage=.06
         assert!(!repeated.navigation_changed);
 
         let deferred = sim
-            .advance_app_frame(&[], Some(&rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
+            .advance_app_frame(
+                &[],
+                Some(&rules),
+                None,
+                67,
+                TickLane::Ordinary,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         assert!(deferred.overlay_updates.is_empty());
         let published = sim.path_grid_snapshot().unwrap();
@@ -1467,7 +1475,8 @@ SpreadPercentage=.06
                 67,
                 TickLane::Ordinary,
                 None,
-             crate::sim::world::FrameEffects::default(),)
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         assert!(sim.zone_grid.is_some());
         assert!(
@@ -1487,7 +1496,8 @@ SpreadPercentage=.06
                 67,
                 TickLane::Ordinary,
                 None,
-             crate::sim::world::FrameEffects::default(),)
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         assert!(second.overlay_updates.is_empty());
         assert!(

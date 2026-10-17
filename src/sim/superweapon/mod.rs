@@ -15,6 +15,7 @@ pub mod cell_grid;
 pub mod chrono_screen;
 mod chronosphere;
 pub use chronosphere::CHRONO_WARP_SELECTION_INDEX;
+pub mod airstrike_tint;
 #[cfg(any(test, feature = "test-support"))]
 mod cell_receiver_tests;
 #[cfg(test)]
@@ -24,7 +25,6 @@ pub mod chronosphere_tests;
 mod fire;
 pub mod force_shield;
 pub mod genetic_converter;
-pub mod airstrike_tint;
 pub mod invulnerability;
 pub mod iron_curtain;
 pub mod lightning_storm;

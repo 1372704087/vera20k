@@ -151,7 +151,7 @@ impl App {
             // the game draws *no* software cursor (the status screen, and any
             // debug-pause / diagnostic overlay, since the sim is paused and
             // `use_software_cursor` is false there), surface the OS cursor so
-            // egui debug panels stay interactive. Do NOT gate on
+            // the pointer stays visible. Do NOT gate on
             // `battlefield_drawn`: the sim stops redrawing while paused, so the
             // battlefield is not "drawn" yet the debug overlay still needs a
             // visible pointer.
@@ -583,8 +583,9 @@ impl App {
                         .copy_to(&mut encoder, &output.texture);
                     render_output
                 };
-                #[cfg(feature = "dev-ui")]
-                Self::render_diagnostic_ui(state, &mut encoder, &view);
+                // The render's own phase spans feed the dashboard breakdown;
+                // one sample per presented game frame.
+                state.diag.render_timing.record(game_output.phases);
                 game_render_output = Some(game_output);
             }
             GameScreen::MissionResult { title, detail } => {
@@ -788,8 +789,6 @@ impl App {
             }
         }
 
-        #[cfg(feature = "dev-ui")]
-        Self::commit_diagnostic_ui_action(state);
         crate::app::loading::pump::after_loading_frame_presented(state);
 
         Ok(())

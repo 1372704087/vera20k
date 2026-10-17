@@ -29,7 +29,7 @@ pub(super) fn render_dimensions(
 /// deterministic simulation.
 pub(crate) struct PlatformState {
     pub(crate) window: Arc<Window>,
-    /// Whether the OS cursor is clipped to the window rectangle 
+    /// Whether the OS cursor is clipped to the window rectangle
     /// edge-scroll lock), so it cannot leave the game while the player scrolls
     /// the map. On by default, by default; the cursor-lock hotkey flips it,
     /// and `apply_cursor_confinement` re-applies it on every focus regain because

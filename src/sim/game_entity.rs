@@ -1661,9 +1661,8 @@ impl GameEntity {
         self.fall.rate = rate;
     }
 
-    /// The debug event log, while debug event logging is on. The `dev-ui`
-    /// debug panel reads it.
-    #[cfg(any(test, feature = "dev-ui"))]
+    /// The debug event log, while debug event logging is on. The telemetry
+    /// dashboard's Event History panel reads it.
     pub fn debug_log(&self) -> Option<&DebugEventLog> {
         self.debug_log.as_ref()
     }

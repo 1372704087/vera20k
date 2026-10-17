@@ -27,39 +27,40 @@ pub(crate) mod ai_base_site;
 pub mod anim_class;
 #[cfg(any(test, feature = "test-support"))]
 pub mod arena_fixture;
-pub(crate) mod build_site;
-pub mod building_art;
-pub(crate) mod building_entry;
-pub mod building_construction;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;
+pub(crate) mod build_site;
+pub mod building_art;
+pub mod building_construction;
+pub(crate) mod building_entry;
 pub(crate) mod c4_plant;
 pub mod capture_manager;
 pub mod cloak_disguise;
 pub mod command;
 pub mod components;
-#[cfg(any(test, feature = "test-support"))]
-pub mod health_ratio_fixture;
+pub(crate) mod conversion_health;
 pub mod crates; // scenario-start crate placement (Post_Map_Init step 3)
 pub mod credit_income; // oil-derrick ProduceCash + Floating Disc money drain (object-loop money)
-pub(crate) mod conversion_health;
 pub(crate) mod crew_survival; // building SpawnSurvivors and vehicle crew escape
 pub mod economy; // per-house wallet/storage/statistics value-type (production+economy substrate)
 pub mod entity_store;
 pub(crate) mod estimated_health;
 pub(crate) mod flashing;
+pub mod frame_profile; // per-match frame phase accounting (derived, never hashed)
 pub mod game_entity;
+#[cfg(any(test, feature = "test-support"))]
+pub mod health_ratio_fixture;
 pub(crate) mod house_threat;
 pub mod intern;
 pub(crate) mod kamikaze; // missiles out of their launcher's control (0x00ABC5F8)
 pub(crate) mod lifecycle_request;
-pub(crate) mod locomotor_lift; // the Magnetron's IsLocomotor= lift (ImbueLocomotor 0x00710000)
-pub(crate) mod powered_unit; // Robot Tanks offline without a PowersUnit= building (Deactivate 0x0070FC90)
 pub mod light_sources;
+pub(crate) mod locomotor_lift; // the Magnetron's IsLocomotor= lift (ImbueLocomotor 0x00710000)
 pub mod multiplayer_checksum;
 pub mod native_identity;
 pub(crate) mod parallel; // order-preserving work over scoped threads
+pub(crate) mod powered_unit; // Robot Tanks offline without a PowersUnit= building (Deactivate 0x0070FC90)
 pub mod radiation_light;
 pub mod rng;
 pub mod scenario_bootstrap;
@@ -70,6 +71,9 @@ pub mod sensor_lifecycle;
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub(crate) mod state_hasher;
+pub mod telemetry; // dashboard snapshot schema (derived, never hashed)
+#[cfg(test)]
+mod telemetry_tests;
 pub mod temporal;
 pub(crate) mod tesla_charging;
 pub mod timer; // signed frame-anchored countdown primitive

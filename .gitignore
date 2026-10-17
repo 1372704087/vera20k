@@ -73,3 +73,12 @@ tools/vendor-eval/
 
 # throwaway verification build dir (parallel-session exe lock workaround)
 /target-verify/
+
+# dashboard dependencies (npm install output, not source)
+node_modules/
+
+# local tool state: session screenshots, backups, memory
+.workbuddy/
+
+# generated match reports (the engine writes these per match)
+tools/telemetry-dashboard/reports/

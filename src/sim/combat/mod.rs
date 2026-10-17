@@ -70,10 +70,6 @@ pub(crate) mod receiver_fixture;
 #[cfg(test)]
 mod aegis_launch_tests;
 #[cfg(test)]
-mod homing_shipyard_tests;
-#[cfg(test)]
-mod shrapnel_chain_tests;
-#[cfg(test)]
 mod bridge_cluster_tests;
 #[cfg(test)]
 mod bridge_launch_tests;
@@ -100,6 +96,8 @@ mod fireat_launch_tests;
 #[cfg(test)]
 mod garrison_oracle_tests;
 #[cfg(test)]
+mod homing_shipyard_tests;
+#[cfg(test)]
 mod ifv_fireat_tests;
 /// Ordinary launch-height, resolved impact presentation and damage-effect
 /// wiring. Bridge Cell+58 launch and +48/+58 impact comparisons use the native
@@ -114,6 +112,8 @@ mod mirage_disguise_tests;
 mod open_topped_fire_tests;
 #[cfg(test)]
 mod prone_damage_tests;
+#[cfg(test)]
+mod shrapnel_chain_tests;
 #[cfg(test)]
 mod unit_damage_response_tests;
 #[cfg(test)]

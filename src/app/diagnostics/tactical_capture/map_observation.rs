@@ -3625,7 +3625,6 @@ impl TacticalCaptureSession {
             && !state.diag.debug_unit_inspector
             && !state.diag.debug_show_cell_grid
             && !state.diag.debug_show_heightmap
-            && !state.diagnostic_gui_visible()
             && self.focus_violations == 0
             && self.input_violations == 0;
         let static_default_cursor =

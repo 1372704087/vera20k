@@ -27,9 +27,7 @@ impl Simulation {
         let mut z = query_ground_height(&cells, DriveCoord { x, y, z: 0 })
             .expect("authored camera ground query requires a valid native slope");
         let first = cells.lookup(cell);
-        if cells.flags(first) & 0x100 != 0
-            || cells.flags(cells.lookup(cell)) & 0x400 != 0
-        {
+        if cells.flags(first) & 0x100 != 0 || cells.flags(cells.lookup(cell)) & 0x400 != 0 {
             z = z.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS);
         }
         Some([x, y, z])

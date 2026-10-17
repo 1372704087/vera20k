@@ -25,6 +25,14 @@ pub(crate) struct MatchState {
     /// App-owned diagnostic recording (F10) — never inside the simulation, so
     /// no load/install path can silently drop an unflushed segment.
     pub(crate) match_diagnostics: crate::app::match_diagnostics::MatchDiagnosticsState,
+    /// App-owned tick-cost ring for the dashboard telemetry snapshot — never
+    /// inside the simulation, so the deterministic state never reads it.
+    /// Cleared beside the per-match clock on every match install so a window
+    /// never mixes two timelines.
+    pub(crate) telemetry_timing: super::telemetry::TickTimingRing,
+    /// App-owned committed-tick rate meter (`tick_hz` in the snapshot). Also
+    /// cleared with the per-match clock: rates never span two timelines.
+    pub(crate) telemetry_tick_rate: super::telemetry::TickRateMeter,
     pub(crate) map_basic: BasicSection,
     /// Exact source whose bytes produced the active parsed map.
     pub(crate) loaded_map_source: Option<crate::map::source::LoadedMapSource>,

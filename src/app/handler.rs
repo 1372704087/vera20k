@@ -411,22 +411,8 @@ impl ApplicationHandler for App {
         if crate::app::frontend::status_screen::handle_event(state, &event, event_loop) {
             return;
         }
-        #[cfg(feature = "dev-ui")]
-        let dev_ui_consumed = if state.diagnostic_gui_visible() {
-            state
-                .renderer
-                .debug_ui
-                .on_window_event(&state.platform.window, &event)
-                .consumed
-                && state.match_state.paused()
-        } else {
-            state
-                .renderer
-                .debug_ui
-                .discard_pending_input(&state.platform.window);
-            false
-        };
-        #[cfg(not(feature = "dev-ui"))]
+        // The egui diagnostic panels are gone; nothing consumes window
+        // input ahead of the game handlers any more.
         let dev_ui_consumed = false;
 
         match event {

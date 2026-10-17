@@ -16,7 +16,7 @@ mod resource_load;
 pub(crate) use resource_load::{PreparedSavedGame, SavedGamePreparationView};
 
 use std::path::{Path, PathBuf};
-#[cfg(any(feature = "dev-ui", test))]
+#[cfg(test)]
 use std::time::Instant;
 #[cfg(any(feature = "dev-overlays", test))]
 use std::time::SystemTime;
@@ -37,11 +37,11 @@ pub(crate) struct PersistenceState {
     /// render, and audio state are projections of this single retained value.
     pub(crate) options_profile: options_profile::RetailOptionsProfile,
     pub(crate) repository: SaveRepository,
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     pub(crate) save_list_cache: SaveListCache,
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     last_save_tick: Option<u64>,
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     last_save_instant: Option<Instant>,
     pub(crate) last_loaded_save_path: Option<PathBuf>,
 }
@@ -51,11 +51,11 @@ impl PersistenceState {
         Self {
             options_profile,
             repository: SaveRepository::new(),
-            #[cfg(any(feature = "dev-ui", test))]
+            #[cfg(test)]
             save_list_cache: SaveListCache::new(),
-            #[cfg(any(feature = "dev-ui", test))]
+            #[cfg(test)]
             last_save_tick: None,
-            #[cfg(any(feature = "dev-ui", test))]
+            #[cfg(test)]
             last_save_instant: None,
             last_loaded_save_path: None,
         }
@@ -96,7 +96,7 @@ impl PersistenceState {
     }
 
     fn record_successful_save(&mut self, _tick: u64) {
-        #[cfg(any(feature = "dev-ui", test))]
+        #[cfg(test)]
         {
             self.last_save_tick = Some(_tick);
             self.last_save_instant = Some(Instant::now());
@@ -104,23 +104,23 @@ impl PersistenceState {
         }
     }
 
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     pub(crate) fn last_save_tick(&self) -> Option<u64> {
         self.last_save_tick
     }
 
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     pub(crate) fn last_save_instant(&self) -> Option<Instant> {
         self.last_save_instant
     }
 
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     pub(crate) fn refresh_save_list_if_dirty(&mut self) {
         self.save_list_cache.refresh_if_dirty(&self.repository);
     }
 
     pub(crate) fn invalidate_save_list(&mut self) {
-        #[cfg(any(feature = "dev-ui", test))]
+        #[cfg(test)]
         self.save_list_cache.invalidate();
     }
 }
@@ -421,13 +421,13 @@ pub(crate) struct SaveEntry {
 }
 
 /// Optional diagnostic listing, refreshed only after explicit invalidation.
-#[cfg(any(feature = "dev-ui", test))]
+#[cfg(test)]
 pub(crate) struct SaveListCache {
     entries: Vec<SaveEntry>,
     dirty: bool,
 }
 
-#[cfg(any(feature = "dev-ui", test))]
+#[cfg(test)]
 impl SaveListCache {
     fn new() -> Self {
         Self {
@@ -601,7 +601,7 @@ impl SaveRepository {
 
     /// Panel policy: admit only valid snapshot headers and sort newest embedded
     /// save timestamp first.
-    #[cfg(any(feature = "dev-ui", test))]
+    #[cfg(test)]
     pub(crate) fn panel_entries_by_embedded_time(&self) -> Vec<SaveEntry> {
         let Ok(directory) = std::fs::read_dir(&self.directory) else {
             return Vec::new();
@@ -679,7 +679,7 @@ impl SaveRepository {
     }
 }
 
-#[cfg(any(feature = "dev-ui", test))]
+#[cfg(test)]
 fn sort_panel_entries_by_embedded_time(entries: &mut [SaveEntry]) {
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.header.save_timestamp));
 }

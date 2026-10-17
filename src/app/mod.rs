@@ -36,6 +36,7 @@ pub(crate) mod audio_runtime;
 pub(crate) mod chrono_screen;
 pub(crate) mod diagnostics;
 mod frame;
+pub mod frame_report; // end-of-match frame-time report (self-contained HTML)
 pub mod frontend;
 mod handler;
 mod in_game;
@@ -50,6 +51,7 @@ pub(crate) mod movie_playback;
 pub(crate) mod persistence;
 pub(crate) mod presentation;
 pub(crate) mod process_assets;
+pub mod process_stats; // CPU / memory / thread sampling for the dashboard
 pub(crate) mod radar_movie;
 #[cfg(test)]
 mod random_map_lifecycle_tests;
@@ -69,6 +71,10 @@ pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
 mod state;
+pub mod telemetry; // public façade for the telemetry server and timing ring
+pub(crate) mod telemetry_capture; // dashboard snapshot assembly (incl. egui panel port)
+pub(crate) mod telemetry_command; // browser switches → app-state debug toggles
+pub(crate) mod telemetry_server; // browser dashboard transport (WebSocket + static files)
 pub(crate) mod types;
 mod window_icon;
 

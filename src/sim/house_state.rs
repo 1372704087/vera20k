@@ -58,6 +58,17 @@ impl HouseDifficulty {
     pub const fn table_index(self) -> usize {
         self as usize
     }
+
+    /// Telemetry spelling. The native ladder is hardest-first
+    /// (`AIVirtualPurifiers` reads Brutal/Medium/Easy), so "hard" is the
+    /// Brutal tier the skirmish screen labels 冷酷.
+    pub const fn telemetry_name(self) -> &'static str {
+        match self {
+            Self::Hard => "hard",
+            Self::Normal => "normal",
+            Self::Easy => "easy",
+        }
+    }
 }
 
 /// House4F54A0's seven scalar doubles (+188..+1B8) and two delays

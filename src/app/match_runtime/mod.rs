@@ -9,6 +9,7 @@ pub(crate) mod sim_tick;
 pub(crate) mod sound_dispatch;
 pub(crate) mod state;
 mod super_selection;
+pub mod telemetry; // app-owned tick timing ring (re-exported by app::telemetry)
 
 pub(crate) mod restore;
 pub(crate) mod startup;

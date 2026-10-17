@@ -9,6 +9,55 @@ use std::time::{Duration, Instant};
 
 const FRAME_TIMER_WINDOW: usize = 60;
 
+/// Rolling means of one in-game render's phase spans.
+///
+/// The spans are wall time from `presentation::render::render_game`; this meter
+/// only averages them, so a single slow frame cannot mislead the report.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct RenderTimingMeter {
+    frames: u32,
+    sums: [Duration; 7],
+}
+
+impl RenderTimingMeter {
+    /// Fold one finished render into the totals.
+    pub(crate) fn record(&mut self, phases: crate::app::presentation::render::RenderPhases) {
+        self.frames = self.frames.saturating_add(1);
+        for (sum, span) in self.sums.iter_mut().zip(phases.spans()) {
+            *sum += span;
+        }
+    }
+
+    /// Mean span of each phase in milliseconds, or `None` before the first
+    /// render. Order matches `RenderPhases::spans`.
+    pub(crate) fn mean_ms(&self) -> Option<[f32; 7]> {
+        if self.frames == 0 {
+            return None;
+        }
+        let frames = self.frames as f32;
+        let mut means = [0.0f32; 7];
+        for (mean, sum) in means.iter_mut().zip(self.sums) {
+            *mean = sum.as_secs_f32() * 1000.0 / frames;
+        }
+        Some(means)
+    }
+
+    /// The wire form: rolling means, or `None` before the first render.
+    pub(crate) fn report(&self) -> Option<crate::sim::telemetry::RenderTimingReport> {
+        let means = self.mean_ms()?;
+        Some(crate::sim::telemetry::RenderTimingReport {
+            frames: self.frames,
+            world_ms: means[0],
+            debug_ms: means[1],
+            shroud_ms: means[2],
+            ui_ms: means[3],
+            sidebar_ms: means[4],
+            upload_ms: means[5],
+            other_ms: means[6],
+        })
+    }
+}
+
 /// Rolling FPS / frame-time tracker. Sampled once per `render_frame`.
 pub(crate) struct FrameTimer {
     samples: VecDeque<Duration>,
@@ -47,7 +96,6 @@ impl FrameTimer {
     }
 
     /// FPS derived from the mean frame time, or 0 if no samples.
-    #[cfg(any(feature = "dev-ui", test))]
     pub(crate) fn fps(&self) -> f32 {
         let ms = self.frame_ms_mean();
         if ms <= 0.0 { 0.0 } else { 1000.0 / ms }
@@ -62,8 +110,6 @@ impl Default for FrameTimer {
 
 pub(crate) struct DiagnosticsState {
     presentation_clock: PresentationClock,
-    #[cfg(feature = "dev-ui")]
-    pending_ui_action: Option<crate::app::diagnostics::dev_overlay::DevOverlayAction>,
     /// One-shot: advance a single sim tick while paused (dev overlay).
     pub(crate) debug_frame_step_requested: bool,
     /// PathGrid walkability overlay toggle (P / F9).
@@ -84,11 +130,18 @@ pub(crate) struct DiagnosticsState {
     /// Optional per-tick parity digest capture (diagnostics; never perturbs
     /// the run being measured).
     pub(crate) parity_digest_sink: Option<crate::sim::parity_digest::ParityDigestSink>,
-    /// Save-name text field in the dev overlay.
-    #[cfg(feature = "dev-ui")]
-    pub(crate) dev_overlay_save_name: String,
     /// Rolling frame-time statistics for the dev overlay.
     pub(crate) frame_timer: FrameTimer,
+    /// Rolling per-phase statistics for one in-game render.
+    pub(crate) render_timing: RenderTimingMeter,
+    /// CPU / memory / thread sampling for the dashboard. Process-wide and
+    /// never reset per match: CPU share is a delta between readings, so a
+    /// per-match reset would report a full core's worth of "new" work.
+    pub(crate) process_stats: crate::app::process_stats::ProcessStatsSampler,
+    /// Browser dashboard transport, while `VERA_TELEMETRY_ADDR` is set.
+    /// App-owned: publishing snapshots never blocks or perturbs the
+    /// simulation, and dropping this owner stops the server.
+    pub(crate) telemetry_server: Option<crate::app::telemetry_server::TelemetryServer>,
 }
 
 /// A diagnostic input policy, never a second simulation clock. The map route
@@ -108,8 +161,6 @@ impl DiagnosticsState {
     ) -> Self {
         Self {
             presentation_clock: PresentationClock::Wall,
-            #[cfg(feature = "dev-ui")]
-            pending_ui_action: None,
             debug_frame_step_requested: false,
             debug_show_pathgrid: false,
             debug_terrain_cost_speed_type: None,
@@ -118,29 +169,11 @@ impl DiagnosticsState {
             debug_show_foot_path: false,
             debug_unit_inspector: false,
             parity_digest_sink,
-            #[cfg(feature = "dev-ui")]
-            dev_overlay_save_name: String::new(),
             frame_timer: FrameTimer::new(),
+            render_timing: RenderTimingMeter::default(),
+            process_stats: Default::default(),
+            telemetry_server: None,
         }
-    }
-
-    #[cfg(feature = "dev-ui")]
-    pub(crate) fn queue_ui_action(
-        &mut self,
-        action: crate::app::diagnostics::dev_overlay::DevOverlayAction,
-    ) {
-        self.pending_ui_action = (!matches!(
-            action,
-            crate::app::diagnostics::dev_overlay::DevOverlayAction::None
-        ))
-        .then_some(action);
-    }
-
-    #[cfg(feature = "dev-ui")]
-    pub(crate) fn take_ui_action(
-        &mut self,
-    ) -> Option<crate::app::diagnostics::dev_overlay::DevOverlayAction> {
-        self.pending_ui_action.take()
     }
 
     pub(crate) fn use_map_presentation_clock(&mut self) -> anyhow::Result<()> {

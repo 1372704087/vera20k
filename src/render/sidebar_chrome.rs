@@ -24,12 +24,18 @@ mod in_game_shell;
 pub use in_game_shell::InGameShellArt;
 
 #[cfg(test)]
-pub(crate) fn packed_command_bar_fixture(assets: &AssetManager, theme: SidebarTheme) -> (CommandBarArt<SidebarChromeEntry>, Vec<u8>, [u32; 2]) {
+pub(crate) fn packed_command_bar_fixture(
+    assets: &AssetManager,
+    theme: SidebarTheme,
+) -> (CommandBarArt<SidebarChromeEntry>, Vec<u8>, [u32; 2]) {
     let route = SidebarSideRoute::for_theme(assets, theme);
     let palette = decode_sidebar_palette(route.resolve("SIDEBAR.PAL").unwrap().bytes).unwrap();
     let rendered = command_bar::load(route, &palette);
     let width = rendered.entries().map(|entry| entry.width).max().unwrap();
-    let height = rendered.entries().map(|entry| entry.height + CHROME_PADDING).sum();
+    let height = rendered
+        .entries()
+        .map(|entry| entry.height + CHROME_PADDING)
+        .sum();
     let mut rgba = vec![0; (width * height * 4) as usize];
     let mut y = 0;
     let packed = rendered.map(|entry| {

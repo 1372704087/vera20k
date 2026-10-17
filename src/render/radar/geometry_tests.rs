@@ -27,10 +27,7 @@ fn native_radar_surface_height_branch_projects_and_sizes_event_radius() {
     assert_eq!(geometry.generated_size(), (64, 108));
     assert_eq!(geometry.aperture_offset(), (38, 0));
     assert_eq!(geometry.cell_to_surface_pixel((90, 0)), (32, 32));
-    assert_eq!(
-        geometry.world_to_surface_pixel(90 * 256, 0, true),
-        (32, 32)
-    );
+    assert_eq!(geometry.world_to_surface_pixel(90 * 256, 0, true), (32, 32));
     let pixel = geometry.cell_to_surface_pixel((75, 15));
     assert_eq!(pixel, (21, 32));
     let (width, height) = geometry.generated_size();
@@ -50,11 +47,8 @@ fn native_radar_layers_share_generated_surface_then_one_centered_copy() {
         ),
     ] {
         let terrain_local = geometry.cell_to_surface_pixel(cell);
-        let tracker_local = geometry.world_to_surface_pixel(
-            i32::from(cell.0) * 256,
-            i32::from(cell.1) * 256,
-            true,
-        );
+        let tracker_local =
+            geometry.world_to_surface_pixel(i32::from(cell.0) * 256, i32::from(cell.1) * 256, true);
         let event_local = geometry.cell_to_surface_pixel(cell);
         assert_eq!(tracker_local, terrain_local);
         assert_eq!(event_local, terrain_local);

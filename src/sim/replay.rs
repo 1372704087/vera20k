@@ -804,7 +804,8 @@ impl ReplayRunner {
                 &due_commands,
                 tick_ms,
                 crate::sim::world::TickLane::Ordinary,
-             crate::sim::world::FrameEffects::default(),)?;
+                crate::sim::world::FrameEffects::default(),
+            )?;
             hashes.push(output.tick.state_hash);
         }
         Ok(hashes)
@@ -900,7 +901,8 @@ impl ReplayRunner {
                     tick_ms,
                     TickLane::Ordinary,
                     trigger_inputs,
-                 crate::sim::world::FrameEffects::default(),)
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .expect("fixture frame must complete")
                 .into_tick();
             // Replay has no app layer to consume presentation-only trigger effects.

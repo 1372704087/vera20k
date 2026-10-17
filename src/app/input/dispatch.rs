@@ -1888,11 +1888,6 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         // The hotkey-help overlay is VERA-only and used to sit on bare F1, which
         // stock YR binds to the first camera bookmark. Moved onto the dev chord,
         // which stock binds nothing to.
-        #[cfg(feature = "dev-ui")]
-        KeyCode::F1 => {
-            state.match_state.match_presentation.show_hotkey_help =
-                !state.match_state.match_presentation.show_hotkey_help;
-        }
         KeyCode::KeyM => {
             crate::app::persistence::commands::quicksave(state);
         }

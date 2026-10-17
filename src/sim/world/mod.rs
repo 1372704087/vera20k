@@ -131,13 +131,21 @@ mod world_orders;
 mod world_spawn;
 
 #[cfg(test)]
+mod aegis_distributed_fire_tests;
+#[cfg(test)]
 mod aircraft_deployment_tests;
+#[cfg(test)]
+mod area_rocker_tests;
+#[cfg(test)]
+mod brute_smash_debris_tests;
 #[cfg(test)]
 mod building_fatal_lifecycle_tests;
 #[cfg(test)]
 mod crash_tests;
 #[cfg(test)]
 mod damage_consequence_tests;
+#[cfg(test)]
+mod drone_rocking_tests;
 #[cfg(test)]
 mod engineer_building_repair_tests;
 #[cfg(test)]
@@ -157,19 +165,11 @@ mod jumpjet_infantry_tests;
 #[cfg(any(test, feature = "test-support"))]
 mod lifecycle_tests;
 #[cfg(test)]
+mod mastermind_overload_tests;
+#[cfg(test)]
 mod projectile_trailer_tests;
 #[cfg(test)]
-mod aegis_distributed_fire_tests;
-#[cfg(test)]
-mod brute_smash_debris_tests;
-#[cfg(test)]
 mod squid_grapple_tests;
-#[cfg(test)]
-mod drone_rocking_tests;
-#[cfg(test)]
-mod area_rocker_tests;
-#[cfg(test)]
-mod mastermind_overload_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]
@@ -1142,6 +1142,11 @@ pub struct Simulation {
     /// The app drains these without feeding them back into simulation.
     #[serde(skip)]
     pub(crate) lifecycle_outputs: Vec<LifecycleOutput>,
+    /// Per-match frame phase accounting for the end-of-match report. Wall
+    /// time is not a simulation fact: skipped in serde and never folded into
+    /// the state hash or the retail multiplayer checksum.
+    #[serde(skip)]
+    pub(crate) frame_profile: crate::sim::frame_profile::FrameProfile,
     /// Derived presentation interest for the next admitted frame. The app
     /// copies only pending voice owners; this is never a second voice latch.
     /// `advance_app_frame` clears it on success and error, and restore starts
@@ -3370,6 +3375,7 @@ impl Simulation {
     fn construct(session: ScenarioSession) -> Self {
         let seed = session.seed;
         let mut out = Self {
+            frame_profile: Default::default(),
             movement_pass_cache: Default::default(),
             expiry_listeners: Default::default(),
             path_batch: None,
@@ -6920,6 +6926,18 @@ impl Simulation {
         }
     }
 
+    /// Per-match frame phase accounting. Derived wall-time evidence for the
+    /// end-of-match report; never serialized and never hashed.
+    pub fn frame_profile(&self) -> &crate::sim::frame_profile::FrameProfile {
+        &self.frame_profile
+    }
+
+    /// Drop the frame accounting when a new match installs, so one match's
+    /// times never leak into the next.
+    pub fn reset_frame_profile(&mut self) {
+        self.frame_profile.reset();
+    }
+
     /// Advance exactly one authoritative simulation frame.
     ///
     /// This is the sole Main_Tick-shaped entry point, reached in production
@@ -6936,6 +6954,28 @@ impl Simulation {
         trigger_inputs: Option<TriggerInputs<'_>>,
         effects: FrameEffects<'_>,
     ) -> Result<MasterFrameOutput, FrameAdvanceError> {
+        // Frame-phase accounting for the end-of-match report. One clock read per
+        // subsystem boundary below; every stamp sits on a boundary the comments
+        // already document, so the ledger means what it says. `prev` is the
+        // previous boundary, so a stamp costs one read and one subtraction.
+        let frame_started = std::time::Instant::now();
+        use crate::sim::frame_profile::phase;
+        let mut phases = crate::sim::frame_profile::FramePhases::default();
+        let mut prev = frame_started;
+        // `mark!` stamps the span since the previous boundary. `add` folds a
+        // second stretch into the same slot (the debug asserts run twice).
+        macro_rules! mark {
+            ($phases:ident, $prev:ident, $index:expr) => {{
+                let now = std::time::Instant::now();
+                $phases.set($index, now.duration_since($prev));
+                $prev = now;
+            }};
+            (add, $phases:ident, $prev:ident, $index:expr) => {{
+                let now = std::time::Instant::now();
+                $phases.add($index, now.duration_since($prev));
+                $prev = now;
+            }};
+        }
         let effects = effects
             .with_rules(rules)
             .with_overlay_registry(overlay_registry);
@@ -6967,6 +7007,7 @@ impl Simulation {
             executed_commands +=
                 self.apply_due_frame_ingress_commands(commands, rules, execute_tick, effects);
         }
+        mark!(phases, prev, phase::COMMANDS_INGRESS);
         #[cfg(any(test, feature = "test-support"))]
         self.trace_master_frame_rung(MasterFrameTestRung::SessionCommands);
 
@@ -6978,6 +7019,7 @@ impl Simulation {
 
         // MainTick55DBC8 precedes Logic55DC9E (including trigger polling).
         self.sort_display_ground(rules);
+        mark!(phases, prev, phase::COMMANDS_ADMIT);
 
         self.lifecycle_outputs.push(LifecycleOutput::LogicVisit);
 
@@ -6988,12 +7030,14 @@ impl Simulation {
         if let Some(inputs) = trigger_inputs {
             self.poll_triggers_for_master_frame(inputs, overlay_registry, effects);
         }
+        mark!(phases, prev, phase::TRIGGERS);
 
         // Logic55B29A/55B2AD: consume prior pending conceal at the signed
         // pre-increment native frame boundary, before ore, Teams and live objects.
         self.tick_pending_shroud_conceal(
             UninitContext::new(rules, overlay_registry).with_effects(effects),
         );
+        mark!(phases, prev, phase::SHROUD);
 
         // Interleaved object-AI pass: each object's mission precedes its own
         // locomotion. Unit/Infantry firing and their class-specific tails run
@@ -7011,13 +7055,16 @@ impl Simulation {
         // Harvest dispatches run.
         if let Some(rules) = rules {
             self.tick_scenario_lighting_transition(rules);
+            mark!(phases, prev, phase::LIGHTING);
             self.tick_ore_growth_rungs(rules, overlay_registry);
+            mark!(phases, prev, phase::ORE_GROWTH);
             // `BombListClass::UpdateAll` follows growth and spread (0x0055B4E1).
             self.bomb_list_update(rules);
             // `Kamikaze__Update` follows it (0x0055B4F0). `LightningStorm::
             // Process` runs whatever the superweapons option (0x0055B5C8): a
             // map's NUKE weapon starts the nuke flash without a Super.
             self.kamikaze_update(rules, effects);
+            mark!(phases, prev, phase::BOMBS);
             self.lifecycle_outputs.push(LifecycleOutput::LaserUpdate {
                 frame: self.session.binary_frame as i32,
             });
@@ -7027,17 +7074,20 @@ impl Simulation {
                 overlay_registry,
                 effects,
             );
+            mark!(phases, prev, phase::SUPERWEAPONS);
             self.radiation.tick_decay(
                 self.session.binary_frame,
                 &rules.radiation,
                 self.resolved_terrain.as_ref(),
                 &mut self.lighting_sources.pending,
             );
+            mark!(phases, prev, phase::RADIATION);
         }
         // Native TeamClass AI precedes the main LogicClass object vector. In
         // particular, ordinary object ReceiveDamage paths that arm a Team's
         // base-defense suspension occur only after this frame's Team visit.
         self.run_team_script_pass(rules, overlay_registry, effects);
+        mark!(phases, prev, phase::TEAM_AI);
         // The live pass commits each object's AI, movement and lifecycle effects
         // before advancing its cursor; later phases need only these outcomes.
         #[cfg(any(test, feature = "test-support"))]
@@ -7045,6 +7095,7 @@ impl Simulation {
         // Receipts are frame-local: an aborted earlier frame must not leak one.
         self.fire_requests = Default::default();
         let object_pass = self.advance_live_object_pass(rules, overlay_registry, effects)?;
+        mark!(phases, prev, phase::OBJECTS);
         let ownership_changed = object_pass.ownership_changed();
         spawned_entities |= std::mem::take(&mut self.mission_spawned_entities);
         let movement_stats = object_pass.movement;
@@ -7058,6 +7109,7 @@ impl Simulation {
         // separate from the weapon-damage wall path. No-op when no crusher sits
         // on a wall, so it is hash-neutral for every non-crush scenario.
         self.apply_wall_crush_on_driveover(rules, overlay_registry);
+        mark!(phases, prev, phase::WALL_CRUSH);
         // Aircraft missions retain their existing deferred receiver. Building
         // shots already finished in their own dynamic Logic slots.
         let fire_requests = std::mem::take(&mut self.fire_requests);
@@ -7067,12 +7119,14 @@ impl Simulation {
         if let Some(rules) = rules {
             self.spawn_wakes_for_frame(rules);
         }
+        mark!(phases, prev, phase::WAKES);
 
         // --- Phase 3: Vision refresh ---
         // DEPENDS ON: movement (positions updated), spawn (new entities need LOS).
         // PRODUCES: fog state used by combat targeting (phase 5).
         let vision_config = self.sight_reveal_config(rules);
         self.refresh_fog(&vision_config, rules);
+        mark!(phases, prev, phase::VISION);
 
         if let Some(rules) = rules {
             // --- Phase 5: Combat + Turret rotation ---
@@ -7119,6 +7173,7 @@ impl Simulation {
                 .commit(self, rules, overlay_registry, effects);
             destroyed_structure |= receipt.structure_destroyed;
             bridge_state_changed |= receipt.bridge_state_changed;
+            mark!(phases, prev, phase::COMBAT);
 
             // No end-of-Phase-5 drain: combat-killed structures/voxels stay in
             // the Dying window through the Phase 5.5-8.5 consumers and are freed
@@ -7131,9 +7186,11 @@ impl Simulation {
             // Retaliation is not a phase: every receiver issues its Mission
             // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`).
             passenger::tick_passenger_system(self, rules, overlay_registry, effects);
+            mark!(phases, prev, phase::PASSENGERS);
             // `IonBlastClass::UpdateAll @ 0x0053D310` follows the object loop
             // (`0x0055B64B`).
             self.update_ion_blasts();
+            mark!(phases, prev, phase::ION_BLASTS);
             // `LogicClass__PerTickUpdate @ 0x0055AFB0` calls
             // `MapClass__UpdateCrateRegenTimers @ 0x0056BBE0` at `0x0055B65A`,
             // between `AlphaShapeClass::PurgeDisabled` and the Tactical,
@@ -7173,6 +7230,7 @@ impl Simulation {
                     bridge_state_changed |= self.refresh_bridge_runtime_after_crate_mark();
                 }
             }
+            mark!(phases, prev, phase::CRATES);
 
             // --- Phase 7: Production + Docks + Ore ---
             // DEPENDS ON: completed live-object visits, including depot spending.
@@ -7188,6 +7246,7 @@ impl Simulation {
             // Depot service now spends inside its Building mission visit, so
             // every factory observes the wallet after that object's repair.
             production::revalidate_and_step_factories(self, rules, effects);
+            mark!(phases, prev, phase::PRODUCTION);
             #[cfg(any(test, feature = "test-support"))]
             self.trace_house_ai_activation_order(
                 HouseAiActivationOrderTestEvent::ProductionCompleted,
@@ -7198,9 +7257,11 @@ impl Simulation {
                 overlay_registry,
                 effects,
             );
+            mark!(phases, prev, phase::DOCKS);
             if spawned_entities {
                 self.refresh_fog(&vision_config, Some(rules));
             }
+            mark!(phases, prev, phase::SPAWN_FOG);
         }
 
         // ===== SPINE REGION: LATE — AI, defeat, anims, frame commit =====
@@ -7223,18 +7284,21 @@ impl Simulation {
             .trigger_effects
             .iter()
             .any(|effect| matches!(effect, TriggerEffect::BridgeStateChanged));
+        mark!(phases, prev, phase::LATE_AI);
         self.frame_overlay_updates = self.finalize_frame_overlays_and_navigation(
             rules,
             overlay_registry,
             bridge_state_changed,
             destroyed_structure || spawned_entities,
         );
+        mark!(phases, prev, phase::OVERLAYS);
         #[cfg(debug_assertions)]
         self.debug_assert_logic_membership_consistent();
         #[cfg(debug_assertions)]
         self.debug_assert_lifecycle_consistent();
         #[cfg(debug_assertions)]
         self.debug_assert_factory_invariants();
+        mark!(phases, prev, phase::DEBUG_ASSERTS);
 
         // Living sprite animation state belongs to the committed simulation
         // frame. Keep it inside the authoritative frame transaction so hashed
@@ -7255,12 +7319,15 @@ impl Simulation {
             );
         }
         building_anim::finalize(self);
+        mark!(phases, prev, phase::ANIMS);
         #[cfg(debug_assertions)]
         self.debug_assert_logic_membership_consistent();
         #[cfg(debug_assertions)]
         self.debug_assert_lifecycle_consistent();
+        mark!(add, phases, prev, phase::DEBUG_ASSERTS);
         let terminal_score_finalized =
             self.natural_outcome_exit_ready() && self.finalize_terminal_score_snapshot();
+        mark!(phases, prev, phase::SCORE);
         // A frame that ends the match hashes whatever its tick: the replay
         // log records it as its last frame.
         let state_hash = (!frame_committed
@@ -7269,6 +7336,11 @@ impl Simulation {
                 .tick
                 .is_multiple_of(self.state_hash_interval.get()))
         .then(|| self.state_hash());
+        // The last stamp reads `prev` instead of moving it: nothing follows, so
+        // advancing the cursor would only leave an unused assignment behind.
+        let hash_done = std::time::Instant::now();
+        phases.set(phase::HASH, hash_done.duration_since(prev));
+        self.frame_profile.record(phases, frame_started.elapsed());
         Ok(MasterFrameOutput {
             admitted_commands: commands,
             tick: TickResult {

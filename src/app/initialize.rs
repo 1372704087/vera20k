@@ -2,9 +2,6 @@
 
 use std::path::Path;
 
-#[cfg(feature = "dev-ui")]
-use crate::render::egui_integration::EguiIntegration;
-
 use anyhow::Context;
 
 use crate::app::frontend::startup_options::{RetailStartupOptions, ScreenSize};
@@ -188,8 +185,6 @@ impl App {
             icon.set_dock_icon();
         }
         let gpu: GpuContext = GpuContext::new(window.clone())?;
-        #[cfg(feature = "dev-ui")]
-        let debug_ui = EguiIntegration::new(&gpu, &window);
         let batch_renderer: BatchRenderer = BatchRenderer::new(&gpu);
         let status_screen_fill = batch_renderer.create_texture(&gpu, &[255; 4], 1, 1);
         let mut terrain_draw_renderer = crate::render::terrain_draw::TerrainDrawRenderer::new(
@@ -537,8 +532,6 @@ impl App {
                     saved_game_browser: None,
                     in_game_options: startup_in_game_options,
                     in_game_options_anchor: None,
-                    #[cfg(feature = "dev-ui")]
-                    show_hotkey_help: false,
                     combat_lights: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
@@ -582,6 +575,8 @@ impl App {
                 },
                 match_audio: Default::default(),
                 match_diagnostics: Default::default(),
+                telemetry_timing: Default::default(),
+                telemetry_tick_rate: Default::default(),
                 map_basic: BasicSection::default(),
                 loaded_map_source: None,
                 loaded_map_hash: None,
@@ -676,8 +671,6 @@ impl App {
                 upscale_pass: None,
                 sidebar_surface: None,
                 in_game_shell_surface: None,
-                #[cfg(feature = "dev-ui")]
-                debug_ui,
                 status_screen_fill,
                 bit_font,
                 outcome_banner_art,
@@ -710,11 +703,52 @@ impl App {
         apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
         Self::sync_zoom_pass(&mut state);
 
+        // The dashboard transport is process-scoped diagnostics state: it
+        // starts only when the environment names an address, and never
+        // perturbs the run it watches.
+        state.diag.telemetry_server = match crate::app::telemetry_server::start_from_env() {
+            Some(Ok(server)) => {
+                log::info!("telemetry dashboard at http://{}", server.addr());
+                Some(server)
+            }
+            Some(Err(error)) => {
+                log::error!("{error}");
+                None
+            }
+            None => None,
+        };
+
         if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
             // The developer shortcut carries an authored-map sandbox through
-            // the unverified legacy Battle loader. It has no artificial AI
-            // opponent or starting forces; this is not campaign admission.
+            // the unverified legacy Battle loader; this is not campaign
+            // admission. A house that owns nothing is defeated on the first
+            // defeat pass, so the bare form only survives on fixture maps —
+            // `RA2_QUICKPLAY_AI=1` stages a real opponent instead.
+            let playable = std::env::var("RA2_QUICKPLAY_AI").ok();
+            let ai_count = playable
+                .as_deref()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(if playable.is_some() { 1 } else { 0 });
+            log::info!(
+                "Quickplay sandbox: {quickplay} ({})",
+                if ai_count > 0 {
+                    format!("{ai_count} AI opponents, native starting forces")
+                } else {
+                    "solo fixture — ends at once unless the map's objects belong to the player house"
+                        .to_string()
+                }
+            );
             let session = quickplay_launch_session(quickplay);
+            log::info!(
+                "Quickplay session: {} opponent slot(s), {} valid pre-fill AI slot(s)",
+                session.opponents.len(),
+                session
+                    .pre_fill_house_roster
+                    .ai_slots()
+                    .iter()
+                    .filter(|slot| slot.valid)
+                    .count()
+            );
             let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
             let seed = crate::app::match_bootstrap::read_match_seed(&mut clock);
             let request = crate::app::loading::pump::LoadingRequest::unverified_legacy_skirmish(
@@ -729,10 +763,79 @@ impl App {
 
 /// `RA2_QUICKPLAY=<map>`: VERA-internal authored-map sandbox using the legacy
 /// Battle loader, with one local house and no generated opponents or forces.
+///
+/// That shape only survives on a map whose objects the local house owns. On a
+/// map that gives them to `Neutral` (every stock multiplayer map) the local
+/// house holds nothing, so the first defeat pass ends the match with "You have
+/// Lost" within about a second — a sandbox that is never watchable.
+///
+/// `RA2_QUICKPLAY_AI=<n>` stages a real skirmish instead: `n` AI opponents
+/// (1..=7, default 1) plus the native starting forces, so every house holds
+/// something and the match runs. Opt-in because the bare form's exact unit set
+/// is a pixel-comparison fixture.
 fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::SkirmishLaunchSession {
     use crate::skirmish_launch::{
-        LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode, SkirmishLaunchOptions,
-        SkirmishLaunchSession, SkirmishLocalSlot,
+        AiDifficulty, LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster,
+        SkirmishAiSlot, SkirmishLaunchMode, SkirmishLaunchOptions, SkirmishLaunchSession,
+        SkirmishLocalSlot,
+    };
+    let staged = std::env::var("RA2_QUICKPLAY_AI").ok();
+    let playable = staged.as_deref().is_some_and(|value| value != "0");
+    let ai_count = staged
+        .as_deref()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, crate::skirmish_launch::SKIRMISH_AI_SLOT_COUNT);
+    // Distinct colour slots that never collide with the local DarkBlue (2);
+    // distinct Soviet-bloc and Allied countries so the roster reads well.
+    const AI_COUNTRIES: [LaunchCountry; 7] = [
+        LaunchCountry::Russia,
+        LaunchCountry::Iraq,
+        LaunchCountry::Libya,
+        LaunchCountry::Cuba,
+        LaunchCountry::Yuri,
+        LaunchCountry::France,
+        LaunchCountry::Korea,
+    ];
+    const AI_COLORS: [u8; 7] = [1, 3, 4, 5, 6, 7, 0];
+    let (opponents, pre_fill_house_roster, stage_options) = if playable {
+        // Native starting forces: an MCV plus a handful of units at each start.
+        // `bases` also spaces the houses out and gives the AI something to lose
+        // other than immediately. Start positions are Auto: the loader assigns
+        // valid waypoints, which matters on maps with fewer marked starts than
+        // the requested opponent count.
+        (
+            (0..ai_count)
+                .map(|index| SkirmishAiSlot {
+                    country: AI_COUNTRIES[index % AI_COUNTRIES.len()],
+                    country_random: false,
+                    color_index: AI_COLORS[index % AI_COLORS.len()],
+                    color_random: false,
+                    start_position: LaunchStartPosition::Auto,
+                    team: LaunchTeam::None,
+                    difficulty: AiDifficulty::Normal,
+                })
+                .collect(),
+            PreFillHouseRoster::from_compact_skirmish(ai_count),
+            SkirmishLaunchOptions {
+                bases: true,
+                unit_count: 10,
+                ..SkirmishLaunchOptions::default()
+            },
+        )
+    } else {
+        (
+            Vec::new(),
+            PreFillHouseRoster::from_compact_skirmish(0),
+            SkirmishLaunchOptions {
+                // VERA developer shortcut: fixture maps carry their own objects.
+                // Both native starting-force gates must be off: UnitCount=0 alone
+                // still adds an MCV at each start and reveals an extra radar area.
+                bases: false,
+                unit_count: 0,
+                ..SkirmishLaunchOptions::default()
+            },
+        )
     };
     SkirmishLaunchSession {
         mode: SkirmishLaunchMode {
@@ -759,18 +862,12 @@ fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::Ski
             start_position: LaunchStartPosition::Position(0),
             team: LaunchTeam::None,
         },
-        // An empty AI house is still a contender: its automatic defeat would
-        // award victory to the fixture owner and end the comparison session.
-        opponents: Vec::new(),
-        pre_fill_house_roster: crate::skirmish_launch::PreFillHouseRoster::from_compact_skirmish(0),
-        options: SkirmishLaunchOptions {
-            // VERA developer shortcut: fixture maps carry their own objects.
-            // Both native starting-force gates must be off: UnitCount=0 alone
-            // still adds an MCV at each start and reveals an extra radar area.
-            bases: false,
-            unit_count: 0,
-            ..SkirmishLaunchOptions::default()
-        },
+        // Zero opponents is the capture fixture: an AI house that owns nothing
+        // would auto-defeat and end the session. `RA2_QUICKPLAY_AI` swaps in a
+        // real opponent (and forces) for a watchable match.
+        opponents,
+        pre_fill_house_roster,
+        options: stage_options,
     }
 }
 

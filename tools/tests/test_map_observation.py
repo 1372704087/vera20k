@@ -2545,6 +2545,109 @@ class MapObservationTests(unittest.TestCase):
         return {'last_fire_frame': -1, 'body_counter': (1 << 32) - 1, 'stage_value': 2,
                 'rearm': {'start_frame': -1, 'duration': 0, 'remaining': 0}}
 
+    @staticmethod
+    def spawn_state():
+        return {'type_spawns_number': 3, 'spawn_type': 'HORNET',
+                'count_docked': 2, 'count_alive': 2, 'mode': 'Returning',
+                'regen_rate': 600, 'reload_rate': 150,
+                'current_target': {'Entity': 8}, 'queued_target': {'Cell': [52, 48]},
+                'update_timer': {'start_frame': -(1 << 31), 'duration': 10},
+                'spawn_timer': {'start_frame': -1, 'duration': 0},
+                'slots': [
+                    {'child': 9, 'state': 'ReadyDocked',
+                     'timer': {'start_frame': -1, 'duration': 0}, 'is_missile': False},
+                    {'child': 7, 'state': 'Reloading',
+                     'timer': {'start_frame': (1 << 31) - 1, 'duration': 150}, 'is_missile': False},
+                    {'child': None, 'state': 'Regenerating',
+                     'timer': {'start_frame': 1, 'duration': 600}, 'is_missile': False}]}
+
+    def test_spawns_opt_in_round_trips_ordered_pool_null_owner_and_retirement(self):
+        self.scripted_profile()
+        self.profile['observe_spawns'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for step, actors in self.actor_frames.items():
+            actors[0]['spawns'] = self.spawn_state() if step < 2 else None
+        self.actor_frames[3] = []
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual(frames[0]['actors'][0]['spawns'], self.spawn_state())
+        self.assertIsNone(frames[2]['actors'][0]['spawns'])
+        self.assertEqual(frames[3]['missing_actor_ids'], [1])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertEqual(observation._spawns(self.spawn_state(), 'spawns'), 4)
+        self.assertEqual(observation._spawns(None, 'spawns'), 0)
+        # Query values remain independent recorded reads, not wrapper counters.
+        independent = dict(self.spawn_state(), type_spawns_number=-1, count_docked=9, count_alive=8)
+        observation._spawns(independent, 'spawns')
+
+    def test_spawns_profile_and_actor_fields_require_explicit_boolean_opt_in(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_spawns=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_spawns=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_spawns=value))
+        with self.assertRaises(ValidationError):
+            observation._actor(self.actor(), 'actor', spawns=True)
+        actor = dict(self.actor(), spawns=None)
+        observation._actor(actor, 'actor', spawns=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        self.profile['observe_spawns'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('spawns' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+
+    def test_spawns_rejects_invalid_fields_targets_states_ids_and_signed_timers(self):
+        for key, value in (('type_spawns_number', 1 << 31), ('spawn_type', ''),
+                           ('count_docked', -1), ('count_alive', True), ('mode', 0),
+                           ('regen_rate', 1 << 32), ('reload_rate', -1),
+                           ('current_target', {'Entity': 0}), ('queued_target', {'Cell': [-1, 48]}),
+                           ('update_timer', {'start_frame': 0, 'duration': True}),
+                           ('spawn_timer', {'start_frame': 0, 'duration': 0, 'remaining': 0}),
+                           ('slots', None), ('extra', 0)):
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._spawns(dict(self.spawn_state(), **{key: value}), 'spawns')
+        for key, value in (('child', 0), ('child', True), ('child', 1 << 64),
+                           ('state', 'Dead'), ('state', 6), ('is_missile', 0),
+                           ('timer', {'start_frame': -(1 << 31) - 1, 'duration': 0}),
+                           ('index', 0)):
+            row = self.spawn_state()
+            row['slots'][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValidationError):
+                observation._spawns(row, 'spawns')
+        for state in ('ReadyDocked', 'KamikazeWait', 'InFlight', 'Attacking',
+                      'ComingHome', 'Reloading', 'Regenerating'):
+            row = self.spawn_state()
+            row['slots'][0]['state'] = state
+            observation._spawns(row, 'spawns')
+        row = self.spawn_state()
+        del row['slots'][0]['timer']
+        with self.assertRaises(ValidationError):
+            observation._spawns(row, 'spawns')
+        with self.assertRaises(ValidationError):
+            observation._spawns({}, 'spawns')
+
+    def test_spawns_manager_and_slots_charge_aggregate_sample_budget_at_boundary(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_spawns=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), spawns=self.spawn_state())]
+        # One actor, one House, one manager and its three ordered slots.
+        for budget, status in ((5, 'INVALID'), (6, 'VALID')):
+            self.output = self.root / f'spawn-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
+            if status == 'INVALID':
+                self.assertTrue(any('sample budget' in error for error in report['errors']))
+
     def test_bomb_owner_snapshots_and_fire_state_survive_retirement_and_sealed_recheck(self):
         self.scripted_profile()
         self.profile['observe_bombs'] = True

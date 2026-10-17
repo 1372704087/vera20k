@@ -8,13 +8,16 @@ const OWNER: &str = "Americans";
 
 fn frames(sim: &Simulation, rules: &RuleSet, transport: u64, hover: Option<u64>) -> Vec<usize> {
     let hash = sim.state_hash();
-    let result = super::ui_overlays::scale_pip_frames(
+    let result = super::ui_overlays::scale_pip_draws(
         sim,
         sim.entities().get(transport).unwrap(),
         hover,
         Some(OWNER),
         rules,
-    );
+    )
+    .into_iter()
+    .map(|pip| pip.frame)
+    .collect();
     assert_eq!(
         sim.state_hash(),
         hash,

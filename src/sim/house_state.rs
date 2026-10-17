@@ -392,6 +392,12 @@ impl Default for LastBuiltTypes {
 pub struct HouseState {
     /// Owner name as interned ID (resolve via interner for display).
     pub name: InternedId,
+    /// House+15FF4's bounded narrow name, independent of its owner key and
+    /// participant display handle. Fresh scenario initialization installs it
+    /// before map objects; None marks partial diagnostic Houses that have not
+    /// run that admission. Save504080/Load503040 retain the native name.
+    #[serde(default)]
+    native_scenario_name: Option<String>,
     #[serde(default)]
     native_construction: Option<NativeHouseConstruction>,
     #[serde(default)]
@@ -787,6 +793,40 @@ impl Default for HouseSuperWeaponCells {
 }
 
 impl HouseState {
+    /// Final fresh-reader name: HouseReadINI500A62 or offline generated
+    /// CreateHouses688072/688238. The original copies at most20 narrow bytes;
+    /// parsed INI names use one widened scalar per native byte. No case/space
+    /// normalization or mutable human/owner classification chooses this name.
+    pub(crate) fn initialize_scenario_name(&mut self, name: &str) {
+        assert!(
+            self.native_scenario_name.is_none(),
+            "fresh House name installed once"
+        );
+        self.native_scenario_name = Some(
+            name.split('\0')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .take(20)
+                .collect(),
+        );
+    }
+
+    pub(crate) fn native_scenario_name(&self) -> Option<&str> {
+        self.native_scenario_name.as_deref()
+    }
+
+    pub(crate) fn validate_scenario_name(&self) -> Result<(), &'static str> {
+        if self.native_scenario_name.as_ref().is_some_and(|name| {
+            name.contains('\0')
+                || name.chars().count() > 20
+                || name.chars().any(|c| u32::from(c) > 255)
+        }) {
+            return Err("House native name exceeds its terminated20-byte storage");
+        }
+        Ok(())
+    }
+
     /// The shared House field writer for production4FB6B0 and discovery44D601.
     /// Scoring, admission and notification effects stay with those callers.
     pub(crate) fn record_built_type(&mut self, category: ObjectCategory, type_index: i32) {
@@ -1009,6 +1049,10 @@ impl HouseState {
 
     pub(crate) fn hash_native_construction(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
+        if let Some(name) = &self.native_scenario_name {
+            b"house-native-scenario-name-v1".hash(hasher);
+            name.hash(hasher);
+        }
         if let Some(construction) = self.native_construction {
             b"house-native-construction-v1".hash(hasher);
             construction.hash(hasher);
@@ -1661,6 +1705,7 @@ impl HouseState {
     ) -> Self {
         Self {
             name,
+            native_scenario_name: None,
             native_construction: None,
             scenario_parameters: HouseScenarioParameters::default(),
             initial_techno_records: Vec::new(),
@@ -1721,6 +1766,26 @@ impl HouseState {
             spatial_threat: Default::default(),
             super_weapon_cells: HouseSuperWeaponCells::default(),
         }
+    }
+}
+
+impl crate::sim::world::Simulation {
+    /// Bind the common exact-name query's native ordinal to the existing
+    /// internal House identity. Only fully initialized scenario Houses take
+    /// this path; generated preconsumed and partial diagnostic rows retain
+    /// their explicit internal-key projection in the map constructor owner.
+    pub(crate) fn scenario_house_named(&self, requested: &str) -> Option<InternedId> {
+        let index = crate::map::houses::find_house_index(
+            self.session.house_order.iter().map(|owner| {
+                self.houses
+                    .get(owner)
+                    .expect("registered House array entry")
+                    .native_scenario_name()
+                    .expect("scenario House names initialized before object readers")
+            }),
+            requested,
+        )?;
+        Some(self.session.house_order[index])
     }
 }
 

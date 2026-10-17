@@ -39,6 +39,8 @@ use crate::ui::sidebar::{
 mod pending_production_tests;
 #[path = "ready_building_placement_tests/produced_build_limit_tests.rs"]
 mod produced_build_limit_tests;
+#[path = "ready_building_placement_tests/scenario_house_name_tests.rs"]
+mod scenario_house_name_tests;
 
 struct Fixture {
     sim: Simulation,

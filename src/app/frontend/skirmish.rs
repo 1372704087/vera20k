@@ -1212,7 +1212,9 @@ mod tests {
 
         let spawned = sim.spawn_from_map(
             &[crate::map::entities::MapEntity {
-                owner: "Player".to_owned(),
+                // Native offline Structures resolves the generated AI name.
+                // The current human is excluded before the constructor.
+                owner: "Computer".to_owned(),
                 type_id: "GACNST".to_owned(),
                 health: 256,
                 cell_x: 30,
@@ -1234,14 +1236,14 @@ mod tests {
         );
 
         assert_eq!(spawned, 1);
-        let player = sim
+        let computer = sim
             .interner
-            .get("Player")
-            .expect("pre-created player house");
-        assert_eq!(sim.houses[&player].tracking.buildings(), 1);
+            .get("Computer1")
+            .expect("pre-created first AI house");
+        assert_eq!(sim.houses[&computer].tracking.buildings(), 1);
         assert_eq!(
             sim.substrate.base_reservations.raw_mask(None, 28, 38),
-            1,
+            2,
             "Reveal writes the participant's house-index bit without a repair pass"
         );
     }

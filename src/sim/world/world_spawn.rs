@@ -33,6 +33,12 @@ use crate::sim::production::{self, ProductionCategory};
 use crate::sim::vision::MAX_SIGHT_RANGE;
 use crate::util::fixed_math::SimFixed;
 
+#[derive(Clone, Copy)]
+enum MapEntityOwner {
+    Registered(InternedId),
+    UnregisteredDiagnostic,
+}
+
 /// Exact generated-object constructor handoff. The later RMG lifecycle owner
 /// supplies this table after replaying all successful and discarded native
 /// constructor events on the launch Scenario cursor.
@@ -329,11 +335,23 @@ impl Simulation {
         let generated_inits = constructor_inits
             .map(|table| table.validate(entities))
             .transpose()?;
+        // Generated rows already contain internal House keys. Rules-less and
+        // partial diagnostic substrates retain their existing key projection.
+        // Fresh admitted scenarios instead resolve the original narrow name.
+        let authored_names = generated_inits.is_none()
+            && rules.is_some()
+            && self
+                .houses
+                .values()
+                .any(|house| house.native_scenario_name().is_some());
 
         if generated_inits.is_some() {
             let rules = rules.expect("generated-map projection requires rules");
             for (entity_index, entity) in entities.iter().enumerate() {
-                if !self.map_entity_resolves_before_constructor(entity, Some(rules), true) {
+                if self
+                    .map_entity_owner_before_constructor(entity, Some(rules), true, authored_names)
+                    .is_none()
+                {
                     return Err(GeneratedTechnoInitError::UnresolvableEntity {
                         entity_index,
                         techno_type: entity.type_id.clone(),
@@ -352,18 +370,19 @@ impl Simulation {
             let mut count: u32 = 0;
 
             for (entity_index, map_ent) in entities.iter().enumerate() {
-                if !sim.map_entity_resolves_before_constructor(
+                let Some(owner) = sim.map_entity_owner_before_constructor(
                     map_ent,
                     rules,
                     generated_inits.is_some(),
-                ) {
+                    authored_names,
+                ) else {
                     log::warn!(
                         "Skipping map Techno {} owned by {} before constructor resolution",
                         map_ent.type_id,
                         map_ent.owner
                     );
                     continue;
-                }
+                };
                 // Unit ReadUnits7434F3 writes OnBridge from HIGH itself; its
                 // 7434FB..743510 coordinate is Map578080 ground plus B1D0AC.
                 // HasBridge and navigation's bridge_walkable do not admit that
@@ -432,7 +451,10 @@ impl Simulation {
                     .unwrap_or_else(|| Self::default_vision_range_for_category(map_ent.category));
 
                 let stable_id = sim.allocate_stable_id();
-                let owner_id = sim.interner.intern(&map_ent.owner);
+                let owner_id = match owner {
+                    MapEntityOwner::Registered(owner) => owner,
+                    MapEntityOwner::UnregisteredDiagnostic => sim.interner.intern(&map_ent.owner),
+                };
                 let type_id = sim.interner.intern(&map_ent.type_id);
                 let constructor_init = generated_inits
                     .as_ref()
@@ -571,6 +593,10 @@ impl Simulation {
                 if map_ent.category == EntityCategory::Structure
                     && let Some(ruleset) = rules
                 {
+                    // ReadBuildings44FC31 retains the row's resolved House for
+                    // upgrade constructors even if a shared callback changed
+                    // the parent owner. The raw authored name is not a key.
+                    let original_owner = sim.interner.resolve(owner_id).to_owned();
                     for (slot, upgrade_type) in map_ent.structure_upgrades.iter().enumerate() {
                         let Some(upgrade_type) = upgrade_type.as_deref() else {
                             continue;
@@ -592,7 +618,7 @@ impl Simulation {
                                 stable_id,
                                 slot as u8,
                                 upgrade_type,
-                                &map_ent.owner,
+                                &original_owner,
                                 map_ent.cell_x,
                                 map_ent.cell_y,
                                 z,
@@ -612,23 +638,43 @@ impl Simulation {
         })
     }
 
-    fn map_entity_resolves_before_constructor(
+    fn map_entity_owner_before_constructor(
         &self,
         map_ent: &MapEntity,
         rules: Option<&RuleSet>,
         require_owner: bool,
-    ) -> bool {
-        let type_resolves = rules.is_none_or(|rules| {
-            authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules).is_some()
-        });
-        let owner_resolves = (!require_owner && self.houses.is_empty())
-            || crate::sim::house_state::house_state_for_owner(
-                &self.houses,
-                &map_ent.owner,
-                &self.interner,
-            )
-            .is_some();
-        type_resolves && owner_resolves
+        authored_names: bool,
+    ) -> Option<MapEntityOwner> {
+        let owner = if authored_names {
+            // FromName50C170 is shared by all four original object readers.
+            // Only BuildingReadINI44F8CB..44F8DB compares the current House
+            // in nonzero modes, before resolving Type or entering its ctor.
+            // Native controls: input_oracle/campaign_house_names.
+            let owner = self.scenario_house_named(&map_ent.owner)?;
+            if map_ent.category == EntityCategory::Structure
+                && self.session.game_mode_nonzero
+                && self.session.current_house == Some(owner)
+            {
+                return None;
+            }
+            MapEntityOwner::Registered(owner)
+        } else if let Some(house) = crate::sim::house_state::house_state_for_owner(
+            &self.houses,
+            &map_ent.owner,
+            &self.interner,
+        ) {
+            MapEntityOwner::Registered(house.name)
+        } else if !require_owner && self.houses.is_empty() {
+            MapEntityOwner::UnregisteredDiagnostic
+        } else {
+            return None;
+        };
+        if rules.is_some_and(|rules| {
+            authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules).is_none()
+        }) {
+            return None;
+        }
+        Some(owner)
     }
 
     fn spawn_attached_map_upgrade(

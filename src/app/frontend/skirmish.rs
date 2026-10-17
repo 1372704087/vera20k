@@ -1309,8 +1309,10 @@ mod tests {
         );
         assert_eq!(credits("Computer3"), Some(10_000), "Normal: +0%");
         assert_eq!(credits("Computer4"), Some(10_000), "Easy: +0%");
-        assert_eq!(credits("Neutral"), Some(10_000));
-        assert_eq!(credits("Special"), Some(10_000));
+        // Fixed-tail Houses retain ctor4F58D8 cash0; the passive grant
+        // neither seeds them with participant cash nor adds a bonus.
+        assert_eq!(credits("Neutral"), Some(0));
+        assert_eq!(credits("Special"), Some(0));
         assert_eq!(credits("Observer"), Some(10_000));
     }
 

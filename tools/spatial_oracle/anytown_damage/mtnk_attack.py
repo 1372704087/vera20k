@@ -238,7 +238,7 @@ def execute():
  assert not pending,pending
  return dict(native_sha256=NATIVE_SHA256,text_section_sha256=text_hash,inputs=info,world=world,slot=slot,shots=shots,events=events,stop=hex(u.reg_read(UC_X86_REG_EIP)),frames=frames,area=area,resident_trace=resident.trace,repair=repair,rng_initial=rng_initial,rng_final={k:sr.rng_state(u,p) for k,p in resident.rngs.items()},failure=failure,fire_error=fire_error,rearm=[i32(u,src+0x2EC),i32(u,src+0x2F4)],source_after=dict(position=xyz(u,src+0x9C),health=i32(u,src+0x6C),alive=u.mem_read(src+0x90,1)[0],still_targets_cell=m.read32(src+0x2B4)==target))
 
-def authored_fence_case(seed):
+def authored_fence_case(seed,*,forced_cells=None):
  from types import SimpleNamespace
  from tools.spatial_oracle.anytown_damage.navigation_inputs import Inputs,extract_tiles
  from tools.spatial_oracle.anytown_damage.navigation import Navigation
@@ -256,6 +256,30 @@ def authored_fence_case(seed):
   reader.make_ini(art)
   return reader
  m,typ,weapon,r,attack=prepare(reader_factory=existing_reader,type_pointer=reader.mtnk,rules_pointer=reader.rules)
+ tilts=None
+ if forced_cells is not None:
+  # The same native type constructor supplies D2B's current default. Execute
+  # the exact layered boolean read, rather than infer it from stock key absence.
+  retained_rules=bytes(reader.u.mem_read(RULES,0x40))
+  tilts=dict(constructor_default=reader.u.mem_read(typ+0xD2B,1)[0],layers=[])
+  for name,path in layers():
+   if not path.exists():
+    assert name=='LANGRULE.INI'
+    tilts['layers'].append(dict(file=name,absent=True));continue
+   raw=path.read_bytes();sections,lines=lexical(raw,{'MTNK'});reader.rules_cache(sections)
+   before=reader.u.mem_read(typ+0xD2B,1)[0]
+   admitted=bool(reader.invoke(0x526810,RULES,(typ+0x24,)))
+   if admitted:
+    for reg,value in ((UC_X86_REG_ESP,SP),(UC_X86_REG_EBP,typ),(UC_X86_REG_EBX,typ+0x24),(UC_X86_REG_ESI,RULES)):
+     reader.u.reg_write(reg,value)
+    run_checked(reader.u,0x7153DA,0x7153FB)
+   tilts['layers'].append(dict(file=name,sha256=sha(raw),section_admitted=admitted,
+    source_lines=lines,before=before,after=reader.u.mem_read(typ+0xD2B,1)[0]))
+  tilts.update(value=reader.u.mem_read(typ+0xD2B,1)[0],offset='D2B',key='TiltsWhenCrushes',
+   constructor_store='711500',reader=['7153DA','7153FB'])
+  # rules_cache allocates each lexical cache; restore the prior live header so
+  # later native map/asset consumers retain exactly the shared setup's inputs.
+  reader.u.mem_write(RULES,retained_rules)
  # Original lazy image getter, with physical NewTheater assets provided by the
  # same Reader. The map caller repeats its own actual image/admission tests.
  wall_images=[]
@@ -303,9 +327,11 @@ def authored_fence_case(seed):
  radar_inputs=prepare_dirty_tracking(radar,192,192,0,0,capacity=512)
  native.wall_live=True;native.activity='wall_damage'
  point=native.allocate(12)
- native.call(0x480A30,this=native.ptrs[43,81],args=(point,))
+ source_cell=forced_cells[0] if forced_cells is not None else (43,81)
+ native.call(0x480A30,this=native.ptrs[source_cell],args=(point,))
  center=xyz(u,point)
- damage=sr.i32(u,weapon+0xA4);warhead=read(weapon+0xAC)
+ damage=-1 if forced_cells is not None else sr.i32(u,weapon+0xA4)
+ warhead=read(weapon+0xAC)
  cells_by_pointer={p:xy for xy,p in native.ptrs.items()}
  def cell(p):
   return dict(cell=native.coord(p),overlay=sr.i32(u,p+0x44),data=u.mem_read(p+0x11E,1)[0],
@@ -355,13 +381,24 @@ def authored_fence_case(seed):
  native.entry_observer=observe;whook=u.hook_add(UC_HOOK_MEM_WRITE,write)
  initial_cells={p:cell(p) for p in native.ptrs.values()}
  initial=state();steps=[]
- source_prior=cell(native.ptrs[43,81])
- assert source_prior['overlay']==203 and source_prior['data']==5 and source_prior['neighbors']>0,source_prior
+ source_prior=cell(native.ptrs[source_cell])
+ assert source_prior['overlay']==203 and source_prior['neighbors']>0,source_prior
+ if forced_cells is None:assert source_prior['data']==5,source_prior
  initial_patch=[dict(initial_cells[native.ptrs[x,y]]) for y in range(78,85) for x in range(40,47)]
- for hit in range(1,13):
+ for hit in range(1,len(forced_cells)+1 if forced_cells is not None else 13):
   start=len(events);dirty.clear();before=state()
-  u.reg_write(UC_X86_REG_EDX,damage)
-  native.call(0x489280,this=point,args=(0,warhead,0,0),count=100000000)
+  target_cell=forced_cells[hit-1] if forced_cells is not None else source_cell
+  target=native.ptrs[target_cell]
+  if forced_cells is not None:
+   assert cell(target)['overlay']==203 and cell(target)['neighbors']>0,cell(target)
+   native.call(0x480CB0,this=target,args=(-1,),count=100000000)
+   # The host stop boundary is not executed as an instruction. Finalize only
+   # its actual returned PC/EAX/stores through the same observation closure.
+   assert u.reg_read(UC_X86_REG_EIP)==RET_MAGIC
+   observe(u,u.reg_read(UC_X86_REG_EIP),0,None)
+  else:
+   u.reg_write(UC_X86_REG_EDX,damage)
+   native.call(0x489280,this=point,args=(0,warhead,0,0),count=100000000)
   assert not pending,pending
   changed=[]
   for p in sorted(dirty,key=lambda p:(cells_by_pointer[p][1],cells_by_pointer[p][0])):
@@ -370,12 +407,19 @@ def authored_fence_case(seed):
   before_drain=state();native.call(0x725C70,this=0,count=10000000)
   assert not pending,pending
   steps.append(dict(hit=hit,before=before,events=events[start:],changed=changed,
-   before_drain=before_drain,after=state(),source=cell(native.ptrs[43,81])))
-  if sr.i32(u,native.ptrs[43,81]+0x44)==-1:break
- else:raise AssertionError('no original source wall removal in12 native AP impacts')
+   before_drain=before_drain,after=state(),source=cell(target)))
+  if forced_cells is not None:
+   steps[-1]['source_cell']=list(target_cell)
+   assert steps[-1]['source']['overlay']==-1,steps[-1]['source']
+   assert before['rng']==steps[-1]['after']['rng'],'forced wall consumed RNG'
+   assert not any(e['kind'] in ('area_damage','cell_target_detach','rng_request','raw_draw') for e in steps[-1]['events'])
+   assert any(e['kind']=='pointer_expiry' for e in steps[-1]['events']),'no original wall expiry'
+  elif sr.i32(u,target+0x44)==-1:break
+ else:
+  if forced_cells is None:raise AssertionError('no original source wall removal in12 native AP impacts')
  native.entry_observer=None;u.hook_del(whook)
  assert steps[-1]['source']['overlay']==-1,'no source removal'
- assert any(e['kind']=='raw_draw' for e in events),'no actual wall RNG'
+ if forced_cells is None:assert any(e['kind']=='raw_draw' for e in events),'no actual wall RNG'
  for event in events:
   if event['kind']=='tactical_dirty':
    caller=int(event['caller'],16)
@@ -385,8 +429,21 @@ def authored_fence_case(seed):
  print('native wall source history',json.dumps(dict(seed=seed,steps=[dict(hit=s['hit'],
   source=[s['source']['overlay'],s['source']['data']],calls=[dict(before=e['before']['data'],
    after=[e['after']['overlay'],e['after']['data']],returned=e['returned_eax'])
-   for e in s['events'] if e['kind']=='wall_damage' and e.get('before',{}).get('cell')==[43,81]])
+   for e in s['events'] if e['kind']=='wall_damage' and e.get('before',{}).get('cell')==s.get('source_cell',[43,81])])
   for s in steps])),flush=True)
+ result=dict(input=dict(seed=seed,impact_cell=list(source_cell),impact_xyz=center,damage=damage,
+   attacker=None,game_mode=attack['special_flags']['mode'],game_active=native.game_active,scenario_init=native.scenario_init,
+   stock_attack=attack,overlay_theater=overlay_theater,theater=theater_input,wall_defaults=defaults,wall_layers=reader.wall_layers,wall_images=wall_images,
+   manifest=reader.wall_sources,size=native.case['size'],local_size=native.case['local_size'],
+   map_rect=list(struct.unpack('<4i',u.mem_read(sr.MAP+0x124,16))),
+   allocated_cells=len(native.ptrs),radar=radar_inputs,
+   wall_stamps=native.wall_stamp_receipts,wall_types=reader.wall_type_states(),
+   original_cell_spread_pairs=369,
+   physical_tmp=dict(outer_sha256=tmp_receipt['outer_sha256'],inner_sha256=tmp_receipt['inner_sha256'])),
+  initial=initial,initial_patch=initial_patch,steps=steps)
+ if forced_cells is not None:
+  result['input'].update(driver='Cell480CB0',source_cells=[list(c) for c in forced_cells],mtnk_tilts=tilts)
+  return result
  # Native query-only controls use the same allocated Cell and actual type
  # registry. Raw identity priors deliberately exercise shared prefix callers;
  # no wall admission or GDI/Nod building-gate behavior is claimed for these.
@@ -405,16 +462,8 @@ def authored_fence_case(seed):
  query_controls=dict(cell=[43,81],ground_object=bool(read(query_cell+0xE4)),
   prior='Explicit raw Cell identity inputs restored after query-only original480510 calls; no GDI/Nod gate walk or wall constructor claim.',
   rng_before=query_rng,rng_after=rng(),rows=queries)
- return dict(input=dict(seed=seed,impact_cell=[43,81],impact_xyz=center,damage=damage,
-   attacker=None,game_mode=attack['special_flags']['mode'],game_active=native.game_active,scenario_init=native.scenario_init,
-   stock_attack=attack,overlay_theater=overlay_theater,theater=theater_input,wall_defaults=defaults,wall_layers=reader.wall_layers,wall_images=wall_images,
-   manifest=reader.wall_sources,size=native.case['size'],local_size=native.case['local_size'],
-   map_rect=list(struct.unpack('<4i',u.mem_read(sr.MAP+0x124,16))),
-   allocated_cells=len(native.ptrs),radar=radar_inputs,
-   wall_stamps=native.wall_stamp_receipts,wall_types=reader.wall_type_states(),
-   original_cell_spread_pairs=369,
-   physical_tmp=dict(outer_sha256=tmp_receipt['outer_sha256'],inner_sha256=tmp_receipt['inner_sha256'])),
-  initial=initial,initial_patch=initial_patch,steps=steps,query_controls=query_controls)
+ result['query_controls']=query_controls
+ return result
 
 
 def authored_fence_generate():
@@ -426,6 +475,25 @@ def authored_fence_generate():
  assert any(e['before']==e['after'] for e in wall),'no native rejected wall control'
  assert any(e['after']['overlay']==-1 and e['before']['overlay']!=-1 for e in wall),'no native wall removal'
  return dict(native_sha256=NATIVE_SHA256,cases=cases)
+
+
+def fence_driveover_generate():
+ return dict(native_sha256=NATIVE_SHA256,cases=[authored_fence_case(0,forced_cells=((43,82),(44,82)))])
+
+
+def fence_driveover_metadata():
+ result=authored_fence_metadata()
+ result['scope']='Physical XMP03T4 CAFNCB Cell480CB0(-1) sequence43,82 then44,82 using the existing authored-fence VM. Direct Cell component; not native UnitPerCell, audio, movement scheduling or whole-World RNG parity.'
+ result['assumptions']=[
+  'Same physical readers, actual95 authored Wall admissions/data pass, original Map/Cell/TMP/navigation/ScenarioInit/GameActive producers and shared radar storage as --authored-fence. No actor or positive Techno/listener population. Independent seed0 is installed on all3 native streams after setup.',
+  'Source cells43,82 then44,82 are independently declared component inputs. Each real480CB0(-1), its complete reached cleanup/Recalc/navigation/radar/expiry and deferred drain execute in order; second input state is the actual first call output. Direct Unit caller73B056 uses -1; AreaDamage and its70D4A0 detach are not part of this route.',
+  'All3 complete RNG states, request/raw events, Cell/122 changes, return values, callback order, runtime cursor and delete queue are observed. Selected forced branch is asserted draw-free; this says nothing about Unit sound playback Main-stream RNG. Full UnitPerCell timing, captured+1B8 target, sound+48 position and recoil use separate original296 numeric/caller evidence and normal World integration.',
+  'Native constructor default D2B and admitted exact-case TiltsWhenCrushes7153DA..7153FB reads run through the same MTNK reader and physical RULESMD/LANGRULE/Battle/map layers. This does not execute Drive pre-entry+64/-0.05 tilt, Unit+334 recoil, or Unit+6B5 lifetime.',
+ ]
+ result['entry_points'].pop('area_damage');result['entry_points'].pop('detach')
+ result['entry_points'].update(unit_forced_caller='0x0073B056',physical_cell_query='0x0041BEA0',
+  sound_coordinate_query='0x005F65A0',tilts_reader='0x007153DA')
+ return result
 
 
 def authored_fence_metadata():
@@ -444,15 +512,20 @@ def authored_fence_metadata():
 from .publication import finish_vectors
 
 if __name__=='__main__':
- if '--authored-fence' in sys.argv[1:]:
+ if '--authored-fence' in sys.argv[1:] or '--authored-fence-driveover' in sys.argv[1:]:
+  driveover='--authored-fence-driveover' in sys.argv[1:]
+  assert not (driveover and '--authored-fence' in sys.argv[1:]),'choose one authored-fence mode'
+  flag='--authored-fence-driveover' if driveover else '--authored-fence'
   from tools.native_oracle import finish_vectors as native_finish
   sources={str(p):p for p in (Path(__file__),HERE/'navigation.py',HERE/'navigation_inputs.py',
     HERE.parent/'bridge_constructor.py',HERE.parent/'bridge_shadow_render.py',HERE.parent/'ore_radar.py',
     HERE.parent/'shrapnel_repair/retail_inputs.py',HERE.parent/'shrapnel_repair/shrapnel_repair.py',
     Path('tools/native_oracle.py'),Path('tools/projectile_oracle/bridge_render_inputs.py'),Path('tools/rules_oracle/bridge_anim_inputs.py'),
     Path('tools/rules_oracle/bridge_child_sound.py'))}
-  native_finish(authored_fence_generate,HERE/'authored_fence.json',provenance=authored_fence_metadata,
-    argv=[v for v in sys.argv[1:] if v!='--authored-fence'],source_paths=sources)
+  native_finish(fence_driveover_generate if driveover else authored_fence_generate,
+    HERE/('fence_driveover.json' if driveover else 'authored_fence.json'),
+    provenance=fence_driveover_metadata if driveover else authored_fence_metadata,
+    argv=[v for v in sys.argv[1:] if v!=flag],source_paths=sources)
   raise SystemExit(0)
  finish_vectors(execute,HERE/'mtnk_attack.json.gz',provenance=lambda:provenance(scope=__doc__,
   entry_points={'rules_ctor':0x665650,'unit_type_ctor':0x7470D0,'weapon_reader':0x772080,'projectile_reader':0x46BEE0,'warhead_reader':0x75D3A0,'ballistic_speed_postpass':0x7729F0,'special_flags_ctor':0x6B8AE0,'special_flags_map_reader':0x6B8CA0,'select_weapon':0x746CD0,'fire_error':0x740FD0,'unit_fire_at':0x741340,'techno_fire_at':0x6FDD50,'bullet_factory':0x6C5090,'bullet_ai':0x4666E0,'detonate':0x4690B0,'area_damage':0x489280,'concrete_damage':0x57CCF0,'detach':0x70D4A0,'recalc':0x47D2B0,'occupants':0x487A10,'anim_ai':0x423AC0,'retirement_drain':0x725C70,'repair':0x573540,'mapgen_range':0x598030,'scenario_range':0x65C7E0},

@@ -762,14 +762,30 @@ fn restore_selection_dispatch_order(queued: &mut [CommandEnvelope], selected: &[
 /// mission *it* resolved, not an order-wide line. If that first object resolved
 /// no order (its action mapped to a cursor-only code) nothing is spoken.
 fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[CommandEnvelope]) {
-    let Some(voice_field) = queued
+    let Some(envelope) = queued
         .iter()
         .find(|env| command_actor_id(&env.payload) == Some(speaker_id))
-        .and_then(|env| order_voice_key(&env.payload))
     else {
         return;
     };
-    emit_entity_order_voice(state, speaker_id, voice_field);
+    let Some(voice_field) = order_voice_key(&envelope.payload) else {
+        return;
+    };
+    //6FFCEA..6FFCEF passes the committed Attack argument to VoiceAttack,
+    // before event encoding. A Move destination and the actor's old TarCom
+    // are different owners; neither supplies this argument.
+    let target = match &envelope.payload {
+        Command::Attack { target_id, .. } | Command::ForceAttack { target_id, .. } => {
+            Some(TargetKind::Entity(*target_id))
+        }
+        Command::ForceAttackCell {
+            target_rx,
+            target_ry,
+            ..
+        } => Some(TargetKind::Cell(*target_rx, *target_ry)),
+        _ => None,
+    };
+    emit_entity_order_voice(state, speaker_id, voice_field, target);
 }
 
 /// Play one entity's voice line for the given `Voice*` INI key.
@@ -777,7 +793,12 @@ fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[Co
 /// The superseded app-layer order-voice helper always spoke the lowest-`stable_id` selected
 /// entity; retail speaks the object that resolved the order, so order resolution
 /// needs to name the speaker explicitly.
-fn emit_entity_order_voice(state: &mut AppState, speaker_id: u64, voice_field: &str) {
+fn emit_entity_order_voice(
+    state: &mut AppState,
+    speaker_id: u64,
+    voice_field: &str,
+    target: Option<TargetKind>,
+) {
     if voice_field == "VoiceSpecialAttack" {
         if let Some(runtime) = state.match_state.sim_runtime.as_mut()
             && let Some(event) =
@@ -799,6 +820,7 @@ fn emit_entity_order_voice(state: &mut AppState, speaker_id: u64, voice_field: &
         &runtime.resources.rules,
         speaker_id,
         voice_field,
+        target,
         state.match_state.input.selection_voice_enabled,
     ) else {
         return;

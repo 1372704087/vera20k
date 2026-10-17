@@ -6,13 +6,14 @@ See tmp_clear_render.md for supplied boundaries.
 """
 import hashlib
 import struct
+from pathlib import Path
 
 from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import (
     UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX,
-    UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP,
+    UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_FPCW,
 )
-from tools.native_oracle import NATIVE_SHA256, RET_MAGIC, configured_gamemd, provenance, run_checked
+from tools.native_oracle import NATIVE_SHA256, RET_MAGIC, NativeCallTrace, configured_gamemd, finish_vectors, provenance, run_checked
 from tools.spatial_oracle.bridge_shadow_render import (
     prepare as prepare_shared, CELL, POINT, CLIP, WIDTH, HEIGHT, COUNT,
     PIXELS, Z, A, ints, snapshot, physical_assets,
@@ -453,3 +454,222 @@ def metadata():
                           full_view=0x6D7560, tile_bounds=0x47FF80, shroud_leaf=0x47EFE0,
                           winmain_cpu_profile_call=0x6BDF5F, cpu_profile=0x5355D0,
                           cpu_dispatch=0x4E6190, cpu_mmx=0x7C5F3D, cpu_cmov=0x7C5FFF))
+
+
+def generate_preview():
+    """Original TMP height tables and selected Cell preview, in the same VM.
+
+    No interpolation, RGB packing or expected level-table implementation is
+    present here. Physical registration/lazy loading stays with prepare().
+    """
+    m, inputs, files = prepare()
+    u = m.u
+    # Native primary-surface mask derivation, on the existing owner's declared
+    # enrolled RGB565 descriptor masks. This is not universal Windows startup.
+    descriptor_masks = [0xF800, 0x07E0, 0x001F]
+    u.mem_write(0x8A0958, dwords(*descriptor_masks))
+    u.reg_write(UC_X86_REG_ESP, SP)
+    run_checked(u, 0x4BA9CD, 0x4BAA89,
+                required_addresses=(0x4BA9EE, 0x4BAA27, 0x4BAA61, 0x4BAA83))
+    format_globals = ints(u, 0x8A0DD0, 6)
+    assert format_globals == [11, 3, 0, 3, 5, 2]
+    inputs['surface_format'] = dict(descriptor_masks=descriptor_masks,
+        shift_loss_globals=format_globals, derivation=['004BA9CD', '004BAA89'],
+        boundary='Existing PaletteReader RGB565 enrollment; original mask derivation executes on those declared device masks, not a full DirectDraw device negotiation.')
+    inputs['numeric_environment'] = dict(fpcw=f'{u.reg_read(UC_X86_REG_FPCW):04x}',
+        boundary='Actual shared native VM x87 control word; no full WinMain floating-point startup claimed.')
+    registry = m.read32(0xA8ED2C)
+    head = m.read32(registry)
+    assert head and m.read32(0xAA10B0) == 0
+    names = inputs['tmp_loader']['names']
+    assert names[0] == 'clear01.tem'
+    assert m.string(head + 0x2F5).lower() == names[0]
+    image = m.read32(head + 0xA4)
+    assert image and bytes(u.mem_read(image, 16)) == files[names[0]][:16]
+    source = m.read32(image + 16)
+    assert source
+    pair_rgb = [list(u.mem_read(source + offset, 3)) for offset in (0x2B, 0x2E)]
+    inputs['selected_tmp'] = dict(tile=0, subtile=0, name=names[0],
+        physical_sha256=sha(files[names[0]]), dimensions=ints(u, image, 2),
+        raw_pair_rgb=pair_rgb, registered_file_count=m.read32(head + 0x2F0),
+        boundary='Original theater General/TileSet0000 reads and constructors publish the selected ClearTile0 registry head; original lazy loader binds physical bytes. Contiguous family links remain the existing supplied registration boundary.')
+    # Main is the actual warm selector continuation; the other two streams
+    # receive declared native seeds. Snapshot all bytes, not only cursors.
+    streams = dict(main=LOAD_MAIN, scenario=m.read32(0xA8B230) + 0x218, mapgen=0xABE890)
+    for name in ('scenario', 'mapgen'):
+        m.invoke(0x65C6D0, streams[name], (0,))
+    before = {name: bytes(u.mem_read(address, STRUCT_LEN)).hex()
+              for name, address in streams.items()}
+    reached, draws, lookups = set(), [], []
+    phase = ['producer']
+    trace = NativeCallTrace(u, m.read32)
+    produced_colors, brightened_pair, particle_returns = [], [], []
+    def observe(uc, pc, _size, _data):
+        if pc in (0x549E90, 0x549E50, 0x47BDB0, 0x661020, 0x661190, 0x544E00, 0x4814F0):
+            reached.add(pc)
+        sp = uc.reg_read(UC_X86_REG_ESP)
+        for index in trace.returned(pc, sp):
+            call = trace.calls[index]
+            rgb = list(u.mem_read(call['return_eax'], 3))
+            if call['name'] == 'scale':
+                brightened_pair.append(rgb)
+            elif call['name'] == 'particle':
+                particle_returns.append(dict(fraction_f32_bits=f'{call["args"][2]:08x}', rgb=rgb))
+            else:
+                produced_colors.append(dict(level=call['level'],
+                    side='left' if call['caller'] == '0x549fd1' else 'right',
+                    fraction_f32_bits=f'{call["args"][2]:08x}',
+                    left_rgb=call['left_rgb'], right_rgb=call['right_rgb'], rgb=rgb))
+        if phase[0] == 'producer' and pc in (0x661190, 0x661020):
+            index = trace.entered(pc, sp,
+                ('scale', 2, 8) if pc == 0x661190 else ('weighted', 3, 12))
+            call = trace.calls[index]
+            if pc == 0x661020:
+                assert call['caller'] in ('0x549fd1', '0x54a03c')
+                call.update(level=uc.reg_read(UC_X86_REG_EBX),
+                    left_rgb=list(u.mem_read(call['args'][0], 3)),
+                    right_rgb=list(u.mem_read(call['args'][1], 3)))
+        elif phase[0] == 'particle' and pc == 0x661020:
+            trace.entered(pc, sp, ('particle', 3, 12))
+        if pc in (0x65C780, 0x65C7E0, 0x65C837):
+            draws.append(hex(pc))
+        if pc == 0x549E50:
+            lookups.append(dict(subtile=m.read32(sp + 4), level=m.read32(sp + 8),
+                                selected_name=m.string(uc.reg_read(UC_X86_REG_ECX) + 0x2F5)))
+    hook = u.hook_add(UC_HOOK_CODE, observe)
+    try:
+        m.invoke(0x549E90, head)
+        phase[0] = 'consumers'
+        assert len(brightened_pair) == 2 and len(produced_colors) == 26
+        assert not trace.pending
+        count = m.read32(head + 0x2B4)
+        assert count == 1
+        table = m.read32(m.read32(head + 0x2A8))
+        assert table
+        packed_table = bytes(u.mem_read(table, 13 * 4)).hex()
+        # The original warm selector supplies the selected base file. Search
+        # declared small coordinates; never force its answer or rewrite table.
+        coords = None
+        for y in range(8):
+            for x in range(8):
+                u.mem_write(CELL + 0x24, struct.pack('<hh', x, y))
+                if m.invoke(0x4814F0, CELL, (0, len(names))) == 0:
+                    coords = [x, y]
+                    break
+            if coords is not None:
+                break
+        assert coords is not None
+        u.mem_write(CELL + 0x38, dwords(0))
+        u.mem_write(CELL + 0x44, dwords(-1))
+        u.mem_write(CELL + 0xE4, dwords(0))
+        u.mem_write(CELL + 0x140, dwords(0))
+        marker = m.alloc(4)
+        rows = []
+        for level in range(13):
+            pointer = m.invoke(0x549E50, head, (0, level))
+            words = list(struct.unpack('<2H', u.mem_read(pointer, 4)))
+            u.mem_write(CELL + 0x11A, bytes((0, level)))
+            u.mem_write(marker, b'\xFF' * 4)
+            start = len(lookups)
+            packed = m.invoke(0x47BDB0, CELL, (marker, 0))
+            assert lookups[start:] == [dict(subtile=0, level=level, selected_name=names[0])]
+            assert u.mem_read(marker, 1) == b'\0'
+            colors = [row for row in produced_colors if row['level'] == level]
+            assert [row['side'] for row in colors] == ['left', 'right']
+            rows.append(dict(input=dict(coords=coords, tile=0, subtile=0, level=level,
+                raw_flags=0, overlay=-1, ground_first_object=0, bypass_building=0),
+                output=dict(preview_rgb_pair=[row['rgb'] for row in colors],
+                    fraction_f32_bits=colors[0]['fraction_f32_bits'],
+                    lookup_words=words, cell_packed=packed, marker=0)))
+        # Numeric inputs are supplied controls. Every output executes the
+        # unchanged original kernel, including clamp and ftol instructions.
+        color_a, color_b, output = (m.alloc(16) for _ in range(3))
+        scale = []
+        scale_bits = m.read32(0x7ECBD4)
+        for rgb, factor in ((pair_rgb[0], scale_bits), ([181, 182, 183], scale_bits),
+                            ([162, 168, 80], 0x3F800000), ([80, 162, 255], 0x3F4CCCCD),
+                            ([0, 1, 255], 0x3F000000), ([255, 128, 1], 0xBF800000)):
+            u.mem_write(color_a, bytes(rgb))
+            pointer = m.invoke(0x661190, output, (color_a, factor))
+            assert pointer == output
+            scale.append(dict(input=dict(rgb=rgb, factor_f32_bits=f'{factor:08x}'),
+                              output_rgb=list(u.mem_read(output, 3))))
+        interpolation = []
+        for left, right, fraction in ((pair_rgb[0], brightened_pair[0], 0x3F000000),
+                ([0, 1, 255], [255, 0, 0], 0x3F000000),
+                ([1, 2, 3], [4, 5, 6], 0x3EAAAAAA),
+                ([1, 2, 3], [4, 5, 6], 0x3EAAAAAB),
+                ([0, 1, 255], [255, 0, 0], 0xBF000000),
+                ([0, 1, 255], [255, 0, 0], 0x3FC00000)):
+            u.mem_write(color_a, bytes(left))
+            u.mem_write(color_b, bytes(right))
+            pointer = m.invoke(0x661020, output, (color_a, color_b, fraction))
+            assert pointer == output
+            interpolation.append(dict(input=dict(left_rgb=left, right_rgb=right,
+                fraction_f32_bits=f'{fraction:08x}'), output_rgb=list(u.mem_read(output, 3))))
+        particle, particle_type = m.alloc(0x180), m.alloc(0x400)
+        start_1, start_2 = [80, 255, 255], [255, 255, 100]
+        u.mem_write(particle + 0xAC, dwords(particle_type))
+        u.mem_write(particle_type + 0x2D4, bytes(start_1 + start_2))
+        particle_controls = []
+        phase[0] = 'particle'
+        for name, sample in (('zero', 0), ('one', 1), ('mid', 1073741823),
+                             ('upper', 2147483646), ('welding_first_produced', 19015573)):
+            # Boundary is AFTER native RandomRanged returns. Actual FILD,
+            # double multiply, narrowing FSTPfloat, 661020 and Particle stores
+            # execute. No RNG return or caller is hooked/substituted.
+            u.reg_write(UC_X86_REG_ESP, SP)
+            u.reg_write(UC_X86_REG_ESI, particle)
+            u.reg_write(UC_X86_REG_EAX, sample)
+            run_checked(u, 0x62BAC5, 0x62BB06,
+                        required_addresses=(0x62BADF, 0x62BAE5, 0x661020, 0x62BB00))
+            returned = particle_returns[-1]
+            rgb = list(u.mem_read(particle + 0xB0, 3))
+            assert rgb == returned['rgb']
+            particle_controls.append(dict(input=dict(name=name, sample=sample,
+                start_color1=start_1, start_color2=start_2),
+                output=dict(fraction_f32_bits=returned['fraction_f32_bits'], start_rgb=rgb)))
+        assert particle_controls[-1]['output']['start_rgb'] == [81, 255, 253]
+        assert not trace.pending
+    finally:
+        u.hook_del(hook)
+    after = {name: bytes(u.mem_read(address, STRUCT_LEN)).hex()
+             for name, address in streams.items()}
+    assert before == after and not draws
+    assert reached >= {0x549E90, 0x549E50, 0x47BDB0, 0x661020, 0x661190, 0x544E00, 0x4814F0}
+    return dict(native_sha256=NATIVE_SHA256, inputs=inputs,
+        producer=dict(entry='00549E90', subtile_count=count, levels=13,
+            bytes_per_level=4, table_hex=packed_table, brightness_f32_bits=f'{scale_bits:08x}',
+            fraction_multiplier_f64_bits=f'{struct.unpack("<Q", u.mem_read(0x7ECD28, 8))[0]:016x}',
+            brightened_pair_rgb=brightened_pair, interpolation_returns=produced_colors),
+        rows=rows, scale_controls=scale, interpolation_controls=interpolation,
+        particle_color_controls=particle_controls,
+        rng=dict(before=before, after=after, calls=draws,
+            boundary='Main follows native seed0/128 selector draws; Scenario and MapGen native seeds0. Full preview/table/numeric calls leave all three complete states unchanged.'),
+        native_entries=sorted(f'{pc:08X}' for pc in reached))
+
+
+def preview_metadata():
+    return provenance(scope='Original physical temperate ClearTile0 TMP preview level table549E90, lookup549E50 and complete selected no-Building/no-overlay Cell47BDB0 path for levels0..12; original scale661190/interpolation661020 controls. No whole RMG generation, thumbnail surface, World startup or GPU claim.',
+        assumptions=[
+            'Existing tmp_clear_render prepare() shares PaletteReader, physical archive/theater registration readers, original TMP constructors/full lazy loader and warm native selector. File-family links/counts are the existing supplied registration metadata; selected actual clear01.tem bytes and native registered head/header are checked together.',
+            'Existing RGB565 enrollment is conditional device input, not intrinsic native format. Original4BA9CD..4BAA89 derives shifts/losses from declared masksF800/07E0/001F; full DirectDraw descriptor negotiation is outside this component.',
+            'Full original549E90 frees/rebuilds the native13x4-byte table from physical TMP RGB pairs and original661190/661020, with native x87 state and ftol. All expected words/RGB are original output, no copied host math or packing.',
+            'Cell coordinate, tile0, subtile0, rawlevel0..12, rawflags0, overlay-1, empty ground list and bypass-building0 are declared component inputs. Original Cell body traverses its real no-Building/no-bridge branch, native warm selector/file walk and height lookup; no Cell getter is replaced.',
+            'Numeric clamp/rounding RGB and rawf32 inputs are supplied controls. Main warm selector continuation and separately native-seeded Scenario/MapGen full states are captured before/after all preview work. No full-game RNG-startup equivalence follows.',
+            'Particle color controls start after the declared RandomRanged result at62BAC5, executing original sample double scale/FSTPfloat/661020/output stores through62BB06 without RNG interception. The first retained Welding sample19015573 and typeRGB inputs are replayed numerically, not through a new Particle/world fixture.',
+        ], substitutions=['Existing bounded allocator/free/TLS/CRT and immutable RawFile Windows byte transport only; native table/color/Cell/selector instructions execute unchanged.'],
+        entry_points=dict(table=0x549E90, lookup=0x549E50, cell=0x47BDB0,
+            scale=0x661190, interpolate=0x661020, mask_derivation=0x4BA9CD,
+            tmp_constructor=0x5447C0, tmp_loader=0x547020, selector=0x4814F0,
+            file_walk=0x544E00, particle_color_prefix=0x62BAC5))
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--preview', action='store_true')
+    args, rest = parser.parse_known_args()
+    finish_vectors(generate_preview if args.preview else generate,
+        Path(__file__).with_name('tmp_preview.json') if args.preview else Path(__file__).with_suffix('.json'),
+        provenance=preview_metadata if args.preview else metadata, argv=rest)

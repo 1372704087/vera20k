@@ -623,8 +623,8 @@ pub enum SimSoundEvent {
         rx: u16,
         ry: u16,
     },
-    /// A base structure / harvester took enemy damage. For the local owner
-    /// the app admits `radar` (type 3 base / type 4 miner) on its client
+    /// A building / harvester admitted a damage or first Temporal-head warning.
+    /// For the local owner the app admits `radar` (type 3 base / type 4 miner) on its client
     /// event array; that result is native's only rate limit on the EVA voice.
     UnderAttack {
         rx: u16,
@@ -635,7 +635,7 @@ pub enum SimSoundEvent {
     },
     /// `HouseClass::NotifyUnderAttack @ 0x004F93E0`, non-local branch
     /// (`0x004F955D..0x004F95B3`): a building of a house that lists `owner`
-    /// (a human house) as its ally took sourced damage. Once the listener's
+    /// (a human house) as its ally admitted a warning. Once the listener's
     /// client admits `radar` (`CreateRadarEvent(0x10, cell)`):
     /// `EVA_OurAllyIsUnderAttack` plus the `BaseUnderAttackSound` siren, both
     /// for `owner`.
@@ -2921,7 +2921,7 @@ impl Simulation {
         .commit(self, rules, overlay_registry, frame_effects)
     }
 
-    /// `HouseClass::NotifyUnderAttack @ 0x004F93E0` for one damaged asset,
+    /// `HouseClass::NotifyUnderAttack @ 0x004F93E0` for a building warning,
     /// plus the `UnitClass::ReceiveDamage 0x00738530` harvester ping.
     ///
     /// The victim's own line: the radar diamond (type 4 miner / type 3 base,
@@ -2936,10 +2936,19 @@ impl Simulation {
     pub(crate) fn dispatch_under_attack_events(
         &mut self,
         events: &[crate::sim::combat::UnderAttackEvent],
+        rules: &RuleSet,
     ) {
         let game_mode_nonzero = self.session.game_mode_nonzero;
         for event in events {
-            let event_type = if event.miner {
+            let Some(object) = self.object_type(event.victim_type, rules) else {
+                continue;
+            };
+            let structure = object.category == crate::rules::object_type::ObjectCategory::Building;
+            // House4F9491..4F94A3: a deployed miner needs both predicates.
+            // Non-building producers have already admitted Harvester= units.
+            // Native corpus: tools/spatial_oracle/temporal_house_notice.json.
+            let miner = !structure || (object.undeploys_into.is_some() && object.resource_gatherer);
+            let event_type = if miner {
                 RadarEventType::HarvesterUnderAttack
             } else {
                 RadarEventType::BaseUnderAttack
@@ -2948,10 +2957,10 @@ impl Simulation {
                 rx: event.rx,
                 ry: event.ry,
                 owner: event.owner,
-                miner: event.miner,
+                miner,
                 radar: RadarEventRequest::new(event_type, event.rx, event.ry),
             });
-            if !event.structure {
+            if !structure {
                 continue;
             }
             let victim_passive = self

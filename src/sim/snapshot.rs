@@ -1102,7 +1102,9 @@ use crate::sim::world::Simulation;
 // 397 -> 398: House retains per-family/type successful-production history.
 // Older saves contain its score total only and cannot reconstruct lifetime
 // BuildLimit admission from the currently owned objects.
-const SNAPSHOT_VERSION: u32 = 398;
+// 398 -> 399: PowerState no longer serializes the obsolete theoretical total.
+// Power's rated input is read from the already-saved canonical House list.
+const SNAPSHOT_VERSION: u32 = 399;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4739,7 +4741,8 @@ mod tests {
         // 395 -> 396: actual Spark link/target and retained Particle bodies.
         // 396 -> 397: retained Particle has independent Alive and Limbo.
         // 397 -> 398: per-family/type produced history for lifetime limits.
-        assert_eq!(super::SNAPSHOT_VERSION, 398);
+        // 398 -> 399: remove the derived theoretical-power cache.
+        assert_eq!(super::SNAPSHOT_VERSION, 399);
     }
 
     #[test]

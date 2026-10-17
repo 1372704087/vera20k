@@ -66,7 +66,14 @@ impl PowerBarAnimState {
 
     /// One ordinary visible Sidebar AI visit (`63FEA0..640385`). The caller
     /// supplies its wall clock even when no simulation frame was admitted.
-    pub fn update(&mut self, output: i32, drain: i32, theoretical_total: i32, wall_ms: u64) {
+    /// The rated-list read runs only after the native unchanged/idle return.
+    pub fn update(
+        &mut self,
+        output: i32,
+        drain: i32,
+        theoretical_total: impl FnOnce() -> i32,
+        wall_ms: u64,
+    ) {
         let bucket = ((wall_ms as u32) >> 4) as i32;
         // Flashing waits for the entire segment transition, then advances at
         // most once per visit. A long draw stall does not catch up ten blinks.
@@ -85,6 +92,7 @@ impl PowerBarAnimState {
         }
         self.cached_output = output;
         self.cached_drain = drain;
+        let theoretical_total = theoretical_total();
         let targets = self.compute_targets(output, drain, theoretical_total);
         if !self.slide_timer.expired(bucket) {
             return;
@@ -265,8 +273,17 @@ mod native_state_tests {
 
     #[derive(Deserialize)]
     struct Packet {
+        rated_lists: Vec<RatedList>,
         numeric: Vec<Numeric>,
         histories: Vec<History>,
+    }
+
+    #[derive(Deserialize)]
+    struct RatedList {
+        name: String,
+        total: i32,
+        strip_height: i32,
+        filled: i32,
     }
 
     #[derive(Deserialize)]
@@ -289,6 +306,7 @@ mod native_state_tests {
         flash_timer: [i32; 2],
         slide_timer: [i32; 2],
         cached: [i32; 2],
+        fill_calls: usize,
         animating: bool,
         frames: Vec<u8>,
     }
@@ -302,7 +320,13 @@ mod native_state_tests {
 
     #[test]
     fn original_power_numeric_controls_match() {
-        for c in packet().numeric {
+        let packet = packet();
+        for row in packet.rated_lists {
+            let mut anim = PowerBarAnimState::new();
+            anim.set_max_segments(row.strip_height + 3);
+            assert_eq!(anim.filled_segments(row.total), row.filled, "{}", row.name);
+        }
+        for c in packet.numeric {
             let [height, output, drain, total] = c.input;
             let mut anim = PowerBarAnimState::new();
             anim.set_max_segments(height + 3);
@@ -345,6 +369,8 @@ mod native_state_tests {
 
     #[test]
     fn original_power_constructor_ai_draw_histories_match() {
+        let mut queried = 0;
+        let mut flash_only = 0;
         for history in packet().histories {
             let mut anim = PowerBarAnimState::new();
             for (index, c) in history.visits.iter().enumerate() {
@@ -353,9 +379,28 @@ mod native_state_tests {
                     anim.reset(wall_ms as u64);
                 }
                 anim.set_max_segments(height as i32 + 3);
+                let mut supplied = 0;
                 if visible != 0 {
-                    anim.update(output as i32, drain as i32, total as i32, wall_ms as u64);
+                    anim.update(
+                        output as i32,
+                        drain as i32,
+                        || {
+                            supplied += 1;
+                            total as i32
+                        },
+                        wall_ms as u64,
+                    );
+                    queried += usize::from(c.fill_calls > 0);
+                    flash_only += usize::from(c.fill_calls == 0 && c.flash > 0);
                 }
+                // Native may repeat a pure fill query within one visit; the
+                // supplied stable list is read once only when it is reached.
+                assert_eq!(
+                    supplied > 0,
+                    c.fill_calls > 0,
+                    "{} visit{index}",
+                    history.name
+                );
                 assert_eq!(anim.counts, c.counts, "{} visit{index}", history.name);
                 assert_eq!(
                     anim.flashes_remaining, c.flash,
@@ -388,5 +433,9 @@ mod native_state_tests {
                 assert_eq!(frames, c.frames, "{} visit{index}", history.name);
             }
         }
+        assert!(
+            queried > 0 && flash_only > 0,
+            "native query/flash-only coverage"
+        );
     }
 }

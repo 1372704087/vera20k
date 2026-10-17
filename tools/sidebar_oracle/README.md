@@ -27,8 +27,12 @@ its complete execution boundary and substitutions in the associated metadata.
   63FB20, totaling 44,778 commands. The surface-bounds interface and draw
   command are explicit substitutions. Segment target/timer producers are
   not proven by these staged inputs.
-- `power_draw --state`: 66 numeric controls and 125 retained Power constructor,
-  AI and draw visits in `power_state.json`. Original House interface getters
+- `power_draw --state`: eight canonical typed-list sums, 66 numeric controls
+  and 125 retained Power constructor, AI and draw visits in `power_state.json`.
+  The list totals are observed in original EDX at 63F8AB before signed FILD,
+  including NEG MIN and ADD32 wrap controls; each also retains its fill return.
+  Histories record original fill-call admission, including idle/flash-only
+  visits that must not read the list. Original House interface getters
   and typed-building traversal consume supplied accounting/list inputs;
   PC53/chop arithmetic, wall-clock bucket edges, paired color transfers,
   interrupted transitions, settling, resize, visibility and fresh clear execute

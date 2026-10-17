@@ -7,7 +7,7 @@
     1,
     33621247
   ],
-  "scope": "Power numeric controls and retained constructor/AI/draw histories; supplied House accounting and geometry.",
+  "scope": "Power typed-House-list sums/fill returns, numeric controls and retained AI query-admission/state/draw histories; supplied House accounting and geometry.",
   "assumptions": [
     "House power interface vtable7EA834 and its real getters; supplied House output/drain and owned typed-building list.",
     "Native PC53/chop control word0x0E7F. No House producer/native scenario equivalence.",
@@ -22,10 +22,11 @@
     "constructor": "0x0063F6B0",
     "reset": "0x0063F730",
     "fill": "0x0063F850",
+    "rated_sum_observer": "0x0063F8AB",
     "distribution": "0x0063F960",
     "animation": "0x0063FEA0",
     "draw": "0x0063FB20"
   },
   "replay_command": "python -m tools.sidebar_oracle.power_draw --state",
-  "payload_sha256": "a029c30a7b98398fb129a635ff2b06f2bfdac29154784529f2bbee501f077138"
+  "payload_sha256": "77a526f464e8b8e848cd69424b8a95c433c5b249353dc328ed801c3d0772c88f"
 }

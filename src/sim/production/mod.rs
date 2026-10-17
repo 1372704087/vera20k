@@ -34,7 +34,7 @@ mod wall_placement;
 pub use self::factory::{
     CancelOutcome, Factory, FactoryHolder, FactoryRegistry, FactoryView, PRODUCTION_STEPS,
     PendingObject, STEP_RATE_MAX, STEP_RATE_MIN, StepOutcome, TimeToBuildInputs,
-    category_for_object, time_to_build,
+    category_for_object, time_to_build, type_base_build_time,
 };
 pub use self::factory_lifecycle::suspend_production;
 pub use self::factory_lifecycle::{
@@ -85,10 +85,10 @@ pub use self::production_types::*;
 
 // Re-exports for external consumers (files outside production/ that previously
 // imported private submodules directly).
-pub use self::can_build::{can_select_factory_primary, object_find_factory};
 pub(crate) use self::can_build::{
-    CanBuild, can_build, find_factory, initialize_factory_primary, toggle_factory_primary,
+    CanBuild, can_build, initialize_factory_primary, toggle_factory_primary,
 };
+pub use self::can_build::{can_select_factory_primary, find_factory, object_find_factory};
 pub(crate) use self::factory_ai::{
     AiPlacementTimer, detach_all as detach_building_factory, factory_ai,
 };

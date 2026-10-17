@@ -35,6 +35,9 @@ use crate::ui::sidebar::{
     build_sidebar_view_with_spec, hit_test_item,
 };
 
+#[path = "ready_building_placement_tests/pending_production_tests.rs"]
+mod pending_production_tests;
+
 struct Fixture {
     sim: Simulation,
     rules: RuleSet,
@@ -191,6 +194,9 @@ fn refresh_fixture_sidebar(
     fixture
         .projection
         .reconcile_factory_links(&fixture.sim, fixture.owner);
+    fixture
+        .projection
+        .advance_cameo_requests(&fixture.sim, fixture.owner);
     let armed = fixture
         .input
         .targeting_mode
@@ -349,12 +355,22 @@ fn press_cameo(
                 fixture.sim.interner.get(&type_id).unwrap(),
             )
             .map(|factory| factory.cameo_state()),
+        fixture
+            .projection
+            .cameo_request(fixture.sim.interner.get(&type_id).unwrap()),
         dispatched_press,
         at_build_limit,
     );
     if click.clear_building_placement {
         fixture.input.cancel_building_placement();
     }
+    fixture.projection.record_cameo_click(
+        &fixture.sim,
+        &fixture.rules,
+        fixture.owner,
+        fixture.sim.interner.get(&type_id).unwrap(),
+        click,
+    );
     // Cameos fire on DOWN; the real UP edge must not dispatch another entry.
     let release = tick(
         &mut list,

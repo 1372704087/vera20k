@@ -216,9 +216,7 @@ impl Factory {
     /// computes it at `0x004C9EEF..0x004C9F28`; the house power pass
     /// (`0x004CA6E0`, from `0x00508D88`) rewrites only this rate.
     pub fn set_rate(&mut self, time_to_build: i32) {
-        let per_step = time_to_build / i32::from(PRODUCTION_STEPS);
-        self.step_rate_frames =
-            per_step.clamp(i32::from(STEP_RATE_MIN), i32::from(STEP_RATE_MAX)) as u16;
+        self.step_rate_frames = build_step_rate(time_to_build);
     }
 
     /// FactoryResume4C9EA0 for represented Techno-held builds. Admission
@@ -417,6 +415,26 @@ const BUILD_TIME_SCALE: NativeF64Bits = NativeF64Bits::from_bits(0x3FEC_CCCC_CCC
 /// `0.01f` at `0x007F4E34`: the low-power speed when it would be zero.
 const LOW_POWER_SPEED_FLOOR: NativeF32Bits = NativeF32Bits::from_bits(0x3C23_D70A);
 
+/// `TechnoTypeClass::Time_To_Build @ 0x00711EE0`, virtual +0x88:
+/// Cost x BuildSpeed x 0.9, truncated under the process's 53-bit chop
+/// control word. Both the real Techno duration and Select6AB8A3's initial
+/// sidebar prediction call this type-level kernel.
+/// Native executable controls: tools/sidebar_oracle/pending_production.json.
+pub fn type_base_build_time(cost: i32, build_speed: NativeF64Bits) -> i32 {
+    use crate::util::native_x87::MaskedX87Chop53 as X87;
+
+    X87::ftol_i32_low_masked(X87::mul(
+        X87::mul(X87::load_i32(cost), X87::load_f64(build_speed)),
+        X87::load_f64(BUILD_TIME_SCALE),
+    ))
+}
+
+/// Resume4C9EEF and GetRate4C9FC0 share the signed total/54 clamp.
+fn build_step_rate(time_to_build: i32) -> u16 {
+    let per_step = time_to_build / i32::from(PRODUCTION_STEPS);
+    per_step.clamp(i32::from(STEP_RATE_MIN), i32::from(STEP_RATE_MAX)) as u16
+}
+
 /// `TechnoClass::Time_To_Build @ 0x006F47A0`: the frames an object takes to
 /// build, before the build start (`0x004C9EA0`) divides it into 54 steps. Each stage
 /// truncates (`_ftol`) under the process's 53-bit chop control word.
@@ -424,13 +442,7 @@ pub fn time_to_build(inputs: &TimeToBuildInputs) -> i32 {
     use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering as Order};
 
     // TechnoType vt+0x88 (`0x00711EE0`): Cost x BuildSpeed x 0.9.
-    let base = X87::ftol_i32_low_masked(X87::mul(
-        X87::mul(
-            X87::load_i32(inputs.cost),
-            X87::load_f64(inputs.build_speed),
-        ),
-        X87::load_f64(BUILD_TIME_SCALE),
-    ));
+    let base = type_base_build_time(inputs.cost, inputs.build_speed);
     // `0x006F47CE..0x006F47D7`: the country multiplier times that (FIMUL).
     let mut time = X87::ftol_i32_low_masked(X87::mul(
         X87::load_f32(inputs.country_multiplier),
@@ -638,6 +650,25 @@ pub struct FactoryView<'a> {
 impl<'a> FactoryView<'a> {
     pub fn construction_order(&self) -> u64 {
         self.construction_order
+    }
+
+    /// `FactoryClass::GetRate @ 0x004C9FB0` recomputes the held Techno's
+    /// current duration; it does not read the stored (possibly suspended)
+    /// rate. Select6AB5B3 adds one when resuming its presentation clock.
+    /// An empty Factory supplies zero duration, which the shared clamp maps
+    /// to one. Evidence: tools/sidebar_oracle/pending_production.md.
+    pub fn build_step_rate(&self, sim: &crate::sim::world::Simulation, rules: &RuleSet) -> u16 {
+        let duration = self
+            .object
+            .and_then(|object| object.entity_id)
+            .and_then(|id| sim.substrate.entities.get(id))
+            .and_then(|entity| {
+                sim.object_type(entity.type_ref(), rules).map(|object| {
+                    time_to_build(&time_to_build_inputs(sim, rules, entity.owner(), object))
+                })
+            })
+            .unwrap_or(0);
+        build_step_rate(duration)
     }
 
     /// Select6AAE01/6AAE0D and6AB2A9/6AB2B5, plus Draw6A9E9C/6A9EB0,
@@ -1468,6 +1499,33 @@ mod system_hold_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_base_duration_matches_executed_pending_production_controls() {
+        let corpus = crate::test_fixture::json("tools/sidebar_oracle/pending_production.json");
+        let rows = corpus["numeric_controls"].as_array().unwrap();
+        let mut compared = 0;
+        for row in rows {
+            let Some(expected) = row["base_duration_i32"].as_i64() else {
+                continue;
+            };
+            let inputs = &row["inputs"];
+            let speed = u64::from_str_radix(inputs["build_speed_bits"].as_str().unwrap(), 16)
+                .unwrap()
+                .swap_bytes();
+            assert_eq!(
+                type_base_build_time(
+                    inputs["cost"].as_i64().unwrap() as i32,
+                    NativeF64Bits::from_bits(speed),
+                ),
+                expected as i32,
+                "{}: original711EE0 return",
+                row["name"],
+            );
+            compared += 1;
+        }
+        assert_eq!(compared, 7);
+    }
 
     /// Whole original Suspend/Resume and following FactoryAI, including the
     /// short-wallet return AFTER unpausing and the affordable held-start tail.

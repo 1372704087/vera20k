@@ -1089,7 +1089,9 @@ use crate::sim::world::Simulation;
 // 392 -> 393: Unit transport entry runs after locomotor arrival. Earlier
 // cargo can retain an active pre-boarding Drive track; resuming it after
 // unload returns the passenger to the old shore. Do not migrate that state.
-const SNAPSHOT_VERSION: u32 = 393;
+// 393 -> 394: Mouse-save sidebar records retain pending request1/2 and
+// House prediction gates; NoInit resets only their predicted clocks.
+const SNAPSHOT_VERSION: u32 = 394;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1117,17 +1119,22 @@ pub struct SavedSidebarOrder {
     scroll_rows: [usize; 4],
     flash_deadlines: [Vec<i32>; 4],
     redraw_until: i32,
+    request_states: [Vec<u8>; 4],
+    prediction_categories: Vec<crate::sim::production::ProductionCategory>,
 }
 
 impl SavedSidebarOrder {
     pub fn new(owner: InternedId, strips: [Vec<SavedCameoId>; 4], scroll_rows: [usize; 4]) -> Self {
         let flash_deadlines = std::array::from_fn(|index| vec![0; strips[index].len()]);
+        let request_states = std::array::from_fn(|index| vec![0; strips[index].len()]);
         Self {
             owner,
             strips,
             scroll_rows,
             flash_deadlines,
             redraw_until: 0,
+            request_states,
+            prediction_categories: Vec::new(),
         }
     }
 
@@ -1139,6 +1146,30 @@ impl SavedSidebarOrder {
 
     pub fn flash(&self) -> (&[Vec<i32>; 4], i32) {
         (&self.flash_deadlines, self.redraw_until)
+    }
+
+    pub fn with_requests(mut self, states: [Vec<u8>; 4]) -> Self {
+        self.request_states = states;
+        self
+    }
+
+    pub fn requests(&self) -> &[Vec<u8>; 4] {
+        &self.request_states
+    }
+
+    /// HouseSave504080/Load503040 retain the independent category gates;
+    /// post-load NoInit4F5190 does not initialize them again. The client
+    /// owns these local prediction decisions along with its cameo requests.
+    pub fn with_prediction_categories(
+        mut self,
+        categories: Vec<crate::sim::production::ProductionCategory>,
+    ) -> Self {
+        self.prediction_categories = categories;
+        self
+    }
+
+    pub fn prediction_categories(&self) -> &[crate::sim::production::ProductionCategory] {
+        &self.prediction_categories
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -4638,7 +4669,8 @@ mod tests {
         // 390 -> 391: retained ColorAdd slots and AudioVisual selectors.
         // 391 -> 392: retained RulesClass survivor divisors.
         // 392 -> 393: reject cargo with the old mid-track boarding semantics.
-        assert_eq!(super::SNAPSHOT_VERSION, 393);
+        // 393 -> 394: saved requests/gates, with NoInit clock reset.
+        assert_eq!(super::SNAPSHOT_VERSION, 394);
     }
 
     #[test]

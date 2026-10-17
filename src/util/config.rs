@@ -100,7 +100,8 @@ pub struct GameplayConfig {
     /// Fixed simulation tick rate (Hz).
     #[serde(default = "default_sim_tick_hz")]
     pub sim_tick_hz: u32,
-    /// Input delay in ticks for lockstep-style command execution.
+    /// Session MaxAhead, used by network scheduling and the local production
+    /// prediction clock. Offline commands retain their issue-frame stamp.
     #[serde(default = "default_input_delay_ticks")]
     pub input_delay_ticks: u32,
     /// Freeze a running match while the window is not the foreground, as
@@ -129,8 +130,12 @@ fn default_sim_tick_hz() -> u32 {
     15
 }
 
-fn default_input_delay_ticks() -> u32 {
-    2
+/// Session constructor6975C0 stores15 through the CRT initializer
+/// 8132F0 ->4E8035 ->6970A0 (active retail gamemd.exe). This is an initial
+/// value, not a permanent offline invariant: configuration and negotiated
+/// session updates retain authority over the current window.
+pub const fn default_input_delay_ticks() -> u32 {
+    15
 }
 
 impl GameConfig {
@@ -301,10 +306,19 @@ ra2_dir = "C:/Westwood/RA2"
         let config: GameConfig = toml::from_str(toml_str).expect("Failed to parse test config");
         assert!(config.graphics.extra_animations);
         assert_eq!(config.gameplay.sim_tick_hz, 15);
-        assert_eq!(config.gameplay.input_delay_ticks, 2);
+        assert_eq!(config.gameplay.input_delay_ticks, 15);
         assert!(!config.gameplay.pause_on_focus_loss);
         // No [profile] section -> no pre-filled player name.
         assert_eq!(config.profile.player_name(), None);
+    }
+
+    #[test]
+    fn configured_ahead_windows_preserve_zero_and_custom_values() {
+        for ahead in [0, 2, 30] {
+            let text = format!("[paths]\nra2_dir='.'\n[gameplay]\ninput_delay_ticks={ahead}\n");
+            let config: GameConfig = toml::from_str(&text).unwrap();
+            assert_eq!(config.gameplay.input_delay_ticks, ahead);
+        }
     }
 
     #[test]

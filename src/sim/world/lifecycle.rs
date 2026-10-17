@@ -603,6 +603,14 @@ pub enum LifecycleOutput {
         node_id: u64,
         next_node: Option<u64>,
     },
+    /// HouseBegin4FA41C clears the category prediction gate before builder
+    /// admission, including a refused Begin. The strip's request survives.
+    /// Source: tools/sidebar_oracle/pending_production.md.
+    ProductionBeginAttempted {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        naval: bool,
+    },
     /// Local HouseBegin4FA6AA→Sidebar6A6140 links the reached cameo to this
     /// live Factory. Product expiry and a later rearm do not erase the link.
     ProductionFactoryLinked {

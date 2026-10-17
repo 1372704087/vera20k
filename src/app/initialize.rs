@@ -206,8 +206,8 @@ impl App {
             crate::render::shell_surface_present::ShellSurfacePresenter::new(&gpu)?;
         let input_delay_ticks: u64 = game_config
             .as_ref()
-            .map(|cfg| cfg.gameplay.input_delay_ticks.max(1) as u64)
-            .unwrap_or(2);
+            .map(|cfg| u64::from(cfg.gameplay.input_delay_ticks))
+            .unwrap_or_else(|| u64::from(crate::util::config::default_input_delay_ticks()));
         // Ordinary gamemd chrome is one physical render pixel per asset pixel.
         // 6A5090/6A5130 change row capacity on resize, never artwork scale.
         let ui_scale = 1.0;

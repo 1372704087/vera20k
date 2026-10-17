@@ -19,6 +19,7 @@
 
 use crate::sim::intern::InternedId;
 use crate::sim::production::{BuildQueueState, ProductionCategory, QueueItemView};
+use crate::ui::sidebar::cameo_order::CameoRequestState;
 
 pub(crate) const EVA_BUILDING: &str = "EVA_Building";
 pub(crate) const EVA_TRAINING: &str = "EVA_Training";
@@ -90,11 +91,10 @@ pub(crate) struct CameoClick {
 ///   (`0x006AB713`), the start line when the category was idle
 ///   (`0x006AB69D..0x006AB6C9`) and PRODUCE (`0x006AB76E`).
 ///
-/// Residual: a right click on a cameo whose PRODUCE has not executed yet
-/// (cameo status 1, no factory linked) holds it on arrival
-/// (`0x006AB0AC..0x006AB12B`); VERA has no pending cameo status, so that
-/// click does nothing. Trigger: a right click within the command delay of a
-/// build's first left click. Rare.
+/// With no Factory link, pending request1 takes the sound/OnHold/SUSPEND
+/// arm6AB0AC..6AB12B before the queued-copy query. Request2 alone is silent.
+/// Shift does not alter that SUSPEND. The combined pending1+queued-copy arm
+/// and saturated native OutList are outside the ordinary input domain here.
 ///
 /// `own` resolves the retained strip's Factory link, including an older
 /// cameo linked to a rearmed Factory. Right with that link first attempts to
@@ -106,6 +106,7 @@ pub(crate) fn cameo_click(
     category: ProductionCategory,
     type_id: Option<InternedId>,
     own: Option<BuildQueueState>,
+    request: Option<CameoRequestState>,
     press: CameoPress,
     at_build_limit: bool,
 ) -> CameoClick {
@@ -126,7 +127,9 @@ pub(crate) fn cameo_click(
         (CameoPress::Right { shift }, None) => {
             let queued = in_category()
                 .any(|item| item.state == BuildQueueState::Queued && Some(item.type_id) == type_id);
-            if queued {
+            if request == Some(CameoRequestState::Started) {
+                click(Some(EVA_ON_HOLD), CameoOrder::Suspend)
+            } else if queued {
                 click(None, CameoOrder::Abandon { all: shift })
             } else {
                 CameoClick::default()
@@ -199,4 +202,49 @@ pub(crate) fn select_target_line(
 ) -> Option<&'static str> {
     let targeted = action.is_some_and(|action| !action.eq_ignore_ascii_case("none"));
     (is_ready && is_online && targeted).then_some(EVA_SELECT_TARGET)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::intern::StringInterner;
+
+    #[test]
+    fn a_right_press_holds_a_requested_infantry_head_without_a_factory_link() {
+        let mut interner = StringInterner::new();
+        let e2 = interner.intern("E2");
+        let first = cameo_click(
+            &[],
+            ProductionCategory::Infantry,
+            Some(e2),
+            None,
+            None,
+            CameoPress::Left,
+            false,
+        );
+        assert_eq!(first.order, Some(CameoOrder::Produce));
+
+        // Original6AB0AC..6AB12B reads the retained request before the
+        // PRODUCE event has constructed or linked a Factory. Shift belongs
+        // to the later queued-copy arm, not this SUSPEND request.
+        for shift in [false, true] {
+            let right = cameo_click(
+                &[],
+                ProductionCategory::Infantry,
+                Some(e2),
+                None,
+                Some(CameoRequestState::Started),
+                CameoPress::Right { shift },
+                false,
+            );
+            assert_eq!(
+                right.order,
+                Some(CameoOrder::Suspend),
+                "a pending E2 must hold on arrival even before Factory linkage"
+            );
+            assert!(right.sound);
+            assert_eq!(right.eva, Some(EVA_ON_HOLD));
+            assert!(!right.clear_building_placement);
+        }
+    }
 }

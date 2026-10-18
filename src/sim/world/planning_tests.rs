@@ -1796,18 +1796,16 @@ fn press_refusals_and_hover_follow_the_selected_paths() {
     assert_eq!(sim.planning_invalid_node_reason(&[3], 3), None);
 
     let last = point(&sim, 3);
-    assert_eq!(
-        sim.planning_press_refusal(owner, &[1], last),
-        Some(InvalidNode)
-    );
+    assert_eq!(sim.planning_press_refusal(&[1], last), Some(InvalidNode));
     assert_eq!(sim.planning_node_at_screen(owner, &[1], last), None);
     assert_eq!(
         sim.planning_draw_graph(owner, &[1], Some(last), None)
             .hovered_node,
         None
     );
+    assert!(sim.planning_release_refused(&[1], last));
     let first = point(&sim, 1);
-    assert_eq!(sim.planning_press_refusal(owner, &[1], first), None);
+    assert_eq!(sim.planning_press_refusal(&[1], first), None);
     assert_eq!(
         sim.planning_node_at_screen(owner, &[1], first),
         Some((16, 15))
@@ -1817,32 +1815,37 @@ fn press_refusals_and_hover_follow_the_selected_paths() {
             .hovered_node,
         Some(1)
     );
+    assert!(!sim.planning_release_refused(&[1], first));
     // A node hit skips 639DA0, so an aircraft without a token passes.
-    assert_eq!(sim.planning_press_refusal(owner, &[4, 5], first), None);
+    assert_eq!(sim.planning_press_refusal(&[4, 5], first), None);
 
     // 639DA0 with no node hit: the first object that cannot use waypoints.
     let open = [first[0] + 200, first[1] + 200];
-    assert_eq!(sim.planning_press_refusal(owner, &[1, 3], open), None);
+    assert_eq!(sim.planning_press_refusal(&[1, 3], open), None);
     assert_eq!(
-        sim.planning_press_refusal(owner, &[1, 5, 4], open),
+        sim.planning_press_refusal(&[1, 5, 4], open),
         Some(NoBuildings)
     );
-    assert_eq!(
-        sim.planning_press_refusal(owner, &[4, 5], open),
-        Some(NoAircraft)
-    );
-    assert_eq!(
-        sim.planning_press_refusal(owner, &[1, 99], open),
-        Some(NoUnknowns)
-    );
+    assert_eq!(sim.planning_press_refusal(&[4, 5], open), Some(NoAircraft));
+    assert_eq!(sim.planning_press_refusal(&[1, 99], open), Some(NoUnknowns));
+
+    // The press and release loops hit every house's nodes; the hover keeps
+    // only own ones.
+    let rival = sim.interner.intern("Russians");
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .set_owner_for_test(rival);
+    let foreign = point(&sim, 4);
+    assert_eq!(sim.planning_node_at_screen(owner, &[], foreign), None);
+    assert_eq!(sim.planning_press_refusal(&[1], foreign), Some(InvalidNode));
+    assert_eq!(sim.planning_press_refusal(&[4], foreign), None);
 
     // A loop (token+0x94) refuses every node until the plan is cleared.
     let connect = sim.encode_plan_connect_record(owner, 1, (12, 15)).unwrap();
     apply(&mut sim, &rules, connect);
     assert_eq!(sim.planning.paths[&1].loop_start, Some(0));
     assert_eq!(sim.planning_invalid_node_reason(&[1], 1), Some(1));
-    assert_eq!(
-        sim.planning_press_refusal(owner, &[1], first),
-        Some(InvalidNode)
-    );
+    assert_eq!(sim.planning_press_refusal(&[1], first), Some(InvalidNode));
 }

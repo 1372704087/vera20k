@@ -493,7 +493,7 @@ impl Simulation {
         actor_id: u64,
         point: [i32; 2],
     ) -> Option<CommandRecord> {
-        let node = self.planning_node_id_at_screen(owner, point)?;
+        let node = self.planning_node_id_at_screen(Some(owner), point)?;
         self.planning_connect_record_to_node(owner, actor_id, node)
     }
 
@@ -533,7 +533,7 @@ impl Simulation {
         owner: InternedId,
         point: [i32; 2],
     ) -> Option<CommandRecord> {
-        let node = self.planning_node_id_at_screen(owner, point)?;
+        let node = self.planning_node_id_at_screen(Some(owner), point)?;
         self.planning_delete_record_for_node(owner, node)
     }
 
@@ -816,8 +816,12 @@ impl Simulation {
     /// PlanMgr 0x00638E60's hover AC4CCC: the node under `point` (Node634220
     /// projects634550's live XYZ; its half-open hit box is16x16), kept only
     /// when Planning__GetInvalidNodeReason admits it for `selected`. A refused
-    /// node goes to AC4C3C, which nothing reads. Residual: the press-held node
-    /// AC4C38 gate is not kept; it only holds between a valid press and release.
+    /// node goes to AC4C3C, which nothing reads. Residuals: the press-held
+    /// node AC4C38 gate is not kept (it only holds between an admitted press
+    /// and its release); 638E60 re-runs the gate only when the node under the
+    /// mouse changes, while this re-checks it each frame against the current
+    /// selection; and it hit-tests the first node in AC4C18 before its owner
+    /// test, while this finds the first own node (allied plans only).
     pub fn planning_node_at_screen(
         &self,
         owner: InternedId,
@@ -834,7 +838,7 @@ impl Simulation {
         selected: &[u64],
         point: [i32; 2],
     ) -> Option<u64> {
-        self.planning_node_id_at_screen(owner, point)
+        self.planning_node_id_at_screen(Some(owner), point)
             .filter(|&node| self.planning_invalid_node_reason(selected, node).is_none())
     }
 
@@ -864,6 +868,14 @@ impl Simulation {
         None
     }
 
+    /// PlanMgr 0x0063A8E0 on the left release: a node under it that 63AC70
+    /// refuses consumes the release (0x0063AA65..0x0063AA7E), which then
+    /// neither connects nor orders.
+    pub fn planning_release_refused(&self, selected: &[u64], point: [i32; 2]) -> bool {
+        self.planning_node_id_at_screen(None, point)
+            .is_some_and(|node| self.planning_invalid_node_reason(selected, node).is_some())
+    }
+
     /// PlanMgr 0x0063A5A0, which ScrollClass's left press (0x00693187) runs
     /// ahead of the capture. A node under the press that 63AC70 refuses
     /// answers InvalidNode; an admitted node passes. With no node hit,
@@ -875,11 +887,10 @@ impl Simulation {
     /// Infantry and Unit types jump to the base 0x00711E80, true.
     pub fn planning_press_refusal(
         &self,
-        owner: InternedId,
         selected: &[u64],
         point: [i32; 2],
     ) -> Option<PlanningPressRefusal> {
-        if let Some(node) = self.planning_node_id_at_screen(owner, point) {
+        if let Some(node) = self.planning_node_id_at_screen(None, point) {
             return self
                 .planning_invalid_node_reason(selected, node)
                 .map(|_| PlanningPressRefusal::InvalidNode);
@@ -899,11 +910,17 @@ impl Simulation {
         })
     }
 
-    fn planning_node_id_at_screen(&self, owner: InternedId, point: [i32; 2]) -> Option<u64> {
+    /// `None` hit-tests every house's nodes, as the press and release
+    /// loops over AC4B34 do (0x0063A5A0, 0x0063A8E0).
+    fn planning_node_id_at_screen(
+        &self,
+        owner: Option<InternedId>,
+        point: [i32; 2],
+    ) -> Option<u64> {
         self.planning
             .nodes
             .values()
-            .filter(|node| self.planning_node_house(node.id) == Some(owner))
+            .filter(|node| owner.is_none() || self.planning_node_house(node.id) == owner)
             .find_map(|node| {
                 let coord = self.planning_node_coords(node.id)?;
                 let (x, y) =

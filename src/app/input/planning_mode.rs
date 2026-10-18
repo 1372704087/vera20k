@@ -328,10 +328,12 @@ pub(crate) fn refuse_press_at_cursor(state: &mut AppState) -> bool {
         return false;
     };
     let selected = selected_in_order(state);
-    let Some(refusal) = state.match_state.sim_runtime.as_ref().and_then(|rt| {
-        let sim = &rt.simulation;
-        sim.planning_press_refusal(sim.session.current_house()?, &selected, point)
-    }) else {
+    let Some(refusal) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|rt| rt.simulation.planning_press_refusal(&selected, point))
+    else {
         return false;
     };
     refuse(state, PlanningRefusal::Press(refusal));
@@ -376,11 +378,19 @@ fn input_native_screen(
     ]
 }
 
+/// PlanMgr 0x0063A8E0 on the left release: connect at an admitted hover
+/// node, or swallow a release over a node the selection may not connect to.
 pub(crate) fn connect_at_cursor(state: &mut AppState) -> bool {
-    let Some(_) = node_at_cursor(state) else {
-        return false;
-    };
     let selected = selected_in_order(state);
+    if node_at_cursor(state).is_none() {
+        return hover_native_screen(state).is_some_and(|point| {
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|rt| rt.simulation.planning_release_refused(&selected, point))
+        });
+    }
     let point = cursor_native_screen(state);
     if let Some(rt) = state.match_state.sim_runtime.as_mut()
         && let Some(owner) = rt.simulation.session.current_house()

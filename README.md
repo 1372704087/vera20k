@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20k hero image" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20K hero image" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <strong>English</strong>
@@ -12,14 +12,14 @@
 
 <!-- Keep all translated READMEs in sync when changing the text below. -->
 
-# VERA20k
+# VERA20K
 
-VERA20k is a community-led rewrite of the original engine, `gamemd.exe`. It uses the original
+VERA20K is a community-led rewrite of the original engine, `gamemd.exe`. It uses the original
 game files, so you'll need your own copy of Red Alert 2: Yuri's Revenge.
 
-VERA20k is made by gamers, for gamers, and gamers have the final say in where it goes.
+VERA20K is made by gamers, for gamers, and gamers have the final say in where it goes.
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k skirmish setup screen and in-game view" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K skirmish setup screen and in-game view" width="100%">
 
 ## Project goals
 
@@ -67,7 +67,7 @@ You need:
   `sudo apt install build-essential libasound2-dev pkg-config`.
 - **Graphics:** a GPU with Vulkan, DirectX 12 or Metal.
 
-VERA20k has been played on Windows, Linux and macOS.
+VERA20K has been played on Windows, Linux and macOS.
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -96,7 +96,7 @@ Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1
 
 ## Support
 
-<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20k via PayPal" height="40"></a>
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20K via PayPal" height="40"></a>
 
 All donations received are distributed
 to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
@@ -112,4 +112,4 @@ many others.
 
 Licensed under the [GPLv3](LICENSE-GPL). This repository contains no game files. Command &
 Conquer and Red Alert are trademarks of Electronic Arts Inc., and the screenshots show game art
-owned by Electronic Arts. VERA20k is not affiliated with or endorsed by Electronic Arts.
+owned by Electronic Arts. VERA20K is not affiliated with or endorsed by Electronic Arts.

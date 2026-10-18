@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="الصورة الرئيسية لمشروع VERA20k" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="الصورة الرئيسية لمشروع VERA20K" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <strong lang="ar" dir="rtl">العربية</strong> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -12,14 +12,14 @@
 
 <div dir="rtl">
 
-# VERA20k
+# VERA20K
 
-يعيد VERA20k، وهو مشروع يقوده المجتمع، كتابة المحرك الأصلي، `gamemd.exe`. يستخدم ملفات اللعبة
+يعيد VERA20K، وهو مشروع يقوده المجتمع، كتابة المحرك الأصلي، `gamemd.exe`. يستخدم ملفات اللعبة
 الأصلية، لذا ستحتاج إلى نسختك الخاصة من Red Alert 2: Yuri's Revenge.
 
-VERA20k من صنع اللاعبين ومن أجلهم، وللاعبين الكلمة الأخيرة في تحديد مساره.
+VERA20K من صنع اللاعبين ومن أجلهم، وللاعبين الكلمة الأخيرة في تحديد مساره.
 
-<img src="docs/images/vera20k-screenshots.png" alt="شاشة إعداد المناوشات ومشهد من اللعب في VERA20k" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="شاشة إعداد المناوشات ومشهد من اللعب في VERA20K" width="100%">
 
 ## أهداف المشروع
 
@@ -65,7 +65,7 @@ VERA20k من صنع اللاعبين ومن أجلهم، وللاعبين الك
   `xcode-select --install`؛ وعلى Debian وUbuntu الأمر `sudo apt install build-essential libasound2-dev pkg-config`.
 - **الرسوميات:** بطاقة رسوميات تدعم Vulkan أو DirectX 12 أو Metal.
 
-وقد استُخدم VERA20k للعب على Windows وLinux وmacOS.
+وقد استُخدم VERA20K للعب على Windows وLinux وmacOS.
 
 <div dir="ltr">
 
@@ -98,7 +98,7 @@ cargo run --release --bin vera20k
 
 ## الدعم
 
-<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="ادعم VERA20k عبر PayPal" height="40"></a>
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="ادعم VERA20K عبر PayPal" height="40"></a>
 
 تُوزَّع جميع التبرعات المستلمة على
 المساهمين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
@@ -114,7 +114,7 @@ cargo run --release --bin vera20k
 
 المشروع مرخّص بموجب [GPLv3](LICENSE-GPL). لا يحتوي هذا المستودع على أي ملفات للعبة. تُعد
 Command & Conquer وRed Alert علامتين تجاريتين لشركة Electronic Arts Inc.، وتعرض لقطات الشاشة
-رسومات من اللعبة تملكها Electronic Arts. لا يتبع VERA20k شركة Electronic Arts ولا يحظى بتأييدها.
+رسومات من اللعبة تملكها Electronic Arts. لا يتبع VERA20K شركة Electronic Arts ولا يحظى بتأييدها.
 
 ترجمة لـ [README.md](README.md)؛ يُرجى تحديثها مع النسخة الإنجليزية.
 

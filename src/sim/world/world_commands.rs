@@ -2339,14 +2339,13 @@ impl Simulation {
     /// queued form: a Shift-click still builds an ordinary MegaMission
     /// (walk_first_path.json `gi_reissue`).
     ///
-    /// RESIDUAL: before Assign_Target_Command, the event flashes its object
-    /// (the destination, else the target) for 7 frames when the local
-    /// player is allied with the ordering object (`0x004C7385..0x004C739F`,
-    /// vt+0x148). Whether it runs depends on the viewer, so it cannot write
-    /// the simulation's flash countdown
-    /// ([`crate::sim::game_entity::GameEntity::flash_building`]); nothing
-    /// presents it. Trigger: every order on an object. Effect: the
-    /// clicked object does not blink. Risk: presentation only.
+    /// Before the setters the event flashes one object for 7 frames
+    /// (`0x004C7385..0x004C739F`, vt+0x148, [`Self::flash_object`]) when
+    /// the current player (A83D4C) is allied with the ordering object
+    /// (`HouseClass::IsAlliedWith(ObjectClass*) @ 0x004F9A90`: its owner, or
+    /// a bit of the player's ally mask). `0x004C7225..0x004C727E` picks that
+    /// object: As_Object of a present destination token, else of the target
+    /// token; a Cell destination therefore flashes nothing.
     fn apply_megamission_command(
         &mut self,
         entity_id: u64,
@@ -2390,6 +2389,23 @@ impl Simulation {
             rules,
             frame_effects,
         );
+        let flashed = match destination.or(target) {
+            Some(combat::TargetKind::Entity(id)) => Some(id),
+            _ => None,
+        };
+        if let Some(flashed) = flashed
+            && let Some(player) = self.session.current_house
+            && self.substrate.entities.get(entity_id).is_some_and(|actor| {
+                combat::combat_weapon::is_ally_by_object(
+                    Some(&self.house_alliances),
+                    &self.interner,
+                    player,
+                    actor.owner(),
+                )
+            })
+        {
+            self.flash_object(flashed, 7);
+        }
         // The setters take what the tokens resolve to.
         let (target, destination) = (
             self.resolve_event_token(target),

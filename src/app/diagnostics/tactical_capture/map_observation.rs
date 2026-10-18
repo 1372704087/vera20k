@@ -2979,8 +2979,13 @@ impl TacticalCaptureSession {
                     source,
                     crate::map::source::LoadedMapSource::Loose { .. }
                         | crate::map::source::LoadedMapSource::Mix { .. }
+                ) || matches!(
+                    source,
+                    crate::map::source::LoadedMapSource::Generated {
+                        seed_source: Some(seed_source), ..
+                    } if seed_source.payload_len > 0
                 ),
-                "map observation requires consumed loose or MIX map bytes"
+                "map observation requires consumed map or nonempty seed-file bytes"
             );
             self.map_source_evidence = Some(serde_json::to_value(source)?);
             // The production load transition has now installed its tactical

@@ -4441,6 +4441,79 @@ class MapObservationTests(unittest.TestCase):
         self.change = lambda m: m['map_source'].update(kind='loose', path='/retail/Fight.MAP')
         self.assertEqual(self.run_capture()['status'], 'VALID')
 
+    def test_generated_seed_receipt_requires_and_retains_consumed_identity(self):
+        # Protocol receipts only: these do not execute Generate or establish
+        # native gameplay/pixel parity. The production reader owns consumption.
+        for index, name in enumerate(('CellRamp11.SED', 'CellRamp11.sEd')):
+            with self.subTest(name=name):
+                self.profile['launch']['selected_map_file'] = name
+                self.profile_path.write_text(json.dumps(self.profile))
+                source = {'kind': 'generated', 'seed_name': name,
+                          'seed_source': {'path': '/retail/' + name, 'payload_len': 90,
+                                          'source_sha256': 'b' * 64}}
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'VALID', report['errors'])
+                self.assertEqual(report['capture']['map_source'], source)
+                retained = observation.validate_run(self.output)
+                self.assertEqual(retained['status'], 'VALID', retained['errors'])
+
+    def test_generated_seed_receipt_rejects_missing_or_malformed_consumed_identity(self):
+        self.profile['launch']['selected_map_file'] = 'CellRamp11.SED'
+        self.profile_path.write_text(json.dumps(self.profile))
+        original = {'kind': 'generated', 'seed_name': 'CellRamp11.SED',
+                    'seed_source': {'path': '/retail/CellRamp11.SED', 'payload_len': 90,
+                                    'source_sha256': 'b' * 64}}
+        cases = [('name_only', lambda value: value.pop('seed_source')),
+                 ('null_source', lambda value: value.update(seed_source=None)),
+                 ('array_source', lambda value: value.update(seed_source=[])),
+                 ('missing_name', lambda value: value.pop('seed_name')),
+                 ('wrong_name', lambda value: value.update(seed_name='Other.SED')),
+                 ('name_case_mismatch', lambda value: value.update(seed_name='cellramp11.SED')),
+                 ('null_name', lambda value: value.update(seed_name=None))]
+        for field in ('path', 'payload_len', 'source_sha256'):
+            cases.append(('missing_' + field,
+                          lambda value, key=field: value['seed_source'].pop(key)))
+        for field, values in (('path', ('', None, 17)),
+                              ('payload_len', (0, -1, None, True, 1.5)),
+                              ('source_sha256', ('bad', 'B' * 64, 'g' * 64, None, 17))):
+            for index, invalid in enumerate(values):
+                cases.append((f'{field}_{index}',
+                              lambda value, key=field, bad=invalid:
+                              value['seed_source'].update({key: bad})))
+        # An authored-map identity at the top level cannot stand in for the
+        # missing nested identity of the actual seed bytes.
+        cases.append(('top_level_identity_only', lambda value: value.update(
+            seed_source=None, path='/retail/CellRamp11.SED', payload_len=90,
+            source_sha256='b' * 64)))
+        cases.append(('top_level_hash_cannot_repair_nested', lambda value: (
+            value.update(source_sha256='b' * 64),
+            value['seed_source'].pop('source_sha256'))))
+        for index, (name, mutate) in enumerate(cases):
+            with self.subTest(name=name):
+                source = deepcopy(original)
+                mutate(source)
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-invalid-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'INVALID', name)
+                self.assertTrue(report['errors'], name)
+
+    def test_generated_seed_receipt_requires_terminal_seed_selection(self):
+        for index, name in enumerate(('CellRamp11.SED.bak', 'CellRamp11.map', 'CellRamp11sed')):
+            with self.subTest(name=name):
+                self.profile['launch']['selected_map_file'] = name
+                self.profile_path.write_text(json.dumps(self.profile))
+                source = {'kind': 'generated', 'seed_name': name,
+                          'seed_source': {'path': '/retail/' + name, 'payload_len': 90,
+                                          'source_sha256': 'b' * 64}}
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-nonseed-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'INVALID')
+                self.assertTrue(any('must end in .SED' in error for error in report['errors']))
+
     def test_existing_output_is_never_reused(self):
         self.output.mkdir()
         with patch.object(observation, 'run_child') as child:

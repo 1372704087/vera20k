@@ -2902,19 +2902,35 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         require_value(startup.get(key), expected, f'startup.{key}')
     _integer(startup, 'correlation', 1)
     source = require_object(manifest.get('map_source'), 'map_source')
-    require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
-    _integer(source, 'payload_len', 1)
-    if source.get('kind') == 'loose':
-        path = require_string(source.get('path'), 'map_source.path')
-        if not path:
-            raise ValidationError('empty map source path')
-    elif source.get('kind') == 'mix':
-        for name in ('logical_name', 'source_archive'):
-            if not require_string(source.get(name), f'map_source.{name}'):
-                raise ValidationError(f'empty map_source.{name}')
-        require_int(source.get('entry_id'), 'map_source.entry_id')
+    if source.get('kind') == 'generated':
+        # These are consumed .SED bytes, not bytes of an authored/generated map.
+        # Name-only legacy Generated sources cannot certify a sealed capture.
+        seed_name = require_string(source.get('seed_name'), 'map_source.seed_name')
+        launch = require_object(profile.get('launch'), 'profile.launch')
+        map_name = require_string(launch.get('selected_map_file'),
+                                  'profile.launch.selected_map_file')
+        require_value(seed_name, map_name, 'map_source.seed_name')
+        if not seed_name.lower().endswith('.sed'):
+            raise ValidationError('map_source.seed_name must end in .SED')
+        seed_source = require_object(source.get('seed_source'), 'map_source.seed_source')
+        require_sha256(seed_source.get('source_sha256'), 'map_source.seed_source.source_sha256')
+        _integer(seed_source, 'payload_len', 1)
+        if not require_string(seed_source.get('path'), 'map_source.seed_source.path'):
+            raise ValidationError('empty map_source.seed_source.path')
     else:
-        raise ValidationError('map source must be loaded loose or MIX bytes')
+        require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
+        _integer(source, 'payload_len', 1)
+        if source.get('kind') == 'loose':
+            path = require_string(source.get('path'), 'map_source.path')
+            if not path:
+                raise ValidationError('empty map source path')
+        elif source.get('kind') == 'mix':
+            for name in ('logical_name', 'source_archive'):
+                if not require_string(source.get(name), f'map_source.{name}'):
+                    raise ValidationError(f'empty map_source.{name}')
+            require_int(source.get('entry_id'), 'map_source.entry_id')
+        else:
+            raise ValidationError('map source must be loaded loose, MIX, or consumed .SED bytes')
     lifecycle = require_object(manifest.get('lifecycle'), 'lifecycle')
     for key, expected in (('window_hidden', True), ('window_focused', False),
                           ('focus_violations', 0), ('input_violations', 0)):

@@ -5,6 +5,22 @@
 and retains a hidden-window GPU readback. This is a production observation, not a
 native comparator or a gameplay/pixel parity certification.
 
+## Accepted random maps
+
+A profile selecting the exact normal `RandMap.Sed` record can observe a generated
+match. Place the desired `.SED` in a real isolated retail directory and point the
+capture's `config.toml` there. The capture runs the existing setup generator and
+acceptance before normal launch regeneration. Setup writes `RandMap.Sed` and
+`RandMap.img` in that directory; retain original retail files separately. The
+`.SED` seed controls MapGen, while the profile seed controls match startup.
+
+The generated `map_source` receipt retains `seed_name` and nested `seed_source`
+(`path`, `payload_len`, `source_sha256`) from the exact seed buffer consumed by
+launch loading. Setup may normalize the record and stamp its localized description
+before that read. Legacy name-only sources and empty seed files cannot certify a
+capture. Other selected `.SED` names are not supported by this setup adapter.
+This demonstrates the recorded production path, not native full-generation parity.
+
 ## Named commands and outcome inspection
 
 Use `vera20k.map-observation-profile.v3` to name command targets without a separate

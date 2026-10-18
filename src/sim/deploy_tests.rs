@@ -1894,9 +1894,11 @@ fn can_deploy_slash_unload_follows_each_class_arm() {
 }
 
 /// The DEPLOY event admits a retail Chaos Drone (`[CAOS]`, `DeployFire=`)
-/// and queues Unload; `UnitClass::Mission_Unload`'s deploy-fire arm
-/// (`0x0073DCD3`) targets the drone's own cell and fires weapon 0
-/// (ChaosAttack) there, then keeps that Target and stays in Unload.
+/// and queues Unload. `UnitClass::Mission_Unload`'s deploy-fire arm
+/// (`0x0073DCD3`) itself targets the drone's own cell, fires weapon 0
+/// (ChaosAttack) there, keeps that Target and returns `RandomRanged(0, 2)`
+/// plus 14; called directly, so the every-frame Fire_At_Target cannot stand
+/// in for its shot.
 #[test]
 fn a_chaos_drone_deploy_fires_its_weapon_at_its_own_cell() {
     let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -1904,7 +1906,7 @@ fn a_chaos_drone_deploy_fires_its_weapon_at_its_own_cell() {
     };
     let rules = &battle.rules;
     let mut sim = Simulation::new();
-    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
+    crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     let drone = sim
         .spawn_object("CAOS", "YuriCountry", 10, 10, 64, rules)
         .expect("the retail Chaos Drone builds");
@@ -1913,29 +1915,25 @@ fn a_chaos_drone_deploy_fires_its_weapon_at_its_own_cell() {
         &Command::DeployMcv { entity_id: drone },
         Some(rules)
     ));
-    let fired = |sim: &Simulation| {
-        sim.substrate
-            .entities
-            .get(drone)
-            .unwrap()
-            .rearm_timer
-            .duration()
-            > 0
-    };
-    for _ in 0..30 {
-        if fired(&sim) {
-            break;
-        }
-        sim.advance_tick(&[], Some(rules), Some(&grid), None, 33);
-    }
     let entity = sim.substrate.entities.get(drone).unwrap();
-    assert!(fired(&sim), "the drone fired");
+    assert_eq!(
+        entity.mission.queued().known(),
+        Some(crate::sim::mission::MissionType::Unload)
+    );
+    assert_eq!(entity.rearm_timer.duration(), 0);
+    assert_eq!(entity.attack_target.target(), None);
+
+    let (delay, _) = sim.unit_deploy_fire_unload(
+        drone,
+        rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let entity = sim.substrate.entities.get(drone).unwrap();
+    assert!((14..=16).contains(&delay), "{delay}");
+    assert!(entity.rearm_timer.duration() > 0, "the arm fired");
     assert_eq!(
         entity.attack_target.target(),
         Some(TargetKind::Cell(10, 10))
-    );
-    assert_eq!(
-        entity.mission.current().known(),
-        Some(crate::sim::mission::MissionType::Unload)
     );
 }

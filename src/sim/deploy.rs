@@ -52,10 +52,14 @@ impl CrushImmunity {
 /// deploy-fire arm share this event; each concrete Mission_Unload branch owns
 /// its effects.
 ///
-/// RESIDUAL: native refuses only an aircraft (`0x004C777E`) and the
-/// Construction/Selling missions below; VERA admits only those three Unit
-/// kinds, whose Unload arms it ports. Trigger: a DEPLOY event for another
-/// object, which no VERA sender issues.
+/// RESIDUAL:
+/// - Native refuses only an aircraft (`0x004C777E`) and the
+///   Construction/Selling missions below; VERA admits only those three Unit
+///   kinds, whose Unload arms it ports. Trigger: a DEPLOY event for another
+///   object, which no VERA sender issues.
+/// - Native breaks radio contact (vt+0x274(3), `0x004C77E4`) and deploys;
+///   VERA refuses a unit with a radio partner. Trigger: D on a unit in radio
+///   contact, such as one docked at a service depot. Effect: it ignores D.
 pub(crate) fn issue_order(
     sim: &mut Simulation,
     id: u64,
@@ -181,31 +185,37 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> (i32, bool) {
         let mut bridge_changed = false;
-        if let Some((rx, ry)) = self.own_map_cell(id) {
-            let _ = self.assign_target_represented(
+        // Native always has a cell; without one VERA fires at nothing rather
+        // than at a Target the unit held before.
+        let targeted = self.own_map_cell(id).is_some_and(|(rx, ry)| {
+            self.assign_target_represented(
                 id,
                 Some(TargetKind::Cell(rx, ry)),
                 Some(rules),
                 overlay_registry,
                 effects,
-            );
-        }
-        let shot = self.substrate.entities.get(id).and_then(|actor| {
-            let object = self.object_type(actor.type_ref(), rules)?;
-            let target = actor.attack_target.target()?;
-            let subject = crate::sim::combat::fire_error_world::FireSubject {
-                world: self,
-                rules,
-                overlay_registry,
-                fog: None,
-                firer: actor,
-                obj: object,
-                target: Some(target),
-                weapon_index: 0,
-            };
-            (subject.fire_error(true) == crate::sim::combat::fire_error::FireError::Ok)
-                .then_some(target)
+            )
+            .is_ok()
         });
+        let shot = targeted
+            .then(|| self.substrate.entities.get(id))
+            .flatten()
+            .and_then(|actor| {
+                let object = self.object_type(actor.type_ref(), rules)?;
+                let target = actor.attack_target.target()?;
+                let subject = crate::sim::combat::fire_error_world::FireSubject {
+                    world: self,
+                    rules,
+                    overlay_registry,
+                    fog: None,
+                    firer: actor,
+                    obj: object,
+                    target: Some(target),
+                    weapon_index: 0,
+                };
+                (subject.fire_error(true) == crate::sim::combat::fire_error::FireError::Ok)
+                    .then_some(target)
+            });
         if let Some(target) = shot {
             bridge_changed = self
                 .commit_fire_visit(

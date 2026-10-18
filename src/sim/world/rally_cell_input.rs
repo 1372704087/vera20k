@@ -44,9 +44,7 @@ impl Simulation {
             .playfield_bounds
             .ok_or("rally input lacks playfield bounds")?;
         let size = self
-            .playfield_size_height
-            .map(|height| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+            .map_size_diamond()
             .ok_or("rally input lacks native map dimensions")?;
         let cells = NativeCellQuery::isolated(terrain);
         resolve_rally_cell_click(

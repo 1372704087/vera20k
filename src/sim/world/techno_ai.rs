@@ -472,10 +472,7 @@ impl Simulation {
                 overlays: overlay_grid,
                 overlay_registry: ctx.overlay_registry,
                 rules,
-                map_size: self
-                    .playfield_bounds
-                    .zip(self.playfield_size_height)
-                    .map(|(bounds, height)| (bounds.base, height)),
+                map_size: self.map_size_diamond(),
             };
             let nuke_ball_type =
                 || rules.is_some_and(crate::sim::superweapon::nuke::nuke_ball_type);

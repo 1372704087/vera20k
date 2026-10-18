@@ -39,7 +39,13 @@ pub mod system_ai;
 pub mod wind;
 
 #[cfg(test)]
+mod gas_native_tests;
+#[cfg(test)]
+mod native_fixture;
+#[cfg(test)]
 mod native_identity_tests;
+#[cfg(test)]
+mod virus_tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleSystem {
@@ -114,7 +120,12 @@ pub struct Particle {
     pub coords: IVec3,
     #[serde(with = "ivec3_serde")]
     pub origin: IVec3,
+    /// Constructor's normalized target vector (+10C), retained at the existing
+    /// Fire fixed-point boundary. It is distinct from the Gas motion words.
     pub direction: [SimFixed; 3],
+    /// Particle+CC/D0/D4. Constructor62B634 initializes (0,0,-1); Gas AI
+    /// replaces these words before Move62D2A0 consumes them.
+    pub(super) motion: [NativeF32Bits; 3],
     // Native +E4. All class bodies mutate this one stored scalar.
     velocity: NativeF32Bits,
     pub lifetime_remaining: i16,
@@ -223,6 +234,11 @@ impl Particle {
             direction: direction.map(|component| {
                 SimFixed::from_bits((f32::from_bits(component.bits()) * 65536.0) as i32)
             }),
+            motion: [
+                NativeF32Bits::POSITIVE_ZERO,
+                NativeF32Bits::POSITIVE_ZERO,
+                NativeF32Bits::from_bits(0xbf80_0000),
+            ],
             velocity,
             lifetime_remaining,
             damage_counter: pt.max_dc as i16,
@@ -340,6 +356,7 @@ impl Particle {
             coords,
             origin: coords,
             direction: [SIM_ZERO; 3],
+            motion: [NativeF32Bits::POSITIVE_ZERO; 3],
             velocity: NativeF32Bits::POSITIVE_ZERO,
             lifetime_remaining: 0,
             damage_counter: 0,
@@ -403,6 +420,9 @@ mod ivec3_serde {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ParticleSystemStore {
     systems: BTreeMap<u64, ParticleSystem>,
+    /// Scenario setup's DAT_A8ED78. The system/children remain in the one
+    /// ordinary store; this is its saved singleton reference, not another body.
+    gas_cloud_system: Option<u64>,
     /// Exclusive ownership after SystemPointerExpired removes a child
     /// reference. Reference removal alone preserves Object+90 and Display;
     /// ordinary UnInit then conceals it, clears Alive and queues destruction.
@@ -424,6 +444,9 @@ struct DetachedParticle {
 }
 
 impl ParticleSystemStore {
+    pub(crate) fn gas_cloud_system(&self) -> Option<u64> {
+        self.gas_cloud_system
+    }
     pub fn new() -> Self {
         Self::default()
     }
@@ -588,6 +611,9 @@ impl ParticleSystemStore {
 
     /// Physical removal boundary used only by the shared pending-delete finalizer.
     pub(crate) fn finalize_remove(&mut self, id: u64) -> Option<ParticleSystem> {
+        if self.gas_cloud_system == Some(id) {
+            self.gas_cloud_system = None;
+        }
         self.remove(id)
     }
 

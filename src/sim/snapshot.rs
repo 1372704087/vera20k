@@ -1126,7 +1126,8 @@ use crate::sim::world::Simulation;
 // 411 -> 412: processed UnitTypes retain SpeedType across admitted Rules
 // passes. Older records lack this field and use the wrong vehicle defaults.
 // 412 -> 413: retained Super one-time and provider-loss/hold flags.
-const SNAPSHOT_VERSION: u32 = 413;
+// 413 -> 414: retain the global GasCloudSys reference and Particle CC/D0/D4 motion words.
+const SNAPSHOT_VERSION: u32 = 414;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2064,6 +2065,17 @@ fn restore_object_references(
         .iter()
         .map(|(&id, _)| id)
         .collect();
+
+    if let Some(id) = sim.particle_systems().gas_cloud_system() {
+        require_resolved_reference(
+            particle_system_ids.contains(&id),
+            "ParticleSystemStore",
+            0,
+            "gas_cloud_system",
+            "ParticleSystemStore",
+            id,
+        )?;
+    }
 
     // Building saved+55C slots swizzle to distinct owned Anim objects. Validate
     // before weak-pointer cleanup or reverse-index mutation. Anim+CC may remain
@@ -4833,7 +4845,8 @@ mod tests {
         // 410 -> 411: preferred Super target kind and House-control pointers.
         // 411 -> 412: retained vehicle SpeedType in processed Rules.
         // 412 -> 413: retained Super one-time and provider-loss/hold flags.
-        assert_eq!(super::SNAPSHOT_VERSION, 413);
+        // 413 -> 414: global GasCloudSys reference and Particle motion words.
+        assert_eq!(super::SNAPSHOT_VERSION, 414);
     }
 
     #[test]

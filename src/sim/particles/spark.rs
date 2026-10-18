@@ -154,7 +154,6 @@ fn add_stored_f32(
     X87Chop53::store_f32(sum).map_err(Into::into)
 }
 
-#[cfg(any(test, feature = "test-support"))]
 pub fn resolve_collision(
     motion: SparkMotionStep,
     facts: SparkCollisionFacts,

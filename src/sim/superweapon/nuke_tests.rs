@@ -1139,7 +1139,7 @@ fn nuke_awaited_anim_retirement_routes_release_before_next_bullet_visit() {
                 sim.destroy_anim(ball, &rules);
                 assert_eq!(sim.sound_events.len(), events, "repeat Destroy is inert");
             }
-            "building scalar" => sim.scalar_delete_building_anim(ball),
+            "building scalar" => sim.scalar_delete_anim(ball),
             "terrain scalar" => {
                 sim.substrate.anims.get_mut(ball).unwrap().terrain_attached = true;
                 assert_eq!(sim.scalar_delete_load_terrain_anims(), 1);
@@ -1250,7 +1250,7 @@ fn nuke_awaited_anim_expiry_after_waiter_retirement_is_safe() {
         .unwrap();
     sim.notify_anim_pointer_expired(unrelated);
     assert_eq!(sim.projectiles.get(id).unwrap().awaited_anim(), Some(ball));
-    sim.scalar_delete_building_anim(unrelated);
+    sim.scalar_delete_anim(unrelated);
     assert!(sim.retire_non_entity_object(id, crate::sim::world::UninitContext::with_rules(&rules)));
     sim.process_pending_delete();
     assert!(sim.projectiles.get(id).is_none());
@@ -1273,7 +1273,7 @@ fn nuke_shared_anim_waiters_keep_live_cursor_compaction() {
         let (early, ball) = impact_waiting_nuke(&mut sim, &rules);
         let (late, unused_ball) = impact_waiting_nuke(&mut sim, &rules);
         sim.projectiles.await_anim(late, Some(ball));
-        sim.scalar_delete_building_anim(unused_ball);
+        sim.scalar_delete_anim(unused_ball);
         let middle = if spacer {
             Some(
                 sim.spawn_object_at_height("COW", "Americans", 30, 30, 0, 0, &rules)

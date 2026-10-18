@@ -3,7 +3,6 @@ use super::*;
 use crate::map::bridge_facts::{BRIDGE_FLAG_STRUCTURAL, BridgeCellFacts};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
-use crate::rules::ini_parser::IniFile;
 use crate::rules::particle_system_type::ParticleSystemTypeId;
 use crate::rules::particle_type::ParticleTypeId;
 use crate::sim::combat::Health;
@@ -11,49 +10,16 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::native_identity::NativeUniqueIdCursor;
 use crate::sim::snapshot::GameSnapshot;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 fn corpus() -> &'static Value {
     crate::test_fixture::json("tools/spatial_oracle/damage_smoke.json")
 }
 fn rules(data: &Value, input: &Value) -> RuleSet {
-    let mut sections: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
-    for layer in data["physical_layers"].as_array().unwrap() {
-        if let Some(rows) = layer["sections"].as_object() {
-            for (section, values) in rows {
-                for (key, value) in values.as_object().unwrap() {
-                    sections
-                        .entry(section.clone())
-                        .or_default()
-                        .insert(key.clone(), value.as_str().unwrap().into());
-                }
-            }
-        }
-    }
-    if let Some(overrides) = input["type_overrides"].as_object() {
-        for (section, values) in overrides {
-            for (key, value) in values.as_object().unwrap() {
-                sections
-                    .entry(section.clone())
-                    .or_default()
-                    .insert(key.clone(), value.as_str().unwrap().into());
-            }
-        }
-    }
-    if let Some(wind) = input["wind"].as_i64() {
-        sections
-            .entry("General".into())
-            .or_default()
-            .insert("WindDirection".into(), wind.to_string());
-    }
-    let mut ini = "[Particles]\n0=SmallGreySmoke\n1=LargeGreySmoke\n[ParticleSystems]\n0=SmallGreySSys\n1=BigGreySmokeSys\n".to_owned();
-    for (section, values) in sections {
-        ini.push_str(&format!("[{section}]\n"));
-        for (key, value) in values {
-            ini.push_str(&format!("{key}={value}\n"));
-        }
-    }
-    RuleSet::from_ini(&IniFile::from_str(&ini)).unwrap()
+    super::super::native_fixture::rules_from_layers(
+        &data["physical_layers"],
+        input,
+        "[Particles]\n0=SmallGreySmoke\n1=LargeGreySmoke\n[ParticleSystems]\n0=SmallGreySSys\n1=BigGreySmokeSys\n",
+    )
 }
 fn bits(value: &Value) -> NativeF32Bits {
     NativeF32Bits::from_bits(u32::from_str_radix(value.as_str().unwrap(), 16).unwrap())
@@ -351,7 +317,10 @@ fn original_smoke_follows_owner_offset_leaves_trail_and_suppresses_tube_births()
             });
             sim.session.binary_frame = 0;
             assert!(super::super::system_ai::tick_particle_system(
-                &mut sim, &rules, id
+                &mut sim,
+                &rules,
+                id,
+                crate::sim::world::UninitContext::with_rules(&rules)
             ));
             assert_system(&sim, id, Some(owner), expected);
             assert_eq!(
@@ -414,7 +383,10 @@ fn original_smoke_system_birth_split_emission_cutoff_and_limbo() {
         for visit in case["visits"].as_array().unwrap() {
             sim.session.binary_frame = visit["frame"].as_u64().unwrap() as u32;
             assert!(super::super::system_ai::tick_particle_system(
-                &mut sim, &rules, id
+                &mut sim,
+                &rules,
+                id,
+                crate::sim::world::UninitContext::with_rules(&rules)
             ));
             assert_system(&sim, id, owner, &visit["state"]);
         }
@@ -456,7 +428,12 @@ fn original_stored_smoke_accumulator_preserves_long_run_rng_boundaries() {
     let points = case["checkpoints"].as_array().unwrap();
     for frame in 0..=points.last().unwrap()["frame"].as_u64().unwrap() as u32 {
         sim.session.binary_frame = frame;
-        super::super::system_ai::tick_particle_system(&mut sim, &rules, id);
+        super::super::system_ai::tick_particle_system(
+            &mut sim,
+            &rules,
+            id,
+            crate::sim::world::UninitContext::with_rules(&rules),
+        );
         if let Some(point) = points.iter().find(|point| point["frame"] == frame) {
             assert_system(&sim, id, None, &point["state"]);
         }
@@ -491,7 +468,12 @@ fn smoke_scalar_and_air_authorities_survive_existing_snapshot_roundtrip() {
             z: c.z,
         });
     sim.session.binary_frame = 0;
-    super::super::system_ai::tick_particle_system(&mut sim, &rules, id);
+    super::super::system_ai::tick_particle_system(
+        &mut sim,
+        &rules,
+        id,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
     sim.session.map_name = "damage-smoke-continuation".into();
     let bytes = GameSnapshot::save_validated(&sim, 17, 23, "Smoke continuation", 0);
     let mut restored = GameSnapshot::load_validated(&bytes, 17, 23, "damage-smoke-continuation")
@@ -521,8 +503,18 @@ fn smoke_scalar_and_air_authorities_survive_existing_snapshot_roundtrip() {
                 z: c.z,
             });
     }
-    super::super::system_ai::tick_particle_system(&mut sim, &rules, id);
-    super::super::system_ai::tick_particle_system(&mut restored, &rules, id);
+    super::super::system_ai::tick_particle_system(
+        &mut sim,
+        &rules,
+        id,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
+    super::super::system_ai::tick_particle_system(
+        &mut restored,
+        &rules,
+        id,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
     assert_system(&restored, id, owner, &case["visits"][1]);
     let a = sim.particle_systems().get(id).unwrap();
     let b = restored.particle_systems().get(id).unwrap();

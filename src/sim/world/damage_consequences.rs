@@ -245,7 +245,9 @@ pub(crate) fn admit_explosion_effect(
     fx: crate::sim::combat::ExplosionEffect,
 ) {
     match fx.death {
-        Some(spawn) => world.admit_death_anim(rules, fx.shp_name, spawn),
+        Some(spawn) => {
+            world.admit_death_anim(rules, fx.shp_name, spawn);
+        }
         None => {
             world.spawn_combat_explosion_anim(
                 rules,

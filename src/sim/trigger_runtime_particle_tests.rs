@@ -250,7 +250,12 @@ fn retail_smoke_stop_keeps_existing_children_and_saved_flag_until_their_shared_r
     let mut sim = world((12, 17), 0, 0);
     assert!(run(&mut sim, &action(88, type_id.0 as i32), Some(&rules)));
     let id = *sim.particle_systems().iter().next().unwrap().0;
-    assert!(tick_particle_system(&mut sim, &rules, id));
+    assert!(tick_particle_system(
+        &mut sim,
+        &rules,
+        id,
+        crate::sim::world::UninitContext::with_rules(&rules)
+    ));
     let system = sim.particle_systems().get(id).unwrap();
     assert!(!system.done_spawning);
     assert!(!system.particles.is_empty());
@@ -279,7 +284,12 @@ fn retail_smoke_stop_keeps_existing_children_and_saved_flag_until_their_shared_r
     for frame in 1..=1024 {
         for world in [&mut sim, &mut restored] {
             world.session.binary_frame = frame;
-            tick_particle_system(world, &rules, id);
+            tick_particle_system(
+                world,
+                &rules,
+                id,
+                crate::sim::world::UninitContext::with_rules(&rules),
+            );
             world.process_pending_delete();
         }
         assert_eq!(

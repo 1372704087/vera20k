@@ -681,6 +681,20 @@ impl DisguiseRuntime {
         self.disguised_as_house = house;
     }
 
+    /// `TechnoClass::Init_Managers @ 0x006F421C..0x006F4271` for a
+    /// `CanDisguise=`/`PermaDisguise=` type: the flag (`+0x1D8`), house
+    /// (`+0x51C`) and type (`+0x518`), leaving the constructor's creation
+    /// frame (`+0x1DC`).
+    pub(crate) fn wear_from_construction(
+        &mut self,
+        disguise_type: Option<InternedId>,
+        house: InternedId,
+    ) {
+        self.disguised = true;
+        self.disguised_as_house = Some(house);
+        self.disguise_type = disguise_type;
+    }
+
     /// `TechnoClass::DisguiseAs @ 0x0070E280` for a non-null target: the flag
     /// (`+0x1D8`) and the frame it was raised (`+0x1DC`), keeping the type
     /// and house.

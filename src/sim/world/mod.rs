@@ -3878,7 +3878,8 @@ impl Simulation {
             interval_frames,
             ambient_step,
         ) {
-            self.publish_global_lighting();
+            //55B4C6 refreshes Cell scalars without calling palette53AD00.
+            self.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::Preserve);
         }
     }
 

@@ -7,7 +7,7 @@ use super::{
     BuildingPlacementError, ProductionCategory, ProductionPlacement, credits_for_owner,
     cycle_active_producer_for_owner_category, place_production_with_overlays,
     placement_preview_for_owner_with_overlays, producer_candidates_for_owner_category,
-    publish_production_changes, ready_buildings_for_owner,
+    publish_production_changes, ready_building_entity_for_owner, ready_buildings_for_owner,
 };
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{
@@ -2577,17 +2577,92 @@ fn gsi_04_07_wall_replacement_requires_damaged_same_type_and_owner_and_stays_loc
     assert!(placed);
 
     let overlay_grid = sim.overlay_grid.as_ref().unwrap();
-    assert_eq!(overlay_grid.cell(12, 10).overlay_data, 0x02);
+    // House4FCFFB cleans the old anchor before replacement Mark. Removing
+    //that connection isolates the stage-two neighbor;48089A..4808B8 removes
+    //GAWALL data20 and preserves its stored owner. New Mark has no east link.
+    assert_eq!(overlay_grid.cell(12, 10).overlay_data, 0);
     assert_eq!(overlay_grid.cell(12, 10).wall_owner, Some(owner));
-    assert_eq!(
-        overlay_grid.cell(13, 10).overlay_data,
-        0x28,
-        "neighbor damage nibble is preserved while connectivity is refreshed"
-    );
+    assert_eq!(overlay_grid.cell(13, 10).overlay_id, None);
+    assert_eq!(overlay_grid.cell(13, 10).overlay_data, 0);
+    assert_eq!(overlay_grid.cell(13, 10).wall_owner, Some(owner));
     assert_eq!(
         overlay_grid.cell(30, 30).overlay_data,
         0x1B,
         "placement does not globally rewrite wall frames"
+    );
+}
+
+#[test]
+fn owned_wall_replacement_rechecks_building_admission_after_removal() {
+    let (mut rules, registry) = gsi_04_07_wall_placement_contract();
+    // A scenario/forced-placement wall can cover nonbuildable ground. The
+    // old owned damaged overlay admits the first Building test; once sold,
+    // Building4407A0 must reject it even though Overlay's Track test accepts.
+    rules.terrain_rules =
+        RuleSet::from_ini(&IniFile::from_str("[Clear]\nBuildable=no\nTrack=100%\n"))
+            .unwrap()
+            .terrain_rules;
+    let mut sim = placement_sim();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.overlay_grid = Some(OverlayGrid::new(64, 64));
+    ready_building(&mut sim, &rules, "Americans", "GAWALL");
+    let owner = sim.interner.get("Americans").unwrap();
+    let wall_type = sim.interner.get("GAWALL").unwrap();
+    let product = ready_building_entity_for_owner(&sim, &rules, owner, wall_type).unwrap();
+    sim.overlay_grid
+        .as_mut()
+        .unwrap()
+        .place_owned_wall(12, 10, 2, 0x20, owner);
+    assert!(
+        preview_at(
+            &sim,
+            &rules,
+            "Americans",
+            "GAWALL",
+            (12, 10),
+            Some(&registry)
+        )
+        .valid
+    );
+    assert!(!place_building(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAWALL",
+        (12, 10),
+        Some(&registry)
+    ));
+    let old_cell = sim.overlay_grid.as_ref().unwrap().cell(12, 10);
+    assert_eq!(
+        old_cell.overlay_id, None,
+        "old wall sale is not rolled back"
+    );
+    assert_eq!(old_cell.wall_owner, None);
+    let terrain = sim.resolved_terrain.as_ref().unwrap();
+    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+    assert!(
+        crate::sim::build_site::is_clear_to_build(
+            &sim,
+            &rules,
+            Some(&registry),
+            cells.lookup((12, 10)),
+            Some(crate::rules::locomotor_type::SpeedType::Track),
+            None,
+            None,
+            Some(&cells),
+        ),
+        "Overlay Track admission alone would still accept the exposed ground"
+    );
+    assert_eq!(
+        ready_building_entity_for_owner(&sim, &rules, owner, wall_type),
+        Some(product)
+    );
+    let held = sim.entities().get(product).unwrap();
+    assert!(held.lifecycle.object_alive() && held.lifecycle.in_limbo());
+    assert!(
+        !sim.sound_events
+            .iter()
+            .any(|event| matches!(event, crate::sim::world::SimSoundEvent::WallSold { .. }))
     );
 }
 
@@ -3404,6 +3479,32 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
 }
 
 #[test]
+fn wall_mark_rejects_buildable_ground_that_track_cannot_enter() {
+    // Overlay5FC6F6 passes SpeedType1 (Track), not Foot or BuildingType's
+    // Buildable-only choice, into the shared Cell47C620 decision.
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[Clear]\nBuildable=yes\nFoot=100%\nTrack=0%\n",
+    ))
+    .unwrap();
+    let registry = OverlayTypeRegistry::from_ini(
+        &IniFile::from_str("[OverlayTypes]\n0=GASAND\n[GASAND]\nWall=yes\n"),
+        None,
+    );
+    let mut sim = placement_sim();
+    sim.overlay_grid = Some(OverlayGrid::new(64, 64));
+    let owner = sim.intern("WallOwner");
+    let before = sim.state_hash();
+    assert!(!super::wall_placement::stamp_wall(
+        &mut sim, &rules, &registry, 12, 12, 0, owner
+    ));
+    assert_eq!(
+        sim.state_hash(),
+        before,
+        "refused Mark publishes no wall state"
+    );
+}
+
+#[test]
 fn retained_wall_plane_runtime_placement_and_damage_update_once() {
     use crate::sim::overlay_grid::damage_wall_overlay_with_terrain;
 
@@ -3413,12 +3514,13 @@ fn retained_wall_plane_runtime_placement_and_damage_update_once() {
     );
     let art = IniFile::from_str("[WALL]\nDamageLevels=3\n");
     let registry = OverlayTypeRegistry::from_ini(&ini, Some(&art));
+    let rules = RuleSet::from_ini(&IniFile::from_str("[Clear]\nTrack=100%\n")).unwrap();
     let mut sim = placement_sim();
     sim.resolved_terrain = Some(resolved_clear_grid_with_override(5, 5, |_| {}));
     sim.overlay_grid = Some(OverlayGrid::new(5, 5));
     let owner = sim.interner.intern("WallOwner");
     assert!(super::wall_placement::stamp_wall(
-        &mut sim, &registry, 2, 2, 0, owner
+        &mut sim, &rules, &registry, 2, 2, 0, owner
     ));
     let mut grid = sim.overlay_grid.take().unwrap();
     let mut terrain = sim.resolved_terrain.take().unwrap();
@@ -3481,6 +3583,7 @@ fn retained_wall_plane_placement_reaches_fixed_stride_alias() {
         &IniFile::from_str("[OverlayTypes]\n0=GASAND\n[GASAND]\nWall=yes\nStrength=100\n"),
         None,
     );
+    let rules = RuleSet::from_ini(&IniFile::from_str("[Clear]\nTrack=100%\n")).unwrap();
     let mut sim = placement_sim();
     sim.resolved_terrain = Some(resolved_clear_grid_with_override(512, 2, |_| {}));
     sim.overlay_grid = Some(OverlayGrid::new(512, 2));
@@ -3490,7 +3593,7 @@ fn retained_wall_plane_placement_reaches_fixed_stride_alias() {
         .place_overlay(511, 0, 0, 0);
     let owner = sim.interner.intern("WallOwner");
     assert!(super::wall_placement::stamp_wall(
-        &mut sim, &registry, 0, 1, 0, owner
+        &mut sim, &rules, &registry, 0, 1, 0, owner
     ));
     let alias_grid = sim.overlay_grid.as_ref().unwrap();
     assert_eq!(

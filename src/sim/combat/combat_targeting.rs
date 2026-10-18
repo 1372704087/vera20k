@@ -97,14 +97,16 @@ pub(crate) struct AttackerSnapshot {
     pub building_shot: Option<super::BuildingShot>,
 }
 
-/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, for every
-/// caller: `TechnoClass::Retaliate_And_Scan @ 0x00709820` (vt+0x39C for every
-/// class, Aircraft included) and the direct calls (team script action 0 at
-/// `0x006ED15E`, the aircraft's own Mission_Hunt). Neither `Greatest_Threat`
-/// nor `Retaliate_And_Scan` tests ammo or `Is_Armed`: the passive block's gate
-/// asks `CanAcquireTarget @ 0x007091D0`, whose `Is_Armed` has no ammo term,
-/// Foot Mission_Hunt and Mission_AreaGuard scan without either, and Aircraft
-/// Mission_Hunt (`0x00414A80`) checks its ammo before its own scans. Reports
+/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, the one
+/// port every scan asks: `TechnoClass::Retaliate_And_Scan @ 0x00709820`
+/// (vt+0x39C for every class, Aircraft included) and the direct `+0x3C4`
+/// calls (team script actions, Mission_Rescue, the aircraft's own
+/// Mission_Hunt and others). Neither `Greatest_Threat` nor the Foot override
+/// (`0x004D9920`) tests ammo or `Is_Armed`. A caller that wants an armed
+/// scanner asks `CanAcquireTarget @ 0x007091D0` first (the passive gate, Foot
+/// Mission_AreaGuard at `0x004D6ED9`), whose `Is_Armed` has no ammo term;
+/// Foot Mission_Hunt (`0x004D5392`) and Arrival_Target_Handler scan without
+/// it, and Aircraft Mission_Hunt (`0x00414A80`) checks its own ammo. Reports
 /// the target and whether the concrete dispatch reached Foot.
 ///
 /// `terrain` is threaded through for the 3D InRange check; when `None`

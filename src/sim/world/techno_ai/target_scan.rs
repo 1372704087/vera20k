@@ -1075,12 +1075,14 @@ mod tests {
         }
     }
 
-    /// `Retaliate_And_Scan` (`0x00709820`, vt+0x39C for every class) calls
-    /// Greatest_Threat with no ammo or `Is_Armed` test of its own, and Foot
-    /// Mission_AreaGuard and Mission_Hunt call it directly (`0x004D6F06`,
-    /// `0x004D5392`). So an aircraft with no ammo left and an unarmed unit
-    /// still run `FootClass::Greatest_Threat` (`0x004D9920`), whose empty scan
-    /// clears the `+0x688` latch (`0x004D9951..0x004D9955`).
+    /// Neither `Retaliate_And_Scan` (`0x00709820`, vt+0x39C for every class)
+    /// nor `Greatest_Threat` tests ammo or `Is_Armed`. A docked aircraft with
+    /// no ammo left still passes Foot Mission_AreaGuard's CanAcquireTarget
+    /// (`0x004D6ED9`; `Is_Armed` has no ammo term), and Foot Mission_Hunt
+    /// scans an unarmed unit (`0x004D5392`). Both run
+    /// `FootClass::Greatest_Threat` (`0x004D9920`), whose empty scan clears the
+    /// `+0x688` latch (`0x004D9951..0x004D9955`). Neither picks the enemy in
+    /// reach: their flags word holds no class bit (`0x006F821A`).
     #[test]
     fn an_empty_scan_clears_the_foot_latch_without_ammo_or_a_weapon() {
         use crate::rules::ini_parser::IniFile;
@@ -1096,19 +1098,28 @@ mod tests {
         ))
         .expect("rules");
         let mut sim = Simulation::new();
-        let id = sim.interner.intern("Americans");
-        sim.houses
-            .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-        sim.session.house_order.push(id);
+        // The enemy is human and not passive, so its objects stay in the
+        // scans (`0x006F826E`).
+        for (index, (name, human)) in [("Americans", false), ("Russians", true)]
+            .into_iter()
+            .enumerate()
+        {
+            let id = sim.interner.intern(name);
+            let house = HouseState::new(id, index as u8, None, human, 0, 10);
+            sim.houses.insert(id, house);
+            sim.session.house_order.push(id);
+        }
         let plane = sim
             .spawn_object_at_height("PLANE", "Americans", 10, 10, 0, 0, &rules)
             .expect("aircraft");
         let tank = sim
             .spawn_object("TANK", "Americans", 20, 10, 0, &rules)
             .expect("unarmed tank");
+        sim.spawn_object("TANK", "Russians", 15, 10, 0, &rules)
+            .expect("enemy in reach");
         let entity = sim.substrate.entities.get_mut(plane).unwrap();
         entity.ammo_mut().unwrap().set_current_for_test(0);
-        for scanner in [plane, tank] {
+        for (scanner, mask) in [(plane, ScanMission::AreaGuard), (tank, ScanMission::Hunt)] {
             sim.substrate
                 .entities
                 .get_mut(scanner)
@@ -1119,12 +1130,13 @@ mod tests {
                 &mut sim,
                 scanner,
                 &rules,
-                ScanMission::AreaGuard,
+                mask,
                 ObjectAiCtx::default(),
                 None,
             );
             let entity = sim.substrate.entities.get(scanner).unwrap();
-            assert!(!held, "{scanner}: nothing to find");
+            assert!(!held, "{scanner}: no class bit, no pick");
+            assert_eq!(entity.attack_target.target(), None, "{scanner}");
             assert!(
                 !entity.foot_retarget_after_stop(),
                 "{scanner}: the Foot scan ran and cleared +0x688"

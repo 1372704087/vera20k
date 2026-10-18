@@ -741,6 +741,16 @@ impl Simulation {
         };
 
         let mut outcome = LiveObjectPassOutcome::default();
+        // Sight writes to the maps the pass never reads wait for its end,
+        // and apply map by map in parallel (`vision::Planes`).
+        let kept = self
+            .houses
+            .keys()
+            .copied()
+            .filter(|&house| self.owner_is_human(house))
+            .chain(self.session.current_house)
+            .collect();
+        self.fog.by_owner.defer(kept);
         let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;
             outcome.destroyed_structure |= turn.destroyed_structure;
@@ -748,6 +758,7 @@ impl Simulation {
             outcome.ownership_changed |= turn.ownership_changed;
             Ok(())
         });
+        self.fog.by_owner.settle();
         self.finish_batched_path_searches();
         self.finish_batched_scans();
         walked?;

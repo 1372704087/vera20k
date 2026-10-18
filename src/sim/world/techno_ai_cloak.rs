@@ -650,6 +650,22 @@ pub(super) fn tick_stock_cloak_producer(
                 effects,
             );
         }
+        // `0x006FBC0B..0x006FBC32`: both completion paths then make a Unit
+        // whose owner is not human-controlled (`HouseClass::IsControlledByHuman
+        // @ 0x0050B730`) Scatter(null coordinate, forced, not no-kidding), so
+        // a computer's freshly cloaked sub, dolphin or squid drifts off.
+        let owner = sim.substrate.entities.get(id).map(|entity| entity.owner());
+        if owner.is_some_and(|owner| !sim.owner_is_human(owner)) {
+            sim.scatter(
+                id,
+                None,
+                crate::sim::movement::ScatterFlags::new(true, false),
+                rules,
+                registry,
+                effects,
+            )
+            .unwrap_or_else(|cause| panic!("cloak completion Scatter: {cause}"));
+        }
     }
     if result.is_some_and(|result| result.play_cloak_sound) {
         emit_configured_cloak_sound(sim, id, rules);

@@ -228,9 +228,18 @@ impl Simulation {
         CrushCharge {
             crusher: object.crusher
                 || has_weapon_ability(unit.veterancy.rank_kind(), object, Ability::Crusher),
+            // `0x00743927`: Is_Crushable_By, its ally test included.
             crushable: object_is_crushable_by(
                 object.omni_crusher,
                 CrushTarget::from_entity(victim, self.session.binary_frame),
+                |owner| {
+                    crate::sim::combat::combat_weapon::is_ally_by_object(
+                        Some(&self.house_alliances),
+                        &self.interner,
+                        unit.owner(),
+                        owner,
+                    )
+                },
             ),
             distance: crush_distance(coords(unit), coords(victim)),
             reach: rules.combat_damage.crush,

@@ -4,6 +4,7 @@
 //! paths; side binaries (the headless `telemetry-serve` demo) import them
 //! here so the internal module layout can stay private.
 
+pub use crate::sim::cheats::CheatFlags;
 pub use crate::app::match_runtime::telemetry::TickTimingRing;
 pub use crate::app::telemetry_server::{
     DEFAULT_PORT, DEFAULT_WEB_ROOT, ENV_ADDR, ENV_WEB_ROOT, TelemetryServer, start_from_env,
@@ -29,25 +30,6 @@ pub enum DebugCommand {
     SetCheats { flags: CheatFlags },
     /// Fire a one-shot trainer action (`{"cmd":"cheat_action","action":"…"}`).
     CheatAction { action: CheatAction },
-}
-
-/// The trainer switches as they cross the wire.
-///
-/// Every field is `#[serde(default)]`: a panel that has not been updated yet
-/// sends only the switches it knows, and the ones it omits read as "off"
-/// rather than failing the whole command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct CheatFlags {
-    pub infinite_money: bool,
-    /// Wallet floor the money switch holds. Clamped at zero on arrival.
-    pub money_target: i32,
-    pub infinite_power: bool,
-    pub instant_build: bool,
-    pub invincible: bool,
-    /// Damage multiplier; 0 and 1 both mean "no change".
-    pub damage_scale: u16,
-    pub reveal_map: bool,
 }
 
 /// The trainer buttons that act once instead of staying on.

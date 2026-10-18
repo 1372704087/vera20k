@@ -65,24 +65,18 @@ fn set_cheats(state: &mut AppState, flags: CheatFlags) {
         };
         let sim = &mut runtime.simulation;
         let was_revealed = sim.cheats.reveal_map;
-        sim.set_cheats(crate::sim::cheats::Cheats::switches(
-            flags.infinite_money,
-            flags.money_target.max(0),
-            flags.infinite_power,
-            flags.instant_build,
-            flags.invincible,
-            flags.damage_scale,
-            flags.reveal_map,
-        ));
+        sim.set_cheats(crate::sim::cheats::Cheats::switches(&flags));
         log::info!(
             "Trainer: money {} target {} · power {} · instant build {} · \
-             invincible {} · damage x{} · shroud {}",
+             invincible {} · damage x{} · all tech {} · tech boost {} · shroud {}",
             flags.infinite_money,
             flags.money_target,
             flags.infinite_power,
             flags.instant_build,
             flags.invincible,
             flags.damage_scale,
+            flags.tech_all,
+            flags.tech_boost,
             if flags.reveal_map { "off" } else { "on" },
         );
         was_revealed != flags.reveal_map

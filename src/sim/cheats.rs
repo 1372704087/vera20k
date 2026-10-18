@@ -58,6 +58,12 @@ pub struct Cheats {
     pub invincible: bool,
     /// Multiplier on damage the owner's objects deal. 0 and 1 both mean off.
     pub damage_scale: u16,
+    /// Every tech gate is bypassed for the owner: prerequisites, tech level,
+    /// stolen tech and house restrictions all pass.
+    pub tech_all: bool,
+    /// The tech-level cap is lifted for the owner, but the prerequisites are
+    /// still asked — the difference between this and [`Self::tech_all`].
+    pub tech_boost: bool,
     /// The map is drawn without shroud (`sandbox_full_visibility`).
     pub reveal_map: bool,
     /// The house the switches apply to. `None` until the app names one; the
@@ -72,29 +78,48 @@ pub struct Cheats {
     pending: u8,
 }
 
+/// The trainer switches as they cross the wire and as the panel holds them.
+///
+/// Every field is `#[serde(default)]`, so a panel that has not been updated
+/// yet sends only the switches it knows and the rest read as "off" rather
+/// than failing the whole command. The dashboard always sends the whole block,
+/// which makes the message idempotent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CheatFlags {
+    pub infinite_money: bool,
+    /// Wallet floor the money switch holds. Clamped at zero on arrival.
+    pub money_target: i32,
+    pub infinite_power: bool,
+    pub instant_build: bool,
+    pub invincible: bool,
+    /// Damage multiplier; 0 and 1 both mean "no change".
+    pub damage_scale: u16,
+    pub reveal_map: bool,
+    /// Every tech gate is bypassed: prerequisites, tech level, stolen tech and
+    /// house restrictions all pass.
+    pub tech_all: bool,
+    /// Only the tech-level cap is lifted; the prerequisite buildings still
+    /// have to be on the map. This is what "build beyond your tech level"
+    /// means, as distinct from the all-tech switch above.
+    pub tech_boost: bool,
+}
+
 impl Cheats {
     /// A switchboard holding the given positions, with nothing queued and no
-    /// owner yet. The dashboard's whole-block message maps straight onto this;
-    /// the queued actions stay private because they are consumed `apply_cheats`
-    /// rather than set from outside.
-    #[allow(clippy::too_many_arguments)]
-    pub fn switches(
-        infinite_money: bool,
-        money_target: i32,
-        infinite_power: bool,
-        instant_build: bool,
-        invincible: bool,
-        damage_scale: u16,
-        reveal_map: bool,
-    ) -> Self {
+    /// owner yet. The queued actions stay private because `apply_cheats`
+    /// consumes them rather than the wire setting them.
+    pub fn switches(flags: &CheatFlags) -> Self {
         Self {
-            infinite_money,
-            money_target,
-            infinite_power,
-            instant_build,
-            invincible,
-            damage_scale,
-            reveal_map,
+            infinite_money: flags.infinite_money,
+            money_target: flags.money_target,
+            infinite_power: flags.infinite_power,
+            instant_build: flags.instant_build,
+            invincible: flags.invincible,
+            damage_scale: flags.damage_scale,
+            reveal_map: flags.reveal_map,
+            tech_all: flags.tech_all,
+            tech_boost: flags.tech_boost,
             owner: None,
             power_forced: false,
             pending: 0,
@@ -108,6 +133,8 @@ impl Cheats {
             && !self.instant_build
             && !self.invincible
             && self.damage_scale <= 1
+            && !self.tech_all
+            && !self.tech_boost
             && !self.reveal_map
             && self.pending == 0
     }
@@ -339,7 +366,7 @@ mod tests {
     fn the_money_floor_refills_only_from_below() {
         let mut sim = Simulation::new();
         let owner = house(&mut sim, 500);
-        sim.set_cheats(Cheats::switches(true, 5_000, false, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { infinite_money: true, money_target: 5_000, ..Default::default() }));
         assert_eq!(sim.cheats.owner, Some(owner), "the human house is picked");
         sim.apply_cheats(None);
         assert_eq!(sim.houses[&owner].economy.credits(), 5_000);
@@ -354,7 +381,7 @@ mod tests {
     fn the_floor_does_nothing_while_the_switch_is_off() {
         let mut sim = Simulation::new();
         let owner = house(&mut sim, 500);
-        sim.set_cheats(Cheats::switches(false, 5_000, false, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { money_target: 5_000, ..Default::default() }));
         sim.apply_cheats(None);
         assert_eq!(sim.houses[&owner].economy.credits(), 500);
     }
@@ -366,7 +393,7 @@ mod tests {
         let other = InternedId::from_index(2);
         sim.houses
             .insert(other, HouseState::new(other, 0, None, false, 0, 10));
-        sim.set_cheats(Cheats::switches(false, 0, false, false, false, 10, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { damage_scale: 10, ..Default::default() }));
         assert!(sim.cheats.applies_to(owner));
         assert!(!sim.cheats.applies_to(other));
         assert_eq!(sim.cheats.damage_multiplier(), 10);
@@ -447,7 +474,7 @@ Powered=yes
         assert!(sim.power_states[&owner].is_low_power);
         assert!(!sim.cheats.power_forced, "nothing has asked for anything yet");
 
-        sim.set_cheats(Cheats::switches(false, 0, true, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { infinite_power: true, ..Default::default() }));
         sim.assess_house_derived_state(owner, &rules);
 
         assert!(sim.power_states[&owner].has_full_power(), "the switch lifts it");
@@ -466,7 +493,7 @@ Powered=yes
 
         // Switching off restores the deficit rather than leaving the forced
         // totals behind.
-        sim.set_cheats(Cheats::switches(false, 0, false, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags::default()));
         sim.invalidate_house_power(owner, true);
         sim.assess_house_derived_state(owner, &rules);
         assert!(
@@ -480,7 +507,7 @@ Powered=yes
     fn a_fully_powered_base_leaves_the_switch_nothing_to_do() {
         let (mut sim, owner) = house_with_buildings(&[(1, "GAPOWR")]);
         let rules = power_rules();
-        sim.set_cheats(Cheats::switches(false, 0, true, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { infinite_power: true, ..Default::default() }));
         sim.assess_house_derived_state(owner, &rules);
 
         assert!(sim.power_states[&owner].has_full_power());
@@ -515,7 +542,7 @@ Powered=yes
                 EntityCategory::Unit, 0, 0, false,
             ));
         }
-        sim.set_cheats(Cheats::switches(false, 0, false, false, true, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { invincible: true, ..Default::default() }));
         sim.apply_cheats(None);
 
         let armed = |sim: &Simulation, id: u64| {
@@ -535,7 +562,7 @@ Powered=yes
         let mut sim = Simulation::new();
         let owner = house(&mut sim, 0);
         sim.power_states.entry(owner).or_default();
-        sim.set_cheats(Cheats::switches(false, 0, true, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags { infinite_power: true, ..Default::default() }));
         // The forced totals are visible immediately…
         let state = sim.power_states.get_mut(&owner).unwrap();
         state.total_output = 0;
@@ -543,7 +570,7 @@ Powered=yes
         state.is_low_power = true;
         sim.cheats.infinite_power = true;
         // …and the switch turning off must not leave them behind.
-        sim.set_cheats(Cheats::switches(false, 0, false, false, false, 1, false));
+        sim.set_cheats(Cheats::switches(&CheatFlags::default()));
         assert!(!sim.cheats.infinite_power);
     }
 }

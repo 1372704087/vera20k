@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 19;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -200,6 +200,8 @@ export interface CheatReport {
   invincible: boolean;
   damage_scale: number;
   reveal_map: boolean;
+  tech_all: boolean;
+  tech_boost: boolean;
   /** The house the switches act on, resolved; null before they are used. */
   owner: string | null;
   /** True while the power switch is overriding a real deficit. */

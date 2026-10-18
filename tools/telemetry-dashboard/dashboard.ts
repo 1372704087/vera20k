@@ -2231,6 +2231,8 @@ const CHEAT_SWITCHES = [
   "instant_build",
   "invincible",
   "reveal_map",
+  "tech_all",
+  "tech_boost",
 ] as const;
 type CheatSwitch = (typeof CHEAT_SWITCHES)[number];
 

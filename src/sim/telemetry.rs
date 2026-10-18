@@ -61,7 +61,10 @@ use crate::sim::world::Simulation;
 /// v16: `cheats` — the trainer switches, so a panel reload cannot desync.
 /// v17: houses carry their live power reading, and `cheats.power_forced` says
 /// whether the power switch is actually overriding a deficit.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 17;
+/// v18: `cheats.tech_all` — the tech gates are bypassed for the named house.
+/// v19: `cheats.tech_boost` — only the tech-level cap is lifted, so the house
+/// builds past its level while the prerequisites still apply.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 19;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -384,6 +387,8 @@ pub struct CheatReport {
     pub invincible: bool,
     pub damage_scale: u16,
     pub reveal_map: bool,
+    pub tech_all: bool,
+    pub tech_boost: bool,
     /// The house the switches act on, resolved. Present from the first frame
     /// a switch is on; the panel shows it so "who is this helping" is never a
     /// guess.
@@ -567,6 +572,8 @@ impl Simulation {
                 invincible: self.cheats.invincible,
                 damage_scale: self.cheats.damage_scale,
                 reveal_map: self.cheats.reveal_map,
+                tech_all: self.cheats.tech_all,
+                tech_boost: self.cheats.tech_boost,
                 owner: self.cheats.owner.map(|owner| self.interner.resolve(owner).to_string()),
                 power_forced: self.cheats.power_forced,
             },

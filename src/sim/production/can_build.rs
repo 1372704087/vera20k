@@ -95,6 +95,12 @@ pub(crate) fn can_build(
     skip_tech: bool,
     count_in_production: bool,
 ) -> CanBuild {
+    // Trainer "all tech": for the named house every gate below is bypassed and
+    // only the build limit is asked — the same arm the engine itself uses for
+    // a type whose tech it has no answer for. Doing it here rather than at each
+    // caller means the strip, the sidebar, the production spawn and the AI's
+    // unit choice all agree on one answer.
+    let skip_tech = skip_tech || (sim.cheats.tech_all && sim.cheats.applies_to(owner));
     if skip_tech {
         return build_limit(sim, owner, obj, count_in_production);
     }
@@ -137,7 +143,15 @@ pub(crate) fn can_build(
     {
         return CanBuild::No;
     }
-    if obj.tech_level > house.tech_level {
+    // Trainer "tech boost": the house may build past its own tech level. The
+    // prerequisite arm below still runs — that is the whole difference from
+    // the all-tech switch, which bypasses this and everything after it.
+    let tech_cap = if sim.cheats.tech_boost && sim.cheats.applies_to(owner) {
+        i32::MAX
+    } else {
+        house.tech_level
+    };
+    if obj.tech_level > tech_cap {
         return CanBuild::No;
     }
     if !house.is_controlled_by_human(sim.session.game_mode_nonzero) {

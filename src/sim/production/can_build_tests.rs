@@ -316,3 +316,101 @@ fn retail_slave_miner_meets_proc_and_docks_limit_harriers() {
     on_map(&mut sim, americans, EntityCategory::Aircraft, "BEAG", 1);
     assert!(check_build_limit(&sim, rules, americans, orca));
 }
+
+#[test]
+fn all_tech_bypasses_the_tech_level_gate_for_the_named_house() {
+    // A type two tech levels above the house: refused normally, admitted with
+    // the trainer's switch, and the build limit is still asked.
+    let ini = IniFile::from_str(
+        "[InfantryTypes]\n0=E1\n1=GHOST\n\n[E1]\nTechLevel=1\n\n[GHOST]\nTechLevel=9\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("test rules");
+    let mut sim = Simulation::new();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner.intern("H0");
+    sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
+    );
+    let ghost = rules.object("GHOST").expect("GHOST type");
+
+    assert_eq!(
+        can_build(&sim, &rules, owner, ghost, false, false),
+        CanBuild::No,
+        "tech level 9 against a house at 1"
+    );
+
+    sim.set_cheats(crate::sim::cheats::Cheats::switches(
+        &crate::sim::cheats::CheatFlags { tech_all: true, ..Default::default() },
+    ));
+    assert_ne!(
+        can_build(&sim, &rules, owner, ghost, false, false),
+        CanBuild::No,
+        "the switch opens it"
+    );
+
+    // Another house keeps its own gates: the switch is scoped, not global.
+    let other = sim.interner.intern("H1");
+    sim.houses.insert(
+        other,
+        crate::sim::house_state::HouseState::new(other, 0, None, true, 0, 1),
+    );
+    assert_eq!(
+        can_build(&sim, &rules, other, ghost, false, false),
+        CanBuild::No,
+        "the enemy's tech tree is untouched"
+    );
+}
+
+#[test]
+fn tech_boost_lifts_only_the_level_cap_and_keeps_the_prerequisites() {
+    // The difference between the two switches, in one test: the boost lets the
+    // house build past its level, but a Prerequisite= it does not have still
+    // refuses — the all-tech switch is what drops that.
+    let ini = IniFile::from_str(
+        "[InfantryTypes]\n0=E1\n1=GHOST\n2=SPY\n\n[E1]\nTechLevel=1\n\n\
+         [GHOST]\nTechLevel=9\n\n[SPY]\nTechLevel=9\nPrerequisite=RADAR\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("test rules");
+    let mut sim = Simulation::new();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let owner = sim.interner.intern("H0");
+    sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
+    );
+    let ghost = rules.object("GHOST").expect("GHOST type");
+    let spy = rules.object("SPY").expect("SPY type");
+
+    // Baseline: both refuse — GHOST on level, SPY on level and on its radar.
+    assert_eq!(can_build(&sim, &rules, owner, ghost, false, false), CanBuild::No);
+    assert_eq!(can_build(&sim, &rules, owner, spy, false, false), CanBuild::No);
+
+    // The boost opens the level gate…
+    sim.set_cheats(crate::sim::cheats::Cheats::switches(
+        &crate::sim::cheats::CheatFlags { tech_boost: true, ..Default::default() },
+    ));
+    assert_ne!(
+        can_build(&sim, &rules, owner, ghost, false, false),
+        CanBuild::No,
+        "past its level is allowed now"
+    );
+    // …and leaves the prerequisite standing.
+    assert_eq!(
+        can_build(&sim, &rules, owner, spy, false, false),
+        CanBuild::No,
+        "no radar building, still refused"
+    );
+
+    // All tech drops that last gate too.
+    sim.set_cheats(crate::sim::cheats::Cheats::switches(
+        &crate::sim::cheats::CheatFlags { tech_all: true, ..Default::default() },
+    ));
+    assert_ne!(
+        can_build(&sim, &rules, owner, spy, false, false),
+        CanBuild::No,
+        "all tech ignores the prerequisite as well"
+    );
+}

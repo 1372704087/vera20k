@@ -1938,6 +1938,8 @@ const CHEAT_SWITCHES = [
     "instant_build",
     "invincible",
     "reveal_map",
+    "tech_all",
+    "tech_boost",
 ];
 function cheatInput(selector) {
     return document.querySelector(selector);

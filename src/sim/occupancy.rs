@@ -225,9 +225,9 @@ impl RawCellKey {
         cell: crate::map::cell_index::NativeCellIdentity,
     ) -> Self {
         match cell {
-            crate::map::cell_index::NativeCellIdentity::Real(index) => {
-                let cell = &terrain.cells()[index];
-                Self::Real(cell.rx, cell.ry)
+            crate::map::cell_index::NativeCellIdentity::Real(_) => {
+                let (x, y) = terrain.native_cell_coord(cell);
+                Self::Real(x as u16, y as u16)
             }
             crate::map::cell_index::NativeCellIdentity::Dummy => Self::Dummy,
         }

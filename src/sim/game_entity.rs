@@ -101,11 +101,6 @@ impl StructureUpgradeLink {
         self.parent_stable_id
     }
 
-    /// The host's upgrade slot.
-    pub fn slot(&self) -> u8 {
-        self.slot
-    }
-
     /// A fixture's link.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn for_test(parent_stable_id: u64, slot: u8) -> Self {

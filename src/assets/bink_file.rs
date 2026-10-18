@@ -57,7 +57,6 @@ pub struct BinkHeader {
     /// Real file size in bytes. (On-disk field is `file_size - 8`; we store the real size.)
     pub file_size: u64,
     pub num_frames: u32,
-    pub largest_frame: u32,
     pub width: u32,
     pub height: u32,
     pub fps_num: u32,
@@ -196,7 +195,6 @@ pub(crate) fn parse_fixed_header(data: &[u8]) -> Result<(BinkHeader, usize), Ass
         version,
         file_size,
         num_frames,
-        largest_frame,
         width,
         height,
         fps_num,

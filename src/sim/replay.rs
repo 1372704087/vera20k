@@ -37,13 +37,6 @@ pub const NATIVE_REPLAY_SCENARIO_NAME_LEN: usize = 0x104;
 /// Raw retail options block stored at the end of the native header.
 pub const NATIVE_REPLAY_OPTIONS_LEN: usize = 0xb8;
 
-/// Legacy recorder bit. No active retail YR caller sets it.
-pub const REPLAY_FLAG_RECORD: u32 = 0x01;
-/// Playback bit set when session preparation opens an external `RECORD.BIN`.
-pub const REPLAY_FLAG_PLAYBACK: u32 = 0x02;
-/// Availability bit set by active retail YR's `-ATTRACT` command-line path.
-pub const REPLAY_FLAG_AVAILABLE: u32 = 0x04;
-
 /// Malformed native recording data.
 #[derive(Debug, Error)]
 pub enum NativeReplayError {
@@ -243,7 +236,7 @@ impl NativeReplayFrame {
     }
 }
 
-/// Eager legacy-format document codec used by tooling and fixtures.
+/// Eager legacy-format document codec used by fixtures.
 ///
 /// Active retail YR cannot enter the corresponding recording path, and its
 /// playback path is streaming and tolerant of presentation short reads. Use
@@ -255,13 +248,6 @@ pub struct NativeReplay {
 }
 
 impl NativeReplay {
-    pub fn new(header: NativeReplayHeader) -> Self {
-        Self {
-            header,
-            frames: Vec::new(),
-        }
-    }
-
     pub fn encode(&self) -> std::result::Result<Vec<u8>, NativeReplayError> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.header.encode());
@@ -303,12 +289,6 @@ impl NativeReplay {
             });
         }
         Ok(Self { header, frames })
-    }
-
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let bytes = self.encode().context("Failed to encode native replay")?;
-        std::fs::write(path, bytes)
-            .with_context(|| format!("Failed to write native replay: {}", path.display()))
     }
 
     /// Initialize playback through the normal scenario-loading owner.

@@ -1046,19 +1046,18 @@ fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     };
     let owner = entity.owner();
     let (rx, ry) = (entity.position.rx(), entity.position.ry());
-    let (sound, elite) = match promotion {
+    let sound = match promotion {
         crate::sim::combat::veterancy::Promotion::Elite => {
-            (rules.general.upgrade_elite_sound.as_deref(), true)
+            rules.general.upgrade_elite_sound.as_deref()
         }
         crate::sim::combat::veterancy::Promotion::Veteran => {
-            (rules.general.upgrade_veteran_sound.as_deref(), false)
+            rules.general.upgrade_veteran_sound.as_deref()
         }
     };
     let sound_id = sound.map(|name| sim.interner.intern(name));
     sim.sound_events.push(super::SimSoundEvent::UnitPromoted {
         owner,
         sound_id,
-        elite,
         rx,
         ry,
     });

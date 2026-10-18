@@ -735,8 +735,6 @@ pub struct TheaterData {
     pub wood_bridge_set: Option<u16>,
     /// `[General] SlopeSetPieces=N` - TileSet section whose first tile becomes DAT_00ABC1F8.
     pub slope_set_pieces: Option<u16>,
-    /// `[General] SlopeSetPieces2=N` - TileSet section whose first tile becomes DAT_00AA1098.
-    pub slope_set_pieces2: Option<u16>,
     /// `[General] BridgeMiddle1=N` — BridgeSet-relative offset for the NS
     /// bridgehead variant block. The 4 NS variant tile_ids occupy
     /// `BridgeSet_start + {N-1, N, N+1, N+2}`. None if the key is absent.
@@ -853,7 +851,6 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
     let mut bridge_set = read_general_u16(general, "BridgeSet");
     let mut wood_bridge_set = read_general_u16(general, "WoodBridgeSet");
     let slope_set_pieces = read_general_u16(general, "SlopeSetPieces");
-    let slope_set_pieces2 = read_general_u16(general, "SlopeSetPieces2");
     let bridge_middle_1 = read_general_u16(general, "BridgeMiddle1");
     let bridge_middle_2 = read_general_u16(general, "BridgeMiddle2");
     let tunnels = read_general_u16(general, "Tunnels");
@@ -915,7 +912,6 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
         bridge_set,
         wood_bridge_set,
         slope_set_pieces,
-        slope_set_pieces2,
         bridge_middle_1,
         bridge_middle_2,
         tunnels,

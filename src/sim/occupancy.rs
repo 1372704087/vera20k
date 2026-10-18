@@ -1120,15 +1120,8 @@ impl CellOccupancy {
         objects.next().map(|object| object.entity_id)
     }
 
-    /// Non-infantry occupants on a given layer, preserving layer-list order.
-    pub fn blockers(&self, layer: MovementLayer) -> impl Iterator<Item = u64> + '_ {
-        self.occupants
-            .iter()
-            .filter(move |o| o.layer == layer && o.sub_cell.is_none())
-            .map(|o| o.entity_id)
-    }
-
     /// Infantry occupants on a given layer, preserving layer-list order.
+    #[cfg(test)]
     pub fn infantry(&self, layer: MovementLayer) -> impl Iterator<Item = (u64, u8)> + '_ {
         self.occupants
             .iter()
@@ -1141,18 +1134,10 @@ impl CellOccupancy {
         !self.occupants.iter().any(|o| o.layer == layer)
     }
 
-    /// Whether this cell has any non-infantry occupants on the given layer.
-    pub fn has_blockers_on(&self, layer: MovementLayer) -> bool {
-        self.occupants
-            .iter()
-            .any(|o| o.layer == layer && o.sub_cell.is_none())
-    }
-
     /// Whether this cell holds a structure on the given layer.
     ///
-    /// Strictly narrower than `has_blockers_on`, which also reports vehicles.
-    /// This is the predicate for gamemd's per-cell building lookup, which
-    /// returns only BuildingClass objects.
+    /// Vehicles do not count: this is the predicate for gamemd's per-cell
+    /// building lookup, which returns only BuildingClass objects.
     pub fn has_building_on(&self, layer: MovementLayer) -> bool {
         self.occupants
             .iter()

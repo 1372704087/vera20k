@@ -232,7 +232,6 @@ use crate::sim::house_state::HouseState;
 use crate::sim::house_strategy;
 use crate::sim::intern::InternedId;
 use crate::sim::lifecycle_request::LifecycleRequest;
-use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::overlay_grid::{
@@ -296,7 +295,6 @@ pub struct TickResult {
     /// their synchronous reader boundary; the frame finalizer also rebuilds
     /// the projection before committing the frame for subsequent ticks.
     pub bridge_state_changed: bool,
-    pub movement: movement::MovementTickStats,
 }
 
 /// The master spine retains its admitted command batch for the live recorder.
@@ -628,7 +626,6 @@ pub enum SimSoundEvent {
     UnitPromoted {
         owner: InternedId,
         sound_id: Option<InternedId>,
-        elite: bool,
         rx: u16,
         ry: u16,
     },
@@ -849,16 +846,14 @@ pub enum SimSoundEvent {
     /// `0x00415E21`): the plane's cell.
     ChuteSound { rx: u16, ry: u16 },
     /// An engineer entered a `BridgeRepairHut` and triggered bridge repair.
-    /// Played at the BUILDING's cell, NOT the engineer's. `owner` is the
-    /// engineer's house. App layer plays the spatial `[BridgeRepaired]` sound
-    /// for everyone in range, gated on
+    /// Played at the BUILDING's cell, NOT the engineer's. App layer plays the
+    /// spatial `[BridgeRepaired]` sound for everyone in range, gated on
     /// `rules.bridge_rules.repair_sound.is_some()`. `radar` is present when
     /// native House50B6F0 passed; the EVA line then waits on the client's
     /// non-drawing type-14 radar event creation/dedup gate.
     BridgeRepaired {
         rx: u16,
         ry: u16,
-        owner: InternedId,
         radar: Option<RadarEventRequest>,
     },
 }
@@ -929,15 +924,10 @@ impl SimSoundEvent {
     }
 }
 
-/// The firer's own position at the authoritative fire tick (the electric
-/// spark admission reads it; the muzzle is `SimFireEvent::fire_coord`).
+/// The firer's own facing at the authoritative fire tick (the muzzle is
+/// `SimFireEvent::fire_coord`).
 #[derive(Debug, Clone)]
 pub struct FireOriginSnapshot {
-    pub rx: u16,
-    pub ry: u16,
-    pub sub_x: SimFixed,
-    pub sub_y: SimFixed,
-    pub z: u8,
     pub facing: u8,
 }
 
@@ -948,16 +938,12 @@ pub struct FireOriginSnapshot {
 pub struct SimFireEvent {
     /// Stable ID of the entity that fired.
     pub attacker_id: u64,
-    /// Type id of the firing object at the fire tick.
-    pub attacker_type_ref: InternedId,
     /// Which weapon slot was used (Primary or Secondary).
     pub weapon_slot: WeaponSlot,
     /// Selected weapon section id.
     pub weapon_id: InternedId,
     /// Firing object's facing at the fire tick.
     pub facing: u8,
-    /// Firing object's veterancy at the fire tick.
-    pub veterancy: u16,
     /// Source facts from the fire tick, before burst/cooldown updates.
     pub origin_snapshot: FireOriginSnapshot,
     /// What was fired at — entity stable ID or ground cell coord.
@@ -990,19 +976,10 @@ impl SimFireEvent {
     pub fn for_test(attacker_id: u64) -> Self {
         Self {
             attacker_id,
-            attacker_type_ref: crate::sim::intern::test_intern("TESTFIRER"),
             weapon_slot: crate::sim::combat::combat_weapon::WeaponSlot::Primary,
             weapon_id: crate::sim::intern::test_intern("TESTWEAPON"),
             facing: 0,
-            veterancy: 0,
-            origin_snapshot: FireOriginSnapshot {
-                rx: 0,
-                ry: 0,
-                sub_x: crate::util::fixed_math::SimFixed::ZERO,
-                sub_y: crate::util::fixed_math::SimFixed::ZERO,
-                z: 0,
-                facing: 0,
-            },
+            origin_snapshot: FireOriginSnapshot { facing: 0 },
             target: crate::sim::combat::TargetKind::Cell(0, 0),
             report_sound_id: None,
             fire_coord: crate::sim::projectile::ProjectileCoord::new(0, 0, 0),
@@ -6976,7 +6953,6 @@ impl Simulation {
         let object_pass = self.advance_live_object_pass(rules, overlay_registry, effects)?;
         let ownership_changed = object_pass.ownership_changed();
         spawned_entities |= std::mem::take(&mut self.mission_spawned_entities);
-        let movement_stats = object_pass.movement;
         destroyed_structure |= object_pass.destroyed_structure;
         bridge_state_changed |= object_pass.bridge_state_changed;
         let tube_turn_owned_ids = object_pass.tube_turn_owned_ids;
@@ -7204,7 +7180,6 @@ impl Simulation {
                 destroyed_structure,
                 ownership_changed,
                 bridge_state_changed,
-                movement: movement_stats,
             },
         })
     }

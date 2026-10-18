@@ -6713,12 +6713,6 @@ impl RuleSet {
         self.buildup_assets.insert_for_test(type_id, control);
     }
 
-    /// Consumer-visible SHP frame count for a particle image. Lookup is
-    /// case-insensitive and does not intern names.
-    pub fn effect_frame_count(&self, name: &str) -> Option<u16> {
-        self.effect_assets.effect_frame_count(name)
-    }
-
     /// Raw SHP header count used by `TerrainClass::AI` midpoint timing.
     pub fn terrain_spawner_frame_count(&self, name: &str) -> Option<u16> {
         self.terrain_spawner_assets.frame_count(name)

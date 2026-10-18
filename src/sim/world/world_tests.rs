@@ -3401,19 +3401,10 @@ fn sonic_fire_event(
     .coord;
     SimFireEvent {
         attacker_id,
-        attacker_type_ref: sim.interner.intern("DLPH"),
         weapon_slot: crate::sim::combat::combat_weapon::WeaponSlot::Primary,
         weapon_id: sim.interner.intern("SonicZap"),
         facing: 0,
-        veterancy: 0,
-        origin_snapshot: FireOriginSnapshot {
-            rx: 0,
-            ry: 0,
-            sub_x: SimFixed::from_num(0),
-            sub_y: SimFixed::from_num(0),
-            z: 0,
-            facing: 0,
-        },
+        origin_snapshot: FireOriginSnapshot { facing: 0 },
         target: crate::sim::combat::TargetKind::Entity(target_id),
         report_sound_id: None,
         fire_coord,

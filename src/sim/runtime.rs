@@ -118,10 +118,6 @@ impl<'a> SimView<'a> {
         &self.simulation.houses
     }
 
-    pub fn path_grid(&self) -> Option<&'a crate::sim::pathfinding::PathGrid> {
-        self.simulation.path_grid()
-    }
-
     pub fn resolved_terrain(
         &self,
     ) -> Option<&'a crate::map::resolved_terrain::ResolvedTerrainGrid> {

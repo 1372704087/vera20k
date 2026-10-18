@@ -396,10 +396,6 @@ pub fn projectile_bridge_crossing(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectileCollisionResponse {
     TargetZClamp(ProjectileCoord),
-    SlopeMatrixReflect {
-        impact: ProjectileCoord,
-        velocity: ProjectileVelocity,
-    },
     /// Ordinary pre-commit AI 467494..467B7A, including its early returns.
     Ordinary {
         candidate: ProjectileCoord,
@@ -2118,10 +2114,6 @@ impl ProjectileStore {
             .flatten()
             .map(|response| match response {
                 ProjectileCollisionResponse::TargetZClamp(impact) => impact,
-                ProjectileCollisionResponse::SlopeMatrixReflect { impact, velocity } => {
-                    projectile.velocity = velocity;
-                    impact
-                }
                 ProjectileCollisionResponse::Ordinary { .. }
                 | ProjectileCollisionResponse::ImpactLadder(_) => {
                     unreachable!("only the shared probe answers here")

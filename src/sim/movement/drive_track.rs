@@ -3520,9 +3520,7 @@ pub fn select_drive_track(
         entry_index: raw_meta.entry_index,
         chain_index: raw_meta.chain_index,
         occupation_handoff_point_index: raw_meta.occupation_handoff_point_index,
-        points_count: raw_meta.points_count,
         target_facing: turn_track.target_facing,
-        flags: turn_track.flags,
     })
 }
 
@@ -3573,12 +3571,8 @@ pub struct DriveTrackSelection {
     /// RawTrack +0x0C occupation handoff point (-1 = none).
     /// Runtime wiring remains intentionally separate from coordinate crossing.
     pub occupation_handoff_point_index: i16,
-    /// Total points in the track.
-    pub points_count: u16,
     /// Target facing after completing the track (0-255).
     pub target_facing: u8,
-    /// Direction flags from the TurnTrack entry.
-    pub flags: u8,
 }
 
 // ---------------------------------------------------------------------------

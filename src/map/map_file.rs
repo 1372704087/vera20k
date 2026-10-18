@@ -52,7 +52,6 @@ const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
 pub enum MapError {
     Ini(RulesError),
     MissingSection { name: String },
-    MissingField { section: String, key: String },
     MissingIsoMapPack,
     Base64(String),
     Lzo(LzoError),
@@ -68,9 +67,6 @@ impl std::fmt::Display for MapError {
         match self {
             MapError::Ini(e) => write!(f, "Map INI error: {}", e),
             MapError::MissingSection { name } => write!(f, "Missing [{}] section in map", name),
-            MapError::MissingField { section, key } => {
-                write!(f, "Missing key '{}' in [{}]", key, section)
-            }
             MapError::MissingIsoMapPack => write!(f, "No [IsoMapPack5] data in map"),
             MapError::Base64(e) => write!(f, "Base64 decode error: {}", e),
             MapError::Lzo(e) => write!(f, "LZO decompress error: {}", e),

@@ -107,16 +107,6 @@ pub struct WaveDamageRequest {
     pub wave_z: i32,
 }
 
-pub const WAVE_DISPLAY_REGISTRATION_BUCKET: u8 = 3;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum WaveColorMode {
-    FramebufferSonicDistortion,
-    FixedLaserChannelAdd,
-    FramebufferMagnetronDistortion,
-    None,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct WaveEdgeGeometry {
     /// Native aCorners[0]. The inherited field names describe Sonic's near
@@ -261,21 +251,6 @@ impl Wave {
             load_f32(root),
             X87Chop53::load_i32(CONSTRUCTOR_MIN_XY_DISTANCE),
         ) != X87Ordering::Less
-    }
-
-    /// No reader yet; kept because the wave-type mapping is recorded nowhere else.
-    pub const fn color_mode(&self) -> WaveColorMode {
-        match self.wave_type {
-            0 => WaveColorMode::FramebufferSonicDistortion,
-            1 | 2 => WaveColorMode::FixedLaserChannelAdd,
-            3 => WaveColorMode::FramebufferMagnetronDistortion,
-            _ => WaveColorMode::None,
-        }
-    }
-
-    /// No reader yet; see `color_mode`.
-    pub const fn registration_bucket(&self) -> u8 {
-        WAVE_DISPLAY_REGISTRATION_BUCKET
     }
 
     /// Draw_Magnetic762070 establishes corners0/1/2/3. Update_Wave762AF0

@@ -138,10 +138,6 @@ impl TubeFact {
     pub fn path_len(&self) -> usize {
         self.path_steps.len()
     }
-
-    pub fn path_steps(&self) -> &[i32] {
-        &self.path_steps
-    }
 }
 
 #[cfg(test)]

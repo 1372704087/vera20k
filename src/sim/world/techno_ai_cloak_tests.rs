@@ -1150,13 +1150,6 @@ fn completing_the_cloak_scatters_only_a_computer_owned_unit() {
             .unwrap()
             .state()
     };
-    for _ in 0..30 {
-        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
-        if state(&sim, computer) == 2 {
-            break;
-        }
-    }
-    assert_eq!((state(&sim, human), state(&sim, computer)), (2, 2));
     let nav = |sim: &Simulation, id| {
         sim.substrate
             .entities
@@ -1166,6 +1159,14 @@ fn completing_the_cloak_scatters_only_a_computer_owned_unit() {
             .nav_com()
             .is_some()
     };
+    for _ in 0..30 {
+        assert!(!nav(&sim, computer), "no NavCom before the completion");
+        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
+        if state(&sim, computer) == 2 {
+            break;
+        }
+    }
+    assert_eq!((state(&sim, human), state(&sim, computer)), (2, 2));
     assert!(!nav(&sim, human));
     assert!(
         nav(&sim, computer),

@@ -2068,7 +2068,7 @@ impl MapLoadInitial {
         simulation
             .construct_native_map_tubes(&map_data.ini)
             .expect("native [Tubes] construction");
-        simulation.construct_post_load_particle_system_id();
+        simulation.construct_post_load_particle_system_id(&rules);
         let table = simulation
             .replay_staged_generated_construction_trace(&trace)
             .expect("valid generated construction trace");
@@ -2844,7 +2844,7 @@ pub(crate) fn load_map_from_initial(
         // `FUN_00684C30`, which constructs the GasCloudSys ParticleSystem before
         // any generator constructor. The later post-`Post_Map_Init` setup finds
         // it constructed and spends nothing.
-        staged_simulation.construct_post_load_particle_system_id();
+        staged_simulation.construct_post_load_particle_system_id(&rules);
     }
     // Launch-time `.SED` generation already chose all geometry. Replay only
     // its Techno constructor effects now, after the Full-Init stock-offline

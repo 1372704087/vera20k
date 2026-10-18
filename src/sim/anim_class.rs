@@ -1189,7 +1189,9 @@ impl Simulation {
         // smudge construction.
         let start_reaches_display = descriptor.delay == 0
             && middle_frame(&config).is_none()
-            && (config.scorch || config.crater);
+            && (config.scorch
+                || config.crater
+                || (config.spawns_particle.is_some() && config.num_particles > 0));
         let attaches = descriptor
             .owner
             .is_some_and(|owner| self.anim_owner_coords(owner).is_some());
@@ -1735,10 +1737,10 @@ impl Simulation {
         self.substrate.pending_delete.queue_object(id);
     }
 
-    /// Building451A2C and ClearAnimSlot451E40 use scalar deletion: the old
-    /// object is gone before the replacement pointer is installed. Keep this
+    /// Building451A2C, ClearAnimSlot451E40 and Infantry5185C3 use scalar
+    /// deletion: the old object is gone before the caller continues. Keep this
     /// separate from an animation's ordinary deferred Destroy operation.
-    pub(crate) fn scalar_delete_building_anim(&mut self, id: AnimId) {
+    pub(crate) fn scalar_delete_anim(&mut self, id: AnimId) {
         // Anim VT7E3354+20 ->426590 ->4228E0 releases sound handles but
         // never reaches UnInit4255B0 or its StopSound playback. The slot was
         // cleared by the caller before these synchronous destructor effects.
@@ -2664,9 +2666,8 @@ impl Simulation {
     /// GetHeight @ 0x005F5F40`, measured from the stored Location; anims
     /// never set OnBridge). The marks land at `GetCoords` (`vtable+0x48`).
     ///
-    /// RESIDUAL: the `SpawnsParticle=`/`NumParticles=` loop
-    /// (`0x00425008..0x0042504B`, `0x0062E430` at the raw Location) is not
-    /// ported. Trigger: VIRUSD, the only retail type with the key.
+    /// Before the mark-height gate,425008..42504B sends SpawnsParticle to
+    /// the shared GasCloudSys NumParticles times at the raw Location.
     fn anim_middle(
         &mut self,
         id: AnimId,
@@ -2674,6 +2675,16 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) {
+        if let Some(kind) = config
+            .spawns_particle
+            .as_deref()
+            .and_then(|name| rules.p_type_id_by_name(name))
+            && let Some(coord) = self.anim(id).map(|anim| anim.world_coord)
+        {
+            for _ in 0..config.num_particles {
+                self.spawn_gas_particle(kind, glam::IVec3::new(coord.x, coord.y, coord.z), rules);
+            }
+        }
         if !(config.scorch || config.crater) {
             return;
         }

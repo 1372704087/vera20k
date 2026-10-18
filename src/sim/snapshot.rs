@@ -1111,7 +1111,8 @@ use crate::sim::world::Simulation;
 // 401 -> 402: retained DiskLaser bodies and Rules+28C charge-up reference.
 // 402 -> 403: resident Map+D4 ordered pending bridge-collapse coordinates.
 // 403 -> 404: retained House+310 capacity and Building Storage type input.
-const SNAPSHOT_VERSION: u32 = 404;
+// 404 -> 405: retain the global GasCloudSys reference and Particle CC/D0/D4 motion words.
+const SNAPSHOT_VERSION: u32 = 405;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2049,6 +2050,17 @@ fn restore_object_references(
         .iter()
         .map(|(&id, _)| id)
         .collect();
+
+    if let Some(id) = sim.particle_systems().gas_cloud_system() {
+        require_resolved_reference(
+            particle_system_ids.contains(&id),
+            "ParticleSystemStore",
+            0,
+            "gas_cloud_system",
+            "ParticleSystemStore",
+            id,
+        )?;
+    }
 
     // Building saved+55C slots swizzle to distinct owned Anim objects. Validate
     // before weak-pointer cleanup or reverse-index mutation. Anim+CC may remain
@@ -4809,7 +4821,8 @@ mod tests {
         // 401 -> 402: retain delayed DiskLaser bodies and Rules charge-up.
         // 402 -> 403: retain pending Map+D4 collapse coordinates/order.
         // 403 -> 404: retain House capacity and future Building Storage input.
-        assert_eq!(super::SNAPSHOT_VERSION, 404);
+        // 404 -> 405: global GasCloudSys reference and Particle motion words.
+        assert_eq!(super::SNAPSHOT_VERSION, 405);
     }
 
     #[test]

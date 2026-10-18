@@ -4503,7 +4503,10 @@ fn particle_system_physical_disposal_removes_retained_child_air_entries() {
         )
         .unwrap();
     assert!(crate::sim::particles::system_ai::tick_particle_system(
-        &mut sim, &rules, system_id
+        &mut sim,
+        &rules,
+        system_id,
+        crate::sim::world::UninitContext::with_rules(&rules)
     ));
     let child_id = sim.particle_systems().get(system_id).unwrap().particles[0].stable_id();
     assert_eq!(

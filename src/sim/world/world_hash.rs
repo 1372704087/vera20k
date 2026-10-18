@@ -944,6 +944,10 @@ impl Simulation {
     /// Each system contributes its type, position, lifetime, and ordered particle list.
     fn hash_particle_systems(&self, hasher: &mut impl Hasher) {
         self.particle_systems().len().hash(hasher);
+        if let Some(id) = self.particle_systems().gas_cloud_system() {
+            b"global-gas-cloud-system-v405".hash(hasher);
+            id.hash(hasher);
+        }
         for (id, sys) in self.particle_systems().iter() {
             id.hash(hasher);
             sys.native_unique_id().hash(hasher);
@@ -1503,6 +1507,7 @@ fn hash_particle(p: &crate::sim::particles::Particle, hasher: &mut impl Hasher) 
     p.marked_for_deletion.hash(hasher);
     p.origin.to_array().hash(hasher);
     p.direction.map(|v| v.to_bits()).hash(hasher);
+    p.motion.map(|v| v.bits()).hash(hasher);
     p.velocity().bits().hash(hasher);
     p.damage_counter.hash(hasher);
     p.state_ai_advance.hash(hasher);
@@ -3595,6 +3600,7 @@ mod particle_hash_tests {
             Box::new(move |s| s.owner_house = Some(owner_house)),
             Box::new(|s| s.particles[0].origin = IVec3::new(0, 0, 1)),
             Box::new(|s| s.particles[0].direction[1] = SimFixed::from_num(1)),
+            Box::new(|s| s.particles[0].motion[1] = crate::util::native_x87::NativeF32Bits::ONE),
             Box::new(|s| {
                 s.particles[0].set_velocity_for_test(crate::util::native_x87::NativeF32Bits::ONE)
             }),

@@ -46,19 +46,24 @@ def sources():
     yr = mix((root / 'ra2md.mix').read_bytes())
     art = mix(yr[mix_hash('localmd.mix')])[mix_hash('artmd.ini')]
     ra2 = mix((root / 'ra2.mix').read_bytes())
-    return physical_layers(), art, mix(ra2[mix_hash('conquer.mix')])
+    shapes = mix(ra2[mix_hash('conquer.mix')])
+    # YR supplies TXGASG here; the two stock grey-smoke images remain in
+    # CONQUER.MIX. Let the expansion's physical image entries take precedence.
+    shapes.update(mix(yr[mix_hash('conqmd.mix')]))
+    return physical_layers(), art, shapes
 
 
 class DamageSmoke(SparkBirth):
     """Add only Smoke observations and supplied inputs to the shared runtime."""
-    def __init__(self, case):
+    def __init__(self, case, *, system_names=SYSTEM_NAMES, particle_names=PARTICLE_NAMES):
+        self.system_names, self.particle_names = system_names, particle_names
         self.observing, self.smoke_events, self.owner = False, [], 0
         super().__init__(case, {})
         self.types, self.keys, self.smoke_layers = {}, {}, []
         u = self.u
         layers, art_raw, shapes = sources()
-        wanted = set(SYSTEM_NAMES + PARTICLE_NAMES)
-        image_names = set(PARTICLE_NAMES)
+        wanted = set(self.system_names + self.particle_names)
+        image_names = set(self.particle_names)
         for _, _, raw in layers:
             if raw is not None:
                 sections, _ = lexical(raw, wanted)
@@ -70,8 +75,8 @@ class DamageSmoke(SparkBirth):
             raw = shapes.get(mix_hash(filename))
             if raw is not None:
                 self.assets[filename.upper()] = raw
-        for name, ctor, size in [(n, 0x644BE0, 0x318) for n in PARTICLE_NAMES] + [
-                (n, 0x6440A0, 0x310) for n in SYSTEM_NAMES]:
+        for name, ctor, size in [(n, 0x644BE0, 0x318) for n in self.particle_names] + [
+                (n, 0x6440A0, 0x310) for n in self.system_names]:
             pointer = self.alloc(size)
             self.invoke(ctor, pointer, (self.cstring(name),))
             self.types[name] = pointer
@@ -91,8 +96,8 @@ class DamageSmoke(SparkBirth):
             self.rules_cache(selected)
             self.reads.clear()
             self.asset_loaded.clear()
-            for n in SYSTEM_NAMES + PARTICLE_NAMES:
-                self.invoke(0x6442D0 if n in SYSTEM_NAMES else 0x644F50,
+            for n in self.system_names + self.particle_names:
+                self.invoke(0x6442D0 if n in self.system_names else 0x644F50,
                             self.types[n], (RULES,))
             self.read_wind()
             self.smoke_layers.append(dict(file=name, archive=archive,
@@ -101,7 +106,7 @@ class DamageSmoke(SparkBirth):
                 image_loads=list(self.asset_loaded)))
         for name, keys in case.get('type_overrides', {}).items():
             self.rules_cache({name: dict(self.keys[name], **keys)})
-            self.invoke(0x6442D0 if name in SYSTEM_NAMES else 0x644F50,
+            self.invoke(0x6442D0 if name in self.system_names else 0x644F50,
                         self.types[name], (RULES,))
         if 'wind' in case:
             self.rules_cache({'General': {'WindDirection': str(case['wind'])}})
@@ -138,7 +143,7 @@ class DamageSmoke(SparkBirth):
     def type_state(self):
         output = {}
         for name, p in self.types.items():
-            if name in SYSTEM_NAMES:
+            if name in self.system_names:
                 output[name] = dict(holds_what=signed(self.read32(p + 0x294)),
                     spawns=bool(self.u.mem_read(p + 0x298, 1)[0]),
                     spawn_frames=signed(self.read32(p + 0x29C)),

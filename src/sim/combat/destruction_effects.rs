@@ -199,7 +199,7 @@ impl Simulation {
         rules: &RuleSet,
         type_id: InternedId,
         spawn: DeathAnimSpawn,
-    ) {
+    ) -> Option<crate::sim::anim_class::AnimId> {
         let (rx, ry, sub_x, sub_y, z) = spawn.coord.to_cell_sub_z();
         let descriptor = AnimClassSpawnDescriptor {
             delay: spawn.delay,
@@ -224,7 +224,7 @@ impl Simulation {
                     "death anim [{}] did not construct: {error}",
                     self.interner.resolve(type_id)
                 );
-                return;
+                return None;
             }
         };
         match spawn.follow_up {
@@ -240,6 +240,7 @@ impl Simulation {
                 self.anim_mark_cell_occupancy(anim);
             }
         }
+        Some(anim)
     }
 
     /// One Scenario `Next() % count` pick from a non-empty anim list.

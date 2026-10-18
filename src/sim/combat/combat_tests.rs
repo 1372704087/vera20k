@@ -3660,7 +3660,10 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
         .put_location(moved);
     sim.session.binary_frame = 1;
     assert!(crate::sim::particles::system_ai::tick_particle_system(
-        &mut sim, &rules, system_id
+        &mut sim,
+        &rules,
+        system_id,
+        crate::sim::world::UninitContext::with_rules(&rules)
     ));
     assert_eq!(
         sim.particle_systems().get(system_id).unwrap().coords,

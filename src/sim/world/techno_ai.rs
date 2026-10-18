@@ -329,7 +329,13 @@ impl Simulation {
         }
         if self.substrate.particle_systems.contains_key(id) {
             if let Some(rules) = rules {
-                crate::sim::particles::system_ai::tick_particle_system(self, rules, id);
+                crate::sim::particles::system_ai::tick_particle_system(
+                    self,
+                    rules,
+                    id,
+                    super::UninitContext::new(Some(rules), ctx.overlay_registry)
+                        .with_effects(ctx.effects),
+                );
             }
             return outcome;
         }
@@ -6130,7 +6136,12 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
             .get_mut(system_id)
             .unwrap()
             .done_spawning = true;
-        crate::sim::particles::system_ai::tick_particle_system(&mut sim, &rules, system_id);
+        crate::sim::particles::system_ai::tick_particle_system(
+            &mut sim,
+            &rules,
+            system_id,
+            crate::sim::world::UninitContext::with_rules(&rules),
+        );
         assert_eq!(spark_system(&sim, 1), None);
         assert!(sim.particle_systems().get(system_id).unwrap().in_limbo());
         sim.process_pending_delete();

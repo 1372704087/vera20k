@@ -7,12 +7,13 @@
 use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::build_site::can_place_building_at;
 use crate::sim::intern::InternedId;
 use crate::sim::overlay_grid::{
     WallDamageTransactionHost, refresh_wall_connectivity_after_placement_with_host,
 };
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
-use crate::sim::world::{Simulation, SimulationWallRuntimeHost};
+use crate::sim::world::{FrameEffects, Simulation, SimulationWallRuntimeHost};
 
 /// Native regular-wall visit order: north, east, south, west.
 const CARDINAL_DIRECTIONS: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
@@ -138,11 +139,48 @@ pub(crate) fn stamp_wall_with_autofill(
     object_type: &ObjectType,
     origin: (u16, u16),
     owner: InternedId,
+    effects: FrameEffects<'_>,
 ) -> bool {
     let Some(overlay_id) = linked_overlay_id(object_type, registry) else {
         return false;
     };
-    if !stamp_wall(sim, registry, origin.0, origin.1, overlay_id, owner) {
+    // Building 0x440606..0x44065C: only the same ToOverlay and stored owner
+    // calls House 0x4FCE80(cell, 1). Scanned gaps contain no matching wall.
+    // Autofill's temporary Building construction/Unlimbo lifetime is a
+    // separate residual; this existing loop models its material publication.
+    let replaces_owned_wall = sim.overlay_grid.as_ref().is_some_and(|grid| {
+        let prior = grid.cell(origin.0, origin.1);
+        prior.overlay_id == Some(overlay_id) && prior.wall_owner == Some(owner)
+    });
+    if replaces_owned_wall {
+        let house = sim.resolve(owner).to_owned();
+        // Native ignores the sale's return. Mark below still refuses an old
+        // wall when sale was declined (for example, a nonhuman stored owner).
+        sim.sell_wall_at_cell(
+            &house,
+            origin.0 as i16,
+            origin.1 as i16,
+            true,
+            rules,
+            registry,
+            effects,
+        );
+    }
+    // Building 0x4407A0 repeats its CanEnter after sale. The old damaged wall
+    // can admit the first test even when the exposed ground cannot support
+    // this Building. Overlay Mark's separate Track test below is weaker.
+    if !can_place_building_at(
+        sim,
+        rules,
+        Some(registry),
+        object_type,
+        (origin.0 as i16, origin.1 as i16),
+        Some(owner),
+        None,
+    ) {
+        return false;
+    }
+    if !stamp_wall(sim, rules, registry, origin.0, origin.1, overlay_id, owner) {
         return false;
     }
     for direction in CARDINAL_DIRECTIONS {
@@ -158,8 +196,10 @@ pub(crate) fn stamp_wall_with_autofill(
             None,
         );
         for (rx, ry) in gap {
-            let stamped = stamp_wall(sim, registry, rx, ry, overlay_id, owner);
-            debug_assert!(stamped, "scanned wall filler must remain stampable");
+            // 0x58890C ignores a filler Building's Unlimbo result and continues
+            // remaining gap cells and directions. Scan does not prove Mark's
+            // Track/NULL/NULL admission, so refusal must not assert or abort.
+            let _ = stamp_wall(sim, rules, registry, rx, ry, overlay_id, owner);
         }
     }
     true
@@ -168,6 +208,7 @@ pub(crate) fn stamp_wall_with_autofill(
 /// Stamp one wall cell and synchronously publish its passability projection.
 pub(super) fn stamp_wall(
     sim: &mut Simulation,
+    rules: &RuleSet,
     registry: &OverlayTypeRegistry,
     rx: u16,
     ry: u16,
@@ -178,6 +219,25 @@ pub(super) fn stamp_wall(
         return false;
     };
     if rx >= grid.width() || ry >= grid.height() {
+        return false;
+    }
+    // Overlay 0x5FC6F4..0x5FC705 asks the existing Cell 0x47C620 owner with
+    // SpeedType 1 (Track), BuildingType NULL and House NULL before any write.
+    // A refused old-wall sale must not become an unconditional overwrite.
+    let Some(terrain) = sim.resolved_terrain.as_ref() else {
+        return false;
+    };
+    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+    if !crate::sim::build_site::is_clear_to_build(
+        sim,
+        rules,
+        Some(registry),
+        cells.lookup((rx as i16, ry as i16)),
+        Some(crate::rules::locomotor_type::SpeedType::Track),
+        None,
+        None,
+        Some(&cells),
+    ) {
         return false;
     }
 

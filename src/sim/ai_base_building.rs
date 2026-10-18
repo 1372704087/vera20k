@@ -630,6 +630,7 @@ fn place_building(
             ty,
             (rx, ry),
             owner,
+            effects,
         ) {
             return false;
         }

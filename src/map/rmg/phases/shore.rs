@@ -560,13 +560,13 @@ pub(super) fn place_block(
             let Some(sub) = block.subtiles[index as usize] else {
                 continue;
             };
-            let stored_owner = scratch.get(tx, ty).region;
-            // 57B5DE..57B580 normalizes every nonpositive owner to zero
-            // before comparing it with the request, including region=-1.
-            let owner = if placement.keep || stored_owner <= 0 {
+            // Only keep zeroes the stored owner (57B576..57B57E). A non-keep
+            // owner <= 0 jumps past that `xor` (57B5DE `jle 57B580`) and is
+            // compared raw, so a stored -1 equals an unowned (-1) request.
+            let owner = if placement.keep {
                 0
             } else {
-                stored_owner
+                scratch.get(tx, ty).region
             };
             let target_clear = ids.is_clear(target.tile);
             let old = target.tile.wrapping_sub(ids.shore);
@@ -620,4 +620,157 @@ pub(super) fn place_block(
         }
     }
     complete
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::map::theater::RmgTileKeys;
+
+    /// A selected non-shore TMP; the test ids leave every cliff family unset.
+    const CLIFF_TILE: i32 = 900;
+    /// Non-clear identity outside the shore window and every cliff family.
+    const ROCK_TILE: i32 = 77;
+    const SHORE_BASE: i32 = 400;
+    /// The block's two subtiles, in native row-major order.
+    const FIRST: (i32, i32) = (40, 50);
+    const SECOND: (i32, i32) = (41, 50);
+
+    /// Every TileType is a 2x1 block, so a stop at the first subtile leaves
+    /// the second cell visibly untouched.
+    struct TwoByOne(TileBlock);
+    impl TileBlocks for TwoByOne {
+        fn block(&self, _tile: i32) -> Option<&TileBlock> {
+            Some(&self.0)
+        }
+    }
+
+    struct Fixture {
+        grid: RmgGrid,
+        scratch: RmgScratch,
+        ids: TileIds,
+        blocks: TwoByOne,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let (dmin, dmax) = (34, 34 + 2 * 42);
+            let stride = 77;
+            let mut grid = RmgGrid::new(stride, dmin, dmax);
+            for (x, y) in grid.native_cells().collect::<Vec<_>>() {
+                grid.get_mut(x, y).expect("native cell").tile = 0;
+            }
+            let sub = SubTile {
+                height: 1,
+                terrain: 0,
+                slope: 0,
+            };
+            Self {
+                grid,
+                scratch: RmgScratch::new(stride, dmin, dmax),
+                ids: TileIds {
+                    shore: SHORE_BASE,
+                    ..TileIds::from_keys(&RmgTileKeys::default())
+                },
+                blocks: TwoByOne(TileBlock {
+                    width: 2,
+                    height: 1,
+                    subtiles: vec![Some(sub); 2],
+                }),
+            }
+        }
+
+        fn set(&mut self, (x, y): (i32, i32), tile: i32, owner: i32) {
+            self.grid.get_mut(x, y).expect("native cell").tile = tile;
+            self.scratch.get_mut(x, y).region = owner;
+        }
+
+        fn cell(&self, (x, y): (i32, i32)) -> (i32, u8, u8, i32) {
+            let cell = self.grid.get(x, y).expect("native cell");
+            let owner = self.scratch.get(x, y).region;
+            (cell.tile, cell.sub_tile, cell.level, owner)
+        }
+
+        /// One `0x57B440` call at FIRST with window (0, 0) and level 4;
+        /// returns (AL, caller out-bool) as (complete, admitted).
+        fn place(&mut self, tile: i32, region: i32, keep: bool) -> (bool, bool) {
+            let result = place_block(
+                &mut self.grid,
+                &mut self.scratch,
+                &self.ids,
+                &self.blocks,
+                BlockPlacement {
+                    tile,
+                    origin: FIRST,
+                    level: 4,
+                    window: (0, 0),
+                    region,
+                    keep,
+                },
+            );
+            (result.complete, result.admitted)
+        }
+    }
+
+    /// Untouched cells keep the default level 4.
+    const UNTOUCHED: (i32, u8, u8, i32) = (0, 0, 4, 0);
+
+    /// 57B5DE `jle 57B580` skips the keep-only `xor eax,eax` at 57B57E, so a
+    /// stored -1 equals an unowned (-1) request raw. The orientation check
+    /// passes, and the write gate soft-stops at a non-clear cell outside the
+    /// window (57B784: AL=0, out-bool untouched) before the second subtile.
+    #[test]
+    fn unowned_request_soft_stops_at_a_nonclear_cell_it_already_owns() {
+        let mut fixture = Fixture::new();
+        fixture.set(FIRST, ROCK_TILE, -1);
+        assert_eq!(fixture.place(CLIFF_TILE, -1, false), (false, true));
+        assert_eq!(fixture.cell(FIRST), (ROCK_TILE, 0, 4, -1));
+        assert_eq!(fixture.cell(SECOND), UNTOUCHED, "later subtile untouched");
+    }
+
+    /// A stored 0 differs from the -1 request (57B6B6): the non-clear cell is
+    /// skipped (57B6DF), and the clear second cell is adopted and written
+    /// with its subtile index and height + level.
+    #[test]
+    fn unowned_request_skips_a_nonclear_cell_owned_by_nobody() {
+        let mut fixture = Fixture::new();
+        fixture.set(FIRST, ROCK_TILE, 0);
+        assert_eq!(fixture.place(CLIFF_TILE, -1, false), (true, true));
+        assert_eq!(fixture.cell(FIRST), (ROCK_TILE, 0, 4, 0));
+        assert_eq!(fixture.cell(SECOND), (CLIFF_TILE, 1, 5, -1));
+    }
+
+    /// 57B6D6..57B77D: a non-clear cell whose stored owner is not positive
+    /// refuses an owned request: out-bool cleared, AL=0, nothing written.
+    #[test]
+    fn owned_request_refuses_a_nonclear_cell_without_a_positive_owner() {
+        let mut fixture = Fixture::new();
+        fixture.set(FIRST, ROCK_TILE, -1);
+        assert_eq!(fixture.place(CLIFF_TILE, 5, false), (false, false));
+        assert_eq!(fixture.cell(SECOND), UNTOUCHED);
+    }
+
+    /// 57B463/57B57E: keep zeroes both the request and the stored owner, so
+    /// foreign cells take the orientation/write path without being adopted.
+    #[test]
+    fn keep_writes_foreign_cells_without_adopting_them() {
+        let mut fixture = Fixture::new();
+        fixture.set(FIRST, 0, 9);
+        fixture.set(SECOND, 0, 9);
+        assert_eq!(fixture.place(CLIFF_TILE, 5, true), (true, true));
+        assert_eq!(fixture.cell(FIRST), (CLIFF_TILE, 0, 5, 9));
+        assert_eq!(fixture.cell(SECOND), (CLIFF_TILE, 1, 5, 9));
+    }
+
+    /// 57B5EF..57B705: a non-clear foreign shore piece in the selected
+    /// piece's class ends the call with AL=1 before the later subtile.
+    #[test]
+    fn equivalent_foreign_shore_piece_ends_the_block_successfully() {
+        let mut fixture = Fixture::new();
+        // Pieces 1 and 2 share class 0.
+        fixture.set(FIRST, SHORE_BASE + 1, 7);
+        assert_eq!(fixture.place(SHORE_BASE, 5, false), (true, true));
+        assert_eq!(fixture.cell(FIRST), (SHORE_BASE + 1, 0, 4, 7));
+        assert_eq!(fixture.cell(SECOND), UNTOUCHED);
+    }
 }

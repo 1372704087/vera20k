@@ -2683,8 +2683,13 @@ function connect() {
         // The detail view's history must keep flowing while the data wall shows,
         // or its charts restart at every switch.
         sampleHouseEconomy(snapshot);
-        if (currentView === "detail")
+        // The wall draws both of its pieces per snapshot. The chart only ran from
+        // `renderDetail`, which is a view switch or a resize, so the cards moved
+        // under a frozen trace.
+        if (currentView === "detail") {
+            drawEconomyChart(snapshot);
             renderDetailCards(snapshot);
+        }
         // The modal repaints on its own, not through `renderDetail`: that path only
         // runs on a view switch or a resize, which froze the production gauges and
         // the squad list until the modal was reopened. It self-guards on an open

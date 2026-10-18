@@ -4855,7 +4855,8 @@ mod tests {
         // 413 -> 414: global GasCloudSys reference and Particle motion words.
         // 414 -> 415: path-batch code-2 re-path urgencies.
         // 415 -> 416: Building online latch independent of Temporal.
-        assert_eq!(super::SNAPSHOT_VERSION, 416);
+        // 416 -> 417: control-node line timers and ordered line settings.
+        assert_eq!(super::SNAPSHOT_VERSION, 417);
     }
 
     #[test]

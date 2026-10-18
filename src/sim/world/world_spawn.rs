@@ -1521,25 +1521,18 @@ impl Simulation {
             .map_or(RawCellKey::Real(position.rx(), position.ry()), |terrain| {
                 RawCellKey::from_native(terrain, terrain.native_cell_identity(packed_cell))
             });
-        //481298..481313 reaches the live ground Gate only after ordinary
-        //vehicle/object gates. Reuse its Building4525F0/Door4A51B0 owner.
-        let gate_open = !priority
-            && bump_crush::native_ground_gate_open(
-                &self.substrate.raw_cell_occupation,
-                &self.substrate.occupancy,
-                &self.substrate.entities,
-                rules,
-                &self.interner,
-                key,
-                MovementLayer::Ground,
-            );
         let spot = bump_crush::place_infantry_in_native_cell(
             &self.substrate.raw_cell_occupation,
             key,
             MovementLayer::Ground,
             input,
             priority,
-            gate_open,
+            bump_crush::GroundGate::Live {
+                occupancy: &self.substrate.occupancy,
+                entities: &self.substrate.entities,
+                rules,
+                interner: &self.interner,
+            },
             &mut self.scenario_rng,
         )?;
         //Cell481180 removes each incoming XY low byte before adding the

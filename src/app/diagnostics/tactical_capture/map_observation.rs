@@ -644,6 +644,7 @@ impl MapCaptureProfile {
                         | Command::QueueProduction { .. }
                         | Command::PlaceReadyBuilding { .. }
                         | Command::CaptureBuilding { .. }
+                        | Command::PlantC4 { .. }
                         | Command::ToggleRepair { .. }
                         | Command::EnterTransport { .. }
                         | Command::UnloadPassengers { .. }
@@ -5998,6 +5999,8 @@ mod tests {
                 "payload": {"PlaceReadyBuilding": {"type_id": 41, "rx": 87, "ry": 53}}},
             {"issue_after_step": 2, "owner": "Computer1",
                 "payload": {"CaptureBuilding": {"engineer_id": 7, "target_building_id": 9}}},
+            {"issue_after_step": 2, "owner": "Computer1",
+                "payload": {"PlantC4": {"attacker_id": 7, "target_building_id": 9}}},
             {"issue_after_step": 2, "owner": "Computer1",
                 "payload": {"ToggleRepair": {"entity_id": 9}}},
             {"issue_after_step": 2, "owner": "Computer1",

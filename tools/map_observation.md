@@ -26,6 +26,11 @@ Use a recorded numeric ID when subsequent commands must retain one actor despite
 movement or ownership changes. A cell means the actor's cell at the issue boundary.
 Rule-name lookup reads the existing registry and interner; it creates no types.
 
+`PlantC4` accepts the existing command's `attacker_id` and `target_building_id`,
+including named actor selectors. It queues the ordinary Sabotage input; infantry
+entry, charge planting, the building fuse and bridge-hut expiry stay with their
+production owners. Acceptance of the profile alone does not establish a plant.
+
 ```json
 {"issue_after_step":4510,"owner":"VERA-OBSERVER",
  "payload":{"LaunchSuperWeapon":{"sw_type_id":"IronCurtainSpecial",

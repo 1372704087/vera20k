@@ -2545,27 +2545,44 @@ function connect(): void {
 /** The debug menu (switches + hotkeys) is a drawer, not dashboard content:
  *  the main view stays data-only. Esc, the backdrop and the close button all
  *  dismiss it. */
-function setupMenu(): void {
-  const menu = document.getElementById("menu");
-  const openButton = document.getElementById("menu-open");
-  const closeButton = document.getElementById("menu-close");
-  if (!menu) return;
+function setupMenus(): void {
+  const showDebug = bindDrawer("menu", "menu-open", "menu-close");
+  const showTrainer = bindDrawer("cheat-menu", "cheats-open", "cheats-close", () =>
+    syncCheats(lastSnapshot?.cheats),
+  );
+  // Two drawers on one edge: opening one closes the other, so the header
+  // buttons never leave a stack of panels behind each other.
+  document.getElementById("menu-open")?.addEventListener("click", () => showTrainer(false));
+  document.getElementById("cheats-open")?.addEventListener("click", () => showDebug(false));
+}
+
+/**
+ * Wire one right-edge drawer. Returns its `show`, so callers can close it from
+ * outside; `onOpen` refreshes state that may have moved since last time.
+ */
+function bindDrawer(
+  id: string,
+  openId: string,
+  closeId: string,
+  onOpen?: () => void,
+): (visible: boolean) => void {
+  const drawer = document.getElementById(id);
+  if (!drawer) return () => {};
   const show = (visible: boolean): void => {
-    menu.classList.toggle("open", visible);
-    menu.setAttribute("aria-hidden", String(!visible));
+    if (visible) onOpen?.();
+    drawer.classList.toggle("open", visible);
+    drawer.setAttribute("aria-hidden", String(!visible));
   };
-  openButton?.addEventListener("click", () => {
-    syncCheats(lastSnapshot?.cheats);
-    show(true);
-  });
-  closeButton?.addEventListener("click", () => show(false));
-  menu.addEventListener("click", (event) => {
+  document.getElementById(openId)?.addEventListener("click", () => show(true));
+  document.getElementById(closeId)?.addEventListener("click", () => show(false));
+  drawer.addEventListener("click", (event) => {
     // Only the backdrop itself (not the panel) dismisses.
-    if (event.target === menu) show(false);
+    if (event.target === drawer) show(false);
   });
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") show(false);
   });
+  return show;
 }
 
 // ------------------------------------------------------------ bootstrap
@@ -2573,7 +2590,7 @@ function setupMenu(): void {
 applyStaticTranslations();
 syncSwitcher();
 renderStatus();
-setupMenu();
+setupMenus();
 setupViews();
 setupPager();
 // The switches exist (disabled) before the first snapshot arrives.

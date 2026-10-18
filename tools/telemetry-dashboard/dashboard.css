@@ -839,15 +839,16 @@
   .log-row.lv5 .lv, .log-row.lv5 .msg { color: #5b7b90; }
 
   /* ====================================================== trainer panel */
-  /* The trainer is a drawer section, not a wall: compact cards, two per row. */
-  .menu-sec-head {
+  /* The trainer has its own drawer: compact cards, two per row. */
+  .cheat-panel { width: min(520px, 94vw); }
+  .cheat-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 6px;
+    margin: -4px 0 8px;
   }
-  .menu-sec-head h2 { margin-bottom: 0 !important; }
+  .cheat-head .note { margin: 0; }
   .cheat-owner {
     font-size: 10.5px;
     font-weight: 400;

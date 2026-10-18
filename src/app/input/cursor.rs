@@ -578,10 +578,12 @@ pub(super) fn capability_cursor_for_hover(
         {
             return CursorFeedbackKind::Deploy;
         }
-        if hovered_obj.is_some_and(|obj| {
-            super::context_order::self_deploy_is_blocked(entity, obj)
-                || super::context_order::is_simple_deploy_unit(entity, obj)
-        }) {
+        if super::context_order::self_deploy_is_refused(sim, rules, entity.owner(), selected, hover)
+            || hovered_obj.is_some_and(|obj| {
+                super::context_order::self_deploy_is_blocked(entity, obj)
+                    || super::context_order::is_simple_deploy_unit(entity, obj)
+            })
+        {
             return CursorFeedbackKind::NoDeploy;
         }
 

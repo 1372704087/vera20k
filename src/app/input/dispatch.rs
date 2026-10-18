@@ -2670,9 +2670,7 @@ fn queue_area_guard_orders(
     sounds
 }
 
-/// Deploy or undeploy selected entities. KeyD toggles:
-/// - Selected unit with `DeploysInto` or `IsSimpleDeployer` → `Command::DeployMcv`
-/// - Selected structure with `UndeploysInto` → `Command::UndeployBuilding` (ConYard → MCV)
+/// The deploy key over the selection ([`deploy_key_commands`]).
 fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
     let selected_ids = selected_stable_ids_in_order(
         state
@@ -2712,18 +2710,15 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
 ///   deployer is deployed and any is not, berserk ones included.
 /// - The issue walk then admits only an object the player may control
 ///   (vt+0xA0) or that is active (vt+0x9C, `0x00730C38`, `0x00730C46`), as
-///   the Stop key does, skips a berserk object (`0x00730C82`) and, when the
-///   first walk found both, every deployed deployer, so only the undeployed
-///   ones deploy.
+///   the Stop key does, that CanDeploySlashUnload admits (vt+0x314,
+///   `0x00730C74`; its vt+0x310 and Techno-flag tests before it refuse
+///   nothing more in a selection), skips a berserk object (`0x00730C82`)
+///   and, when the first walk found both, every deployed deployer, so only
+///   the undeployed ones deploy. A building never passes vt+0x314, so a
+///   construction yard does not undeploy from the deploy key.
 ///
 /// Its closing sound reads `Rules+0x72C`, which no INI key sets: the
 /// constructor's -1 (`0x0066606A`) plays nothing.
-///
-/// RESIDUAL: the issue walk's other admission tests are not ported: bit 0 of
-/// `+0x14`, `vt+0x310` (`0x00700D10`) and `vt+0x314` (`0x00700D50`).
-/// `deploy_key_command`'s capability checks stand in for them, and their
-/// equivalence is unchecked. Trigger: an object one of them refuses. Effect:
-/// the deploy key orders it anyway. Frequency unknown.
 fn deploy_key_commands(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -2761,7 +2756,8 @@ fn deploy_key_commands(
         .copied()
         .filter(|&id| {
             rules.is_none_or(|rules| {
-                sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules)
+                (sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules))
+                    && sim.can_deploy_slash_unload(id, rules)
             }) && sim
                 .entities()
                 .get(id)
@@ -2795,8 +2791,13 @@ fn deployer_is_deployed(
     }
 }
 
-/// The deploy key's per-object decision. The command's historical
-/// `DeployMcv` wire name also carries a SimpleDeployer toggle.
+/// The deploy key's per-object order for an object it admits: each
+/// class's Unload mission (vt+0x374(9), `0x00730D15`). The command's
+/// historical `DeployMcv` wire name also carries a SimpleDeployer toggle.
+///
+/// RESIDUAL: a Unit admitted only for `DeployFire=` or a tank-bunker link
+/// gets no order. Dormant in retail: no Unit sets `DeployFire=` without
+/// `IsSimpleDeployer=`, and a bunkered unit cannot be selected.
 fn deploy_key_command(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -2806,30 +2807,18 @@ fn deploy_key_command(
     let entity = sim.entities().get(entity_id)?;
     let obj = rules.and_then(|rules| sim.interner.object_type(entity.type_ref(), rules));
     match entity.category() {
+        // Absorbers and garrisons share unload admission.
         EntityCategory::Structure => {
-            // Absorbers and garrisons share unload admission; otherwise a
-            // construction yard may take its undeploy action.
-            super::transport_orders::unload_command(entity, obj, local_owner).or_else(|| {
-                rules
-                    .is_some_and(|rules| {
-                        sim.should_show_undeploy_building_command(entity_id, rules)
-                    })
-                    .then_some(Command::UndeployBuilding { entity_id })
-            })
+            super::transport_orders::unload_command(entity, obj, local_owner)
         }
-        EntityCategory::Infantry => obj
-            .is_some_and(|object| object.deploy_fire)
-            .then_some(Command::ToggleInfantryDeploy { entity_id }),
+        EntityCategory::Infantry => Some(Command::ToggleInfantryDeploy { entity_id }),
         _ => {
             // A loaded transport (including aircraft) keeps the unload action.
             super::transport_orders::unload_command(entity, obj, local_owner).or_else(|| {
                 let object = obj?;
-                let deployable = if super::context_order::is_simple_deploy_unit(entity, object) {
-                    rules.is_some_and(|rules| sim.can_simple_deploy(entity_id, rules))
-                } else {
-                    object.deploys_into.is_some()
-                };
-                deployable.then_some(Command::DeployMcv { entity_id })
+                (super::context_order::is_simple_deploy_unit(entity, object)
+                    || object.deploys_into.is_some())
+                .then_some(Command::DeployMcv { entity_id })
             })
         }
     }
@@ -3233,7 +3222,7 @@ mod deploy_key_tests {
              [GI]\nIsSimpleDeployer=yes\nDeployFire=yes\nDeployer=yes\n",
         ))
         .expect("deploy key rules");
-        let mut sim = Simulation::new();
+        let mut sim = player_sim();
         let mut spawn = |type_id| {
             sim.spawn_object_limbo_at_height(type_id, "Americans", 10, 10, 0, 0, &rules)
                 .expect("the deploy key fixture builds")
@@ -3284,9 +3273,29 @@ mod deploy_key_tests {
                 crate::sim::components::DriveCoord::cell(10, 10, 0),
             ),
         );
-        assert_eq!(
-            deploy_key_command(&sim, Some(&rules), heli, sim.session.current_house),
-            None
+        // CanDeploySlashUnload refuses a unit in a tube (`0x00700E59`).
+        assert!(
+            deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house).is_empty()
+        );
+    }
+
+    /// A building never passes CanDeploySlashUnload (`0x00465D30`), so the
+    /// deploy key does not undeploy a construction yard; one with occupants
+    /// selected first still unloads them.
+    #[test]
+    fn the_deploy_key_does_not_undeploy_a_construction_yard() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=MCV\n[BuildingTypes]\n0=YARD\n\
+             [MCV]\nDeploysInto=YARD\n\
+             [YARD]\nStrength=1000\nConstructionYard=yes\nUndeploysInto=MCV\n",
+        ))
+        .expect("construction yard rules");
+        let mut sim = player_sim();
+        let yard = sim
+            .spawn_object("YARD", "Americans", 10, 10, 0, &rules)
+            .expect("the yard builds");
+        assert!(
+            deploy_key_commands(&sim, Some(&rules), &[yard], sim.session.current_house).is_empty()
         );
     }
 

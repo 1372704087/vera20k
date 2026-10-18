@@ -1125,7 +1125,8 @@ use crate::sim::world::Simulation;
 // trigger-controlled Building controller/original-owner House pointers.
 // 411 -> 412: processed UnitTypes retain SpeedType across admitted Rules
 // passes. Older records lack this field and use the wrong vehicle defaults.
-const SNAPSHOT_VERSION: u32 = 412;
+// 412 -> 413: retained Super one-time and provider-loss/hold flags.
+const SNAPSHOT_VERSION: u32 = 413;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4831,7 +4832,8 @@ mod tests {
         // 409 -> 410: Command::ForceAttack is gone.
         // 410 -> 411: preferred Super target kind and House-control pointers.
         // 411 -> 412: retained vehicle SpeedType in processed Rules.
-        assert_eq!(super::SNAPSHOT_VERSION, 412);
+        // 412 -> 413: retained Super one-time and provider-loss/hold flags.
+        assert_eq!(super::SNAPSHOT_VERSION, 413);
     }
 
     #[test]

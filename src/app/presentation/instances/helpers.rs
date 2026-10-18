@@ -133,6 +133,7 @@ pub(crate) fn tactical_entity_admission(
     local_owner: Option<&str>,
     local_owner_id: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     ignore_visibility: bool,
     current_frame: u32,
     remap_row: u32,
@@ -146,6 +147,7 @@ pub(crate) fn tactical_entity_admission(
             && !is_entity_visible_for_local_owner(
                 local_owner,
                 fog,
+                alliances,
                 &entity.position,
                 owner,
                 ignore_visibility,
@@ -253,6 +255,7 @@ fn compose_tactical_screen_entity_encounter_order(
                         local_owner,
                         local_owner_id,
                         fog,
+                        &sim.house_alliances,
                         ignore_visibility,
                         current_frame,
                         0,
@@ -424,6 +427,7 @@ pub(crate) fn interpolated_screen_position_entity(
 pub(crate) fn is_entity_visible_for_local_owner(
     local_owner: Option<&str>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     pos: &Position,
     owner: &str,
     ignore_visibility: bool,
@@ -435,7 +439,7 @@ pub(crate) fn is_entity_visible_for_local_owner(
     let Some(local_owner) = local_owner else {
         return true;
     };
-    if fog.is_friendly(local_owner, owner) {
+    if crate::map::houses::are_houses_friendly(alliances, local_owner, owner) {
         return true;
     }
     let owner_id = local_owner_id.unwrap_or_default();
@@ -642,6 +646,7 @@ mod tests {
                 Some("Americans"),
                 Some(local_owner),
                 &sim.fog,
+                &sim.house_alliances,
                 false,
                 0,
                 0,
@@ -734,6 +739,7 @@ mod tests {
                     Some("Americans"),
                     Some(local),
                     &fog,
+                    &Default::default(),
                     false,
                     0,
                     0,
@@ -845,6 +851,7 @@ mod tests {
                     Some("Americans"),
                     Some(local),
                     &fog,
+                    &Default::default(),
                     false,
                     0,
                     0,
@@ -882,6 +889,7 @@ mod tests {
                 Some("Americans"),
                 Some(local_owner_id),
                 &fog,
+                &Default::default(),
                 ignore_visibility,
                 0,
                 0,
@@ -1040,7 +1048,7 @@ mod tests {
             &preflight,
             &visible,
             &[],
-            Some(&sim.fog),
+            Some((&sim.fog, &sim.house_alliances)),
             Some("Americans"),
             building_anchor.0 - 1.0,
             building_anchor.1 - 1.0,
@@ -1064,7 +1072,7 @@ mod tests {
                 &preflight,
                 &visible,
                 &[],
-                Some(&sim.fog),
+                Some((&sim.fog, &sim.house_alliances)),
                 Some("Americans"),
                 mobile_anchor.0 - 1.0,
                 mobile_anchor.1 - 1.0,

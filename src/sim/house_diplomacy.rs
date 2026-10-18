@@ -4,17 +4,17 @@
 //! (`HouseClass+0x5788`) as a directed graph, `A -> {B}` when A's mask has
 //! B's bit; `HouseClass::Is_Ally` reads only the asking house's mask. This
 //! module writes it: the scenario's install, then MakeAlly and MakeEnemy,
-//! which Computer_Paranoid drives for the computer houses. Each write also
-//! refreshes the fog's copy (`FogState::alliances`, #581), so a later reader
-//! in the same frame sees it as native's single mask does.
+//! which Computer_Paranoid drives for the computer houses. It is the only
+//! graph: fog, fire and scan readers borrow it, so a later reader in the
+//! same frame sees each write as native's single mask does.
 //!
 //! Evidence: instruction reading of `HouseClass::Can_Ally @ 0x00501540`,
 //! `HouseClass::Make_Ally @ 0x004F9B70`, `HouseClass::Make_Enemy @
 //! 0x004F9F90`, `HouseClass::Computer_Paranoid @ 0x00501640` and its skirmish
 //! callers: a computer MCV's deploy (`0x007398D9` -> `0x00505180`, Paranoid at
 //! `0x005051AF`) and a computer house's defeat (`0x004FC10D`). Its other
-//! callers are a network player's exit (`0x0064CA0D`, `0x0050A7B4`) and two
-//! trigger actions (`0x0050C2F0`), which VERA's skirmish does not reach.
+//! callers are a network player's exit (`0x0064CA0D`, `0x0050A7B4`) and
+//! base initialization (`0x0050C2F0`, reached by TAction30).
 //!
 //! RESIDUALS
 //! - MakeAlly and MakeEnemy do not bracket their work with the map's release
@@ -23,8 +23,8 @@
 //!   changes an alliance of the current (human) house, so on its map the
 //!   bracket only counts a standing `RevealToAll=` building's sight once
 //!   more: re-admission has that branch and release does not. Trigger: a
-//!   computer MCV deploy, or a computer house's defeat under `[AI]
-//!   Paranoid`, while a `RevealToAll=` building stands. Effect: after the
+//!   computer MCV deploy, scripted base initialization, or a computer house's
+//!   defeat under `[AI] Paranoid`, while a `RevealToAll=` building stands. Effect: after the
 //!   building dies, native keeps its cells counted, so a hostile Gap
 //!   Generator cannot shroud them; VERA's can. Frequency: late game, rare.
 //! - The human-only alliance messages and EVA lines (`0x004F9D4E..
@@ -96,7 +96,6 @@ impl Simulation {
             })
             .collect();
         self.house_alliances = alliances;
-        self.fog.alliances = self.house_alliances.clone();
         for owner in changed {
             self.rebuild_house_spatial_threat(owner, rules);
         }
@@ -149,8 +148,8 @@ impl Simulation {
         }
     }
 
-    /// `HouseClass::Make_Ally @ 0x004F9B70` for its live callers, which pass
-    /// no announcement.
+    /// `HouseClass::Make_Ally @ 0x004F9B70` for its live and initialization
+    /// callers, which pass no announcement.
     pub(crate) fn make_ally(
         &mut self,
         owner: InternedId,
@@ -159,9 +158,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
-        // Its ScenarioInit arms (0x004F9C06..0x004F9C31) belong to the
-        // install above.
-        debug_assert!(!self.object_placement_scope_active());
+        // Keep the live and initialization arms in this same graph owner.
         if !self.can_ally(owner, other, rules) {
             return;
         }
@@ -188,6 +185,14 @@ impl Simulation {
             && house.enemy_house == Some(other)
         {
             house.enemy_house = None;
+        }
+        if self.object_placement_scope_active() {
+            // 0x004F9C06..0x004F9C31: ordinary initialization skips the live
+            // Paranoid, target and announcement tail. Native also keeps an
+            // initial Allies mask at +0x1D8 for WriteScenarioINI 0x0050131C;
+            // map-INI export and its GameMode 4 exception are outside this
+            // boolean-mode model.
+            return;
         }
         // 0x004F9C37..0x004F9C7A: a human house allying with a house type
         // that is not MultiplayPassive turns the computers paranoid.
@@ -235,9 +240,9 @@ impl Simulation {
     /// `HouseClass::Make_Enemy @ 0x004F9F90` for its live callers, which
     /// pass no announcement.
     pub(crate) fn make_enemy(&mut self, owner: InternedId, other: InternedId, rules: &RuleSet) {
-        // Its ScenarioInit arms (0x004FA03A..0x004FA05A, 0x004FA0B0..
-        // 0x004FA0CD) belong to the install above.
-        debug_assert!(!self.object_placement_scope_active());
+        // The current graph/anger writes also run during initialization.
+        // Initial saved-mask stores 0x004FA03A/0x004FA0B0 share the map-INI export
+        // boundary documented by MakeAlly; they are not a second live graph.
         let (Some(house), Some(other_house)) = (self.houses.get(&owner), self.houses.get(&other))
         else {
             return;
@@ -282,7 +287,7 @@ impl Simulation {
         }
     }
 
-    /// `HouseClass::Can_Ally @ 0x00501540` outside ScenarioInit.
+    /// `HouseClass::Can_Ally @ 0x00501540`, including its initialization gate.
     fn can_ally(&self, owner: InternedId, other: InternedId, rules: &RuleSet) -> bool {
         // 0x00501548..0x00501579: itself, or an existing ally.
         if is_ally_by_object(Some(&self.house_alliances), &self.interner, owner, other) {
@@ -295,6 +300,10 @@ impl Simulation {
         // nonzero game mode.
         if self.session.game_mode_nonzero && self.house_type_is_civilian(other, rules) {
             return false;
+        }
+        if self.object_placement_scope_active() {
+            // 0x005015A1..0x005015AE precedes the defeated/live-house-count gates.
+            return true;
         }
         // 0x005015B1..0x005015BF.
         if house.is_defeated {
@@ -322,7 +331,7 @@ impl Simulation {
         live != friends
     }
 
-    /// Write `owner`'s ally bit for `other` and refresh the fog's copy.
+    /// Write `owner`'s ally bit for `other`.
     fn set_ally_bit(&mut self, owner: InternedId, other: InternedId, allied: bool) {
         let other_key = normalize_house_name(self.interner.resolve(other));
         let allies = self
@@ -334,7 +343,6 @@ impl Simulation {
         } else {
             allies.remove(&other_key);
         }
-        self.fog.alliances = self.house_alliances.clone();
     }
 }
 

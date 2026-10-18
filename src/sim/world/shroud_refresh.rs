@@ -1183,7 +1183,6 @@ impl Simulation {
         context: UninitContext<'_>,
     ) {
         let notification_viewer = self.session.current_house;
-        self.fog.alliances = self.house_alliances.clone();
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -1211,15 +1210,23 @@ impl Simulation {
             return;
         };
         let viewers: Vec<_> = match only_viewer {
-            Some(viewer) => {
-                vision::reveal_admits(&self.fog, entity.owner(), viewer, config, &self.interner)
-                    .then_some(viewer)
-                    .into_iter()
-                    .collect()
-            }
-            None => {
-                vision::direct_reveal_viewers(&self.fog, entity.owner(), config, &self.interner)
-            }
+            Some(viewer) => vision::reveal_admits(
+                &self.house_alliances,
+                entity.owner(),
+                viewer,
+                config,
+                &self.interner,
+            )
+            .then_some(viewer)
+            .into_iter()
+            .collect(),
+            None => vision::direct_reveal_viewers(
+                &self.fog,
+                &self.house_alliances,
+                entity.owner(),
+                config,
+                &self.interner,
+            ),
         };
         let fresh: Vec<_> = viewers
             .into_iter()
@@ -1350,8 +1357,13 @@ impl Simulation {
                 context.terrain().or(self.resolved_terrain.as_ref()),
             ),
         );
-        let viewers =
-            vision::direct_reveal_viewers(&self.fog, entity.owner(), &config, &self.interner);
+        let viewers = vision::direct_reveal_viewers(
+            &self.fog,
+            &self.house_alliances,
+            entity.owner(),
+            &config,
+            &self.interner,
+        );
         for viewer in viewers {
             //Each logical plane retains its own cache projection. Native
             //constructor6F2D96 starts260 at0;70B202 retains it on release.
@@ -1425,8 +1437,13 @@ impl Simulation {
         if geometry.radius == 0 {
             return;
         }
-        let viewers =
-            vision::direct_reveal_viewers(&self.fog, entity.owner(), &config, &self.interner);
+        let viewers = vision::direct_reveal_viewers(
+            &self.fog,
+            &self.house_alliances,
+            entity.owner(),
+            &config,
+            &self.interner,
+        );
         let heights = self.sight_height_grid(&config);
         for viewer in viewers {
             let border_origin = self.reveal_area(
@@ -1470,11 +1487,9 @@ impl Simulation {
         config: &vision::VisionConfig,
         rules: Option<&RuleSet>,
     ) {
-        let untracked = self.fog.begin_sight_frame(
-            &self.substrate.entities,
-            self.path_grid.as_deref(),
-            &self.house_alliances,
-        );
+        let untracked = self
+            .fog
+            .begin_sight_frame(&self.substrate.entities, self.path_grid.as_deref());
         let context = UninitContext::new(rules, None);
         let removed: Vec<_> = self
             .fog
@@ -1508,8 +1523,13 @@ impl Simulation {
             if self.fog.source_cache_is_inactive(id, entity.owner()) {
                 continue;
             }
-            let viewers =
-                vision::direct_reveal_viewers(&self.fog, entity.owner(), config, &self.interner);
+            let viewers = vision::direct_reveal_viewers(
+                &self.fog,
+                &self.house_alliances,
+                entity.owner(),
+                config,
+                &self.interner,
+            );
             if vision::retained_sight_covers(&self.fog, id, entity.owner(), &viewers) {
                 if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                     self.fog.mark_retained_sight(id);
@@ -1674,7 +1694,13 @@ impl Simulation {
         ) else {
             return;
         };
-        let viewers = vision::direct_reveal_viewers(&self.fog, current, &config, &self.interner);
+        let viewers = vision::direct_reveal_viewers(
+            &self.fog,
+            &self.house_alliances,
+            current,
+            &config,
+            &self.interner,
+        );
         for &viewer in &viewers {
             if !self
                 .fog
@@ -1743,7 +1769,13 @@ impl Simulation {
         let Some(footprint) = footprint.filter(|footprint| footprint.radius != 0) else {
             return;
         };
-        let viewers = vision::direct_reveal_viewers(&self.fog, current, &config, &self.interner);
+        let viewers = vision::direct_reveal_viewers(
+            &self.fog,
+            &self.house_alliances,
+            current,
+            &config,
+            &self.interner,
+        );
         for &viewer in &viewers {
             self.fog.take_sight_admission(stable_id, viewer, true);
         }
@@ -1795,10 +1827,15 @@ impl Simulation {
         let Some(current) = self.session.current_house else {
             return footprints;
         };
-        self.fog.alliances = self.house_alliances.clone();
         let config = self.sight_reveal_config(Some(rules));
-        if !vision::direct_reveal_viewers(&self.fog, current, &config, &self.interner)
-            .contains(&owner)
+        if !vision::direct_reveal_viewers(
+            &self.fog,
+            &self.house_alliances,
+            current,
+            &config,
+            &self.interner,
+        )
+        .contains(&owner)
         {
             return footprints;
         }
@@ -1811,8 +1848,14 @@ impl Simulation {
                 || !self
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.reveal_to_all)
-                || vision::direct_reveal_viewers(&self.fog, entity.owner(), &config, &self.interner)
-                    .contains(&current)
+                || vision::direct_reveal_viewers(
+                    &self.fog,
+                    &self.house_alliances,
+                    entity.owner(),
+                    &config,
+                    &self.interner,
+                )
+                .contains(&current)
             {
                 continue;
             }
@@ -1862,10 +1905,14 @@ impl Simulation {
         if !high {
             return;
         }
-        self.fog.alliances = self.house_alliances.clone();
         //4DA6B4 loads SOURCE House before4F9A50; reverse-only alliance
         //does not admit this event or mutate this viewer's countdown.
-        let viewers = vision::allied_viewers(&self.fog, entity.owner(), &self.interner);
+        let viewers = vision::allied_viewers(
+            &self.fog,
+            &self.house_alliances,
+            entity.owner(),
+            &self.interner,
+        );
         let due: Vec<_> = viewers
             .into_iter()
             .filter(|&viewer| {

@@ -384,7 +384,12 @@ fn gsi_04_18_spy_sat_latch_and_persisted_fog_are_hash_authority() {
     sim.fog.reveal_all_for_owner(owner);
     let revealed_hash = sim.state_hash();
     let gapper = sim.interner.intern("Soviet");
-    crate::sim::vision::apply_gap_generators(&mut sim.fog, &[(gapper, 12, 12, 3)], &sim.interner);
+    crate::sim::vision::apply_gap_generators(
+        &mut sim.fog,
+        &sim.house_alliances,
+        &[(gapper, 12, 12, 3)],
+        &sim.interner,
+    );
     assert_ne!(sim.state_hash(), revealed_hash);
 }
 
@@ -533,7 +538,6 @@ fn shroud_current_sight_fresh_direct_allied_psychic_reaches_authoritative_view()
             .insert(right.into());
     }
     // Match the production alliance authority and its fog projection.
-    sim.fog.alliances = sim.house_alliances.clone();
     for owner in [a, b, c] {
         sim.fog.reveal_all_for_owner(owner);
     }
@@ -593,7 +597,6 @@ fn shroud_current_sight_psychic_never_gapped_and_mixed_views_are_nontransitive()
                 .insert(right.into());
         }
         // Match the production alliance authority and its fog projection.
-        sim.fog.alliances = sim.house_alliances.clone();
         for owner in [a, b, c] {
             sim.fog.mark_visible_for_owner(owner, 0, 0);
         }

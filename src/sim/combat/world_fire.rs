@@ -214,7 +214,7 @@ fn admit_attacker_fire<'r>(
             world,
             &world.interner,
             world.resolved_terrain.as_ref(),
-            fog_enabled.then_some(&world.fog.alliances),
+            fog_enabled.then_some(&world.house_alliances),
         ) else {
             out.remove_attack.push(snap.stable_id);
             return None;
@@ -262,7 +262,7 @@ fn admit_attacker_fire<'r>(
                 world,
                 rules,
                 overlay_registry,
-                fog: fog_enabled.then(|| world.fog.fire_view()),
+                fog: fog_enabled.then(|| world.fog.fire_view(&world.house_alliances)),
                 firer,
                 obj,
                 target: Some(snap.target),
@@ -477,13 +477,13 @@ fn admit_attacker_fire<'r>(
             world,
             &world.interner,
             world.resolved_terrain.as_ref(),
-            fog_enabled.then_some(&world.fog.alliances),
+            fog_enabled.then_some(&world.house_alliances),
         )?;
         let code = fire_error_world::FireSubject {
             world,
             rules,
             overlay_registry,
-            fog: fog_enabled.then(|| world.fog.fire_view()),
+            fog: fog_enabled.then(|| world.fog.fire_view(&world.house_alliances)),
             firer: actor,
             obj,
             target,
@@ -710,7 +710,7 @@ pub(super) fn retaliation_reaches(
         world,
         rules,
         overlay_registry,
-        fog: Some(world.fog.fire_view()),
+        fog: Some(world.fog.fire_view(&world.house_alliances)),
         firer: victim,
         obj: victim_type,
         target: Some(TargetKind::Entity(source_id)),
@@ -2428,8 +2428,8 @@ pub(crate) fn tick_combat(
     // began; its detonations and strikes can move the sensor counts. Only
     // what GetFireError reads is copied.
     let fog_enabled = fog_enabled(world);
-    let fog_copy =
-        (fog_enabled && !fire_requests.aircraft.is_empty()).then(|| world.fog.fire_copy());
+    let fog_copy = (fog_enabled && !fire_requests.aircraft.is_empty())
+        .then(|| world.fog.fire_copy(&world.house_alliances));
     let fog = fog_copy.as_ref().map(crate::sim::vision::FireFogCopy::view);
     let active_wave_owners: BTreeSet<_> = world.active_wave_links.keys().copied().collect();
 

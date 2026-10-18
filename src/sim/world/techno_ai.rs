@@ -1235,10 +1235,11 @@ fn drop_unsensed_cloaked_target_step(
         return;
     }
     let target_cell = (target.position.rx(), target.position.ry());
-    if sim
-        .fog
-        .is_friendly(&owner_str, sim.interner.resolve(target.owner()))
-    {
+    if crate::map::houses::are_houses_friendly(
+        &sim.house_alliances,
+        &owner_str,
+        sim.interner.resolve(target.owner()),
+    ) {
         return;
     }
     if sim
@@ -1652,7 +1653,7 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     };
     if !combat_weapon::is_ally_by_object(
-        Some(&sim.fog.alliances),
+        Some(&sim.house_alliances),
         &sim.interner,
         house,
         target.owner(),

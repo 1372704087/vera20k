@@ -226,6 +226,7 @@ fn present(
                     view.session().tick,
                     view.session().current_house,
                     view.fog(),
+                    view.house_alliances(),
                     true,
                     view.session().game_mode_nonzero,
                     Some(&runtime.resources.rules),

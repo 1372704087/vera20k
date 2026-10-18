@@ -2666,7 +2666,7 @@ fn stock_sniper_damage_retaliation_uses_wall_context_before_sight_fallback() {
             world: &sim,
             rules,
             overlay_registry: Some(&registry),
-            fog: Some(sim.fog.fire_view()),
+            fog: Some(sim.fog.fire_view(&sim.house_alliances)),
             firer: actor,
             obj: sniper,
             target: Some(TargetKind::Entity(source)),
@@ -6306,7 +6306,7 @@ fn gsi_08_01_a_shared_cell_offers_only_its_list_head() {
         crate::sim::combat::line_of_fire::LineOfFireInputs {
             overlay_grid: None,
             overlay_registry: None,
-            alliances: Some(&fog.alliances),
+            alliances: Some(&HouseAllianceMap::new()),
         },
         None,
         None,
@@ -6348,7 +6348,7 @@ fn gsi_08_01_unarmed_building_loses_to_a_tank_at_equal_distance() {
         crate::sim::combat::line_of_fire::LineOfFireInputs {
             overlay_grid: None,
             overlay_registry: None,
-            alliances: Some(&fog.alliances),
+            alliances: Some(&HouseAllianceMap::new()),
         },
         None,
         None,

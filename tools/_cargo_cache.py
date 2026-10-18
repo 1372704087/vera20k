@@ -43,12 +43,16 @@ def gib_bytes(value: str) -> int:
 # 16 GiB keeps the newest sessions of the worktrees active in the last hours.
 # The total budget fits this 228 GiB volume, which also holds Ghidra's database
 # and backups and captures: at 40 GiB free space settled near 28 GiB rather
-# than the 16 GiB reserve, which still trims whenever the volume runs short.
+# than the reserve, which still trims whenever the volume runs short.
+# The reserve covers one build and the writes beside it. In the receipts from
+# 2026-09-30 to 10-18, free space starting at 20 GiB or less fell at most
+# 7.2 GiB before the next pass. On 2026-10-18 the volume's 12-16 GiB free sat
+# below the former 16 GiB reserve for hours, blocking builds 12 GiB admits.
 @dataclass(frozen=True)
 class CachePolicy:
     cache_bytes: int = 40 * GIB
     incremental_bytes: int = 16 * GIB
-    min_free_bytes: int = 16 * GIB
+    min_free_bytes: int = 12 * GIB
 
     def __post_init__(self):
         if any(type(value) is not int or value < 0 for value in asdict(self).values()):
@@ -60,7 +64,7 @@ class CachePolicy:
                      for value, key, default in (
                          (cache, 'VERA20K_CACHE_GIB', '40'),
                          (incremental, 'VERA20K_INCREMENTAL_GIB', '16'),
-                         (free, 'VERA20K_MIN_FREE_GIB', '16'))))
+                         (free, 'VERA20K_MIN_FREE_GIB', '12'))))
 
 
 def _json(path: Path):

@@ -265,7 +265,7 @@ fn infantry_deploy_and_loaded_transport_self_cursors_share_click_admission() {
                 .spawn_object("E1", "Americans", 15, 16, 64, &retail.rules)
                 .unwrap();
             let mut cargo = crate::sim::passenger::PassengerCargo::new(1, 0);
-            cargo.board(passenger, 1);
+            cargo.board_forced_chain(&[(passenger, 1)]);
             sim.entities_mut().get_mut(actor).unwrap().passenger_role =
                 crate::sim::passenger::PassengerRole::transport(cargo);
         }

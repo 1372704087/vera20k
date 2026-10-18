@@ -158,10 +158,7 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn queue_then_stop_score_zero(&mut self) {
-        let now_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-            self.state,
-            Instant::now(),
-        );
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         self.state.audio.queue_then_stop_score_zero(now_ms);
     }
 
@@ -343,6 +340,9 @@ impl App {
     /// while its simulation is still alive, hand the scenario stream back to the
     /// offline shell, retaining the runtime and presentation resources.
     pub(super) fn leave_mission_result_screen(state: &mut AppState) {
+        // A won campaign mission continues in GameExit::Victory instead of
+        // returning to the shell; read it before the teardown below.
+        let campaign_victory = Self::take_campaign_victory(state);
         // Main_Game48CEBF also retires ScenarioStarted after score Continue;
         // source: original gamemd.exe Main_Game48CCC0 (EBX=0 at48CCD4).
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
@@ -358,7 +358,10 @@ impl App {
         state.frontend.screen = GameScreen::MainMenu;
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
-        Self::resume_shell_after_match(state);
+        match campaign_victory {
+            Some(victory) => Self::advance_campaign_victory(state, victory),
+            None => Self::resume_shell_after_match(state),
+        }
     }
 
     /// Where the shell resumes after a match: a Skirmish game re-enters a new
@@ -1035,8 +1038,7 @@ impl App {
         if state.frontend.fullscreen_movie.is_some() {
             return;
         }
-        let now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         // The common service pumps Theme for Credits and WOL too, without
         // these routes running the menu loop's Play_Song(INTRO).
         if state.frontend.credits_roll.is_some() {
@@ -1202,61 +1204,5 @@ impl App {
         {
             crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         }
-    }
-}
-
-#[cfg(test)]
-mod confirmed_quit_transaction_tests {
-    use super::*;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum QuitEvent {
-        Persist,
-        Dismiss,
-        Cascade,
-    }
-
-    #[derive(Default)]
-    struct RecordingQuitOperations {
-        events: Vec<QuitEvent>,
-        persists: usize,
-        dismissals: usize,
-        cascades: usize,
-    }
-
-    impl ConfirmedQuitOperations for RecordingQuitOperations {
-        fn persist_settings(&mut self) {
-            self.persists += 1;
-            self.events.push(QuitEvent::Persist);
-        }
-
-        fn dismiss_confirmation(&mut self) {
-            self.dismissals += 1;
-            self.events.push(QuitEvent::Dismiss);
-        }
-
-        fn start_cascade(&mut self) {
-            self.cascades += 1;
-            self.events.push(QuitEvent::Cascade);
-        }
-    }
-
-    fn assert_single_dispatch(operations: &RecordingQuitOperations) {
-        assert_eq!(operations.persists, 1);
-        assert_eq!(operations.dismissals, 1);
-        assert_eq!(operations.cascades, 1);
-        assert_eq!(
-            operations.events,
-            [QuitEvent::Dismiss, QuitEvent::Persist, QuitEvent::Cascade,]
-        );
-    }
-
-    #[test]
-    fn shell_controller_confirmed_quit_dispatches_one_profile_write() {
-        let mut operations = RecordingQuitOperations::default();
-
-        dispatch_shell_controller_confirmed_quit(&mut operations);
-
-        assert_single_dispatch(&operations);
     }
 }

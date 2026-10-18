@@ -5,11 +5,8 @@ use crate::sim::power_system::PowerState;
 use crate::sim::rng::SimRng;
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/ai_base_building_oracle.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/ai_base_building_oracle.json")
 }
 
 fn int(value: &Value) -> i64 {
@@ -18,6 +15,57 @@ fn int(value: &Value) -> i64 {
 
 fn flag(value: &Value) -> bool {
     value.as_bool().unwrap()
+}
+
+#[test]
+fn suggest_new_object_matches_original_raw_factory_dispatch_table() {
+    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/trigger_no_factories_events.json",
+    ))
+    .unwrap();
+    let dispatch = &corpus["factory"]["suggest_dispatch"];
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[BuildingTypes]\n0=B\n[VehicleTypes]\n0=U\n[InfantryTypes]\n0=I\n[AircraftTypes]\n0=A\n[B]\n[U]\n[I]\n[A]\n",
+    )).unwrap();
+    let mut sim = Simulation::with_seed(31);
+    let owner = sim.interner.intern("AI");
+    let mut house = HouseState::new(owner, 0, None, false, 1000, 10);
+    house.ai_production.set_for_test(0, 0, true);
+    for kind in [
+        UnitChoiceKind::Unit,
+        UnitChoiceKind::Infantry,
+        UnitChoiceKind::Aircraft,
+    ] {
+        house.ai_unit_choices.set(kind, 0);
+    }
+    sim.houses.insert(owner, house);
+    // Original jump targets load the existing four House choices. The saved
+    // byte table establishes aliases; this is control-flow/data evidence,
+    // not an execution of a complete native production queue.
+    for row in corpus["factory"]["rtti_name_table"].as_array().unwrap() {
+        let rtti = int(&row["value"]) as i32;
+        let entry = dispatch["aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|alias| int(&alias["rtti"]) == i64::from(rtti))
+            .map_or(int(&dispatch["default_entry"]), |alias| {
+                int(&alias["entry"])
+            });
+        let expected = match entry {
+            0x4fbddc => Some("B"),
+            0x4fbdaf => Some("U"),
+            0x4fbdc6 => Some("I"),
+            0x4fbd99 => Some("A"),
+            0x4fbdf3 => None,
+            _ => panic!("unreviewed native jump target {entry:x}"),
+        };
+        assert_eq!(
+            suggest_new_object(&sim, &rules, owner, rtti).map(|object| object.id.as_str()),
+            expected,
+            "{row}"
+        );
+    }
 }
 
 /// The oracle's BuildingTypes, in its array order, then the economy's lists
@@ -362,7 +410,8 @@ fn retail_building_types_set_no_cloak_generator_or_upgrade() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
+    let rules =
+        crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
     assert!(rules.building_ids.len() > 100);
     for name in &rules.building_ids {
         let ty = rules.object(name).unwrap();
@@ -381,10 +430,9 @@ fn retail_building_types_set_no_cloak_generator_or_upgrade() {
 /// No other retail INI gamemd reads sets either key.
 #[test]
 fn retail_walls_by_difficulty_and_side() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert_eq!(rules.general.ai_pick_wall_defense_percent, [50, 25, 10]);
     assert_eq!(rules.concrete_wall_types, ["GAWALL", "NAWALL", "GAFWLL"]);
     for (side, name) in [(0, "GAWALL"), (1, "NAWALL"), (2, "GAFWLL")] {

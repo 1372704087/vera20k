@@ -3,7 +3,7 @@
 
 /// Real resident TMP input matching the original bridge-constructor fixture.
 /// Kept with the loader fixture so sim tests don't duplicate asset construction.
-pub(crate) fn bridge_constructor_terrain() -> ResolvedTerrainGrid {
+pub fn bridge_constructor_terrain() -> ResolvedTerrainGrid {
     let theater = synthetic_theater_from_ini(
         b"[TileSet0000]\nTilesInSet=1\nFileName=source\nSetName=Plain\n",
     );
@@ -43,18 +43,18 @@ pub(crate) fn bridge_constructor_terrain() -> ResolvedTerrainGrid {
 /// Real resident inputs for bridge_hierarchy's original586990/Recalc corpus.
 /// Tile2 is invalid against the two-entry registry; tile0 has the supplied
 /// slope used by the second-pass admission discriminator. No Recalc substitute.
-pub(crate) fn install_bridge_batch_test_catalog(grid: &mut ResolvedTerrainGrid, slope: bool) {
+pub fn install_bridge_batch_test_catalog(grid: &mut ResolvedTerrainGrid, slope: bool) {
     install_repair_test_catalog(grid, slope, true, 11);
 }
 
-pub(crate) fn install_ordinary_repair_test_catalog(grid: &mut ResolvedTerrainGrid) {
+pub fn install_ordinary_repair_test_catalog(grid: &mut ResolvedTerrainGrid) {
     install_repair_test_catalog(grid, false, false, 11);
 }
 
 /// Bind the supplied empty IsoTileType array from the Jumpjet native fixture.
 /// Its Cell+38=0 is unregistered, so original Recalc47D2B0 reads Clear land
 /// through the supplied retail TerrainRules. No TMP metadata is substituted.
-pub(crate) fn install_no_registered_tiles_test_catalog(
+pub fn install_no_registered_tiles_test_catalog(
     grid: &mut ResolvedTerrainGrid,
     rules: &TerrainRules,
 ) {
@@ -73,11 +73,7 @@ pub(crate) fn install_no_registered_tiles_test_catalog(
 
 /// Sparse physical TMP headers for supplied-state native587410 comparisons.
 /// Use the production registered-file reader; no query-origin substitution.
-pub(crate) fn install_bridge_query_test_catalog(
-    grid: &mut ResolvedTerrainGrid,
-    width: u8,
-    tiles: &[u16],
-) {
+pub fn install_bridge_query_test_catalog(grid: &mut ResolvedTerrainGrid, width: u8, tiles: &[u16]) {
     let theater = synthetic_theater_from_ini(
         b"[TileSet0000]\nTilesInSet=1\nFileName=source\nSetName=Plain\n",
     );
@@ -97,16 +93,32 @@ pub(crate) fn install_bridge_query_test_catalog(
 
 /// The ordinary catalog with a Tunnel tile1 (TMP terrain type 5): a Cell on it
 /// keeps Cell+EC = Tunnel through the Recalc(-1) its Mark runs.
-pub(crate) fn install_tunnel_repair_test_catalog(grid: &mut ResolvedTerrainGrid) {
+pub fn install_tunnel_repair_test_catalog(grid: &mut ResolvedTerrainGrid) {
     install_repair_test_catalog(grid, false, false, 5);
 }
 
+/// The catalog depends only on these inputs and carries a supplied selector
+/// table, so the grids share one copy per test process: building it writes
+/// and loads a loose archive stack.
 fn install_repair_test_catalog(
     grid: &mut ResolvedTerrainGrid,
     slope: bool,
     wheel_only: bool,
     second_terrain: u8,
 ) {
+    grid.bridge_recalc_catalog = crate::test_fixture::once_per_process(
+        ("repair test catalog", slope, wheel_only, second_terrain),
+        || {
+            Some(Arc::new(repair_test_catalog(
+                slope,
+                wheel_only,
+                second_terrain,
+            )))
+        },
+    );
+}
+
+fn repair_test_catalog(slope: bool, wheel_only: bool, second_terrain: u8) -> BridgeRecalcCatalog {
     let theater = synthetic_theater_from_ini(
         b"[TileSet0000]\nTilesInSet=2\nFileName=source\nSetName=Plain\n",
     );
@@ -123,13 +135,11 @@ fn install_repair_test_catalog(
         .map(|land| format!("[{}]\n{}", land.section_name(),if wheel_only {"Wheel=100%\n"} else {"Foot=100%\nTrack=100%\nWheel=100%\nFloat=100%\nHover=100%\nAmphibious=100%\nFloatBeach=100%\nBuildable=yes\n"}))
         .collect();
     let rules = TerrainRules::from_ini(&IniFile::from_str(&rules_text));
-    grid.bridge_recalc_catalog = Some(Arc::new(
-        BridgeRecalcCatalog::for_tiles(&theater, &assets, &rules, false, 0, [0, 1])
-            // Live publication also refreshes presentation for the invalid
-            // tile's clear fallback. Its single file always selects variant0;
-            // supply the initialized process table required by that path.
-            .with_fixture_files(0, &assets, &["source01.tem"], [0; 64]),
-    ));
+    BridgeRecalcCatalog::for_tiles(&theater, &assets, &rules, false, 0, [0, 1])
+        // Live publication also refreshes presentation for the invalid
+        // tile's clear fallback. Its single file always selects variant0;
+        // supply the initialized process table required by that path.
+        .with_fixture_files(0, &assets, &["source01.tem"], [0; 64])
 }
 
 #[test]
@@ -436,11 +446,8 @@ fn current_tile_permission_queries_match_original_instruction_blocks() {
     }
 }
 
-fn bridge_catalog_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_recalc_presentation.json",
-    ))
-    .unwrap()
+fn bridge_catalog_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_recalc_presentation.json")
 }
 
 fn run_bridge_catalog_native_group(group: &serde_json::Value, files: &[Vec<u8>]) {

@@ -1,9 +1,10 @@
-//! The successful normal Techno Select's voice tail, sharing the existing
+//! Techno selection and committed-order voice requests share the existing
 //! process Main RNG with terrain variants and the other sound producers.
 //!
-//! Native: TechnoSelect6FBFA0, VoiceSelect708EB0, QueueMegaMission6FFBE0's
-//! default VoiceSpecialAttack6FFD42, and shared QueueVoice708D90;
-//! executed comparisons: tools/input_oracle/selection_navigation.json.
+//! Native: TechnoSelect6FBFA0, VoiceSelect708EB0, VoiceMove708FC0, VoiceAttack7090A0,
+//! QueueMegaMission6FFBE0's default VoiceSpecialAttack6FFD42, and shared
+//! QueueVoice708D90. Executed comparisons: input_oracle/selection_navigation
+//! and spatial_oracle/{allied_object_action,attack_order_voice} under tools/.
 //! Main886B88 is excluded from lockstep hashes and snapshot bytes. Fresh
 //! loading advances it before gameplay; in-scenario restore retains its live
 //! continuation through `retain_process_state_for_load`.
@@ -23,6 +24,10 @@ use crate::rules::ruleset::RuleSet;
 #[path = "selection_voice_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "order_voice_tests.rs"]
+mod order_tests;
+
 /// Techno `+0x4F8`: the next ordinary VoiceDeploy attempt is silenced. The
 /// constructor clears it (`0x006F30FA`). A SlaveManager relocation sets it
 /// ([`Self::suppress`], `0x006B01C4`) before the refinery's undeploy voice,
@@ -33,7 +38,7 @@ mod tests;
 /// from the audio pending line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct DeployVoiceSuppression(bool);
+pub struct DeployVoiceSuppression(bool);
 
 impl DeployVoiceSuppression {
     /// Whether the next VoiceDeploy is silenced.
@@ -42,7 +47,7 @@ impl DeployVoiceSuppression {
     }
 
     /// The SlaveManager relocation's store (`0x006B01C4`).
-    pub(crate) fn suppress(&mut self) {
+    pub fn suppress(&mut self) {
         self.0 = true;
     }
 
@@ -58,7 +63,7 @@ impl Simulation {
     /// voice latch is enabled (6FBFF4..6FC018). Rejection consumes no draw.
     /// The returned registered sound name is a presentation request; this
     /// operation changes only the existing process Main cursor.
-    pub(crate) fn selection_voice_request<'a>(
+    pub fn selection_voice_request<'a>(
         &mut self,
         rules: &'a RuleSet,
         entity_id: u64,
@@ -73,7 +78,7 @@ impl Simulation {
         if !voices_enabled || (!human_player && !passive) {
             return None;
         }
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
         let voices = if entity.slave.owner().is_some() {
             &object.voice_select_enslaved
         } else if entity.deactivated.is_offline() {
@@ -84,30 +89,125 @@ impl Simulation {
         self.voice_request_from_list(voices, voices_enabled, human_player)
     }
 
-    /// QueueMegaMission6FFCBD..6FFDA5's default voice arm, used by AreaGuard
-    /// and Sabotage. The enable latch gates the list before any Main draw;
-    /// QueueVoice's human-house gate follows the draw. Caller loops decide
-    /// whether to suppress later actors (click dispatch does, Guard key does
-    /// not). This request never changes the deterministic Scenario stream.
-    pub(crate) fn default_order_voice_request<'a>(
+    /// QueueMegaMission6FFCBD..6FFDA5 chooses the committed order's voice
+    /// only while its enable latch is set. QueueVoice708D90 applies the
+    /// human-House gate after the reached voice function chooses a sound.
+    /// Capture708DC0 falls to Enter709020, which falls to Move708FC0;
+    /// Harvest709060 also falls to Move when its scalar slot is absent.
+    ///
+    /// VoiceAttack7090A0 consumes the committed attack target before event
+    /// encoding, independently of the actor's old TarCom or UI hover.
+    /// VoiceMove708FC0 consumes the full fixed-catalog list retained by the
+    /// existing type-processing owner, including Enter/Capture/Harvest fallback.
+    pub fn order_voice_request<'a>(
         &mut self,
         rules: &'a RuleSet,
         entity_id: u64,
+        voice_field: &str,
+        target: Option<crate::sim::combat::TargetKind>,
         voices_enabled: bool,
     ) -> Option<&'a str> {
         if !voices_enabled {
             return None;
         }
+        if voice_field == "VoiceAttack" {
+            return self.attack_voice_request(rules, entity_id, target, voices_enabled);
+        }
         let entity = self.entities().get(entity_id)?;
         let human_player = self.house_is_human_player(entity.owner());
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
-        self.voice_request_from_list(&object.voice_special_attack, voices_enabled, human_player)
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
+        // 6FFD42's default arm, including AreaGuard and Sabotage. Caller
+        // loops own suppression of later actors; this owner spends only Main.
+        if voice_field == "VoiceSpecialAttack" {
+            return self.voice_request_from_list(
+                &object.voice_special_attack,
+                voices_enabled,
+                human_player,
+            );
+        }
+        let scalar = match voice_field {
+            "VoiceMove" => None,
+            "VoiceHarvest" => object.voice_harvest(),
+            "VoiceEnter" => object.voice_enter(),
+            "VoiceCapture" => object.voice_capture().or(object.voice_enter()),
+            _ => return None,
+        };
+        if let Some(sound) = scalar {
+            return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+        }
+        // VoiceMove708FD6..70900C: every nonempty list, including a
+        // singleton, spends one raw Main65C780 draw before
+        // QueueVoice's enable/House rejection. The caller enable gate above
+        // instead prevents reaching VoiceMove at all (6FFCBD..6FFCCB).
+        self.voice_request_from_list(object.voice_move(), voices_enabled, human_player)
+    }
+
+    /// VoiceAttack7090A0 through the existing SelectWeapon/GetWeapon,
+    /// raw Veterancy750010, type/General sound readers and Main/QueueVoice
+    /// owners. Original executions: spatial_oracle/attack_order_voice.json.
+    /// A reached list still draws before QueueVoice rejects disabled/nonhuman
+    /// requests; QueueMegaMission's earlier enable gate is owned above.
+    fn attack_voice_request<'a>(
+        &mut self,
+        rules: &'a RuleSet,
+        entity_id: u64,
+        target: Option<crate::sim::combat::TargetKind>,
+        voices_enabled: bool,
+    ) -> Option<&'a str> {
+        use crate::map::resolved_terrain::NativeCellQuery;
+        use crate::sim::combat::{combat_weapon, veterancy};
+
+        let entity = self.entities().get(entity_id)?;
+        let human_player = self.house_is_human_player(entity.owner());
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
+        // Input-time selection keeps the shared fallback Cell unchanged.
+        let cells = self
+            .resolved_terrain
+            .as_ref()
+            .map(NativeCellQuery::isolated);
+        let index = combat_weapon::select_weapon_index_against_in_query(
+            rules,
+            entity,
+            object,
+            &combat_weapon::attacker_facts(entity, object),
+            target.as_ref(),
+            self,
+            &self.interner,
+            cells.as_ref(),
+            Some(&self.house_alliances),
+        )?;
+        // GetWeapon(-1) returns a NULL slot, which7090C0 dereferences before
+        // any voice or draw. A valid slot containing a NULL weapon is distinct
+        // and continues to the ordinary override/list logic.
+        assert_ne!(index, -1, "VoiceAttack7090C0 dereferences GetWeapon(-1)");
+        let weapon = combat_weapon::get_weapon(
+            entity,
+            object,
+            index,
+            self.entities(),
+            rules,
+            &self.interner,
+        );
+        let scalar = if weapon.is_some_and(|weapon| weapon.damage < 0)
+            && object.id.eq_ignore_ascii_case("FV")
+        {
+            //7090D0..7090EB: native literal FV, MatchesTypeID5F3E50/410A40.
+            // This jumps past all four overrides even when Rules+230 is -1.
+            rules.general.voice_ifv_repair()
+        } else {
+            object.voice_attack_override(index, veterancy::raw_is_elite(entity.veterancy.raw()))
+        };
+        if let Some(sound) = scalar {
+            return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+        }
+        //70918D..7091C4: unsigned raw draw/modulo, including a singleton.
+        self.voice_request_from_list(object.voice_attack(), voices_enabled, human_player)
     }
 
     /// QueueVoice708D90's sole admission predicate. The caller owns any list
     /// draw and House50B6F0 query; the audio owner alone retains the pending
     /// and playing slots. Scalar requests consume no random draw.
-    pub(crate) fn queue_voice_request(
+    fn queue_voice_request(
         sound: Option<&str>,
         voices_enabled: bool,
         human_player: bool,
@@ -121,7 +221,7 @@ impl Simulation {
     /// +590; a missing slot stays silent, with no fallback or Main draw.
     /// Source: tools/input_oracle/slave_miner_pack_voice.{json,meta.json};
     /// original1cdd1180.
-    pub(crate) fn deploy_voice_request<'a>(
+    pub fn deploy_voice_request<'a>(
         &mut self,
         rules: &'a RuleSet,
         entity_id: u64,
@@ -132,7 +232,7 @@ impl Simulation {
 
         let entity = self.entities().get(entity_id)?;
         let human_player = self.house_is_human_player(entity.owner());
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
         if entity.category() == EntityCategory::Structure
             && object.resource_gatherer
             && object.resource_destination
@@ -159,9 +259,9 @@ impl Simulation {
         request
     }
 
-    /// Reached VoiceSelect708EB0 and default command6FFD42 consume one raw
-    /// Random65C780 draw for every nonempty list, including a singleton,
-    /// then unsigned modulo.
+    /// Reached VoiceSelect708EB0, VoiceMove708FC0, VoiceAttack7090A0 and default6FFD42
+    /// consume one raw Random65C780 draw for every nonempty list, including
+    /// a singleton, then unsigned modulo.
     /// QueueVoice708D90 applies enable/House50B6F0/-1 rejection after the draw.
     /// Native ReadSoundList binding skips unresolved names, so its selected-ID
     /// -1 rejection is represented only by deliberately unbound test inputs.

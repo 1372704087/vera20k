@@ -7,9 +7,87 @@ use crate::rules::team_ai_ini::TeamAiDefinitionSource;
 use crate::sim::combat::TargetKind;
 use crate::sim::house_state::HouseState;
 use crate::sim::team_script_vm::{
-    TeamScriptAction, TeamScriptDefinition, TeamTaskForceDefinition, TeamTaskForceEntry,
-    TeamTypeDefinition, member_type_identity,
+    TeamScriptAction, TeamScriptDefinition, TeamScriptVm, TeamTaskForceDefinition,
+    TeamTaskForceEntry, TeamTypeDefinition, member_type_identity,
 };
+
+#[test]
+fn wall_sale_detach_clears_only_matching_team_target_fields() {
+    use crate::sim::command::Command;
+    use crate::sim::components::NavTargetRef;
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::world::tests::{gsi_04_07_wall_sell_rules, gsi_04_07_wall_sell_seed_houses};
+
+    let (rules, overlays) = gsi_04_07_wall_sell_rules(false, false);
+    let mut sim = Simulation::with_seed(77);
+    let (wall_owner, receiver) = gsi_04_07_wall_sell_seed_houses(&mut sim);
+    let mut grid = crate::sim::overlay_grid::OverlayGrid::new(8, 8);
+    grid.place_owned_wall(4, 4, 2, 0, wall_owner);
+    sim.overlay_grid = Some(grid);
+    sim.playfield_bounds = Some(crate::sim::arena_fixture::OPEN_PLAYFIELD);
+    let script = sim.interner.intern("DETACH");
+    let sold = Some(TeamTarget::Cell { x: 4, y: 4 });
+    let other = Some(TeamTarget::Cell { x: 6, y: 6 });
+    let mut teams = Vec::new();
+    for (id, target, focus, expected_target, expected_focus) in [
+        (10, sold, sold, None, None),
+        (20, sold, other, None, other),
+        (30, other, sold, other, None),
+    ] {
+        let mut actor = GameEntity::test_default(id, "MTNK", "Receiver", 2, 2);
+        actor.set_owner_for_test(receiver);
+        actor
+            .navigation
+            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 4, ry: 4 }));
+        sim.substrate.entities.insert(actor);
+        let team = sim
+            .team_script_vm
+            .create_team(receiver, script, vec![id], 0);
+        sim.team_assign_mission_target(team, target, &rules, None, FrameEffects::default());
+        let state = sim.team_script_vm.teams.get_mut(&team).unwrap();
+        state.focus = focus;
+        state.zone = sold;
+        teams.push((team, expected_target, expected_focus, id));
+    }
+    assert!(sim.apply_command_with_overlays(
+        "Receiver",
+        &Command::SellWallAtCell { x: 4, y: 4 },
+        Some(&rules),
+        Some(&overlays),
+        FrameEffects::default(),
+    ));
+    for (team, expected_target, expected_focus, id) in teams {
+        let state = sim.team_script_vm.team(team).unwrap();
+        assert_eq!(state.mission_target, expected_target);
+        assert_eq!(state.focus, expected_focus);
+        assert_eq!(state.zone, sold, "detach does not broadcast pointer expiry");
+        assert_eq!(state.members().collect::<Vec<_>>(), [id]);
+        let actor = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(
+            actor.navigation.nav_com(),
+            Some(NavTargetRef::Cell { rx: 4, ry: 4 }),
+            "70D562..57A clears Team pointers directly, without AssignMissionTarget member orders"
+        );
+    }
+}
+
+#[test]
+fn object_detach_clears_team_targets_without_expiring_zone_or_members() {
+    let mut sim = Simulation::new();
+    let owner = sim.interner.intern("Owner");
+    let script = sim.interner.intern("DETACH");
+    let team = sim.team_script_vm.create_team(owner, script, vec![44], 0);
+    let state = sim.team_script_vm.teams.get_mut(&team).unwrap();
+    state.mission_target = Some(TeamTarget::Object(44));
+    state.focus = Some(TeamTarget::Cell { x: 4, y: 4 });
+    state.zone = state.mission_target;
+    sim.stop_all_targeting_on_detach(44, None, None, FrameEffects::default());
+    let state = sim.team_script_vm.team(team).unwrap();
+    assert_eq!(state.mission_target, None);
+    assert_eq!(state.focus, Some(TeamTarget::Cell { x: 4, y: 4 }));
+    assert_eq!(state.zone, Some(TeamTarget::Object(44)));
+    assert_eq!(state.members().collect::<Vec<_>>(), [44]);
+}
 
 #[test]
 fn tesla_charger_team_recalls_an_automatic_target_but_keeps_an_explicit_attack() {
@@ -94,8 +172,8 @@ fn tesla_charger_team_recalls_an_automatic_target_but_keeps_an_explicit_attack()
     }
 }
 
-fn patrol_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text("tools/team_patrol.json")).unwrap()
+fn patrol_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/team_patrol.json")
 }
 
 /// The expected retained bits and periods are executed native outputs, including
@@ -496,6 +574,157 @@ fn rules() -> RuleSet {
     .expect("team action rules")
 }
 
+#[test]
+fn script17_replacement_and_next_visit_match_original_controls() {
+    let native: serde_json::Value =
+        serde_json::from_str(crate::test_fixture::text("tools/team_change_script.json")).unwrap();
+    for row in native.as_array().unwrap() {
+        // A live Rust Team always owns a Script attachment; TeamAI clears
+        // StepCompleted before dispatch. The extra native controls establish
+        // the NULL old-Script gate and lack of a completion write separately.
+        if !row["old_script"].as_bool().unwrap() || row["advance_before"].as_bool().unwrap() {
+            continue;
+        }
+        let rules = rules();
+        let mut sim = Simulation::with_seed(0x6E972C);
+        crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+        let ordinal = row["ordinal"].as_u64().unwrap() as usize;
+        let (team, members, _) = building_team(&mut sim, &rules, &[(17, ordinal as i32)], &[]);
+        while sim.team_script_vm.script_order.len() <= ordinal {
+            let id = sim
+                .interner
+                .intern(&format!("SCRIPT_{}", sim.team_script_vm.script_order.len()));
+            sim.team_script_vm.register_script(TeamScriptDefinition {
+                id,
+                actions: vec![TeamScriptAction {
+                    action_id: 2,
+                    argument: 0,
+                }],
+                source: TeamAiDefinitionSource::Scenario,
+            });
+        }
+        let target = TeamTarget::Cell { x: 20, y: 21 };
+        let expected_script = sim.team_script_vm.script_order[ordinal];
+        let state = sim.team_script_vm.teams.get_mut(&team).unwrap();
+        state.cursor = 0;
+        state.advance_pending = row["advance_before"].as_bool().unwrap();
+        state.mission_target = Some(target);
+        state.focus = Some(target);
+        let old_timer = state.guard_timer;
+        let rng_before = sim.scenario_rng.native_state_hex();
+        sim.team_step_script(team, &rules, None, FrameEffects::default());
+        let state = sim.team_script_vm.team(team).unwrap();
+        assert_eq!(state.script_id(), expected_script, "{row}");
+        assert_eq!(i64::from(state.cursor()), row["cursor"].as_i64().unwrap());
+        assert_eq!(
+            state.advance_pending(),
+            row["advance_after"].as_bool().unwrap()
+        );
+        assert_eq!(state.mission_target, Some(target), "{row}");
+        assert_eq!(state.focus, Some(target), "{row}");
+        assert_eq!(state.guard_timer, old_timer, "{row}");
+        assert_eq!(state.members().collect::<Vec<_>>(), members, "{row}");
+        if !state.advance_pending() {
+            sim.team_step_script(team, &rules, None, FrameEffects::default());
+            let state = sim.team_script_vm.team(team).unwrap();
+            assert_eq!(
+                i64::from(state.cursor()),
+                row["next_cursor"].as_i64().unwrap()
+            );
+            assert_eq!(
+                state.advance_pending(),
+                row["next_advance"].as_bool().unwrap()
+            );
+            assert!(state.refusal().is_none());
+        }
+        assert_eq!(sim.scenario_rng.native_state_hex(), rng_before);
+        let restored: TeamScriptVm =
+            bincode::deserialize(&bincode::serialize(&sim.team_script_vm).unwrap()).unwrap();
+        assert_eq!(restored.team(team), sim.team_script_vm.team(team));
+    }
+    assert!(action_is_ported(17));
+}
+
+#[test]
+fn retail_sov01_script17_uses_the_production_script_registry() {
+    use crate::rules::process_owner::NativeScenarioRulesPrefix;
+    let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let bytes = assets.get_ref("SOV01UMD.MAP").unwrap();
+    assert_eq!(
+        crate::util::sha256::sha256_hex(bytes),
+        "498b989a4b6f579dee0904a77f1fabf982c14786db21a46c41900fc8344ec72b"
+    );
+    let map = crate::map::map_file::MapFile::from_bytes(bytes).unwrap();
+    let named = assets.resolve_ref("SOV01UMD.INI").map(|_| {
+        crate::rules::retail_sources::select_ini(&assets, "SOV01UMD.INI")
+            .unwrap()
+            .ini
+    });
+    let mut rules_owner = crate::rules::retail_ini_fixture::retail_rules_owner(&assets);
+    let (rules, _, _, _) = rules_owner
+        .load_scenario(
+            NativeScenarioRulesPrefix::Campaign(named.as_ref()),
+            &map.ini,
+        )
+        .unwrap()
+        .into_parts();
+    let registry =
+        crate::rules::team_ai_ini::TeamAiIniRegistry::load_retail(&assets, &map.ini, false)
+            .unwrap();
+    let mut sim = Simulation::new();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    sim.install_team_ai_registry(&registry, &rules).unwrap();
+    let vm = &sim.team_script_vm;
+    let mut switches = Vec::new();
+    for (name, ordinal) in [
+        ("0442D4BC", 107),
+        ("0442F04C", 108),
+        ("0442D8DC", 109),
+        ("0442F52C", 110),
+        ("044340FC", 111),
+        ("0442D05C", 112),
+    ] {
+        let id = sim.interner.get(name).unwrap();
+        let script = &vm.scripts[&id];
+        assert_eq!(
+            script.actions,
+            [
+                TeamScriptAction {
+                    action_id: 50,
+                    argument: 120
+                },
+                TeamScriptAction {
+                    action_id: 17,
+                    argument: ordinal
+                },
+            ]
+        );
+        let target = vm.script_order[ordinal as usize];
+        assert!(vm.scripts.contains_key(&target));
+        switches.push((id, target));
+    }
+    // Resolve numeric references through the installed fixed+scenario owner,
+    // rather than treating 107..112 as map-local ScriptTypes list positions.
+    for (source, expected) in switches {
+        let owner = sim.interner.intern("Americans");
+        let team = sim.team_script_vm.create_team(owner, source, Vec::new(), 0);
+        {
+            let state = sim.team_script_vm.teams.get_mut(&team).unwrap();
+            state.cursor = 0;
+            state.advance_pending = true;
+        }
+        sim.team_step_script(team, &rules, None, FrameEffects::default());
+        let state = sim.team_script_vm.team(team).unwrap();
+        assert_eq!(state.script_id(), expected);
+        assert_eq!(state.cursor(), -1);
+        assert!(!state.advance_pending());
+        assert!(state.refusal().is_none());
+    }
+}
+
 /// The building tests' power plants: the Russians' own, the Americans' near
 /// and far ones, and the Germans'.
 const PLANTS: [(&str, u16, u16); 4] = [
@@ -615,9 +844,9 @@ fn script59_building_gate_and_retained_ammo_route_match_original_controls() {
                 .entities
                 .get_mut(member)
                 .unwrap()
-                .aircraft_ammo = Some(crate::sim::docking::aircraft_dock::AircraftAmmo::new(
-                input["ammo"].as_i64().unwrap() as i32,
-            ));
+                .install_ammo_for_test(Some(crate::sim::ammo::TechnoAmmo::new(
+                    input["ammo"].as_i64().unwrap() as i32,
+                )));
         }
         if input["count"] == 0 {
             for &member in &members {
@@ -847,12 +1076,11 @@ fn scatter_sends_every_member_to_a_neighbouring_cell() {
 /// so the one TeamType running it no longer idles on 21.
 #[test]
 fn the_retail_scatter_script_runs_ported_actions() {
-    use crate::rules::retail_ini_fixture::{retail_ini, retail_rules_and_art};
+    use crate::rules::retail_ini_fixture::retail_ini;
     use crate::rules::team_ai_ini::TeamAiIniRegistry;
-    let Some((rules_ini, art_ini)) = retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
     let aimd = retail_ini("aimd.ini").expect("retail AIMD");
     let registry = TeamAiIniRegistry::from_sources(&aimd, &IniFile::from_str(""), true);
     let mut sim = Simulation::new();
@@ -1103,12 +1331,11 @@ fn the_building_search_admits_by_alliance_passivity_and_enemy() {
 /// only ported actions.
 #[test]
 fn the_retail_tech_capture_scripts_run_ported_actions() {
-    use crate::rules::retail_ini_fixture::{retail_ini, retail_rules_and_art};
+    use crate::rules::retail_ini_fixture::retail_ini;
     use crate::rules::team_ai_ini::TeamAiIniRegistry;
-    let Some((rules_ini, art_ini)) = retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
     for (name, index) in [("CAOILD", 71), ("CAAIRP", 70)] {
         assert_eq!(rules.object(name).unwrap().base_plan_type_index, index);
     }

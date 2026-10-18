@@ -6,7 +6,7 @@
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::resolved_terrain::NativeCellQuery;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
 use crate::util::lepton::{GROUND_LEVEL_HEIGHT_LEPTONS, ground_height_leptons};
 
@@ -35,6 +35,95 @@ const INFANTRY_SEQUENCE: [[u8; 4]; 5] = [
 ];
 const INFANTRY_ALTERNATE_SEQUENCE: [[u8; 4]; 4] =
     [[1, 2, 3, 4], [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]];
+
+/// Native480510's overlay prefix returns here or continues through the
+/// corresponding Building/Gate object-list arm. Direction is read only by
+/// those continuations; the supported overlay-only queries need no direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WallConnectionStep {
+    Return(bool),
+    GdiBuildings,
+    NodBuildings,
+}
+
+/// `CellClass::IsWallConnectableInDirection @ 0x00480510..0x00480622`.
+/// Source: original caller/body reads in the authored-fence comparison
+/// (`tools/spatial_oracle/anytown_damage/authored_fence.json`). Stored and
+/// requested identities retain native signed width; -1 means no overlay/type.
+///
+/// The literals are OverlayTypes declaration indices, not INI key numbers:
+/// stock2/26/243 are GAWALL/NAWALL/GAFWLL; CAKRMW is240. This is not the
+/// Wall=yes set (sandbags and fences do not pass the negative-type query).
+/// The physical ordered registry readers, rather than key-minus-one, own IDs.
+///
+/// All negative-type LOS/Bullet/bounce/Spark callers and CAFNCB203 cleanup
+/// resolve in this prefix. The distinct Building/Gate continuations stay
+/// explicit rather than pretending this is a whole-function port.
+pub(crate) fn wall_connection_step(stored: i32, requested: i32) -> WallConnectionStep {
+    if stored != -1 && stored == requested {
+        WallConnectionStep::Return(true)
+    } else if requested == -1 {
+        WallConnectionStep::Return(matches!(stored, 2 | 26 | 243))
+    } else {
+        match requested {
+            0 | 2 => WallConnectionStep::GdiBuildings,
+            26 => WallConnectionStep::NodBuildings,
+            _ => WallConnectionStep::Return(false),
+        }
+    }
+}
+
+/// Cell4848B0: direction of a cliff entered from `previous_world_xy`.
+/// The receiver was selected separately by the caller. Original table81CD4C,
+/// ordered canonical lookups and asymmetric corner returns are consumed by
+/// tools/spatial_oracle/bounce_cliff.{json,md}.
+///
+/// Ordinary TIRE motion crosses neighboring cells. Native indexes beyond this
+/// nine-dword table for larger raw displacements; those unrelated image bytes
+/// are outside the represented domain and produce no reflection here.
+pub(crate) fn cliff_face_direction(
+    cells: &NativeCellQuery<'_>,
+    receiver: NativeCellIdentity,
+    previous_world_xy: (i32, i32),
+) -> Option<u8> {
+    let previous = cells.lookup_world(previous_world_xy.0, previous_world_xy.1);
+    let (x, y) = cells.coord(previous);
+    // Read the receiver after that lookup: both identities may be the Dummy.
+    let (receiver_x, receiver_y) = cells.coord(receiver);
+    let dx = i32::from(receiver_x) - i32::from(x);
+    let dy = i32::from(receiver_y) - i32::from(y);
+    const DIRECTIONS: [i8; 9] = [7, 0, 1, 6, -1, 2, 5, 4, 3];
+    let table_index = dx + 3 * dy + 4;
+    let Some(&direction) = usize::try_from(table_index)
+        .ok()
+        .and_then(|index| DIRECTIONS.get(index))
+    else {
+        log::warn!("Cell4848B0 displacement ({dx},{dy}) exceeds the native neighbor table");
+        return None;
+    };
+    let direction = u8::try_from(direction).ok()?;
+    if dx == 0 || dy == 0 {
+        return Some(direction);
+    }
+
+    let (side_x, side_y) = if dx == dy { (dx, dy) } else { (dy, dx) };
+    let side_a = ((i32::from(x) + side_x) as i16, y);
+    let side_b = (x, (i32::from(y) + side_y) as i16);
+    let raised_side = |coord| {
+        // Each test independently reselects the previous world Cell BEFORE
+        // selecting its side. A missing side can stamp the retained Dummy.
+        let previous = cells.lookup_world(previous_world_xy.0, previous_world_xy.1);
+        let threshold = i32::from(cells.ground_fields(previous).0 as i8) + 2;
+        let side = cells.lookup(coord);
+        i32::from(cells.ground_fields(side).0 as i8) >= threshold
+    };
+    match (raised_side(side_a), raised_side(side_b)) {
+        (true, false) => Some(direction.wrapping_sub(1) & 7),
+        // Native484A62 increments without &7; NW can return8.
+        (false, true) => Some(direction + 1),
+        _ => Some(direction),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldCoordinate {
@@ -108,7 +197,9 @@ impl crate::sim::world::Simulation {
     }
 }
 
-/// YR `CellClass::GetCellCoords`: center the cell and keep its terrain floor.
+/// Shared cell-center arithmetic, including CellStruct-to-Coord642740.
+/// That caller sign-extends the packed cell words before entering here.
+/// Other callers retain their supplied cell width and height.
 pub fn cell_center(cell: CellCoordinate, floor_z: i32) -> WorldCoordinate {
     WorldCoordinate {
         x: cell
@@ -133,10 +224,50 @@ pub(crate) fn native_cell_own_coords(
     cell: NativeCellIdentity,
     cells: &NativeCellQuery<'_>,
 ) -> Option<(i64, i64, i64)> {
-    let [x, y] = native_cell_own_xy(cell, cells);
+    let (x, y) = cells.coord(cell);
     let (level, slope) = cells.ground_fields(cell);
-    let z = ground_height_leptons(level, slope, x, y).ok()?;
-    Some((i64::from(x), i64::from(y), i64::from(z)))
+    let coord = cell_own_coords(i32::from(x), i32::from(y), level, slope)?;
+    Some((i64::from(coord.x), i64::from(coord.y), i64::from(coord.z)))
+}
+
+impl crate::sim::cell_rect::CellRef<'_> {
+    /// Cell486840/480A30: the receiver's signed packed center and current
+    /// ground height, without a bridge-deck rise. A retained Dummy is read now;
+    /// later map lookups can change its coordinate without changing identity.
+    pub fn center_coordinate(&self) -> Option<crate::sim::components::DriveCoord> {
+        let (x, y, level, slope) = match self {
+            Self::Real(cell) => (
+                i32::from(cell.rx as i16),
+                i32::from(cell.ry as i16),
+                cell.level,
+                cell.slope_type,
+            ),
+            Self::Dummy { cell } => {
+                let value = cell.snapshot();
+                (
+                    value.coord.0,
+                    value.coord.1,
+                    value.level as u8,
+                    value.slope_type,
+                )
+            }
+        };
+        cell_own_coords(x, y, level, slope)
+    }
+}
+
+fn cell_own_coords(
+    x: i32,
+    y: i32,
+    level: u8,
+    slope: u8,
+) -> Option<crate::sim::components::DriveCoord> {
+    let point = cell_center(CellCoordinate { x, y }, 0);
+    Some(crate::sim::components::DriveCoord {
+        x: point.x,
+        y: point.y,
+        z: ground_height_leptons(level, slope, point.x, point.y).ok()?,
+    })
 }
 
 /// The XY of [`native_cell_own_coords`]: the centre of the cell's current
@@ -159,7 +290,7 @@ pub(crate) fn native_cell_own_xy(
 
 /// Native invalid-cell coordinates are process-global sentinels. At the Rust map
 /// boundary, represent that unproven raw value as `None` rather than manufacture it.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn checked_cell_from_world(
     world_x: i32,
     world_y: i32,
@@ -175,7 +306,7 @@ pub fn checked_cell_from_world(
 }
 
 /// Apply the high-bridge deck only when a caller has already selected that layer.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn selected_cell_surface_height(floor_z: i32, deck_selected: bool) -> i32 {
     if deck_selected {
         floor_z.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS)
@@ -303,6 +434,26 @@ pub fn infantry_subcell_offset(spot: u8) -> (i32, i32, i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wall_overlay_prefix_matches_original_cell_queries() {
+        let native =
+            crate::test_fixture::json("tools/spatial_oracle/anytown_damage/authored_fence.json");
+        for case in native["cases"].as_array().unwrap() {
+            let controls = &case["query_controls"];
+            assert_eq!(controls["rng_before"], controls["rng_after"]);
+            for row in controls["rows"].as_array().unwrap() {
+                let stored = i32::try_from(row["stored"].as_i64().unwrap()).unwrap();
+                let requested = i32::try_from(row["requested"].as_i64().unwrap()).unwrap();
+                assert_eq!(
+                    wall_connection_step(stored, requested),
+                    WallConnectionStep::Return(row["returned_low_byte"].as_u64().unwrap() != 0),
+                    "original480510 query {row}"
+                );
+                assert_eq!(row["rng_unchanged"], true);
+            }
+        }
+    }
 
     #[test]
     fn yr_cell_floor_and_coordinate_vectors() {

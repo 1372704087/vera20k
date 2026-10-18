@@ -1,4 +1,4 @@
-//! The dying object's own death anims and the building destruction effects.
+//! Shared debris constructors, death anims and building destruction effects.
 //!
 //! - `UnitClass::Death_Explosion @ 0x00738680`, reached from the Unit death
 //!   arm at `0x00737F6F` once its NowDead gates pass
@@ -61,9 +61,10 @@
 //!   bare `RET`), 14 (`DestroyParticleSystems=` smoke; no stock user). Step 6
 //!   (BuildingDieSound) plays from the Techno death sounds; step 12 (the zero
 //!   death timer of `Explodes=`/Selling) is a `crew_survival` residual.
-//! - A vehicle's current ammo (Unit `+0x2FC`) is not tracked; the
-//!   `Death_Explosion` last-entry override reads a fresh unit's `Ammo=`. No
-//!   stock `Explodes=` vehicle has a finite `Ammo=`.
+//! - Ordinary ground weapon-fire ammo debits remain separate. The shared Ammo
+//!   owner retains constructor and chrono reinforcement writes, which the
+//!   `Death_Explosion` last-entry override reads. No stock `Explodes=` vehicle
+//!   has finite `Ammo=`.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::foundation::foundation_dimensions;
@@ -78,8 +79,9 @@ use crate::sim::world::Simulation;
 
 use super::{ExplosionEffect, SmudgeSpawnRequest};
 
-/// `AnimClass` constructor `drawFlags` every death producer pushes
-/// (`0x0073871E`, `0x00738854`, `0x00416660`, `0x00441A04`, `0x00441D01`).
+/// `AnimClass` constructor `drawFlags` shared by death and SHP debris producers
+/// (`0x0073871E`, `0x00738854`, `0x00416660`, `0x00441A04`, `0x00441D01`,
+/// `0x00469E94`).
 const DEATH_ANIM_DRAW_FLAGS: u32 = 0x600;
 /// DestructionEffects' per-cell jitter radius (`PUSH 0x40`, `0x0044198E`).
 const CELL_EXPLOSION_SCATTER_LEPTONS: i32 = 0x40;
@@ -125,6 +127,44 @@ pub enum DeathAnimFollowUp {
 }
 
 impl Simulation {
+    /// One SHP debris constructor boundary, after its list pick:
+    /// Techno702566 and Bullet469EAE. Spend the common identity before
+    /// constructor RNG, then admit synchronously before another piece picks.
+    /// Callback-disabled numeric fixtures retain the preconsumed packet seam.
+    pub(crate) fn emit_debris_anim(
+        &mut self,
+        rules: &RuleSet,
+        name: Option<&str>,
+        coord: AnimWorldCoord,
+        anims: &mut Vec<ExplosionEffect>,
+    ) -> Result<(), crate::util::native_x87::NativeX87Error> {
+        let native_unique_id = self.next_native_runtime_id();
+        let config =
+            name.and_then(|name| rules.art().anim_runtime_config(&name.to_ascii_uppercase()));
+        let mut draws = if let Some(config) = config {
+            crate::sim::anim_class::anim_constructor_draws(config, coord, &mut self.scenario_rng)?
+        } else {
+            crate::sim::anim_class::AnimConstructorDraws {
+                native_unique_id: None,
+                random_rate: None,
+                bounce: None,
+            }
+        };
+        draws.native_unique_id = Some(native_unique_id);
+        if let Some(name) = name {
+            self.emit_death_anim(
+                rules,
+                anims,
+                name,
+                DeathAnimSpawn {
+                    draws: Some(draws),
+                    ..DeathAnimSpawn::at(coord, 0)
+                },
+            );
+        }
+        Ok(())
+    }
+
     /// Native constructor call, or an explicit callback-disabled fixture's
     /// packet. Production never carries these births to the consequence tail.
     pub(crate) fn emit_death_anim(
@@ -159,7 +199,7 @@ impl Simulation {
         rules: &RuleSet,
         type_id: InternedId,
         spawn: DeathAnimSpawn,
-    ) {
+    ) -> Option<crate::sim::anim_class::AnimId> {
         let (rx, ry, sub_x, sub_y, z) = spawn.coord.to_cell_sub_z();
         let descriptor = AnimClassSpawnDescriptor {
             delay: spawn.delay,
@@ -184,7 +224,7 @@ impl Simulation {
                     "death anim [{}] did not construct: {error}",
                     self.interner.resolve(type_id)
                 );
-                return;
+                return None;
             }
         };
         match spawn.follow_up {
@@ -200,6 +240,7 @@ impl Simulation {
                 self.anim_mark_cell_occupancy(anim);
             }
         }
+        Some(anim)
     }
 
     /// One Scenario `Next() % count` pick from a non-empty anim list.
@@ -334,7 +375,8 @@ impl Simulation {
                 object,
                 Ability::Explodes,
             );
-        let armed = object.ammo == -1 || object.ammo > 0;
+        let armed =
+            object.ammo == -1 || entity.ammo().map_or(object.ammo, |ammo| ammo.current()) > 0;
         if !object.explosion_anims.is_empty() {
             let picked = self.pick_death_anim(&object.explosion_anims);
             let anim = if explodes && armed {

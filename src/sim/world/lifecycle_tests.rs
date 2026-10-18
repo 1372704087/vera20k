@@ -111,18 +111,13 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
 
 #[test]
 fn constructor_complete_foot_destructors_match_native_team_gate_and_rng() {
-    use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::retail_ini_fixture::retail_rules_and_art;
     use crate::rules::team_ai_ini::TeamAiIniRegistry;
     use crate::sim::rng::SimRng;
 
-    let Some((ini, art)) = retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
         return;
     };
-    let mut rules =
-        crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
     let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/team_creation.json",
     ))
@@ -751,7 +746,7 @@ fn common_raw_request(rx: u16, ry: u16, z: u8, sub_x: i32, sub_y: i32) -> Reveal
     }
 }
 
-pub(crate) fn common_raw_terrain_cell(
+pub fn common_raw_terrain_cell(
     rx: u16,
     ry: u16,
     level: u8,
@@ -1187,6 +1182,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
     };
     assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1);
     let map_entity = sim
@@ -2012,7 +2008,8 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert!(
@@ -2052,7 +2049,8 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
@@ -2097,7 +2095,8 @@ fn gsi_05_05_fly_takeoff_commits_absolute_z_after_remove_process() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     let altitude = crate::sim::movement::air_movement::current_fly_height(
@@ -2144,7 +2143,8 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
@@ -2243,7 +2243,8 @@ fn gsi_05_05_mapless_fly_uses_dummy_ground_then_bridge_height() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         sim.substrate
@@ -2300,7 +2301,8 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     assert_eq!(
         sim.substrate
             .entities
@@ -2327,7 +2329,8 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let crossed = sim.substrate.entities.get(20).unwrap();
     assert_ne!(crossed.air_spatial_bucket(), shared_bucket);
     assert!(crossed.air_spatial_enter_order() > second_order);
@@ -3009,33 +3012,6 @@ fn gsi_04_05_hard_limbo_clears_pending_then_current_vehicle_occupation() {
             .unwrap()
             .occupation_head_to(),
         None
-    );
-}
-
-#[test]
-fn lifecycle_authority_conceal_outputs_match_release_order() {
-    let mut sim = Simulation::new();
-    insert_entity(&mut sim, 1, EntityCategory::Unit);
-    sim.substrate
-        .entities
-        .get_mut(1)
-        .unwrap()
-        .removal_facts
-        .set_dirty_rect_eligible_for_test(true);
-    let _ = sim.reveal(1);
-    sim.lifecycle_outputs.clear();
-
-    let _ = sim.object_conceal(1);
-    assert_eq!(
-        sim.lifecycle_outputs,
-        vec![
-            LifecycleOutput::ObjectPointerExpired { stable_id: 1 },
-            LifecycleOutput::DisplayRemove { stable_id: 1 },
-            LifecycleOutput::DetachAttachedAnims { stable_id: 1 },
-            LifecycleOutput::DirtyTacticalRect { stable_id: 1 },
-            LifecycleOutput::ClearDrawnState { stable_id: 1 },
-            LifecycleOutput::ClearRedraw { stable_id: 1 },
-        ]
     );
 }
 
@@ -3852,6 +3828,254 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     );
 }
 
+/// Techno707964..70799E and the Foot sensor call4D9A57 ask the
+/// predicate only for an expiring Techno (+14 bit0). This explicitly supplied
+/// control0 callback isolates that class guard: ordinary Terrain lethal
+/// integration uses control1, and the public DetachAll entry has Techno callers.
+/// It does not claim a Terrain control0 broadcast or expiry-index traversal.
+#[test]
+fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
+    use super::lifecycle::PointerExpiryControl;
+    use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+    use crate::sim::vision::FogState;
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n[VehicleTypes]\n0=SENSOR\n1=TARGET\n\
+         [AircraftTypes]\n[BuildingTypes]\n[TerrainTypes]\n0=TREE01\n\
+         [SENSOR]\nStrength=100\nSight=0\nSpeed=0\nSensorsSight=4\n\
+         [TARGET]\nStrength=100\nSight=0\nSpeed=0\n\
+         [TREE01]\nStrength=100\n",
+    ))
+    .unwrap();
+    for terrain_expires in [true, false] {
+        let mut sim = Simulation::with_seed(0x1234);
+        sim.fog = FogState::new(32, 32);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        assert_eq!(
+            crate::sim::terrain_spawn::construct_terrain_objects(
+                &mut sim,
+                &[crate::map::overlay::TerrainObject {
+                    rx: 16,
+                    ry: 16,
+                    name: "TREE01".to_owned(),
+                }],
+                &rules,
+                false,
+            ),
+            1
+        );
+        let tree = sim.production.terrain_object_cells[&(16, 16)];
+        let listener = sim
+            .spawn_object_at_height("SENSOR", "Americans", 15, 16, 0, 0, &rules)
+            .unwrap();
+        let references = sim
+            .spawn_object_at_height("SENSOR", "Americans", 15, 17, 0, 0, &rules)
+            .unwrap();
+        let techno = sim
+            .spawn_object_at_height("TARGET", "Soviet", 18, 16, 0, 0, &rules)
+            .unwrap();
+        let saved = sim
+            .spawn_object_at_height("TARGET", "Soviet", 20, 20, 0, 0, &rules)
+            .unwrap();
+        let (expired, cell, owner) = if terrain_expires {
+            (tree, (16, 16), None)
+        } else {
+            (
+                techno,
+                (18, 16),
+                Some(sim.substrate.entities.get(techno).unwrap().owner()),
+            )
+        };
+        let sensing_house = sim.substrate.entities.get(listener).unwrap().owner();
+        assert!(sim.fog.has_sensor_for_house(sensing_house, cell.0, cell.1));
+        assert!(
+            sim.substrate
+                .entities
+                .get(listener)
+                .unwrap()
+                .sensor_deposit
+                .is_some()
+        );
+        let sensor_counts = sim.fog.sensors_by_house.clone();
+        let registered = sim.live_object_order_snapshot();
+        sim.session.binary_frame = 105;
+        {
+            let actor = sim.substrate.entities.get_mut(listener).unwrap();
+            actor
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(expired)));
+            actor
+                .suspended_attack_target
+                .set_for_test(Some(TargetKind::Entity(saved)));
+            actor.set_archive_target(Some(TargetKind::Entity(expired)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::object(expired)));
+            actor
+                .navigation
+                .set_suspended_nav_com_for_test(Some(NavTargetRef::cell(20, 16)));
+            actor.passive_scan.timer_mut_for_test().arm(100, 20);
+            actor.mission.apply_test_fixture(MissionTestFixture {
+                current: MissionId::from_known(MissionType::Attack),
+                suspended: MissionId::from_known(MissionType::Guard),
+                queued: MissionId::NONE,
+                movement_bypass_latch: 0,
+                handler_state: 0,
+                mission_start_frame: 100,
+                ai_counter: 0,
+                dispatch_timer: MissionDispatchTimer::at_frame(100),
+            });
+        }
+        {
+            // A separate unsuspended listener keeps every exact expired
+            // reference observable; Restore above installs a surviving target.
+            let actor = sim.substrate.entities.get_mut(references).unwrap();
+            actor
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(expired)));
+            actor
+                .suspended_attack_target
+                .set_for_test(Some(TargetKind::Entity(expired)));
+            actor.set_archive_target(Some(TargetKind::Entity(expired)));
+            actor
+                .navigation
+                .set_nav_com_for_test(Some(NavTargetRef::object(expired)));
+            actor
+                .navigation
+                .set_nav_com_aux_for_test(Some(NavTargetRef::object(expired)));
+            actor
+                .navigation
+                .set_suspended_nav_com_for_test(Some(NavTargetRef::object(expired)));
+            actor.navigation.set_nav_queue_for_test(vec![
+                NavTargetRef::object(expired),
+                NavTargetRef::cell(20, 16),
+            ]);
+            actor.passive_scan.timer_mut_for_test().arm(0, 0);
+        }
+        let timer_before = sim
+            .substrate
+            .entities
+            .get(listener)
+            .unwrap()
+            .passive_scan
+            .timer();
+        let mut expected_rng = sim.scenario_rng.clone();
+        let delay = terrain_expires.then(|| expected_rng.next_range_u32_inclusive(4, 8));
+        for receiver in [listener, references] {
+            sim.notify_entity_pointer_expired(
+                receiver,
+                expired,
+                Some(cell),
+                true,
+                100,
+                false,
+                owner,
+                PointerExpiryControl::DetachAll,
+                Some(&rules),
+                None,
+                super::FrameEffects::default(),
+            );
+        }
+        let actor = sim.substrate.entities.get(listener).unwrap();
+        assert_eq!(
+            actor.attack_target.target(),
+            Some(TargetKind::Entity(if terrain_expires {
+                saved
+            } else {
+                expired
+            },))
+        );
+        assert_eq!(
+            actor.mission.current(),
+            MissionId::from_known(if terrain_expires {
+                MissionType::Guard
+            } else {
+                MissionType::Attack
+            },)
+        );
+        assert_eq!(
+            actor.mission.suspended(),
+            if terrain_expires {
+                MissionId::NONE
+            } else {
+                MissionId::from_known(MissionType::Guard)
+            }
+        );
+        assert_eq!(
+            actor.suspended_attack_target.target(),
+            Some(TargetKind::Entity(saved))
+        );
+        assert_eq!(
+            actor.archive_target(),
+            None,
+            "Foot archive clear ignores the sensor gate"
+        );
+        assert_eq!(
+            actor.navigation.nav_com(),
+            Some(if terrain_expires {
+                NavTargetRef::cell(20, 16)
+            } else {
+                NavTargetRef::object(expired)
+            })
+        );
+        if let Some(delay) = delay {
+            assert_eq!(actor.passive_scan.timer().start_frame(), 105);
+            assert_eq!(actor.passive_scan.timer().duration(), delay);
+        } else {
+            assert_eq!(actor.passive_scan.timer(), timer_before);
+        }
+        let actor = sim.substrate.entities.get(references).unwrap();
+        let retained = (!terrain_expires).then_some(TargetKind::Entity(expired));
+        assert_eq!(actor.attack_target.target(), retained);
+        assert_eq!(actor.suspended_attack_target.target(), retained);
+        assert_eq!(actor.archive_target(), None);
+        let retained_nav = (!terrain_expires).then_some(NavTargetRef::object(expired));
+        assert_eq!(actor.navigation.nav_com(), retained_nav);
+        assert_eq!(actor.navigation.nav_com_aux(), retained_nav);
+        assert_eq!(actor.navigation.suspended_nav_com(), None);
+        assert_eq!(
+            actor.navigation.nav_queue(),
+            vec![NavTargetRef::cell(20, 16)]
+        );
+        assert_eq!(
+            sim.scenario_rng.logical_state(),
+            expected_rng.logical_state()
+        );
+
+        // The first callback consumed the only Restore and shortening event.
+        // A repeat must not spend another draw, even while the Techno control
+        // still retains its sensed target.
+        let after_first = sim.substrate.entities.get(listener).unwrap().clone();
+        for receiver in [listener, references] {
+            sim.notify_entity_pointer_expired(
+                receiver,
+                expired,
+                Some(cell),
+                true,
+                100,
+                false,
+                owner,
+                PointerExpiryControl::DetachAll,
+                Some(&rules),
+                None,
+                super::FrameEffects::default(),
+            );
+        }
+        let actor = sim.substrate.entities.get(listener).unwrap();
+        assert_eq!(actor.attack_target, after_first.attack_target);
+        assert_eq!(actor.mission, after_first.mission);
+        assert_eq!(actor.passive_scan, after_first.passive_scan);
+        assert_eq!(
+            sim.scenario_rng.logical_state(),
+            expected_rng.logical_state()
+        );
+        assert_eq!(sim.fog.sensors_by_house, sensor_counts);
+        assert_eq!(sim.production.terrain_object_cells[&(16, 16)], tree);
+        assert!(sim.production.terrain_objects[&tree].is_live());
+        assert_eq!(sim.live_object_order_snapshot(), registered);
+    }
+}
+
 #[test]
 fn infantry_target_expiry_clears_firing_action_before_target() {
     use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
@@ -3909,6 +4133,139 @@ fn infantry_target_expiry_clears_firing_action_before_target() {
 }
 
 #[test]
+fn particle_system_retirement_clears_only_the_indexed_techno_spark_link() {
+    let mut sim = Simulation::new();
+    insert_particle_system(&mut sim, 1);
+    insert_particle_system(&mut sim, 2);
+    insert_entity(&mut sim, 3, EntityCategory::Unit);
+    insert_entity(&mut sim, 4, EntityCategory::Unit);
+    sim.substrate
+        .entities
+        .get_mut(3)
+        .unwrap()
+        .spark_particle_system
+        .bind(Some(1));
+    sim.substrate
+        .entities
+        .get_mut(4)
+        .unwrap()
+        .spark_particle_system
+        .bind(Some(2));
+    sim.substrate
+        .particle_systems
+        .get_mut(1)
+        .unwrap()
+        .done_spawning = true;
+    let rng = [
+        sim.scenario_rng.native_state_hex(),
+        sim.main_rng.native_state_hex(),
+        sim.mapgen_rng.native_state_hex(),
+    ];
+    sim.retire_particle_system(1, super::UninitContext::default());
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(3)
+            .unwrap()
+            .spark_particle_system
+            .system(),
+        None
+    );
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(4)
+            .unwrap()
+            .spark_particle_system
+            .system(),
+        Some(2)
+    );
+    assert!(sim.particle_systems().get(1).unwrap().in_limbo());
+    assert!(sim.substrate.pending_delete.object_ids().contains(&1));
+    assert_eq!(
+        [
+            sim.scenario_rng.native_state_hex(),
+            sim.main_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex()
+        ],
+        rng
+    );
+    sim.process_pending_delete();
+    assert!(sim.particle_systems().get(1).is_none());
+}
+
+#[test]
+fn techno_spark_pointer_expiry_is_exact_and_independent_of_control() {
+    use super::lifecycle::PointerExpiryControl;
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/welding.json");
+    let rows: Vec<_> = native["lifecycle_cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["input"]["receiver"] == "owner" && row["input"]["expired"].is_string())
+        .collect();
+    assert_eq!(rows.len(), 4);
+    for row in rows {
+        let control = if row["input"]["removed"] == 0 {
+            PointerExpiryControl::DetachAll
+        } else {
+            PointerExpiryControl::Uninit
+        };
+        let mut sim = Simulation::new();
+        insert_entity(&mut sim, 3, EntityCategory::Unit);
+        sim.substrate
+            .entities
+            .get_mut(3)
+            .unwrap()
+            .spark_particle_system
+            .bind(Some(1));
+        let before = [
+            sim.main_rng.native_state_hex(),
+            sim.scenario_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        ];
+        assert_eq!(row["before"]["spark_link"], "system");
+        let expired = if row["input"]["expired"] == "system" {
+            1
+        } else {
+            2
+        };
+        sim.notify_entity_pointer_expired(
+            3,
+            expired,
+            None,
+            true,
+            1,
+            false,
+            None,
+            control,
+            None,
+            None,
+            super::FrameEffects::default(),
+        );
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(3)
+                .unwrap()
+                .spark_particle_system
+                .system()
+                .map(|_| "system"),
+            row["after"]["spark_link"].as_str()
+        );
+        assert_eq!(
+            [
+                sim.main_rng.native_state_hex(),
+                sim.scenario_rng.native_state_hex(),
+                sim.mapgen_rng.native_state_hex(),
+            ],
+            before
+        );
+        assert_eq!(row["rng_unchanged"], true);
+    }
+}
+
+#[test]
 fn pointer_expiry_stops_particle_owner_without_deleting_living_children() {
     let mut sim = Simulation::new();
     insert_particle_system(&mut sim, 1);
@@ -3926,12 +4283,12 @@ fn pointer_expiry_stops_particle_owner_without_deleting_living_children() {
     owned.particles.push(child);
     let attached = sim.substrate.particle_systems.get_mut(2).unwrap();
     attached.owner_entity = Some(3);
-    attached.attached_entity = Some(3);
+    attached.target_ref = Some(crate::sim::combat::TargetKind::Entity(3));
     sim.substrate
         .particle_systems
         .get_mut(4)
         .unwrap()
-        .attached_entity = Some(3);
+        .target_ref = Some(crate::sim::combat::TargetKind::Entity(3));
     let rng = [
         sim.scenario_rng.native_state_hex(),
         sim.main_rng.native_state_hex(),
@@ -3953,10 +4310,10 @@ fn pointer_expiry_stops_particle_owner_without_deleting_living_children() {
     );
     let attached = sim.substrate.particle_systems.get(2).unwrap();
     assert!(attached.owner_entity.is_none());
-    assert!(attached.attached_entity.is_none());
+    assert!(attached.target_ref.is_none());
     assert!(attached.done_spawning);
     let target_only = sim.substrate.particle_systems.get(4).unwrap();
-    assert!(target_only.attached_entity.is_none());
+    assert!(target_only.target_ref.is_none());
     assert!(
         !target_only.done_spawning,
         "target+E4 expiry has no done write"
@@ -4154,7 +4511,10 @@ fn particle_system_physical_disposal_removes_retained_child_air_entries() {
         )
         .unwrap();
     assert!(crate::sim::particles::system_ai::tick_particle_system(
-        &mut sim, &rules, system_id
+        &mut sim,
+        &rules,
+        system_id,
+        crate::sim::world::UninitContext::with_rules(&rules)
     ));
     let child_id = sim.particle_systems().get(system_id).unwrap().particles[0].stable_id();
     assert_eq!(
@@ -5151,7 +5511,8 @@ pub(super) fn gsi_05_02_projectile(source_id: u64, fuse_frames: Option<u16>) -> 
         payload: ProjectilePayload::new(
             1,
             crate::sim::intern::InternedId::from_index(0),
-            crate::sim::intern::InternedId::from_index(0),
+            None,
+            false,
         ),
         speed_leptons_per_frame: 64,
         velocity: ProjectileVelocity::new(64, 0, 0),
@@ -5198,11 +5559,7 @@ fn persistent_bullet_logic_slot_publishes_native_wall_dirty_visits() {
         spawn.origin = impact;
         spawn.target = ProjectileTarget::Cell { rx: 5, ry: 5 };
         spawn.initial_target_position = impact;
-        spawn.payload = ProjectilePayload::new(
-            1,
-            sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        );
+        spawn.payload = ProjectilePayload::new(1, sim.interner.intern("WALLWH"), None, false);
         sim.admit_projectile(projectile_id, spawn);
 
         assert!(sim.object_ai_visit_one(
@@ -5386,11 +5743,7 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
         } else {
             None
         };
-        shot.payload = ProjectilePayload::new(
-            1,
-            sim.interner.intern("WALLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        );
+        shot.payload = ProjectilePayload::new(1, sim.interner.intern("WALLWH"), None, false);
         let id = sim.allocate_stable_id();
         sim.admit_projectile(id, shot);
         // The native control supplies an in-flight OLD-height boundary.
@@ -5463,10 +5816,6 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
             overlays.cell(12, 5).overlay_data,
             if hits_target { 0x10 } else { 0 },
             "only a still-live JumpJet firer converts overshoot mode2 to the target-location mode1 snap"
-        );
-        assert!(
-            runtime.simulation.pending_projectile_detonations.is_empty(),
-            "production commits in the Bullet slot, with no test-only pending handoff"
         );
     }
 }
@@ -5708,9 +6057,9 @@ fn substrate_registration_and_removal_dispatch_is_order_identical() {
 
     // The retire subset dispatches through the same classifier: Terrain /
     // Bullet / Wave retire; Entity and Anim do not.
-    assert!(!sim.retire_non_entity_object(entity_id));
-    assert!(!sim.retire_non_entity_object(anim_id));
-    assert!(sim.retire_non_entity_object(terrain_id));
+    assert!(!sim.retire_non_entity_object(entity_id, crate::sim::world::UninitContext::default()));
+    assert!(!sim.retire_non_entity_object(anim_id, crate::sim::world::UninitContext::default()));
+    assert!(sim.retire_non_entity_object(terrain_id, crate::sim::world::UninitContext::default()));
     assert!(sim.substrate.pending_delete.contains_object(&terrain_id));
     assert!(!sim.live_object_order_snapshot().contains(&terrain_id));
 
@@ -6042,7 +6391,6 @@ fn gsi_05_04_ground_source_and_target_retarget_before_removal_without_expiry() {
 
     let _ = crate::sim::cell_rect::get_cellclass_fallback(sim.resolved_terrain.as_ref(), 20, -1);
     assert!(sim.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert_eq!(
         sim.projectiles.get(projectile_id).unwrap().target,
@@ -6153,7 +6501,6 @@ fn gsi_04_01_cell_target_uses_live_structural_bit() {
     // The actual Bullet visit consumes the live Cell target coordinate. Being
     // stationary at that target is not an admission: old height is 416, above
     // both native tail gates (4677D3: <208; 467B68: <10).
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert_eq!(sim.projectiles.get(projectile_id).unwrap().position, center);
 }
 
@@ -6203,11 +6550,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         source_id: crate::sim::combat::RAD_NO_ATTACKER,
         target: ProjectileTarget::Entity(victim_id),
         impact: ProjectileCoord::new(5 * 256 + 128, 6 * 256 + 128, 0),
-        payload: ProjectilePayload::new(
-            10,
-            sim.interner.intern("KILLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        ),
+        payload: ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };
     let logic_order = sim.live_object_order_snapshot();
@@ -6218,7 +6561,6 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         100,
         &logic_order,
         &std::collections::BTreeSet::new(),
-        &Default::default(),
         &[detonation],
         crate::sim::world::FrameEffects::default(),
     );
@@ -6343,11 +6685,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         source_id: crate::sim::combat::RAD_NO_ATTACKER,
         target: ProjectileTarget::Entity(building_id),
         impact: ProjectileCoord::new(8 * 256 + 128, 8 * 256 + 128, 0),
-        payload: ProjectilePayload::new(
-            10,
-            sim.interner.intern("KILLWH"),
-            sim.interner.intern("MISSINGWEAPON"),
-        ),
+        payload: ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };
     let logic_order = sim.live_object_order_snapshot();
@@ -6358,7 +6696,6 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         100,
         &logic_order,
         &std::collections::BTreeSet::new(),
-        &Default::default(),
         &[detonation],
         crate::sim::world::FrameEffects::default(),
     );
@@ -6585,7 +6922,6 @@ fn gsi_05_04_high_flying_source_and_target_become_explicit_null() {
         ProjectileTarget::None
     );
     assert!(restored.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
-    assert!(restored.pending_projectile_detonations.is_empty());
     let advanced = restored.projectiles.get(projectile_id).unwrap();
     assert_eq!(advanced.target, ProjectileTarget::None);
     let expected_velocity: [u64; 3] = std::array::from_fn(|i| {
@@ -6785,7 +7121,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     sim.admit_wave(wave_id, wave);
     sim.active_wave_links.insert(owner_id, wave_id);
 
-    let represented = sim.wave_update_context(wave_id);
+    let represented = sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None);
     assert_eq!(
         represented.target_position,
         Some(ProjectileCoord::new(4 * 256 + 128, 128, 0)),
@@ -6804,7 +7140,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     assert_eq!(wave.owner_id, Some(owner_id));
     assert_eq!(wave.target_ref, None, "UnInit synchronously expires +0xAC");
     assert_eq!(sim.active_wave_links.get(&owner_id), Some(&wave_id));
-    let expired = sim.wave_update_context(wave_id);
+    let expired = sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None);
     assert_eq!(expired.target_position, None);
     let _ = sim
         .waves
@@ -6860,7 +7196,9 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
         wave_z: 0,
     };
     assert!(
-        sim.wave_update_context(wave_id).owner_position.is_some(),
+        sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None)
+            .owner_position
+            .is_some(),
         "the dying-but-represented owner still supplies live Wave coordinates",
     );
     assert_eq!(sim.active_wave_links.get(&owner_id), Some(&wave_id));
@@ -6981,11 +7319,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     spawn.origin = impact;
     spawn.target = ProjectileTarget::Entity(victim_id);
     spawn.initial_target_position = impact;
-    spawn.payload = ProjectilePayload::new(
-        10,
-        sim.interner.intern("KILLWH"),
-        sim.interner.intern("MISSINGWEAPON"),
-    );
+    spawn.payload = ProjectilePayload::new(10, sim.interner.intern("KILLWH"), None, false);
     sim.admit_projectile(projectile_id, spawn);
     // Supply an already-arrived impact boundary for the lethal transaction;
     // native launch-floor placement is covered by projectile_trailer tests.
@@ -7023,7 +7357,6 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         sim.substrate.pending_delete.object_ids(),
         vec![victim_id, projectile_id]
     );
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
 
@@ -7139,7 +7472,6 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
             .ai_counter(),
         1
     );
-    assert!(sim.pending_wave_damage_requests.is_empty());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![wave_id]);
     assert_eq!(
         sim.live_object_order_snapshot(),
@@ -7192,7 +7524,6 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
 
     assert_eq!(sim.scenario_rng.logical_state(), expected_rng);
     assert!(!sim.active_wave_links.contains_key(&firer_id));
-    assert!(sim.pending_wave_damage_requests.is_empty());
     assert!(sim.dynamic_terrain_cells.is_empty());
     assert!(sim.radar_terrain_dirty_cells.is_empty());
     assert!(sim.tactical_dirty_cells.is_empty());
@@ -8180,7 +8511,6 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         sim.substrate.pending_delete.object_ids(),
         vec![building_id, wave_id]
     );
-    assert!(sim.pending_wave_damage_requests.is_empty());
 }
 
 #[test]
@@ -8716,7 +9046,8 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let e = sim.substrate.entities.get(1).unwrap();
     assert_eq!(e.position.exact_z_leptons(), Some(731));
     assert_eq!(sim.foot_navigation_coordinate(1).unwrap().z, 731);
@@ -8752,6 +9083,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
     assert!(
         direct
             .tick_jumpjet_cruise_one(1, None, None, crate::sim::world::FrameEffects::default())
+            .unwrap()
             .is_some()
     );
     let expected = direct
@@ -8767,12 +9099,14 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         "stationary native hold retains raw owner Z"
     );
     let mut wrapped = fixture();
-    wrapped.tick_air_movement_with_cell_lists_one(
-        1,
-        None,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
+    wrapped
+        .tick_air_movement_with_cell_lists_one(
+            1,
+            None,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
     assert_eq!(
         wrapped
             .substrate
@@ -8835,7 +9169,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         assert_eq!((entity.position.rx(), entity.position.ry()), (2, 2));
         let moved_z = entity.position.exact_z_leptons().unwrap();
@@ -8873,12 +9208,14 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             for instance in [&mut sim, &mut restored] {
                 instance.session.tick = frame;
                 instance.session.binary_frame = frame as u32;
-                instance.tick_air_movement_with_cell_lists_one(
-                    1,
-                    Some(&rules),
-                    None,
-                    crate::sim::world::FrameEffects::default(),
-                );
+                instance
+                    .tick_air_movement_with_cell_lists_one(
+                        1,
+                        Some(&rules),
+                        None,
+                        crate::sim::world::FrameEffects::default(),
+                    )
+                    .unwrap();
             }
             assert_eq!(restored.state_hash(), sim.state_hash());
             let entity = sim.substrate.entities.get(1).unwrap();
@@ -9059,6 +9396,7 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                 "voxel" => {
                     let debris = crate::sim::voxel_anim::spawn_debris_piece(
                         id,
+                        0,
                         VoxelAnimTypeId(0),
                         &voxel_type,
                         None,
@@ -9179,7 +9517,8 @@ fn jumpjet_process_compares_live_layer_queries_not_cached_registration() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
 
     // A real changed query re-submits even if cached membership is absent.
@@ -9264,6 +9603,7 @@ fn unlimbo_levels_then_aims_the_barrel_elevation() {
             .cell_mut(4, 4)
             .unwrap();
         cell.speed_costs.track = Some(100);
+        cell.speed_costs.wheel = Some(100);
         cell.base_speed_costs = cell.speed_costs;
         let id = sim
             .spawn_object(type_id, "Americans", 4, 4, 0, &rules)

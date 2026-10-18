@@ -4,7 +4,7 @@
 use crate::sim::projectile::ProjectileCoord;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ElectricBoltBirth {
+pub struct ElectricBoltBirth {
     pub frame: i32,
     pub from: ProjectileCoord,
     pub to: ProjectileCoord,
@@ -23,13 +23,15 @@ pub(crate) fn fired(
     target: super::TargetKind,
     fired_weapon: &crate::rules::weapon_type::WeaponType,
 ) {
-    if fired_weapon.is_laser || !fired_weapon.is_electric_bolt {
+    if super::world_fire::fire_at_effect(fired_weapon)
+        != super::world_fire::FireAtEffect::ElectricBolt
+    {
         return;
     }
     let Some(source) = world.substrate.entities.get(source_id) else {
         return;
     };
-    let Some(object) = rules.object(world.interner.resolve(source.type_ref())) else {
+    let Some(object) = world.interner.object_type(source.type_ref(), rules) else {
         return;
     };
     let Some((index, Some(selected))) = super::combat_weapon::select_weapon_against(
@@ -38,10 +40,10 @@ pub(crate) fn fired(
         object,
         &super::combat_weapon::attacker_facts(source, object),
         Some(&target),
-        &world.substrate.entities,
+        world,
         &world.interner,
         world.resolved_terrain.as_ref(),
-        Some(&world.fog.alliances),
+        Some(&world.house_alliances),
     ) else {
         return;
     };
@@ -55,11 +57,40 @@ pub(crate) fn fired(
         Default::default(),
     )
     .coord;
+    create(
+        world,
+        rules,
+        source_id,
+        target.projectile_target(world),
+        selected.weapon,
+        from,
+    );
+}
+
+/// TechnoClass::CreateElectricBolt6FD460 shared by FireAt's reselecting
+/// wrapper and direct SpawnShrapnel46A8CC/46ADB9 calls. The caller owns
+/// IsElectricBolt/IsLaser gating; this body uses its explicit weapon/source.
+pub(crate) fn create(
+    world: &mut crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    source_id: u64,
+    target: crate::sim::projectile::ProjectileTarget,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    from: ProjectileCoord,
+) {
+    let Some(source) = world.substrate.entities.get(source_id) else {
+        return;
+    };
+    let z_adjust = super::fire_coord::effect_z_adjust(
+        world,
+        source,
+        from,
+        super::fire_coord::EffectDepthProjection::ClampedBuilding,
+    );
     let Some(to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
         return;
     };
-    let z_adjust = super::fire_coord::effect_z_adjust(world, source, from);
-    let alternate_color = selected.weapon.is_alternate_color;
+    let alternate_color = weapon.is_alternate_color;
     // Init4C2AA3 draws from process Main, before constructing SparkSys. The
     // shared RNG owns every rejection retry. EBolt itself allocates no ID.
     let phase = world.main_rng.next_range_i32_inclusive(0, 256);

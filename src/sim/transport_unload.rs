@@ -18,7 +18,7 @@ use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::DriveCoord;
-use crate::sim::find_nearby_cell::PassabilityArgs;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -441,14 +441,17 @@ fn eject_head_passenger(
                 let cell = sim
                     .object_type(passenger.type_ref(), rules)
                     .and_then(|object| {
-                        sim.nearby_location_cell(
+                        sim.nearby_passable_cell(
                             (i32::from(exit.0), i32::from(exit.1)),
-                            PassabilityArgs {
-                                speed_type: object.speed_type,
-                                required_zone_id: None,
-                                movement_zone: MovementZone::Normal,
-                                bridge_aware_zone: false,
-                            },
+                            NearbyArgs::plain(
+                                PassabilityArgs {
+                                    speed_type: object.speed_type,
+                                    required_zone_id: None,
+                                    movement_zone: MovementZone::Normal,
+                                    bridge_aware_zone: false,
+                                },
+                                NearbyFootprint::SINGLE,
+                            ),
                         )
                     })
                     .unwrap_or(exit);
@@ -728,21 +731,14 @@ pub(crate) fn building_mission_unload_absorber(
                     )
                 });
                 if let Some(coordinate) = coordinate {
-                    let (rx, ry, sub_x, sub_y, _) = crate::sim::anim_class::AnimWorldCoord {
-                        x: coordinate.x,
-                        y: coordinate.y,
-                        z: coordinate.z,
-                    }
-                    .to_cell_sub_z();
-                    sim.sound_events.push(SimSoundEvent::VocAt {
-                        sound_id: sound.clone(),
-                        audible_to: None,
-                        rx,
-                        ry,
-                        sub_x,
-                        sub_y,
-                        world_z_leptons: coordinate.z,
-                    });
+                    sim.sound_events.push(SimSoundEvent::voc_at_world_coord(
+                        sound.clone(),
+                        crate::sim::anim_class::AnimWorldCoord {
+                            x: coordinate.x,
+                            y: coordinate.y,
+                            z: coordinate.z,
+                        },
+                    ));
                 }
             }
             sim.clear_human_absorber_seek_on_unload(passenger_id);
@@ -821,7 +817,10 @@ pub(crate) fn unit_mission_unload(
                     movement_zone: MovementZone::Normal,
                     bridge_aware_zone: false,
                 };
-                if let Some(cell) = sim.nearby_location_cell(seed, wheel_land) {
+                if let Some(cell) = sim.nearby_passable_cell(
+                    seed,
+                    NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
+                ) {
                     // `Set_Destination` only — the committed selector stays
                     // Unload and state 0 re-runs once the drive has ended.
                     if let Err(cause) = sim.assign_destination_represented(

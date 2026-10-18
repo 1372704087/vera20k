@@ -357,8 +357,10 @@ fn recorded_fire_error(fixture: &SuppliedFootFixture, case: &Value, rules: &Rule
         overlay_registry: None,
         fog: None,
         firer: actor,
-        obj: rules
-            .object(fixture.sim.interner.resolve(actor.type_ref()))
+        obj: fixture
+            .sim
+            .interner
+            .object_type(actor.type_ref(), rules)
             .unwrap(),
         target: fixture.target(&case["input"]["target"]),
         weapon_index: 0,
@@ -690,7 +692,10 @@ fn assert_fired_bullet(
         "{name}: M60 raw damage"
     );
     assert_eq!(
-        fixture.sim.interner.resolve(bullet.payload.weapon),
+        fixture
+            .sim
+            .interner
+            .resolve(bullet.payload.installed_weapon().unwrap()),
         expected["weapon"]["name"].as_str().unwrap(),
         "{name}: weapon identity"
     );

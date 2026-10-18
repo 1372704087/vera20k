@@ -166,15 +166,15 @@ fn native_response_uses_the_paid_foot_head_instead_of_navcom() {
             rx: 7,
             ry: 7,
         }));
-    let mut entities = EntityStore::new();
-    entities.insert(candidate.clone());
+    let mut sim = crate::sim::world::Simulation::new();
+    sim.substrate.entities.insert(candidate.clone());
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[VehicleTypes]\n0=DEFENDER\n[DEFENDER]\nStrength=100\n",
     ))
     .unwrap();
     let native = &row["coordinate"];
     assert_eq!(
-        destination_cell(&candidate, &entities, None, &rules, &test_interner()).unwrap(),
+        destination_cell(&candidate, &sim, None, &rules, &test_interner()).unwrap(),
         (
             native[0].as_i64().unwrap() as i32 / 256,
             native[1].as_i64().unwrap() as i32 / 256
@@ -668,14 +668,9 @@ fn run_native_bridge_response_seams(victim_is_slave: bool) {
 #[test]
 fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
     use crate::sim::movement::bridge_layer_oracle_tests as native;
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
         return;
     };
-    let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
-        return;
-    };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
     assert!(
         rules.object("HARV").unwrap().to_protect,
         "retail protected War Miner"

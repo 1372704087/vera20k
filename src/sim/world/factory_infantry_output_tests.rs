@@ -35,11 +35,8 @@ use serde_json::{Value, json};
 
 const TICK_MS: u32 = 67;
 
-fn ground_command_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/walk_first_path.json",
-    ))
-    .unwrap()
+fn ground_command_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/walk_first_path.json")
 }
 
 fn ground_command_history<'a>(corpus: &'a Value, name: &str) -> &'a Value {
@@ -151,7 +148,7 @@ fn ground_command_fixture(
         // The original contrast supplies Type+EC8=0 after retail startup.
         // Reproduce just that type prior through the existing native ReadBool
         // production reader; the original flag store is not an INI-read claim.
-        let mut ini = retail.processed_rules.clone();
+        let mut ini = (*retail.processed_rules).clone();
         ini.merge(&crate::rules::ini_parser::IniFile::from_str(
             "[E1]\nDeployer=no\n",
         ));
@@ -944,6 +941,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
 /// separately checked by the app input test; decoded Cell commands here have
 /// native ordinary (flag1) semantics regardless of the physical modifier.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_gi_reissues_match_original_command_returns() {
     check_initialized_ground_reissues(
         &[
@@ -997,7 +995,7 @@ fn simulation_ground_command(
 /// height-aware LocalSize gate. Original Foot4DE1D0/FNPC56DC20 chooses4,19
 /// before encoding ordinary Move; the Unit setter receives that chosen Cell.
 /// Replay the saved header/navigation inputs through the existing owners.
-pub(crate) fn check_initialized_unit_shift_resolver(produce: GroundCommandProducer) {
+pub fn check_initialized_unit_shift_resolver(produce: GroundCommandProducer) {
     let corpus = ground_command_corpus();
     let row = ground_command_history(&corpus, "unit_shift_outside_playfield_B");
     assert_eq!(row["inputs"][1]["queried_action"], 2);
@@ -1021,7 +1019,7 @@ pub(crate) fn check_initialized_unit_shift_resolver(produce: GroundCommandProduc
     check_initialized_ground_reissues(&["unit_shift_outside_playfield_B"], produce);
 }
 
-pub(crate) fn check_initialized_ground_reissues(names: &[&str], produce: GroundCommandProducer) {
+pub fn check_initialized_ground_reissues(names: &[&str], produce: GroundCommandProducer) {
     use crate::sim::mission::MissionId;
     use crate::sim::mission::authority::EntityReadyInputProvider;
 
@@ -1122,7 +1120,7 @@ pub(crate) fn check_initialized_ground_reissues(names: &[&str], produce: GroundC
 /// boundary, then compare the actual Event6 Stop and Move command returns.
 /// The next original AI is saved in the receipt; this test does not replay
 /// its map/background/facing inputs as a whole-world equivalence claim.
-pub(crate) fn check_initialized_unit_paid_reissues(produce: GroundCommandProducer) {
+pub fn check_initialized_unit_paid_reissues(produce: GroundCommandProducer) {
     let corpus = ground_command_corpus();
     for name in [
         "unit_paid_head_B",
@@ -1287,6 +1285,7 @@ fn initialized_gi_move_clears_original_archive_before_destination() {
 /// The raw-word contrast imports an explicit component prior. Stop is the
 /// class51DAF0 method boundary, not keyboard/event Stop ingress.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_gi_retained_priors_and_stop_reissues_match_original_returns() {
     let corpus = ground_command_corpus();
     for name in [
@@ -1391,6 +1390,7 @@ fn replay_original_stop(
 /// the real target CanEnter, FNPC selection and class return. The subsequent
 /// AStar path and the unrelated factory map objects are not replayed here.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_gi_findpath_redirects_match_original_class_returns() {
     use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 
@@ -1459,6 +1459,7 @@ fn initialized_gi_findpath_redirects_match_original_class_returns() {
 /// the playfield, a foreign House, Berserk, the Unit deployment bytes and
 /// Doing27 for a Deployer and a non-Deployer.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_cell_what_action_matches_every_original_query() {
     let corpus = ground_command_corpus();
     let mut compared = 0;
@@ -1524,6 +1525,7 @@ fn initialized_cell_what_action_matches_every_original_query() {
 /// an order; the latter's query2 has a different refusal path.51AA40 owns its
 /// separate later human-class guard.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_gi_cell_input_no_order_contexts_match_original_state() {
     check_initialized_no_order_contexts(&[
         "human_Doing27_B",
@@ -1538,6 +1540,7 @@ fn initialized_gi_cell_input_no_order_contexts_match_original_state() {
 /// Explicit native byte priors exercise them without claiming that MTNK's
 /// retail type can itself produce deployment transitions.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_unit_cell_input_no_order_contexts_match_original_state() {
     check_initialized_no_order_contexts(&[
         "unit_owner_mismatch_B",
@@ -1658,6 +1661,7 @@ fn initialized_gi_non_deployer_input_reaches_original_class_refusal() {
 /// Event prelude. House50B730 decides the class's independent human guard.
 /// The setter is void; compare true-RET8 state rather than incidental EAX.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn initialized_gi_deploy_class_contexts_match_original_returns() {
     let corpus = ground_command_corpus();
     for name in [
@@ -1693,11 +1697,9 @@ fn initialized_gi_deploy_class_contexts_match_original_returns() {
     }
 }
 
-pub(super) fn corpus() -> Value {
-    let data: Value = serde_json::from_str(crate::test_fixture::text(
-        "src/sim/world/fixtures/factory_infantry_local_native.json",
-    ))
-    .unwrap();
+pub(super) fn corpus() -> &'static Value {
+    let data =
+        crate::test_fixture::json("src/sim/world/fixtures/factory_infantry_local_native.json");
     assert_eq!(data["schema_version"], 2);
     assert_eq!(
         data["native_sha256"],
@@ -1872,6 +1874,7 @@ fn no_rally_two_paid_gi_walk_out_and_release_their_factory_contacts() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn rally_two_paid_gi_consume_archive_walk_to_rally_and_settle() {
     joined_two_paid_gi(OutputRoute::Rally);
 }

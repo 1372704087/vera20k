@@ -200,14 +200,14 @@ impl App {
         );
         terrain_draw_renderer.generate_ion_blast_frames(&gpu.device, &gpu.queue);
         let combat_light_renderer = crate::render::combat_light::CombatLightRenderer::new(&gpu);
-        let mut bit_font = BitFont::fallback_5x7(&gpu, &batch_renderer);
+        let mut bit_font = BitFont::fallback_5x7(&gpu.device, &gpu.queue, &batch_renderer);
         let depth_view: wgpu::TextureView = gpu.create_depth_texture();
         let shell_surface_presenter =
             crate::render::shell_surface_present::ShellSurfacePresenter::new(&gpu)?;
         let input_delay_ticks: u64 = game_config
             .as_ref()
-            .map(|cfg| cfg.gameplay.input_delay_ticks.max(1) as u64)
-            .unwrap_or(2);
+            .map(|cfg| u64::from(cfg.gameplay.input_delay_ticks))
+            .unwrap_or_else(|| u64::from(crate::util::config::default_input_delay_ticks()));
         // Ordinary gamemd chrome is one physical render pixel per asset pixel.
         // 6A5090/6A5130 change row capacity on resize, never artwork scale.
         let ui_scale = 1.0;
@@ -253,7 +253,7 @@ impl App {
             })
         });
         if let Some(fnt) = startup_fnt.as_ref() {
-            bit_font = BitFont::from_fnt(&gpu, &batch_renderer, fnt);
+            bit_font = BitFont::from_fnt(&gpu.device, &gpu.queue, &batch_renderer, fnt);
         }
         let outcome_banner_art = startup_asset_manager.as_ref().and_then(|assets| {
             crate::app::presentation::outcome_banner::OutcomeBannerArt::build(
@@ -543,6 +543,7 @@ impl App {
                     line_trails: Default::default(),
                     lasers: Default::default(),
                     electric_bolts: Default::default(),
+                    radiation_beams: Default::default(),
                     detail: Default::default(),
                     hidden_super_anims: Default::default(),
                     super_timer_blinks: Default::default(),
@@ -576,7 +577,6 @@ impl App {
                     sprite_atlas: None,
                     overlay_atlas: None,
                     bridge_atlas: None,
-                    bridge_railing_atlas: None,
                     sidebar_cameo_atlas: None,
                     sidebar_chrome: None,
                     software_cursor: startup_software_cursor,
@@ -682,7 +682,6 @@ impl App {
                 status_screen_fill,
                 bit_font,
                 outcome_banner_art,
-                vxl_slope_transition_cache: std::cell::RefCell::new(Default::default()),
                 vxl_pose_frame_cache: std::cell::RefCell::new(Default::default()),
                 retail_screenshot_frame_cache: Default::default(),
             },

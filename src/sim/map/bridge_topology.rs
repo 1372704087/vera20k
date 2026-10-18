@@ -19,14 +19,15 @@
 
 use crate::map::bridge_facts::BridgeFlags;
 use crate::map::cell_index::NativeCellIdentity;
-use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainCell};
-use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEVELS;
+use crate::map::resolved_terrain::NativeCellQuery;
+use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, BRIDGE_DECK_HEIGHT_LEVELS};
 
 /// Which persistent cell list an object belongs to. The ground list and the
 /// bridge-deck list are distinct so movers/projectiles on a high bridge do not
 /// interact with whatever sits underneath the span.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ListLayer {
+    #[default]
     Ground,
     Bridge,
 }
@@ -49,15 +50,16 @@ pub struct CellBridgeView {
 }
 
 impl CellBridgeView {
-    /// Build a view from the canonical resolved-terrain cell.
-    pub fn from_resolved(cell: &ResolvedTerrainCell) -> Self {
-        Self::from_fields(cell.level, cell.bridge_facts.raw_flags)
-    }
-
     /// The view of the cell a Map lookup answered through `cells`: a real cell
     /// or the shared dummy, whose level and flags are current state too.
     pub(crate) fn from_query(cells: &NativeCellQuery<'_>, cell: NativeCellIdentity) -> Self {
         Self::from_fields(cells.ground_fields(cell).0, cells.flags(cell))
+    }
+
+    /// Read a retained Cell pointer at this receiver boundary. In particular,
+    /// an aliased Dummy may have changed since the lookup that returned it.
+    pub(crate) fn from_cell_ref(cell: &crate::sim::cell_rect::CellRef<'_>) -> Self {
+        Self::from_fields(cell.signed_level() as u8, cell.bridge_flags_0x1180())
     }
 
     /// The `u8 -> i8` cast on `level` is deliberate: it reproduces gamemd's
@@ -104,22 +106,18 @@ impl CellBridgeView {
 
     // --- AoE object-layer selector -------------------------------------------
     //
-    // GATE A2/A1: which per-cell object list an AoE detonation damages, by
-    // comparing the detonation Z against the deck mid-height.
+    // One AreaDamage invocation retains this layer across every scanned cell
+    // and through receiver callbacks into the later rocking continuation.
 
-    /// Select the AoE damage object list for a detonation over this cell.
-    ///
-    /// gamemd compares the impact Z against `ground_z + half_deck`, where the
-    /// half-deck term is two levels (`DECK / 2 = 2`). The compare is
-    /// STRICT `>` (impact exactly at the mid-height stays on the ground list).
-    /// `ground_z` is the `GetGroundHeight`-equivalent operand in the SAME domain
-    /// as `impact_z` (both Level units here).
-    ///
-    /// (Source: `GATE_BRIDGE_ONBRIDGE_OCCUPANCY_RESOLUTION_GHIDRA_REPORT.md` +
-    /// `GATE_BRIDGE_DECK_HEIGHT_RESOLUTION_GHIDRA_REPORT.md` §3/§4.)
+    /// AreaDamage48955E..48958D selects one list before its cell callbacks.
+    /// Map578080 supplies the ground-only floor at the exact impact XY; both
+    /// operands are absolute leptons, including the one-lepton remainder.
+    /// The original89E864 deck is416 leptons; equality at floor+208 stays Ground.
     #[inline]
-    pub fn aoe_object_layer(&self, impact_z: i32, ground_z: i32) -> ListLayer {
-        if self.is_bridge_cell() && impact_z > ground_z + BRIDGE_DECK_HEIGHT_LEVELS / 2 {
+    pub fn aoe_object_layer(&self, impact_z_leptons: i32, floor_z_leptons: i32) -> ListLayer {
+        if self.is_bridge_cell()
+            && impact_z_leptons > floor_z_leptons.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS / 2)
+        {
             ListLayer::Bridge
         } else {
             ListLayer::Ground
@@ -152,73 +150,3 @@ impl CellBridgeView {
 //   - The `Level + 4` height seed the gate applies is the Level-unit pathfinding
 //     seed (1 ElevationIncrement) — DISTINCT from the lepton coordinate-Z deck
 //     offset (`BRIDGE_DECK_HEIGHT_LEPTONS`). The two are never mixed (A1 §5).
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::map::bridge_facts::{BRIDGE_FLAG_ANCHOR_SELF, BRIDGE_FLAG_STRUCTURAL};
-
-    /// Build a view directly from raw fields (bypasses `from_resolved` so a test
-    /// can pin a precise flag/level combination without a full terrain cell).
-    fn view(level: i8, raw_flags: u32) -> CellBridgeView {
-        CellBridgeView {
-            level,
-            flags: BridgeFlags(raw_flags),
-        }
-    }
-
-    #[test]
-    fn effective_height_anchor_plus4_signed_level() {
-        // L2: signed level + exactly the deck height for an anchor; NOT the layer
-        // form. Feed a raw level byte > 127 (0xFE) to prove the i8 reinterpret.
-        let raw_level = 0xFEu8 as i8; // -2
-        assert_eq!(raw_level, -2, "0xFE must reinterpret as -2");
-
-        let anchor = view(raw_level, BRIDGE_FLAG_ANCHOR_SELF);
-        assert_eq!(
-            anchor.effective_height(),
-            -2 + 4,
-            "anchor adds the deck height"
-        );
-
-        let non_anchor = view(raw_level, 0);
-        assert_eq!(
-            non_anchor.effective_height(),
-            -2,
-            "non-anchor is the bare level"
-        );
-    }
-
-    #[test]
-    fn aoe_object_layer_strict_gt_half_deck() {
-        // GATE A2/A1: STRICT `>` against ground + half_deck (half = DECK/2 = 2).
-        // base = 100; structural cell.
-        let bridge = view(100, BRIDGE_FLAG_STRUCTURAL);
-        let ground_z = 100;
-        let half = BRIDGE_DECK_HEIGHT_LEVELS / 2; // = 2
-        assert_eq!(half, 2, "half-deck is 2 levels");
-
-        // Exactly at the mid-height -> Ground (strict `>` excludes equality).
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z + half, ground_z),
-            ListLayer::Ground
-        );
-        // One above the mid-height -> Bridge.
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z + half + 1, ground_z),
-            ListLayer::Bridge
-        );
-        // Below -> Ground.
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z, ground_z),
-            ListLayer::Ground
-        );
-
-        // Non-structural cell is always Ground regardless of Z.
-        let non_bridge = view(100, 0);
-        assert_eq!(
-            non_bridge.aoe_object_layer(ground_z + 999, ground_z),
-            ListLayer::Ground
-        );
-    }
-}

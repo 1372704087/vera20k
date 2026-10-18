@@ -282,9 +282,19 @@ pub fn build_loading_screen_atlas_with_composition(
     let manifest = variant.manifest();
     let background_name = manifest.background_asset(width);
     let background_palette = load_named_ui_palette(assets, manifest.palette_name)?;
-    let remap_base_palette = load_named_ui_palette(assets, "MPLS.PAL")
-        .or_else(|| load_named_ui_palette(assets, manifest.palette_name))?;
-    let progress_palette = progress_palette_with_player_ramp(&remap_base_palette, progress_ramp);
+    // gamemd draws the Skirmish meter and the map-preview house-colour markers through
+    // an assigned house's ColorScheme convert: `ProgressMeterClass__DrawFill @ 0x00643486`
+    // reads `ColorScheme+0x30C` (the `+0x74` override stays null for `g_GameMode != 0`,
+    // set in `ScenarioClass__Read_Scenario @ 0x00684805..0x0068482F`), and the marker loop
+    // at `0x00640A40` passes `g_ColorSchemeArray[House+0x16054] * 4 + 0x30C`. Each scheme's
+    // palette is `g_FileSystem_TEMPERAT_PAL` with only indices 16..31 overwritten:
+    // `ColorScheme__Constructor @ 0x0068C710` hands that fixed buffer to
+    // `ColorScheme__BuildRampPalette @ 0x0068C3B0`, whose first step is the 768-byte base
+    // copy, and `Init_Game` fills it from `TEMPERAT.PAL` whatever the selected theater.
+    let house_convert_base_palette = load_named_ui_palette(assets, "TEMPERAT.PAL")
+        .or_else(|| load_named_ui_palette(assets, "MPLS.PAL"))?;
+    let progress_palette =
+        progress_palette_with_player_ramp(&house_convert_base_palette, progress_ramp);
 
     let mut rendered = vec![
         mandatory_shp(
@@ -294,13 +304,13 @@ pub fn build_loading_screen_atlas_with_composition(
             0,
             manifest.palette_name,
         )?,
-        mandatory_shp(assets, "PROGBARM.SHP", &progress_palette, 0, "MPLS.PAL")?,
+        mandatory_shp(assets, "PROGBARM.SHP", &progress_palette, 0, "TEMPERAT.PAL")?,
         solid_texel_entry(),
     ];
 
     let (preview_label, marker_labels) = append_optional_composition_entries(
         assets,
-        &remap_base_palette,
+        &house_convert_base_palette,
         composition,
         &mut rendered,
     );
@@ -789,6 +799,35 @@ mod tests {
         assert_eq!(remapped.colors[32], palette.colors[32]);
     }
 
+    /// The meter and the map-preview markers both take the house scheme's convert, so
+    /// that base only matters if it differs from the UI palette outside the house band.
+    /// If these two agreed, switching the base would be inert.
+    #[test]
+    fn temperat_meter_base_differs_from_the_ui_palette_outside_the_band() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let load = |name: &str| {
+            Palette::from_bytes_gamemd_ui(
+                assets
+                    .get_ref(name)
+                    .unwrap_or_else(|| panic!("retail {name}")),
+            )
+            .unwrap_or_else(|err| panic!("{name} parses: {err:#}"))
+        };
+        let temperat = load("TEMPERAT.PAL");
+        let ui = load("MPLS.PAL");
+
+        let outside_band = (0..16)
+            .chain(32..256)
+            .filter(|index| temperat.colors[*index] != ui.colors[*index])
+            .count();
+        assert!(
+            outside_band > 0,
+            "TEMPERAT.PAL and MPLS.PAL agree outside 16..31, so the meter base would be inert"
+        );
+    }
+
     #[test]
     fn mmpb_region_rect_uses_exact_native_width_equality() {
         assert_eq!(
@@ -993,52 +1032,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic asset dump; run explicitly when inspecting PROGBARM palette indices"]
-    fn zz_dump_progbarm_frame0_indices() {
-        let config = match crate::util::config::GameConfig::load() {
-            Ok(config) => config,
-            Err(_) => return,
-        };
-        if !config.paths.ra2_dir.exists() {
-            return;
-        }
-        let assets = crate::assets::asset_manager::AssetManager::new(
-            &config.paths.ra2_dir,
-            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
-        )
-        .expect("install loads");
-        let bytes = assets.get_ref("PROGBARM.SHP").expect("progbarm");
-        let shp = crate::assets::shp_file::ShpFile::from_bytes(bytes).expect("parse shp");
-        let f = &shp.frames[0];
-        let mut hist = [0u32; 256];
-        for &p in &f.pixels {
-            hist[p as usize] += 1;
-        }
-        eprintln!(
-            "PROGBARM frame0 fw={} fh={} fx={} fy={} npix={}",
-            f.frame_width,
-            f.frame_height,
-            f.frame_x,
-            f.frame_y,
-            f.pixels.len()
-        );
-        for (i, &count) in hist.iter().enumerate() {
-            if count > 0 {
-                eprintln!("  idx {i:3} count {count}");
-            }
-        }
-        // Dump MPLS.PAL RGB for the house-color band 16..31 (raw 6-bit *4 not applied here).
-        if let Some(pal) = assets.get_ref("MPLS.PAL") {
-            eprintln!("MPLS.PAL raw bytes 16..32:");
-            for i in 16..32 {
-                let o = i * 3;
-                eprintln!("  pal {i:2} = {} {} {}", pal[o], pal[o + 1], pal[o + 2]);
-            }
-        }
-        panic!("diagnostic dump");
-    }
-
-    #[test]
     fn side_icon_pcx_uses_verified_insignia_mapping() {
         let cases = [
             (LoadingArtVariant::Americans, "usai.pcx"),
@@ -1107,9 +1100,9 @@ mod tests {
             "MPLS.PAL should resolve from configured RA2 install"
         );
         let marker_palette = crate::assets::pal_file::Palette::from_bytes_gamemd_ui(
-            assets.get_ref("MPLS.PAL").expect("MPLS palette"),
+            assets.get_ref("TEMPERAT.PAL").expect("TEMPERAT palette"),
         )
-        .expect("MPLS palette should decode");
+        .expect("TEMPERAT palette should decode");
         let marker = render_shp_entry(&assets, super::MMPB_ASSET_NAME, &marker_palette, 0)
             .expect("retail mmpb.shp frame 0 should decode");
         assert_eq!((marker.width, marker.height), (12, 12));

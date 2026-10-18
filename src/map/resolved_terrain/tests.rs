@@ -509,7 +509,6 @@ fn synthetic_theater_with_wood_bridge_set() -> TheaterData {
         bridge_set: None,
         wood_bridge_set: Some(1),
         slope_set_pieces: None,
-        slope_set_pieces2: None,
         bridge_middle_1: None,
         bridge_middle_2: None,
         tunnels: None,
@@ -536,7 +535,6 @@ fn synthetic_theater_from_ini(ini: &[u8]) -> TheaterData {
         bridge_set: None,
         wood_bridge_set: None,
         slope_set_pieces: None,
-        slope_set_pieces2: None,
         bridge_middle_1: None,
         bridge_middle_2: None,
         tunnels: None,
@@ -714,7 +712,7 @@ fn projectile_level_uses_loaded_theater_interval_through_runtime() {
                 origin: ProjectileCoord::new(896, 896, 500),
                 target: ProjectileTarget::None,
                 initial_target_position: ProjectileCoord::new(1408, 896, 0),
-                payload: ProjectilePayload::new(0, key, key),
+                payload: ProjectilePayload::new(0, key, None, false),
                 speed_leptons_per_frame: 16,
                 velocity: ProjectileVelocity::new(16, 0, 0),
                 trajectory: ProjectileTrajectory::Ballistic,
@@ -1070,6 +1068,33 @@ fn a_detached_dummy_stamps_a_private_cell_word() {
         other.snapshot().coord,
         (5, 6),
         "another Dummy is not detached"
+    );
+}
+
+/// A run nested in another starts from the shared word, not the enclosing
+/// copy, and a stamp that changed the copy counts even when a later one
+/// restored it.
+#[test]
+fn a_nested_detached_run_starts_from_the_shared_word() {
+    let dummy = SharedCellDummy::fresh();
+    dummy.stamp_coord(-7, 11);
+    let ((nested, after), changed) = dummy.detached_stamps(|| {
+        dummy.stamp_coord(40, -2);
+        let nested = dummy.detached(|| dummy.snapshot().coord);
+        let after = dummy.snapshot().coord;
+        dummy.stamp_coord(-7, 11);
+        (nested, after)
+    });
+    assert_eq!(nested, (-7, 11), "a nested run starts from the shared word");
+    assert_eq!(after, (40, -2), "the enclosing copy resumes after it");
+    assert!(
+        changed,
+        "a stamp changed the copy before another restored it"
+    );
+    let ((), restamped) = dummy.detached_stamps(|| dummy.stamp_coord(-7, 11));
+    assert!(
+        !restamped,
+        "restamping the word the copy holds changes nothing"
     );
 }
 
@@ -4578,7 +4603,6 @@ Tile03ZAdjust=-10
         bridge_set: None,
         wood_bridge_set: None,
         slope_set_pieces: None,
-        slope_set_pieces2: None,
         bridge_middle_1: None,
         bridge_middle_2: None,
         tunnels: None,

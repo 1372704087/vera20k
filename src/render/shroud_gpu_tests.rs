@@ -12,11 +12,8 @@ use super::{
 use serde_json::Value;
 use wgpu::util::DeviceExt;
 
-fn fixture() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/procedural_drawing_oracle/blitter_a.json",
-    ))
-    .unwrap()
+fn fixture() -> &'static Value {
+    crate::test_fixture::json("tools/procedural_drawing_oracle/blitter_a.json")
 }
 fn buffer(gpu: &Gpu, instances: &[SpriteInstance]) -> wgpu::Buffer {
     gpu.device
@@ -318,6 +315,9 @@ fn production_world_a_sampling_matches_cpu_source_at_fractional_scroll_and_zoom(
         &crate::assets::pal_file::Palette {
             colors: [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
         },
+        &crate::assets::pal_file::Palette {
+            colors: [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
+        },
         &crate::rules::house_colors::HouseColorRamps::from_schemes(&[]),
         &[],
     );
@@ -382,6 +382,7 @@ fn production_world_a_sampling_matches_cpu_source_at_fractional_scroll_and_zoom(
                                 &data,
                                 0,
                                 1,
+                                crate::render::tactical_draw_plan::RenderZPolicy::ReadOnly,
                             ),
                             _ => unreachable!(),
                         }

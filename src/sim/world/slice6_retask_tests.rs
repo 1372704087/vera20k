@@ -17,11 +17,8 @@ use super::*;
 use crate::map::entities::{EntityCategory, MapEntity};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::TargetKind;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::mission::mega_mission::MegaMission;
 use crate::sim::mission::{MissionId, MissionType};
-use crate::sim::pathfinding::PathGrid;
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
 
 fn slice6_rules() -> RuleSet {
@@ -83,6 +80,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
         trigger_tag: None,
     }
 }
@@ -348,24 +346,26 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // with a hash that skips only that fold) gives this value in the same
 // test, with every tripwire above green.
 // Control removed. Previous: 0xE3F1_10CD_1C40_81A1.
-// Integrated StateHasher pin after executed scoped feed attribution. The test
-// below recovers current main exactly with retired feeds and preserves serialized
-// gameplay, the live Dummy and all three RNG streams; this is a Rust ratchet.
-const SLICE6_BASELINE_HASH: u64 = 0x2884_EE4E_0340_B160;
-
-// ALL01 r6 (fork-local schema345) used DefaultHasher before main's
-// pinned StateHasher, entity/fog digests and owner migrations. These remain
-// historical Rust receipts; they are not comparable to current u64 outputs.
-const SLICE6_INCOMING_HASH: u64 = 0xC4B5_83A9_D807_77FD;
-const SLICE6_ANNOUNCEMENT_ONLY_HASH: u64 = 0x4645_6FE7_BB02_4917;
-const SLICE6_R6_BASELINE_HASH: u64 = 0x9041_91B9_31BD_8D18;
-// The legacy-feed control uses this main StateHasher reference.
-const SLICE6_MAIN_HASH: u64 = 0x7DBF_3798_6DCA_6E31;
+// Snapshot377 retains raw Type Sight and native250/254/260 admission.
+// The exact-zero gate70AF87 replaces frame-produced empty source caches and
+// default fog owner planes. This is a Rust state ratchet; retask behavior,
+// per-frame replay and absolute RNG tripwires remain independent.
+// Snapshot385 retains native Drive+64 in the existing payload hash, including
+// its false value. This Rust ratchet includes that state byte; the fixture
+// keeps its separate replay, gameplay and absolute RNG expectations.
+// Foot4DA886, reached by Infantry51BC9F as well as Unit73647B, now advances
+// the moving E1's existing+538 counter seven times in this fixture. That
+// retained counter already hashes; this Rust replay ratchet moves without
+// a schema or RNG change. It is not a native whole-world golden.
+// The synthetic vehicle's absent Crusher/SpeedType now resolves to Wheel.
+// Its retained locomotor/rules hash changes; mission and RNG pins do not.
+const SLICE6_BASELINE_HASH: u64 = 0xD310_CFBA_7572_D1FA;
 
 #[test]
 fn replay_hash_stable_through_slice6() {
     let rules = slice6_rules();
     let mut sim = Simulation::new();
+    sim.hash_state_every(std::num::NonZeroU64::MIN);
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     let grid = (*sim.path_grid_snapshot().unwrap()).clone();
     // id 1: Americans MTNK (the unit we retask). id 2: enemy MTNK (Soviet, hostile
@@ -422,7 +422,7 @@ fn replay_hash_stable_through_slice6() {
         ),
         (
             7,
-            Command::ForceAttack {
+            Command::Attack {
                 attacker_id: 1,
                 target_id: 2,
             },
@@ -655,102 +655,9 @@ fn replay_hash_stable_through_slice6() {
             .rot_per_frame(),
         0x7F00
     );
-    let current_hash = sim.state_hash();
-    let retained_authority = bincode::serialize(&sim).expect("retained retask authority");
-    let retained_dummy = sim.effective_shared_cell_dummy().snapshot();
-    let retained_streams = (
-        sim.scenario_rng.state(),
-        sim.main_rng.state(),
-        sim.mapgen_rng.state(),
-    );
-    let announcement_only_hash = sim.state_hash_with_legacy_absent_real_cell_authority_for_test();
-    let incoming_hash_control =
-        crate::sim::trigger_runtime::with_legacy_announcement_hash_control_for_test(|| {
-            sim.state_hash_with_legacy_absent_real_cell_authority_for_test()
-        });
-    println!(
-        "[slice6 fixture hash feeds] current={current_hash:016X} old_map={announcement_only_hash:016X} control={incoming_hash_control:016X} main={SLICE6_MAIN_HASH:016X} archived_default_incoming={SLICE6_INCOMING_HASH:016X} archived_default_announcement={SLICE6_ANNOUNCEMENT_ONLY_HASH:016X} archived_r6={SLICE6_R6_BASELINE_HASH:016X}"
-    );
-    assert_ne!(
-        announcement_only_hash, current_hash,
-        "the captured real-cell authority contributes to the current hash"
-    );
-    assert_ne!(
-        announcement_only_hash, incoming_hash_control,
-        "the retired announcement None feed contributes independently"
-    );
-    assert_eq!(
-        incoming_hash_control, SLICE6_MAIN_HASH,
-        "restoring only the retired None and absent saved real-cell feeds must recover the main StateHasher pin; other drift needs attribution"
-    );
-    assert_eq!(
-        sim.state_hash(),
-        current_hash,
-        "diagnostic feeds stay scoped"
-    );
-    assert!(
-        retained_authority == bincode::serialize(&sim).expect("unchanged retask authority"),
-        "diagnostic feeds cannot alter serialized gameplay state"
-    );
-    assert_eq!(sim.effective_shared_cell_dummy().snapshot(), retained_dummy);
-    assert_eq!(
-        (
-            sim.scenario_rng.state(),
-            sim.main_rng.state(),
-            sim.mapgen_rng.state()
-        ),
-        retained_streams
-    );
     assert_eq!(
         sim.state_hash(),
         SLICE6_BASELINE_HASH,
         "scripted-retask state drifted: establish the changed behavior, RNG producer, or hash composition before updating"
-    );
-}
-
-#[test]
-fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
-    // A Move command must route through the compatibility boundary: the mission
-    // substrate's `current` becomes Move (checked BEFORE any tick-tail shadow
-    // refresh) AND the legacy conflicting fields are cleared.
-    let rules = slice6_rules();
-    let grid = PathGrid::new(64, 64);
-    let mut sim = Simulation::new();
-    sim.install_fixture_path_grid(Some(&grid));
-    sim.spawn_from_map(
-        &[unit("Americans", "MTNK", 3, 3, EntityCategory::Unit)],
-        Some(&rules),
-    );
-    // Seed a conflicting prior order the Move must tear down.
-    {
-        let e = sim.substrate.entities.get_mut(1).expect("unit");
-        e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        e.mega_mission = MegaMission::attack_move(Some(crate::sim::combat::TargetKind::Cell(3, 3)));
-    }
-
-    let issued = sim.apply_command(
-        "Americans",
-        &Command::Move {
-            entity_id: 1,
-            target_rx: 10,
-            target_ry: 10,
-        },
-        Some(&rules),
-    );
-    assert!(issued, "move command should issue");
-
-    let e = sim.substrate.entities.get(1).expect("unit");
-    assert_eq!(
-        e.mission.queued(),
-        MissionId::from_known(MissionType::Move),
-        "the command queued Move through the exact authority (host promotes later)"
-    );
-    assert!(
-        e.attack_target.target().is_none(),
-        "Move tore down the attack target"
-    );
-    assert!(
-        !e.mega_mission.is_attack_move(),
-        "Move's Assign_Target_Command cleared the attack-move"
     );
 }

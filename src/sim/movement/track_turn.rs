@@ -163,14 +163,14 @@ impl Simulation {
                 && let Ok(coord) = super::navcom::nav_target_coordinate(
                     target,
                     Some(id),
-                    &self.substrate.entities,
+                    self,
                     self.resolved_terrain.as_ref(),
                     rules.map(|rules| (rules, &self.interner)),
                 )
             {
                 let terrain = self.resolved_terrain.as_ref();
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    super::navcom::track_move_to(entity, coord, terrain);
+                    super::navcom::track_move_to(entity, coord, terrain, self.session.binary_frame);
                 }
             }
             return false;
@@ -179,13 +179,7 @@ impl Simulation {
         // destination fails the zone precheck clears its head, then stops or
         // takes the next waypoint; either way the tail follows.
         if entity.in_playfield() && mission != Some(MissionType::Enter) && moving {
-            let destination = entity
-                .locomotor
-                .as_ref()
-                .and_then(|loco| {
-                    loco.track_destination(TrackFamily::from_kind(loco.active_kind())?)
-                })
-                .unwrap_or(crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 });
+            let destination = super::track_path::track_destination_or_null(entity);
             let Some(rules) = rules else {
                 return true;
             };

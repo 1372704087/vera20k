@@ -79,15 +79,14 @@
 //! - Dormant with retail data: the SAM arm (`0x0044AD07`, `SAM=` unset), the
 //!   upgrade arm (`0x0044B2BC`, no `PowersUpBuilding=`), Mission_Guard's
 //!   SuperWeapon gate (`0x00449716..0x00449753`, no armed type sets
-//!   `SuperWeapon=`), the waypoint-planning hook (`0x0044AFB1`, VERA has no
-//!   planning mode) and BuildingClass::SetTarget's TickTank/Artillary
+//!   `SuperWeapon=`) and BuildingClass::SetTarget's TickTank/Artillary
 //!   undeploy (`0x00443C07..0x00443C54`, neither key set).
 //!
 //! ## Dependency rules
 //! - Part of sim/; sim/ never depends on render/, ui/, audio/, net/.
 
-use super::target_scan::{can_fire_at, fire_error_with_overlay, select_weapon, weapon_at_index};
-use super::{ObjectAiCtx, mission_handlers_run};
+use super::ObjectAiCtx;
+use super::target_scan::{can_fire_at, fire_error_at, select_weapon, weapon_at_index};
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::building_art::requested_damage_state;
@@ -97,7 +96,7 @@ use crate::sim::combat::fire_error::FireError;
 use crate::sim::combat::gattling::{StageCall, is_elite};
 use crate::sim::combat::{BuildingShot, fire_coord};
 use crate::sim::mission::authority::LiveReadyInputProvider;
-use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::mission::{MISSION_STUB_FRAMES, MissionId, MissionType};
 use crate::sim::projectile::ProjectilePayload;
 use crate::sim::world::Simulation;
 
@@ -108,7 +107,7 @@ use crate::sim::world::Simulation;
 /// A shot captures no target: expiry reads the building's live
 /// `attack_target`, with the weapon Mission_Attack saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PendingBuildingFire {
+pub struct PendingBuildingFire {
     /// Signed native timer value, clamped to zero by ProcessDelayedFire after
     /// its pre-decrement.
     remaining_ticks: i32,
@@ -125,19 +124,19 @@ impl PendingBuildingFire {
     }
 
     /// The countdown (`+0x714`).
-    pub(crate) const fn remaining_ticks(self) -> i32 {
+    pub const fn remaining_ticks(self) -> i32 {
         self.remaining_ticks
     }
 
     /// What it fires (`+0x704` mode, `+0x708..+0x710` payload).
-    pub(crate) const fn fire(self) -> DelayedFire {
+    pub const fn fire(self) -> DelayedFire {
         self.fire
     }
 }
 
 /// What a delayed fire does when its countdown ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum DelayedFire {
+pub enum DelayedFire {
     /// Mode 1: FireAt the live target with the saved weapon (`+0x708`).
     Weapon(WeaponSlot),
     /// Mode 2: a Prism support beam (`0x0044ABD0`) to the master's weapon-0
@@ -167,13 +166,13 @@ impl std::hash::Hash for PendingBuildingFire {
 /// ([`Self::count_down`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct BuildingDelayedFire {
+pub struct BuildingDelayedFire {
     pending: Option<PendingBuildingFire>,
 }
 
 impl BuildingDelayedFire {
     /// The armed fire.
-    pub(crate) const fn pending(self) -> Option<PendingBuildingFire> {
+    pub const fn pending(self) -> Option<PendingBuildingFire> {
         self.pending
     }
 
@@ -202,17 +201,12 @@ impl BuildingDelayedFire {
     }
 
     /// Install a fixture's fire.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, pending: Option<PendingBuildingFire>) {
         self.pending = pending;
     }
 }
 
-/// The MissionClass stubs a building's table holds for every mission it has
-/// no handler of its own for (`0x005B2E10..0x005B2FC0`; its Capture,
-/// Sabotage and Harvest slots jump to them, `0x0044B760`, `0x0044B770`):
-/// 450 frames.
-const DEFAULT_MISSION_DELAY: i32 = 450;
 /// An unarmed HasStupidGuardMode building's Guard return (`0x004497F4`).
 const STUPID_GUARD_DELAY: i32 = 100;
 /// The building anim slots of `ActiveAnim=` and `SpecialAnim=` (Building
@@ -279,11 +273,11 @@ pub(super) fn dispatch(
     };
     let current = entity.mission.current().known();
     let now = sim.session.binary_frame;
-    if !entity.mission.dispatch_timer().due(now) || !mission_handlers_run(sim, id) {
+    if !entity.mission_handler_due(now) {
         return;
     }
     if current == Some(MissionType::Selling) {
-        // Sell shares the same dispatch timer and Health gate as Construction.
+        // Sell shares the same gate as Construction.
         sim.visit_building_down(id, rules, ctx.overlay_registry, ctx.effects);
         return;
     }
@@ -315,8 +309,9 @@ pub(super) fn dispatch(
         },
         Some(MissionType::Missile) => super::building_missile::mission_missile(sim, id, rules),
         // Every other slot of the building's table, and no mission (above
-        // `0x1F`, `0x005B30BB`), is a MissionClass stub.
-        _ => DEFAULT_MISSION_DELAY,
+        // `0x1F`, `0x005B30BB`), is a MissionClass stub; its Capture, Sabotage
+        // and Harvest slots jump to them (`0x0044B760`, `0x0044B770`).
+        _ => MISSION_STUB_FRAMES,
     };
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.mission.write_dispatch_epilogue(now as i32, delay);
@@ -435,6 +430,7 @@ fn mission_unload(
         rules,
         ctx.overlay_registry,
         id,
+        crate::sim::passenger::garrison_eject::GarrisonEjectMode::Release,
         ctx.effects,
     );
     let entity = sim.substrate.entities.get(id)?;
@@ -698,7 +694,7 @@ fn mission_guard(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: ObjectAiCt
     let Some(entity) = sim.substrate.entities.get(id) else {
         return 0;
     };
-    let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
         return 0;
     };
     let current = entity
@@ -810,9 +806,25 @@ fn mission_attack(
     let Some((target, weapon)) = attack_prelude(sim, id, rules) else {
         return 1;
     };
-    let mut code = fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry);
+    let mut code = fire_error_at(
+        sim,
+        rules,
+        id,
+        Some(target),
+        weapon,
+        true,
+        ctx.overlay_registry,
+    );
     if code == FireError::Facing && voxel_turret_snaps(sim, id, rules, target) {
-        code = fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry);
+        code = fire_error_at(
+            sim,
+            rules,
+            id,
+            Some(target),
+            weapon,
+            true,
+            ctx.overlay_registry,
+        );
     }
     attack_arm(
         sim,
@@ -842,6 +854,8 @@ fn attack_prelude(sim: &mut Simulation, id: u64, rules: &RuleSet) -> Option<(Tar
             crate::sim::world::FrameEffects::default(),
         );
         clear_support_count(sim, id);
+        //44AFA5..44AFB1: the warp-in readiness gate precedes705D60 ->6385C0.
+        sim.planning_enter_idle(id);
         if !waits(sim, id) {
             queue_and_commence(sim, id, MissionType::Guard, rules);
         }
@@ -885,6 +899,8 @@ fn attack_arm(
                 ctx.effects,
             );
             clear_support_count(sim, id);
+            //44B0F3..44B0FF: retain the Wait queued by planned dispatch.
+            sim.planning_enter_idle(id);
             if waits(sim, id) {
                 return 1;
             }
@@ -946,7 +962,7 @@ fn waits(sim: &Simulation, id: u64) -> bool {
 /// ([`Self::reset`]). The laser's Prism arm reads it through the fire path.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct PrismSupport {
+pub struct PrismSupport {
     count: i32,
 }
 
@@ -967,7 +983,7 @@ impl PrismSupport {
     }
 
     /// Install a fixture's count.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, count: i32) {
         self.count = count;
     }
@@ -1099,7 +1115,7 @@ fn fire_arm(
         .substrate
         .entities
         .get(id)
-        .and_then(|entity| rules.object(sim.interner.resolve(entity.type_ref())))
+        .and_then(|entity| sim.interner.object_type(entity.type_ref(), rules))
     else {
         return;
     };
@@ -1339,8 +1355,15 @@ pub(super) fn process_delayed_fire(
                 WeaponSlot::Primary => 0,
                 WeaponSlot::Secondary => 1,
             };
-            if fire_error_with_overlay(sim, rules, id, target, weapon, ctx.overlay_registry)
-                == FireError::Ok
+            if fire_error_at(
+                sim,
+                rules,
+                id,
+                Some(target),
+                weapon,
+                true,
+                ctx.overlay_registry,
+            ) == FireError::Ok
             {
                 *bridge_state_changed |= sim
                     .commit_fire_visit(
@@ -1404,7 +1427,7 @@ fn voxel_turret_snaps(sim: &mut Simulation, id: u64, rules: &RuleSet, target: Ta
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
-    let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
         return false;
     };
     if !(obj.has_turret && obj.turret_anim_is_voxel) {
@@ -1551,7 +1574,7 @@ impl Simulation {
     /// visit (`combat::receiver_fixture`): Mission_Attack when the building
     /// holds a target, then ProcessDelayedFire. Both use the live receiver;
     /// the fixture honours no mission or dispatch timer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn fixture_building_visit(
         &mut self,
         id: u64,

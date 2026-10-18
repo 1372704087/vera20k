@@ -1,11 +1,8 @@
 use super::*;
 use serde_json::Value;
 
-pub(super) fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/line_trail.json",
-    ))
-    .unwrap()
+pub(super) fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/line_trail.json")
 }
 
 pub(super) fn projected(call: &Value) -> ProjectedLine {

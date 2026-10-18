@@ -1,10 +1,14 @@
 use super::*;
+use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::terrain_rules::TerrainClass;
 use crate::sim::bounce::{BounceOutcome, BounceState};
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 use serde_json::Value;
+
+#[path = "bounce_cliff_tests.rs"]
+mod cliff_tests;
 
 fn terrain_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
     ResolvedTerrainCell {
@@ -115,7 +119,7 @@ fn fixture(case: &Value) -> Simulation {
                 id,
                 MovementLayer::Ground,
                 None,
-                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+                crate::sim::occupancy::CellListInsertion::from_category(category),
             );
         }
     }
@@ -259,6 +263,9 @@ impl<'a> BounceTerrain for RecordingTerrain<'a> {
         self.query("0x565730", c);
         self.inner.ramp(c)
     }
+    fn cliff_face_direction(&self, c: IVec3, previous: IVec3) -> Option<u8> {
+        self.inner.cliff_face_direction(c, previous)
+    }
     fn is_water(&self, c: IVec3) -> bool {
         self.query("0x565730", c);
         self.inner.is_water(c)
@@ -274,16 +281,8 @@ impl<'a> BounceTerrain for RecordingTerrain<'a> {
                     .inner
                     .sim
                     .occupancy()
-                    .get(cell.rx, cell.ry)
-                    .is_some_and(|o| {
-                        o.iter_layer(MovementLayer::Ground).any(|v| {
-                            self.inner
-                                .sim
-                                .entities()
-                                .get(v.entity_id)
-                                .is_some_and(|e| e.category() == EntityCategory::Structure)
-                        })
-                    });
+                    .first_building_on_layer(cell.rx, cell.ry, MovementLayer::Ground)
+                    .is_some();
                 (i32::from(cell.rx), i32::from(cell.ry), false, has)
             }
         };
@@ -327,22 +326,19 @@ fn voxel_anim_logic_visit_delivers_native_deck_height_and_low_bridge_selection()
             .find(|c| c["name"] == name)
             .unwrap();
         let mut sim = fixture(case);
-        let mut rng = crate::sim::rng::SimRng::new(17);
-        let mut object = crate::sim::voxel_anim::spawn_debris_piece(
-            0,
+        sim.emit_debris_voxel(
             crate::rules::voxel_anim_type::VoxelAnimTypeId(0),
             &kind,
             None,
             IVec3::ZERO,
-            &mut rng,
+            true,
+            &mut Vec::new(),
         )
         .unwrap();
-        object.bounce = body(case);
-        sim.admit_death_debris(vec![crate::sim::voxel_anim::VoxelDebrisSpawn {
-            type_id: crate::rules::voxel_anim_type::VoxelAnimTypeId(0),
-            object,
-        }]);
         let id = sim.substrate.voxel_anims.ids()[0];
+        // This terrain-consumer fixture supplies the independently captured
+        // Bounce body after the ordinary constructor has admitted the object.
+        sim.substrate.voxel_anims.get_mut(id).unwrap().bounce = body(case);
         assert!(sim.live_object_order_snapshot().contains(&id));
         let before = sim.state_hash();
         sim.visit_voxel_anim(id, Some(&rules));

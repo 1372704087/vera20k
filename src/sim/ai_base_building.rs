@@ -42,16 +42,14 @@
 //!   `building_missions` record). The exit's `FirestormWall=` placement
 //!   after Unlimbo (`0x00445355..0x004453AE`, `0x00588570`); retail
 //!   `rulesmd.ini` sets the key on no type.
-//! - `Record_Last_Built` also stores the last built type of the object's kind
-//!   (`+0x26C` for buildings), which only the "built building type" trigger
-//!   event reads (`TriggerCondition::Evaluate`, `0x0071EFEB`; VERA's trigger
-//!   runtime has no such event); sets `+0x246`, which only restarts a
-//!   90-frame House timer nothing else reads (`0x004F8DF6..0x004F8E21`); sets
-//!   `+0x1FC`, whose revoke and grant pass on the next House update
-//!   (`0x004F92E9..0x004F9302`) VERA runs at the placement; and plays the
-//!   type's `CreateSound=` (`+0x534`) or, for a unit, infantry or aircraft,
-//!   a Rules default (`+0x178`, `+0x17C`, `+0x180`); presentation, not
-//!   parsed.
+//! - `Record_Last_Built` and Building discovery retain class-local type indices
+//!   through HouseState for built-type triggers19..22. The remaining `+0x246`
+//!   notification restarts a90-frame House timer (`0x004F8DF6..0x004F8E21`);
+//!   no gameplay consumer of that retained timer has been established.
+//!   The shared production owner now requests the existing House+1FC recheck
+//!   after accounting and the produced type's CreateSound/class fallback
+//!   (4FB7CA..4FB804). General retained-cameo admission has its separate
+//!   residual in production_tech; this does not close the whole House tail.
 //! - Native crash or out-of-range reads that VERA defines: a node index past
 //!   the BuildingType array or a negative control other than -1/-2/-3 reads
 //!   memory past the array (`0x004FE537`, `0x004FE6F6`); a null power plant
@@ -101,7 +99,7 @@ impl Default for HouseAiProduction {
 }
 
 impl HouseAiProduction {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn mode(&self) -> i32 {
         self.mode
     }
@@ -127,7 +125,7 @@ impl HouseAiProduction {
         self.mode = mode;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, mode: i32, building_choice: i32, naval_allowed: bool) {
         self.mode = mode;
         self.building_choice = building_choice;
@@ -615,7 +613,7 @@ fn place_building(
     registry: Option<&OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) -> bool {
-    if !can_place_building_at(sim, rules, registry, ty, site, Some(owner)) {
+    if !can_place_building_at(sim, rules, registry, ty, site, Some(owner), None) {
         return false;
     }
     let (Ok(rx), Ok(ry)) = (u16::try_from(site.0), u16::try_from(site.1)) else {
@@ -625,17 +623,25 @@ fn place_building(
         let Some(registry) = registry else {
             return false;
         };
-        if !crate::sim::production::stamp_wall_with_autofill(
-            sim,
-            rules,
-            registry,
-            ty,
-            (rx, ry),
-            owner,
-        ) {
+        if sim
+            .reveal_constructed_object_at_coord_with_overlay_context(
+                product,
+                crate::sim::components::DriveCoord {
+                    x: i32::from(rx) * 256 + 128,
+                    y: i32::from(ry) * 256 + 128,
+                    z: 0,
+                },
+                0,
+                PlacementEvidence::EvaluateMark,
+                rules,
+                Some(registry),
+                effects,
+            )
+            .is_none()
+        {
             return false;
         }
-        let _ = sim.discard_constructed_limbo(product, Some(rules), effects);
+        crate::sim::production::autofill_walls(sim, rules, registry, ty, (rx, ry), owner, effects);
         return true;
     }
     let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
@@ -735,20 +741,23 @@ fn carry_wall_tower_site(
 }
 
 /// `HouseClass::Suggest_New_Object @ 0x004FBD80` for a factory that makes
-/// `factory_type`: the house's choice of that kind, unchecked: the building
+/// `factory_rtti`: the house's choice of that kind, unchecked: the building
 /// choice (`+0x564C`, `0x004FBDDC`) or a choice of `sim::ai_unit_choice`
 /// (`+0x5650`, `+0x5654`, `+0x5658`).
 pub(crate) fn suggest_new_object<'r>(
     sim: &Simulation,
     rules: &'r RuleSet,
     owner: InternedId,
-    factory_type: FactoryType,
+    factory_rtti: i32,
 ) -> Option<&'r ObjectType> {
     let house = sim.houses.get(&owner)?;
     let unit_choice = |kind: UnitChoiceKind| {
         rules.type_array_at(kind.category(), house.ai_unit_choices.get(kind))
     };
-    match factory_type {
+    // Steam3e81a617..08600, two-level tables4FBE0C/4FBDF8. This one
+    // consumer and factory accounting accept object/type aliases, unlike
+    // FindFactory's exact class comparison. Other RTTIs return null.
+    match FactoryType::for_production_rtti(factory_rtti)? {
         FactoryType::BuildingType => rules.building_type_at(house.ai_production.building_choice),
         FactoryType::UnitType => unit_choice(UnitChoiceKind::Unit),
         FactoryType::InfantryType => unit_choice(UnitChoiceKind::Infantry),

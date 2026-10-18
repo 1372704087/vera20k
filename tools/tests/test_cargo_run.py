@@ -14,6 +14,30 @@ from unittest.mock import patch
 
 from tools import cargo_run
 
+REPOSITORY = Path(cargo_run.__file__).resolve().parents[1]
+# Stands in for a test executable: records whether each lock is free, where it
+# runs and one variable Cargo set, optionally edits a source, then exits.
+PROBE = '''
+import json, os, sys, time
+from pathlib import Path
+from tools.cargo_run import file_lock
+
+def free(path):
+    try:
+        with file_lock(Path(path), time.monotonic()):
+            return True
+    except TimeoutError:
+        return False
+
+shared, checkout, report, status, edit = sys.argv[1:]
+with open(report, 'a') as handle:
+    handle.write(json.dumps({'shared': free(shared), 'checkout': free(checkout), 'cwd': os.getcwd(),
+                             'package': os.environ.get('CARGO_PKG_NAME')}) + '\\n')
+if edit:
+    Path(edit).write_text('edited during the tests')
+sys.exit(int(status))
+'''
+
 
 class CargoRunTests(unittest.TestCase):
     def setUp(self):
@@ -130,6 +154,61 @@ class CargoRunTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Label'):
             cargo_run.run(self.root, ['build'], '../escape', 0)
 
+    def test_core_only_tests_build_with_the_workspace_core_features(self):
+        features = ['--features', 'dev-overlays,test-support']
+        cases = (
+            (['test', '-p', 'vera20k-core', '--lib', 'sim::'], features),
+            (['test', '--package=vera20k-core', '--lib'], features),
+            (['test', '-pvera20k-core', '--lib'], features),
+            (['test', '-p', 'vera20k', '--lib'], []),
+            (['test', '--workspace', '--lib'], []),
+            (['test', '-p', 'vera20k-core', '-p', 'vera20k', '--lib'], []),
+            (['test', '-p', 'vera20k-core', '--features', 'dev-ui', '--lib'], []),
+            (['test', '-p', 'vera20k-core', '--no-default-features', '--lib'], []),
+            (['test', '-p', 'vera20k-core', '--features', 'dev-overlays,test-support',
+              '--lib', '--', '--ignored', '--nocapture'], []),
+            (['test', '-p', 'vera20k-core', '--all-features', '--lib', '--', '--exact'], []),
+            (['build', '-p', 'vera20k-core', '--release'], []),
+        )
+        for args, added in cases:
+            with self.subTest(args=args):
+                rendered = cargo_run.cargo_args(args, None)
+                self.assertEqual(rendered, [args[0], '--message-format=json-render-diagnostics', *args[1:], *added])
+
+    def test_automatic_core_features_stay_before_libtest_separator(self):
+        # Cargo consumes the feature selection; everything after -- belongs
+        # to libtest. Issue #1841 built successfully, then ran zero assertions.
+        options = ['test', '-p', 'vera20k-core', '--lib', 'wall_sale_detach']
+        for libtest_args in (['--nocapture'], ['--ignored', '--nocapture'],
+                             ['--exact', '--nocapture'], []):
+            with self.subTest(libtest_args=libtest_args):
+                rendered = cargo_run.cargo_args([*options, '--', *libtest_args], None)
+                separator = rendered.index('--')
+                self.assertEqual(rendered[separator + 1:], libtest_args)
+                self.assertEqual(rendered[:separator], [
+                    'test', '--message-format=json-render-diagnostics',
+                    '-p', 'vera20k-core', '--lib', 'wall_sale_detach',
+                    '--features', 'dev-overlays,test-support',
+                ])
+
+    def test_core_only_and_workspace_tests_resolve_core_dependencies_alike(self):
+        # Any feature difference gives `-p vera20k-core` its own core test
+        # executable; src/Cargo.toml's dev-dependencies must then gain it.
+        def tree(*selection):
+            listing = subprocess.run(
+                ['cargo', 'tree', '--locked', '--offline', *selection, '-e', 'normal,build,dev',
+                 '--prefix', 'none', '--no-dedupe', '-f', '{p} {f}'],
+                cwd=REPOSITORY, check=True, capture_output=True, text=True).stdout
+            features = {}
+            for line in filter(None, listing.splitlines()):
+                package, version, *rest = line.replace(' (*)', '').split(' ')
+                if package != 'vera20k' and not rest[:1] == ['(proc-macro)']:
+                    features[package, version] = rest[-1] if rest and not rest[-1].startswith('(') else ''
+            return features
+        core = tree('-p', 'vera20k-core', '--features', ','.join(cargo_run.WORKSPACE_CORE_FEATURES))
+        workspace = tree('--workspace')
+        self.assertEqual({key: value for key, value in workspace.items() if key in core}, core)
+
     def fake_cargo(self, *, code=0, mutate=False, artifact=True, host_profile=None):
         # Emulates Cargo's *public JSON output*, including a misleading stale
         # conventional target path. The runner must use the emitted path.
@@ -150,7 +229,7 @@ class CargoRunTests(unittest.TestCase):
             return child
         return start
 
-    def invoke(self, label='build-a', **options):
+    def invoke(self, label='build-a', *, root=None, **options):
         original = subprocess.check_output
         def output(command, **kwargs):
             if command[0] in {'rustc', 'cargo'}:
@@ -163,7 +242,41 @@ class CargoRunTests(unittest.TestCase):
         with patch.object(cargo_run, 'build_processes', return_value=[]), \
              patch.object(cargo_run.subprocess, 'check_output', side_effect=output), \
              patch.object(cargo_run.subprocess, 'Popen', side_effect=start):
-            return cargo_run.run(self.root, ['build'], label, 0)
+            return cargo_run.run(root or self.root, ['build'], label, 0)
+
+    def test_worktree_builds_into_one_cache_under_the_primary_checkout(self):
+        # Sessions differ in CARGO_TARGET_DIR (Claude sets the primary's target/,
+        # Codex sets nothing); a checkout built from both must share one cache.
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        worktree = Path(home.name, 'worktree').resolve()
+        subprocess.run(['git', '-C', str(self.root), 'worktree', 'add', '-q', str(worktree)], check=True)
+        store, namespace = cargo_run.build_store(worktree)
+        self.assertEqual(store, self.root / '.git' / 'owned-builds')
+        self.assertNotEqual(namespace, cargo_run.build_store(self.root)[1])
+        shared = self.root / 'target' / 'owned-worktrees' / namespace
+        self.assertEqual(cargo_run.owned_target(worktree, namespace), shared)
+        os.environ['CARGO_TARGET_DIR'] = str(self.root / 'target')
+        self.assertEqual(cargo_run.owned_target(worktree, namespace), shared)
+        os.environ['CARGO_TARGET_DIR'] = str(Path(home.name, 'elsewhere'))
+        self.assertEqual(cargo_run.owned_target(worktree, namespace),
+                         Path(home.name, 'elsewhere').resolve() / 'owned-worktrees' / namespace)
+        del os.environ['CARGO_TARGET_DIR']
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(self.invoke(None, root=worktree), 0)
+        self.assertTrue((shared / 'debug').is_dir())
+        self.assertFalse((worktree / 'target').exists())
+        registry = json.loads((store / 'cache-roots.json').read_text())
+        self.assertEqual(registry['roots'][str(shared)]['checkout'], str(worktree))
+        # A cache built under another root (an older runner, or a session whose
+        # environment points elsewhere) is reported, never removed by the build.
+        from tools import _cargo_cache as cache
+        legacy = worktree / 'target' / 'owned-worktrees' / namespace
+        self.assertEqual(cache.register_locked(worktree, store, legacy), [shared])
+        with redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(self.invoke(None, root=worktree), 0)
+        self.assertIn(f'also has caches at {legacy}', stderr.getvalue())
+        self.assertTrue(legacy.is_dir())
 
     def test_low_free_space_blocks_before_cargo_or_label_publication(self):
         from tools import _cargo_cache
@@ -311,6 +424,63 @@ class CargoRunTests(unittest.TestCase):
             self.invoke(mutate=True)
         self.assertFalse((self.root / '.git/owned-builds/artifacts/build-a').exists())
 
+    def run_tests(self, calls, *options):
+        """`cargo test` whose Cargo hands each (status, edited path) call to its runner."""
+        store, namespace = cargo_run.build_store(self.root)
+        package = self.root / 'crate'
+        package.mkdir(exist_ok=True)
+        report = self.root / 'target' / 'report.jsonl'  # Ignored: not a source edit.
+        report.parent.mkdir(exist_ok=True)
+        report.unlink(missing_ok=True)
+        commands = []
+        actual_popen = subprocess.Popen
+        def start(command, **kwargs):
+            if command[0] != 'cargo':
+                return actual_popen(command, **kwargs)
+            commands.append(command)
+            if '--config' in command:
+                key, value = command[command.index('--config') + 1].split('=', 1)
+                self.assertEqual(key, 'target."cfg(all())".runner')
+                env = dict(kwargs['env'], CARGO_PKG_NAME='fixture', PYTHONPATH=str(REPOSITORY))
+                for status, edit in calls:
+                    subprocess.run([*json.loads(value), sys.executable, '-c', PROBE, str(store / 'cargo.lock'),
+                                    str(store / 'checkouts' / f'{namespace}.lock'), str(report), str(status), edit],
+                                   cwd=package, env=env, check=True)
+            child = unittest.mock.MagicMock()
+            child.__enter__.return_value = child
+            child.stdout = io.StringIO('')
+            child.wait.return_value = 0
+            return child
+        with patch.object(cargo_run, 'build_processes', return_value=[]), \
+             patch.object(cargo_run.subprocess, 'Popen', side_effect=start):
+            result = cargo_run.run(self.root, ['test', '--lib', *options], None, 0)
+        reports = [json.loads(line) for line in report.read_text().splitlines()] if report.exists() else []
+        return result, commands, reports
+
+    def test_tests_run_after_releasing_the_shared_lock_but_not_the_checkout_lock(self):
+        result, _, reports = self.run_tests([(0, '')])
+        self.assertEqual(result, 0)
+        self.assertEqual(reports, [{'shared': True, 'checkout': False,
+                                    'cwd': str(self.root / 'crate'), 'package': 'fixture'}])
+        result, commands, reports = self.run_tests([(0, '')], '--no-run')
+        self.assertEqual((result, reports), (0, []))
+        self.assertNotIn('--config', commands[0])
+
+    def test_failing_test_fails_the_run_after_every_executable_ends(self):
+        for options in ((), ('--no-fail-fast',)):
+            with self.subTest(options=options):
+                result, _, reports = self.run_tests([(3, ''), (0, '')], *options)
+                self.assertEqual((result, len(reports)), (101, 2))
+                result, _, reports = self.run_tests([(0, ''), (3, '')], *options)
+                self.assertEqual((result, len(reports)), (101, 2))
+
+    def test_source_edit_during_the_tests_fails_validation(self):
+        with self.assertRaisesRegex(ValueError, 'Source changed during the tests'):
+            self.run_tests([(0, str(self.root / 'source.rs'))])
+
+    def test_tests_another_runner_already_ran_keep_cargo_result(self):
+        self.assertEqual(self.run_tests([])[0::2], (0, []))
+
     def recorded_binary(self, profile):
         store, namespace = cargo_run.build_store(self.root)
         target = self.root / 'target/owned-worktrees' / namespace
@@ -338,6 +508,26 @@ class CargoRunTests(unittest.TestCase):
                              (0, str(binary) + '\n', ''))
         # Existing MCP consumers retain their documented preference.
         self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (release, 'release'))
+
+    def test_fast_profile_records_and_resolves_as_a_host_profile(self):
+        fast = self.recorded_binary('fast')
+        self.assertEqual(self.resolve_cli('--resolve', 'asset', '--profile', 'fast'),
+                         (0, str(fast) + '\n', ''))
+        self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (fast, 'fast'))
+        # An omitted profile still prefers release.
+        release = self.recorded_binary('release')
+        self.assertEqual(cargo_run.resolve_binary(self.root, 'asset'), (release, 'release'))
+        _, binary, _ = self.preserved_label('fast-a', source_suffix='fast')
+        self.assertEqual(cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', 'fast'),
+                         (binary, 'fast'))
+        with self.assertRaisesRegex(ValueError, 'not a release host bin'):
+            cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', 'release')
+        # Without a profile the label's own host profile is returned.
+        self.assertEqual(cargo_run.resolve_labeled_binary(self.root, 'fast-a', 'asset', None),
+                         (binary, 'fast'))
+        self.preserved_label('deps-a', source_suffix='fast/deps')
+        with self.assertRaisesRegex(ValueError, 'not a host bin'):
+            cargo_run.resolve_labeled_binary(self.root, 'deps-a', 'asset', None)
 
     def test_explicit_resolve_never_falls_back_after_missing_or_changed_binary(self):
         debug = self.recorded_binary('debug')

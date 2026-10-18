@@ -14,7 +14,7 @@ from tools.projectile_oracle import collision_fixture as fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRIES = (0x4677D3, 0x467666, 0x47C3D0, 0x467494, 0x467CA9,
-           0x468BB0, 0x466DB1, 0x467BF0, 0x467C3C, 0x7CEAAF)
+           0x468BB0, 0x4CC100, 0x466DB1, 0x467BF0, 0x467C3C, 0x7CEAAF)
 
 
 def halted_image(machine):
@@ -37,6 +37,7 @@ class CollisionCompletionTests(unittest.TestCase):
                 candidate=[640, 128, 0], velocity=[4, 0, 0], airburst=False,
                 inaccurate=False, target_present=True, near_target=False, mode=0)),
             'shared probe': lambda: fixture.shared_probe({}),
+            'line walk': lambda: fixture.line_walk(dict(source_coord=[128,128,5], target_coord=[640,640,-6], cliffs=True)),
             'homing admission': lambda: fixture.homing_admission(1, 3, [4, 0, 0], False, False),
             'homing clamp': lambda: fixture.homing_handoff(1, 0, False, False, True),
             'homing source mode': lambda: fixture.homing_source_mode(False, False, 0),
@@ -79,6 +80,23 @@ class CollisionCompletionTests(unittest.TestCase):
                     with self.assertRaises(native_oracle.OracleError):
                         module.main(['--write', '--output', str(output)])
                 self.assertEqual(list(Path(directory).iterdir()), [])
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'line.json'
+            module = importlib.import_module('tools.projectile_oracle.shared_collision')
+            with patch.object(fixture, 'load_image', halted_image):
+                with self.assertRaises(native_oracle.OracleError):
+                    module.main(['--line-walk', '--write', '--output', str(output)])
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_line_walk_help_needs_no_retail_image(self):
+        result = subprocess.run(
+            [sys.executable, '-m', 'tools.projectile_oracle.shared_collision',
+             '--line-walk', '--help'], cwd=ROOT,
+            env=dict(os.environ, VERA20K_GAMEMD_EXE='absent-retail.exe'),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--check', result.stdout)
 
     def test_failure_gates_survive_optimized_python(self):
         result = subprocess.run(

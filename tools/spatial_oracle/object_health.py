@@ -12,7 +12,8 @@ import struct
 
 from unicorn import Uc, UcError, UC_ERR_EXCEPTION, UC_ARCH_X86, UC_MODE_32, UC_HOOK_CODE, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import (
-    UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP,
+    UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX,
+    UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP,
     UC_X86_REG_EIP, UC_X86_REG_FPCW,
 )
 from tools.native_oracle import (
@@ -41,6 +42,12 @@ BRANCHES = (0x5F53AA, 0x5F53B7, 0x5F544F, 0x5F545C,
             0x5F546A, 0x5F5478, 0x5F5480, 0x5F548C,
             0x5F54B8, 0x5F54C2, 0x5F54F9, 0x5F550D,
             0x5F578D, 0x5F579A, 0x5F57AF, 0x5F5830, 0x5F583E)
+BUILDING_ZERO_HP_RANGES = ((0x43B762, 0x43B795), (0x43B95A, 0x43B960),
+                           (0x440042, 0x4400F2))
+BUILDING_ZERO_HP_SINKS = {0x445880: ('limbo', 0),
+                          0x442D90: ('spawn_survivors', 4),
+                          0x5F65F0: ('uninit', 0),
+                          0x441F60: ('after_destruction', 0)}
 
 
 def i32(value):
@@ -81,6 +88,7 @@ class Fixture:
         self.damage_source, self.tag_context = 0, None
         self.tag_calls = []
         self.period = None
+        self.building_zero_hp_context = None
 
     def write(self, u, _access, address, size, value, _data):
         if address in (OBJ+0x6C, OBJ+0x70):
@@ -90,6 +98,20 @@ class Fixture:
                                    value=i32(value)))
 
     def code(self, u, address, _size, _data):
+        if self.building_zero_hp_context is not None and address in BUILDING_ZERO_HP_SINKS:
+            name, argument_bytes = BUILDING_ZERO_HP_SINKS[address]
+            sp = u.reg_read(UC_X86_REG_ESP)
+            assert u.reg_read(UC_X86_REG_ECX) == OBJ
+            row = dict(call=name, entry=f'{address:08X}', health=self.read(OBJ+0x6C))
+            if argument_bytes:
+                row['source_argument'] = self.read(sp+4)
+            self.building_zero_hp_context.append(row)
+            # Explicit ordered callout observations only. No world removal,
+            # crew/RNG, smudge or rubble behavior is supplied or certified.
+            u.reg_write(UC_X86_REG_EAX, 0)
+            u.reg_write(UC_X86_REG_ESP, sp+4+argument_bytes)
+            u.reg_write(UC_X86_REG_EIP, struct.unpack('<I', u.mem_read(sp, 4))[0])
+            return
         if address == 0x6E53A0 and self.tag_context is not None:
             sp = u.reg_read(UC_X86_REG_ESP)
             event,actor,xy,force,source = struct.unpack('<IIIII',u.mem_read(sp+4,20))
@@ -239,6 +261,48 @@ class Fixture:
         return dict(input=dict(kind=kind, strength=strength),
                     output=dict(actual=self.read(OBJ+0x6C), estimated=self.read(OBJ+0x70), writes=self.writes))
 
+    def building_zero_health(self, health, constructor_frame, frame, *, timer=None):
+        """Constructor timer/default-byte slices, then the original AI gate.
+
+        Empty fire-Anims and an admitted Building are supplied priors. The
+        original Health sampler executes, with a valid supplied House; full
+        constructor, Unlimbo, preceding AI, and terminal callees are excluded.
+        """
+        self.reset('building', health, 1000)
+        original = [bytes(self.u.mem_read(a, b-a)) for a, b in BUILDING_ZERO_HP_RANGES]
+        self.u.mem_write(OBJ+0x21C, dwords(SOURCE))
+        self.u.mem_write(0xA8ED84, dwords(constructor_frame))
+        self.u.reg_write(UC_X86_REG_EBX, 0)
+        run_checked(self.u, 0x43B762, 0x43B795, count=20,
+                    required_addresses=(0x43B76B, 0x43B771, 0x43B789))
+        # BL=0 is owned by the same constructor's 43B754, not a type default.
+        self.u.mem_write(OBJ+0x6E0, b'\x7f')
+        run_checked(self.u, 0x43B95A, 0x43B960, count=2)
+        defaults = dict(timer_start=self.read(OBJ+0x528),
+                        timer_duration=self.read(OBJ+0x530),
+                        source=self.read(OBJ+0x540),
+                        no_survivor=self.u.mem_read(OBJ+0x6E0, 1)[0])
+        if timer is not None:
+            self.u.mem_write(OBJ+0x528, dwords(timer[0], 0, timer[1]))
+        self.u.mem_write(0xA8ED84, dwords(frame))
+        # Both upstream AI arms establish EBP=-1 at 43FB73 / 43FBFD.
+        self.u.reg_write(UC_X86_REG_EBP, 0xFFFFFFFF)
+        self.building_zero_hp_context = []
+        stop = run_checked(self.u, 0x440042, (0x4400EA, 0x4400F2, 0x440573), count=200,
+                           required_addresses=(0x440072,))
+        assert self.u.reg_read(UC_X86_REG_ESP) == SP
+        assert original == [bytes(self.u.mem_read(a, b-a)) for a, b in BUILDING_ZERO_HP_RANGES]
+        self.unchanged()
+        return dict(input=dict(health=health, constructor_frame=constructor_frame,
+                               frame=frame, timer_override=timer),
+                    output=dict(constructor_defaults=defaults,
+                                timer_start=self.read(OBJ+0x528),
+                                timer_duration=self.read(OBJ+0x530),
+                                health=self.read(OBJ+0x6C),
+                                health_sample=self.read(OBJ+0x544),
+                                stop=f'{stop:08X}',
+                                terminal_callouts=self.building_zero_hp_context))
+
 
 def generate():
     f = Fixture()
@@ -360,10 +424,304 @@ def damage_tag_metadata():
         entry_points={'object_receive_damage':0x5F5390,'tag_callout':0x6E53A0})
 
 
+class DamageEventsObservation:
+    """Observe the existing receiver VM, including declared callee mutations.
+
+    Writes at the genuine return PC supply the sink's post-call fields before
+    the next original instruction. No Tag action or death body is simulated.
+    This observer is used only by tag_lifecycle's additive --damage-events.
+    """
+    TAG_RETURNS = {0x5F561C:39,0x5F5643:42,0x5F5674:40,0x5F569B:43,
+        0x5F56F6:38,0x5F5719:41,0x5F5744:41,0x5F57E0:6,0x5F580C:44}
+    CALLBACK_RETURNS = {0x5F548C:'148',0x5F57A0:'0E0',0x5F57B5:'0DC'}
+    MARKERS = {0x5F55F8:'save_pre_tag_health',0x5F5752:'read_pre_tag_health',
+        0x5F575A:'read_live_health_gate',0x5F5765:'read_exact_zero',
+        0x5F579A:'call_kill_e0',0x5F57AF:'call_destroy',
+        0x5F5830:'return_saved_result',0x5F583E:'return_five'}
+
+    def __init__(self):
+        from tools.input_oracle.campaign_start import CampaignReader
+        from tools.spatial_oracle.trigger_type_flags import FlagsFixture
+        self.fixture=f=Fixture();f.reset('unit',100,100)
+        # Outside the existing Fixture's resettable64KiB supplied objects.
+        self.scenario=0x05000000;f.u.mem_map(self.scenario,0x10000)
+        f.u.mem_write(0xA8B230,dwords(self.scenario))
+        for ptr in (self.scenario+0x218,0x886B88,0xABE890):
+            FlagsFixture.call(f,0x65C6D0,[31],ecx=ptr)
+        self.rng_reader=CampaignReader.rng_state
+        self.seeded=self.rng_reader(self)
+        self.seed_code=bytes(f.u.mem_read(0x65C6D0,0x1BD))
+        self.active={};self.hook=f.u.hook_add(UC_HOOK_CODE,self.observe)
+
+    @property
+    def u(self):
+        return self.fixture.u
+
+    def scalar_state(self):
+        f=self.fixture
+        return dict(health=f.read(OBJ+0x6C),alive=self.u.mem_read(OBJ+0x90,1)[0],
+            attached_tag=f.read(OBJ+0x34)!=0,strength=f.read(TYPE+0xA0))
+
+    def observe(self,u,pc,size,_data):
+        a,f=self.active,self.fixture
+        if not a:return
+        if pc in (0x65C780,0x65C7E0,0x7258D0,0x6E4F60):
+            a['rng_detach_calls'].append(f'0x{pc:08X}')
+        if pc in self.MARKERS:
+            marker=dict(pc=f'0x{pc:08X}',meaning=self.MARKERS[pc],live=self.scalar_state())
+            if pc==0x5F5752:marker['saved_pre_tag_health']=f.read(u.reg_read(UC_X86_REG_ESP)+0x38)
+            a['native_markers'].append(marker)
+        returned=None
+        if pc in self.TAG_RETURNS and len(f.tag_calls)>a['seen_tag_returns']:
+            assert len(f.tag_calls)==a['seen_tag_returns']+1
+            tag=f.tag_calls[-1];assert tag['kind']==self.TAG_RETURNS[pc]
+            returned=dict(family='tag',kind=tag['kind'],source=tag['source'],
+                native_return_pc=f'0x{pc:08X}',live=self.scalar_state())
+            a['seen_tag_returns']+=1
+        elif pc in self.CALLBACK_RETURNS and len(f.callbacks)>a['seen_virtual_returns']:
+            assert len(f.callbacks)==a['seen_virtual_returns']+1
+            assert f.callbacks[-1]['slot']==self.CALLBACK_RETURNS[pc]
+            returned=dict(family='virtual',slot=f.callbacks[-1]['slot'],
+                native_return_pc=f'0x{pc:08X}',live=self.scalar_state())
+            a['seen_virtual_returns']+=1
+        if returned is None:return
+        a['ordered_returns'].append(returned)
+        mutation=a['case'].get('mutation')
+        if mutation is None or int(mutation['return_pc'],16)!=pc:return
+        assert not a['mutations_applied']
+        prior=self.scalar_state()
+        for field,value in mutation['writes'].items():
+            if field=='health':u.mem_write(OBJ+0x6C,dwords(value))
+            elif field=='alive':u.mem_write(OBJ+0x90,bytes([bool(value)]))
+            elif field=='attached_tag':u.mem_write(OBJ+0x34,dwords(TAG if value else 0))
+            elif field=='strength':u.mem_write(TYPE+0xA0,dwords(value))
+            else:raise ValueError(field)
+        a['mutations_applied'].append(dict(
+            seam='declared callee effects supplied at original return PC, before resumed native instruction',
+            after_return=returned,requested_writes=mutation['writes'],prior=prior,after=self.scalar_state()))
+
+    def run(self,case):
+        a,f=self.active,self.fixture
+        a.clear();a.update(case=case,seen_tag_returns=0,seen_virtual_returns=0,
+            ordered_returns=[],native_markers=[],mutations_applied=[],rng_detach_calls=[])
+        before=self.rng_reader(self);assert before==self.seeded
+        result=f.receiver(case['initial_hp'],case['strength'],case['damage'],
+            kind=case.get('kind','unit'),alive=case.get('alive',1),callback=case.get('callback','none'),
+            tag_context=dict(source=case['source'],tag=True,mutation='none'))
+        assert bool(a['mutations_applied'])==(case.get('mutation') is not None)
+        assert a['seen_tag_returns']==len(f.tag_calls) and a['seen_virtual_returns']==len(f.callbacks)
+        after=self.rng_reader(self);assert after==before and not a['rng_detach_calls']
+        f.unchanged();assert bytes(self.u.mem_read(0x65C6D0,0x1BD))==self.seed_code
+        return dict(name=case['name'],controlled_input=case,native_receiver=result,
+            final_live=self.scalar_state(),ordered_returns=list(a['ordered_returns']),
+            native_markers=list(a['native_markers']),mutations_applied=list(a['mutations_applied']),
+            rng_before_ref='full_seed31',rng_after_ref='full_seed31',
+            three_full_rng_states_compared_equal=True,rng_detach_calls=[])
+
+    def finish(self):
+        self.active.clear();self.u.hook_del(self.hook)
+        return dict(full_seed31=self.seeded,full_after=self.rng_reader(self),unchanged=True)
+
+
+def damage_event_mutation_inputs():
+    """Declared post-callee state priors; output numbers come from Object code."""
+    def row(name,pc=None,writes=None,**kw):
+        return dict(name=name,initial_hp=kw.pop('initial_hp',100),strength=100,
+            damage=kw.pop('damage',51),alive=kw.pop('alive',1),
+            callback=kw.pop('callback','none'),source=True,
+            mutation=None if pc is None else dict(return_pc=f'0x{pc:08X}',writes=writes),**kw)
+    return [
+        row('positive_post_tag_hp_zero',0x5F561C,{'health':0}),
+        row('positive_post_tag_hp_negative',0x5F561C,{'health':-1}),
+        row('lethal_post_tag_revived',0x5F5674,{'health':80},damage=100),
+        row('half_tag_detached',0x5F561C,{'attached_tag':False}),
+        row('first_tag_detached',0x5F56F6,{'attached_tag':False},damage=1),
+        row('half_changes_strength_before_first',0x5F561C,{'strength':110}),
+        row('half_restores_old_health_before_first',0x5F561C,{'health':100}),
+        row('first_restores_old_health_inside_first_group',0x5F56F6,{'health':100},damage=1),
+        row('half_combat_clears_alive',0x5F561C,{'alive':False}),
+        row('half_anysource_clears_alive',0x5F5643,{'alive':False}),
+        row('red_combat_clears_alive',0x5F5674,{'alive':False},damage=76),
+        row('red_anysource_clears_alive',0x5F569B,{'alive':False},damage=76),
+        row('first_combat_clears_alive',0x5F56F6,{'alive':False},damage=1),
+        row('first_anysource_null_clears_alive',0x5F5719,{'alive':False},damage=1),
+        row('first_anysource_source_clears_alive',0x5F5744,{'alive':False},damage=1),
+        row('initial_alive_zero_half',alive=0),
+        row('initial_alive_zero_red',alive=0,damage=76),
+        row('lethal_kill_clears_alive',damage=100,callback='kill_clear_alive'),
+        row('lethal_kill_restores_hp',0x5F57A0,{'health':80},damage=100),
+        row('lethal_destroy_clears_alive',damage=100,callback='destroy_clear_alive'),
+        row('surviving_six_clears_alive',0x5F57E0,{'alive':False},damage=1,initial_hp=80),
+        row('surviving_fortyfour_clears_alive',0x5F580C,{'alive':False},damage=1,initial_hp=80),
+        row('surviving_six_sets_health_zero',0x5F57E0,{'health':0},damage=1,initial_hp=80),
+    ]
+
+
+def damage_event_receiver_controls():
+    """One observer/receiver owner supplies18 ordinary and23 mutation controls."""
+    observation=DamageEventsObservation();controls=[]
+    for name,hp,strength,damage,source,kind in (
+        ('first_small_source',100,100,1,True,'unit'),
+        ('first_small_no_source',100,100,1,False,'unit'),
+        ('first_half_source',100,100,51,True,'unit'),
+        ('first_quarter_source',100,100,76,True,'unit'),
+        ('first_lethal_source',100,100,100,True,'unit'),
+        ('first_half_no_source',100,100,51,False,'unit'),
+        ('first_quarter_no_source',100,100,76,False,'unit'),
+        ('half_equal_post',100,100,50,True,'unit'),
+        ('half_equal_previous',50,100,1,True,'unit'),
+        ('red_equal_post',26,100,1,True,'unit'),
+        ('red_equal_previous',25,100,1,True,'unit'),
+        ('red_cross',26,100,2,True,'unit'),
+        ('odd_half_cross',50,101,1,True,'unit'),
+        ('nonfirst_small',80,100,1,True,'unit'),
+        ('healing',80,100,-1,True,'unit'),
+        ('zero',100,100,0,True,'unit'),
+        ('building_first_half',100,100,51,True,'building'),
+        ('building_first_quarter',100,100,76,True,'building')):
+        observed=observation.run(dict(name=name,initial_hp=hp,strength=strength,
+            damage=damage,source=source,kind=kind))
+        controls.append(dict(name=name,**observed['native_receiver'],
+            rng_before_ref='full_seed31',rng_after_ref='full_seed31',
+            three_full_rng_states_compared_equal=True,observed_rng_detach_entries=[]))
+    mutations=[observation.run(case) for case in damage_event_mutation_inputs()]
+    return controls,mutations,observation.finish()
+
+
+def damage_event_techno_anger_controls():
+    """Execute the real post-Object math, stopping before House504790's body.
+
+    Uses the same receiver VM, actual Unit type getter and Type.GetCost711EB0.
+    No division/multiply/ftol/delta result is supplied by Python.
+    """
+    from unicorn.x86_const import UC_X86_REG_FPSW
+    observation=DamageEventsObservation();f=observation.fixture;u=f.u
+    source_house,victim_house=SCRATCH+0xC000,SCRATCH+0xD000
+    spans=((0x701DFD,0x701E6D),(0x711EB0,0x711EB7),(0x7C5F00,0x7C5F2C))
+    original=[bytes(u.mem_read(a,b-a)) for a,b in spans]
+    trace=[]
+    watched={0x701E12:'type_for_cost',0x701E32:'type_for_strength',
+        0x701E4A:'virtual_get_cost',0x711EB0:'type_get_cost_body',
+        0x7C5F00:'original_ftol',0x701E68:'call_house_anger',
+        0x65C780:'rng_next',0x65C7E0:'rng_ranged',0x7258D0:'detach',0x6E4F60:'tag_detach'}
+    def observe(_u,pc,size,data):
+        if pc in watched:trace.append(dict(pc=f'0x{pc:08X}',kind=watched[pc]))
+    hook=u.hook_add(UC_HOOK_CODE,observe);rows=[]
+    for name,packet,strength,cost,object_result in (
+        ('ordinary_post_object',51,100,700,2),
+        ('live_strength_after_tag',51,110,700,2),
+        ('negative_healing_packet',-7,100,700,0),
+        ('zero_packet',0,100,700,0),
+        ('zero_strength_masked_divide',51,0,700,1),
+        ('nonintegral_ratio',1,3,10,1),
+        ('large_positive_dwords',2147483647,1,2147483647,1),
+        ('large_negative_packet',-2147483648,3,2147483647,0)):
+        f.reset('unit',49,strength)
+        # Real original UnitType vtable; GetCost reads native Type+610.
+        # Owners are explicit opaque supplied pointers, not House constructors.
+        u.mem_write(TYPE,dwords(0x7F6218));u.mem_write(TYPE+0x610,dwords(cost))
+        u.mem_write(PACKET,dwords(packet));u.mem_write(OBJ+0x21C,dwords(victim_house))
+        u.mem_write(SOURCE+0x21C,dwords(source_house));u.mem_write(SP+0xD4,dwords(SOURCE))
+        timer_offsets=(0x174,0x1E0)
+        for offset in timer_offsets:u.mem_write(OBJ+offset,dwords(29,17,90))
+        timers_before={f'0x{offset:X}':list(struct.unpack('<3i',u.mem_read(OBJ+offset,12)))
+                       for offset in timer_offsets}
+        for reg,value in ((UC_X86_REG_ESP,SP),(UC_X86_REG_ESI,OBJ),
+                          (UC_X86_REG_EBX,PACKET),(UC_X86_REG_EAX,object_result)):
+            u.reg_write(reg,value)
+        before=observation.rng_reader(observation);assert before==observation.seeded
+        control_before=u.reg_read(UC_X86_REG_FPCW);status_before=u.reg_read(UC_X86_REG_FPSW)
+        trace.clear()
+        run_checked(u,0x701DFD,0x504790,count=1000,
+            required_addresses=(0x701E12,0x701E32,0x701E4A,0x711EB0,0x701E5C,0x701E68))
+        actual_sp=u.reg_read(UC_X86_REG_ESP)
+        return_pc,delta,peer=struct.unpack('<IiI',u.mem_read(actual_sp,12))
+        timers_after={f'0x{offset:X}':list(struct.unpack('<3i',u.mem_read(OBJ+offset,12)))
+                      for offset in timer_offsets}
+        after=observation.rng_reader(observation)
+        assert before==after and timers_before==timers_after
+        assert not any(row['kind'] in ('rng_next','rng_ranged','detach','tag_detach') for row in trace)
+        assert original==[bytes(u.mem_read(a,b-a)) for a,b in spans]
+        f.unchanged()
+        rows.append(dict(name=name,input=dict(damage_packet=packet,strength=strength,cost=cost,
+            entry='0x00701DFD',stop_before='0x00504790',object_result=object_result,
+            registers=dict(eax=object_result,esi=OBJ,ebx=PACKET,esp=SP),
+            stack_source_offset='0xD4',source_object=SOURCE,source_owner=source_house,
+            victim_object=OBJ,victim_owner=victim_house,type_object=TYPE,
+            type_vtable='0x007F6218',type_getter_entry=f'0x{f.read(VT+0x84):08X}',
+            cost_getter_entry='0x00711EB0',timers_before=timers_before),
+            output=dict(delta=delta,house_receiver=u.reg_read(UC_X86_REG_ECX),
+                source_house_argument=peer,return_pc=f'0x{return_pc:08X}',stack_pointer=actual_sp,
+                damage_packet_after=f.read(PACKET),timers_after=timers_after,
+                fp_control_before=control_before,fp_control_after=u.reg_read(UC_X86_REG_FPCW),
+                fp_status_before=status_before,fp_status_after=u.reg_read(UC_X86_REG_FPSW),
+                native_entries=list(trace)),
+            rng_before_ref='receiver_rng.full_seed31',rng_after_ref='receiver_rng.full_seed31',
+            three_full_rng_states_compared_equal=True))
+    u.hook_del(hook)
+    return rows,observation.finish()
+
+
+def generate_building_zero_health():
+    fixture = Fixture()
+    rows = []
+    for name, health, constructor_frame, frame, timer in (
+        ('default_zero_at_frame0', 0, 0, 0, None),
+        ('default_zero_same_frame', 0, 73, 73, None),
+        ('default_zero_next_frame', 0, 73, 74, None),
+        ('positive_health_continues', 1, 73, 74, None),
+        ('pending_timer_waits', 0, 73, 103, (100, 8)),
+        ('elapsed_timer_terminal', 0, 73, 108, (100, 8)),
+        ('stopped_zero_terminal', 0, 73, 108, (-1, 0)),
+        ('stopped_positive_waits', 0, 73, 108, (-1, 5)),
+        ('stopped_negative_waits', 0, 73, 108, (-1, -1)),
+        ('running_negative_terminal', 0, 73, 100, (100, -1)),
+        ('default_signed_frame_wrap', 0, 2147483647, 2147483648, None),
+    ):
+        row = fixture.building_zero_health(health, constructor_frame, frame, timer=timer)
+        row['name'] = name
+        rows.append(row)
+    return rows
+
+
+def building_zero_health_metadata():
+    fixture = Fixture()
+    result = provenance(
+        scope='Eleven bounded original Building constructor timer/default-byte and AI Health==0 terminal-gate controls; ordered terminal callees are explicit observation sinks, not lifecycle or crew parity.',
+        assumptions=[
+            'An already admitted Building, original copied Building vtable, valid supplied House, empty eight fire-Anim slots, and signed Health are input state. Full constructor, authored-health parser/Unlimbo, earlier AI and scheduling are excluded.',
+            'Constructor43B762..43B795 executes original frame-start/duration0/sourceNULL/sample0 writes with EBX0 from original43B754. Separate original43B95A..43B960 clears NoSurvivor+6E0. Constructor frame and current frame are explicit signed DWORD inputs.',
+            'Original440042..4400EA samples health and executes the exact-zero health gate, signed timer subtraction/comparison and ordered terminal calls. EBP=-1 is the preserved prior set by both upstream AI branches43FB73/43FBFD.',
+            'Original-vtable Limbo445880, UnInit5F65F0, direct SpawnSurvivors442D90 and AfterDestruction441F60 are recorded sinks returning0; none mutates the supplied Building. The observed terminal route does not establish occupancy removal, survivor admission/RNG/smudges, deferred destruction or rubble behavior.',
+            'No general damage receiver, Tag damage/kill callbacks, destruction anims, debris or death weapon executes in this bounded original gate. SpawnSurvivors is an independent existing owner and is not assumed a no-op when its source argument is NULL.',
+            'Stopped negative-duration controls retain native nonzero remaining behavior; positive-health control exits before timer consumption. No host calculation supplies the stop/call sequence outputs.',
+        ],
+        substitutions=['Four terminal call boundaries are supplied observation sinks with exact thiscall stack cleanup; caller instruction bytes are unchanged.'],
+        entry_points={'constructor_timer_slice':0x43B762, 'constructor_no_survivor':0x43B95A,
+                      'building_health_sample':0x440042, 'building_zero_hp_gate':0x440072,
+                      'limbo_call':0x4400C5, 'spawn_survivors_call':0x4400D4,
+                      'uninit_call':0x4400DD, 'after_destruction_call':0x4400E5})
+    # Selected upstream instructions establish fixture register priors; these
+    # bytes are static evidence and are not part of the executed narrow slices.
+    audit = ((0x43B750, 0x43B762), (0x43FB6D, 0x43FB7A),
+             (0x43FBF7, 0x43FC00), (0x44FB67, 0x44FBD2))
+    for key, ranges in (('original_code', BUILDING_ZERO_HP_RANGES),
+                        ('audit_bytes_not_executed', audit)):
+        result[key] = {f'{a:08X}..{b:08X}': dict(
+            hex=(raw := bytes(fixture.u.mem_read(a, b-a))).hex(),
+            sha256=hashlib.sha256(raw).hexdigest()) for a, b in ranges}
+    return result
+
+
 if __name__ == '__main__':
     import sys
     args = sys.argv[1:]
-    if '--damage-tags' in args:
+    if '--building-zero-health' in args:
+        args.remove('--building-zero-health')
+        finish_vectors(generate_building_zero_health,
+            Path(__file__).with_name('building_zero_health.json'),
+            provenance=building_zero_health_metadata, argv=args)
+    elif '--damage-tags' in args:
         args.remove('--damage-tags')
         finish_vectors(generate_damage_tags,Path(__file__).with_name('object_damage_tags.json'),
             provenance=damage_tag_metadata,argv=args)

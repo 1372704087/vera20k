@@ -1737,12 +1737,11 @@ fn retail_gattling_registry_and_all_executed_pcm_clips_match_native() {
     let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
         return;
     };
-    let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+    let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+        .expect("retail audio definitions");
     assert_reader(definitions.sounds(), &native()["retail"]);
-    let selected = assets
-        .load_audio_index()
-        .expect("production audio index")
-        .expect("retail audio index");
+    let selected =
+        crate::rules::retail_ini_fixture::retail_audio_index().expect("retail audio index");
     for (name, clip) in native()["physical_clips"].as_object().unwrap() {
         let (entry, source) = selected.index.get(name).unwrap();
         assert_eq!(
@@ -1850,13 +1849,12 @@ fn cursor_counted_budget_and_reprepare_keep_decay_used_once() {
 
 #[test]
 fn initial_positional_loop_preserves_native_attack_admission() {
-    let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+    let Some(definitions) = crate::rules::retail_ini_fixture::retail_audio_definitions() else {
         return;
     };
     let Some(mut player) = SfxPlayer::new() else {
         return;
     };
-    let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
     let registry = definitions.sounds();
     assert!(player.play_animation_sound_spatial(
         79_u64,

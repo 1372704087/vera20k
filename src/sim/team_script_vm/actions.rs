@@ -17,8 +17,8 @@
 //! `deploy` rows (actions 14, 43, 8 and 9) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 19, 21, 24, 37, 39, 42, 43,
-//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 61, 62, 63 and 64 are not ported. A team
+//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 30, 37, 39, 40, 42, 43,
+//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63 and 64 are not ported. A team
 //!   that reaches one stays on it, as a native handler that has not
 //!   finished does, and records the first as its refusal; the rest of its
 //!   update runs. Trigger: none of the 163 retail AIMD TeamTypes reaches
@@ -57,8 +57,9 @@
 //!   natively, as in VERA, those actions take them off Unload in the air.
 //!   Trigger: a member of a modded type deploying when its team attacks.
 //!   Effect: it stops deploying and attacks.
-//! - A non-aircraft member's ammunition (`+0x2FC`) is not tracked and reads
-//!   as its `Ammo=`: actions 0 and 46 never find such a team spent
+//! - Non-aircraft ammunition (`+0x2FC`) retains its constructor and chrono
+//!   reinforcement writes; ordinary weapon-fire debits remain unported.
+//!   Actions 0 and 46 therefore do not find an ordinary finite-ammo team spent
 //!   (`team_out_of_ammo`). Trigger: a team of units with `Ammo=` above 0.
 //!   Effect: the team keeps attacking where native would move on once all
 //!   are empty.
@@ -67,8 +68,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::ScanMission;
 use crate::sim::combat::fire_error::FireError;
+use crate::sim::combat::{ScanMission, quarry_mask};
 use crate::sim::components::NavTargetRef;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
@@ -82,6 +83,7 @@ use crate::sim::world::Simulation;
 
 use super::team_ai::member_is_live_joined;
 use super::{TeamScriptAction, TeamScriptRefusal, TeamScriptState, TeamTarget, script_action_at};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 
 impl TeamScriptState {
     /// TeamFlash6EF5F0 walks +54/+5D8 head first and writes signed Techno+F0.
@@ -126,11 +128,15 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 11
             | 14
             | 16
+            | 17
             | 19
+            | 20
             | 21
             | 24
+            | 30
             | 37
             | 39
+            | 40
             | 42
             | 43
             | 46
@@ -143,6 +149,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 57
             | 58
             | 59
+            | 60
             | 61
             | 62
             | 63
@@ -369,6 +376,35 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            17 => {
+                // Steam3e81a617:6E972C..6E977F destroys the current Script,
+                // constructs one from ScriptType::Array8B41CC[argument],
+                // then Reset691590 sets its cursor to-1. It does NOT set
+                // Team+80. Native Current691500 consequently returns -1 on
+                // subsequent visits until another owner advances the Team.
+                // Preserve mission/focus, members, guard timer and RNG. The
+                // original constructor/destructor's instance registry has
+                // no independent Rust identity: this VM owns the attachment.
+                // tools/team_recruit_oracle.py --change-script executes the
+                // caller, constructor/reset and the following script visit.
+                let replacement = usize::try_from(action.argument)
+                    .ok()
+                    .and_then(|index| self.team_script_vm.script_order.get(index))
+                    .copied();
+                if let Some(replacement) = replacement {
+                    if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                        team.script_id = replacement;
+                        team.cursor = -1;
+                    }
+                } else {
+                    // Native directly indexes the array and can fault. Keep
+                    // the attachment on malformed authored input instead.
+                    log::warn!(
+                        "Team {team_id} Script17 names invalid ScriptType ordinal {}",
+                        action.argument
+                    );
+                }
+            }
             37 => {
                 //Steam3e81a617:6E954D..6E957A caches Foot+5D8 before
                 //vtD4 Limbo and vtF8 UnInit, then marks+80 to advance.
@@ -419,11 +455,12 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            // Original6E9BA1..6E9BBD: SetLocal689910(argument, true),
+            // Steam3e81a617: Script39 at6E9BA1 and Script40 at6E9BBE
+            // call SetLocal689910(argument, true/false), respectively,
             // then team+80=1 even if the variable index was rejected. The
             // existing trigger owner keeps dirty admission and timer resets.
-            39 => {
-                self.set_trigger_variable(false, action.argument, true);
+            39 | 40 => {
+                self.set_trigger_variable(false, action.argument, action.action_id == 39);
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
                 }
@@ -454,6 +491,46 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            // Steam gamemd3e81a617: Script20 at6E9683..6E96BC caches
+            // Foot+5D8 before each ChangeOwner(vt+3D4), resolving the
+            // Country through502D30 for every member, then sets Team+80.
+            // The class owner can unlink a transferred member; neither
+            // Team.House nor a Player@ start-slot selector is changed here.
+            20 => {
+                let mut member = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .and_then(|team| team.members().next());
+                while let Some(current) = member {
+                    let next = self
+                        .team_script_vm
+                        .teams
+                        .get(&team_id)
+                        .and_then(|team| team.next_member_after(current));
+                    let owner = u16::try_from(action.argument).ok().and_then(|country| {
+                        self.house_by_country_index(
+                            crate::rules::ruleset::CountryIdx(country),
+                            rules,
+                        )
+                    });
+                    // An unresolved Country is ignored safely. Native null-
+                    // House handling is outside the admitted SOV01 route.
+                    if let Some(owner) = owner {
+                        self.change_owner_with_rules(
+                            current,
+                            owner,
+                            rules,
+                            registry,
+                            frame_effects,
+                        );
+                    }
+                    member = next;
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
             // `0x006E9650`: each member, in list order, scatters from the
             // team code's zero coordinate (`0x00B0E968`, written only by its
             // static initializer `0x006E8A30`), forced and not no-kidding
@@ -476,6 +553,23 @@ impl Simulation {
                     ) {
                         log::debug!("team member {member} did not scatter: {cause}");
                     }
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // Original gamemd1cdd1180,6E9FEC ->6E99E1..6E99FD
+            // (tools/native_inspect): House+250=4, then Team+80=1.
+            // Argument/first are unused; the existing House Strategy timer
+            // decides when FireSale/Hunt runs. No direct RNG/timer/detach.
+            30 => {
+                let owner = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .map(TeamScriptState::owner);
+                if let Some(house) = owner.and_then(|owner| self.houses.get_mut(&owner)) {
+                    house.strategy_emergency.set_state_four();
                 }
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
@@ -541,16 +635,17 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            // `0x006E9DF9..0x006E9E3D` (60),
             // `0x006E9E3E..0x006E9E82` (61), `0x006E9E83..0x006E9EC7` (62)
             // and `0x006E9EC8..` (63): each member, in list order, seeks a
-            // tank bunker (Foot vt+0x344, [`Self::foot_enter_tank_bunker`]),
+            // grinder (vt+0x33C), tank bunker (Foot vt+0x344),
             // a Bio Reactor (vt+0x340, [`Self::foot_enter_bio_reactor`]) or
             // an occupiable building (vt+0x348,
             // [`Self::foot_enter_battle_bunker`]); one that finds one leaves
             // the team (`Remove_Member(member, -1, 1)`, `0x006E9E69`,
             // `0x006E9EAE`, `0x006E9EF3`). The action is finished at once,
             // also with no member (`0x006E953E`).
-            61..=63 => {
+            60..=63 => {
                 let members: Vec<u64> = self
                     .team_script_vm
                     .teams
@@ -559,6 +654,7 @@ impl Simulation {
                     .unwrap_or_default();
                 for member in members {
                     let found = match action.action_id {
+                        60 => self.foot_enter_grinder(member, rules, registry, frame_effects),
                         61 => self.foot_enter_tank_bunker(member, rules, registry, frame_effects),
                         62 => self.foot_enter_bio_reactor(member, rules, registry, frame_effects),
                         _ => self.foot_enter_battle_bunker(member, rules, registry, frame_effects),
@@ -651,12 +747,18 @@ impl Simulation {
                         .expect("Team leader has its resolved TechnoType")
                         .speed_type;
                     cell = self
-                        .find_plain_passable_cell(
+                        .nearby_passable_cell(
                             (i32::from(cell.0), i32::from(cell.1)),
-                            speed,
-                            None,
-                            crate::rules::locomotor_type::MovementZone::Normal,
-                            (1, 1),
+                            NearbyArgs::plain(
+                                PassabilityArgs {
+                                    speed_type: speed,
+                                    required_zone_id: None,
+                                    movement_zone:
+                                        crate::rules::locomotor_type::MovementZone::Normal,
+                                    bridge_aware_zone: false,
+                                },
+                                NearbyFootprint::SINGLE,
+                            ),
                         )
                         .map_or((0, 0), |(x, y)| (x as i16, y as i16));
                 }
@@ -1236,7 +1338,7 @@ impl Simulation {
                 }
                 self.foot_mark_remove(member, Some(rules), registry, frame_effects);
                 let placeable = crate::sim::build_site::can_place_building_at(
-                    self, rules, registry, building, cell, None,
+                    self, rules, registry, building, cell, None, None,
                 );
                 if !placeable {
                     let _ = crate::sim::build_site::flush_for_placement(
@@ -1266,8 +1368,9 @@ impl Simulation {
 
     /// The member with the highest `LeadershipRating=` (signed, the first in
     /// list order on a tie) among the live joined members, else the head
-    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`).
-    pub(super) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
+    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`), also the
+    /// shared GetLeader6EC3D0 called by House50D170.
+    pub(crate) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
         let team = self.team_script_vm.teams.get(&team_id)?;
         let mut leader = team.members.first()?.id;
         let mut best = -1i32;
@@ -1289,21 +1392,6 @@ impl Simulation {
             }
         }
         Some(leader)
-    }
-
-    /// `HouseClass::Base_Center @ 0x0050DF30`: the centre of the house's base
-    /// cell (`HouseState::base_origin`), or `(0, 0)` without one.
-    fn house_base_center_xy(&self, owner: InternedId) -> [i32; 2] {
-        let origin = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)
-            .map_or((0, 0), |house| house.base_origin());
-        if origin == (0, 0) {
-            [0, 0]
-        } else {
-            [
-                i32::from(origin.0) * 256 + 128,
-                i32::from(origin.1) * 256 + 128,
-            ]
-        }
     }
 
     /// Script action 54 (`0x006EFA10`), regroup at base: on its first frame
@@ -1331,8 +1419,17 @@ impl Simulation {
                 .map(|object| object.speed_type);
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)
                 .and_then(|house| house.enemy_house);
-            let own = self.house_base_center_xy(owner);
-            let enemy = enemy.map(|enemy| self.house_base_center_xy(enemy));
+            let cells = self
+                .resolved_terrain
+                .as_ref()
+                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+            // 6EFAAE/6EFAF7: preserve the shared Map/Dummy query order.
+            let [own_x, own_y, _] = self.house_base_coordinate(owner, cells.as_ref());
+            let own = [own_x, own_y];
+            let enemy = enemy.map(|enemy| {
+                let [x, y, _] = self.house_base_coordinate(enemy, cells.as_ref());
+                [x, y]
+            });
             let seed = regroup_seed_cell(own, enemy, rules.general.ai_safe_distance, || {
                 self.scenario_rng.next_range_i32_inclusive(0, 255)
             });
@@ -1366,9 +1463,20 @@ impl Simulation {
             let owner = entity.owner();
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)?
                 .enemy_house?;
+            let cells = self
+                .resolved_terrain
+                .as_ref()
+                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+            // 6EF7C0 precedes 6EF812; an empty enemy base returns before
+            // querying the own base, including its Map/Dummy side effects.
+            let enemy = self.house_base_coordinate(enemy, cells.as_ref());
+            if enemy == [0, 0, 0] {
+                return None;
+            }
+            let own = self.house_base_coordinate(owner, cells.as_ref());
             let seed = gather_seed_cell(
-                self.house_base_center_xy(owner),
-                self.house_base_center_xy(enemy),
+                [own[0], own[1]],
+                [enemy[0], enemy[1]],
                 crate::sim::movement::ground_pose::position_world_xy(&entity.position),
                 rules.general.ai_safe_distance,
             )?;
@@ -1402,12 +1510,17 @@ impl Simulation {
     ) {
         let cell = speed_type
             .and_then(|speed_type| {
-                self.find_plain_passable_cell(
+                self.nearby_passable_cell(
                     seed,
-                    speed_type,
-                    None,
-                    crate::rules::locomotor_type::MovementZone::Normal,
-                    (3, 3),
+                    NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type,
+                            required_zone_id: None,
+                            movement_zone: crate::rules::locomotor_type::MovementZone::Normal,
+                            bridge_aware_zone: false,
+                        },
+                        NearbyFootprint::new(3, 3),
+                    ),
                 )
             })
             .unwrap_or((0, 0));
@@ -1519,70 +1632,19 @@ impl Simulation {
             object.movement_zone,
             leader.on_bridge(),
         )?;
-        self.find_plain_passable_cell(
+        self.nearby_passable_cell(
             seed,
-            object.speed_type,
-            Some(zone),
-            object.movement_zone,
-            (1, 1),
-        )
-        .filter(|&cell| cell != (0, 0))
-    }
-
-    /// `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20` as both team
-    /// actions and `HouseClass::AI_GroundRallyPoint` (`0x00509D61..
-    /// 0x00509D9A`) call it: no bridge-aware zone, overlay, height, obstacle
-    /// or occupancy test, bridges allowed, no target cell (the frame-counter
-    /// pick), no quadrant skip.
-    pub(crate) fn find_plain_passable_cell(
-        &self,
-        seed: (i32, i32),
-        speed_type: crate::rules::locomotor_type::SpeedType,
-        zone: Option<u32>,
-        movement_zone: crate::rules::locomotor_type::MovementZone,
-        footprint: (i32, i32),
-    ) -> Option<(u16, u16)> {
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
-            find_nearby_passable_cell_with_options, map_owned_radius_cap,
-        };
-        let terrain = self.resolved_terrain.as_ref()?;
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
-        let grid = self.path_grid_snapshot();
-        find_nearby_passable_cell_with_options(
-            seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type,
-                    required_zone_id: zone,
-                    movement_zone,
+            NearbyArgs::plain(
+                PassabilityArgs {
+                    speed_type: object.speed_type,
+                    required_zone_id: Some(zone),
+                    movement_zone: object.movement_zone,
                     bridge_aware_zone: false,
                 },
-                footprint: NearbyFootprint::new(footprint.0, footprint.1),
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            NearbySearchOptions {
-                reject_any_overlay: false,
-            },
-            self.session.binary_frame,
+                NearbyFootprint::SINGLE,
+            ),
         )
+        .filter(|&cell| cell != (0, 0))
     }
 
     /// `Assign_Mission_Target @ 0x006E9050`: a changed mission target
@@ -1967,7 +2029,7 @@ impl Simulation {
                 self.team_waypoint_blocker(waypoint)
                     .map(|(target, blocker)| match blocker {
                         Some(BlockingObject::Entity(object)) => TeamTarget::Object(object),
-                        Some(BlockingObject::Terrain) | None => target,
+                        Some(BlockingObject::Terrain(_)) | None => target,
                     });
             self.team_assign_mission_target(team_id, target, rules, registry, frame_effects);
         }
@@ -2344,7 +2406,7 @@ impl Simulation {
         // below, and a restart after the step's advance changes nothing.
         if attack_check_frame(self.session.binary_frame as i32)
             && let (Some(leader), Some(target)) = (leader, focus)
-            && self.selected_weapon_fire_error(rules, leader, target.target_kind(), registry)
+            && self.selected_weapon_fire_error(rules, leader, target.target_kind(), true, registry)
                 == FireError::Illegal
             && let Some(team) = self.team_script_vm.teams.get_mut(&team_id)
         {
@@ -2510,30 +2572,10 @@ pub(super) fn safe_distance_cell(from: [i32; 2], facing: u16, safe_distance: i32
     )
 }
 
-/// `Quarry_To_Threat @ 0x00645BB0` (table `0x00645BF8`): script action 0's
-/// quarry as a `Greatest_Threat` mask; 0 outside `2..=11`.
-pub(super) const fn quarry_mask(quarry: i32) -> u32 {
-    match quarry {
-        2 => 0x20,
-        3 => 0x40,
-        4 => 0x8,
-        5 => 0x10,
-        6 => 0x1000,
-        7 => 0x2000,
-        9 => 0x800,
-        10 => 0x8000,
-        11 => 0x10000,
-        _ => 0,
-    }
-}
-
-/// A member's ammunition (`+0x2FC`): an aircraft's count; other classes'
-/// is not tracked and reads as full (`Ammo=`, module residual).
+/// A member's shared live ammunition (`+0x2FC`). A component-only fixture
+/// without a concrete constructor retains its explicitly declared type prior.
 fn member_ammo(entity: &GameEntity, object: &crate::rules::object_type::ObjectType) -> i32 {
-    entity
-        .aircraft_ammo
-        .as_ref()
-        .map_or(object.ammo, |ammo| ammo.current())
+    entity.ammo().map_or(object.ammo, |ammo| ammo.current())
 }
 
 /// An object's Location (`+0x9C`) as the building finders read it.

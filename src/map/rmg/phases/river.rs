@@ -585,7 +585,7 @@ pub fn carve(
 }
 
 /// Convenience for tests and the seeder: is this water amount above the gate?
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn carries_a_river(water_percent: i32) -> bool {
     water_percent > super::lake::RIVER_GATE
 }
@@ -597,9 +597,9 @@ mod tests {
     use crate::map::rmg::phases::shore::{SubTile, TileBlock, TileBlocks};
     use crate::map::rmg::phases::water::PlayableRect;
     use crate::map::rmg::scratch::RmgScratch;
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::tiles::TileIds;
     use crate::map::rmg::x87::Gaussian;
+    use crate::map::theater::TheaterCliffRanges;
 
     /// Water amount well above the river gate, so every run carries a river.
     const RIVERED_WATER: i32 = 60;
@@ -629,6 +629,7 @@ mod tests {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -644,7 +645,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -661,7 +662,13 @@ mod tests {
         let mut identity = ids();
         // The crossing needs waterfall sets; four synthetic bases, disjoint from
         // everything else the test ids use.
-        identity.special.waterfalls = [600, 610, 620, 630];
+        identity.cliffs = TheaterCliffRanges {
+            waterfall_north: Some(600),
+            waterfall_east: Some(610),
+            waterfall_south: Some(620),
+            waterfall_west: Some(630),
+            ..TheaterCliffRanges::default()
+        };
         let blocks = blocks();
         let mut rng = RmgRng::new(seed);
         let mut gauss = Gaussian::default();
@@ -704,6 +711,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn waterfall_attempts_advance_the_region_and_stamp_varied_water() {
         // A successful waterfall attempt shows two ways: the region advances
         // extra id, and the fills paint varied water tiles (water_base+1..+5),

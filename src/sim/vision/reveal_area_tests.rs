@@ -10,11 +10,8 @@ use serde_json::Value;
 /// diamond, so only the diamond bounds the walks.
 const GRID: (u16, u16) = (128, 128);
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/reveal_area.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/reveal_area.json")
 }
 
 fn rows(corpus: &Value) -> &[Value] {
@@ -149,12 +146,13 @@ fn the_house_gate_matches_native() {
             ..VisionConfig::default()
         };
         for (asker, named) in [("OTHER", "PLAYER"), ("PLAYER", "OTHER")] {
-            let mut fog = FogState::default();
+            let fog = FogState::default();
+            let mut alliances = HouseAllianceMap::new();
             if row["allied"] == true {
-                fog.alliances
-                    .insert(asker.to_string(), [named.to_string()].into());
+                alliances.insert(asker.to_string(), [named.to_string()].into());
             }
-            let admitted = direct_reveal_viewers(&fog, other, &config, &interner).contains(&player);
+            let admitted = direct_reveal_viewers(&fog, &alliances, other, &config, &interner)
+                .contains(&player);
             let expected = !leaf.is_empty() && asker == "OTHER";
             assert_eq!(admitted, expected, "{asker} {row}");
         }

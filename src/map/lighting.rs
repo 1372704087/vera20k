@@ -14,11 +14,11 @@
 
 use std::collections::HashMap;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::map::entities::{EntityCategory, MapEntity};
 use crate::rules::art_data::AnimTypeRuntimeConfig;
 use crate::rules::ini_parser::IniFile;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::rules::ruleset::RuleSet;
 
 /// Internal light unit scale. `1000 == 1.0`.
@@ -163,8 +163,15 @@ pub struct LightProfileId(pub usize);
 #[derive(Debug, Clone, PartialEq)]
 pub struct LightProfile {
     pub id: LightProfileId,
+    /// Constructor RGB, retained to identify the Convert's row count.
+    /// The lookup index follows mutable normal_rgb_key instead (544EF8).
     pub rgb_key: LightRgbKey,
-    pub rgb: [f32; 3],
+    /// LightConvert+198..1A0. Native556179 changes this normal-cache RGB;
+    /// returning from an alternate palette restores it. New profiles start
+    /// from their own lookup input, not a prior global operation.
+    normal_rgb_key: LightRgbKey,
+    alternate_rgb_key: LightRgbKey,
+    use_alternate: bool,
 }
 
 /// LightConvert-style profile identity cache for render-facing cell light.
@@ -172,6 +179,10 @@ pub struct LightProfile {
 pub struct LightProfileCache {
     profiles: Vec<LightProfile>,
     by_key: HashMap<LightRgbKey, LightProfileId>,
+    /// Current555DA0 constructor inputs, independent of the palette mode of
+    /// an already cached Convert. A normal retint during a storm leaves new
+    /// Converts on the storm branch while existing ones switch to normal.
+    constructor_alternate_rgb: Option<LightRgbKey>,
 }
 
 impl LightProfileCache {
@@ -179,6 +190,7 @@ impl LightProfileCache {
         let mut cache = Self {
             profiles: Vec::new(),
             by_key: HashMap::new(),
+            constructor_alternate_rgb: None,
         };
         cache.profile_id_for_rgb(DEFAULT_TINT);
         cache
@@ -201,7 +213,12 @@ impl LightProfileCache {
         self.profiles.push(LightProfile {
             id,
             rgb_key: key,
-            rgb: key_to_rgb(key),
+            normal_rgb_key: key.map(|v| v.clamp(0, 2000)),
+            alternate_rgb_key: self
+                .constructor_alternate_rgb
+                .unwrap_or(key)
+                .map(|v| v.clamp(0, 2000)),
+            use_alternate: self.constructor_alternate_rgb.is_some(),
         });
         self.by_key.insert(key, id);
         id
@@ -211,10 +228,12 @@ impl LightProfileCache {
         self.profiles.get(id.0)
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.profiles.len()
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.profiles.is_empty()
     }
@@ -223,6 +242,16 @@ impl LightProfileCache {
 impl Default for LightProfileCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl LightProfile {
+    fn palette_rgb(&self) -> LightRgbKey {
+        if self.use_alternate {
+            self.alternate_rgb_key
+        } else {
+            self.normal_rgb_key
+        }
     }
 }
 
@@ -255,7 +284,7 @@ impl CellLight {
     /// Cell104 normalization and Cell108 source intensity. Unlike full483E30
     /// sampling, it scales the signed-word top BEFORE the final 0..2000 clamp.
     /// See tools/spatial_oracle/light_retained_scalar.py and its native records.
-    pub(crate) fn refresh_retained_scalars(&mut self, profile: LightingProfileUnits, level: u8) {
+    pub fn refresh_retained_scalars(&mut self, profile: LightingProfileUnits, level: u8) {
         let ambient = (profile.ambient_percent.wrapping_mul(1000) / 100) as i16;
         let base = ambient.wrapping_add(self.additive_intensity as i16);
         let level_units = profile.level_units as i16;
@@ -306,6 +335,7 @@ impl CellLight {
         }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn compatibility(
         profile_id: LightProfileId,
         rgb_key: LightRgbKey,
@@ -334,7 +364,6 @@ pub struct CellLightGrid {
     cells: HashMap<(u16, u16), CellLight>,
     profiles: LightProfileCache,
     detail_level: u32,
-    alternate_rgb: Option<LightRgbKey>,
 }
 
 impl CellLightGrid {
@@ -343,16 +372,15 @@ impl CellLightGrid {
             cells: HashMap::new(),
             profiles: LightProfileCache::new(),
             detail_level: 2,
-            alternate_rgb: None,
         }
     }
 
+    #[cfg(test)]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             cells: HashMap::with_capacity(capacity),
             profiles: LightProfileCache::new(),
             detail_level: 2,
-            alternate_rgb: None,
         }
     }
 
@@ -361,7 +389,6 @@ impl CellLightGrid {
             cells: HashMap::new(),
             profiles: LightProfileCache::new(),
             detail_level: detail_level.min(2),
-            alternate_rgb: None,
         }
     }
 
@@ -371,15 +398,66 @@ impl CellLightGrid {
 
     /// LightConvert556090 retains normal RGB/row identity while selecting
     /// Ion alternate table RGB; neither normalization nor Cell104 changes.
-    pub(crate) fn set_alternate_rgb(&mut self, rgb: Option<LightRgbKey>) {
-        self.alternate_rgb = rgb;
+    pub fn set_alternate_rgb(&mut self, rgb: Option<LightRgbKey>) {
+        for profile in &mut self.profiles.profiles {
+            if let Some(rgb) = rgb {
+                profile.alternate_rgb_key = rgb.map(|v| v.clamp(0, 2000));
+            }
+            profile.use_alternate = rgb.is_some();
+        }
     }
 
-    pub(crate) fn palette_rgb(&self, normal: LightRgbKey) -> LightRgbKey {
-        self.alternate_rgb.unwrap_or(normal)
+    /// Constructor context changes only future cache entries; it never
+    /// rewrites an existing Convert's retained colors or selected mode.
+    pub fn set_constructor_alternate_rgb(&mut self, rgb: Option<LightRgbKey>) {
+        self.profiles.constructor_alternate_rgb = rgb.map(|rgb| rgb.map(|v| v.clamp(0, 2000)));
     }
 
-    pub(crate) fn refresh_retained_scalars<I>(&mut self, heights: I, profile: LightingProfileUnits)
+    pub fn constructor_alternate_rgb(&self) -> Option<LightRgbKey> {
+        self.profiles.constructor_alternate_rgb
+    }
+
+    /// RecalcLighting flag0 with explicit RGB changes every existing normal
+    /// Convert cache (5560C5..556111 clamps,556179..55618B stores), and
+    /// selects normal mode. Preserve row counts and Cell104. Lookup544EF8
+    /// compares the mutable normal cache, so rebuild that derived index.
+    pub fn retint_normal_rgb(&mut self, rgb: LightRgbKey) {
+        let rgb = rgb.map(|v| v.clamp(0, 2000));
+        for profile in &mut self.profiles.profiles {
+            profile.normal_rgb_key = rgb;
+            profile.use_alternate = false;
+        }
+        self.profiles.by_key.clear();
+        //544E94 special-cases neutral RGB to the first Convert regardless
+        // of its current tint. The remaining search starts at index1.
+        self.profiles.by_key.insert([1000; 3], LightProfileId(0));
+        for profile in self.profiles.profiles.iter().skip(1) {
+            self.profiles
+                .by_key
+                .entry(profile.normal_rgb_key)
+                .or_insert(profile.id);
+        }
+    }
+
+    /// A cell retains its Convert pointer across a global retint, even when
+    /// a later lookup of the same sampling RGB creates a different Convert.
+    pub fn palette_rgb(&self, id: LightProfileId) -> LightRgbKey {
+        self.profiles
+            .get(id)
+            .map_or([1000; 3], LightProfile::palette_rgb)
+    }
+
+    pub fn palette_rows(&self, id: LightProfileId) -> u32 {
+        self.profiles.get(id).map_or(53, |profile| {
+            if profile.rgb_key.iter().sum::<i32>() < 2000 {
+                27
+            } else {
+                53
+            }
+        })
+    }
+
+    pub fn refresh_retained_scalars<I>(&mut self, heights: I, profile: LightingProfileUnits)
     where
         I: IntoIterator<Item = ((u16, u16), u8)>,
     {
@@ -394,6 +472,7 @@ impl CellLightGrid {
         self.cells.insert(cell, light);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn insert_profiled_light(&mut self, cell: (u16, u16), rgb: [f32; 3], common_scalar: f32) {
         let profile_id = self.profiles.profile_id_for_rgb(rgb);
         let rgb_key = rgb_to_key(rgb);
@@ -403,7 +482,7 @@ impl CellLightGrid {
         );
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_compat_tint(&mut self, cell: (u16, u16), tint: [f32; 3]) {
         self.insert_profiled_light(cell, tint, 1.0);
     }
@@ -445,7 +524,7 @@ impl CellLightGrid {
         self.tint_or_default(cell)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn terrain_object_tint_at(&self, cell: (u16, u16)) -> [f32; 3] {
         self.tint_for_common_scalar_or_default(cell)
     }
@@ -532,11 +611,6 @@ impl CellLightGrid {
     }
 
     fn tint_for_light_scalar(&self, light: &CellLight, scalar: i32) -> [f32; 3] {
-        if let Some(rgb) = self.alternate_rgb {
-            return rgb.map(|channel| {
-                channel as f32 / LIGHT_UNIT as f32 * scalar as f32 / LIGHT_UNIT as f32
-            });
-        }
         self.tint_for_profile_scalar(light.profile_id, scalar)
     }
 
@@ -547,11 +621,7 @@ impl CellLightGrid {
             .or_else(|| self.profiles.get(self.profiles.default_profile_id()))
             .expect("default light profile is always present");
         let scalar = scalar as f32 / LIGHT_UNIT as f32;
-        [
-            profile.rgb[0] * scalar,
-            profile.rgb[1] * scalar,
-            profile.rgb[2] * scalar,
-        ]
+        key_to_rgb(profile.palette_rgb()).map(|channel| channel * scalar)
     }
 }
 
@@ -582,7 +652,7 @@ fn key_to_rgb(key: LightRgbKey) -> [f32; 3] {
 }
 
 /// Return signed building body draw-depth adjustment from art.ini ExtraLight.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn building_body_depth_adjustment(extra_light: i32) -> i32 {
     extra_light
 }
@@ -716,6 +786,7 @@ fn quantize_scenario_light(value: f64, scale: i32) -> i32 {
 }
 
 /// Compute the RGB tint for a single cell given its elevation.
+#[cfg(any(test, feature = "test-support"))]
 pub fn cell_tint(config: &LightingConfig, z: u8) -> [f32; 3] {
     let grid = build_cell_light_grid_from_heights([((1, 1), z)], config);
     grid.tint_or_default((1, 1))
@@ -725,12 +796,13 @@ pub fn cell_tint(config: &LightingConfig, z: u8) -> [f32; 3] {
 ///
 /// Terrain uses the ground-level lighting value across all cells so repeating
 /// tile textures do not expose the map grid through per-cell tint boundaries.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn terrain_tint(config: &LightingConfig) -> [f32; 3] {
     cell_tint(config, 0)
 }
 
 /// Build the profile-backed base cell light grid from known cell heights.
+#[cfg(any(test, feature = "test-support"))]
 pub fn build_cell_light_grid_from_heights<I>(heights: I, config: &LightingConfig) -> CellLightGrid
 where
     I: IntoIterator<Item = ((u16, u16), u8)>,
@@ -739,6 +811,7 @@ where
 }
 
 /// Build a cell-light grid from exact ScenarioClass integer fields.
+#[cfg(any(test, feature = "test-support"))]
 pub fn build_cell_light_grid_from_heights_and_units<I>(
     heights: I,
     profile: LightingProfileUnits,
@@ -753,11 +826,8 @@ where
 /// This is the value `OverlayClass::Mark` copies to a newly constructed
 /// `CellAnim` after its delay-zero constructor has completed.
 pub fn cell_ground_z_adjust(profile: LightingProfileUnits, level: u8) -> i32 {
-    let units = scenario_units_from_profile(profile);
-    units
-        .ambient
-        .wrapping_add(units.level.wrapping_mul(i32::from(level)))
-        .wrapping_sub(units.ground)
+    initial_height_scalars(profile.into(), level)
+        .0
         .clamp(LIGHT_CLAMP_MIN, LIGHT_CLAMP_MAX)
 }
 
@@ -771,24 +841,9 @@ where
     I: IntoIterator<Item = ((u16, u16), u8)>,
 {
     let mut grid = CellLightGrid::with_detail_level(detail_level);
-    let units = scenario_units_from_profile(profile.units);
     for (cell, z) in heights {
-        if cell == (0, 0) {
-            let light = neutral_cell_light(&mut grid.profiles);
-            grid.insert_light(cell, light);
-            continue;
-        }
-        let raw_top = units.ambient + profile.top_level_units * i32::from(z) - units.ground;
-        let raw_bottom =
-            units.ambient + units.level * (i32::from(z) + BOTTOM_LEVEL_OFFSET) - units.ground;
-        let light = build_cell_light_from_raw(
-            &mut grid.profiles,
-            [units.red, units.green, units.blue],
-            0,
-            raw_top,
-            raw_bottom,
-            grid.detail_level,
-        );
+        let sample = sample_cell_light(cell, z, profile, &[]);
+        let light = sample.finalize(&mut grid.profiles, grid.detail_level);
         grid.insert_light(cell, light);
     }
     grid
@@ -798,7 +853,7 @@ where
 ///
 /// Created from map entity data during map load. Each light contributes
 /// localized brightness to nearby cells using linear distance falloff.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PointLight {
     /// Cell position of the light source.
     pub rx: u16,
@@ -817,6 +872,22 @@ pub struct PointLight {
     pub active: bool,
     /// Detail-level gate placeholder for ordinary light sources.
     pub detail: bool,
+}
+
+impl PointLight {
+    /// LightSource554AA0, original gamemd.exe: the equal-intensity fast path
+    /// compares the retained red to both incoming red and incoming blue.
+    /// Green and the retained blue do not participate in this native gate.
+    /// Return whether the native write branch ran; the caller owns area
+    /// publication. That branch can run even for identical parameters.
+    pub(crate) fn update_parameters(&mut self, intensity: i32, tint: [i32; 3]) -> bool {
+        if self.intensity == intensity && self.tint[0] == tint[0] && self.tint[0] == tint[2] {
+            return false;
+        }
+        self.intensity = intensity;
+        self.tint = tint;
+        true
+    }
 }
 
 /// Renderer-local counterpart of the pending records consumed by YR
@@ -842,7 +913,25 @@ struct CellLightSample {
     raw_bottom_scalar: i32,
 }
 
+impl CellLightSample {
+    fn finalize(self, profiles: &mut LightProfileCache, detail_level: u32) -> CellLight {
+        if self.neutral {
+            neutral_cell_light(profiles)
+        } else {
+            build_cell_light_from_raw(
+                profiles,
+                self.raw_rgb,
+                self.raw_additive_intensity,
+                self.raw_top_scalar,
+                self.raw_bottom_scalar,
+                detail_level,
+            )
+        }
+    }
+}
+
 impl DeferredCellLightRefresh {
+    #[cfg(test)]
     pub fn new<I>(heights: I, config: &LightingConfig, lights: Vec<PointLight>) -> Self
     where
         I: IntoIterator<Item = ((u16, u16), u8)>,
@@ -894,25 +983,16 @@ impl DeferredCellLightRefresh {
 
     /// Build the replacement forward only after all samples are gathered.
     /// Returning `None` before then enforces the native atomic-commit boundary.
+    #[cfg(test)]
     pub fn commit(self) -> Option<CellLightGrid> {
         if !self.is_gathered() {
             return None;
         }
         let mut grid = CellLightGrid::with_detail_level(self.detail_level);
         for sample in self.samples.into_iter().flatten() {
-            let light = if sample.neutral {
-                neutral_cell_light(&mut grid.profiles)
-            } else {
-                build_cell_light_from_raw(
-                    &mut grid.profiles,
-                    sample.raw_rgb,
-                    sample.raw_additive_intensity,
-                    sample.raw_top_scalar,
-                    sample.raw_bottom_scalar,
-                    self.detail_level,
-                )
-            };
-            grid.insert_light(sample.cell, light);
+            let cell = sample.cell;
+            let light = sample.finalize(&mut grid.profiles, self.detail_level);
+            grid.insert_light(cell, light);
         }
         Some(grid)
     }
@@ -925,19 +1005,9 @@ impl DeferredCellLightRefresh {
         }
         grid.detail_level = self.detail_level;
         for sample in self.samples.into_iter().flatten() {
-            let light = if sample.neutral {
-                neutral_cell_light(&mut grid.profiles)
-            } else {
-                build_cell_light_from_raw(
-                    &mut grid.profiles,
-                    sample.raw_rgb,
-                    sample.raw_additive_intensity,
-                    sample.raw_top_scalar,
-                    sample.raw_bottom_scalar,
-                    self.detail_level,
-                )
-            };
-            grid.insert_light(sample.cell, light);
+            let cell = sample.cell;
+            let light = sample.finalize(&mut grid.profiles, self.detail_level);
+            grid.insert_light(cell, light);
         }
         true
     }
@@ -985,7 +1055,7 @@ pub fn point_light_area_cells(
 ///
 /// Iterates all structure entities on the map and checks their ObjectType
 /// for light emission properties parsed from rules.ini.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn collect_building_lights(entities: &[MapEntity], rules: Option<&RuleSet>) -> Vec<PointLight> {
     let Some(rules) = rules else {
         return Vec::new();
@@ -1125,6 +1195,29 @@ pub fn accumulate_point_lights(grid: &mut CellLightGrid, lights: &[PointLight]) 
     }
 }
 
+/// Cell484180 height contribution uses MOVSX on Cell+11B at484564/484583. Eager
+/// installation, deferred source sampling and Cell+10A consumers share it.
+/// Original full483E30 comparison for every raw byte:
+/// tools/spatial_oracle/tmp_clear_render.{py,json} (default/no-source profile).
+fn initial_height_scalars(profile: CellRelightProfile, level: u8) -> (i32, i32) {
+    let units = scenario_units_from_profile(profile.units);
+    let height = i32::from(level as i8);
+    (
+        units
+            .ambient
+            .wrapping_add(profile.top_level_units.wrapping_mul(height))
+            .wrapping_sub(units.ground),
+        units
+            .ambient
+            .wrapping_add(
+                units
+                    .level
+                    .wrapping_mul(height.wrapping_add(BOTTOM_LEVEL_OFFSET)),
+            )
+            .wrapping_sub(units.ground),
+    )
+}
+
 fn sample_cell_light(
     cell: (u16, u16),
     height: u8,
@@ -1144,10 +1237,7 @@ fn sample_cell_light(
     let units = scenario_units_from_profile(profile.units);
     let mut raw_rgb = [units.red, units.green, units.blue];
     let mut raw_additive_intensity = 0;
-    let mut raw_top_scalar =
-        units.ambient + profile.top_level_units * i32::from(height) - units.ground;
-    let mut raw_bottom_scalar =
-        units.ambient + units.level * (i32::from(height) + BOTTOM_LEVEL_OFFSET) - units.ground;
+    let (mut raw_top_scalar, mut raw_bottom_scalar) = initial_height_scalars(profile, height);
     accumulate_light_sample(
         cell,
         lights,
@@ -1204,6 +1294,7 @@ pub fn light_value_to_units(value: f32) -> i32 {
     (value * POINT_LIGHT_UNIT_SCALE as f32 + 0.1) as i32
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn light_float_to_units(value: f32) -> i32 {
     (value * LIGHT_UNIT as f32).round() as i32
 }
@@ -1313,7 +1404,7 @@ fn neutral_cell_light(profiles: &mut LightProfileCache) -> CellLight {
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn normalize_light(raw_rgb: LightRgbKey, common_scalar: i32) -> NormalizedLight {
     normalize_light_at_detail(raw_rgb, common_scalar, 2)
 }
@@ -2267,6 +2358,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            structure_online: true,
             trigger_tag: None,
         }
     }
@@ -2425,6 +2517,72 @@ mod tests {
                     "retained near-black state differs from resampling"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn clear_cell_light_initialization_matches_original_all_level_bytes() {
+        let packet: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/tmp_clear_render.json",
+        ))
+        .unwrap();
+        let controls = packet["light_height_controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 256);
+        let mut seen = [false; 256];
+        for row in controls {
+            let input = &row["input"];
+            let native = &row["output"];
+            let level = input["level"].as_i64().unwrap() as u8;
+            assert_eq!(u64::from(level), input["raw_level_byte"].as_u64().unwrap());
+            assert!(!seen[usize::from(level)]);
+            seen[usize::from(level)] = true;
+            let p = &input["scene_lighting"];
+            let profile = LightingProfileUnits {
+                ambient_percent: p["ambient_percent"].as_i64().unwrap() as i32,
+                red_percent: p["red_percent"].as_i64().unwrap() as i32,
+                green_percent: p["green_percent"].as_i64().unwrap() as i32,
+                blue_percent: p["blue_percent"].as_i64().unwrap() as i32,
+                ground_units: p["ground_units"].as_i64().unwrap() as i32,
+                level_units: p["level_units"].as_i64().unwrap() as i32,
+            };
+            let expected = ["top_scalar", "common_scalar", "bottom_scalar"]
+                .map(|key| native[key].as_i64().unwrap() as i32);
+            let eager = build_cell_light_grid_from_heights_and_units([((10, 20), level)], profile);
+            let mut deferred = DeferredCellLightRefresh::new_with_profile(
+                [((10, 20), level)],
+                profile.into(),
+                2,
+                vec![],
+            );
+            deferred.gather_all();
+            let deferred = deferred.commit().unwrap();
+            for (name, grid) in [("eager", eager), ("deferred", deferred)] {
+                let light = grid.cell_light_at((10, 20)).unwrap();
+                let native_key: [i32; 3] =
+                    std::array::from_fn(|i| native["convert_rgb_key"][i].as_i64().unwrap() as i32);
+                assert_eq!(light.rgb_key, native_key);
+                assert_eq!(
+                    [light.top_scalar, light.common_scalar, light.bottom_scalar],
+                    expected,
+                    "native483E30 {name} raw level byte{level}"
+                );
+                let mut refreshed = light.clone();
+                refreshed.refresh_retained_scalars(profile, level);
+                assert_eq!(
+                    [
+                        refreshed.top_scalar,
+                        refreshed.common_scalar,
+                        refreshed.bottom_scalar
+                    ],
+                    expected,
+                    "native default white full/retained values at raw level byte{level}"
+                );
+            }
+            assert_eq!(
+                cell_ground_z_adjust(profile, level),
+                expected[0],
+                "native initial Cell+10A raw level byte{level}"
+            );
         }
     }
 }

@@ -1001,7 +1001,7 @@ impl PendingEntry {
 }
 
 /// A fixture's pending entry.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn set_pending_entry(sim: &mut Simulation, id: u64, depot: Option<u64>) {
     if let Some(unit) = sim.substrate.entities.get_mut(id) {
         unit.set_pending_entry(depot);
@@ -1009,7 +1009,7 @@ pub(crate) fn set_pending_entry(sim: &mut Simulation, id: u64, depot: Option<u64
 }
 
 /// `FootClass::TryEnterTransport @ 0x0070D7E0` (the name is a lead; it serves
-/// every `Unit+0x500` pending entry) for a pending depot, called from
+/// every `Unit+0x500` pending entry), called from
 /// `FootClass::AI` (0x004DAEDC) whenever vt+0x1D8 (the warp-in) is clear:
 /// - the depot no longer alive (`+0x90`, 0x0070D7F2) drops the entry;
 /// - HELLO (0x0070D815): NEGATORY while the depot's slot is held, and the
@@ -1041,13 +1041,16 @@ pub(crate) fn try_pending_entry(
         .substrate
         .entities
         .get(depot)
-        .is_some_and(|depot| depot.is_object_alive())
+        .is_some_and(|target| target.is_object_alive())
     {
         if let Some(unit) = sim.substrate.entities.get_mut(id) {
             unit.pending_entry.clear();
         }
         return;
-    };
+    }
+    //70D846 passes the actual Techno target, a depot or a mobile Unit,
+    //tagged as the MEGAMISSION arm tags an Enter destination.
+    let destination = crate::sim::components::NavTargetRef::object(depot);
     if radio::transmit(
         sim,
         id,
@@ -1085,7 +1088,7 @@ pub(crate) fn try_pending_entry(
         // its own (`AircraftClass::Assign_Destination` sets it).
         let _ = sim.assign_destination_represented(
             id,
-            Some(crate::sim::components::NavTargetRef::Building { id: depot }),
+            Some(destination),
             Some(rules),
             None,
             frame_effects,
@@ -1253,10 +1256,7 @@ fn release_contact(
         locomotor.power_on();
     }
     let destination = if let Some(archive) = ai_archive {
-        match archive {
-            TargetKind::Cell(x, y) => Some(crate::sim::components::NavTargetRef::cell(x, y)),
-            TargetKind::Entity(id) => Some(crate::sim::components::NavTargetRef::Entity { id }),
-        }
+        Some(archive.into())
     } else {
         let Some(building) = sim.substrate.entities.get(depot) else {
             return;
@@ -1663,7 +1663,6 @@ mod tests {
                 ),
                 &IniFile::from_str("[GAPILE]\nFoundation=3x2\n[GAPOWR]\nFoundation=2x2\n"),
             );
-        sim.playfield_size_height = Some(16);
         spawn_exit_query_building(&mut sim, &rules, DEPOT, "GAPILE", 14, 14);
         spawn_entity(&mut sim, 1, "E1", EntityCategory::Infantry, 14, 14, 125);
         sim.substrate
@@ -1821,7 +1820,6 @@ mod tests {
                  NumberOfDocks=1\nNumberImpassableRows=1\n",
                 &IniFile::from_str("[NADEPT]\nFoundation=4x3\n"),
             );
-        sim.playfield_size_height = Some(16);
         spawn_exit_query_building(&mut sim, &rules, DEPOT, "NADEPT", 6, 9);
         spawn_tank(&mut sim, 1, 8, 10);
         sim.substrate
@@ -1992,13 +1990,10 @@ mod tests {
     /// setter (`0x0041AA80`) toward the exit cell.
     #[test]
     fn a_released_aircraft_takes_its_own_class_setter() {
-        let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
         else {
             return;
         };
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
-            .expect("retail rules parse");
-        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
         let mut sim = Simulation::new();
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         let depot = sim
@@ -2351,7 +2346,7 @@ mod tests {
         assert_eq!(unit.mission.queued(), MissionId::NONE);
         assert_eq!(
             unit.navigation.nav_com(),
-            Some(NavTargetRef::Building { id: DEPOT })
+            Some(NavTargetRef::Object { id: DEPOT })
         );
         assert_eq!(unit.pending_entry(), None);
         assert!(linked(&sim, 1));
@@ -2614,7 +2609,7 @@ mod tests {
         assert_eq!(sim.substrate.entities.get(1).unwrap().pending_entry(), None);
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
-            Some(NavTargetRef::Building { id: DEPOT })
+            Some(NavTargetRef::object(DEPOT))
         );
         for tank in 2..=3 {
             let e = sim.substrate.entities.get(tank).unwrap();
@@ -2882,8 +2877,11 @@ mod tests {
         assert!(linked(&sim, 1));
         let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com();
         assert!(nav.is_some());
-        sim.substrate.entities.get_mut(DEPOT).unwrap().temporal =
-            crate::sim::temporal::TemporalState::warped_by_for_test(999);
+        sim.substrate
+            .entities
+            .get_mut(DEPOT)
+            .unwrap()
+            .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(999));
         let due = {
             let timer = sim
                 .substrate
@@ -3358,6 +3356,9 @@ mod tests {
             108,
         ));
         let factory = sim.production.factories.test_first_mut().unwrap();
+        // The kernel fixture supplies an already-running head. StartProduction
+        // itself now correctly leaves +70 stopped until the separate Resume.
+        factory.suspended = false;
         factory.step_rate_frames = 1;
         factory.step_timer = CdTimer::from_raw(0, 0);
         for id in [DEPOT, 1, 501] {

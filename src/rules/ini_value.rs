@@ -19,6 +19,7 @@
 //! | `read_double` (`_bits`, `_to_float`, `_with`, `read_float`) | `CCINIClass::ReadDouble` 0x005283D0 |
 //! | `read_string`, `read_name`, `read_type_name` | `CCINIClass::ReadString` 0x00528A10 |
 //! | `read_movie` | `CCINIClass::ReadMovie` 0x004757D0 |
+//! | `read_pip` | `CCINIClass::ReadPip` 0x004748A0 |
 //! | `read_edge` | `CCINIClass::ReadEdge` 0x00475980 |
 //! | `read_color_scheme` | `CCINIClass::ReadColor` 0x00474A90 |
 //! | `read_list` | ReadString, then `strtok(",")` (every type, house, sound and ability list) |
@@ -69,7 +70,143 @@ const STRTRIM_MAX: u8 = 0x20;
 /// (`DAT_00817F70`).
 const COMMA: &[char] = &[','];
 
+/// AbstractType_From_Name40DCE0's compiled table at816EE0, read from Steam
+/// gamemd3e81a617..08600. Values are explicit: Temporal precedes RadSite in
+/// the name table but their RTTI values are70 and69, respectively.
+const ABSTRACT_TYPES: &[(&str, i32)] = &[
+    ("<none>", 0),
+    ("Unit", 1),
+    ("Aircraft", 2),
+    ("AircraftType", 3),
+    ("Anim", 4),
+    ("AnimType", 5),
+    ("Building", 6),
+    ("BuildingType", 7),
+    ("Bullet", 8),
+    ("BulletType", 9),
+    ("Campaign", 10),
+    ("Cell", 11),
+    ("Factory", 12),
+    ("House", 13),
+    ("HouseType", 14),
+    ("Infantry", 15),
+    ("InfantryType", 16),
+    ("Isotile", 17),
+    ("IsotileType", 18),
+    ("Light", 19),
+    ("Overlay", 20),
+    ("OverlayType", 21),
+    ("Particle", 22),
+    ("ParticleType", 23),
+    ("ParticleSystem", 24),
+    ("ParticleSystemType", 25),
+    ("Script", 26),
+    ("ScriptType", 27),
+    ("Side", 28),
+    ("Smudge", 29),
+    ("SmudgeType", 30),
+    ("Special", 31),
+    ("SuperWeaponType", 32),
+    ("TaskForce", 33),
+    ("Team", 34),
+    ("TeamType", 35),
+    ("Terrain", 36),
+    ("TerrainType", 37),
+    ("Trigger", 38),
+    ("TriggerType", 39),
+    ("UnitType", 40),
+    ("VoxelAnim", 41),
+    ("VoxelAnimType", 42),
+    ("Wave", 43),
+    ("Tag", 44),
+    ("TagType", 45),
+    ("Tiberium", 46),
+    ("Action", 47),
+    ("Event", 48),
+    ("WeaponType", 49),
+    ("WarheadType", 50),
+    ("Waypoint", 51),
+    ("Abstract", 52),
+    ("Tube", 53),
+    ("LightSource", 54),
+    ("EMPulse", 55),
+    ("TacticalMap", 56),
+    ("SuperWeapon", 57),
+    ("AITrigger", 58),
+    ("AITriggerType", 59),
+    ("Neuron", 60),
+    ("FoggedObject", 61),
+    ("AlphaShape", 62),
+    ("VeinholeMonster", 63),
+    ("NavyType", 64),
+    ("SpawnManager", 65),
+    ("CaptureManager", 66),
+    ("Parasite", 67),
+    ("Bomb", 68),
+    ("Temporal", 70),
+    ("RadSite", 69),
+    ("Airstrike", 71),
+    ("SlaveManager", 72),
+    ("DiskLaser", 73),
+];
+
 impl IniSection {
+    /// ReadPip4748A0: the default is a TABLE INDEX; the result is a frame.
+    /// ReadString32 always runs, including missing/empty cache entries, then
+    /// an11-entry case-insensitive scan returns1 for an unknown name. Returned
+    /// frames11/12 index the adjacent Ammo/Tiberium names on the next pass;
+    /// neither name belongs to the11-entry pip scan. Original executable:
+    /// procedural_drawing_oracle/passenger_pips.json/read_pip.
+    pub(crate) fn read_pip(&self, key: &str, current: u32) -> u32 {
+        const PIPS: [(&str, u32); 11] = [
+            ("green", 1),
+            ("yellow", 2),
+            ("white", 3),
+            ("red", 4),
+            ("blue", 5),
+            ("persongreen", 7),
+            ("personyellow", 8),
+            ("personwhite", 9),
+            ("personred", 10),
+            ("personblue", 11),
+            ("personpurple", 12),
+        ];
+        // Constructor1/7 and every mapped frame close over indices0..=12.
+        // The adjacent literal pointers are original81B9B0/81B9B8; their
+        // unrelated numeric table values must not become pip return values.
+        let default = match current {
+            11 => "Ammo",
+            12 => "Tiberium",
+            _ => {
+                PIPS.get(current as usize)
+                    .expect("ReadPip current must be a constructor or returned frame")
+                    .0
+            }
+        };
+        let name = self.read_string(key, default, 0x20);
+        PIPS.iter()
+            .find_map(|&(candidate, frame)| candidate.eq_ignore_ascii_case(&name).then_some(frame))
+            .unwrap_or(1)
+    }
+
+    /// ReadFactory474FF0 -> AbstractType_From_Name40DCE0. Each BuildingType
+    /// pass460529 supplies its current RTTI name as ReadString32's default;
+    /// absent therefore retains it. A present unknown/empty cache value is0.
+    /// The raw loader still omits physical empty values. Do not conflate the
+    /// full class value with the four production-type comparisons.
+    /// Executed reader/table controls: trigger_no_factories_events.json.
+    pub(crate) fn read_factory(&self, key: &str, current: i32) -> i32 {
+        self.fold_rules_values(key, current, |_, raw| {
+            let name = strtrim_ascii(truncate_native_bytes(raw, 0x1f));
+            ABSTRACT_TYPES
+                .iter()
+                .find_map(|&(candidate, value)| {
+                    candidate.eq_ignore_ascii_case(name).then_some(value)
+                })
+                .unwrap_or(0)
+        })
+    }
+
     /// ReadColor474A90: ReadString32 defaults to the current scheme's name,
     /// then a case-insensitive scan skips the shade-count1 member of each
     /// registered pair. Unknown names keep the supplied native index. A
@@ -518,15 +655,29 @@ impl IniSection {
     /// Original474B50: ReadString64 then one `%d,%d,%d` scan, byte narrowing.
     /// Literal commas must immediately follow each of the first two numbers;
     /// a suffix there stops the WHOLE scan. Absent/empty input keeps the default.
-    /// Original incomplete nonempty scans copy uninitialized stack bytes. We
-    /// deterministically retain the current RGB for that malformed domain,
-    /// matching read_coord3's policy instead of reproducing fixture stack data.
-    /// Full-reader controls: tools/projectile_oracle/line_trail.json.
-    pub fn read_color_rgb(&self, key: &str, default: [u8; 3]) -> [u8; 3] {
+    /// Original incomplete nonempty scans copy uninitialized/reused locals.
+    /// A proven native caller loop may supply its reused scanf destinations;
+    /// an empty value returns the default without touching those destinations.
+    /// Other callers pass None, retaining the current RGB on incomplete scans
+    /// as deterministic recovery for their uninitialized-stack domain.
+    /// Full-reader controls: tools/projectile_oracle/line_trail.json and
+    /// tools/berserk_color.json (all three ColorAdd caller loops).
+    pub fn read_color_rgb(
+        &self,
+        key: &str,
+        default: [u8; 3],
+        mut scan_locals: Option<&mut [i32; 3]>,
+    ) -> [u8; 3] {
         self.fold_rules_values(key, default, |current, raw| {
-            let mut out = [0; 3];
             let value = strtrim_ascii(truncate_native_bytes(raw, 63));
-            if scan_int_fields(value, &mut out) == out.len() {
+            if value.is_empty() {
+                return current;
+            }
+            let retained = scan_locals.is_some();
+            let mut fresh = [0; 3];
+            let out = scan_locals.as_deref_mut().unwrap_or(&mut fresh);
+            let assigned = scan_int_fields(value, out);
+            if retained || assigned == out.len() {
                 out.map(|component| component as u8)
             } else {
                 current
@@ -728,7 +879,7 @@ fn scan_hex_u32(token: &[u8]) -> Option<u32> {
 
 /// `INIClass__PutUTF16AsHexCSV` @ `0x00528E00`: each code unit as unpadded
 /// lowercase hex followed by a comma, including after the last unit.
-pub(crate) fn encode_comma_hex_utf16(units: &[u16]) -> String {
+pub fn encode_comma_hex_utf16(units: &[u16]) -> String {
     let mut out = String::with_capacity(units.len() * 5);
     for unit in units.iter().take_while(|unit| **unit != 0) {
         out.push_str(&format!("{unit:x}"));
@@ -852,7 +1003,7 @@ fn is_crt_space(byte: u8) -> bool {
 /// the first other byte; the running total wraps in 32 bits and a leading `-`
 /// negates it. `5cells`->5, `abc`->0, ``->0, ` 7`->7, `-50`->-50, `+9`->9,
 /// `0x1A`->0 (ReadInt's `$`/`h` hex branches are separate).
-pub(crate) fn crt_atoi(s: &str) -> i32 {
+pub fn crt_atoi(s: &str) -> i32 {
     let bytes = s.as_bytes();
     let mut index = bytes
         .iter()
@@ -989,6 +1140,43 @@ mod tests {
 
     fn sec(body: &str) -> IniFile {
         IniFile::from_str(body)
+    }
+
+    #[test]
+    fn read_factory_matches_original_full_rtti_table_and_layer_defaults() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_no_factories_events.json",
+        ))
+        .unwrap();
+        let native = &corpus["factory"];
+        let names = native["rtti_name_table"].as_array().unwrap();
+        assert_eq!(names.len(), 74);
+        for row in names {
+            let ini = sec(&format!("[S]\nFactory={}\n", row["name"].as_str().unwrap()));
+            assert_eq!(
+                ini.section("S").unwrap().read_factory("Factory", 0),
+                row["value"].as_i64().unwrap() as i32,
+                "{row}"
+            );
+        }
+        let controls = native["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 17);
+        for row in controls {
+            let section_name = row["type"].as_str().unwrap();
+            let mut section = IniSection::new(section_name.to_owned());
+            if let Some(keys) = row["raw_cache"][section_name].as_object() {
+                for (key, value) in keys {
+                    section.set(key, value.as_str().unwrap());
+                }
+            }
+            // Stored-empty is deliberately a reader-cache input. Physical
+            // Factory= remains omitted by the existing raw loader.
+            assert_eq!(
+                section.read_factory("Factory", row["before"].as_i64().unwrap() as i32),
+                row["after"].as_i64().unwrap() as i32,
+                "{row}"
+            );
+        }
     }
 
     #[test]
@@ -1350,10 +1538,10 @@ mod tests {
     fn test_read_color_rgb() {
         let ini = sec("[S]\nC=12,34,56\nWide=300,-1,256\nShort=1,2\n");
         let s = ini.section("S").unwrap();
-        assert_eq!(s.read_color_rgb("C", [0, 0, 0]), [12, 34, 56]);
-        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0]), [44, 255, 0]);
-        assert_eq!(s.read_color_rgb("Short", [7, 8, 9]), [7, 8, 9]);
-        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3]), [1, 2, 3]);
+        assert_eq!(s.read_color_rgb("C", [0, 0, 0], None), [12, 34, 56]);
+        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0], None), [44, 255, 0]);
+        assert_eq!(s.read_color_rgb("Short", [7, 8, 9], None), [7, 8, 9]);
+        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3], None), [1, 2, 3]);
     }
 
     #[test] // P19

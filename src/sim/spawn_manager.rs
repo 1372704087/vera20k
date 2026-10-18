@@ -89,7 +89,7 @@ mod tests;
 /// [`Self::forget`]). Kill credit and the "do not self-RTB" gate read it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct SpawnOwner {
+pub struct SpawnOwner {
     owner: Option<u64>,
 }
 
@@ -105,8 +105,8 @@ impl SpawnOwner {
     }
 
     /// Install a fixture's owner.
-    #[cfg(test)]
-    pub(crate) fn set_for_test(&mut self, owner: Option<u64>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_for_test(&mut self, owner: Option<u64>) {
         self.owner = owner;
     }
 }
@@ -192,8 +192,8 @@ impl SpawnSlot {
     }
 
     /// A fixture's slot.
-    #[cfg(test)]
-    pub(crate) fn for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(
         spawn: Option<u64>,
         state: SpawnSlotState,
         timer: CdTimer,
@@ -208,14 +208,14 @@ impl SpawnSlot {
     }
 
     /// Install a fixture's child.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_spawn_for_test(&mut self, spawn: Option<u64>) {
         self.spawn = spawn;
     }
 
     /// Install a fixture's state.
-    #[cfg(test)]
-    pub(crate) fn set_state_for_test(&mut self, state: SpawnSlotState) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_state_for_test(&mut self, state: SpawnSlotState) {
         self.state = state;
     }
 }
@@ -262,11 +262,6 @@ impl SpawnManagerState {
         self.spawn_type
     }
 
-    /// The child's rocket family, if any.
-    pub fn missile_family(&self) -> Option<MissileFamily> {
-        self.missile_family
-    }
-
     /// `SpawnRegenRate=` in frames.
     pub fn regen_rate(&self) -> u32 {
         self.regen_rate
@@ -275,11 +270,6 @@ impl SpawnManagerState {
     /// `SpawnReloadRate=` in frames.
     pub fn reload_rate(&self) -> u32 {
         self.reload_rate
-    }
-
-    /// The pool's kamikaze wait in frames.
-    pub fn kamikaze_wait_frames(&self) -> u32 {
-        self.kamikaze_wait_frames
     }
 
     /// The pool's slots.
@@ -307,14 +297,27 @@ impl SpawnManagerState {
         self.queued_target
     }
 
+    /// The objects whose expiry [`pointer_expired`] acts on besides its
+    /// owner's own: the live and queued target and each slot's child. The
+    /// pointer-expiry index (`ExpiryListeners`) reaches the owner by these.
+    pub(crate) fn expiry_names(&self) -> impl Iterator<Item = u64> + '_ {
+        [self.current_target, self.queued_target]
+            .into_iter()
+            .filter_map(|target| match target {
+                Some(TargetKind::Entity(id)) => Some(id),
+                Some(TargetKind::Cell(..)) | None => None,
+            })
+            .chain(self.slots.iter().filter_map(SpawnSlot::spawn))
+    }
+
     /// The ManagerMode (`+0x70`).
     pub fn mode(&self) -> SpawnManagerMode {
         self.mode
     }
 
     /// A fixture's idle pool of `slots` with zero rates and timers.
-    #[cfg(test)]
-    pub(crate) fn for_test(spawn_type: InternedId, slots: Vec<SpawnSlot>) -> Self {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(spawn_type: InternedId, slots: Vec<SpawnSlot>) -> Self {
         Self {
             spawn_type,
             missile_family: None,
@@ -331,39 +334,39 @@ impl SpawnManagerState {
     }
 
     /// Install a fixture's rates.
-    #[cfg(test)]
-    pub(crate) fn set_rates_for_test(&mut self, regen_rate: u32, reload_rate: u32) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_rates_for_test(&mut self, regen_rate: u32, reload_rate: u32) {
         self.regen_rate = regen_rate;
         self.reload_rate = reload_rate;
     }
 
     /// Install a fixture's AI gate.
-    #[cfg(test)]
-    pub(crate) fn set_update_timer_for_test(&mut self, update_timer: CdTimer) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_update_timer_for_test(&mut self, update_timer: CdTimer) {
         self.update_timer = update_timer;
     }
 
     /// Install a fixture's current target.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_current_target_for_test(&mut self, current_target: Option<TargetKind>) {
         self.current_target = current_target;
     }
 
     /// Install a fixture's queued target.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_queued_target_for_test(&mut self, queued_target: Option<TargetKind>) {
         self.queued_target = queued_target;
     }
 
     /// Install a fixture's mode.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_mode_for_test(&mut self, mode: SpawnManagerMode) {
         self.mode = mode;
     }
 
     /// A fixture's slots.
-    #[cfg(test)]
-    pub(crate) fn slots_mut_for_test(&mut self) -> &mut Vec<SpawnSlot> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn slots_mut_for_test(&mut self) -> &mut Vec<SpawnSlot> {
         &mut self.slots
     }
 
@@ -410,7 +413,7 @@ impl SpawnManagerState {
                     .spawn
                     .and_then(|id| entities.get(id))
                     .filter(|child| !child.lifecycle.in_limbo())
-                    .and_then(|child| rules.object(interner.resolve(child.type_ref())))
+                    .and_then(|child| interner.object_type(child.type_ref(), rules))
                     .is_some_and(|kind| kind.missile_spawn),
                 _ => false,
             })
@@ -847,6 +850,9 @@ fn manager_status(host: &mut impl SpawnHost, frame: i32) {
 /// The slot guard (`0x006B7CDD..0x006B7CF2`) exists because Limbo broadcasts
 /// (`0x005F4D61`): a docking Hornet's Limbo would otherwise expire its own
 /// slot and strand it in limbo.
+///
+/// Every id compared here but the owner's is named by
+/// [`SpawnManagerState::expiry_names`].
 fn pointer_expired(host: &mut impl SpawnHost, expired: u64) {
     let frame = host.frame();
     let expired_target = Some(TargetKind::Entity(expired));
@@ -1190,7 +1196,6 @@ impl SpawnHost for WorldSpawn<'_, '_> {
                     Some(crate::sim::movement::SpeedRules::new(
                         rules,
                         &sim.interner,
-                        &sim.type_handles,
                         &sim.houses,
                     )),
                     sim.session.binary_frame,
@@ -1262,7 +1267,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         };
         let sim = &*self.sim;
         crate::sim::combat::can_fire_at_target(
-            &sim.substrate.entities,
+            sim,
             rules,
             &sim.interner,
             self.owner_id,
@@ -1282,7 +1287,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(child)
-            .and_then(|c| c.aircraft_ammo.as_ref())
+            .and_then(|c| c.ammo())
             .map(|a| a.current())
             // Real Aircraft retain their signed count, including -1. This
             // fallback applies only to incomplete/non-Aircraft data.
@@ -1464,7 +1469,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         if let Some(child) = self.sim.substrate.entities.get_mut(child) {
             child.health.set(strength);
             child.estimated_health.reset(strength);
-            if let Some(ammo) = child.aircraft_ammo.as_mut() {
+            if let Some(ammo) = child.ammo_mut() {
                 ammo.refill();
             }
         }

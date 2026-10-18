@@ -38,11 +38,8 @@ pub(super) const CODES: [FireError; 12] = [
     FireError::MustDeploy,
 ];
 
-fn golden() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_guard_attack.json",
-    ))
-    .unwrap()
+fn golden() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_guard_attack.json")
 }
 
 fn rows<'a>(golden: &'a Value, set: &str) -> &'a [Value] {
@@ -334,7 +331,7 @@ fn mission_attack_matches_the_original() {
             crate::sim::movement::turret::facing_toward_target(
                 entity,
                 &TargetKind::Entity(target),
-                &sim.substrate.entities,
+                &sim,
             )
             .unwrap()
         };
@@ -845,7 +842,7 @@ fn retail_building_mission_inputs() {
     assert!(!garrisons.is_empty());
     for obj in garrisons {
         assert!(
-            !(obj.infantry_absorb || obj.unit_absorb || obj.weapons_factory || obj.gap_generator),
+            !(obj.absorbs_passengers() || obj.weapons_factory || obj.gap_generator),
             "{}",
             obj.id
         );
@@ -884,7 +881,7 @@ pub(super) fn retail_dustbowl_defence(
         .filter(|path| !path.trim().is_empty())
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            crate::util::config::GameConfig::load()
+            crate::test_fixture::game_config()
                 .expect("set RA2_DIR or provide config.toml for this ignored test")
                 .paths
                 .ra2_dir

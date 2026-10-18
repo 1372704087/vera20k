@@ -7,7 +7,6 @@
 use super::super::foot_depth::floor_probe;
 use super::{geometry, projection_admitted};
 use crate::map::resolved_terrain::test_flat_ground_grid;
-use crate::rules::{art_data::ArtRegistry, ruleset::RuleSet};
 use crate::sim::projectile::{
     ProjectileCollisionPhase, ProjectileCollisionPolicy, ProjectileCoord, ProjectilePayload,
     ProjectileSpawn, ProjectileTarget, ProjectileTrajectory, ProjectileVisualState,
@@ -36,12 +35,9 @@ fn native_bits(values: [NativeF64Bits; 3]) -> [u64; 3] {
 
 #[test]
 fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain() {
-    let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-    else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
     let corpus: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/projectile_oracle/bridge_render_flight.json",
     ))
@@ -98,6 +94,9 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
         source["launch_speed"].as_i64().unwrap()
     );
     let launched = launch::fireat_launch(launch::FireAtLaunch {
+        radial_segments: 0,
+        radial_index: 0,
+        body_heading: 0,
         homing: false,
         delta: ProjectileCoord::new(
             target.x.wrapping_sub(origin.x),
@@ -145,6 +144,7 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
     sim.install_resolved_terrain_for_new_map(terrain);
     let weapon_id = sim.interner.intern(&weapon.id);
     let warhead_id = sim.interner.intern(weapon.warhead.as_deref().unwrap());
+    let projectile_type = sim.interner.intern(weapon.projectile.as_deref().unwrap());
     let id = sim.allocate_stable_id();
     sim.projectiles.spawn(
         id,
@@ -156,7 +156,13 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
             origin,
             target: ProjectileTarget::Entity(42),
             initial_target_position: target,
-            payload: ProjectilePayload::new(weapon.damage, warhead_id, weapon_id),
+            payload: ProjectilePayload::new(
+                weapon.damage,
+                warhead_id,
+                Some(projectile_type),
+                weapon.bright,
+            )
+            .with_installed_weapon(Some(weapon_id)),
             speed_leptons_per_frame: launched.speed as u16,
             velocity: launched.velocity,
             trajectory: ProjectileTrajectory::Ballistic,
@@ -324,12 +330,9 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
 
 #[test]
 fn original_ifv_dragon_frame_getter_matches_retained_flights_and_all_directions() {
-    let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-    else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art_ini));
     let weapon = rules.weapon("HoverMissile").unwrap();
     let kind = rules
         .projectile(weapon.projectile.as_deref().unwrap())
@@ -351,6 +354,7 @@ fn original_ifv_dragon_frame_getter_matches_retained_flights_and_all_directions(
     let rows = corpus["frames"].as_array().unwrap();
     assert_eq!(rows.len(), 166);
     let origin = coord(&rows[0]["position"]);
+    let projectile_type = sim.interner.intern(weapon.projectile.as_deref().unwrap());
     sim.admit_projectile(
         id,
         ProjectileSpawn {
@@ -361,7 +365,13 @@ fn original_ifv_dragon_frame_getter_matches_retained_flights_and_all_directions(
             origin,
             target: ProjectileTarget::None,
             initial_target_position: origin,
-            payload: ProjectilePayload::new(weapon.damage, warhead, weapon_id),
+            payload: ProjectilePayload::new(
+                weapon.damage,
+                warhead,
+                Some(projectile_type),
+                weapon.bright,
+            )
+            .with_installed_weapon(Some(weapon_id)),
             speed_leptons_per_frame: 0,
             velocity: crate::sim::projectile::ProjectileVelocity::new(0, 0, 0),
             trajectory: ProjectileTrajectory::Straight,

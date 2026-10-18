@@ -6,11 +6,8 @@ use super::*;
 use serde_json::Value;
 use std::cell::RefCell;
 
-fn node_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_structural_height.json",
-    ))
-    .unwrap()
+fn node_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/astar_structural_height.json")
 }
 
 fn f32_hex(value: &Value) -> f32 {
@@ -403,12 +400,12 @@ fn original_reconstruction_retains_each_parent_descriptor_height() {
             let index = y * width + x;
             assert_eq!(
                 ground[index].parent,
-                usize::MAX,
+                u32::MAX,
                 "supplied chain repeats a cell"
             );
             ground[index] = PathDescriptor {
                 parent: if previous == usize::MAX {
-                    previous
+                    u32::MAX
                 } else {
                     encode_from(previous, false)
                 },
@@ -421,8 +418,8 @@ fn original_reconstruction_retains_each_parent_descriptor_height() {
         let start_index = first["cell"][1].as_u64().unwrap() as usize * width
             + first["cell"][0].as_u64().unwrap() as usize;
         let result = reconstruct_path_dual(
-            &StampedTable::with_all(ground),
-            &StampedTable::with_all(bridge),
+            &SearchTable::with_all(ground),
+            &SearchTable::with_all(bridge),
             start_index,
             false,
             previous,
@@ -494,7 +491,7 @@ fn accepted_descriptor_height_survives_selected_list_transition() {
         let mut ground = vec![PathDescriptor::UNVISITED; 2];
         let mut bridge = vec![PathDescriptor::UNVISITED; 2];
         ground[0] = PathDescriptor {
-            parent: usize::MAX,
+            parent: u32::MAX,
             height: previous_height,
             ..PathDescriptor::UNVISITED
         };
@@ -509,8 +506,8 @@ fn accepted_descriptor_height_survives_selected_list_transition() {
             ground[1] = next;
         }
         let result = reconstruct_path_dual(
-            &StampedTable::with_all(ground),
-            &StampedTable::with_all(bridge),
+            &SearchTable::with_all(ground),
+            &SearchTable::with_all(bridge),
             0,
             false,
             1,

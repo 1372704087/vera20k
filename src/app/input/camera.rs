@@ -246,6 +246,13 @@ impl PendingCameraScroll {
             && (self.focus.rate_bits == 0 || self.focus.target == [0, 0])
     }
 
+    /// Mouse693060 rejects tactical text while Tactical+D8's focus rate is
+    /// ordered nonzero. Pending scroll deltas/target coordinates are separate.
+    pub(crate) fn blocks_tactical_tooltip(&self) -> bool {
+        let rate = f32::from_bits(self.focus.rate_bits);
+        rate != 0.0 && !rate.is_nan()
+    }
+
     fn clear(&mut self) {
         self.world_pixels = (0.0, 0.0);
     }
@@ -262,7 +269,7 @@ impl PendingCameraScroll {
         let requests = std::mem::take(&mut self.world_pixels);
         if (requests.0 + mouse.0, requests.1 + mouse.1) == (0.0, 0.0) {
             //6D26F9 skips the clamp when requested and committed views match.
-            // This also preserves native low/high behavior on a small map.
+            // Idle requests leave the committed view untouched.
             return current;
         }
         clamp((
@@ -553,7 +560,10 @@ pub(crate) fn edge_scroll_intent(
 /// Keep this observation beside the private coast/pan state it checks.
 pub(crate) fn camera_input_idle(state: &AppState) -> bool {
     let input = &state.match_state.input;
-    input.keys_held.is_empty()
+    input
+        .keys_held
+        .iter()
+        .all(|key| input.planning.owns_key(*key))
         && input.pending_camera_scroll.is_idle()
         && !input.minimap_dragging
         && !input.tactical_mouse.captured
@@ -1635,6 +1645,17 @@ pub(crate) fn center_camera_on_lepton_point(
     clamp_camera_to_playable_area(state, sw, sh);
 }
 
+/// Home7315A0: use the shared SetView6D6070 owner, then clear the Follow
+/// pair through the input owner (4AEB30 at731826), even without a target.
+/// Refresh an armed building's foundation (4A91B0 at73181A) after SetView.
+pub(crate) fn apply_home_camera(state: &mut AppState, coord: Option<[i32; 3]>) {
+    if let Some([x, y, z]) = coord {
+        center_camera_on_lepton_point(state, x, y, z);
+    }
+    crate::app::match_runtime::sim_tick::update_building_placement_preview(state);
+    state.match_state.input.follow_target = None;
+}
+
 /// `CenterView` (Numpad 5 in the stock archive): snap the tactical view onto the
 /// current selection. Nothing selected means nothing happens.
 pub(crate) fn center_view_on_selection(state: &mut AppState) {
@@ -1881,7 +1902,8 @@ fn clamp_camera_point_to_local_bounds(
     // bounds to VERA world top-left using the shared projection's row bias;
     // the viewport/2 terms cancel. Retain x86 wrapping integer arithmetic
     // before presentation conversion. Executed controls include all edges,
-    // shifted LocalSize and a viewport larger than the map: fast_scroll.json.
+    // shifted LocalSize: fast_scroll.json. Oversized views deliberately use
+    // VERA's stable centering policy below instead of native alternating bounds.
     let bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
     let left = bounds
         .off_fc
@@ -1923,20 +1945,25 @@ fn clamp_camera_point_to_rect(
     let y_max = y_min + area_h - visible_h;
 
     // Native comparison order is Y low/high, then X low/high. Each side is a
-    // strict comparison, so an exact boundary remains untouched. Do not invent
-    // a centred fallback when a custom map is smaller than the viewport.
-    let mut x = point.0;
-    let mut y = point.1;
-    if y < y_min {
-        y = y_min;
-    } else if y > y_max {
-        y = y_max;
-    }
-    if x < x_min {
-        x = x_min;
-    } else if x > x_max {
-        x = x_max;
-    }
+    // strict comparison, so an exact boundary remains untouched. When a map
+    // is smaller than the tactical viewport, the native low/high pair is
+    // inverted and alternates on every presentation frame (native control:
+    // fast_scroll.json/focus_view_larger_than_local_rect). For large viewports
+    // and VERA's presentation-only zoom, center that axis instead; repeated
+    // clamps must leave the committed view unchanged.
+    let clamp_axis = |value: f32, low: f32, high: f32, extent: f32, visible: f32| {
+        if extent <= visible {
+            low + (extent - visible) / 2.0
+        } else if value < low {
+            low
+        } else if value > high {
+            high
+        } else {
+            value
+        }
+    };
+    let x = clamp_axis(point.0, x_min, x_max, area_w, visible_w);
+    let y = clamp_axis(point.1, y_min, y_max, area_h, visible_h);
     (x, y)
 }
 
@@ -2066,6 +2093,25 @@ pub(crate) fn edge_scroll_cursor_state(state: &AppState) -> Option<(ScrollDir, b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tactical_tooltip_gate_reads_focus_rate_independently_of_pending_scroll() {
+        let mut pending = PendingCameraScroll::default();
+        pending.world_pixels = (21.0, 0.0);
+        assert!(!pending.blocks_tactical_tooltip());
+        pending.focus.rate_bits = CameraFocus::RATE_BITS[0];
+        assert!(
+            pending.blocks_tactical_tooltip(),
+            "zero target does not bypass693060"
+        );
+        pending.focus.rate_bits = (-0.0_f32).to_bits();
+        assert!(!pending.blocks_tactical_tooltip());
+        pending.focus.rate_bits = f32::NAN.to_bits();
+        assert!(
+            !pending.blocks_tactical_tooltip(),
+            "unordered native comparison setsC3"
+        );
+    }
 
     #[test]
     fn zoom_keeps_the_entire_view_inside_the_abuffer_texture() {
@@ -2954,3 +3000,7 @@ mod tests {
 #[cfg(test)]
 #[path = "fast_scroll_tests.rs"]
 mod fast_scroll_tests;
+
+#[cfg(test)]
+#[path = "camera_bounds_tests.rs"]
+mod camera_bounds_tests;

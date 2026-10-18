@@ -32,7 +32,7 @@ use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ScatterFlags;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::world::LifecycleTestEvent;
 use crate::sim::world::{FrameEffects, Simulation};
 
@@ -252,14 +252,14 @@ pub(crate) fn can_load(
         return CanLoad::Answer(RadioResponse::None);
     };
     if !crate::sim::combat::combat_weapon::is_ally_by_object(
-        Some(&sim.fog.alliances),
+        Some(&sim.house_alliances),
         &sim.interner,
         building.owner(),
         unit.owner(),
     ) {
         return CanLoad::Answer(RadioResponse::None);
     }
-    let absorbs = building_type.unit_absorb || building_type.infantry_absorb;
+    let absorbs = building_type.absorbs_passengers();
     if matches!(
         building.mission.effective().known(),
         Some(MissionType::Construction | MissionType::Selling)
@@ -642,7 +642,7 @@ fn building_dock_now(
         return RadioResponse::None;
     };
     // 0x0043C710..0x0043C72C: UnitAbsorb/InfantryAbsorb answer ROGER.
-    if object.unit_absorb || object.infantry_absorb {
+    if object.absorbs_passengers() {
         return RadioResponse::Roger;
     }
     // 0x0043C732..0x0043C785: the repair and reload docks and Bunker queue
@@ -773,7 +773,7 @@ pub(crate) fn unit_can_enter_radio(
     };
     if transport_type.passengers == 0
         || !crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.fog.alliances),
+            Some(&sim.house_alliances),
             &sim.interner,
             transport.owner(),
             passenger.owner(),
@@ -978,10 +978,7 @@ fn aircraft_receive(
     {
         return RadioResponse::None;
     }
-    let ammo = entity
-        .aircraft_ammo
-        .as_ref()
-        .map_or(-1, |ammo| ammo.current());
+    let ammo = entity.ammo().map_or(-1, |ammo| ammo.current());
     let object = rules.and_then(|rules| sim.object_type(entity.type_ref(), rules));
     let type_ammo = object.map_or(-1, |object| object.ammo);
     let transport = AircraftHold {
@@ -1475,7 +1472,7 @@ fn techno_reload(sim: &mut Simulation, techno: u64, rules: Option<&RuleSet>) -> 
         .substrate
         .entities
         .get_mut(techno)
-        .and_then(|entity| entity.aircraft_ammo.as_mut())
+        .and_then(|entity| entity.ammo_mut())
     else {
         return RadioResponse::None;
     };
@@ -1565,12 +1562,12 @@ fn techno_over_out(
     effects: FrameEffects<'_>,
 ) -> RadioResponse {
     if let Some(from) = sender {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         super::record_test_event(super::RadioTestEvent::ReceiverClassEffect {
             receiver_sid: techno,
             sender_sid: from,
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         sim.trace_lifecycle_for_test(LifecycleTestEvent::BreakReceiverClassEffect {
             target: techno,
         });
@@ -1675,7 +1672,7 @@ fn radio_receive(
     match msg {
         RadioMessage::Hello => radio_hello(sim, receiver, sender),
         RadioMessage::AnimStop => {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             let sender_state = sender
                 .and_then(|id| sim.substrate.entities.get(id))
                 .map(|entity| {
@@ -1689,7 +1686,7 @@ fn radio_receive(
                     )
                 });
             let accepted = sim.mark_entity_refresh(receiver);
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             super::record_test_event(super::RadioTestEvent::ObjectMarkRefresh {
                 receiver_sid: receiver,
                 sender_sid: sender,
@@ -1711,12 +1708,12 @@ fn radio_receive(
                 .get_mut(receiver)
                 .and_then(|entity| entity.radio_contacts.remove(from))
                 .is_some();
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             super::record_test_event(super::RadioTestEvent::ReceiverCommonCleared {
                 receiver_sid: receiver,
                 sender_sid: from,
             });
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             sim.trace_lifecycle_for_test(LifecycleTestEvent::BreakReceiverCleared {
                 target: receiver,
             });
@@ -1750,7 +1747,7 @@ fn radio_hello(sim: &mut Simulation, receiver: u64, sender: Option<u64>) -> Radi
     }
     let ally = |asker, other| {
         crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.fog.alliances),
+            Some(&sim.house_alliances),
             &sim.interner,
             asker,
             other,
@@ -2298,14 +2295,6 @@ mod tests {
     }
 
     #[test]
-    fn refinery_unchanged_when_not_a_bunker() {
-        let mut sim = Simulation::new();
-        spawn_refinery(&mut sim, 2, "Americans", 1);
-        spawn_miner(&mut sim, 1, "Americans");
-        assert_eq!(hello(&mut sim, 1, 2), RadioResponse::Roger);
-    }
-
-    #[test]
     fn refinery_full_second_hello_is_negatory_no_evict() {
         let mut sim = Simulation::new();
         spawn_refinery(&mut sim, 2, "Americans", 1);
@@ -2771,13 +2760,11 @@ mod tests {
             let own = sim.intern("Americans");
             let other = sim.intern("Russians");
             if input["allied"].as_bool().unwrap_or(false) {
-                sim.fog
-                    .alliances
+                sim.house_alliances
                     .insert("AMERICANS".into(), ["RUSSIANS".into()].into());
             }
             if input["reverse_allied"].as_bool().unwrap_or(false) {
-                sim.fog
-                    .alliances
+                sim.house_alliances
                     .insert("RUSSIANS".into(), ["AMERICANS".into()].into());
             }
             let carrier_type = sim.intern("TRAN");
@@ -2801,7 +2788,9 @@ mod tests {
             }
             carrier.passenger_role = PassengerRole::transport(cargo);
             if input["warped"].as_bool().unwrap_or(false) {
-                carrier.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(99);
+                carrier.set_temporal_for_test(
+                    crate::sim::temporal::TemporalState::warped_by_for_test(99),
+                );
             }
             sim.substrate.entities.insert(carrier);
             let passenger_type = sim.intern("E1");
@@ -2880,10 +2869,9 @@ mod tests {
     /// (`aircraft_receive`).
     #[test]
     fn retail_fly_aircraft_take_no_radio_passengers() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         assert!(!rules.aircraft_ids.is_empty());
         for name in &rules.aircraft_ids {
             let object = rules.object(name).unwrap();

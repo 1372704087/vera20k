@@ -37,7 +37,7 @@ impl RmgRng {
     }
 
     /// Seal the exact current native cursor into the move-only handoff DTO.
-    pub(crate) fn into_continuation(self) -> MapGenRngContinuation {
+    pub fn into_continuation(self) -> MapGenRngContinuation {
         MapGenRngContinuation::from_native_parts(0, self.state, self.idx_a, self.idx_b)
     }
 
@@ -82,14 +82,33 @@ impl RmgRng {
         }
     }
 
+    /// Import an original-executable control through the existing opaque
+    /// continuation boundary. Production generation always starts via `new`;
+    /// this hook lets numerical controls supply native-observed full states
+    /// without exposing mutable RNG words to phase modules.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn from_native_control(continuation: MapGenRngContinuation) -> Self {
+        let (disabled, state, idx_a, idx_b) = continuation.into_native_parts();
+        assert_eq!(
+            disabled, 0,
+            "generation controls require an unlocked MapGen stream"
+        );
+        assert!(idx_a < STATE_LEN && idx_b < STATE_LEN);
+        Self {
+            state,
+            idx_a,
+            idx_b,
+        }
+    }
+
     /// Cursor positions, for tests that assert the seeded starting state.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn cursors(&self) -> (usize, usize) {
         (self.idx_a, self.idx_b)
     }
 
     /// State word, for tests that compare against the golden vectors.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn state_word(&self, index: usize) -> u32 {
         self.state[index]
     }
@@ -100,11 +119,8 @@ mod tests {
     use super::*;
 
     /// Golden vectors captured from the original binary under emulation.
-    fn vectors() -> serde_json::Value {
-        let doc: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/rmg_oracle/vectors/rng.json",
-        ))
-        .unwrap();
+    fn vectors() -> &'static serde_json::Value {
+        let doc = crate::test_fixture::json("tools/rmg_oracle/vectors/rng.json");
         assert_eq!(
             doc["source"].as_str(),
             Some("unicorn/gamemd.exe"),

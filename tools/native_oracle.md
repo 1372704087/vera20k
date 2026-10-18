@@ -1,5 +1,63 @@
 # Native comparison workflow
 
+### Terror Drone impulse and Drive controls
+
+`tools.spatial_oracle.unit_rocking_update --impulse` adds eight whole original
+`70B280` controls through the existing physical GTNK loader VM. Supplied inputs
+cover opposite sides, 3D distance, actual stock default Weight 1, explicit
+3.5/zero/negative weights, weak/zero-distance gates and replacing two impulses.
+Ordered native field stores and follow-up `70B570` states are retained. One
+60-visit history keeps eight checkpoints, including amplification of a tiny
+nonzero rate and eventual settlement. Native f32 state remains unmodified
+between visits; these are component inputs rather than a whole native scenario.
+
+`tools.spatial_oracle.naval_draw_bounds --drone-tilt` adds eight full original
+Drive `4AFF60` controls using actual GTNK body/turret/barrel files. It reuses
+the loader/postpass, startup slope tables, camera, gun-arm and raster owners.
+Two rows retain all three physical indexed rasters. Set
+`VERA20K_SHRAPNEL_INPUTS` to their extracted physical directory and use
+`PYTHONPATH=.:tools/spatial_oracle`. Both opt-ins use `--check` by default and
+`--write` only for deliberate new-corpus regeneration. Historical update,
+Ship, slope and voxel corpora remain separate.
+
+The related two-bite original RNG/coordinate comparison is
+`parasite_water_gate --drone`; its supplied model-binding and direct-Limbo
+boundaries are recorded with the
+[shared runtime](spatial_oracle/building_death_anims_joined.md#terror-drone-numeric-component).
+
+### Squid-grapple Ship presentation controls
+
+`tools.spatial_oracle.naval_draw_bounds --squid-tilt` adds eight original
+`69F670` matrix controls without changing the historical default corpus. Set
+`VERA20K_SHRAPNEL_INPUTS` to the physical input directory containing
+`DEST.VXL`, `DEST.HVA` and `VOXELS.VPL`, and run with
+`PYTHONPATH=.:tools/spatial_oracle`. Use `--check` to compare or `--write` to
+deliberately regenerate `spatial_oracle/naval_draw_squid_tilt.json`.
+
+The existing raster VM loads the physical model, executes original loaded-model
+validity and half-size postpass, constructs Ship locomotion, initializes native
+slope/quaternion tables and runs the original draw matrix. Inputs cover the
+double 0.005 tilt gate, opposite rolls, two angles/facing, retained slope and a
+slope transition. Two rows retain physical hull raster pixels; their explicit
+gun-component matrices reuse `barrel_pitch.native_arm`. Retail DEST has
+`Turret=no` and no turret/barrel models, so those component matrices do not
+claim physical DEST gun rendering. Frame, pose and timer are supplied numerical
+inputs; native scenario motion, shadow pixels and whole-scene RGB are excluded.
+
+`python -m tools.native_slope --blend --check` compares the same startup's
+21 matrices and quaternions plus seven full `755A40` interpolation controls.
+The existing VM/startup owner supplies both tables; original `646590` and
+`646980` compute each blend. Differing indices still interpolate at phase 0
+and 1, so those endpoints can differ from the stable matrix table. Equal
+indices copy the stable matrix directly. The small `native_slope_blend.json`
+corpus records actual live and cached CRT controls and finite supplied phases;
+it does not establish a locomotor timer or cell-transition history.
+
+`tools.spatial_oracle.parasite_water_gate --grapple` adds the related bounded
+RNG/angle comparison through full original `6297F0`. Its fresh physical host
+and explicit direct-Limbo/Attach boundary are documented with the
+[shared runtime](spatial_oracle/building_death_anims_joined.md#squid-grapple-numeric-component).
+
 For original byte reads, disassembly and whole-code scans, use the indexed
 [native inspection tool](native_inspect.md). It shares this runner's executable
 identity and PE owner; static inspection is separate from checked execution.
@@ -27,7 +85,7 @@ From the repository root, with Python 3.10+ and Unicorn **2.1.4** installed:
 python -m pip install unicorn==2.1.4
 $env:VERA20K_GAMEMD_EXE = 'C:/your-retail-install/gamemd.exe'
 python -m tools.color_oracle.hsv_to_rgb
-cargo test -p vera20k --lib rules::color_scheme::tests::hsv_to_rgb_matches_native_oracle_all_hues_at_sv_boundaries
+cargo test -p vera20k-core --lib rules::color_scheme::tests::hsv_to_rgb_matches_native_oracle_all_hues_at_sv_boundaries
 ```
 
 `RA2_DIR` is an alternative; an explicit executable path takes precedence and never
@@ -486,3 +544,43 @@ hidden/removed objects and replacement. The explicit ignored GPU regression
 runs the production SHP/VXL shaders on synthetic texels and reads the output.
 It proves bounded GPU ordering/occlusion, not retail RGB equality; a production
 NATBNK/LTNK played comparison remains necessary.
+
+
+### Stock cash-crate joined control
+
+`python -m tools.spatial_oracle.crate_pickup --cash --check` consumes
+[`cash_crate.json`](spatial_oracle/cash_crate.json) and its binary/command
+sidecar. `--write` deliberately regenerates this separate corpus; the default
+28-row pickup/prefix corpus remains independent.
+
+The existing `AnimationFixture`, source-map fixture, Overlay constructor and
+Sound reader compose one VM. Original `481A00` reaches weighted/fixed Money,
+`56C020` removal, optional `56BD40` replacement/nearby search, amount RNG,
+`4F9950` credits, separate retained-Cell sound/tail height queries, and MONEY
+Anim construction, AI expiry and deferred cleanup. Physical RULESMD Powerups
+and CrateRules readers, the exact Overlay Crate/CrateTrigger reader block,
+SOUNDMD CrateMoney binding and ARTMD MONEY reader run before pickup.
+
+Inputs declare a neutral local Unit/House owning a building, no attached Tag,
+a small allocated flat map, Size/LocalSize, resident TMP metadata and spare
+registry capacity. Original Resize field stores derive MapRect; each row retains
+its observed raw/final LocalSize, geometry and runtime-ID cursor boundaries.
+Full original `567230` normalizes LocalSize before the independently chosen
+interior pickup cell `(11,11)` is placed. The input records the inherited
+AnimationFixture stored game speed read back from `A8EB60`; MONEY normalization
+uses that supplied option through original `5FB2E0`. Supplied slot storage starts zeroed;
+only its coordinate sentinel determines emptiness.
+Initial placement runs native code; pickup seeds are independent priors.
+Full RNG states and ranged/raw draws are observed at removal, replacement,
+credit and cleanup boundaries. Seed2 directly selects Money from stock weights.
+The sound reader uses its existing fixture-local sample-slot boundary for
+physical `ubonus`; native lookup chooses the Voc identity. Playback ends at
+`7509E0`, so device admission/channel scheduling and its RNG are outside this
+control. Cash opts into original `Object::Mark5F5850` admission and state writes for
+Overlay and Anim, recording before/after flags and native refusal controls. Consecutive identical frame
+Mark observations retain their native call count in one compact row.
+The historical animation-only Mark seam remains its default. Display submission
+`4A9720` still returns supplied success; the selected Object Unlimbo caller
+ignores that result. Screen rectangle/dirty outputs remain supplied. This is a
+bounded native comparison, not a complete scenario/House/Unit initialization,
+rendering, audio playback or whole crate-function equivalence proof.

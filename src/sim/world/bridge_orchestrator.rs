@@ -18,6 +18,10 @@ use std::collections::BTreeSet;
 mod damage_dispatch;
 pub(crate) use damage_dispatch::BridgeDamageDrivers;
 use damage_dispatch::LiveCells;
+pub(super) use damage_dispatch::PendingBridgeCells;
+
+#[path = "bridge_moving_collapse.rs"]
+mod moving_collapse;
 
 #[path = "bridge_ground.rs"]
 mod ground_fallout;
@@ -36,7 +40,7 @@ use crate::map::cell_index::NativeCellIdentity;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::anim_class::AnimWorldCoord;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::bridge_state::ramp_repair::{self, Family as HutBridgeFamily};
 use crate::sim::bridge_state::{Axis, BridgeDamageEvent, DispatchPath};
@@ -70,8 +74,8 @@ mod debris_tests;
 /// `TickResult.bridge_state_changed` so the app consumes the already-published
 /// navigation and refreshes presentation. Each driver runs its own cascade
 /// (fallout, rim, zones) synchronously.
-#[cfg(test)]
-pub(crate) fn apply_bridge_damage_events(
+#[cfg(any(test, feature = "test-support"))]
+pub fn apply_bridge_damage_events(
     sim: &mut Simulation,
     rules: &RuleSet,
     events: &[BridgeDamageEvent],
@@ -124,7 +128,7 @@ pub(crate) fn damage_at_waypoint(
     let warhead_id = sim.interner.intern(&rules.bridge_warheads.c4_name);
     let mut changed = false;
     for (dx, dy) in [(0, 0), (85, 85), (-85, 85), (85, -85), (-85, -85)] {
-        let [x, y, z] = sim.trigger_waypoint_coord(waypoint)?;
+        let [x, y, z] = sim.trigger_waypoint_location(waypoint)?;
         changed |= apply_area_damage(
             sim,
             rules,
@@ -138,8 +142,8 @@ pub(crate) fn damage_at_waypoint(
     }
     // IsWaypointValid68BD80 gates only the tail, after all five area visits.
     // The retained unset coordinate is zero; the shared session bounds the index.
-    if let Some(cell) = sim.session.waypoint_cell(waypoint)
-        && cell != (0, 0)
+    if sim.session.waypoint_is_valid(waypoint)
+        && let Some(cell) = sim.session.waypoint_cell(waypoint)
     {
         let mut drivers = BridgeDamageDrivers::new(sim, rules, overlay_registry, frame_effects);
         for _ in 0..4 {
@@ -193,7 +197,7 @@ fn apply_one_bridge_damage_event(
 ///
 /// Caller ensures the hut itself is not damaged — the hut survives the
 /// collapse, mirroring the original game's `BridgeRepairHut` death branch.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 /// `MapClass::DestroyBridge_High_OnHutDeath` 0x00574000 and
 /// `DestroyBridge_Low_OnHutDeath` 0x00574C20 — the CABHUT death entry.
 /// Concrete callers are `BombClass::Detonate` 0x00438720 (0x00438982)
@@ -204,7 +208,7 @@ fn apply_one_bridge_damage_event(
 /// `_High` 0x005749C0, which classify the anchor overlay into the NS or EW
 /// band, walk back up to two cells to the canonical edge anchor, and call
 /// the matching `CollapseBridge_*`.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn dispatch_bridge_collapse_from_hut(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -247,7 +251,7 @@ pub(crate) fn dispatch_bridge_collapse_from_hut_with_overlay_registry(
 /// producer gets an isolated fallback identity, so hover cadence cannot change
 /// simulation state. The query still retains that identity across all nested
 /// lookups; the live records and registered TMP metadata remain map-owned.
-pub(crate) fn bridge_hut_can_repair(sim: &Simulation, hut_center: (u16, u16)) -> bool {
+pub fn bridge_hut_can_repair(sim: &Simulation, hut_center: (u16, u16)) -> bool {
     let Some(terrain) = sim.resolved_terrain.as_ref() else {
         return false;
     };
@@ -262,7 +266,7 @@ pub(crate) fn bridge_hut_can_repair(sim: &Simulation, hut_center: (u16, u16)) ->
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn hut_span_can_repair(terrain: &ResolvedTerrainGrid, hut_center: (u16, u16)) -> bool {
     crate::sim::bridge_state::repair_query::can_repair(
         &crate::map::resolved_terrain::NativeCellQuery::canonical(terrain),
@@ -776,6 +780,10 @@ pub(super) fn blow_up_bridge_cell_fallout(
         ry,
         super::UninitContext::new(Some(rules), overlay_registry).with_effects(frame_effects),
     );
+    //47DDD5..47DE2B publishes after ground/deck receivers, before debris
+    //draws/constructors. Direct callers also leave pending entries for save;
+    //only Map587180 owns the clear/consume bracket.
+    sim.pending_bridge_collapses.append((rx as i16, ry as i16));
     let mut one_cell = BTreeSet::new();
     one_cell.insert((rx, ry));
     spawn_bridge_debris(sim, rules, &one_cell);

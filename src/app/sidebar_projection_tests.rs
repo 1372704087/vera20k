@@ -12,13 +12,39 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
 use crate::sim::production::{BuildOption, all_build_options_for_owner};
-use crate::sim::world::Simulation;
-use crate::ui::sidebar::cameo_order::CameoId;
+use crate::sim::world::{LifecycleOutput, Simulation};
+use crate::ui::sidebar::cameo_order::{Cameo, CameoId, CameoReconcile};
 use crate::ui::sidebar::gadget_flash::SidebarGadgetState;
 use crate::ui::sidebar::{
     SidebarAction, SidebarChromeLayoutSpec, SidebarTab, SidebarView, build_sidebar_view_with_spec,
     hit_test_item,
 };
+
+impl SidebarProjectionState {
+    /// Strip/projection fixtures below supply their admitted identities;
+    /// real Building admission is exercised separately through production.
+    pub(super) fn reconcile_fixture(
+        &mut self,
+        owner: InternedId,
+        candidates: &[Cameo],
+        rows: usize,
+    ) -> CameoReconcile {
+        let additions: Vec<_> = candidates
+            .iter()
+            .filter_map(|item| match item.id {
+                CameoId::Object(id) if item.available => Some(id),
+                _ => None,
+            })
+            .collect();
+        for &type_id in &additions {
+            self.apply_lifecycle_output(
+                &LifecycleOutput::SidebarConstructionOption { owner, type_id },
+                Some(owner),
+            );
+        }
+        self.reconcile_cameos(owner, candidates, rows, &additions)
+    }
+}
 
 fn world(rules: &RuleSet, factories: &[&str]) -> (Simulation, InternedId) {
     let mut sim = Simulation::with_seed(0x6A84_2000);
@@ -56,7 +82,6 @@ fn view(
         1_000,
         0,
         None,
-        &[],
         &[],
         options,
         &[],
@@ -159,6 +184,87 @@ fn native_history_world() -> (Simulation, RuleSet, InternedId, CsfFile, Value) {
 }
 
 #[test]
+fn trigger_cameo_flash_reaches_view_and_survives_projection_save_lifecycle() {
+    let native: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/sidebar_oracle/trigger_cameos.json",
+    ))
+    .unwrap();
+    let (sim, rules, owner, csf) = native_context_world(&serde_json::json!({
+        "current_side": 0, "types": native["catalog"]
+    }));
+    let options: Vec<_> = all_build_options_for_owner(&sim, &rules, "Americans")
+        .into_iter()
+        .filter(|item| sim.interner.resolve(item.type_id) != "UNLISTED")
+        .collect();
+    let candidates = cameo_candidates(&sim, &rules, Some(&csf), owner, &options, &[], &[]);
+    let mut projection = SidebarProjectionState::default();
+    projection.reconcile_fixture(owner, &candidates, 3);
+    let control = &native["flash_controls"][0];
+    projection.flash_cameo(
+        sim.interner.get("HTNK").unwrap(),
+        control["duration"].as_i64().unwrap() as i32,
+        control["frame"].as_i64().unwrap() as i32,
+        &sim.interner,
+        &rules,
+    );
+    projection.set_cameo_frame(control["frame"].as_i64().unwrap() as i32);
+    // Projection key refresh must not clobber entry+88. Native's numeric-only
+    // index collision flashes ORCA rather than the requested HTNK.
+    projection.reconcile_fixture(owner, &candidates, 3);
+    let vehicle_view = view(&sim, &options, &projection, SidebarTab::Vehicle, 600.);
+    assert_eq!(
+        vehicle_view
+            .items
+            .iter()
+            .filter(|item| item.flash_darkened)
+            .map(|item| item.type_id.as_str())
+            .collect::<Vec<_>>(),
+        ["ORCA"]
+    );
+    let saved = projection.saved_order().unwrap();
+    let bytes = bincode::serialize(&saved).unwrap();
+    let saved: crate::sim::snapshot::SavedSidebarOrder = bincode::deserialize(&bytes).unwrap();
+    let restored =
+        super::sidebar_projection::prepare_saved_order(Some(saved.clone()), &sim, &rules).unwrap();
+    let mut loaded = SidebarProjectionState::default();
+    loaded.restore_order(restored);
+    loaded.set_cameo_frame(123);
+    loaded.reconcile_fixture(owner, &candidates, 3);
+    assert_eq!(loaded.saved_order(), Some(saved));
+    assert!(
+        view(&sim, &options, &loaded, SidebarTab::Vehicle, 600.)
+            .items
+            .iter()
+            .any(|item| item.type_id == "ORCA" && item.flash_darkened)
+    );
+    let mut removed = candidates.clone();
+    removed
+        .iter_mut()
+        .find(|item| item.id == CameoId::Object(sim.interner.get("ORCA").unwrap()))
+        .unwrap()
+        .available = false;
+    loaded.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    loaded.reconcile_fixture(owner, &removed, 3);
+    loaded.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    loaded.reconcile_fixture(owner, &candidates, 3);
+    assert!(
+        !view(&sim, &options, &loaded, SidebarTab::Vehicle, 600.)
+            .items
+            .iter()
+            .any(|item| item.flash_darkened)
+    );
+    loaded.reset_cameo_seed();
+    loaded.reconcile_fixture(owner, &candidates, 3);
+    loaded.set_cameo_frame(123);
+    assert!(
+        !view(&sim, &options, &loaded, SidebarTab::Vehicle, 600.)
+            .items
+            .iter()
+            .any(|item| item.flash_darkened)
+    );
+}
+
+#[test]
 fn original_post_removal_scroll_reaches_view_and_hit_test() {
     let corpus: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/sidebar_oracle/cameo_order.json",
@@ -185,7 +291,7 @@ fn original_post_removal_scroll_reaches_view_and_hit_test() {
         .collect();
     let mut candidates = cameo_candidates(&sim, &rules, Some(&csf), owner, &options, &[], &[]);
     let mut projection = SidebarProjectionState::default();
-    projection.reconcile_cameos(owner, &candidates, 3);
+    projection.reconcile_fixture(owner, &candidates, 3);
     projection.set_scroll_row(SidebarTab::Vehicle, 1);
     for candidate in &mut candidates {
         let CameoId::Object(id) = candidate.id else {
@@ -197,7 +303,8 @@ fn original_post_removal_scroll_reaches_view_and_hit_test() {
             .iter()
             .any(|name| name.as_str().unwrap() == sim.interner.resolve(id));
     }
-    projection.reconcile_cameos(owner, &candidates, 3);
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    projection.reconcile_fixture(owner, &candidates, 3);
     let view = view(&sim, &options, &projection, SidebarTab::Vehicle, 430.);
     assert_eq!(view.layout.side2_tile_count, 3);
     assert_eq!(
@@ -283,11 +390,15 @@ fn native_order_reaches_localized_views_scrolling_and_click_identity() {
     let candidates = cameo_candidates(&sim, &rules, Some(&csf), owner, &options, &[], &[]);
     let mut projection = SidebarProjectionState::default();
     assert!(
-        !projection.reconcile_cameos(owner, &candidates, 3),
+        !projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted(),
         "scenario seeding is silent"
     );
     assert!(
-        !projection.reconcile_cameos(owner, &candidates, 3),
+        !projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted(),
         "retained identities are not insertions"
     );
 
@@ -323,7 +434,7 @@ fn native_order_reaches_localized_views_scrolling_and_click_identity() {
                         type_id: item.type_id.clone(),
                         right: false,
                         shift: false,
-                        at_build_limit: !item.enabled,
+                        at_build_limit: item.at_build_limit,
                     },
                 );
                 let option = options
@@ -356,33 +467,516 @@ fn only_an_accepted_new_object_in_the_same_house_announces_construction_options(
         .unwrap()
         .available = false;
     let mut projection = SidebarProjectionState::default();
-    assert!(!projection.reconcile_cameos(owner, &initial, 3));
-    assert!(projection.reconcile_cameos(owner, &candidates, 3));
-    assert!(!projection.reconcile_cameos(owner, &candidates, 3));
     assert!(
-        !projection.reconcile_cameos(owner, &initial, 3),
-        "removal is silent"
+        !projection
+            .reconcile_fixture(owner, &initial, 3)
+            .build_inserted()
     );
     assert!(
-        projection.reconcile_cameos(owner, &candidates, 3),
+        !projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted(),
+        "a refresh does not add ordinary entries without a House pass"
+    );
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    assert!(
+        projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted()
+    );
+    assert!(
+        !projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted()
+    );
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    assert!(
+        !projection
+            .reconcile_fixture(owner, &initial, 3)
+            .build_inserted(),
+        "removal is silent"
+    );
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    assert!(
+        projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted(),
         "a later accepted reinsertion announces again"
     );
     let other = sim.interner.get("TESTBUILD").unwrap();
     assert!(
-        !projection.reconcile_cameos(other, &candidates, 3),
+        !projection
+            .reconcile_fixture(other, &candidates, 3)
+            .build_inserted(),
         "local-house replacement seeds silently"
     );
 }
 
 #[test]
-fn retail_rules_admission_and_csf_names_keep_the_same_identity_in_every_view() {
-    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+fn a_warped_factory_keeps_old_infantry_cameos_but_cannot_add_a_new_one() {
+    // Building4456D0 requires +660 for an AddCameo attempt; retained
+    // Strip6AA600 deliberately asks FindFactory with require_online=false.
+    // The production capture house-admission-before-run1 discriminates this
+    // with stock NAHAND/CLEG and a CASLAB grant arriving during the warp.
+    let (mut sim, rules, owner, csf, _) = native_history_world();
+    let options = all_build_options_for_owner(&sim, &rules, "Americans");
+    let candidates = cameo_candidates(&sim, &rules, Some(&csf), owner, &options, &[], &[]);
+    let new_infantry = CameoId::Object(sim.interner.get("engineer").unwrap());
+    let initial: Vec<_> = candidates
+        .iter()
+        .filter(|entry| entry.id != new_infantry)
+        .cloned()
+        .collect();
+    let mut projection = SidebarProjectionState::default();
+    let seed: Vec<_> = initial
+        .iter()
+        .filter_map(|entry| match entry.id {
+            CameoId::Object(id) if entry.available => Some(id),
+            _ => None,
+        })
+        .collect();
+    projection.reconcile_cameos(owner, &initial, 3, &seed);
+    let factory = sim
+        .entities()
+        .iter_sorted()
+        .find(|(_, entity)| {
+            sim.object_type(entity.type_ref(), &rules)
+                .is_some_and(|object| object.id == "TESTINF")
+        })
+        .unwrap()
+        .0;
+    // This strip fixture supplies an already discovered barracks; it does
+    // not run the map's Cell PUT/discovery transaction.
+    sim.entities_mut()
+        .get_mut(factory)
+        .unwrap()
+        .discovery
+        .set_discovered_by_current_house_for_test(true);
+    sim.entities_mut()
+        .get_mut(factory)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            factory,
+        ));
+    assert!(!sim.entities().get(factory).unwrap().building_online());
+    let options = all_build_options_for_owner(&sim, &rules, "Americans");
+    let candidates = cameo_candidates(&sim, &rules, Some(&csf), owner, &options, &[], &[]);
+    for type_id in crate::sim::production::construction_options_for_owner(&sim, &rules, owner) {
+        projection.apply_lifecycle_output(
+            &LifecycleOutput::SidebarConstructionOption { owner, type_id },
+            Some(owner),
+        );
+    }
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    projection.reconcile_cameos(owner, &candidates, 3, &[]);
+    let infantry = projection.cameo_strips().items(SidebarTab::Infantry);
+    assert!(
+        infantry
+            .iter()
+            .any(|entry| entry.id == CameoId::Object(sim.interner.get("gi").unwrap()))
+    );
+    assert!(
+        !infantry.iter().any(|entry| entry.id == new_infantry),
+        "retention admission must not insert an infantry option while its adding factory is warped"
+    );
+    sim.entities_mut()
+        .get_mut(factory)
+        .unwrap()
+        .set_temporal_for_test(Default::default());
+    // Thawing after that House pass cannot retroactively add an option.
+    projection.reconcile_cameos(owner, &candidates, 3, &[]);
+    assert!(
+        !projection
+            .cameo_strips()
+            .items(SidebarTab::Infantry)
+            .iter()
+            .any(|entry| entry.id == new_infantry)
+    );
+    for type_id in crate::sim::production::construction_options_for_owner(&sim, &rules, owner) {
+        projection.apply_lifecycle_output(
+            &LifecycleOutput::SidebarConstructionOption { owner, type_id },
+            Some(owner),
+        );
+    }
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    assert!(
+        projection
+            .reconcile_cameos(owner, &candidates, 3, &[])
+            .build_inserted()
+    );
+    assert!(
+        projection
+            .cameo_strips()
+            .items(SidebarTab::Infantry)
+            .iter()
+            .any(|entry| entry.id == new_infantry)
+    );
+}
+
+#[test]
+fn a_house_recheck_stays_pending_until_the_projection_runs_it() {
+    // House4F92E2 is event-driven, so the strip pass it requested must run in
+    // the frame that produced it rather than wait for the next player input.
+    let mut projection = SidebarProjectionState::default();
+    let owner = InternedId::default();
+    assert!(!projection.cameo_recheck_pending());
+    projection.apply_lifecycle_output(&LifecycleOutput::SidebarRecalculated { owner }, Some(owner));
+    assert!(projection.cameo_recheck_pending());
+    projection.reconcile_cameos(owner, &[], 3, &[]);
+    assert!(!projection.cameo_recheck_pending());
+}
+
+#[test]
+fn building_production_darkens_other_cameos_until_cancelled() {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        .map(|retail| retail.rules)
+    else {
         return;
     };
+    let (mut sim, owner) = world(&rules, &["GACNST", "GAPOWR", "GAPILE"]);
+    let options = all_build_options_for_owner(&sim, &rules, "Americans");
+    let candidates = cameo_candidates(&sim, &rules, None, owner, &options, &[], &[]);
+    let mut projection = SidebarProjectionState::default();
+    projection.reconcile_fixture(owner, &candidates, 12);
+    let drawn = view(&sim, &options, &projection, SidebarTab::Building, 1200.0);
+    projection.replace_view(Some(drawn));
+    assert!(crate::sim::production::enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        crate::sim::world::FrameEffects::default(),
+        false,
+    ));
+    projection.reconcile_factory_links(&sim, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    let items = &projection.view().unwrap().items;
+    assert!(
+        items
+            .iter()
+            .find(|item| item.type_id == "GAPOWR")
+            .unwrap()
+            .enabled
+    );
+    assert!(
+        !items
+            .iter()
+            .find(|item| item.type_id == "GAPILE")
+            .unwrap()
+            .enabled,
+        "StripDraw6A95C8..6A95E9 sees an active request anywhere in the strip"
+    );
+    assert!(crate::sim::production::suspend_production(
+        &mut sim,
+        "Americans",
+        crate::sim::production::ProductionCategory::Building,
+    ));
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert!(
+        projection
+            .view()
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.type_id == "GAPOWR")
+            .unwrap()
+            .is_on_hold
+    );
+    assert!(
+        !projection
+            .view()
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.type_id == "GAPILE")
+            .unwrap()
+            .enabled
+    );
+    assert!(crate::sim::production::enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        crate::sim::world::FrameEffects::default(),
+        false,
+    ));
+    for _ in 0..4096 {
+        let frame = sim
+            .advance_app_frame(
+                &[],
+                Some(&rules),
+                None,
+                67,
+                crate::sim::world::TickLane::Ordinary,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+        for output in &frame.lifecycle_outputs {
+            projection.apply_lifecycle_output(output, Some(owner));
+        }
+        projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+        if projection
+            .view()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.type_id == "GAPOWR" && item.is_ready)
+        {
+            break;
+        }
+    }
+    let items = &projection.view().unwrap().items;
+    let power = items.iter().find(|item| item.type_id == "GAPOWR").unwrap();
+    assert!(power.enabled && power.is_ready && power.progress == 1.0);
+    assert!(
+        !items
+            .iter()
+            .find(|item| item.type_id == "GAPILE")
+            .unwrap()
+            .enabled,
+        "ready-to-place still owns the strip"
+    );
+    assert!(crate::sim::production::cancel_production_for_owner(
+        &mut sim,
+        &rules,
+        "Americans",
+        crate::sim::production::ProductionCancellation::Type {
+            type_id: "GAPOWR",
+            naval: false
+        },
+        false,
+        crate::sim::world::FrameEffects::default(),
+    ));
+    projection.reconcile_factory_links(&sim, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert!(
+        projection
+            .view()
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.type_id == "GAPILE")
+            .unwrap()
+            .enabled,
+        "cancellation releases the strip without another input"
+    );
+    let power = projection
+        .view()
+        .unwrap()
+        .items
+        .iter()
+        .find(|item| item.type_id == "GAPOWR")
+        .unwrap();
+    assert!(!power.is_ready && !power.is_on_hold && power.progress == 0.0);
+}
+
+#[test]
+fn busy_strip_draw_matches_native_pending_and_linked_controls() {
+    use crate::sim::command::{Command, CommandEnvelope};
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        .map(|retail| retail.rules)
+    else {
+        return;
+    };
+    let native: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/sidebar_oracle/draw_availability.json",
+    ))
+    .unwrap();
+    for control in native["controls"].as_array().unwrap() {
+        let state = control["state"].as_str().unwrap();
+        // State3 is a synthetic draw control with no established writer;
+        // Ready has its own production lifecycle test above.
+        if !matches!(state, "idle" | "pending" | "pending_hold" | "building") {
+            continue;
+        }
+        let (mut sim, owner) = world(
+            &rules,
+            &[
+                "GACNST", "GAPOWR", "GAPILE", "GAREFN", "GAWEAP", "GAAIRC", "GATECH",
+            ],
+        );
+        let options = all_build_options_for_owner(&sim, &rules, "Americans");
+        let candidates = cameo_candidates(&sim, &rules, None, owner, &options, &[], &[]);
+        let mut projection = SidebarProjectionState::default();
+        projection.reconcile_fixture(owner, &candidates, 12);
+        let source = control["source"].as_str().unwrap();
+        if state == "idle" {
+            // A scripted future order must not lock today's strip. The
+            // scheduler admits the next ordinary frame, not every queued tick.
+            sim.queue_command(CommandEnvelope::new(
+                owner,
+                sim.session.tick + 100,
+                Command::QueueProduction {
+                    type_id: sim.interner.get(source).unwrap(),
+                },
+            ));
+            // A different player's due orders must not hold this local strip.
+            let foreign = sim.intern("Russians");
+            sim.queue_commands([
+                CommandEnvelope::new(
+                    foreign,
+                    sim.session.tick + 1,
+                    Command::QueueProduction {
+                        type_id: sim.interner.get(source).unwrap(),
+                    },
+                ),
+                CommandEnvelope::new(
+                    foreign,
+                    sim.session.tick + 1,
+                    Command::SuspendProduction {
+                        category: crate::sim::production::category_for_object(
+                            rules.object(source).unwrap(),
+                        ),
+                    },
+                ),
+            ]);
+        }
+        if matches!(state, "pending" | "pending_hold") {
+            let category =
+                crate::sim::production::category_for_object(rules.object(source).unwrap());
+            let type_id = sim.interner.get(source).unwrap();
+            let click = crate::app::input::sidebar_eva::cameo_click(
+                &[],
+                category,
+                Some(type_id),
+                None,
+                projection.cameo_request(type_id),
+                crate::app::input::sidebar_eva::CameoPress::Left,
+                false,
+            );
+            projection.record_cameo_click(&sim, &rules, owner, type_id, click);
+            if state == "pending_hold" {
+                let click = crate::app::input::sidebar_eva::cameo_click(
+                    &[],
+                    category,
+                    Some(type_id),
+                    None,
+                    projection.cameo_request(type_id),
+                    crate::app::input::sidebar_eva::CameoPress::Right { shift: false },
+                    false,
+                );
+                projection.record_cameo_click(&sim, &rules, owner, type_id, click);
+            }
+        } else if state == "building" {
+            assert!(
+                crate::sim::production::enqueue_by_type(
+                    &mut sim,
+                    &rules,
+                    "Americans",
+                    source,
+                    crate::sim::world::FrameEffects::default(),
+                    false,
+                ),
+                "{control}"
+            );
+        }
+        projection.reconcile_factory_links(&sim, owner);
+        let tab = SidebarTab::all()[control["tab"].as_u64().unwrap() as usize];
+        let drawn = view(&sim, &options, &projection, tab, 2400.0);
+        projection.replace_view(Some(drawn));
+        projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+        for expected in control["entries"].as_array().unwrap() {
+            let name = expected["type"].as_str().unwrap();
+            let item = projection
+                .view()
+                .unwrap()
+                .items
+                .iter()
+                .find(|item| item.type_id == name)
+                .unwrap();
+            assert_eq!(
+                !item.enabled,
+                expected["unavailable"].as_bool().unwrap(),
+                "{control}: {name}"
+            );
+        }
+        // Building and defense are different retained strips.
+        if tab == SidebarTab::Building && state != "idle" {
+            let drawn = view(&sim, &options, &projection, SidebarTab::Defense, 2400.0);
+            projection.replace_view(Some(drawn));
+            projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+            assert!(
+                projection
+                    .view()
+                    .unwrap()
+                    .items
+                    .iter()
+                    .find(|item| item.type_id == "GAPILL")
+                    .unwrap()
+                    .enabled
+            );
+        }
+    }
+}
+
+#[test]
+fn a_retained_cameo_darkens_on_the_frame_its_restriction_appears() {
+    // `StripClass::Draw @ 0x006A9540` re-asks `FindFactory(1, 1, 1)`,
+    // `CanBuild(type, 0, 0)` and `CheckBuildLimit` for every entry it draws.
+    // A BuildLimit reached between two House passes must darken the retained
+    // cameo without another projection rebuild or an unrelated input.
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
+        return;
+    };
+    let (mut sim, owner) = world(
+        &rules,
+        &[
+            "GACNST", "GAPOWR", "GAPILE", "GAREFN", "GAWEAP", "GAAIRC", "GATECH",
+        ],
+    );
+    let options = all_build_options_for_owner(&sim, &rules, "Americans");
+    let candidates = cameo_candidates(&sim, &rules, None, owner, &options, &[], &[]);
+    let mut projection = SidebarProjectionState::default();
+    projection.reconcile_fixture(owner, &candidates, 12);
+    // Retail `BuildLimit=1` types on both factory kinds: the Chronosphere on
+    // the Buildings factory and Tanya on the house's Infantry factory.
+    let drawn_state = |projection: &SidebarProjectionState, type_id: &str| {
+        let item = projection
+            .view()
+            .expect("reviewed projection")
+            .items
+            .iter()
+            .find(|item| item.type_id == type_id)
+            .unwrap_or_else(|| panic!("the base admits the {type_id} cameo"));
+        (item.enabled, item.at_build_limit)
+    };
+    let drawn = view(&sim, &options, &projection, SidebarTab::Defense, 2400.0);
+    projection.replace_view(Some(drawn));
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert_eq!(drawn_state(&projection, "GACSPH"), (true, false));
+
+    // The house builds the one Chronosphere its `BuildLimit=1` allows.
+    sim.spawn_object("GACSPH", "Americans", 30, 4, 0, &rules)
+        .expect("place the Chronosphere");
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert_eq!(
+        drawn_state(&projection, "GACSPH"),
+        (false, true),
+        "the retained cameo draws the unavailable overlay and gates the press"
+    );
+
+    let drawn = view(&sim, &options, &projection, SidebarTab::Infantry, 2400.0);
+    projection.replace_view(Some(drawn));
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert_eq!(drawn_state(&projection, "TANY"), (true, false));
+    sim.spawn_object("TANY", "Americans", 4, 20, 0, &rules)
+        .expect("place Tanya");
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
+    assert_eq!(
+        drawn_state(&projection, "TANY"),
+        (false, true),
+        "the same Draw queries cover a house factory's retained infantry cameo"
+    );
+}
+
+#[test]
+fn retail_rules_admission_and_csf_names_keep_the_same_identity_in_every_view() {
     // Extracted RULESMD/ARTMD are an explicit base-rules fixture, not a claim
     // about all mode/map layers. The separate native replay supplies order.
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
+        return;
+    };
     let (sim, owner) = world(
         &rules,
         &[
@@ -398,7 +992,11 @@ fn retail_rules_admission_and_csf_names_keep_the_same_identity_in_every_view() {
     });
     let candidates = cameo_candidates(&sim, &rules, csf.as_ref(), owner, &options, &[], &[]);
     let mut projection = SidebarProjectionState::default();
-    assert!(!projection.reconcile_cameos(owner, &candidates, 3));
+    assert!(
+        !projection
+            .reconcile_fixture(owner, &candidates, 3)
+            .build_inserted()
+    );
     let visible: HashSet<_> = options
         .iter()
         .filter(|item| item.visible_in_sidebar())

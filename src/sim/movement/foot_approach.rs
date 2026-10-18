@@ -21,7 +21,7 @@ use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::combat::{self, TargetKind, in_range};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::MissionType;
-use crate::sim::movement::bump_crush::{CrushAllyGate, CrushTarget, object_is_crushable_by};
+use crate::sim::movement::bump_crush::{CrushTarget, object_is_crushable_by};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 use crate::util::direction_tables::{cell_delta_unchecked, facing16_between};
@@ -144,8 +144,7 @@ impl Simulation {
     }
 
     /// `ObjectClass::Is_Crushable_By @ 0x005F6CD0` of `target` by Unit `id`,
-    /// alliance question first ([`CrushAllyGate`], with its one-way-alliance
-    /// residual), as the bump crush asks it.
+    /// as the bump crush asks it.
     fn approach_crushable(&self, id: u64, target: u64, rules: &RuleSet) -> bool {
         let (Some(actor), Some(victim)) = (
             self.substrate.entities.get(id),
@@ -153,20 +152,21 @@ impl Simulation {
         ) else {
             return false;
         };
-        let ally = CrushAllyGate::new(
-            self.interner.resolve(actor.owner()),
-            &self.house_alliances,
-            &self.interner,
-        );
-        !ally.spares(victim)
-            && self
-                .object_type(actor.type_ref(), rules)
-                .is_some_and(|object| {
-                    object_is_crushable_by(
-                        object.omni_crusher,
-                        CrushTarget::from_entity(victim, self.session.binary_frame),
-                    )
-                })
+        self.object_type(actor.type_ref(), rules)
+            .is_some_and(|object| {
+                object_is_crushable_by(
+                    object.omni_crusher,
+                    CrushTarget::from_entity(victim, self.session.binary_frame),
+                    |owner| {
+                        crate::sim::combat::combat_weapon::is_ally_by_object(
+                            Some(&self.house_alliances),
+                            &self.interner,
+                            actor.owner(),
+                            owner,
+                        )
+                    },
+                )
+            })
     }
 
     /// The head of `UnitClass::Approach_Target @ 0x007414E0` for Unit `id`:
@@ -251,7 +251,7 @@ impl Simulation {
             object,
             &combat::combat_weapon::attacker_facts(actor, object),
             Some(&target),
-            &self.substrate.entities,
+            self,
             &self.interner,
             self.resolved_terrain.as_ref(),
             Some(&self.house_alliances),
@@ -387,7 +387,10 @@ impl Simulation {
             && !actor.infantry_deploy_doing()
             && match target {
                 TargetKind::Cell(..) => true,
-                TargetKind::Entity(target) => self.substrate.entities.contains(target),
+                TargetKind::Entity(target) => {
+                    self.substrate.entities.contains(target)
+                        || self.production.terrain_objects.contains_key(&target)
+                }
             }
             && self.resolved_terrain.is_some()
             && self.zone_grid.is_some()
@@ -477,7 +480,7 @@ impl Simulation {
         let los = combat::line_of_fire::LineOfFireInputs {
             overlay_grid: self.overlay_grid.as_ref(),
             overlay_registry: registry,
-            alliances: Some(&self.fog.alliances),
+            alliances: Some(&self.house_alliances),
         };
         let can_fire = if let Some(identity) = identity {
             in_range::cell_target_in_range(
@@ -486,14 +489,13 @@ impl Simulation {
                 weapon,
                 rules,
                 &self.interner,
-                &self.substrate.entities,
                 terrain,
                 &los,
             )
             .ok_or("Approach CanFireAt coordinate failed")?
         } else {
             combat::can_fire_at_target_in_query(
-                &self.substrate.entities,
+                self,
                 rules,
                 &self.interner,
                 id,
@@ -672,13 +674,7 @@ impl Simulation {
         let _ = if let Some(identity) = identity {
             in_range::native_cell_range_coords(identity, &cells)
         } else {
-            in_range::resolve_target_coords_3d(
-                &target,
-                &self.substrate.entities,
-                rules,
-                &self.interner,
-                &cells,
-            )
+            in_range::resolve_target_coords_3d(&target, self, rules, &self.interner, &cells)
         }
         .ok_or("Approach target surface failed")?;
         let mut retained_candidate = target_cell;
@@ -936,15 +932,8 @@ impl Simulation {
             | NavTargetRef::Object { id }
             | NavTargetRef::Building { id } => id,
         };
-        let entity = self
-            .substrate
-            .entities
-            .get(id)
-            .ok_or("retired Approach NavCom")?;
-        Ok(super::ground_pose::object_get_coords(
-            entity,
-            Some(cells.terrain()),
-        ))
+        super::ground_pose::target_get_coords(TargetKind::Entity(id), self, Some(cells))
+            .ok_or_else(|| "retired Approach NavCom".to_owned())
     }
 
     /// The CloseRange= arm ahead of the search (`0x004D5D37..0x004D5F62`).
@@ -985,15 +974,19 @@ impl Simulation {
         let own_centre = native_cell_own_xy(query_object_cell(&cells, location), &cells);
         let target_centre = match target {
             TargetKind::Entity(target) => {
-                let target = self
-                    .substrate
-                    .entities
-                    .get(target)
-                    .ok_or("Approach Target retired")?;
-                native_cell_own_xy(
-                    query_object_cell(&cells, position_world_coord(&target.position)),
-                    &cells,
-                )
+                // 4D5D83 tests the Techno bit before GetCell. Terrain
+                // follows 4D5DCB's virtual+48 and the common Map565730.
+                let coordinate = if let Some(target) = self.substrate.entities.get(target) {
+                    position_world_coord(&target.position)
+                } else {
+                    super::ground_pose::target_get_coords(
+                        TargetKind::Entity(target),
+                        self,
+                        Some(&cells),
+                    )
+                    .ok_or("Approach Target retired")?
+                };
+                native_cell_own_xy(query_object_cell(&cells, coordinate), &cells)
             }
             TargetKind::Cell(..) => native_cell_own_xy(
                 target
@@ -1061,12 +1054,12 @@ impl Simulation {
             weapon,
             rules,
             &self.interner,
-            &self.substrate.entities,
+            self,
             &cells,
             &combat::line_of_fire::LineOfFireInputs {
                 overlay_grid: self.overlay_grid.as_ref(),
                 overlay_registry: registry,
-                alliances: Some(&self.fog.alliances),
+                alliances: Some(&self.house_alliances),
             },
         );
         // The ftol'd distance is an integer: under 307.2 is at most 307.
@@ -1165,10 +1158,7 @@ impl Simulation {
         rules: &RuleSet,
         cells: &NativeCellQuery<'_>,
     ) -> Result<Option<(u16, u16)>, String> {
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-            map_owned_radius_cap,
-        };
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
         let actor = self
             .substrate
             .entities
@@ -1200,38 +1190,26 @@ impl Simulation {
                 Some(cells),
             )
             .ok_or("Approach source zone absent")?;
-        let (bounds, height) = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
+        self.map_size_diamond()
             .ok_or("Approach requires map dimensions")?;
-        Ok(find_nearby_passable_cell(
-            (i32::from(retained.0), i32::from(retained.1)),
-            &NearbyQuery {
-                native_cells: Some(cells),
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type: object.speed_type,
-                    required_zone_id: (zone != u32::MAX).then_some(zone),
-                    movement_zone: object.movement_zone,
-                    bridge_aware_zone: bridge_aware,
+        Ok(self
+            .nearby_passable_cell(
+                (i32::from(retained.0), i32::from(retained.1)),
+                NearbyArgs {
+                    allow_bridge_cells: false,
+                    check_height: true,
+                    ..NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type: object.speed_type,
+                            required_zone_id: (zone != u32::MAX).then_some(zone),
+                            movement_zone: object.movement_zone,
+                            bridge_aware_zone: bridge_aware,
+                        },
+                        NearbyFootprint::SINGLE,
+                    )
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: false,
-                check_height: true,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(bounds.base, height),
-                target_cell: None,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(cells.terrain()),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: Some(bounds),
-            },
-            self.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0)))
+            )
+            .filter(|cell| *cell != (0, 0)))
     }
 }
 

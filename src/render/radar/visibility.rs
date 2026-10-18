@@ -47,10 +47,7 @@ fn enemy_sensed_prefilter(entity: &crate::sim::game_entity::GameEntity) -> bool 
     if entity.category() == EntityCategory::Structure {
         true
     } else if entity.category() == EntityCategory::Aircraft {
-        entity
-            .aircraft_ammo
-            .as_ref()
-            .is_none_or(|ammo| (ammo.current() as i8) < 0)
+        entity.ammo().is_none_or(|ammo| (ammo.current() as i8) < 0)
     } else {
         entity.low_bridge_tube_state.is_none()
     }
@@ -269,6 +266,7 @@ pub(super) fn build_radar_object_update(
     houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
     local_owner: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     full_visibility: bool,
     game_mode_nonzero: bool,
     rules: Option<&RuleSet>,
@@ -342,7 +340,11 @@ pub(super) fn build_radar_object_update(
         || local_owner.is_some_and(|local_owner| {
             entity.owner() == local_owner
                 || interner.is_some_and(|interner| {
-                    fog.is_friendly_id(local_owner, entity.owner(), interner)
+                    crate::map::houses::are_houses_friendly(
+                        alliances,
+                        interner.resolve(local_owner),
+                        interner.resolve(entity.owner()),
+                    )
                 })
         });
     let effective_type_invisible =
@@ -406,16 +408,12 @@ pub(super) fn build_radar_object_update(
 }
 
 #[cfg(test)]
-#[path = "visibility_lifecycle_tests.rs"]
-mod lifecycle_tests;
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
     use crate::map::tube_facts::TubeId;
+    use crate::sim::ammo::TechnoAmmo;
     use crate::sim::components::DriveCoord;
-    use crate::sim::docking::aircraft_dock::AircraftAmmo;
     use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
 
     fn mobile() -> RadarMobileVisibilityFacts {
@@ -464,16 +462,16 @@ mod tests {
 
         entity.set_category_for_test(EntityCategory::Aircraft);
         entity.low_bridge_tube_state = None;
-        entity.aircraft_ammo = Some(AircraftAmmo::new(3));
+        entity.install_ammo_for_test(Some(TechnoAmmo::new(3)));
         assert!(!enemy_sensed_prefilter(&entity));
-        entity.aircraft_ammo = None;
+        entity.install_ammo_for_test(None);
         assert!(
             enemy_sensed_prefilter(&entity),
             "Ammo=-1 keeps the signed byte negative"
         );
 
         entity.set_category_for_test(EntityCategory::Structure);
-        entity.aircraft_ammo = Some(AircraftAmmo::new(3));
+        entity.install_ammo_for_test(Some(TechnoAmmo::new(3)));
         assert!(
             enemy_sensed_prefilter(&entity),
             "Building lacks AbstractFlags IsFoot"
@@ -517,6 +515,7 @@ mod tests {
             &BTreeMap::new(),
             None,
             &FogState::default(),
+            &Default::default(),
             true,
             false,
             None,
@@ -556,6 +555,7 @@ mod tests {
                 &sim.houses,
                 None,
                 &sim.fog,
+                &sim.house_alliances,
                 true,
                 false,
                 Some(&rules),
@@ -891,6 +891,7 @@ mod tests {
             &houses,
             Some(local),
             &fog,
+            &Default::default(),
             false,
             true,
             Some(&rules),

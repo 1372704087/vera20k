@@ -14,9 +14,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 #[path = "snapshot/saved_local_view.rs"]
-pub(crate) mod saved_local_view;
+pub mod saved_local_view;
 #[path = "snapshot/scenario_resources.rs"]
-pub(crate) mod scenario_resources;
+pub mod scenario_resources;
 
 use saved_local_view::SavedLocalView;
 use scenario_resources::{SavedScenarioResources, SavedScenarioResourcesRef};
@@ -881,7 +881,7 @@ use crate::sim::world::Simulation;
 // held the same values. Prior records cannot resume.
 // 301 -> 302: FogState drops the version-81 wire shadow of the view-cache
 // generation, which nothing read. Prior records cannot resume.
-// 302 -> 303: LocomotorState drops its unread HoverAttack copy, AircraftAmmo
+// 302 -> 303: LocomotorState drops its unread HoverAttack copy, TechnoAmmo
 // its target_pad and AircraftMission's Docking/DockedIdle their pad_index:
 // write-only copies of the AirfieldDocks reservation. Prior records cannot
 // resume.
@@ -913,7 +913,7 @@ use crate::sim::world::Simulation;
 // 314 -> 315: ProductionState drops ready_by_owner; a completed building
 // waiting for placement is its factory's held object. Prior records carry it.
 // 315 -> 316: the native airfield loop replaces the legacy dock state:
-// AircraftAmmo keeps the aircraft's dock (+0x6CC) in place of its dock phase,
+// TechnoAmmo keeps the aircraft's dock (+0x6CC) in place of its dock phase,
 // airfield, reload timer and rescan cooldown, GameEntity drops AircraftMission
 // (Mission+0xBC holds Mission_Move's and Mission_Attack's states), and
 // ProductionState drops the AirfieldDocks pad reservations. Prior records
@@ -1034,7 +1034,103 @@ use crate::sim::world::Simulation;
 // 359 -> 360: Airstrike manager state/links, tint clocks and sampled building
 // animation light; retained per-pass type settings and type-based aircraft gate.
 // The unused MissionLeaf airstrike boolean is removed.
-const SNAPSHOT_VERSION: u32 = 360;
+// 360 -> 361: retained RadialFireSegments per-layer type state and the
+// independent per-firer radial launch counter (Techno+43C).
+// 361 -> 362: Bullet targets can retain a Terrain object identity. Its target
+// tag and strong-reference validation differ from Entity and Cell targets.
+// 362 -> 363: Scenario owns the campaign countdown and authored caption, and
+// sidebar entry flash deadlines and redraw scheduling survive saves.
+// 363 -> 364: Bullet constructor type/Bright and the independently nullable
+// installed WeaponType replace the conflated payload weapon identity.
+// 364 -> 365: RadSite creation order survives saves; native updates reverse
+// creation order, which affects rounded field subtraction and later damage.
+// 365 -> 366: process scalable Bullet order and retained type cadence values.
+// 366 -> 367: authoritative PlanMgr nodes/tokens and local planning input mode.
+// 367 -> 368: ordered Techno DistributedFire candidates/scores and history.
+// 368 -> 369: tracked navy scalar and retained Unit Naval/Passengers admission.
+// 369 -> 370: VoxelAnim retains its constructor-assigned native numeric ID.
+// 370 -> 371: Parasite retains grapple Anim, phase/stage/delay/invalidation.
+// 371 -> 372: Rocking retains its four binary32 fields without a synthetic
+// ship-rocking flag; tiny impulse rates affect the next native damping branch.
+// 372 -> 373: House retains four class-local last-built type indices.
+// 373 -> 374: the Simulation retains whether it batches target scans.
+// 374 -> 375: CaptureManager retains its overload pip countdown.
+// 375 -> 376: Foots retain their shared signed Ammo and chrono reinforcements
+// retain the pending Teleport state (Techno+280).
+// 376 -> 377: sight cache254/260 persists independently of latch250.
+// Earlier saves omitted inactive caches and are rejected, not reconstructed.
+// 377 -> 378: per-Super recharge override and House scripted offensive target.
+// 378 -> 379: Factory queue cleanup runs at Building lifecycle callbacks;
+// StartNext uses forced Begin admission and Abandon retains held identity
+// through destruction. Layout is unchanged; older sale continuations differ.
+// 379 -> 380: live type TechLevels and the process registry's global type order.
+// 380 -> 381: Factory+70 owns user hold and completion; the duplicate semantic
+// manual flag is removed. Older paused factories have incompatible state/layout.
+// 381 -> 382: retained Secret Lab rules/lists, House membership and per-
+// building fallback production. Startup assignment must not repeat on load.
+// 382 -> 383: Factory+71 persists automatic-recovery eligibility separately
+// from +70 suspension. System holds must survive load and retain their owner.
+// 383 -> 384: saved rules retain each Weapon's damage and Warhead reference.
+// 383 -> 385: Drive retains its native +64 straight/crush track flag.
+// 385 -> 386: combine retained Weapon fields with Drive's track state.
+// 385 -> 386: retained Building primary flags are sets per owner/category.
+// Manual448160 preserves limbo peers and queued events can toggle them later.
+// 386 -> 387: combine retained Weapon, Drive and Building primary layouts.
+// 387 -> 388: RadSite retains its independent light countdown, activation
+// tint/decrement and current source. Loading must not reconstruct lifetime age.
+// 388 -> 389: particle-system offsets retain constructor-relative coordinates.
+// Older saves stored zero even for an offset smoke source; resuming their new
+// follow behavior would snap it to the owner, so reject that continuation.
+// 389 -> 390: saved RulesClass AV ambient rate/step retain original raw fields.
+// 390 -> 391: retained ColorAdd slots and four AudioVisual selectors are
+// serialized with the existing processed Rules owner; older layouts lack them.
+// 391 -> 392: existing processed Rules owner retains the three survivor
+// divisors across scene/Type resets; older registry layouts lack those fields.
+// 392 -> 393: Unit transport entry runs after locomotor arrival. Earlier
+// cargo can retain an active pre-boarding Drive track; resuming it after
+// unload returns the passenger to the old shore. Do not migrate that state.
+// 393 -> 394: Mouse-save sidebar records retain pending request1/2 and
+// House prediction gates; NoInit resets only their predicted clocks.
+// Bumped 394 -> 395: retained General.MaximumCheerRate in Rules/registry
+// serialization; Cheer command appended without renumbering existing variants.
+// 395 -> 396: Techno+308 stores its actual Spark system handle instead of
+// an approximate expiry tick. Particle systems retain a TargetKind (including
+// Cells) instead of an entity-only target, and retain removed child bodies
+// until the common deferred drain. Old layouts cannot resume these states.
+// 396 -> 397: retained Particle bodies preserve Object+81 independently of
+// Alive, so the shared Object Limbo/UnInit owners can resume either boundary.
+// 397 -> 398: House retains per-family/type successful-production history.
+// Older saves contain its score total only and cannot reconstruct lifetime
+// BuildLimit admission from the currently owned objects.
+// 398 -> 399: PowerState no longer serializes the obsolete theoretical total.
+// Power's rated input is read from the already-saved canonical House list.
+// 399 -> 400: local view carries retained Power bands/cache/Flash/active state.
+// 400 -> 401: retain native scenario House names independently of internal
+// owner keys and display handles; authored-object admission cannot reconstruct
+// them from mutable human flags or country after loading.
+// 401 -> 402: retained DiskLaser bodies and Rules+28C charge-up reference.
+// 402 -> 403: resident Map+D4 ordered pending bridge-collapse coordinates.
+// 403 -> 404: retained House+310 capacity and Building Storage type input.
+// 404 -> 405: retained Rules+1866 ChronoBeamColor in saved processed rules.
+// 405 -> 406: preserve live Action71/72 ambient Rules inputs across saves.
+// 406 -> 407: FogState no longer saves a copy of the House ally graph; the
+// saved Simulation::house_alliances is the only one.
+// 407 -> 408: a saved Wave's endpoints, corners and direction follow
+// FireAt's constructor order and GetFLH, and its fades keep double precision.
+// 408 -> 409: retain ordered DropZoneAnim/DropZoneRadius in saved Rules resources.
+// 409 -> 410: Command::ForceAttack is gone (it was the Attack event under a
+// second name), which renumbers the later Command variants in pending
+// CommandEnvelope payloads.
+// 410 -> 411: retain House preferred superweapon target kind and independent
+// trigger-controlled Building controller/original-owner House pointers.
+// 411 -> 412: processed UnitTypes retain SpeedType across admitted Rules
+// passes. Older records lack this field and use the wrong vehicle defaults.
+// 412 -> 413: retained Super one-time and provider-loss/hold flags.
+// 413 -> 414: retain the global GasCloudSys reference and Particle CC/D0/D4 motion words.
+// 414 -> 415: a path batch's code-2 re-paths keep the urgency they
+// registered at, and the batch keeps those a capped pass left out.
+// 415 -> 416: retain Building+660 independently of Temporal state.
+const SNAPSHOT_VERSION: u32 = 416;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1042,7 +1138,7 @@ const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
 /// Neutral type identity shared by the retained sidebar and its save envelope.
 /// The kind matters: a SuperWeapon and an object never share a cameo entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub(crate) enum SavedCameoId {
+pub enum SavedCameoId {
     Object(InternedId),
     SuperWeapon(InternedId),
 }
@@ -1056,36 +1152,76 @@ pub(crate) enum SavedCameoId {
 /// no-init5BE9B0->6A4F20 resets progress6AC7C0, preserving count/type/order.
 /// This neutral transport does not introduce a sim dependency on a UI owner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SavedSidebarOrder {
+pub struct SavedSidebarOrder {
     owner: InternedId,
     strips: [Vec<SavedCameoId>; 4],
     scroll_rows: [usize; 4],
+    flash_deadlines: [Vec<i32>; 4],
+    redraw_until: i32,
+    request_states: [Vec<u8>; 4],
+    prediction_categories: Vec<crate::sim::production::ProductionCategory>,
 }
 
 impl SavedSidebarOrder {
-    pub(crate) fn new(
-        owner: InternedId,
-        strips: [Vec<SavedCameoId>; 4],
-        scroll_rows: [usize; 4],
-    ) -> Self {
+    pub fn new(owner: InternedId, strips: [Vec<SavedCameoId>; 4], scroll_rows: [usize; 4]) -> Self {
+        let flash_deadlines = std::array::from_fn(|index| vec![0; strips[index].len()]);
+        let request_states = std::array::from_fn(|index| vec![0; strips[index].len()]);
         Self {
             owner,
             strips,
             scroll_rows,
+            flash_deadlines,
+            redraw_until: 0,
+            request_states,
+            prediction_categories: Vec::new(),
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn owner(&self) -> InternedId {
+    pub fn with_flash(mut self, deadlines: [Vec<i32>; 4], redraw_until: i32) -> Self {
+        self.flash_deadlines = deadlines;
+        self.redraw_until = redraw_until;
+        self
+    }
+
+    pub fn flash(&self) -> (&[Vec<i32>; 4], i32) {
+        (&self.flash_deadlines, self.redraw_until)
+    }
+
+    pub fn with_requests(mut self, states: [Vec<u8>; 4]) -> Self {
+        self.request_states = states;
+        self
+    }
+
+    pub fn requests(&self) -> &[Vec<u8>; 4] {
+        &self.request_states
+    }
+
+    /// HouseSave504080/Load503040 retain the independent category gates;
+    /// post-load NoInit4F5190 does not initialize them again. The client
+    /// owns these local prediction decisions along with its cameo requests.
+    pub fn with_prediction_categories(
+        mut self,
+        categories: Vec<crate::sim::production::ProductionCategory>,
+    ) -> Self {
+        self.prediction_categories = categories;
+        self
+    }
+
+    pub fn prediction_categories(&self) -> &[crate::sim::production::ProductionCategory] {
+        &self.prediction_categories
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn owner(&self) -> InternedId {
         self.owner
     }
 
-    #[cfg(test)]
-    pub(crate) fn strips(&self) -> &[Vec<SavedCameoId>; 4] {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn strips(&self) -> &[Vec<SavedCameoId>; 4] {
         &self.strips
     }
 
-    pub(crate) fn into_parts(self) -> (InternedId, [Vec<SavedCameoId>; 4], [usize; 4]) {
+    pub fn into_parts(self) -> (InternedId, [Vec<SavedCameoId>; 4], [usize; 4]) {
         (self.owner, self.strips, self.scroll_rows)
     }
 }
@@ -1095,17 +1231,17 @@ impl SavedSidebarOrder {
 /// clamped view and overwrites RequestedViewPosition with that view, so pending
 /// scroll is deliberately absent from this neutral presentation transport.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavedTacticalView {
+pub struct SavedTacticalView {
     /// Committed tactical center in VERA world pixels, including its existing
     /// projection bias. UpdateViewport6D8B30 derives the viewport from it and
     /// the current viewport size at load, so the window size is not saved.
-    pub(crate) view_center_world_pixels: [f32; 2],
-    pub(crate) zoom: f32,
-    pub(crate) focus_start: [i32; 2],
-    pub(crate) focus_target: [i32; 2],
-    pub(crate) focus_rate_bits: u32,
-    pub(crate) focus_progress_bits: u32,
-    pub(crate) last_ai_frame: u32,
+    pub view_center_world_pixels: [f32; 2],
+    pub zoom: f32,
+    pub focus_start: [i32; 2],
+    pub focus_target: [i32; 2],
+    pub focus_rate_bits: u32,
+    pub focus_progress_bits: u32,
+    pub last_ai_frame: u32,
 }
 
 /// Binary snapshot envelope — wraps the full `Simulation` state plus
@@ -1136,7 +1272,7 @@ pub struct GameSnapshot {
     /// Original AbstractLoad410380 reads the raw object, then FootLoad4DB60D
     /// and no-init Foot4D3540 preserve this short (naval_lifetime_controls).
     /// Kept in the neutral envelope so sim never depends on a render owner.
-    pub(crate) sinking_waterlines: Vec<(u64, i16)>,
+    pub sinking_waterlines: Vec<(u64, i16)>,
     /// Retained local sidebar order is presentation state, outside the lockstep
     /// simulation hash. The app validates/hydrates it before committing a load.
     sidebar_order: Option<SavedSidebarOrder>,
@@ -1185,6 +1321,7 @@ pub enum SnapshotError {
     MapMismatch { expected: u64, found: u64 },
     #[error("rules hash {found:#018x} does not match active rules {expected:#018x}")]
     RulesMismatch { expected: u64, found: u64 },
+    #[cfg(any(test, feature = "test-support"))]
     #[error("snapshot map name {found:?} does not match active map {expected:?}")]
     MapNameMismatch { expected: String, found: String },
     #[error(
@@ -1208,11 +1345,29 @@ pub enum SnapshotError {
 /// Structural failures found before a deserialized simulation is admitted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SnapshotRestoreError {
+    #[error("invalid detached Particle {object_id}: {reason}")]
+    InvalidDetachedParticleState {
+        object_id: u64,
+        reason: &'static str,
+    },
+    #[error("invalid saved TechnoType TechLevel state: {reason}")]
+    InvalidTypeTechLevels { reason: String },
+    #[error("invalid scalable Bullet runtime: {0}")]
+    InvalidScalableProjectileRuntime(&'static str),
+    #[error("invalid radiation site order: {0}")]
+    InvalidRadiationSiteOrder(&'static str),
+    #[error("invalid saved DiskLaser {object_id}: {reason}")]
+    InvalidDiskLaserState {
+        object_id: u64,
+        reason: &'static str,
+    },
     #[error("entity {object_id} has invalid Tesla charging state: {reason}")]
     InvalidTeslaChargingState {
         object_id: u64,
         reason: &'static str,
     },
+    #[error("invalid saved planning graph: {reason}")]
+    InvalidPlanningReferences { reason: &'static str },
     #[error("non-Building entity {owner_id} retains animation slot {slot}")]
     InvalidBuildingAnimSlotOwner { owner_id: u64, slot: u8 },
     #[error("Building {owner_id} slot {slot} references missing AnimStore object {anim_id}")]
@@ -1241,6 +1396,16 @@ pub enum SnapshotRestoreError {
     InvalidInfantryTerminalState { object_id: u64 },
     #[error("house {owner} has invalid serialized outcome state: {reason}")]
     InvalidHouseOutcomeState {
+        owner: crate::sim::intern::InternedId,
+        reason: &'static str,
+    },
+    #[error("house {owner} has invalid produced history: {reason}")]
+    InvalidHouseProductionHistory {
+        owner: crate::sim::intern::InternedId,
+        reason: &'static str,
+    },
+    #[error("house {owner} has invalid native scenario name state: {reason}")]
+    InvalidHouseScenarioName {
         owner: crate::sim::intern::InternedId,
         reason: &'static str,
     },
@@ -1356,14 +1521,14 @@ pub enum SnapshotRestoreError {
 
 /// Derived facts produced by the transactional map-authority restore seam.
 #[derive(Debug)]
-pub(crate) struct SnapshotMapRestoreOutput {
+pub struct SnapshotMapRestoreOutput {
     pub occupied_overlays: Vec<crate::map::overlay::OverlayEntry>,
     pub native_tiberium_stats: crate::sim::ore_growth::NativeTiberiumRebuildStats,
 }
 
 /// Retail asset admission on restored live cells, before derived map publication.
 /// The callback can advance Main without obtaining seed/replacement authority.
-pub(crate) type SnapshotTerrainAssetPreparation<'a> = dyn FnMut(
+pub type SnapshotTerrainAssetPreparation<'a> = dyn FnMut(
         &mut crate::map::resolved_terrain::ResolvedTerrainGrid,
         crate::sim::rng::MainRngDraws,
         i32,
@@ -1437,12 +1602,13 @@ impl GameSnapshot {
         bincode::serialize(&snapshot).expect("snapshot serialization should not fail")
     }
 
-    /// Serialize a production save with metadata owned by the active session.
+    /// Serialize a headless save with metadata owned by the active session.
     ///
     /// Map/rules digests come from the app's loaded content owners. Tick and map
     /// name are copied from `ScenarioSession`, so the envelope cannot disagree
     /// with the authoritative body. The app supplies the wall-clock timestamp;
     /// sim code remains clock-independent.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn save_validated(
         sim: &Simulation,
         map_hash: u64,
@@ -1466,7 +1632,7 @@ impl GameSnapshot {
 
     /// Save the app's retained presentation alongside the simulation. A headless
     /// caller uses `save_validated`, whose presentation supplement is empty.
-    pub(crate) fn save_validated_with_presentation(
+    pub fn save_validated_with_presentation(
         sim: &Simulation,
         map_hash: u64,
         rules_hash: u64,
@@ -1495,25 +1661,25 @@ impl GameSnapshot {
         )
     }
 
-    pub(crate) fn sidebar_order(&self) -> Option<&SavedSidebarOrder> {
+    pub fn sidebar_order(&self) -> Option<&SavedSidebarOrder> {
         self.sidebar_order.as_ref()
     }
 
-    pub(crate) fn tactical_view(&self) -> Option<&SavedTacticalView> {
+    pub fn tactical_view(&self) -> Option<&SavedTacticalView> {
         self.tactical_view.as_ref()
     }
 
-    pub(crate) fn take_local_view(&mut self) -> Option<SavedLocalView> {
+    pub fn take_local_view(&mut self) -> Option<SavedLocalView> {
         self.local_view.take()
     }
 
-    pub(crate) fn take_scenario_resources(&mut self) -> Option<SavedScenarioResources> {
+    pub fn take_scenario_resources(&mut self) -> Option<SavedScenarioResources> {
         self.scenario_resources.take()
     }
 
     /// Test-only constructor for deliberately synthetic envelope metadata.
-    #[cfg(test)]
-    pub(crate) fn save(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn save(
         sim: &Simulation,
         map_hash: u64,
         rules_hash: u64,
@@ -1538,7 +1704,7 @@ impl GameSnapshot {
     /// Like retail's post-read Scenario
     /// reinitializer, full deserialization resets the embedded Scenario RNG to
     /// `Random__Seed(0)` even though its saved bytes remain in the wire layout.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn load_unchecked(bytes: &[u8]) -> Result<GameSnapshot, SnapshotError> {
         let _ = Self::read_header(bytes)?;
         Ok(bincode::deserialize(bytes)?)
@@ -1546,8 +1712,8 @@ impl GameSnapshot {
 
     /// Compatibility alias for existing unit fixtures that intentionally use
     /// synthetic zero hashes and header-only map names.
-    #[cfg(test)]
-    pub(crate) fn load(bytes: &[u8]) -> Result<GameSnapshot, SnapshotError> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn load(bytes: &[u8]) -> Result<GameSnapshot, SnapshotError> {
         Self::load_unchecked(bytes)
     }
 
@@ -1559,6 +1725,7 @@ impl GameSnapshot {
     /// The returned Scenario RNG is the canonical seed-zero state. Main/MapGen
     /// fields are deserialize placeholders; the app's in-scenario production
     /// load seam replaces them with the live process cursors and seed.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn load_validated(
         bytes: &[u8],
         expected_map_hash: u64,
@@ -1591,7 +1758,7 @@ impl GameSnapshot {
     /// Production cold/cross-map admission. Compatibility is checked against
     /// the saved resource owner and its rebuilt RuleSet, never the outgoing
     /// match or header values passed back as their own expected content.
-    pub(crate) fn load_with_resources(bytes: &[u8]) -> Result<GameSnapshot, SnapshotError> {
+    pub fn load_with_resources(bytes: &[u8]) -> Result<GameSnapshot, SnapshotError> {
         Self::read_header(bytes)?;
         let snapshot = Self::deserialize_admitted(bytes)?;
         let resources = snapshot
@@ -1644,7 +1811,7 @@ impl GameSnapshot {
     /// SaveInfo681840/559ED0 reads metadata even when its internal version is
     /// incompatible. Browser5596A0 sorts those rows before5599DF hides them;
     /// full load still requires the strict current-version header above.
-    pub(crate) fn read_metadata(bytes: &[u8]) -> Result<GameSnapshotHeader, SnapshotError> {
+    pub fn read_metadata(bytes: &[u8]) -> Result<GameSnapshotHeader, SnapshotError> {
         Self::read_preamble(bytes)?;
         Ok(bincode::deserialize(bytes)?)
     }
@@ -1669,7 +1836,7 @@ impl GameSnapshot {
 }
 
 impl GameSnapshotHeader {
-    pub(crate) fn is_current_version(&self) -> bool {
+    pub fn is_current_version(&self) -> bool {
         self.version == SNAPSHOT_VERSION
     }
 }
@@ -1724,6 +1891,15 @@ impl RestoredObjectIndex {
                 highest_id = highest_id.max(id);
             }
         }
+        for (registry_id, particle, _, _) in sim.substrate.particle_systems.detached_particles() {
+            Self::register(
+                &mut identities,
+                "ParticleSystemStore.detached",
+                registry_id,
+                particle.stable_id(),
+            )?;
+            highest_id = highest_id.max(registry_id);
+        }
         for (&registry_id, terrain) in &sim.production.terrain_objects {
             Self::register(
                 &mut identities,
@@ -1745,6 +1921,10 @@ impl RestoredObjectIndex {
         for (&registry_id, wave) in sim.waves.iter() {
             Self::register(&mut identities, "WaveStore", registry_id, wave.id)?;
             highest_id = highest_id.max(registry_id);
+        }
+        for shot in sim.disk_laser_observations() {
+            Self::register(&mut identities, "DiskLaserStore", shot.id, shot.id)?;
+            highest_id = highest_id.max(shot.id);
         }
         if let Some(grid) = &sim.smudge_grid {
             for (registry_id, object) in grid.objects() {
@@ -1892,6 +2072,17 @@ fn restore_object_references(
         .map(|(&id, _)| id)
         .collect();
 
+    if let Some(id) = sim.particle_systems().gas_cloud_system() {
+        require_resolved_reference(
+            particle_system_ids.contains(&id),
+            "ParticleSystemStore",
+            0,
+            "gas_cloud_system",
+            "ParticleSystemStore",
+            id,
+        )?;
+    }
+
     // Building saved+55C slots swizzle to distinct owned Anim objects. Validate
     // before weak-pointer cleanup or reverse-index mutation. Anim+CC may remain
     // null, and a deferred Destroy is still a physically present valid target.
@@ -1934,6 +2125,20 @@ fn restore_object_references(
     // complete modeled pointer graph before mutating even weak references or
     // derived caches, so a failed restore remains an atomic rejection.
     for (entity_id, entity) in sim.substrate.entities.iter_sorted() {
+        if let Some(anim_id) = entity
+            .parasite
+            .class()
+            .and_then(|class| class.grapple_anim())
+        {
+            require_resolved_reference(
+                anim_ids.contains(&anim_id),
+                "EntityStore",
+                entity_id,
+                "parasite.grapple.anim",
+                "AnimStore",
+                anim_id,
+            )?;
+        }
         if entity.tesla_charger.is_active()
             && !matches!(
                 entity.category(),
@@ -2044,21 +2249,23 @@ fn restore_object_references(
             }
             if let Some(TargetKind::Entity(target_id)) = manager.current_target() {
                 require_resolved_reference(
-                    entity_ids.contains(&target_id),
+                    entity_ids.contains(&target_id)
+                        || sim.production.terrain_objects.contains_key(&target_id),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.current_target",
-                    "EntityStore",
+                    "EntityStore or TerrainObjectStore",
                     target_id,
                 )?;
             }
             if let Some(TargetKind::Entity(target_id)) = manager.queued_target() {
                 require_resolved_reference(
-                    entity_ids.contains(&target_id),
+                    entity_ids.contains(&target_id)
+                        || sim.production.terrain_objects.contains_key(&target_id),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.queued_target",
-                    "EntityStore",
+                    "EntityStore or TerrainObjectStore",
                     target_id,
                 )?;
             }
@@ -2093,21 +2300,23 @@ fn restore_object_references(
 
         if let Some(TargetKind::Entity(target_id)) = entity.attack_target.target() {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "EntityStore",
                 entity_id,
                 "attack_target",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
         if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target.target() {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "EntityStore",
                 entity_id,
                 "suspended_attack_target",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
@@ -2211,14 +2420,14 @@ fn restore_object_references(
                 pending,
             )?;
         }
-        if let Some(ammo) = entity.aircraft_ammo.as_ref()
+        if let Some(ammo) = entity.ammo()
             && let Some(target_id) = ammo.dock()
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
-                "aircraft_ammo.dock",
+                "ammo.dock",
                 "EntityStore",
                 target_id,
             )?;
@@ -2267,12 +2476,24 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(system_id) = entity.damage_smoke_system_id.system() {
+        for (field, system_id) in [
+            (
+                "spark_particle_system",
+                entity.spark_particle_system.system(),
+            ),
+            (
+                "damage_smoke_system_id",
+                entity.damage_smoke_system_id.system(),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(field, system)| system.map(|id| (field, id)))
+        {
             require_resolved_reference(
                 particle_system_ids.contains(&system_id),
                 "EntityStore",
                 entity_id,
-                "damage_smoke_system_id",
+                field,
                 "ParticleSystemStore",
                 system_id,
             )?;
@@ -2329,31 +2550,44 @@ fn restore_object_references(
     for (&system_id, system) in sim.substrate.particle_systems.iter() {
         if let Some(owner_id) = system.owner_entity {
             require_resolved_reference(
-                entity_ids.contains(&owner_id),
+                entity_ids.contains(&owner_id)
+                    || sim.production.terrain_objects.contains_key(&owner_id),
                 "ParticleSystemStore",
                 system_id,
                 "owner_entity",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 owner_id,
             )?;
         }
-        if let Some(attached_id) = system.attached_entity {
+        if let Some(crate::sim::combat::TargetKind::Entity(attached_id)) = system.target_ref {
             require_resolved_reference(
-                entity_ids.contains(&attached_id),
+                entity_ids.contains(&attached_id)
+                    || sim.production.terrain_objects.contains_key(&attached_id),
                 "ParticleSystemStore",
                 system_id,
-                "attached_entity",
-                "EntityStore",
+                "target_ref",
+                "EntityStore or TerrainObjectStore",
                 attached_id,
             )?;
         }
     }
 
     // BulletClass__Load @ 0x0046AE70 queues the non-null source/firer pointer
-    // at +0xB0 and target pointer at +0x10C for global swizzling. VERA's zero
-    // source sentinel and non-entity Cell/null targets are the corresponding
+    // at +0xB0, target at +0x10C and awaited Anim at +0x154 for global
+    // swizzling (46AF8B), independently of the wait flag. VERA's zero
+    // source sentinel and Cell/null targets are the corresponding
     // null/non-pointer representations and therefore need no object lookup.
     for (&projectile_id, projectile) in sim.projectiles.iter() {
+        if let Some(anim_id) = projectile.awaited_anim() {
+            require_resolved_reference(
+                anim_ids.contains(&anim_id),
+                "ProjectileStore",
+                projectile_id,
+                "awaited_anim",
+                "AnimStore",
+                anim_id,
+            )?;
+        }
         if projectile.source_id != crate::sim::combat::RAD_NO_ATTACKER {
             require_resolved_reference(
                 entity_ids.contains(&projectile.source_id),
@@ -2364,13 +2598,23 @@ fn restore_object_references(
                 projectile.source_id,
             )?;
         }
-        if let ProjectileTarget::Entity(target_id) = projectile.target {
+        if let Some((target_id, target_registry, present)) = match projectile.target {
+            ProjectileTarget::Entity(id) => Some((id, "EntityStore", entity_ids.contains(&id))),
+            ProjectileTarget::Terrain(id) => Some((
+                id,
+                "TerrainObjectStore",
+                sim.production.terrain_objects.contains_key(&id),
+            )),
+            ProjectileTarget::Cell { .. }
+            | ProjectileTarget::DummyCell
+            | ProjectileTarget::None => None,
+        } {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                present,
                 "ProjectileStore",
                 projectile_id,
                 "target",
-                "EntityStore",
+                target_registry,
                 target_id,
             )?;
         }
@@ -2390,11 +2634,12 @@ fn restore_object_references(
         }
         if let Some(TargetKind::Entity(target_id)) = wave.target_ref {
             require_resolved_reference(
-                entity_ids.contains(&target_id),
+                entity_ids.contains(&target_id)
+                    || sim.production.terrain_objects.contains_key(&target_id),
                 "WaveStore",
                 wave_id,
                 "target_ref",
-                "EntityStore",
+                "EntityStore or TerrainObjectStore",
                 target_id,
             )?;
         }
@@ -2468,8 +2713,8 @@ fn restore_object_references(
     }
 
     // The primary-factory links (the native primary byte, written by
-    // Building448070 and the player's cycle order) name objects by id.
-    // Restore prunes ids the validated object graph no longer holds.
+    // Building448070/448160) name objects by id. Restore retains limbo
+    // flags and prunes ids the validated object graph no longer holds.
     sim.production.retain_primary_factory_links(&entity_ids);
 
     Ok(())
@@ -2484,11 +2729,34 @@ impl Simulation {
     /// rejects any unmatched modeled native pointer, cleans only deliberate
     /// weak/derived identities, and reconstructs skipped indexes in dependency
     /// order.
-    pub(crate) fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
+    pub fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
+        self.projectiles
+            .validate_scalable_runtime(&self.interner)
+            .map_err(SnapshotRestoreError::InvalidScalableProjectileRuntime)?;
+        self.radiation
+            .validate_site_order()
+            .map_err(SnapshotRestoreError::InvalidRadiationSiteOrder)?;
+        self.validate_planning_references()
+            .map_err(|reason| SnapshotRestoreError::InvalidPlanningReferences { reason })?;
         if let Some(owner) = self.session.current_house
             && (!self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner))
         {
             return Err(SnapshotRestoreError::InvalidCurrentHouse { owner });
+        }
+        let scenario_names_admitted = self
+            .houses
+            .values()
+            .any(|house| house.native_scenario_name().is_some());
+        let mut named_house_order = std::collections::BTreeSet::new();
+        if scenario_names_admitted {
+            for &owner in &self.session.house_order {
+                if !named_house_order.insert(owner) || !self.houses.contains_key(&owner) {
+                    return Err(SnapshotRestoreError::InvalidHouseScenarioName {
+                        owner,
+                        reason: "native House array must contain each registered House once",
+                    });
+                }
+            }
         }
         // VERA-internal terminal admission invariant. UnInit clears the policy
         // before marking the object dead; pending deletion needs no new visit.
@@ -2516,6 +2784,20 @@ impl Simulation {
             }
         }
         for (&owner, house) in &self.houses {
+            house.validate_scenario_name().map_err(|reason| {
+                SnapshotRestoreError::InvalidHouseScenarioName { owner, reason }
+            })?;
+            if scenario_names_admitted
+                && (house.native_scenario_name().is_none() || !named_house_order.contains(&owner))
+            {
+                return Err(SnapshotRestoreError::InvalidHouseScenarioName {
+                    owner,
+                    reason: "admitted scenario requires a name for every registered House",
+                });
+            }
+            house.validate_production_history().map_err(|reason| {
+                SnapshotRestoreError::InvalidHouseProductionHistory { owner, reason }
+            })?;
             let Some(outcome) = house.outcome() else {
                 if house.is_defeated || house.has_won() || house.has_lost() {
                     return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
@@ -2555,6 +2837,13 @@ impl Simulation {
             }
         }
 
+        self.validate_disk_lasers_after_restore(None)
+            .map_err(
+                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
+                    object_id,
+                    reason,
+                },
+            )?;
         let (index, identities) = RestoredObjectIndex::build(self)?;
         let seen_logic = self
             .substrate
@@ -2564,6 +2853,24 @@ impl Simulation {
             .pending_delete
             .object_tickets()
             .collect::<BTreeSet<_>>();
+        for (object_id, _, alive, in_limbo) in self.substrate.particle_systems.detached_particles()
+        {
+            if seen_logic.contains(&object_id)
+                || (in_limbo && self.display_layers().layer_of(object_id).is_some())
+                || (!alive && !in_limbo)
+            {
+                return Err(SnapshotRestoreError::InvalidDetachedParticleState {
+                    object_id,
+                    reason: "detached body remains in Logic, limbo body remains in Display, or dead body is not in limbo",
+                });
+            }
+            if !alive && !pending_delete_ids.contains(&object_id) {
+                return Err(SnapshotRestoreError::MissingDeferredDeleteIdentity {
+                    registry: "ParticleSystemStore.detached",
+                    object_id,
+                });
+            }
+        }
         for ticket in self.substrate.pending_delete.retained_tickets() {
             use crate::sim::world::DeferredDeleteTicket;
             let (registry, identity, resolves) = match ticket {
@@ -2571,6 +2878,7 @@ impl Simulation {
                 DeferredDeleteTicket::Overlay(id) => {
                     ("Overlay", id, self.load_objects.has_overlay(id))
                 }
+                DeferredDeleteTicket::DiskLaser(id) => ("DiskLaser", id, self.has_disk_laser(id)),
                 DeferredDeleteTicket::Tag(id) => {
                     ("Tag", id as u64, self.trigger_runtime.has_live_tag(id))
                 }
@@ -2668,6 +2976,17 @@ impl Simulation {
         }
 
         validate_passenger_size_tables(self)?;
+        // Concrete Unit74451C/Aircraft41B4DC/Infantry521A0C/Building453ECF
+        // Load reconstructs Techno's three empty vectors through NoInit
+        //6F43AB..6F4410. Their raw headers have no element swizzles; discard
+        // them before validating strong references, retaining real TarCom.
+        for id in self.substrate.entities.keys_sorted() {
+            self.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .clear_distributed_fire_after_load();
+        }
         restore_object_references(self, &identities)?;
 
         // EntityStore already restored its indexes during Deserialize (Clone
@@ -2683,6 +3002,7 @@ impl Simulation {
                 .arm_timer
                 .start(self.session.binary_frame as i32, 0);
         }
+        self.projectiles.restore_scalable_after_load();
         // ParasiteClass Load 6295DB..6295F3 does the same for its suppression
         // and bite timers: a bite is due at once and suppression is dropped.
         let frame = self.session.binary_frame;
@@ -2717,12 +3037,20 @@ impl Simulation {
     /// occupied-only replay would leave the original map overlay's passability
     /// behind. Bridge cell state needs no separate pass: CellClass is its only
     /// owner and returns through the dynamic terrain cells above.
-    pub(crate) fn restore_map_authority_after_snapshot_load(
+    pub fn restore_map_authority_after_snapshot_load(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,
         overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
         prepare_terrain_assets: Option<&mut SnapshotTerrainAssetPreparation<'_>>,
     ) -> Result<SnapshotMapRestoreOutput, SnapshotRestoreError> {
+        self.validate_type_tech_levels(rules)?;
+        self.validate_disk_lasers_after_restore(Some(rules))
+            .map_err(
+                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
+                    object_id,
+                    reason,
+                },
+            )?;
         let (overlay_width, overlay_height, overlay_cell_count, retained_wall_count) = self
             .overlay_grid
             .as_ref()
@@ -3484,7 +3812,7 @@ mod tests {
         // Synthetic fixtures use unchecked snapshots and often bypass the
         // monotonic allocators. Rebuild their substrate caches directly; the
         // production path uses `restore_after_snapshot_load`.
-        sim.substrate.entities.rebuild_infantry_registry();
+        sim.substrate.entities.rebuild_class_registries();
         sim.rebuild_logic_membership();
         sim.substrate
             .occupancy
@@ -4468,7 +4796,65 @@ mod tests {
         // 356 -> 357: no voxel HVA or OREGATH frame clock.
         // 357 -> 358: retained BuildingType TargetCoordOffset.
         // 358 -> 359: Tesla charger list, weapon latch and Foot intent.
-        assert_eq!(super::SNAPSHOT_VERSION, 360);
+        // 359 -> 360: retained airstrike managers and aircraft relationships.
+        // 360 -> 361: retained radial launch settings and firing index.
+        // 361 -> 362: Terrain Bullet target identity and reference validation.
+        // 362 -> 363: retained Scenario countdown and sidebar cameo flash deadlines.
+        // 363 -> 364: independent Bullet constructor and installed-weapon fields.
+        // 364 -> 365: retained RadSite creation/update order.
+        // 365 -> 366: process scalable Bullet order and type cadence.
+        // 366 -> 367: synchronized planning nodes, paths and local input mode.
+        // 367 -> 368: retained runtime DistributedFire state.
+        // 368 -> 369: tracked navy and its retained type admission.
+        // 369 -> 370: constructor-assigned VoxelAnim native IDs.
+        // 370 -> 371: retained Parasite grapple progress.
+        // 371 -> 372: authoritative binary32 body angles/rates.
+        // 372 -> 373: retained House last-built type indices.
+        // 373 -> 374: the batched target scan setting.
+        // 374 -> 375: retained CaptureManager overload pip countdown.
+        // 375 -> 376: retained Foot Ammo and chrono reinforcement pending state.
+        // 376 -> 377: retained source cache and independent sight latch.
+        // 377 -> 378: Super recharge override and House offensive target.
+        // 378 -> 379: synchronous Factory lifecycle and sale continuation.
+        // 379 -> 380: live type TechLevels and global constructor chronology.
+        // 380 -> 381: one Factory suspension authority; no duplicate manual bit.
+        // 381 -> 382: retained Secret Lab rules, membership and reward.
+        // 382 -> 383: private Factory+71 automatic-recovery eligibility.
+        // 383 -> 384: retained Weapon damage and Warhead identity in saved rules.
+        // 383 -> 385: retained Drive straight/crush track flag.
+        // 385 -> 386: combined Weapon and Drive layouts.
+        // 385 -> 386: retained primary flags include matching limbo peers.
+        // 386 -> 387: combined Weapon, Drive and Building primary layouts.
+        // 387 -> 388: independent RadSite light clock and source parameters.
+        // 388 -> 389: particle owner-relative offsets have native semantics.
+        // 389 -> 390: retained AV ambient rate/step fields in saved Rules.
+        // 390 -> 391: retained ColorAdd slots and AudioVisual selectors.
+        // 391 -> 392: retained RulesClass survivor divisors.
+        // 392 -> 393: reject cargo with the old mid-track boarding semantics.
+        // 393 -> 394: saved requests/gates, with NoInit clock reset.
+        // 394 -> 395: retained Cheer rate and the appended Cheer command.
+        // 395 -> 396: actual Spark link/target and retained Particle bodies.
+        // 396 -> 397: retained Particle has independent Alive and Limbo.
+        // 397 -> 398: per-family/type produced history for lifetime limits.
+        // 398 -> 399: remove the derived theoretical-power cache.
+        // 399 -> 400: retain the local Power bar projection.
+        // 400 -> 401: retained native House names and their array binding.
+        // 401 -> 402: retain delayed DiskLaser bodies and Rules charge-up.
+        // 402 -> 403: retain pending Map+D4 collapse coordinates/order.
+        // 403 -> 404: retain House capacity and future Building Storage input.
+        // 404 -> 405: retain AudioVisual ChronoBeamColor in processed rules.
+        // 405 -> 406: live ambient Rules writes from Action71/72.
+        // 406 -> 407: the fog's copy of the ally graph is gone.
+        // 407 -> 408: Wave geometry follows FireAt's constructor order.
+        // 408 -> 409: ordered DropZone inputs in saved Rules resources.
+        // 409 -> 410: Command::ForceAttack is gone.
+        // 410 -> 411: preferred Super target kind and House-control pointers.
+        // 411 -> 412: retained vehicle SpeedType in processed Rules.
+        // 412 -> 413: retained Super one-time and provider-loss/hold flags.
+        // 413 -> 414: global GasCloudSys reference and Particle motion words.
+        // 414 -> 415: path-batch code-2 re-path urgencies.
+        // 415 -> 416: Building online latch independent of Temporal.
+        assert_eq!(super::SNAPSHOT_VERSION, 416);
     }
 
     #[test]
@@ -5000,7 +5386,7 @@ mod tests {
                 auto_base_building: bits & 8 != 0,
             };
             let mut house = HouseState::new(owner, 0, None, false, 0, 10);
-            house.ai_activation = latches;
+            house.set_ai_activation_for_test(latches);
             sim.houses.insert(owner, house);
             sim.session.house_order.push(owner);
 
@@ -5013,7 +5399,7 @@ mod tests {
             let restored = GameSnapshot::load(&bytes)
                 .expect("current v115 snapshot")
                 .sim;
-            assert_eq!(restored.houses[&owner].ai_activation, latches);
+            assert_eq!(restored.houses[&owner].ai_activation(), latches);
         }
     }
 
@@ -5477,8 +5863,10 @@ mod tests {
         assert!(!active.initialize(
             WaveUpdateContext {
                 owner_position: Some(active_source),
+                owner_fire_coordinate: Some(active_source),
                 owner_current_target: Some(active_target),
                 target_position: Some(active_endpoint),
+                target_is_unit: false,
             },
             None,
         ));
@@ -5487,8 +5875,10 @@ mod tests {
         let _ = active.advance(
             WaveUpdateContext {
                 owner_position: Some(active_source),
+                owner_fire_coordinate: Some(active_source),
                 owner_current_target: Some(active_target),
                 target_position: Some(moved_endpoint),
+                target_is_unit: false,
             },
             None,
         );
@@ -6255,7 +6645,12 @@ mod tests {
         house.map_is_clear = true;
         sim.houses.insert(owner, house);
         sim.fog.reveal_all_for_owner(owner);
-        crate::sim::vision::apply_gap_generators(&mut sim.fog, &[(gapper, 6, 6, 2)], &sim.interner);
+        crate::sim::vision::apply_gap_generators(
+            &mut sim.fog,
+            &sim.house_alliances,
+            &[(gapper, 6, 6, 2)],
+            &sim.interner,
+        );
         assert!(sim.fog.is_cell_revealed(owner, 0, 0));
         assert!(!sim.fog.is_cell_revealed(owner, 6, 6));
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
@@ -7524,10 +7919,16 @@ mod tests {
             let mut system =
                 ParticleSystem::test_fixture(particle_id, ParticleSystemTypeId(0), IVec3::ZERO);
             system.facing = 0x1d;
-            system.attached_entity = Some(entity_id);
+            system.target_ref = Some(crate::sim::combat::TargetKind::Entity(entity_id));
             system.owner_entity = Some(entity_id);
             system
         });
+        sim.substrate
+            .entities
+            .get_mut(entity_id)
+            .unwrap()
+            .spark_particle_system
+            .bind(Some(particle_id));
         sim.set_logic_order_for_test(vec![particle_id, entity_id]);
 
         let bytes = GameSnapshot::save_validated(&sim, 7, 8, "Restore fixture", 9);
@@ -7583,7 +7984,20 @@ mod tests {
             .get(particle_id)
             .expect("particle system");
         assert_eq!(system.owner_entity, Some(entity_id));
-        assert_eq!(system.attached_entity, Some(entity_id));
+        assert_eq!(
+            system.target_ref,
+            Some(crate::sim::combat::TargetKind::Entity(entity_id))
+        );
+        assert_eq!(
+            restored
+                .substrate
+                .entities
+                .get(entity_id)
+                .unwrap()
+                .spark_particle_system
+                .system(),
+            Some(particle_id)
+        );
     }
 
     #[test]
@@ -7609,7 +8023,7 @@ mod tests {
             let mut system =
                 ParticleSystem::test_fixture(particle_id, ParticleSystemTypeId(0), IVec3::ZERO);
             system.facing = 0x1d;
-            system.attached_entity = Some(999);
+            system.target_ref = Some(crate::sim::combat::TargetKind::Entity(999));
             system.owner_entity = Some(entity_id);
             system
         });
@@ -7619,8 +8033,8 @@ mod tests {
             Err(SnapshotRestoreError::UnresolvedObjectReference {
                 source_registry: "ParticleSystemStore",
                 source_id: particle_id,
-                field: "attached_entity",
-                target_registry: "EntityStore",
+                field: "target_ref",
+                target_registry: "EntityStore or TerrainObjectStore",
                 target_id: 999,
             })
         );
@@ -7640,8 +8054,8 @@ mod tests {
                 .particle_systems
                 .get(particle_id)
                 .expect("particle system")
-                .attached_entity,
-            Some(999),
+                .target_ref,
+            Some(crate::sim::combat::TargetKind::Entity(999)),
             "failed restoration must not sanitize the unresolved strong reference"
         );
     }
@@ -7672,11 +8086,7 @@ mod tests {
             origin: ProjectileCoord::new(0, 0, 0),
             target,
             initial_target_position: ProjectileCoord::new(256, 256, 0),
-            payload: ProjectilePayload::new(
-                1,
-                InternedId::from_index(0),
-                InternedId::from_index(0),
-            ),
+            payload: ProjectilePayload::new(1, InternedId::from_index(0), None, false),
             speed_leptons_per_frame: 64,
             velocity: ProjectileVelocity::new(64, 0, 0),
             trajectory: ProjectileTrajectory::Straight,
@@ -7689,6 +8099,243 @@ mod tests {
             target_expiry: TargetExpiryPolicy::Expire,
             collision: ProjectileCollisionPolicy::NONE,
         }
+    }
+
+    fn terrain_target_snapshot_fixture() -> (Simulation, crate::rules::ruleset::RuleSet, u64, u64) {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::ruleset::RuleSet;
+        use crate::sim::combat::RAD_NO_ATTACKER;
+        use crate::sim::projectile::ProjectileTarget;
+        use crate::sim::terrain_object::{
+            TerrainObjectState, mark_terrain_occupation, mark_terrain_raw_occupation,
+        };
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=DUMMY\n[DUMMY]\nPrimary=GUN\n[GUN]\nProjectile=SHOT\nWarhead=WH\n[SHOT]\nInviso=yes\n[WH]\nWood=yes\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n[TerrainTypes]\n0=TREE01\n[TREE01]\nStrength=10\nArmor=wood\nTemperateOccupationBits=7\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        sim.session.map_width = 4;
+        sim.session.map_height = 4;
+        let mut terrain = flat_terrain(4, 4);
+        terrain.cell_mut(1, 1).unwrap().level = 2;
+        let tree_id = sim.allocate_stable_id();
+        let tree = TerrainObjectState::new(
+            tree_id,
+            sim.interner.intern("TREE01"),
+            (1, 1),
+            rules
+                .terrain_object_type_case_insensitive("TREE01")
+                .unwrap(),
+            false,
+            Some(&terrain),
+        );
+        let coordinate = tree.world_coord();
+        mark_terrain_occupation(&tree, Some(&mut terrain));
+        mark_terrain_raw_occupation(
+            &mut sim.substrate.raw_cell_occupation,
+            tree.cell(),
+            tree.occupation_bits,
+        );
+        sim.production
+            .terrain_object_cells
+            .insert(tree.cell(), tree_id);
+        sim.production.terrain_objects.insert(tree_id, tree);
+        sim.resolved_terrain = Some(terrain);
+        assert!(sim.register_terrain_object(tree_id, Some(&rules)));
+
+        let projectile_id = sim.allocate_stable_id();
+        let mut spawn = gsi_17_03_projectile(RAD_NO_ATTACKER, ProjectileTarget::Terrain(tree_id));
+        spawn.initial_target_position = coordinate;
+        spawn.payload = crate::sim::projectile::ProjectilePayload::new(
+            1,
+            sim.interner.intern("WH"),
+            rules
+                .weapon("GUN")
+                .unwrap()
+                .projectile
+                .as_deref()
+                .map(|name| sim.interner.intern(name)),
+            rules.weapon("GUN").unwrap().bright,
+        )
+        .with_installed_weapon(Some(sim.interner.intern("GUN")));
+        sim.admit_projectile(projectile_id, spawn);
+        (sim, rules, tree_id, projectile_id)
+    }
+
+    #[test]
+    fn bullet_constructor_fields_roundtrip_and_hash_independently() {
+        use crate::sim::projectile::ProjectilePayload;
+        let (mut sim, _, _, projectile_id) = terrain_target_snapshot_fixture();
+        let base = sim.projectiles.get(projectile_id).unwrap().payload;
+        let baseline_hash = sim.state_hash();
+        let baseline_bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
+        let mut restored_baseline = GameSnapshot::load(&baseline_bytes).unwrap().sim;
+        restored_baseline.restore_after_snapshot_load().unwrap();
+        let restored_baseline_hash = restored_baseline.state_hash();
+        let mut hashes = BTreeSet::new();
+        let mut restored_hashes = BTreeSet::new();
+        // Native Construct carries type+AC and Bright+E0 independently of the
+        // optional WeaponType+130. In particular a null weapon must not erase
+        // the type/Bright supplied to a shrapnel or transient drop Bullet.
+        for kind in [None, base.projectile_type()] {
+            for installed in [None, base.installed_weapon()] {
+                for bright in [false, true] {
+                    let payload =
+                        ProjectilePayload::new(base.base_damage, base.warhead, kind, bright)
+                            .with_installed_weapon(installed);
+                    sim.projectiles.get_mut(projectile_id).unwrap().payload = payload;
+                    assert!(hashes.insert(sim.state_hash()));
+                    let bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
+                    let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+                    restored.restore_after_snapshot_load().unwrap();
+                    assert_eq!(
+                        restored.projectiles.get(projectile_id).unwrap().payload,
+                        payload
+                    );
+                    let restored_hash = restored.state_hash();
+                    assert!(restored_hashes.insert(restored_hash));
+                    assert_eq!(restored_hash == restored_baseline_hash, payload == base);
+                    sim.projectiles.get_mut(projectile_id).unwrap().payload = base;
+                    assert_eq!(sim.state_hash(), baseline_hash);
+                }
+            }
+        }
+        assert_eq!(hashes.len(), 8);
+        assert_eq!(restored_hashes.len(), 8);
+    }
+
+    #[test]
+    fn terrain_projectile_target_roundtrip_preserves_identity_coordinate_and_hash_kind() {
+        use crate::sim::projectile::ProjectileTarget;
+        let (mut sim, _, tree_id, projectile_id) = terrain_target_snapshot_fixture();
+        let coordinate = sim.production.terrain_objects[&tree_id].world_coord();
+        let terrain_hash = sim.state_hash();
+        sim.projectiles.get_mut(projectile_id).unwrap().target = ProjectileTarget::Entity(tree_id);
+        assert_ne!(
+            terrain_hash,
+            sim.state_hash(),
+            "pointer kinds cannot hash alike"
+        );
+        sim.projectiles.get_mut(projectile_id).unwrap().target = ProjectileTarget::Terrain(tree_id);
+
+        let bytes = GameSnapshot::save(&sim, 0, 0, "terrain-target", 0);
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.restore_after_snapshot_load().unwrap();
+        assert_eq!(
+            restored.projectiles.get(projectile_id).unwrap().target,
+            ProjectileTarget::Terrain(tree_id)
+        );
+        assert_eq!(
+            restored.production.terrain_objects[&tree_id].world_coord(),
+            coordinate
+        );
+        assert_eq!(
+            restored
+                .projectiles
+                .get(projectile_id)
+                .unwrap()
+                .last_target_position,
+            coordinate
+        );
+        assert_eq!(
+            restored.production.terrain_object_cells.get(&(1, 1)),
+            Some(&tree_id)
+        );
+    }
+
+    #[test]
+    fn terrain_projectile_target_restore_rejects_missing_and_wrong_kind_references() {
+        use crate::sim::game_entity::GameEntity;
+        use crate::sim::projectile::ProjectileTarget;
+        for wrong_kind in [false, true] {
+            let (mut sim, _, _, projectile_id) = terrain_target_snapshot_fixture();
+            let target_id = if wrong_kind {
+                let id = sim.allocate_stable_id();
+                sim.substrate.entities.insert(GameEntity::test_default(
+                    id,
+                    "DUMMY",
+                    "Americans",
+                    2,
+                    2,
+                ));
+                sim.register_live_object(id);
+                id
+            } else {
+                9_999
+            };
+            sim.projectiles.get_mut(projectile_id).unwrap().target =
+                ProjectileTarget::Terrain(target_id);
+            let bytes = GameSnapshot::save(&sim, 0, 0, "bad-terrain-target", 0);
+            let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+            assert_eq!(
+                restored.restore_after_snapshot_load(),
+                Err(SnapshotRestoreError::UnresolvedObjectReference {
+                    source_registry: "ProjectileStore",
+                    source_id: projectile_id,
+                    field: "target",
+                    target_registry: "TerrainObjectStore",
+                    target_id,
+                }),
+                "wrong kind={wrong_kind}"
+            );
+            assert_eq!(
+                restored.projectiles.get(projectile_id).unwrap().target,
+                ProjectileTarget::Terrain(target_id)
+            );
+        }
+    }
+
+    #[test]
+    fn terrain_projectile_target_cell_repair_survives_pending_delete_roundtrip() {
+        use crate::sim::combat::RAD_NO_ATTACKER;
+        use crate::sim::projectile::ProjectileTarget;
+        let (mut sim, rules, tree_id, projectile_id) = terrain_target_snapshot_fixture();
+        let coordinate = sim.production.terrain_objects[&tree_id].world_coord();
+        let warhead_id = sim.interner.intern("WH");
+        crate::sim::combat::world_receiver::apply_area_damage(
+            &mut sim,
+            &rules,
+            None,
+            coordinate,
+            10,
+            rules.warhead("WH").unwrap(),
+            (RAD_NO_ATTACKER, None, warhead_id),
+            crate::sim::world::FrameEffects::default(),
+        );
+        let cell_target = ProjectileTarget::Cell { rx: 1, ry: 1 };
+        assert_eq!(
+            sim.projectiles.get(projectile_id).unwrap().target,
+            cell_target
+        );
+        assert!(sim.substrate.pending_delete.contains_object(&tree_id));
+        assert!(!sim.production.terrain_object_cells.contains_key(&(1, 1)));
+        let bytes = GameSnapshot::save(&sim, 0, 0, "retired-terrain-target", 0);
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.restore_after_snapshot_load().unwrap();
+        assert_eq!(
+            restored.projectiles.get(projectile_id).unwrap().target,
+            cell_target
+        );
+        assert!(restored.substrate.pending_delete.contains_object(&tree_id));
+        assert!(
+            !restored
+                .production
+                .terrain_object_cells
+                .contains_key(&(1, 1))
+        );
+        restored.flush_pending_delete();
+        assert!(!restored.production.terrain_objects.contains_key(&tree_id));
+        assert_eq!(
+            restored.projectiles.get(projectile_id).unwrap().target,
+            cell_target
+        );
+        let bytes = GameSnapshot::save(&restored, 0, 0, "deleted-terrain-target", 0);
+        GameSnapshot::load(&bytes)
+            .unwrap()
+            .sim
+            .restore_after_snapshot_load()
+            .unwrap();
     }
 
     fn gsi_17_03_reference_fixture() -> (Simulation, Gsi1703Ids) {
@@ -7852,7 +8499,14 @@ mod tests {
                     source_registry,
                     source_id,
                     field,
-                    target_registry: "EntityStore",
+                    target_registry: if matches!(
+                        role,
+                        MissingRole::CurrentTarget | MissingRole::QueuedTarget
+                    ) {
+                        "EntityStore or TerrainObjectStore"
+                    } else {
+                        "EntityStore"
+                    },
                     target_id: 9_999,
                 }),
                 "missing {role:?} must reject the snapshot"
@@ -9120,9 +9774,12 @@ mod tests {
     fn reveal_then_conceal_roundtrips_membership() {
         use crate::sim::game_entity::GameEntity;
         let mut sim = Simulation::new();
-        sim.substrate
-            .entities
-            .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
+        let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
+        // test_default interns into the thread-local fixture, whereas Reveal
+        // now reaches the ordinary sight/discovery owners in this Simulation.
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("MTNK"));
+        sim.substrate.entities.insert(entity);
         sim.reveal(1);
         assert!(
             sim.substrate

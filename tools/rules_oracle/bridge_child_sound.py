@@ -61,7 +61,8 @@ class Sound(Reader):
  def hook(self,u,p,n,d):
   if p==0x4015c0:
    name=self.string(u.reg_read(UC_X86_REG_EDX));self.samples.append(name)
-   self.ret({'gexp06a':0,'gexpshaa':1}[name.lower()]);return
+   sample_ids=getattr(self,'sample_ids',None)
+   self.ret(({'gexp06a':0,'gexpshaa':1} if sample_ids is None else sample_ids)[name.lower()]);return
   if p in (0x406060,0x405d40,0x4052f0,0x65c7e0,0x65c780):self.calls.append(hex(p))
   super().hook(u,p,n,d)
  def read(self,name):

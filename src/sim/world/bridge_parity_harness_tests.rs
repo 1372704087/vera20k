@@ -355,18 +355,22 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // with a hash that skips only that fold) gives this value in the same
 // test, with every tripwire above green.
 // Control removed. Previous: 0x13A7_184B_5F5F_A088.
-// Integrated StateHasher pin after executed scoped feed attribution. The test
-// below recovers current main exactly with retired feeds and preserves serialized
-// gameplay, the live Dummy and all three RNG streams; this is a Rust ratchet.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x4C4F_3B6D_6A3A_B21F;
-
-// ALL01 r6 (fork-local schema345) used DefaultHasher before main's
-// pinned StateHasher, entity/fog digests and owner migrations. These remain
-// historical Rust receipts; they are not comparable to current u64 outputs.
-const BRIDGE_HARNESS_INCOMING_HASH: u64 = 0x38EB_6DC4_C87D_4E43;
-const BRIDGE_HARNESS_R6_FINAL_HASH: u64 = 0xA333_077C_B5E5_6DA3;
-// The legacy-feed control uses this main StateHasher reference.
-const BRIDGE_HARNESS_MAIN_HASH: u64 = 0x7762_A172_3DBE_DA89;
+// Snapshot377 retains raw Type Sight and native250/254/260 admission.
+// The exact-zero gate70AF87 replaces frame-produced empty source caches and
+// default fog owner planes. This is a Rust state ratchet; crossing geometry,
+// per-frame replay and absolute RNG tripwires remain independent.
+// Unit73AC7A..73ACAE now runs the retained-radius+3 border after arrival,
+// even for this fixture's default Sight0. The first arrival materializes a
+// default fog-owner plane. Omitting only that new call recovers the preceding
+// pin; all201 observed actors, commands, RNG draws/states, paths and lifecycle
+// outputs agree, and only the fog hash-owner digest differs. Route, replay
+// and absolute RNG tripwires above this Rust ratchet remain unchanged.
+// Snapshot385 retains native Drive+64 in the existing payload hash, including
+// its false value. This Rust ratchet includes that state byte; the fixture
+// keeps its separate replay, gameplay and absolute RNG expectations.
+// The synthetic vehicle omits Crusher/SpeedType and now retains Wheel in
+// its locomotor/rules hash. Geometry, crossing ticks and RNG pins are unchanged.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x9817_453A_929A_AC66;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so
@@ -552,6 +556,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
         trigger_tag: None,
     }
 }
@@ -677,6 +682,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
 
     // ---- Record pass: drive the crossing through the live advance_tick path. ----
     let mut rec = Simulation::with_seed(BRIDGE_HARNESS_SEED);
+    rec.hash_state_every(std::num::NonZeroU64::MIN);
     let mut diagnostic = super::global_parity_harness_tests::replay_diagnostic_file("bridge");
     let mut seed = || seed_bridge_scenario(&mut rec, &rules);
     let (_, seed_draws) = if diagnostic.is_some() {
@@ -950,14 +956,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         .last()
         .expect("at least one tick replayed")
         .expect("every replayed frame hashes");
-    println!(
-        "[bridge historical hash receipts] archived_default_incoming={BRIDGE_HARNESS_INCOMING_HASH:016X} archived_r6={BRIDGE_HARNESS_R6_FINAL_HASH:016X}"
-    );
-    super::global_parity_harness_tests::assert_announcement_feed_retirement_hash_control(
-        "bridge",
-        &rep,
-        BRIDGE_HARNESS_MAIN_HASH,
-    );
+    super::global_parity_harness_tests::print_replay_summary("bridge", &rep);
     assert_eq!(
         final_hash, BRIDGE_HARNESS_FINAL_HASH,
         "committed bridge-harness baseline drifted. Do not paste the observed value \

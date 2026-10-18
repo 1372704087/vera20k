@@ -42,21 +42,24 @@ from tools.tactical_certification.core import (
 from tools.tactical_certification.profile import load_contract, reject_denied_environment
 
 ROOT = Path(__file__).resolve().parents[1]
-RUN_SCHEMA = 'vera20k.map-observation-run.v7'
+RUN_SCHEMA = 'vera20k.map-observation-run.v8'
+WALK_RUN_SCHEMA = 'vera20k.map-observation-run.v7'
 DOCKING_RUN_SCHEMA = 'vera20k.map-observation-run.v6'
 BUILDING_RUN_SCHEMA = 'vera20k.map-observation-run.v5'
 TRAJECTORY_RUN_SCHEMA = 'vera20k.map-observation-run.v4'
 PRIOR_RUN_SCHEMA = 'vera20k.map-observation-run.v3'
 LEGACY_CLOCK_RUN_SCHEMA = 'vera20k.map-observation-run.v2'
 LEGACY_RUN_SCHEMA = 'vera20k.map-observation-run.v1'
-CHILD_SCHEMA = 'vera20k.map-observation.v7'
+CHILD_SCHEMA = 'vera20k.map-observation.v8'
+WALK_CHILD_SCHEMA = 'vera20k.map-observation.v7'
 DOCKING_CHILD_SCHEMA = 'vera20k.map-observation.v6'
 BUILDING_CHILD_SCHEMA = 'vera20k.map-observation.v5'
 TRAJECTORY_CHILD_SCHEMA = 'vera20k.map-observation.v4'
 PRIOR_CHILD_SCHEMA = 'vera20k.map-observation.v3'
 LEGACY_CHILD_SCHEMA = 'vera20k.map-observation.v2'
 CLOCK_POLICY = 'map-exact-step-presentation-v1'
-OBSERVATION_POLICY = 'map-ordinary-command-observation-v4'
+OBSERVATION_POLICY = 'map-ordinary-command-observation-v5'
+WALK_OBSERVATION_POLICY = 'map-ordinary-command-observation-v4'
 GESTURE_POLICY = 'map-tactical-left-gesture-v1'
 SIDEBAR_GESTURE_POLICY = 'map-local-left-gesture-v2'
 KEYBOARD_GESTURE_POLICY = 'map-local-gesture-v3'
@@ -80,20 +83,26 @@ PROFILE_V2 = 'vera20k.map-observation-profile.v2'
 PROFILE_V3 = 'vera20k.map-observation-profile.v3'
 MAX_OBSERVATION_SAMPLES = 100_000
 MAX_RECEIPT_BYTES = 128 * 1024 * 1024
-ORDER_VARIANTS = frozenset(('Select', 'Move', 'Stop', 'Attack', 'ForceAttack', 'Guard',
+ORDER_VARIANTS = frozenset(('Select', 'Move', 'Stop', 'Attack', 'Guard',
                             'DeployMcv', 'ForceAttackCell', 'CaptureBuilding', 'ToggleRepair',
-                            'EnterTransport', 'UnloadPassengers', 'RepairAtDepot', 'SellBuilding', 'SetRally',
-                            'LaunchSuperWeapon'))
+                            'EnterTransport', 'UnloadPassengers', 'RepairAtDepot', 'SellBuilding', 'SetRally', 'PlantC4',
+                            'LaunchSuperWeapon', 'TogglePrimaryFactory'))
 PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
-                              'observe_electric_bolt_steps', 'observe_bombs',
+                              'observe_radiation_beams',
+                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_temporal',
+                              'observe_cloak',
+                              'observe_spawns', 'observe_crates',
                               'observe_audio', 'allow_load_segments',
+                              'observe_tooltips',
                               'camera_cell', 'cursor_position', 'terrain_cells',
                               'observe_super_weapons', 'observe_diplomacy', 'observe_sidebar_steps'))
 ASCII_UPPER = str.maketrans('abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 COPIES = {'profile': 'profile.json', 'config': 'config.toml', 'contract': 'contract.json'}
+# Optimized Cargo profiles whose recorded or labelled vera20k a capture may run.
+CAPTURE_PROFILES = ('release', 'fast')
 
 
 @dataclass(frozen=True)
@@ -207,7 +216,51 @@ def _unit_atlas(value: Any) -> dict[str, Any]:
     return dict(atlas)
 
 
-def _presentation_clock(value: Any, ticks: int, segments=None) -> dict[str, Any]:
+def _tooltip_projection(value: Any, label: str, now_ms: int | None) -> None:
+    tooltip = require_object(value, label)
+    require_exact_keys(tooltip, ('cursor_px', 'camera_top_left', 'camera_zoom',
+                                'cursor_coordinates', 'captured', 'input_locked',
+                                'camera_blocks_tooltip', 'plane_xyz', 'plane_cell',
+                                'ground_unshrouded', 'active'), label)
+    cursor = require_array(tooltip['cursor_px'], f'{label}.cursor_px')
+    if len(cursor) != 2:
+        raise ValidationError(f'{label}.cursor_px must contain exactly two coordinates')
+    for index, component in enumerate(cursor):
+        _bounded_int(component, f'{label}.cursor_px[{index}]', -(1 << 31), (1 << 31) - 1)
+    camera = require_array(tooltip['camera_top_left'], f'{label}.camera_top_left')
+    if len(camera) != 2:
+        raise ValidationError(f'{label}.camera_top_left must contain exactly two coordinates')
+    for index, component in enumerate(camera):
+        _finite_number(component, f'{label}.camera_top_left[{index}]')
+    _finite_number(tooltip['camera_zoom'], f'{label}.camera_zoom')
+    if tooltip['camera_zoom'] <= 0:
+        raise ValidationError(f'{label}.camera_zoom must be positive')
+    for key in ('cursor_coordinates', 'captured', 'input_locked',
+                'camera_blocks_tooltip', 'ground_unshrouded'):
+        if type(tooltip[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be a boolean')
+    _coordinate(tooltip['plane_xyz'], f'{label}.plane_xyz', leptons=True)
+    _coordinate(tooltip['plane_cell'], f'{label}.plane_cell', packed_cell=True)
+    if tooltip['active'] is not None:
+        active_label = f'{label}.active'
+        active = require_object(tooltip['active'], active_label)
+        require_exact_keys(active, ('id', 'text', 'cursor_px', 'shown_at_ms'), active_label)
+        _bounded_int(active['id'], f'{active_label}.id', 0, (1 << 32) - 1)
+        text = require_string(active['text'], f'{active_label}.text')
+        if len(text) > 256:
+            raise ValidationError(f'{active_label}.text exceeds 256 Unicode characters')
+        cursor = require_array(active['cursor_px'], f'{active_label}.cursor_px')
+        if len(cursor) != 2:
+            raise ValidationError(f'{active_label}.cursor_px must contain exactly two coordinates')
+        for index, component in enumerate(cursor):
+            _bounded_int(component, f'{active_label}.cursor_px[{index}]', -(1 << 31), (1 << 31) - 1)
+        _bounded_int(active['shown_at_ms'], f'{active_label}.shown_at_ms', 0, (1 << 64) - 1)
+        if now_ms is not None and active['shown_at_ms'] > now_ms:
+            raise ValidationError(f'{active_label}.shown_at_ms is later than its tooltip clock')
+
+
+def _presentation_clock(value: Any, ticks: int, segments=None, *,
+                        observe_tooltips: bool = False) -> dict[str, Any]:
     """Validate the versioned diagnostic transcript, not native wall cadence."""
     label = 'render.presentation_clock'
     clock = require_object(value, label)
@@ -223,7 +276,8 @@ def _presentation_clock(value: Any, ticks: int, segments=None) -> dict[str, Any]
         row_label = f'{label}.draws[{index}]'
         row = require_object(value, row_label)
         require_exact_keys(row, ('completed_steps', 'radar_ms', 'tooltip_ms', 'message_ms',
-                                *(('simulation_tick',) if segments is not None else ())),
+                                *(('simulation_tick',) if segments is not None else ()),
+                                *(('tooltip',) if observe_tooltips else ())),
                            row_label)
         step = index + 1 if ticks else 0
         require_value(row.get('completed_steps'), step, f'{row_label}.completed_steps')
@@ -232,6 +286,9 @@ def _presentation_clock(value: Any, ticks: int, segments=None) -> dict[str, Any]
             require_value(row['simulation_tick'], tick, f'{row_label}.simulation_tick')
         for key in ('radar_ms', 'tooltip_ms', 'message_ms'):
             require_value(row.get(key), tick * 22, f'{row_label}.{key}')
+        if observe_tooltips:
+            _tooltip_projection(row['tooltip'], f'{row_label}.tooltip',
+                                row['tooltip_ms'] if segments is None else None)
     return dict(clock)
 
 
@@ -279,9 +336,12 @@ def _gesture(value: Any, label: str, extent: tuple[int, int]) -> None:
     if 'button' in gesture:
         if gesture.get('kind') not in ('click', 'sidebar') or gesture['button'] not in ('left', 'right'):
             raise ValidationError(f'{label}.button requires click/sidebar and literal left/right')
-    if gesture.get('kind') == 'click':
+    if gesture.get('kind') in ('click', 'minimap'):
         require_exact_keys(gesture, ('kind', 'position', *(('button',) if 'button' in gesture else ())), label)
         _screen_point(gesture['position'], f'{label}.position', extent)
+    elif gesture.get('kind') == 'minimap_object':
+        require_exact_keys(gesture, ('kind', 'entity_id'), label)
+        _bounded_int(gesture['entity_id'], f'{label}.entity_id', 1, (1 << 64) - 1)
     elif gesture.get('kind') == 'drag':
         require_exact_keys(gesture, ('kind', 'from', 'to'), label)
         start = _screen_point(gesture['from'], f'{label}.from', extent)
@@ -289,7 +349,10 @@ def _gesture(value: Any, label: str, extent: tuple[int, int]) -> None:
         if start == end:
             raise ValidationError(f'{label} drag endpoints must differ')
     elif gesture.get('kind') == 'key':
-        require_exact_keys(gesture, ('kind', 'key', *(('modifiers',) if 'modifiers' in gesture else ())), label)
+        require_exact_keys(gesture, ('kind', 'key', *(('modifiers',) if 'modifiers' in gesture else ()),
+                                    *(('edge',) if 'edge' in gesture else ())), label)
+        if 'edge' in gesture and gesture['edge'] not in ('pressed', 'repeat', 'released'):
+            raise ValidationError(f'{label}.edge must be pressed, repeat or released')
         key = require_string(gesture['key'], f'{label}.key')
         if key != 'Escape' and not (len(key) == 1 and key.isascii() and key.isalnum()):
             raise ValidationError(f'{label}.key must be one ASCII letter/digit or Escape')
@@ -324,7 +387,7 @@ def _gesture(value: Any, label: str, extent: tuple[int, int]) -> None:
         else:
             raise ValidationError(f'{label}.target.kind must be tab, cameo, scroll_up, scroll_down, repair or sell')
     else:
-        raise ValidationError(f'{label}.kind must be click, drag, sidebar, command_bar or key')
+        raise ValidationError(f'{label}.kind must be click, drag, minimap, minimap_object, sidebar, command_bar or key')
 
 
 def _right_button_gesture(gesture: Mapping[str, Any]) -> bool:
@@ -332,7 +395,7 @@ def _right_button_gesture(gesture: Mapping[str, Any]) -> bool:
 
 
 def _observes_local_input(profile: Mapping[str, Any]) -> bool:
-    return any(row['gesture']['kind'] == 'key' or _right_button_gesture(row['gesture'])
+    return any(row['gesture']['kind'] in ('key', 'minimap', 'minimap_object') or _right_button_gesture(row['gesture'])
                for row in profile.get('gestures', []))
 
 
@@ -442,13 +505,16 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
     ticks = _bounded_int(profile.get('ticks'), 'profile.ticks', 0, 100_000)
     if 'observe_audio' in profile:
         audio = require_object(profile['observe_audio'], 'profile.observe_audio')
-        require_exact_keys(audio, ('sound_ids', 'max_events', 'max_samples_per_event', 'completion_tail_ms'),
+        require_exact_keys(audio, ('sound_ids', 'max_events', 'max_samples_per_event', 'completion_tail_ms',
+                                   *(('coordinate_request_scope',) if 'coordinate_request_scope' in audio else ())),
                            'profile.observe_audio')
+        if 'coordinate_request_scope' in audio and audio['coordinate_request_scope'] not in ('all', 'watched'):
+            raise ValidationError('profile.observe_audio.coordinate_request_scope must be all or watched')
         ids = require_array(audio['sound_ids'], 'profile.observe_audio.sound_ids')
         if (not 1 <= len(ids) <= 16 or any(type(value) is not str or not value.isascii() or not 1 <= len(value) <= 128
                                            for value in ids) or len({value.upper() for value in ids}) != len(ids)):
             raise ValidationError('profile.observe_audio.sound_ids must contain 1..16 unique bounded ASCII IDs')
-        for key, maximum in (('max_events', 16), ('max_samples_per_event', 262144), ('completion_tail_ms', 10000)):
+        for key, maximum in (('max_events', 32), ('max_samples_per_event', 262144), ('completion_tail_ms', 10000)):
             _bounded_int(audio[key], f'profile.observe_audio.{key}', 1, maximum)
     if 'allow_load_segments' in profile and type(profile['allow_load_segments']) is not bool:
         raise ValidationError('profile.allow_load_segments must be a boolean')
@@ -492,6 +558,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         extent = tuple(_bounded_int(profile.get(key), f'profile.{key}', 1, (1 << 32) - 1)
                        for key in ('width', 'height'))
         previous = 0
+        held_planning_keys = set()
         for index, value in enumerate(gestures):
             label = f'profile.gestures[{index}]'
             row = require_object(value, label)
@@ -501,8 +568,23 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
                 raise ValidationError(f'{label}.issue_after_step must be ordered before the final step')
             previous = step
             _gesture(row['gesture'], f'{label}.gesture', extent)
+            gesture = row['gesture']
+            if gesture.get('kind') == 'key' and 'edge' in gesture:
+                key = gesture['key'].upper()
+                edge = gesture['edge']
+                if edge == 'pressed':
+                    if key in held_planning_keys:
+                        raise ValidationError(f'{label} planning key already held')
+                    held_planning_keys.add(key)
+                else:
+                    if key not in held_planning_keys:
+                        raise ValidationError(f'{label} planning edge has no prior press')
+                    if edge == 'released':
+                        held_planning_keys.remove(key)
             if _is_quickload(row['gesture']) and not profile.get('allow_load_segments', False):
                 raise ValidationError('literal quickload requires allow_load_segments')
+        if held_planning_keys:
+            raise ValidationError('profile ends with a planning key held')
     if 'observe_sidebar_steps' in profile:
         steps = require_array(profile['observe_sidebar_steps'], 'profile.observe_sidebar_steps')
         if len(steps) > 1024:
@@ -550,7 +632,9 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         raise ValidationError('profile.observe_action_line_inputs must be a boolean')
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
-    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs'):
+    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_temporal',
+                'observe_cloak', 'observe_radiation_beams', 'observe_spawns',
+                'observe_crates', 'observe_tooltips'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
     if 'observe_electric_bolt_steps' in profile:
@@ -609,9 +693,9 @@ def _target_reference(value: Any, label: str, *, navigation: bool = False) -> No
         raise ValidationError(f'{label} has an unknown target reference tag')
 
 
-def _timer(value: Any, label: str) -> None:
+def _timer(value: Any, label: str, *, remaining: bool = False) -> None:
     timer = require_object(value, label)
-    require_exact_keys(timer, ('start_frame', 'duration'), label)
+    require_exact_keys(timer, ('start_frame', 'duration', *(('remaining',) if remaining else ())), label)
     for key in timer:
         _bounded_int(timer[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
 
@@ -937,17 +1021,27 @@ def _action_line_inputs(value: Any, category: str, label: str) -> None:
             _bounded_int(bits, f'{label}.rocking_angles_fixed_bits[{index}]', -(1 << 31), (1 << 31) - 1)
 
 
-def _cloak(value: Any, label: str) -> None:
+def _cloak(value: Any, label: str, *, runtime: bool = False) -> None:
     if value is None:
         return
     cloak = require_object(value, label)
     require_exact_keys(cloak, ('state_i32', 'progress_i32', 'cloaking_stages_i32',
-                         'voxel', 'no_shadow'), label)
+                         'voxel', 'no_shadow', *(('runtime',) if runtime else ())), label)
     for key in ('state_i32', 'progress_i32', 'cloaking_stages_i32'):
         _bounded_int(cloak[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
     for key in ('voxel', 'no_shadow'):
         if type(cloak[key]) is not bool:
             raise ValidationError(f'{label}.{key} must be a boolean')
+    if runtime:
+        row = require_object(cloak['runtime'], f'{label}.runtime')
+        require_exact_keys(row, ('in_playfield', 'step_delta_i32', 'step_speed_i32',
+                                 'step_timer', 'recloak_delay'), f'{label}.runtime')
+        if type(row['in_playfield']) is not bool:
+            raise ValidationError(f'{label}.runtime.in_playfield must be boolean')
+        for key in ('step_delta_i32', 'step_speed_i32'):
+            _bounded_int(row[key], f'{label}.runtime.{key}', -(1 << 31), (1 << 31) - 1)
+        for key in ('step_timer', 'recloak_delay'):
+            _timer(row[key], f'{label}.runtime.{key}', remaining=True)
 
 
 def _disguise_inputs(value: Any, category: str, label: str) -> None:
@@ -1018,9 +1112,11 @@ def _detail(value: Any, label: str) -> None:
             raise ValidationError(f'{label}.{key} must be a boolean')
 
 
-def _lasers(value: Any, label: str) -> int:
+def _lasers(value: Any, label: str, *, disk_laser_state: bool = True) -> int:
     snapshot = require_object(value, label)
-    require_exact_keys(snapshot, ('detail', 'live'), label)
+    # The current policy requires both owners; historical policies retain the
+    # beam-only schema rather than manufacturing empty delayed-shot evidence.
+    require_exact_keys(snapshot, ('detail', 'live', *(('disk_shots',) if disk_laser_state else ())), label)
     _detail(snapshot['detail'], f'{label}.detail')
     live = require_array(snapshot['live'], f'{label}.live')
     for index, value in enumerate(live):
@@ -1028,7 +1124,8 @@ def _lasers(value: Any, label: str) -> int:
         beam = require_object(value, beam_label)
         require_exact_keys(beam, ('birth_frame', 'from', 'to', 'z_adjust', 'width', 'supported',
                                  'house_color', 'rgb', 'duration', 'age', 'timer_start',
-                                 'timer_duration'), beam_label)
+                                 'timer_duration',
+                                 *(('outer', 'spread', 'fade_end_bits') if disk_laser_state else ())), beam_label)
         for key in ('birth_frame', 'z_adjust', 'width', 'duration', 'age', 'timer_start', 'timer_duration'):
             _bounded_int(beam[key], f'{beam_label}.{key}', -(1 << 31), (1 << 31) - 1)
         for key in ('from', 'to'):
@@ -1036,12 +1133,35 @@ def _lasers(value: Any, label: str) -> int:
         for key in ('supported', 'house_color'):
             if type(beam[key]) is not bool:
                 raise ValidationError(f'{beam_label}.{key} must be a boolean')
-        rgb = require_array(beam['rgb'], f'{beam_label}.rgb')
-        if len(rgb) != 3:
-            raise ValidationError(f'{beam_label}.rgb must contain three channels')
-        for channel, value in enumerate(rgb):
-            _bounded_int(value, f'{beam_label}.rgb[{channel}]', 0, 255)
-    return 1 + len(live)
+        for key in ('rgb', *(('outer', 'spread') if disk_laser_state else ())):
+            channels = require_array(beam[key], f'{beam_label}.{key}')
+            if len(channels) != 3:
+                raise ValidationError(f'{beam_label}.{key} must contain three channels')
+            for channel, value in enumerate(channels):
+                _bounded_int(value, f'{beam_label}.{key}[{channel}]', 0, 255)
+        if disk_laser_state:
+            _bounded_int(beam['fade_end_bits'], f'{beam_label}.fade_end_bits', 0, (1 << 32) - 1)
+    shots = require_array(snapshot['disk_shots'], f'{label}.disk_shots') if disk_laser_state else []
+    previous = 0
+    for index, value in enumerate(shots):
+        shot_label = f'{label}.disk_shots[{index}]'
+        shot = require_object(value, shot_label)
+        require_exact_keys(shot, ('id', 'source', 'target', 'weapon', 'countdown', 'start', 'step',
+                                 'damage'), shot_label)
+        identity = _bounded_int(shot['id'], f'{shot_label}.id', 1, (1 << 64) - 1)
+        if identity <= previous:
+            raise ValidationError(f'{label}.disk_shots must have unique increasing IDs')
+        previous = identity
+        if shot['source'] is not None:
+            _bounded_int(shot['source'], f'{shot_label}.source', 1, (1 << 64) - 1)
+        _target_reference(shot['target'], f'{shot_label}.target')
+        if shot['weapon'] is not None and not require_string(shot['weapon'], f'{shot_label}.weapon'):
+            raise ValidationError(f'{shot_label}.weapon must be nonempty or null')
+        _bounded_int(shot['countdown'], f'{shot_label}.countdown', -(1 << 31), 1)
+        _bounded_int(shot['start'], f'{shot_label}.start', 0, 15)
+        _bounded_int(shot['step'], f'{shot_label}.step', 0, 8)
+        _bounded_int(shot['damage'], f'{shot_label}.damage', -(1 << 31), (1 << 31) - 1)
+    return 1 + len(live) + len(shots)
 
 
 def _observes_electric_step(profile: Mapping[str, Any], step: int) -> bool:
@@ -1201,31 +1321,42 @@ def _particle_draws(value: Any, label: str) -> int:
     return len(rows)
 
 
-def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
-    label = 'observations.electric_bolt_draws'
+def _composite_observation_rows(value: Any, label: str, profile: Mapping[str, Any],
+                                segments: list, tail_draws: int, *, policy: str,
+                                snapshot_key: str, steps: list[int] | None = None,
+                                optional_keys: tuple[str, ...] = ()):
+    """One clock/envelope validator for actual effect-composite observations."""
     receipt = require_object(value, label)
     require_exact_keys(receipt, ('policy', 'frames'), label)
-    policy = ('electric-bolt-after-requested-tactical-composite-v2'
-              if 'observe_electric_bolt_steps' in profile else 'electric-bolt-after-each-tactical-composite-v1')
     require_value(receipt['policy'], policy, f'{label}.policy')
     frames = require_array(receipt['frames'], f'{label}.frames')
-    steps = [step for step in range(1, profile['ticks'] + 1) if _observes_electric_step(profile, step)]
-    if profile['ticks'] == 0 and _observes_electric_step(profile, 0):
-        steps.append(0)
-    if _observes_electric_step(profile, profile['ticks']):
-        steps.extend([profile['ticks']] * tail_draws)
-    if len(frames) != len(steps):
-        raise ValidationError('electric bolt draw observations must include each requested composite and audio-tail draw')
-    count = 0
+    if steps is None:
+        steps = list(range(1, profile['ticks'] + 1)) or [0]
+    repeats = tail_draws if steps and steps[-1] == profile['ticks'] else 0
+    if len(frames) != len(steps) + repeats:
+        raise ValidationError(f'{label} must include each requested composite and audio-tail draw')
     for index, value in enumerate(frames):
         at = f'{label}.frames[{index}]'
         row = require_object(value, at)
-        require_exact_keys(row, ('ordinal', 'completed_steps', 'simulation_tick', 'binary_frame', 'effects',
-                                *(('particle_draws',) if 'particle_draws' in row else ())), at)
-        step = steps[index]
+        require_exact_keys(row, ('ordinal', 'completed_steps', 'simulation_tick', 'binary_frame', snapshot_key,
+                                 *(key for key in optional_keys if key in row)), at)
+        step = steps[index] if index < len(steps) else profile['ticks']
         tick, frame = _segment_clock(step, segments)
         for key, expected in (('ordinal', index), ('completed_steps', step), ('simulation_tick', tick), ('binary_frame', frame)):
             require_value(row[key], expected, f'{at}.{key}')
+        yield row, at
+
+
+def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
+    label = 'observations.electric_bolt_draws'
+    policy = ('electric-bolt-after-requested-tactical-composite-v2'
+              if 'observe_electric_bolt_steps' in profile else 'electric-bolt-after-each-tactical-composite-v1')
+    steps = [step for step in range(1, profile['ticks'] + 1) if _observes_electric_step(profile, step)]
+    if profile['ticks'] == 0 and _observes_electric_step(profile, 0):
+        steps.append(0)
+    count = 0
+    for row, at in _composite_observation_rows(value, label, profile, segments, tail_draws,
+            policy=policy, snapshot_key='effects', steps=steps, optional_keys=('particle_draws',)):
         count += _electric_bolts(row['effects'], f'{at}.effects')
         if 'particle_draws' in row:
             count += _particle_draws(row['particle_draws'], f'{at}.particle_draws')
@@ -1243,6 +1374,65 @@ def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list,
                                       ('display_layer', particle['display_layer'])):
                     require_value(piece[key], expected, f'{at}.particle_draws.{key}')
     return count
+
+
+def _radiation_beams(value: Any, label: str) -> int:
+    snapshot = require_object(value, label)
+    require_exact_keys(snapshot, ('live', 'composites', 'segments'), label)
+
+    def vector(value, at, size, minimum, maximum):
+        values = require_array(value, at)
+        if len(values) != size:
+            raise ValidationError(f'{at} must contain {size} integers')
+        for index, component in enumerate(values):
+            _bounded_int(component, f'{at}[{index}]', minimum, maximum)
+
+    live = require_array(snapshot['live'], f'{label}.live')
+    for index, value in enumerate(live):
+        at = f'{label}.live[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('birth_frame', 'from', 'to', 'z_adjust', 'color', 'duration',
+                                 'amplitude_bits', 'progress', 'spacing', 'length_bits'), at)
+        for key in ('birth_frame', 'z_adjust', 'duration', 'progress', 'spacing'):
+            _bounded_int(row[key], f'{at}.{key}', -(1 << 31), (1 << 31) - 1)
+        for key in ('from', 'to'):
+            vector(row[key], f'{at}.{key}', 3, -(1 << 31), (1 << 31) - 1)
+        vector(row['color'], f'{at}.color', 3, 0, 255)
+        _bounded_int(row['amplitude_bits'], f'{at}.amplitude_bits', 0, (1 << 64) - 1)
+        if row['length_bits'] is not None:
+            _bounded_int(row['length_bits'], f'{at}.length_bits', 0, (1 << 64) - 1)
+    composites = require_array(snapshot['composites'], f'{label}.composites')
+    segment_count = 0
+    for index, value in enumerate(composites):
+        at = f'{label}.composites[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('birth_frame', 'progress_before', 'progress_after', 'expired', 'segments'), at)
+        for key in ('birth_frame', 'progress_before', 'progress_after'):
+            _bounded_int(row[key], f'{at}.{key}', -(1 << 31), (1 << 31) - 1)
+        if type(row['expired']) is not bool:
+            raise ValidationError(f'{at}.expired must be boolean')
+        segment_count += _bounded_int(row['segments'], f'{at}.segments', 0, (1 << 64) - 1)
+    pieces = require_array(snapshot['segments'], f'{label}.segments')
+    for index, value in enumerate(pieces):
+        at = f'{label}.segments[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('from', 'to', 'z_adjust', 'rgb565'), at)
+        for key in ('from', 'to', 'z_adjust'):
+            vector(row[key], f'{at}.{key}', 2, -(1 << 31), (1 << 31) - 1)
+        _bounded_int(row['rgb565'], f'{at}.rgb565', 0, (1 << 16) - 1)
+    require_value(segment_count, len(pieces), f'{label}.composite segment tally')
+    # No progress, lifetime, spacing or geometry is recomputed by validation.
+    return 1 + len(live) + len(composites) + len(pieces)
+
+
+def _radiation_beam_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
+    count = 0
+    for row, at in _composite_observation_rows(value, 'observations.radiation_beam_draws', profile,
+            segments, tail_draws, policy='radiation-beam-after-each-tactical-composite-v1', snapshot_key='beams'):
+        count += _radiation_beams(row['beams'], f'{at}.beams')
+    return count
+
+
 def _bombs(value: Any, label: str) -> int:
     snapshot = require_object(value, label)
     require_exact_keys(snapshot, ('carriers', 'records'), label)
@@ -1280,16 +1470,81 @@ def _fire(value: Any, label: str) -> None:
     _bounded_int(row['last_fire_frame'], f'{label}.last_fire_frame', -(1 << 63), (1 << 63) - 1)
     _bounded_int(row['body_counter'], f'{label}.body_counter', 0, (1 << 32) - 1)
     _bounded_int(row['stage_value'], f'{label}.stage_value', -(1 << 31), (1 << 31) - 1)
-    rearm = require_object(row['rearm'], f'{label}.rearm')
-    require_exact_keys(rearm, ('start_frame', 'duration', 'remaining'), f'{label}.rearm')
-    for key in rearm:
-        _bounded_int(rearm[key], f'{label}.rearm.{key}', -(1 << 31), (1 << 31) - 1)
+    _timer(row['rearm'], f'{label}.rearm', remaining=True)
+
+
+def _temporal(value: Any, label: str) -> int:
+    row = require_object(value, label)
+    require_exact_keys(row, ('has_link', 'warp_target', 'chain_head', 'boarding_transport',
+                             'inside_transport', 'cargo'), label)
+    if type(row['has_link']) is not bool:
+        raise ValidationError(f'{label}.has_link must be boolean')
+    for key in ('warp_target', 'chain_head', 'boarding_transport'):
+        if row[key] is not None:
+            _bounded_int(row[key], f'{label}.{key}', 1, (1 << 64) - 1)
+    if row['inside_transport'] is not None:
+        inside = require_object(row['inside_transport'], f'{label}.inside_transport')
+        require_exact_keys(inside, ('transport', 'open_topped'), f'{label}.inside_transport')
+        _bounded_int(inside['transport'], f'{label}.inside_transport.transport', 1, (1 << 64) - 1)
+        if type(inside['open_topped']) is not bool:
+            raise ValidationError(f'{label}.inside_transport.open_topped must be boolean')
+    passengers = []
+    if row['cargo'] is not None:
+        cargo = require_object(row['cargo'], f'{label}.cargo')
+        require_exact_keys(cargo, ('count', 'passengers'), f'{label}.cargo')
+        _bounded_int(cargo['count'], f'{label}.cargo.count', 0, (1 << 32) - 1)
+        passengers = require_array(cargo['passengers'], f'{label}.cargo.passengers')
+        for index, identity in enumerate(passengers):
+            _bounded_int(identity, f'{label}.cargo.passengers[{index}]', 1, (1 << 64) - 1)
+    # Preserve independent owner reads and native cargo order. Consistency
+    # between count, membership and links is an analysis assertion, not a fixup.
+    return 1 + len(passengers)
+
+
+def _spawns(value: Any, label: str) -> int:
+    if value is None:
+        return 0
+    row = require_object(value, label)
+    require_exact_keys(row, ('type_spawns_number', 'spawn_type', 'count_docked', 'count_alive',
+                             'mode', 'regen_rate', 'reload_rate', 'current_target', 'queued_target',
+                             'update_timer', 'spawn_timer', 'slots'), label)
+    _bounded_int(row['type_spawns_number'], f'{label}.type_spawns_number', -(1 << 31), (1 << 31) - 1)
+    if not require_string(row['spawn_type'], f'{label}.spawn_type'):
+        raise ValidationError(f'{label}.spawn_type is empty')
+    for key in ('count_docked', 'count_alive'):
+        _bounded_int(row[key], f'{label}.{key}', 0, (1 << 64) - 1)
+    if row['mode'] not in ('Idle', 'Launching', 'Returning'):
+        raise ValidationError(f'{label}.mode is unknown')
+    for key in ('regen_rate', 'reload_rate'):
+        _bounded_int(row[key], f'{label}.{key}', 0, (1 << 32) - 1)
+    for key in ('current_target', 'queued_target'):
+        _target_reference(row[key], f'{label}.{key}')
+    for key in ('update_timer', 'spawn_timer'):
+        _timer(row[key], f'{label}.{key}')
+    slots = require_array(row['slots'], f'{label}.slots')
+    for index, value in enumerate(slots):
+        slot_label = f'{label}.slots[{index}]'
+        slot = require_object(value, slot_label)
+        require_exact_keys(slot, ('child', 'state', 'timer', 'is_missile'), slot_label)
+        if slot['child'] is not None:
+            _bounded_int(slot['child'], f'{slot_label}.child', 1, (1 << 64) - 1)
+        if slot['state'] not in ('ReadyDocked', 'KamikazeWait', 'InFlight', 'Attacking',
+                                 'ComingHome', 'Reloading', 'Regenerating'):
+            raise ValidationError(f'{slot_label}.state is unknown')
+        _timer(slot['timer'], f'{slot_label}.timer')
+        if type(slot['is_missile']) is not bool:
+            raise ValidationError(f'{slot_label}.is_missile must be boolean')
+    # Preserve the two native queries independently of the ordered slot reads;
+    # validation must not replace their recorded values with another counter.
+    return 1 + len(slots)
 
 
 def _actor(value: Any, label: str, *, building_state: bool = True,
            docking_state: bool = True, walk_state: bool = True,
            action_line_inputs: bool = False, disguise_inputs: bool = False,
-           lasers: bool = False, bombs: bool = False, damage_smoke: bool = False) -> tuple[int, str]:
+           lasers: bool = False, bombs: bool = False, temporal: bool = False,
+           cloak: bool = False, spawns: bool = False,
+           damage_smoke: bool = False) -> tuple[int, str]:
     actor = require_object(value, label)
     require_exact_keys(actor, ('stable_id', 'owner', 'type_id', 'category', 'cell',
                               'physical_leptons', 'on_bridge', 'health', 'active',
@@ -1302,7 +1557,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('building',) if building_state else ()),
                               *(('unit',) if 'unit' in actor else ()),
                               *(('jumpjet',) if 'jumpjet' in actor else ()),
-                              *(('cloak',) if 'cloak' in actor else ()),
+                              *(('cloak',) if cloak or 'cloak' in actor else ()),
                               *(('retask',) if 'retask' in actor else ()),
                               *(('cell_marked', 'in_logic_vector')
                                 if 'cell_marked' in actor or 'in_logic_vector' in actor else ()),
@@ -1310,7 +1565,9 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('disguise_inputs',) if disguise_inputs else ()),
                               *(('prism',) if lasers else ()),
                               *(('damage_smoke_system_id',) if damage_smoke and 'damage_smoke_system_id' in actor else ()),
-                              *(('fire',) if bombs else ()),
+                              *(('fire',) if bombs or temporal or cloak else ()),
+                              *(('temporal',) if temporal else ()),
+                              *(('spawns',) if spawns else ()),
                               *(('miner', 'radio') if docking_state else ())), label)
     identity = _bounded_int(actor['stable_id'], f'{label}.stable_id', 1, (1 << 64) - 1)
     owner = require_string(actor['owner'], f'{label}.owner')
@@ -1327,8 +1584,12 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
         _prism(actor['prism'], category, f'{label}.prism')
     if damage_smoke and actor.get('damage_smoke_system_id') is not None:
         _bounded_int(actor['damage_smoke_system_id'], f'{label}.damage_smoke_system_id', 1, (1 << 64) - 1)
-    if bombs:
+    if bombs or temporal or cloak:
         _fire(actor['fire'], f'{label}.fire')
+    if temporal:
+        _temporal(actor['temporal'], f'{label}.temporal')
+    if spawns:
+        _spawns(actor['spawns'], f'{label}.spawns')
     if docking_state:
         _docking_state(actor, label)
     if building_state:
@@ -1346,7 +1607,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
     if 'jumpjet' in actor:
         _jumpjet(actor['jumpjet'], f'{label}.jumpjet')
     if 'cloak' in actor:
-        _cloak(actor['cloak'], f'{label}.cloak')
+        _cloak(actor['cloak'], f'{label}.cloak', runtime=cloak)
     _coordinate(actor['cell'], f'{label}.cell')
     _coordinate(actor['physical_leptons'], f'{label}.physical_leptons', leptons=True)
     _bounded_int(actor['health'], f'{label}.health', -(1 << 31), (1 << 31) - 1)
@@ -1397,8 +1658,13 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                                   *(('walk_head_leptons', 'walk_destination_leptons',
                                      'walk_is_moving') if walk_state else ()),
                                   *(('track',) if 'track' in foot else ()),
+                                  *(('ammo_2fc',) if 'ammo_2fc' in foot else ()),
                                   *(('pending_entry_500',) if 'pending_entry_500' in foot else ())),
                            f'{label}.foot')
+        # Historical receipts omit this immutable owner query. A negative
+        # native Ammo is a retained signed count, not an absent/full marker.
+        if 'ammo_2fc' in foot and foot['ammo_2fc'] is not None:
+            _bounded_int(foot['ammo_2fc'], f'{label}.foot.ammo_2fc', -(1 << 31), (1 << 31) - 1)
         if 'air' in foot:
             _foot_air(foot['air'], f'{label}.foot.air')
         # Additive read-only projection: previously sealed v6 receipts omit it.
@@ -1509,6 +1775,39 @@ def _terrain(value: Any, expected_cell: Any, label: str) -> None:
             raise ValidationError(f'{label}.{key} must be a boolean')
 
 
+def _placement_preview_observation(value: Any, label: str) -> int:
+    preview = require_object(value, label)
+    require_exact_keys(preview, ('origin', 'foundation', 'valid', 'in_build_area',
+                                 'foundation_visible', 'reason', 'cells', 'wall_autofill_cells'), label)
+    for key in ('origin', 'foundation'):
+        _coordinate(preview[key], f'{label}.{key}')
+    for key in ('valid', 'in_build_area', 'foundation_visible'):
+        if type(preview[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be boolean')
+    if preview['reason'] not in (None, 'Not ready for placement', 'Not a building',
+                                 'Blocked terrain', 'Overlaps structure', 'Outside build radius'):
+        raise ValidationError(f'{label}.reason is unknown')
+    cells = require_array(preview['cells'], f'{label}.cells')
+    walls = require_array(preview['wall_autofill_cells'], f'{label}.wall_autofill_cells')
+    # Match MapBuildingPlacementObservation::sample_count without rebuilding
+    # admission or deriving a second footprint/terrain authority here.
+    samples = 1 + len(cells) + len(walls)
+    if samples > MAX_OBSERVATION_SAMPLES:
+        raise ValidationError(f'{label} exceeds its retained sample budget')
+    for index, value in enumerate(cells):
+        cell_label = f'{label}.cells[{index}]'
+        cell = require_object(value, cell_label)
+        require_exact_keys(cell, ('coord', 'valid', 'level', 'slope'), cell_label)
+        _coordinate(cell['coord'], f'{cell_label}.coord')
+        if type(cell['valid']) is not bool:
+            raise ValidationError(f'{cell_label}.valid must be boolean')
+        _bounded_int(cell['level'], f'{cell_label}.level', -128, 127)
+        _bounded_int(cell['slope'], f'{cell_label}.slope', 0, 255)
+    for index, coord in enumerate(walls):
+        _coordinate(coord, f'{label}.wall_autofill_cells[{index}]')
+    return samples
+
+
 def _local_input_observation(value: Any, label: str) -> int:
     row = require_object(value, label)
     require_exact_keys(row, ('camera_top_left', 'camera_zoom', 'follow_target', 'repair_mode',
@@ -1556,7 +1855,8 @@ def _local_input_observation(value: Any, label: str) -> int:
         placement_label = f'{label}.building_placement'
         placement = require_object(row['building_placement'], placement_label)
         require_exact_keys(placement, ('current', 'saved_retry', 'current_preview_present',
-                                       'saved_preview_present'), placement_label)
+                                       'saved_preview_present',
+                                       *(('current_preview',) if 'current_preview' in placement else ())), placement_label)
         for key in ('current_preview_present', 'saved_preview_present'):
             if type(placement[key]) is not bool:
                 raise ValidationError(f'{placement_label}.{key} must be boolean')
@@ -1573,6 +1873,11 @@ def _local_input_observation(value: Any, label: str) -> int:
             if target['product_id'] is not None:
                 _bounded_int(target['product_id'], f'{target_label}.product_id', 1, (1 << 64) - 1)
             samples += 1
+        if 'current_preview' in placement:
+            if not placement['current_preview_present']:
+                raise ValidationError(f'{placement_label}.current_preview requires its presence flag')
+            samples += _placement_preview_observation(
+                placement['current_preview'], f'{placement_label}.current_preview')
     if 'selection_scope' in row:
         scope_label = f'{label}.selection_scope'
         scope = require_object(row['selection_scope'], scope_label)
@@ -1608,7 +1913,29 @@ def _local_input_observation(value: Any, label: str) -> int:
 def _input_observation(value: Any, label: str, *, local_input: bool = False) -> int:
     row = require_object(value, label)
     require_exact_keys(row, ('selected_ids', 'selection_pending', 'target_line_remaining',
-                             'target_line_active', *(('local_input',) if local_input else ())), label)
+                             'target_line_active', *(('planning_active', 'planning_paths') if 'planning_active' in row else ()),
+                             *(('local_input',) if local_input else ())), label)
+    planning_samples = 0
+    if 'planning_active' in row:
+        if type(row['planning_active']) is not bool:
+            raise ValidationError(f'{label}.planning_active must be boolean')
+        for index, path in enumerate(require_array(row['planning_paths'], f'{label}.planning_paths')):
+            name = f'{label}.planning_paths[{index}]'
+            path = require_object(path, name)
+            require_exact_keys(path, ('actor_id', 'cells', 'loop_start', 'editing'), name)
+            _bounded_int(path['actor_id'], f'{name}.actor_id', 1, (1 << 64) - 1)
+            cells = require_array(path['cells'], f'{name}.cells')
+            planning_samples += 1 + len(cells)
+            for number, cell in enumerate(cells):
+                pair = require_array(cell, f'{name}.cells[{number}]')
+                if len(pair) != 2:
+                    raise ValidationError(f'{name}.cell requires two coordinates')
+                for value in pair:
+                    _bounded_int(value, f'{name}.cell', 0, 65535)
+            if path['loop_start'] is not None:
+                _bounded_int(path['loop_start'], f'{name}.loop_start', 0, len(cells) - 1)
+            if type(path['editing']) is not bool:
+                raise ValidationError(f'{name}.editing must be boolean')
     selected = require_array(row['selected_ids'], f'{label}.selected_ids')
     for index, identity in enumerate(selected):
         _bounded_int(identity, f'{label}.selected_ids[{index}]', 1, (1 << 64) - 1)
@@ -1621,8 +1948,11 @@ def _input_observation(value: Any, label: str, *, local_input: bool = False) -> 
                              -(1 << 31), (1 << 31) - 1)
     if row['target_line_active'] and remaining <= 0:
         raise ValidationError(f'{label}.target_line_active requires positive remaining frames')
-    return len(selected) + (_local_input_observation(row['local_input'], f'{label}.local_input')
-                            if local_input else 0)
+    samples = planning_samples + len(selected) + (_local_input_observation(row['local_input'], f'{label}.local_input')
+                                                  if local_input else 0)
+    if samples > MAX_OBSERVATION_SAMPLES:
+        raise ValidationError(f'{label} exceeds its retained sample budget')
+    return samples
 
 
 def _sidebar_observation(value: Any, label: str) -> int:
@@ -1760,11 +2090,65 @@ def _sidebar_frames(value: Any, profile: Mapping[str, Any]) -> int:
     return count
 
 
+def _command_bar_thumb_state(value: Any, label: str) -> None:
+    state = require_object(value, label)
+    require_exact_keys(state, ('closed', 'pressed', 'sticky', 'gadget_id', 'rect', 'disabled',
+                               'current_house', 'side_index', 'local_player_defeated',
+                               'input_locked', 'has_lost', 'exit_ready', 'left_held'), label)
+    for key in ('closed', 'pressed', 'sticky', 'disabled', 'local_player_defeated',
+                'input_locked', 'left_held'):
+        if type(state[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be boolean')
+    for key in ('has_lost', 'exit_ready'):
+        if state[key] is not None and type(state[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be boolean or null')
+    _bounded_int(state['gadget_id'], f'{label}.gadget_id', 0, (1 << 16) - 1)
+    if state['side_index'] is not None:
+        _bounded_int(state['side_index'], f'{label}.side_index', 0, (1 << 8) - 1)
+    if state['current_house'] is not None:
+        require_string(state['current_house'], f'{label}.current_house')
+    rect = require_array(state['rect'], f'{label}.rect')
+    if len(rect) != 4:
+        raise ValidationError(f'{label}.rect must contain four integer components')
+    for index, component in enumerate(rect):
+        _bounded_int(component, f'{label}.rect[{index}]', -(1 << 31), (1 << 31) - 1)
+
+
+def _command_bar_thumb(value: Any, label: str) -> int:
+    thumb = require_object(value, label)
+    require_exact_keys(thumb, ('before', 'press', 'release', 'after'), label)
+    samples = 4
+    for phase in ('before', 'after'):
+        _command_bar_thumb_state(thumb[phase], f'{label}.{phase}')
+    for phase in ('press', 'release'):
+        edge_label = f'{label}.{phase}'
+        edge = require_object(thumb[phase], edge_label)
+        require_exact_keys(edge, ('state', 'dispatch'), edge_label)
+        _command_bar_thumb_state(edge['state'], f'{edge_label}.state')
+        if edge['dispatch'] is not None:
+            dispatch_label = f'{edge_label}.dispatch'
+            dispatch = require_object(edge['dispatch'], dispatch_label)
+            require_exact_keys(dispatch, ('masked_flags', 'modifier', 'key_after', 'action_result'), dispatch_label)
+            for key, bits in (('masked_flags', 16), ('modifier', 8), ('key_after', 16), ('action_result', 32)):
+                _bounded_int(dispatch[key], f'{dispatch_label}.{key}', 0, (1 << bits) - 1)
+            samples += 1
+    # The driver restores physical input even when the Scenario guard prevents
+    # gadget entry. These are input observations, not expected bar outcomes.
+    for phase, state in (('before', thumb['before']), ('release.state', thumb['release']['state']),
+                         ('after', thumb['after'])):
+        require_value(state['left_held'], False, f'{label}.{phase}.left_held')
+    require_value(thumb['press']['state']['left_held'], True, f'{label}.press.state.left_held')
+    return samples
+
+
 def _command_bar_gesture(value: Any, command: str, label: str, extent: tuple[int, int]) -> int:
     receipt = require_object(value, label)
-    require_exact_keys(receipt, ('command', 'slot', 'gadget_id', 'rect', 'resolved_position'), label)
+    thumb = command == 'Thumb'
+    require_exact_keys(receipt, ('command', 'gadget_id', 'rect', 'resolved_position',
+                                 *(('thumb',) if thumb else ('slot',))), label)
     require_value(receipt['command'], command, f'{label}.command')
-    _bounded_int(receipt['slot'], f'{label}.slot', 0, extent[0] - 1)
+    if not thumb:
+        _bounded_int(receipt['slot'], f'{label}.slot', 0, extent[0] - 1)
     _bounded_int(receipt['gadget_id'], f'{label}.gadget_id', 1, (1 << 16) - 1)
     rect = require_array(receipt['rect'], f'{label}.rect')
     if (len(rect) != 4 or any(type(part) not in (int, float) or not math.isfinite(part) for part in rect)
@@ -1776,7 +2160,7 @@ def _command_bar_gesture(value: Any, command: str, label: str, extent: tuple[int
     expected = [math.floor(value) for value in center]
     _screen_point(receipt['resolved_position'], f'{label}.resolved_position', extent)
     _require_equal(receipt['resolved_position'], expected, f'{label}.resolved_position')
-    return 1
+    return 1 + (_command_bar_thumb(receipt['thumb'], f'{label}.thumb') if thumb else 0)
 
 
 def _is_quickload(gesture: Mapping[str, Any]) -> bool:
@@ -1794,7 +2178,7 @@ def _segment_clock(step: int, segments: list, *, after_inputs=False, gesture_ord
     return step, step
 
 
-def _sound_state(value: Any, label: str) -> int:
+def _sound_state(value: Any, label: str, *, profile: Mapping[str, Any] | None = None) -> int:
     state = require_object(value, label)
     require_exact_keys(state, ('main_rng_cursor', 'scenario_rng_cursor', 'actors',
                               *(('coordinate_requests',) if 'coordinate_requests' in state else ())), label)
@@ -1807,8 +2191,15 @@ def _sound_state(value: Any, label: str) -> int:
         for index, value in enumerate(requests):
             at = f'{label}.coordinate_requests[{index}]'
             request = require_object(value, at)
+            if profile is not None and profile['observe_audio'].get('coordinate_request_scope') == 'watched':
+                watched = {name.translate(ASCII_UPPER) for name in profile['observe_audio']['sound_ids']}
+                if type(request.get('sound_id')) is not str or request['sound_id'].translate(ASCII_UPPER) not in watched:
+                    raise ValidationError(f'{at}.sound_id is outside the declared watched scope')
+            raw_fields = ('coordinate_leptons', 'flags')
+            observes_raw = any(key in request for key in raw_fields)
             require_exact_keys(request, ('request_id', 'sound_id', 'source_world_pixels',
-                                         'source_cell', 'suspend_depth'), at)
+                                         'source_cell', 'suspend_depth',
+                                         *(raw_fields if observes_raw else ())), at)
             identity = _bounded_int(request['request_id'], f'{at}.request_id', 1, (1 << 64) - 1)
             if identity in seen:
                 raise ValidationError(f'{label}.coordinate_requests duplicates an owner')
@@ -1822,6 +2213,13 @@ def _sound_state(value: Any, label: str) -> int:
                 _finite_number(pixel, f'{at}.source_world_pixels[{axis}]')
             _coordinate(request['source_cell'], f'{at}.source_cell')
             _bounded_int(request['suspend_depth'], f'{at}.suspend_depth', -(1 << 31), (1 << 31) - 1)
+            if observes_raw:
+                # Current SfxPlayer::coordinate_sound_observation retains the
+                # signed native XYZ and u32 caller word. They are passive
+                # fields; do not reconstruct them from the projected pixels.
+                # Historical receipts may omit the pair without implying zero.
+                _coordinate(request['coordinate_leptons'], f'{at}.coordinate_leptons', leptons=True)
+                _bounded_int(request['flags'], f'{at}.flags', 0, (1 << 32) - 1)
     for key in ('main_rng_cursor', 'scenario_rng_cursor'):
         cursor = require_array(state[key], f'{label}.{key}')
         if len(cursor) != 2:
@@ -1881,7 +2279,7 @@ def _load_segments(value: Any, profile: Mapping[str, Any]) -> list:
         if any(row['after'][key] >= row['before'][key] for key in row['before']):
             raise ValidationError(f'{row_label} must retain an actual restored earlier clock')
         if 'observe_audio' in profile:
-            _sound_state(row['restored_audio_state'], f'{row_label}.restored_audio_state')
+            _sound_state(row['restored_audio_state'], f'{row_label}.restored_audio_state', profile=profile)
         previous.append(row)
     return list(transitions)
 
@@ -2092,6 +2490,7 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
         sidebar = request['gesture']['kind'] == 'sidebar'
         keyboard = request['gesture']['kind'] == 'key'
         command_bar = request['gesture']['kind'] == 'command_bar'
+        minimap = request['gesture']['kind'] in ('minimap', 'minimap_object')
         right = _right_button_gesture(request['gesture'])
         require_exact_keys(row, ('ordinal', 'issue_after_step', 'issued_simulation_tick',
                                  'issued_binary_frame', 'gesture', 'before', 'after',
@@ -2100,39 +2499,78 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
                                  *(('right_press_captured',) if right else ()),
                                  *(('sidebar',) if sidebar else ()),
                                  *(('command_bar',) if command_bar else ()),
-                                 *(('keyboard',) if keyboard else ())), row_label)
+                                 *(('keyboard',) if keyboard else ()),
+                                 *(('minimap',) if minimap else ())), row_label)
         tick, frame = _segment_clock(request['issue_after_step'], segments, after_inputs=True, gesture_ordinal=index)
         for key, expected in (('ordinal', index), ('issue_after_step', request['issue_after_step']),
                               ('issued_simulation_tick', tick), ('issued_binary_frame', frame)):
             require_value(row[key], expected, f'{row_label}.{key}')
         _require_equal(row['gesture'], request['gesture'], f'{row_label}.gesture')
-        _gesture(row['gesture'], f'{row_label}.gesture', extent)
-        for key, expected in (('left_press_captured', not keyboard and not right), ('neutral_input_restored', True),
+        gesture_extent = ((profile['width'], profile['height'])
+                          if minimap else extent)
+        _gesture(row['gesture'], f'{row_label}.gesture', gesture_extent)
+        if command_bar:
+            sample_count += _command_bar_gesture(row['command_bar'], request['gesture']['command'],
+                f'{row_label}.command_bar', (profile['width'], profile['height']))
+        if command_bar and request['gesture']['command'] == 'Thumb' and row['left_press_captured'] is False:
+            thumb = row['command_bar']['thumb']
+            states = (thumb['before'], thumb['press']['state'], thumb['release']['state'], thumb['after'])
+            if (not all(state['input_locked'] for state in states[:3])
+                    or any(thumb[phase]['dispatch'] is not None for phase in ('press', 'release'))
+                    or any(state['closed'] != states[0]['closed'] for state in states[1:])):
+                raise ValidationError(f'{row_label}.left_press_captured may be false only for an unchanged locked Thumb')
+        else:
+            require_value(row['left_press_captured'], not keyboard and not right, f'{row_label}.left_press_captured')
+        for key, expected in (('neutral_input_restored', True),
                               ('band_box_before_release', request['gesture']['kind'] == 'drag')):
             require_value(row[key], expected, f'{row_label}.{key}')
         if right:
             require_value(row['right_press_captured'], True, f'{row_label}.right_press_captured')
         for key in ('before', 'after'):
             sample_count += _input_observation(row[key], f'{row_label}.{key}', local_input=local_input)
+        if minimap:
+            receipt_label = f'{row_label}.minimap'
+            hit = require_object(row['minimap'], receipt_label)
+            require_exact_keys(hit, ('resolved_position', 'tracker_hit', 'cell', 'world_leptons'), receipt_label)
+            position = _screen_point(hit['resolved_position'], f'{receipt_label}.resolved_position', gesture_extent)
+            if request['gesture']['kind'] == 'minimap':
+                _require_equal(hit['resolved_position'], request['gesture']['position'], f'{receipt_label}.resolved_position')
+            else:
+                require_value(hit['tracker_hit'], request['gesture']['entity_id'], f'{receipt_label}.tracker_hit')
+            if hit['tracker_hit'] is not None:
+                _bounded_int(hit['tracker_hit'], f'{receipt_label}.tracker_hit', 1, (1 << 64) - 1)
+            for field, length, low, high in [('cell', 2, 0, 65535), ('world_leptons', 3, -(1 << 31), (1 << 31) - 1)]:
+                values = require_array(hit[field], f'{receipt_label}.{field}')
+                if len(values) != length:
+                    raise ValidationError(f'{receipt_label}.{field} requires {length} coordinates')
+                for axis, value in enumerate(values):
+                    _bounded_int(value, f'{receipt_label}.{field}[{axis}]', low, high)
+            sample_count += 1
         if sidebar:
             sample_count += _sidebar_gesture(row['sidebar'], request['gesture']['target'],
                 f'{row_label}.sidebar', (profile['width'], profile['height']))
-        if command_bar:
-            sample_count += _command_bar_gesture(row['command_bar'], request['gesture']['command'],
-                f'{row_label}.command_bar', (profile['width'], profile['height']))
         if keyboard:
             key_label = f'{row_label}.keyboard'
             receipt = require_object(row['keyboard'], key_label)
             require_exact_keys(receipt, ('encoded_key', 'binding_command', 'press_held',
-                                        'release_cleared'), key_label)
+                                        'release_cleared', *(('planning_before', 'planning_after') if 'planning_before' in receipt else ())), key_label)
             _bounded_int(receipt['encoded_key'], f'{key_label}.encoded_key', 1, (1 << 16) - 1)
             if receipt['binding_command'] is not None and not require_string(
                     receipt['binding_command'], f'{key_label}.binding_command'):
                 raise ValidationError(f'{key_label}.binding_command is empty')
             if receipt['binding_command'] is not None and receipt['binding_command'] not in seen_commands:
                 raise ValidationError(f'{key_label}.binding_command is absent from registered bindings')
-            for field in ('press_held', 'release_cleared'):
-                require_value(receipt[field], True, f'{key_label}.{field}')
+            edge = request['gesture'].get('edge')
+            if edge != 'released':
+                require_value(receipt['press_held'], True, f'{key_label}.press_held')
+            require_value(receipt['release_cleared'], edge not in ('pressed', 'repeat'), f'{key_label}.release_cleared')
+            if 'planning_before' in receipt:
+                for field in ('planning_before', 'planning_after'):
+                    if type(receipt[field]) is not bool:
+                        raise ValidationError(f'{key_label}.{field} must be boolean')
+            if edge is not None:
+                require_value(receipt['binding_command'], 'PlanningMode', f'{key_label}.binding_command')
+                require_value(receipt['planning_after'], edge != 'released', f'{key_label}.planning_after')
         commands = require_array(row['queued_commands'], f'{row_label}.queued_commands')
         sample_count += len(commands)
         for number, value in enumerate(commands):
@@ -2145,10 +2583,15 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
             # These are observations of actual Command values, not profile
             # orders. Preserve their serde payload without translating input
             # actions or maintaining a second gameplay-command whitelist.
-            payload = require_object(command['payload'], f'{command_label}.payload')
-            if len(payload) != 1 or not next(iter(payload)):
-                raise ValidationError(f'{command_label}.payload must be one tagged Command')
-            require_object(next(iter(payload.values())), f'{command_label}.payload arguments')
+            payload = command['payload']
+            if isinstance(payload, str):
+                if not payload:
+                    raise ValidationError(f'{command_label}.payload must be a nonempty Command tag')
+            else:
+                payload = require_object(payload, f'{command_label}.payload')
+                if len(payload) != 1 or not next(iter(payload)):
+                    raise ValidationError(f'{command_label}.payload must be one tagged Command')
+                require_object(next(iter(payload.values())), f'{command_label}.payload arguments')
     if sample_count > MAX_OBSERVATION_SAMPLES:
         raise ValidationError(f'{label} exceeds its retained sample budget')
     return sample_count
@@ -2228,12 +2671,14 @@ def _effects(value: Any, profile: Mapping[str, Any], label: str) -> int:
 
 def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, Any], *,
                   building_state: bool = True, docking_state: bool = True,
-                  walk_state: bool = True) -> dict[str, Any]:
+                  walk_state: bool = True, disk_laser_state: bool = True) -> dict[str, Any]:
     label = 'observations'
     observations = require_object(value, label)
     gesture_input = 'gestures' in profile
     sidebar = 'observe_sidebar_steps' in profile
     effects = _observes_effects(profile)
+    if any(profile.get(key, False) for key in ('observe_temporal', 'observe_cloak', 'observe_radiation_beams')) and not (walk_state and disk_laser_state):
+        raise ValidationError('requested owner observations require the current v8 observation policy')
     if effects and not walk_state:
         raise ValidationError('effect observations require the current observation policy')
     if (gesture_input or sidebar) and not walk_state:
@@ -2241,6 +2686,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     require_exact_keys(observations, ('policy', 'owners', 'commands', 'frames',
                                      *(('audio',) if 'observe_audio' in profile else ()),
                                      *(('electric_bolt_draws',) if profile.get('observe_electric_bolts', False) else ()),
+                                     *(('radiation_beam_draws',) if profile.get('observe_radiation_beams', False) else ()),
                                      *(('load_segments',) if profile.get('allow_load_segments', False) else ()),
                                      *(('gesture_input',) if gesture_input else ()),
                                      *(('sidebar',) if sidebar else ()),
@@ -2249,7 +2695,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     segments = _load_segments(observations.get('load_segments'), profile)
     if 'observe_audio' in profile:
         _audio_observation(observations['audio'], profile)
-    policy = (OBSERVATION_POLICY if walk_state else DOCKING_OBSERVATION_POLICY if docking_state else
+    policy = ((OBSERVATION_POLICY if disk_laser_state else WALK_OBSERVATION_POLICY) if walk_state else
+              DOCKING_OBSERVATION_POLICY if docking_state else
               BUILDING_OBSERVATION_POLICY if building_state else TRAJECTORY_OBSERVATION_POLICY)
     require_value(observations['policy'], policy, f'{label}.policy')
     if building_state:
@@ -2290,7 +2737,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     if gesture_input:
         sample_count += _gesture_observations(observations['gesture_input'], profile, segments)
     if 'observe_audio' in profile:
-        sample_count += sum(_sound_state(row['restored_audio_state'], 'restored_audio_state')
+        sample_count += sum(_sound_state(row['restored_audio_state'], 'restored_audio_state', profile=profile)
                             for row in segments)
     if sidebar:
         sample_count += _sidebar_frames(observations['sidebar'], profile)
@@ -2305,7 +2752,9 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                  *(('effects',) if effects else ()),
                                  *(('lasers',) if profile.get('observe_lasers', False) else ()),
                                  *(('electric_bolts',) if _observes_electric_step(profile, step) else ()),
+                                 *(('radiation_beams',) if profile.get('observe_radiation_beams', False) else ()),
                                  *(('bombs',) if profile.get('observe_bombs', False) else ()),
+                                 *(('crates',) if profile.get('observe_crates', False) else ()),
                                  *(('audio_state',) if 'observe_audio' in profile else ()),
                                  *(('houses',) if docking_state else ())), row_label)
         tick, binary_frame = _segment_clock(step, segments)
@@ -2331,6 +2780,9 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                      disguise_inputs=profile.get('observe_disguise_inputs', False),
                                      lasers=profile.get('observe_lasers', False) or profile.get('observe_electric_bolts', False),
                                      bombs=profile.get('observe_bombs', False),
+                                     temporal=profile.get('observe_temporal', False),
+                                     cloak=profile.get('observe_cloak', False),
+                                     spawns=profile.get('observe_spawns', False),
                                      damage_smoke=profile.get('observe_electric_bolts', False))
             if identity <= previous_id:
                 raise ValidationError(f'{actor_label}.stable_id is repeated or out of order')
@@ -2357,16 +2809,21 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         if effects:
             sample_count += _effects(row['effects'], profile, f'{row_label}.effects')
         if profile.get('observe_lasers', False):
-            sample_count += _lasers(row['lasers'], f'{row_label}.lasers')
+            sample_count += _lasers(row['lasers'], f'{row_label}.lasers',
+                                    disk_laser_state=walk_state and disk_laser_state)
         if _observes_electric_step(profile, step):
             sample_count += _electric_bolts(row['electric_bolts'], f'{row_label}.electric_bolts')
+        if profile.get('observe_radiation_beams', False):
+            sample_count += _radiation_beams(row['radiation_beams'], f'{row_label}.radiation_beams')
         if profile.get('observe_bombs', False):
             sample_count += _bombs(row['bombs'], f'{row_label}.bombs')
+        if profile.get('observe_crates', False):
+            sample_count += _crate_slots(row['crates'], f'{row_label}.crates')
         if gesture_input:
             sample_count += _input_observation(row['input'], f'{row_label}.input',
                                                 local_input=_observes_local_input(profile))
         if 'observe_audio' in profile:
-            sample_count += _sound_state(row['audio_state'], f'{row_label}.audio_state')
+            sample_count += _sound_state(row['audio_state'], f'{row_label}.audio_state', profile=profile)
             if any(actor['stable_id'] not in present for actor in row['audio_state']['actors']):
                 raise ValidationError('sound-state actor is absent from the observed actor frame')
         if docking_state:
@@ -2376,10 +2833,24 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         if building_state:
             sample_count += sum(len(actor['building']['animation_slots']) for actor in actors
                                 if actor['category'] == 'Structure')
+        if profile.get('observe_spawns', False):
+            sample_count += sum(1 + len(actor['spawns']['slots']) for actor in actors
+                                if actor['spawns'] is not None)
+        if profile.get('observe_temporal', False):
+            sample_count += sum(1 + len(actor['temporal']['cargo']['passengers'])
+                                if actor['temporal']['cargo'] is not None else 1
+                                for actor in actors)
+        if profile.get('observe_cloak', False):
+            sample_count += sum(actor['cloak'] is not None for actor in actors)
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
     if profile.get('observe_electric_bolts', False):
         sample_count += _electric_bolt_draws(observations['electric_bolt_draws'], profile, segments,
+                                             observations.get('audio', {}).get('tail_draw_count', 0))
+        if sample_count > MAX_OBSERVATION_SAMPLES:
+            raise ValidationError('observations exceeds its retained sample budget')
+    if profile.get('observe_radiation_beams', False):
+        sample_count += _radiation_beam_draws(observations['radiation_beam_draws'], profile, segments,
                                              observations.get('audio', {}).get('tail_draw_count', 0))
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
@@ -2391,11 +2862,43 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     return dict(observations)
 
 
+def _crate_slots(value: Any, label: str) -> int:
+    slots = require_array(value, label)
+    if len(slots) > 256:
+        raise ValidationError(f'{label} exceeds the native slot capacity')
+    previous = -1
+    for index, value in enumerate(slots):
+        row_label = f'{label}[{index}]'
+        row = require_object(value, row_label)
+        require_exact_keys(row, ('slot', 'cell', 'start_frame', 'aux', 'duration', 'overlay'), row_label)
+        slot = _bounded_int(row['slot'], f'{row_label}.slot', 0, 255)
+        if slot <= previous:
+            raise ValidationError(f'{label} slot identities must increase strictly')
+        previous = slot
+        cell = require_array(row['cell'], f'{row_label}.cell')
+        if len(cell) != 2:
+            raise ValidationError(f'{row_label}.cell requires two coordinates')
+        for axis, coordinate in enumerate(cell):
+            _bounded_int(coordinate, f'{row_label}.cell[{axis}]', -32768, 32767)
+        if cell == [0, 0]:
+            raise ValidationError(f'{row_label} cannot retain an empty slot')
+        for field in ('start_frame', 'duration'):
+            _bounded_int(row[field], f'{row_label}.{field}', -(1 << 31), (1 << 31) - 1)
+        _bounded_int(row['aux'], f'{row_label}.aux', 0, (1 << 32) - 1)
+        if row['overlay'] is not None:
+            overlay = require_object(row['overlay'], f'{row_label}.overlay')
+            require_exact_keys(overlay, ('id', 'data'), f'{row_label}.overlay')
+            if overlay['id'] is not None:
+                _bounded_int(overlay['id'], f'{row_label}.overlay.id', 0, 255)
+            _bounded_int(overlay['data'], f'{row_label}.overlay.data', 0, 255)
+    return len(slots)
+
+
 def validate_capture(directory: Path, profile: Mapping[str, Any],
                      identities: Mapping[str, Mapping[str, Any]], *,
                      legacy_clock: bool = False, prior_observations: bool = False,
                      prior_trajectory: bool = False, building_only: bool = False,
-                     docking_only: bool = False) -> _Capture:
+                     docking_only: bool = False, walk_only: bool = False) -> _Capture:
     """Check child semantics/bytes against independently checked input identities.
 
     Identities describe original runtime paths. Retained copies have their own real
@@ -2411,7 +2914,8 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
                        PRIOR_CHILD_SCHEMA if prior_observations else
                        TRAJECTORY_CHILD_SCHEMA if prior_trajectory else
                        BUILDING_CHILD_SCHEMA if building_only else
-                       DOCKING_CHILD_SCHEMA if docking_only else CHILD_SCHEMA)
+                       DOCKING_CHILD_SCHEMA if docking_only else
+                       WALK_CHILD_SCHEMA if walk_only else CHILD_SCHEMA)
     require_value(manifest.get('schema_version'),
                   expected_schema, 'schema_version')
     if manifest.get('status') != 'COMPLETE':
@@ -2461,19 +2965,35 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         require_value(startup.get(key), expected, f'startup.{key}')
     _integer(startup, 'correlation', 1)
     source = require_object(manifest.get('map_source'), 'map_source')
-    require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
-    _integer(source, 'payload_len', 1)
-    if source.get('kind') == 'loose':
-        path = require_string(source.get('path'), 'map_source.path')
-        if not path:
-            raise ValidationError('empty map source path')
-    elif source.get('kind') == 'mix':
-        for name in ('logical_name', 'source_archive'):
-            if not require_string(source.get(name), f'map_source.{name}'):
-                raise ValidationError(f'empty map_source.{name}')
-        require_int(source.get('entry_id'), 'map_source.entry_id')
+    if source.get('kind') == 'generated':
+        # These are consumed .SED bytes, not bytes of an authored/generated map.
+        # Name-only legacy Generated sources cannot certify a sealed capture.
+        seed_name = require_string(source.get('seed_name'), 'map_source.seed_name')
+        launch = require_object(profile.get('launch'), 'profile.launch')
+        map_name = require_string(launch.get('selected_map_file'),
+                                  'profile.launch.selected_map_file')
+        require_value(seed_name, map_name, 'map_source.seed_name')
+        if not seed_name.lower().endswith('.sed'):
+            raise ValidationError('map_source.seed_name must end in .SED')
+        seed_source = require_object(source.get('seed_source'), 'map_source.seed_source')
+        require_sha256(seed_source.get('source_sha256'), 'map_source.seed_source.source_sha256')
+        _integer(seed_source, 'payload_len', 1)
+        if not require_string(seed_source.get('path'), 'map_source.seed_source.path'):
+            raise ValidationError('empty map_source.seed_source.path')
     else:
-        raise ValidationError('map source must be loaded loose or MIX bytes')
+        require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
+        _integer(source, 'payload_len', 1)
+        if source.get('kind') == 'loose':
+            path = require_string(source.get('path'), 'map_source.path')
+            if not path:
+                raise ValidationError('empty map source path')
+        elif source.get('kind') == 'mix':
+            for name in ('logical_name', 'source_archive'):
+                if not require_string(source.get(name), f'map_source.{name}'):
+                    raise ValidationError(f'empty map_source.{name}')
+            require_int(source.get('entry_id'), 'map_source.entry_id')
+        else:
+            raise ValidationError('map source must be loaded loose, MIX, or consumed .SED bytes')
     lifecycle = require_object(manifest.get('lifecycle'), 'lifecycle')
     for key, expected in (('window_hidden', True), ('window_focused', False),
                           ('focus_violations', 0), ('input_violations', 0)):
@@ -2496,7 +3016,8 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         observations = _observations(manifest.get('observations'), profile, final,
                                      building_state=not prior_trajectory,
                                      docking_state=not (prior_trajectory or building_only),
-                                     walk_state=not (prior_trajectory or building_only or docking_only))
+                                     walk_state=not (prior_trajectory or building_only or docking_only),
+                                     disk_laser_state=not walk_only)
         camera = require_object(render.get('camera'), 'render.camera')
         require_exact_keys(camera, ('requested_cell', 'top_left', 'zoom'), 'render.camera')
         _require_equal(camera['requested_cell'], profile.get('camera_cell'), 'render.camera.requested_cell')
@@ -2515,7 +3036,8 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         clock = {'policy': 'legacy-wall-clock'}
     else:
         clock = _presentation_clock(render.get('presentation_clock'), ticks,
-                                    segments if profile.get('allow_load_segments', False) else None)
+                                    segments if profile.get('allow_load_segments', False) else None,
+                                    observe_tooltips=profile.get('observe_tooltips', False))
         neutral = require_object(render.get('neutral_input'), 'render.neutral_input')
         require_exact_keys(neutral, ('static_default_cursor', 'camera_input_idle'),
                            'render.neutral_input')
@@ -2556,7 +3078,7 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
 
 def capture(*, profile_path: Path, contract_path: Path, output: Path,
             working_directory: Path, executable: Path | None = None,
-            build_label: str | None = None) -> dict[str, Any]:
+            build_label: str | None = None, build_profile: str | None = None) -> dict[str, Any]:
     profile_snapshot, profile = load_json_file(profile_path, 'map observation profile')
     _profile_extensions(profile)
     # Only wrapper resource budgets are interpreted here. Rust owns launch admission.
@@ -2566,16 +3088,29 @@ def capture(*, profile_path: Path, contract_path: Path, output: Path,
     if timeout > contract.document['absolute_max_child_timeout_seconds']:
         raise ValidationError('profile timeout exceeds checked contract maximum')
     cwd = require_directory(working_directory, 'working directory')
-    if executable is not None and build_label is not None:
-        raise ValidationError('executable and build_label are mutually exclusive')
+    if executable is not None and (build_label is not None or build_profile is not None):
+        raise ValidationError('executable is mutually exclusive with build_label and build_profile')
+    if build_profile is not None and build_profile not in CAPTURE_PROFILES:
+        raise ValidationError('build_profile must be release or fast')
+    wanted = build_profile or ' or '.join(CAPTURE_PROFILES)
     if build_label is not None:
-        executable, _ = resolve_labeled_binary(ROOT, build_label, 'vera20k', 'release')
+        executable, found = resolve_labeled_binary(ROOT, build_label, 'vera20k', build_profile)
         if executable is None:
-            raise ValidationError(f'no verified release vera20k in build label {build_label!r}')
+            raise ValidationError(f'no verified {wanted} vera20k in build label {build_label!r}')
+        if found not in CAPTURE_PROFILES:
+            raise ValidationError(f'build label {build_label!r} holds a {found} vera20k; '
+                                  'captures need release or fast')
     if executable is None:
-        executable, _ = resolve_binary(ROOT, 'vera20k', 'release')
-        if executable is None:
-            raise ValidationError('no verified release vera20k; build with tools.cargo_run first')
+        # A checkout may have recorded both builds, each from its own source
+        # revision; never pick one silently.
+        recorded = [path for profile in ((build_profile,) if build_profile else CAPTURE_PROFILES)
+                    if (path := resolve_binary(ROOT, 'vera20k', profile)[0]) is not None]
+        if len(recorded) > 1:
+            raise ValidationError('release and fast vera20k are both recorded for this checkout; '
+                                  'pass --build-profile')
+        if not recorded:
+            raise ValidationError(f'no verified {wanted} vera20k; build with tools.cargo_run first')
+        executable, = recorded
     snapshots = {'profile': profile_snapshot, 'contract': contract.snapshot,
                  'config': require_regular_file(cwd / 'config.toml', 'config'),
                  'executable': require_regular_file(executable, 'executable')}
@@ -2641,7 +3176,8 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
                                          maximum_length=MAX_RECEIPT_BYTES)
     schema = report.get('schema_version')
     legacy = schema == LEGACY_RUN_SCHEMA
-    if schema not in (RUN_SCHEMA, DOCKING_RUN_SCHEMA, BUILDING_RUN_SCHEMA, TRAJECTORY_RUN_SCHEMA, PRIOR_RUN_SCHEMA,
+    if schema not in (RUN_SCHEMA, WALK_RUN_SCHEMA, DOCKING_RUN_SCHEMA, BUILDING_RUN_SCHEMA,
+                      TRAJECTORY_RUN_SCHEMA, PRIOR_RUN_SCHEMA,
                       LEGACY_CLOCK_RUN_SCHEMA, LEGACY_RUN_SCHEMA):
         raise ValidationError(f'unsupported observation wrapper schema: {schema!r}')
     if legacy and not allow_legacy_inputs:
@@ -2652,6 +3188,7 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
     prior_trajectory = schema == TRAJECTORY_RUN_SCHEMA
     building_only = schema == BUILDING_RUN_SCHEMA
     docking_only = schema == DOCKING_RUN_SCHEMA
+    walk_only = schema == WALK_RUN_SCHEMA
     if legacy_clock and not allow_legacy_clock:
         raise ValidationError('legacy wall-clock evidence requires --allow-legacy-clock; '
                               'it has no deterministic presentation schedule')
@@ -2704,7 +3241,7 @@ def _load_run(directory: Path, allow_legacy_inputs: bool,
     checked = validate_capture(directory / 'child-output', profile, identities,
                                legacy_clock=legacy_clock, prior_observations=prior_observations,
                                prior_trajectory=prior_trajectory, building_only=building_only,
-                               docking_only=docking_only)
+                               docking_only=docking_only, walk_only=walk_only)
     _require_equal(report.get('capture'), checked.evidence, 'run.capture')
     logs = require_object(report.get('logs'), 'run.logs')
     snapshots = [run_snapshot, *inputs.values(), contract.snapshot, profile_snapshot,
@@ -2920,6 +3457,9 @@ def main(argv: list[str] | None = None) -> int:
         binary = parser.add_mutually_exclusive_group()
         binary.add_argument('--executable', type=Path)
         binary.add_argument('--build-label')
+        parser.add_argument('--build-profile', choices=CAPTURE_PROFILES,
+                            help='Cargo profile of the recorded or labelled vera20k; required '
+                                 'when both are recorded')
     else:
         parser.add_argument('--allow-legacy-inputs', action='store_true')
         parser.add_argument('--allow-legacy-clock', action='store_true',
@@ -2941,7 +3481,8 @@ def main(argv: list[str] | None = None) -> int:
         if operation == 'capture':
             report = capture(profile_path=args.profile, contract_path=args.contract,
                              output=args.output, working_directory=args.cwd,
-                             executable=args.executable, build_label=args.build_label)
+                             executable=args.executable, build_label=args.build_label,
+                             build_profile=args.build_profile)
             result_path = args.output / 'run.json'
             status = 0 if report['status'] == 'VALID' else 1
         else:

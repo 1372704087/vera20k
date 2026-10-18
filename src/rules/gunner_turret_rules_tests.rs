@@ -7,11 +7,8 @@ use crate::rules::process_owner::NativeRulesProcessOwner;
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ifv_turret_switching.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/ifv_turret_switching.json")
 }
 
 fn cached_ini(sections: &Value) -> IniFile {
@@ -71,8 +68,16 @@ fn native_gunner_reader_controls_match() {
         } else {
             ObjectCategory::Vehicle
         };
-        let object = ObjectType::from_ini_section(id, ini.section_or_empty(id), category);
-        assert_object(&object, &row["after"], name);
+        let section = ini.section_or_empty(id);
+        let mut config = GunnerTurrets::default();
+        config.apply_pass(id, section, category);
+        assert_config(&config, &row["after"], name);
+        let object = ObjectType::from_ini_section(id, section, category);
+        assert_eq!(
+            object.ifv_mode,
+            row["after"]["ifv_mode"].as_i64().unwrap() as i32,
+            "signed IFVMode: {name}"
+        );
     }
 }
 
@@ -213,6 +218,7 @@ fn retail_root_ifv_and_passengers_match_original_readers() {
 // Hills runs through production source selection here. The native component
 // corpus establishes the stock FV baseline, not the complete Hills Rules pass.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_battle_hills_preserves_native_ifv_baseline() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;

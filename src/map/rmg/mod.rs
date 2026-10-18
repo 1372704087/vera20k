@@ -33,9 +33,9 @@ pub use settings::RmgSettings;
 pub use tiles::TileIds;
 pub use x87::{Gaussian, TruncF64};
 
-#[cfg(test)]
-pub(crate) use crate::map::construction_trace::{RmgConstructionEvent, RmgConstructionOutcome};
-pub(crate) use crate::map::construction_trace::{RmgConstructionPhase, RmgConstructionTrace};
+#[cfg(any(test, feature = "test-support"))]
+pub use crate::map::construction_trace::{RmgConstructionEvent, RmgConstructionOutcome};
+pub use crate::map::construction_trace::{RmgConstructionPhase, RmgConstructionTrace};
 use crate::map::map_file::MapFile;
 use crate::rng_continuation::MapGenRngContinuation;
 
@@ -76,6 +76,7 @@ pub enum Stage {
 /// rather than alongside the other terrain shaping; and the tail of the LAT
 /// driver runs patches → LAT fixup → trees → rocks in that order (the fixup
 /// creates the sand-LAT tiles the rock pass needs), then a final recalc.
+#[cfg(any(test, feature = "test-support"))]
 pub const STAGE_ORDER: &[Stage] = &[
     Stage::Water,
     Stage::WaterFinalize,
@@ -202,14 +203,15 @@ pub struct GeneratedMap {
     /// Exact `g_MapGenRng` continuation after this generation run. Successful
     /// shell completion publishes it before retaining this presentation map;
     /// launch-time `.SED` regeneration transfers its own new receipt.
-    pub(crate) mapgen_continuation: Option<MapGenRngContinuation>,
+    pub mapgen_continuation: Option<MapGenRngContinuation>,
     /// Ordered native Building-constructor effects produced during this RMG
     /// run. Geometry is MapGen-owned; these events are replayed later on the
     /// appropriate Scenario owner (shell preview or match bootstrap).
-    pub(crate) construction_trace: RmgConstructionTrace,
+    pub construction_trace: RmgConstructionTrace,
     /// `(slot, x, y)` per generated start position.
     pub start_waypoints: Vec<(u8, u16, u16)>,
     /// Stages actually executed, in order.
+    #[cfg(any(test, feature = "test-support"))]
     pub stages_run: Vec<Stage>,
     /// Start slots no region could fill. Non-zero means this map is short of
     /// spawns: fewer usable start positions than the player count implies.
@@ -218,7 +220,7 @@ pub struct GeneratedMap {
 
 impl GeneratedMap {
     /// Transfer this run's process cursor exactly once without drawing from it.
-    pub(crate) fn take_mapgen_continuation(&mut self) -> MapGenRngContinuation {
+    pub fn take_mapgen_continuation(&mut self) -> MapGenRngContinuation {
         self.mapgen_continuation
             .take()
             .expect("completed generation transfers its MapGen continuation once")
@@ -231,6 +233,7 @@ impl GeneratedMap {
 ///
 /// `options` must already be normalized — `build::generate_map` normalizes its
 /// copy before calling this.
+#[cfg(any(test, feature = "test-support"))]
 pub fn executed_stages(options: &RmgOptions) -> Vec<Stage> {
     STAGE_ORDER
         .iter()

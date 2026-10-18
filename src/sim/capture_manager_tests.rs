@@ -564,7 +564,7 @@ fn get_fire_error_refuses_an_uncapturable_target() {
             world: &sim,
             rules: &rules,
             overlay_registry: None,
-            fog: Some(&sim.fog),
+            fog: Some(sim.fog.fire_view(&sim.house_alliances)),
             firer: sim.substrate.entities.get(yuri).unwrap(),
             obj: rules.object("YURI").unwrap(),
             target: Some(crate::sim::combat::TargetKind::Entity(target)),
@@ -921,6 +921,38 @@ fn a_captive_sent_to_a_bio_reactor_does_not_hunt() {
     assert_eq!(sim.scenario_rng.state(), replay.state());
 }
 
+#[test]
+fn ai_grinder_choice_preserves_the_seek_and_its_single_decision_draw() {
+    for (kind, has_grinder) in [("E1", true), ("HTNK", true), ("E1", false)] {
+        let mut rules = rules_from(&RULES.replace(
+            "[BIOR]\nStrength=900\nPassengers=5",
+            "[BIOR]\nStrength=900\nPassengers=5\nGrinding=yes",
+        ));
+        rules.mind_control.ai_capture = std::array::from_fn(|_| vec![0, 100]);
+        let mut sim = sim(39);
+        let controller = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
+        let grinder = has_grinder.then(|| spawn(&mut sim, &rules, "BIOR", "YuriCountry", 16, 10));
+        let captive = spawn(&mut sim, &rules, kind, "Americans", 12, 10);
+        let mut expected_rng = sim.scenario_rng.clone();
+        assert!(sim.capture_unit(controller, captive, &rules, None, FrameEffects::default()));
+        fate_draw(&mut expected_rng);
+        assert_eq!(sim.scenario_rng.state(), expected_rng.state());
+        assert_eq!(
+            queued_mission(&sim, captive),
+            Some(if has_grinder {
+                MissionType::Eaten
+            } else {
+                MissionType::Hunt
+            }),
+            "{kind}, grinder={has_grinder}"
+        );
+        assert_eq!(
+            sim.entities().get(captive).unwrap().navigation.nav_com(),
+            grinder.map(crate::sim::components::NavTargetRef::object)
+        );
+    }
+}
+
 /// Original CaptureManagerClass::Update `0x00471A50` after the original
 /// constructor, frame by frame (`tools/spatial_oracle/capture_overload_update.py`):
 /// which frames check, each check's C4 damage, voice and five spark systems
@@ -997,6 +1029,18 @@ fn native_overload_update_corpus() {
         );
         assert_eq!(manager.overload_sound_played, constructed["latch"] != 0);
         assert_eq!(manager.infinite, constructed["infinite"] != 0);
+        if !infinite {
+            assert_eq!(
+                manager.overload_pip_state(),
+                None,
+                "{name}: a finite manager above capacity has no overload pip"
+            );
+        }
+        assert_eq!(
+            manager.overload_pip_countdown,
+            constructed["flash"].as_i64().unwrap() as i32,
+            "{name}: constructor pip countdown"
+        );
         let entity = sim.substrate.entities.get_mut(mind).unwrap();
         entity.capture_manager = Some(manager);
         if input.get("kill").is_some() {
@@ -1041,6 +1085,23 @@ fn native_overload_update_corpus() {
                 None,
                 crate::sim::world::FrameEffects::default(),
             );
+
+            // Event checkpoints record the original manager after Update.
+            // A retired Rust owner has no presentation state to compare;
+            // the legacy killing callback does not establish its lifetime.
+            if let (Some(native), Some(manager)) = (
+                native_frames.get(&frame),
+                sim.substrate
+                    .entities
+                    .get(mind)
+                    .and_then(|entity| entity.capture_manager.as_ref()),
+            ) {
+                assert_eq!(
+                    manager.overload_pip_countdown,
+                    native["after"]["flash"].as_i64().unwrap() as i32,
+                    "{name} frame {frame}: native pip countdown"
+                );
+            }
 
             let events: Vec<&serde_json::Value> = native_frames
                 .get(&frame)
@@ -1101,7 +1162,7 @@ fn native_overload_update_corpus() {
                 .map(|(_, system)| {
                     assert_eq!(system.type_id, spark_type);
                     assert_eq!(system.target_coords, glam::IVec3::ZERO);
-                    assert!(system.attached_entity.is_none() && system.owner_entity.is_none());
+                    assert!(system.target_ref.is_none() && system.owner_entity.is_none());
                     assert!(system.owner_house.is_none());
                     let offset = system.coords - location;
                     [offset.x, offset.y, offset.z]
@@ -1131,6 +1192,21 @@ fn native_overload_update_corpus() {
             .is_some_and(|entity| entity.lifecycle.object_alive());
         assert_eq!(alive, final_state["alive"] != 0, "{name}");
         if alive {
+            // This legacy fixture executes only CaptureManager::Update:
+            // no shared RockingUpdate integrates/damps the stored rate.
+            // Its native damage/particle callbacks remain recorded stubs.
+            let rate = sim
+                .substrate
+                .entities
+                .get(mind)
+                .unwrap()
+                .rocking
+                .map_or(0, |state| state.native_bits()[2]);
+            assert_eq!(
+                rate,
+                (final_state["lean"].as_f64().unwrap() as f32).to_bits(),
+                "{name}: final native sideways rate"
+            );
             let manager = sim
                 .substrate
                 .entities
@@ -1147,6 +1223,11 @@ fn native_overload_update_corpus() {
                 final_state["latch"] != 0,
                 "{name}"
             );
+            assert_eq!(
+                manager.overload_pip_countdown,
+                final_state["flash"].as_i64().unwrap() as i32,
+                "{name}: final native pip countdown"
+            );
         }
         assert_eq!(
             sim.scenario_rng.next_u32(),
@@ -1154,6 +1235,273 @@ fn native_overload_update_corpus() {
             "{name}"
         );
     }
+}
+
+/// Full native471A50 with physical stock MIND/Spark rules, actual nonlethal
+/// Unit damage and five ParticleSystem constructors. Captive count alone is
+/// an explicit supplied component prior on both sides. The additive Techno
+/// bracket executes Mission/targeting before overload; other rows visit only
+/// the manager. No real capture, fatal FreeAll or particle AI is claimed here.
+/// The ordinary world witness owns legal shots/real nodes/next-frame lurch.
+#[test]
+fn native_joined_overload_preserves_constructor_rng_ids_and_rate_words() {
+    use crate::sim::native_identity::NativeUniqueIdCursor;
+    use serde_json::{Value, json};
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/capture_overload_joined.json",
+    ))
+    .unwrap();
+    let techno_order: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/capture_overload_techno_order.json",
+    ))
+    .unwrap();
+    let initial = &corpus["initial"];
+    // Independent physical map copies can have different payload identities;
+    // their selected type, overload and Spark reader outputs must agree.
+    for key in ["type", "rules", "spark_types", "fixed_sources"] {
+        assert_eq!(initial[key], techno_order["joined_inputs"][key]);
+    }
+    let object = rules.object("MIND").unwrap();
+    let weapon = rules.weapon(object.primary().unwrap()).unwrap();
+    assert_eq!(json!(object.strength), initial["type"]["strength"]);
+    assert_eq!(json!(object.primary().unwrap()), initial["type"]["primary"]);
+    assert_eq!(json!(weapon.damage), initial["type"]["primary_damage"]);
+    assert_eq!(
+        format!("{:016x}", object.weight.to_num::<f64>().to_bits()),
+        initial["type"]["weight_bits"].as_str().unwrap()
+    );
+    assert_eq!(
+        json!(rules.mind_control.overload_count),
+        initial["rules"]["count"]
+    );
+    assert_eq!(
+        json!(rules.mind_control.overload_damage),
+        initial["rules"]["damage"]
+    );
+    assert_eq!(
+        json!(rules.mind_control.overload_frames),
+        initial["rules"]["frames"]
+    );
+    assert_eq!(
+        json!(rules.bridge_warheads.c4_name),
+        initial["rules"]["c4_warhead"]
+    );
+    assert_eq!(
+        json!(rules.combat_damage.default_spark_system),
+        initial["rules"]["default_spark"]
+    );
+
+    let rng_state = |world: &Simulation| {
+        json!({
+            "main": world.main_rng.native_state_hex(),
+            "scenario": world.scenario_rng.native_state_hex(),
+            "mapgen": world.mapgen_rng.native_state_hex(),
+        })
+    };
+    let compare_actor = |world: &Simulation, id: u64, expected: &Value| {
+        let actor = world.substrate.entities.get(id).unwrap();
+        let manager = actor.capture_manager.as_ref().unwrap();
+        let point = crate::sim::movement::ground_pose::object_location(
+            actor,
+            world.resolved_terrain.as_ref(),
+        );
+        assert_eq!(json!(actor.health.current()), expected["health"]);
+        assert_eq!(
+            json!(u8::from(actor.lifecycle.object_alive())),
+            expected["alive"]
+        );
+        assert_eq!(
+            json!(u8::from(actor.lifecycle.in_limbo())),
+            expected["limbo"]
+        );
+        assert_eq!(json!([point.x, point.y, point.z]), expected["location"]);
+        assert_eq!(
+            json!(actor.rocking.map_or([0; 4], |state| state.native_bits())),
+            expected["rocking_bits"]
+        );
+        assert_eq!(json!(manager.count()), expected["count"]);
+        assert_eq!(json!(manager.overload_countdown), expected["countdown"]);
+        assert_eq!(
+            json!(u8::from(manager.overload_sound_played)),
+            expected["latch"]
+        );
+        assert_eq!(json!(manager.overload_pip_countdown), expected["flash"]);
+    };
+    let rows = corpus["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 5);
+    let mut signs = std::collections::BTreeMap::<u64, std::collections::BTreeSet<u32>>::new();
+    for row in rows.iter().chain(std::iter::once(&techno_order["joined"])) {
+        let input = &row["input"];
+        let name = input["name"].as_str().unwrap();
+        let count = input["captives"].as_u64().unwrap();
+        let through_techno = input["techno_order"].as_bool() == Some(true);
+        let mut world = crate::sim::arena_fixture::rival_arena_with_size(&rules, 1, 64);
+        world.intern_rule_type_ids(&rules);
+        world.resolve_type_handles(&rules);
+        let mind = world
+            .spawn_object("MIND", "Americans", 8, 8, 128, &rules)
+            .unwrap();
+        let manager = world
+            .substrate
+            .entities
+            .get_mut(mind)
+            .unwrap()
+            .capture_manager
+            .as_mut()
+            .unwrap();
+        assert_eq!(json!(manager.max_control), row["context"]["manager_max"]);
+        assert_eq!(
+            json!(u8::from(manager.infinite)),
+            row["context"]["manager_infinite"]
+        );
+        manager.nodes = (0..count)
+            .map(|index| ControlNode {
+                victim: 1_000_000 + index,
+                original_owner: InternedId::default(),
+            })
+            .collect();
+        if through_techno {
+            manager.overload_countdown = input["countdown"].as_i64().unwrap() as i32;
+            world.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
+            let actor = world.substrate.entities.get(mind).unwrap();
+            assert_eq!(
+                json!(actor.mission.current().raw()),
+                row["context"]["mission"]
+            );
+            assert_eq!(
+                actor.passive_scan.timer(),
+                crate::sim::mission::MissionTimer::armed(
+                    row["context"]["passive_timer"][0].as_u64().unwrap() as u32,
+                    row["context"]["passive_timer"][2].as_u64().unwrap() as u32,
+                )
+            );
+        }
+        world.native_unique_ids = Some(NativeUniqueIdCursor::test_at_current_value(
+            row["native_cursor_before"].as_u64().unwrap() as u32,
+        ));
+        world.main_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["main"].as_str().unwrap())
+                .into();
+        world.scenario_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["scenario"].as_str().unwrap());
+        world.mapgen_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["mapgen"].as_str().unwrap());
+        compare_actor(&world, mind, &row["before"]);
+        assert_eq!(rng_state(&world), row["rng_before"]);
+        let previous: std::collections::BTreeSet<_> =
+            world.particle_systems().iter().map(|(&id, _)| id).collect();
+        let (_, draws) = crate::sim::rng::trace_draws(|| {
+            if through_techno {
+                world.object_ai_visit_one(
+                    mind,
+                    Some(&rules),
+                    crate::sim::world::ObjectAiCtx::default(),
+                );
+            } else {
+                for frame in 0..input["visits"].as_u64().unwrap() as u32 {
+                    world.session.binary_frame = frame;
+                    world.capture_manager_update(mind, &rules, None, FrameEffects::default());
+                }
+            }
+        });
+        let words: Vec<_> = draws.iter().map(|draw| draw["value"].clone()).collect();
+        let expected_words: Vec<_> = row["rng_requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|request| request["raw_draws"].as_array().unwrap().iter().cloned())
+            .collect();
+        assert_eq!(
+            words, expected_words,
+            "{name}: every raw word in order, including rejection words"
+        );
+        assert_eq!(json!(draws.len()), row["raw_draw_count"]);
+        assert_eq!(
+            rng_state(&world),
+            row["rng_after"],
+            "{name}: complete three streams"
+        );
+        assert_eq!(
+            json!(world.native_unique_ids.as_ref().unwrap().current_raw()),
+            row["native_cursor_after"]
+        );
+        compare_actor(&world, mind, &row["after"]);
+        if count > 3 {
+            signs
+                .entry(count)
+                .or_default()
+                .insert(row["after"]["rocking_bits"][2].as_u64().unwrap() as u32 >> 31);
+        }
+        let births: Vec<_> = world
+            .substrate
+            .logic
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|id| !previous.contains(id) && world.particle_systems().contains_key(*id))
+            .collect();
+        let expected = row["particle_systems"].as_array().unwrap();
+        assert_eq!(
+            births.len(),
+            expected.len(),
+            "{name}: actual ordered Spark births"
+        );
+        for (id, expected) in births.into_iter().zip(expected) {
+            let system = world.particle_systems().get(id).unwrap();
+            let state = &expected["state"];
+            assert_eq!(
+                json!(rules.particle_system_type(system.type_id).name),
+                expected["type"]
+            );
+            assert_eq!(json!(system.native_unique_id()), state["native_id"]);
+            assert_eq!(json!(system.coords.to_array()), state["position"]);
+            assert_eq!(json!(system.coords.to_array()), expected["position"]);
+            assert_eq!(json!(system.target_coords.to_array()), state["target"]);
+            assert_eq!(
+                json!(system.target_coords.to_array()),
+                expected["args"]["target"]
+            );
+            assert_eq!(json!(system.lifetime), state["lifetime"]);
+            assert_eq!(
+                json!(system.spark_spawn_frames),
+                state["spark_spawn_frames"]
+            );
+            assert_eq!(json!(system.done_spawning), state["time_to_die"]);
+            assert_eq!(json!(system.in_logic_vector), state["logic"]);
+            assert_eq!(json!(system.particles.len()), state["particle_count"]);
+            assert!(system.alive() && !system.in_limbo() && system.particles.is_empty());
+            assert!(
+                system.owner_entity.is_none()
+                    && system.target_ref.is_none()
+                    && system.owner_house.is_none()
+            );
+            for key in ["owner", "target_object", "house"] {
+                assert_eq!(state[key], json!(0));
+                assert_eq!(expected["args"][key], json!(0));
+            }
+            assert_eq!(
+                expected["rng_request_before"], expected["rng_request_after"],
+                "selected stock SparkSys ctor has no RNG draws at this seam"
+            );
+            assert_eq!(
+                expected["native_cursor_after"].as_u64().unwrap(),
+                expected["native_cursor_before"].as_u64().unwrap() + 1
+            );
+        }
+    }
+    assert_eq!(
+        signs.get(&4).unwrap(),
+        &std::collections::BTreeSet::from([0, 1])
+    );
+    assert_eq!(
+        signs.get(&7).unwrap(),
+        &std::collections::BTreeSet::from([0, 1])
+    );
 }
 
 /// The Mastermind overload: at three captives or fewer a check every 30
@@ -1179,6 +1527,16 @@ fn a_mastermind_overloads_above_three_captives() {
             crate::sim::world::FrameEffects::default()
         ));
     }
+    let manager = sim
+        .substrate
+        .entities
+        .get(mind)
+        .unwrap()
+        .capture_manager
+        .as_ref()
+        .unwrap();
+    assert_eq!(manager.count(), 3);
+    assert_eq!(manager.overload_pip_state(), None);
     // 30 quiet frames, then a free check at three captives.
     let health = sim.substrate.entities.get(mind).unwrap().health.current();
     let before = sim.scenario_rng.state();
@@ -1203,6 +1561,18 @@ fn a_mastermind_overloads_above_three_captives() {
         None,
         crate::sim::world::FrameEffects::default()
     ));
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(mind)
+            .unwrap()
+            .capture_manager
+            .as_ref()
+            .unwrap()
+            .overload_pip_state(),
+        Some(false),
+        "overcapacity precedes the first damaging check"
+    );
     for _ in 0..30 {
         sim.capture_manager_update(
             mind,
@@ -1229,17 +1599,57 @@ fn a_mastermind_overloads_above_three_captives() {
         health - 50
     );
     assert_eq!(voc_sounds(&sim), ["MasterMindOverloadVoice"]);
+    let manager = sim
+        .substrate
+        .entities
+        .get(mind)
+        .unwrap()
+        .capture_manager
+        .as_ref()
+        .unwrap();
+    assert_eq!(manager.overload_pip_countdown, 10);
+    assert_eq!(manager.overload_pip_state(), Some(true));
     // The next check is 60 frames on, and the voice does not repeat.
-    let quiet = sim.scenario_rng.state();
-    for _ in 0..60 {
+    let quiet = (
+        sim.main_rng.native_state_hex(),
+        sim.scenario_rng.native_state_hex(),
+        sim.mapgen_rng.native_state_hex(),
+    );
+    for visit in 1..=60 {
         sim.capture_manager_update(
             mind,
             &rules,
             None,
             crate::sim::world::FrameEffects::default(),
         );
+        let expected = match visit {
+            1 => Some((9, true)),
+            9 => Some((1, true)),
+            10 | 60 => Some((0, false)),
+            _ => None,
+        };
+        if let Some((remaining, active)) = expected {
+            let manager = sim
+                .substrate
+                .entities
+                .get(mind)
+                .unwrap()
+                .capture_manager
+                .as_ref()
+                .unwrap();
+            assert_eq!(manager.overload_pip_countdown, remaining, "visit {visit}");
+            assert_eq!(manager.overload_pip_state(), Some(active), "visit {visit}");
+        }
     }
-    assert_eq!(sim.scenario_rng.state(), quiet);
+    assert_eq!(
+        (
+            sim.main_rng.native_state_hex(),
+            sim.scenario_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        ),
+        quiet,
+        "pip countdown visits draw from none of the three streams"
+    );
     sim.sound_events.clear();
     sim.capture_manager_update(
         mind,
@@ -1252,10 +1662,95 @@ fn a_mastermind_overloads_above_three_captives() {
         health - 100
     );
     assert!(voc_sounds(&sim).is_empty());
+    assert!(sim.free_unit(
+        mind,
+        captives[3],
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+    let manager = sim
+        .substrate
+        .entities
+        .get(mind)
+        .unwrap()
+        .capture_manager
+        .as_ref()
+        .unwrap();
+    assert_eq!(manager.count(), 3);
+    assert_eq!(manager.overload_pip_countdown, 10);
+    assert_eq!(
+        manager.overload_pip_state(),
+        None,
+        "release hides the extra pip"
+    );
 }
 
-/// Nodes (with their original house) and the victim's link survive a save,
-/// and both are hashed.
+/// Declared retained-field controls for the original Infinite gate and the
+/// positive-only decrement before both quiet and non-damaging returns.
+#[test]
+fn overload_pip_counter_obeys_finite_and_non_damaging_update_gates() {
+    let rules = rules();
+    for (kind, counter, countdown, expected_counter, expected_countdown) in [
+        ("YURI", 3, 7, 3, 7),
+        ("MIND", 3, 7, 2, 6),
+        ("MIND", 3, 0, 2, 30),
+        ("MIND", 0, 7, 0, 6),
+        ("MIND", -1, 7, -1, 6),
+    ] {
+        let mut sim = sim(20);
+        let controller = spawn(&mut sim, &rules, kind, "YuriCountry", 10, 10);
+        let manager = sim
+            .substrate
+            .entities
+            .get_mut(controller)
+            .unwrap()
+            .capture_manager
+            .as_mut()
+            .unwrap();
+        manager.overload_pip_countdown = counter;
+        manager.overload_countdown = countdown;
+        let before = (
+            sim.main_rng.native_state_hex(),
+            sim.scenario_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        );
+        sim.capture_manager_update(
+            controller,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        let manager = sim
+            .substrate
+            .entities
+            .get(controller)
+            .unwrap()
+            .capture_manager
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            manager.overload_pip_countdown, expected_counter,
+            "{kind} {counter}/{countdown}"
+        );
+        assert_eq!(
+            manager.overload_countdown, expected_countdown,
+            "{kind} {counter}/{countdown}"
+        );
+        assert_eq!(manager.overload_pip_state(), None, "no captive overload");
+        assert_eq!(
+            (
+                sim.main_rng.native_state_hex(),
+                sim.scenario_rng.native_state_hex(),
+                sim.mapgen_rng.native_state_hex(),
+            ),
+            before
+        );
+    }
+}
+
+/// Nodes (with their original house), the pip countdown and the victim's
+/// link survive a save, and each retained state participates in the hash.
 #[test]
 fn mind_control_state_round_trips_and_is_hashed() {
     let rules = rules();
@@ -1278,6 +1773,9 @@ fn mind_control_state_round_trips_and_is_hashed() {
             .unwrap();
         manager.overload_countdown = 7;
         manager.overload_sound_played = true;
+        // Declared nonzero persistence input; the real pulse above owns
+        // natural initialization and expiry of this field.
+        manager.overload_pip_countdown = 5;
     }
 
     let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "mind_control", 0);
@@ -1299,14 +1797,38 @@ fn mind_control_state_round_trips_and_is_hashed() {
         .unwrap();
     assert_eq!(manager.original_owner(gi), Some(americans));
     assert_eq!(
-        (manager.overload_countdown, manager.overload_sound_played),
-        (7, true)
+        (
+            manager.overload_countdown,
+            manager.overload_sound_played,
+            manager.overload_pip_countdown,
+        ),
+        (7, true, 5)
     );
     let entity = restored.substrate.entities.get(gi).unwrap();
     assert_eq!(entity.mind_control.controller(), Some(yuri));
     assert!(entity.mind_control.ring_anim.is_some());
 
     let linked = restored.state_hash();
+    restored
+        .substrate
+        .entities
+        .get_mut(yuri)
+        .unwrap()
+        .capture_manager
+        .as_mut()
+        .unwrap()
+        .overload_pip_countdown = 4;
+    assert_ne!(restored.state_hash(), linked, "the pip countdown is hashed");
+    restored
+        .substrate
+        .entities
+        .get_mut(yuri)
+        .unwrap()
+        .capture_manager
+        .as_mut()
+        .unwrap()
+        .overload_pip_countdown = 5;
+    assert_eq!(restored.state_hash(), linked);
     restored
         .substrate
         .entities
@@ -1393,10 +1915,9 @@ fn an_attack_order_captures_without_damage() {
 /// controllers' managers and the mind-control globals bind.
 #[test]
 fn retail_rules_bind_the_stock_controllers() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     let limits = |kind: &str| {
         init_capture_manager(rules.object(kind).unwrap(), &rules)
             .map(|manager| (manager.max_control, manager.infinite))
@@ -1837,4 +2358,129 @@ fn a_killing_overload_frees_the_captives_before_the_sparks() {
             .get(mind)
             .is_none_or(|entity| !entity.lifecycle.object_alive())
     );
+}
+
+/// Techno6FA6F5 checks a carried bomb before CaptureManager471A50. A
+/// naturally due fatal Ivan fuse must free the captives before the manager
+/// can emit another overload pulse. Stock rules, four actual capture shots and all
+/// intervening ordinary object/particle turns use their production owners.
+#[test]
+fn a_due_ivan_bomb_precedes_the_same_turn_mastermind_overload() {
+    use crate::sim::arena_fixture::mastermind::{MindScene, spark_ids};
+
+    let Some(mut scene) = MindScene::retail() else {
+        return;
+    };
+    scene.capture_four_through_real_attacks();
+    let rules = scene.rules().clone();
+    let mind = scene.mind();
+    // The native timer uses Frame > end (Bomb438A70), while the original
+    // manager's countdown returns after decrementing a positive value.
+    // Pick an attach frame that makes these existing clocks expire together;
+    // do not replace either retained clock or supply a damage/ownership result.
+    let fuse_visits = rules.combat_damage.ivan_timed_delay + 1;
+    let cycle = rules.mind_control.overload_frames[1] + 1;
+    let attach_countdown = fuse_visits % cycle;
+    for _ in 0..=cycle {
+        let controller = scene.simulation().entities().get(mind).unwrap();
+        if controller
+            .capture_manager
+            .as_ref()
+            .unwrap()
+            .overload_countdown
+            == attach_countdown
+        {
+            break;
+        }
+        scene.step();
+    }
+    let controller = scene.simulation().entities().get(mind).unwrap();
+    assert_eq!(
+        controller
+            .capture_manager
+            .as_ref()
+            .unwrap()
+            .overload_countdown,
+        attach_countdown
+    );
+    let ivan = scene
+        .simulation_mut()
+        .spawn_object("IVAN", "Russians", 48, 48, 0, &rules)
+        .expect("retail Ivan supplied at the existing Attach entry");
+    scene.simulation_mut().bomb_attach(ivan, Some(mind), &rules);
+    assert!(
+        scene
+            .simulation()
+            .entities()
+            .get(mind)
+            .unwrap()
+            .bomb
+            .is_some()
+    );
+
+    for _ in 0..=fuse_visits {
+        let sim = scene.simulation();
+        let controller = sim.entities().get(mind).unwrap();
+        assert!(controller.lifecycle.object_alive());
+        let expired = controller
+            .bomb
+            .unwrap()
+            .expired(sim.session.binary_frame as i32);
+        if expired {
+            assert_eq!(
+                controller
+                    .capture_manager
+                    .as_ref()
+                    .unwrap()
+                    .overload_countdown,
+                0
+            );
+            assert!(controller.health.current() <= rules.combat_damage.ivan_damage);
+            let before = spark_ids(&scene);
+            scene.step();
+            assert!(
+                scene
+                    .simulation()
+                    .entities()
+                    .get(mind)
+                    .is_none_or(|actor| !actor.lifecycle.object_alive()),
+                "the real Ivan blast must kill the controller"
+            );
+            let original_owner = scene.simulation().interner.get("Russians").unwrap();
+            for victim in scene.targets() {
+                let actor = scene.simulation().entities().get(victim).unwrap();
+                assert_eq!(
+                    actor.owner(),
+                    original_owner,
+                    "death must restore each captive"
+                );
+                assert!(!actor.mind_control.is_mind_controlled());
+            }
+            assert!(!scene.simulation().bomb_carriers().contains(&mind));
+            let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+                "tools/spatial_oracle/capture_overload_techno_order.json",
+            ))
+            .unwrap();
+            let native = native["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["input"]["name"] == "killing_bomb_frees_captures_before_visit")
+                .unwrap();
+            let expected_sparks = native["manager_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event.get("spark").is_some())
+                .count();
+            assert_eq!(
+                spark_ids(&scene).difference(&before).count(),
+                expected_sparks,
+                "the fatal fuse must run before a due overload can create five SparkSys objects"
+            );
+            return;
+        }
+        scene.step();
+    }
+    panic!("the ordinary retained Ivan fuse never expired");
 }

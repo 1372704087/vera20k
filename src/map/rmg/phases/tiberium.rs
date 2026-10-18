@@ -423,13 +423,14 @@ fn place_field(
 mod tests {
     use super::*;
     use crate::map::rmg::phases::regions::RmgRegion;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -445,7 +446,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -494,8 +495,6 @@ mod tests {
             id: 0,
             level: 4,
             active: false,
-            seed: field_slots[0],
-            done: false,
             cell_count: cells.len() as i32,
             cells,
             start_quota: quota,
@@ -704,8 +703,6 @@ mod tests {
             id: 0,
             level: 4,
             active: false,
-            seed: (30, 30),
-            done: false,
             cell_count: 1,
             cells: vec![(30, 30)],
             start_quota: 1,

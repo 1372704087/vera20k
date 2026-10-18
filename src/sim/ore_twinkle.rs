@@ -8,7 +8,7 @@ use crate::map::authored_overlay::NativeOverlayMapShape;
 use crate::map::tiberium_cell::tiberium_value;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::rules::tiberium_type::TiberiumTypeRegistry;
 use crate::sim::anim_class::AnimWorldCoord;
 use crate::sim::components::AnimClassSpawnDescriptor;
@@ -45,16 +45,22 @@ pub(crate) struct OreTwinkleReceipt {
 impl Simulation {
     /// Spend the GasCloudSys `ParticleSystemClass @ 0x0062DC50` native ID the
     /// first time a post-load setup runs after `Clear_Scene` nulled
-    /// `DAT_00A8ED78`. Returns whether this call spent it. The object itself
-    /// (leptons `(0xA80, 0xA80, 0)`, no RNG in its constructor) is not modeled.
-    pub(crate) fn construct_post_load_particle_system_id(&mut self) -> bool {
-        if self.post_load_particle_system_constructed {
+    /// `DAT_00A8ED78`. Returns whether this call spent the native ID.
+    /// The ordinary particle owner retains the live GasCloudSys and children.
+    pub fn construct_post_load_particle_system_id(&mut self, rules: &RuleSet) -> bool {
+        if self.post_load_particle_system_constructed
+            || self.particle_systems().gas_cloud_system().is_some()
+        {
             return false;
         }
-        let Some(cursor) = self.native_unique_ids.as_mut() else {
+        if self.native_unique_ids.is_none() {
             return false;
-        };
-        let _ = cursor.next_id();
+        }
+        if self.initialize_gas_cloud_system(rules).is_none() {
+            // Rules-less constructor fixtures retain their established ID
+            // reservation. Retail processing always registers GasCloudSys.
+            let _ = self.native_unique_ids.as_mut().unwrap().next_id();
+        }
         self.post_load_particle_system_constructed = true;
         true
     }
@@ -82,10 +88,9 @@ impl Simulation {
     /// constructor assigns the native ID and registers the Anim before any
     /// RandomRate draw and calls `Middle` immediately for delay 0.
     ///
-    /// The ParticleSystem object itself is not modeled; only its counter
-    /// effect is, through `construct_post_load_particle_system_id` (a generated
-    /// launch spends it earlier, from the synthetic `Full_Init`'s own setup
-    /// call at `0x00599A5B`). `FUN_0055AF40/50` after the pass write two globals
+    /// `construct_post_load_particle_system_id` retains the live global system;
+    /// a generated launch creates it earlier from the synthetic Full_Init's
+    /// own setup call at `0x00599A5B`. `FUN_0055AF40/50` after the pass write two globals
     /// with no simulation consumer.
     pub(crate) fn run_post_load_ore_twinkle_pass(
         &mut self,
@@ -97,7 +102,7 @@ impl Simulation {
         // `DAT_00A8ED78 == 0` gate at `0x00684FF0`: a generated launch already
         // constructed the object inside the synthetic `Full_Init`'s setup.
         let mut receipt = OreTwinkleReceipt {
-            particle_system_id_consumed: self.construct_post_load_particle_system_id(),
+            particle_system_id_consumed: self.construct_post_load_particle_system_id(rules),
             ..Default::default()
         };
         let Some(anim_name) = rules.general.ore_twinkle.as_deref() else {

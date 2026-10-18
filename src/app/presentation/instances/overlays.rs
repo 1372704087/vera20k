@@ -36,11 +36,6 @@ fn anim_palette_light(
 ) -> crate::render::palette_light::PaletteLight {
     crate::app::presentation::lighting::anim_palette_light(
         state.match_state.match_presentation.lighting.grid(),
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|r| &r.simulation.session.lighting),
         cell,
         cfg,
         cell_drawer,
@@ -171,7 +166,7 @@ fn rubble_sprite_key(
 /// Resolve the CellClass overlay identity/data used by the tactical overlay
 /// draw. Low-bridge damage and repair mutate the identity in place, so a map
 /// pack entry is only the iteration anchor once live cell authority exists.
-fn overlay_render_identity(
+pub(super) fn overlay_render_identity(
     static_overlay_id: u8,
     static_overlay_data: u8,
     live_cell: Option<&crate::sim::overlay_grid::OverlayCell>,
@@ -221,41 +216,92 @@ fn overlay_display_identity(
     (display_overlay_id, overlay_data)
 }
 
-pub(crate) fn build_anim_class_instances(
-    state: &AppState,
+/// Borrowed inputs to the one retained dynamic-effect traversal. App startup,
+/// platform windows and unrelated presentation resources are not draw inputs.
+pub(crate) struct DisplayEffectInputs<'a> {
+    pub sim: &'a crate::sim::world::Simulation,
+    pub rules: &'a crate::rules::ruleset::RuleSet,
+    pub camera: [f32; 2],
+    pub render_size: [u32; 2],
+    pub tactical: [u32; 4],
+    pub zoom: f32,
+    pub axis: crate::render::batch::DepthAxis,
+    pub atlas: Option<&'a crate::render::sprite_atlas::SpriteAtlas>,
+    pub detail: &'a std::cell::RefCell<crate::app::presentation::detail::DetailState>,
+    pub detail_level: u32,
+    pub lighting: &'a crate::map::lighting::CellLightGrid,
+    pub house_colors: &'a crate::map::houses::HouseColorMap,
+    pub hidden_super_anims: &'a std::collections::BTreeSet<crate::sim::anim_class::AnimId>,
+    pub local_owner: Option<crate::sim::intern::InternedId>,
+    pub observe_particles: bool,
+}
+
+/// Traverse dynamic effect bodies in actual Display order. Anim and particle
+/// consumers share the mutative55AF60 FPS latch; grouping them by class changes
+/// native admission when the unsigned minimum/buffer arithmetic wraps.
+pub(crate) fn build_display_effect_instances(
+    input: &DisplayEffectInputs<'_>,
     ground_objects: &mut Vec<
         crate::app::presentation::render::draw_plan_lowering::PlannedObjectInstance,
     >,
     ground_order: &crate::app::presentation::render::draw_plan_lowering::NativeDisplayOrder,
-) {
-    // Slot animations use their existing binding/light path but are now
-    // independent Display objects, including when their body is culled.
-    super::shp::build_building_anim_instances(state, ground_objects, ground_order);
-    let (sim, atlas) = match (
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
-        &state.match_state.match_presentation.sprite_atlas,
-    ) {
-        (Some(s), Some(a)) => (s, a),
-        _ => return,
-    };
-    let z2 = state.match_state.input.zoom_level;
-    let (cam_x, cam_y, sw, sh) = (
-        state.match_state.input.camera_x,
-        state.match_state.input.camera_y,
-        state.render_width() as f32 / z2,
-        state.render_height() as f32 / z2,
+) -> Option<Vec<super::particles::ParticleDrawObservation>> {
+    let mut observations = input.observe_particles.then(Vec::new);
+    let sim = input.sim;
+    let context = super::particles::ParticleDrawContext::new(
+        input.camera,
+        input.zoom,
+        input.tactical,
+        input.axis,
     );
-    let parachute_type = state
-        .rules()
-        .and_then(|rules| rules.general.parachute_shp.as_deref())
+    // Particles have independent AIR registrations, including live bodies
+    // detached from a System. The store owns their lifetime; Display supplies
+    // every encounter, never this frame-local lookup's iteration/hash order.
+    let particles: HashMap<_, _> = sim
+        .particle_systems()
+        .display_particles()
+        .map(|(system, particle)| (particle.stable_id(), (system, particle)))
+        .collect();
+    let z2 = input.zoom;
+    let (cam_x, cam_y, sw, sh) = (
+        input.camera[0],
+        input.camera[1],
+        input.render_size[0] as f32 / z2,
+        input.render_size[1] as f32 / z2,
+    );
+    let parachute_type = input
+        .rules
+        .general
+        .parachute_shp
+        .as_deref()
         .and_then(|name| sim.interner.get(name));
-    let local_owner = crate::app::input::commands::preferred_local_owner_name(state)
-        .and_then(|name| sim.interner.get(&name));
+    let local_owner = input.local_owner;
     for &stable_id in sim.display_layers().ordered_ids() {
+        if let Some(system) = sim.particle_systems().get(stable_id) {
+            super::particles::build_particle_system_instance(
+                input,
+                system,
+                &context,
+                ground_objects,
+                ground_order,
+            );
+            continue;
+        }
+        if let Some(&(system, particle)) = particles.get(&stable_id) {
+            super::particles::build_particle_instance(
+                input,
+                system,
+                particle,
+                &context,
+                ground_objects,
+                ground_order,
+                &mut observations,
+            );
+            continue;
+        }
+        let Some(atlas) = input.atlas else {
+            continue;
+        };
         let Some(anim) = sim.anim(stable_id) else {
             continue;
         };
@@ -270,41 +316,28 @@ pub(crate) fn build_anim_class_instances(
             continue;
         }
         let type_name: &str = sim.interner.resolve(anim.type_id);
-        let config = state
-            .rules()
-            .and_then(|rules| rules.art().anim_runtime_config(type_name));
+        let config = input.rules.art().anim_runtime_config(type_name);
         if config.is_some_and(|config| !config.art_body_read) {
             continue;
         }
         if !crate::sim::anim_class::anim_draw_detail_visible(
             crate::sim::anim_class::AnimDrawDetailInput {
                 frame_rate_below_minimum: {
-                    let mut detail = state.match_state.match_presentation.detail.borrow_mut();
+                    let mut detail = input.detail.borrow_mut();
                     detail.frame_rate() < detail.minimum_frame_rate()
                 },
                 type_detail_level: config.map_or(0, |value| value.detail_level),
-                game_detail_level: state
-                    .match_state
-                    .match_presentation
-                    .in_game_options
-                    .detail_level as i32,
+                game_detail_level: input.detail_level as i32,
                 // `AnimClass::AI` rewrites a PsiWarning anim's hidden byte
                 // every frame from the local player's detection.
-                hidden: match (
-                    config.is_some_and(|config| config.psi_warning),
-                    state.rules(),
-                ) {
-                    (true, Some(rules)) => !local_owner
-                        .is_some_and(|viewer| sim.psi_warning_detected_by(viewer, anim, rules)),
+                hidden: match config.is_some_and(|config| config.psi_warning) {
+                    true => !local_owner.is_some_and(|viewer| {
+                        sim.psi_warning_detected_by(viewer, anim, input.rules)
+                    }),
                     // A Super's ChronoPlacement anim: the client's byte
                     // (`match_runtime::super_selection`).
-                    _ => {
-                        anim.draw_runtime.hidden
-                            || state
-                                .match_state
-                                .match_presentation
-                                .hidden_super_anims
-                                .contains(&stable_id)
+                    false => {
+                        anim.draw_runtime.hidden || input.hidden_super_anims.contains(&stable_id)
                     }
                 },
                 special_hidden: anim.draw_runtime.special_hidden,
@@ -329,21 +362,18 @@ pub(crate) fn build_anim_class_instances(
         ) {
             continue;
         }
-        let tint = state
-            .match_state
-            .match_presentation
-            .lighting
-            .grid()
-            .anim_tint_at((rx, ry), config);
-        let remap_color = crate::render::sprite_atlas::anim_remap_color(
-            anim,
-            &sim.interner,
-            &state.match_state.match_presentation.house_color_map,
-        );
+        let tint = input.lighting.anim_tint_at((rx, ry), config);
+        let remap_color =
+            crate::render::sprite_atlas::anim_remap_color(anim, &sim.interner, input.house_colors);
         let palette_light = if remap_color.is_some() {
             Default::default()
         } else {
-            anim_palette_light(state, (rx, ry), config, anim.use_cell_drawer)
+            crate::app::presentation::lighting::anim_palette_light(
+                input.lighting,
+                (rx, ry),
+                config,
+                anim.use_cell_drawer,
+            )
         };
         let key = ShpSpriteKey {
             palette_context: if anim.use_cell_drawer {
@@ -369,22 +399,12 @@ pub(crate) fn build_anim_class_instances(
                 presentation_anim_frame_count(&atlas.active_anim_frame_counts, type_name)
                     .unwrap_or(0),
             ),
-            state
-                .match_state
-                .match_presentation
-                .in_game_options
-                .detail_level as i32,
+            input.detail_level as i32,
             anim.draw_runtime,
         ) else {
             continue;
         };
-        let (origin_y, world_height) = state
-            .match_state
-            .match_presentation
-            .terrain_grid
-            .as_ref()
-            .map(|grid| (grid.origin_y, grid.world_height))
-            .unwrap_or((0.0, 1.0));
+        let (origin_y, world_height) = (input.axis.origin_y, input.axis.world_height);
         let fire_depth = super::helpers::compute_sprite_depth_params_lifted(
             origin_y,
             world_height,
@@ -439,6 +459,7 @@ pub(crate) fn build_anim_class_instances(
             );
         }
     }
+    observations
 }
 
 /// Source-pixel weight one animation frame draws with.
@@ -565,18 +586,14 @@ pub(super) fn anim_world_render_coords(
 fn ordinary_overlay_palette_light(
     flags: Option<&OverlayTypeFlags>,
     light_grid: &crate::map::lighting::CellLightGrid,
-    scenario_lighting: &crate::sim::scenario_session::ScenarioLightingState,
     cell: (u16, u16),
 ) -> crate::render::palette_light::PaletteLight {
     use crate::render::palette_light::PaletteLight;
     match flags {
         Some(f) if f.tiberium => PaletteLight::plain(53, 1000),
-        Some(f) if f.wall => crate::app::presentation::lighting::body_palette_light(
-            light_grid,
-            scenario_lighting,
-            cell,
-            0,
-        ),
+        Some(f) if f.wall => {
+            crate::app::presentation::lighting::body_palette_light(light_grid, cell, 0)
+        }
         Some(f) if f.is_veins => PaletteLight::plain(
             53,
             light_grid
@@ -602,8 +619,6 @@ struct CellOverlayInputs<'a> {
     terrain: Option<&'a crate::map::resolved_terrain::ResolvedTerrainGrid>,
     heights: &'a std::collections::BTreeMap<(u16, u16), u8>,
     lighting: &'a crate::map::lighting::CellLightGrid,
-    /// Scenario light selecting the ColorScheme Convert's RGB for walls.
-    scenario_lighting: &'a crate::sim::scenario_session::ScenarioLightingState,
     camera: [f32; 2],
     viewport: [f32; 2],
     origin_y: f32,
@@ -703,7 +718,13 @@ fn build_cell_overlay_instances(
             .copied()
             .unwrap_or(0);
         let (screen_x, screen_y) = terrain::iso_to_screen(entry.rx, entry.ry, z);
-        let screen_y: f32 = screen_y + track_y_offset;
+        let live_flags = input
+            .terrain
+            .and_then(|terrain| terrain.cell(entry.rx, entry.ry))
+            .map_or(0, |cell| cell.bridge_facts.raw_flags);
+        let screen_y: f32 = screen_y
+            + track_y_offset
+            + super::bridges::cell_overlay_y_offset(live_overlay_id, live_flags, live_overlay_data);
 
         // No LocalSize gate: gamemd draws overlays on border filler cells like
         // any other; camera/geometry admission precedes per-pixel shroud.
@@ -749,12 +770,8 @@ fn build_cell_overlay_instances(
         let (policy, z_adjust, z_gradient) =
             ordinary_overlay_z(overlay_flags, slope_type.unwrap_or(0), depth_z);
         let tint: [f32; 3] = input.lighting.overlay_tint_at((entry.rx, entry.ry));
-        let palette_light = ordinary_overlay_palette_light(
-            overlay_flags,
-            input.lighting,
-            input.scenario_lighting,
-            (entry.rx, entry.ry),
-        );
+        let palette_light =
+            ordinary_overlay_palette_light(overlay_flags, input.lighting, (entry.rx, entry.ry));
         planned_cells.push(
             crate::app::presentation::render::draw_plan_lowering::PlannedCellInstance {
                 draw: crate::render::tactical_draw_plan::CellDraw {
@@ -829,7 +846,6 @@ pub(crate) fn build_overlay_instances(
         .map(|g| (g.origin_y, g.world_height))
         .unwrap_or((0.0, 1.0));
 
-    let no_scenario_lighting = crate::sim::scenario_session::ScenarioLightingState::default();
     build_cell_overlay_instances(
         &CellOverlayInputs {
             entries: state.match_state.match_presentation.overlays.as_slice(),
@@ -848,16 +864,13 @@ pub(crate) fn build_overlay_instances(
                 .as_ref()
                 .map(|runtime| &runtime.simulation.interner),
             tiberium_types: state.rules().map(|rules| &rules.tiberium_types),
-            terrain: state.terrain_template(),
-            heights: state.height_map(),
-            lighting: state.match_state.match_presentation.lighting.grid(),
-            scenario_lighting: state
+            terrain: state
                 .match_state
                 .sim_runtime
                 .as_ref()
-                .map_or(&no_scenario_lighting, |runtime| {
-                    &runtime.simulation.session.lighting
-                }),
+                .and_then(|runtime| runtime.simulation.resolved_terrain.as_ref()),
+            heights: state.height_map(),
+            lighting: state.match_state.match_presentation.lighting.grid(),
             camera: [cam_x, cam_y],
             viewport: [sw, sh],
             origin_y,
@@ -1046,8 +1059,13 @@ fn native_terrain_instances(
     })
 }
 
-/// Build persistent WaveClass polygon edges from simulation registration state.
-pub(crate) fn build_weapon_wave_instances(state: &AppState) -> Vec<SpriteInstance> {
+/// Attach native magnetic destination edits to retained Display parents.
+/// Sonic's existing outline fallback remains a separate presentation residual.
+pub(crate) fn build_weapon_wave_instances(
+    state: &AppState,
+    objects: &mut Vec<crate::app::presentation::render::draw_plan_lowering::PlannedObjectInstance>,
+    order: &crate::app::presentation::render::draw_plan_lowering::NativeDisplayOrder,
+) -> Vec<SpriteInstance> {
     let mut instances = Vec::new();
     let Some(sim) = state
         .match_state
@@ -1060,15 +1078,31 @@ pub(crate) fn build_weapon_wave_instances(state: &AppState) -> Vec<SpriteInstanc
     let observer = crate::app::input::commands::preferred_local_owner(state)
         .as_deref()
         .and_then(|owner| sim.interner.get(owner));
+    let camera = [
+        state.match_state.input.camera_x,
+        state.match_state.input.camera_y,
+    ]
+    .map(|value| value.floor() as i32);
+    for (id, draw) in
+        crate::app::presentation::fire_effects::build_magnetic_wave_draws(sim, observer, camera)
+    {
+        use crate::app::presentation::render::draw_plan_lowering::{
+            ObjectBodyDraw, PlannedObjectInstance,
+        };
+        let Some(parent) = order.object_draw(id, SpriteEncoding::Plain) else {
+            continue;
+        };
+        let mut planned = PlannedObjectInstance::object(parent, Vec::new());
+        planned.body_draw = Some(ObjectBodyDraw::Surface(
+            crate::render::surface_line::SurfaceDraw::MagneticWave(draw),
+        ));
+        objects.push(planned);
+    }
     for wave in crate::app::presentation::fire_effects::build_weapon_wave_visuals(sim, observer) {
-        let projected: Vec<[f32; 2]> = crate::render::wave_geometry::draw_order(wave.geometry)
+        let projected: Vec<[f32; 2]> = wave
+            .polygon
             .into_iter()
-            .map(|point| {
-                let (x, y) = crate::map::terrain::lepton_to_screen(glam::IVec3::new(
-                    point.x, point.y, point.z,
-                ));
-                [x, y]
-            })
+            .map(|[x, y]| [x as f32, y as f32])
             .collect();
         instances.extend(crate::render::wave_geometry::build_wave_instances(
             &projected, wave.tint, 1.0, 0.00045,
@@ -1248,6 +1282,10 @@ pub(crate) fn build_parachute_instances(
         );
     }
 }
+
+#[cfg(test)]
+#[path = "ore_gpu_tests.rs"]
+mod ore_gpu_tests;
 
 #[cfg(test)]
 #[path = "ordinary_bridge_gpu_tests.rs"]
@@ -1510,12 +1548,11 @@ mod tests {
     #[test]
     fn wall_overlay_convert_reads_shroud_a_like_other_overlays() {
         let grid = crate::map::lighting::CellLightGrid::new();
-        let scenario = crate::sim::scenario_session::ScenarioLightingState::default();
         let wall = OverlayTypeFlags {
             wall: true,
             ..Default::default()
         };
-        let light = super::ordinary_overlay_palette_light(Some(&wall), &grid, &scenario, (3, 4));
+        let light = super::ordinary_overlay_palette_light(Some(&wall), &grid, (3, 4));
         assert_eq!(
             (light.rows(), light.brightness()),
             (53, 1000),
@@ -1532,8 +1569,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let light =
-                super::ordinary_overlay_palette_light(Some(&other), &grid, &scenario, (3, 4));
+            let light = super::ordinary_overlay_palette_light(Some(&other), &grid, (3, 4));
             assert_eq!(light.rgb565(stone, 100, 2), 0);
         }
     }
@@ -1560,6 +1596,7 @@ mod tests {
             crate::rules::building_rubble::RubbleArt {
                 shp: "ruin.shp".into(),
                 body_frame: 3,
+                shadow_frame: 7,
             },
         );
         let mut interner = crate::sim::intern::StringInterner::new();

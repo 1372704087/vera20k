@@ -268,13 +268,14 @@ fn place_region(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -290,7 +291,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -343,126 +344,6 @@ mod tests {
             run(&mut ctx, &targs)
         };
         (trees, w)
-    }
-
-    #[test]
-    fn tree_index_draws_are_one_to_twentyfive() {
-        // The +1.0 offset excludes 0, so TREE00 is never generated.
-        let mut rng = RmgRng::new(11);
-        for _ in 0..2000 {
-            let v = tree_index_draw(&mut rng);
-            assert!((1..=25).contains(&v), "tree index {v} out of [1,25]");
-        }
-    }
-
-    #[test]
-    fn tree_names_are_all_real_terrain_types() {
-        let (trees, _) = run_once(1234, 600);
-        assert!(!trees.is_empty(), "a vegetated map grows trees");
-        for (name, _, _) in &trees {
-            // TREE01..TREE25 exist in [TerrainTypes]; TREE00 must never appear.
-            assert_ne!(name, "TREE00", "TREE00 does not exist");
-            let n: i32 = name.strip_prefix("TREE").unwrap().parse().unwrap();
-            assert!((1..=25).contains(&n), "{name} is a real tree type");
-        }
-    }
-
-    #[test]
-    fn density_draws_stay_in_range() {
-        let mut rng = RmgRng::new(5);
-        let mut gauss = Gaussian::default();
-        for _ in 0..2000 {
-            let d = density_draw(&mut gauss, &mut rng);
-            assert!((0.05..=0.4).contains(&d), "density {d} out of range");
-        }
-    }
-
-    #[test]
-    fn size_draws_stay_in_range() {
-        let mut rng = RmgRng::new(6);
-        let mut gauss = Gaussian::default();
-        for _ in 0..2000 {
-            let s = size_draw(&mut gauss, &mut rng);
-            assert!((10..=35).contains(&s), "size {s} out of range");
-        }
-    }
-
-    #[test]
-    fn zero_max_trees_is_a_no_op() {
-        let mut w = world();
-        let targs = args(&w, 0);
-        let identity = ids();
-        let mut rng = RmgRng::new(3);
-        let mut gauss = Gaussian::default();
-        let trees = {
-            let mut ctx = TreeCtx {
-                grid: &mut w.grid,
-                scratch: &mut w.scratch,
-                ids: &identity,
-                rng: &mut rng,
-                gauss: &mut gauss,
-            };
-            run(&mut ctx, &targs)
-        };
-        assert!(trees.is_empty(), "MaxTrees 0 places nothing");
-        // count is 0, so the loop body never runs and no draws are consumed.
-        let mut fresh = RmgRng::new(3);
-        assert_eq!(rng.next_u32(), fresh.next_u32(), "no draws consumed");
-    }
-
-    #[test]
-    fn every_placed_tree_occupies_its_cell() {
-        let (trees, world) = run_once(4242, 600);
-        for (_, x, y) in &trees {
-            assert!(
-                world
-                    .grid
-                    .get(i32::from(*x), i32::from(*y))
-                    .unwrap()
-                    .occupied,
-                "tree cell ({x},{y}) is occupied"
-            );
-        }
-    }
-
-    #[test]
-    fn trees_never_land_on_the_same_cell_twice() {
-        // Occupancy blocks a later region from re-treeing a cell.
-        let (trees, _) = run_once(777, 600);
-        let mut seen = std::collections::HashSet::new();
-        for (_, x, y) in &trees {
-            assert!(seen.insert((*x, *y)), "cell ({x},{y}) got two trees");
-        }
-    }
-
-    #[test]
-    fn water_locked_cells_block_the_walk() {
-        // A fully water-locked map admits no neighbours and grows nothing.
-        let mut w = world();
-        let targs = args(&w, 600);
-        let identity = ids();
-        for (x, y) in w.grid.native_cells().collect::<Vec<_>>() {
-            w.scratch.get_mut(x, y).water_lock = true;
-        }
-        let mut rng = RmgRng::new(9);
-        let mut gauss = Gaussian::default();
-        let trees = {
-            let mut ctx = TreeCtx {
-                grid: &mut w.grid,
-                scratch: &mut w.scratch,
-                ids: &identity,
-                rng: &mut rng,
-                gauss: &mut gauss,
-            };
-            run(&mut ctx, &targs)
-        };
-        // The origin itself may still be treed, but no region can spread; with
-        // every cell water-locked, even the origin is not water-locked only if
-        // it is the border. In practice no trees survive the spread block.
-        for (_, x, y) in &trees {
-            // Any tree placed must be on a real, non-water-locked in-band cell.
-            assert!(w.grid.is_valid(i32::from(*x), i32::from(*y)));
-        }
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub(crate) mod guard_mission;
 mod hunt_mission;
 mod idle_entry;
 pub(crate) use idle_entry::enter_idle_mode_for;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) use idle_entry::record_idle_calls_for_test;
 pub(crate) mod landing_base;
 mod leave_map;
@@ -38,11 +38,9 @@ mod team_strike_tests;
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
-use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::mission::{MISSION_STUB_FRAMES, MissionId, MissionType};
+use crate::sim::world::damage_consequences::DamageCommitReceipt;
 use crate::sim::world::{FrameEffects, ObjectAiCtx, Simulation};
-
-/// What every MissionClass stub returns (`MOV EAX, 0x1C2`).
-const MISSION_STUB_FRAMES: i32 = 450;
 
 /// Techno `+0x3D4` (VERA name; the native name is unconfirmed): the object
 /// was placed for a mission rather than for its owner to command. The
@@ -63,7 +61,7 @@ const MISSION_STUB_FRAMES: i32 = 450;
 /// forced `ObjectSelect @ 0x005F4578` has a separate vt+0xA0 prerequisite.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct MissionOnly(bool);
+pub struct MissionOnly(bool);
 
 impl MissionOnly {
     /// Whether the object is mission-only.
@@ -72,15 +70,16 @@ impl MissionOnly {
     }
 
     /// Mark the object mission-only, for the rest of its life.
-    pub(crate) fn mark(&mut self) {
+    pub fn mark(&mut self) {
         self.0 = true;
     }
 }
 
 /// Batch driver for fixtures that dispatch every aircraft without the live
-/// object pass. Production dispatches each aircraft in its own LogicVector
-/// slot through [`dispatch_mission`].
-#[cfg(test)]
+/// object pass, returning the aircraft whose visit was a strike. Production
+/// dispatches each aircraft in its own LogicVector slot through
+/// [`dispatch_mission`].
+#[cfg(any(test, feature = "test-support"))]
 pub fn tick_aircraft_missions(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -89,7 +88,7 @@ pub fn tick_aircraft_missions(
     order
         .into_iter()
         // This batch fixture has no resident overlay table.
-        .filter(|&id| dispatch_mission(sim, id, rules, ObjectAiCtx::default()))
+        .filter(|&id| dispatch_mission(sim, id, rules, ObjectAiCtx::default()).is_some())
         .collect()
 }
 
@@ -122,10 +121,9 @@ pub(crate) fn attack_state(entity: &GameEntity) -> Option<u8> {
 /// paradrop plane's two (`0x004158E0`, `0x00415960`) and the Spy Plane's two
 /// (vt+0x26C, vt+0x270).
 ///
-/// Returns whether the combat phase must run a Mission_Attack strike visit
-/// (states 4..9) this frame. RESIDUAL: that visit runs in VERA's combat
-/// phase after the live pass, like every other attacker's FireAt, so its
-/// draws do not interleave.
+/// A Mission_Attack strike visit (states 4..9) fires inside this visit, as
+/// every FireAt of `0x00417FE0` does, before the aircraft's passive block
+/// and Fly Process; its damage receipt is returned.
 ///
 /// Every other slot of the aircraft's table is a MissionClass stub that
 /// returns 450 frames (`0x005B2E10..0x005B2FB0`): Sleep, Harmless, Ambush,
@@ -146,16 +144,11 @@ pub(crate) fn dispatch_mission(
     id: u64,
     rules: &RuleSet,
     ctx: ObjectAiCtx<'_>,
-) -> bool {
+) -> Option<DamageCommitReceipt> {
     let now = sim.session.binary_frame;
-    let Some(entity) = sim.substrate.entities.get(id) else {
-        return false;
-    };
-    if entity.death.is_dying()
-        || entity.category() != EntityCategory::Aircraft
-        || !entity.mission.dispatch_timer().due(now)
-    {
-        return false;
+    let entity = sim.substrate.entities.get(id)?;
+    if entity.category() != EntityCategory::Aircraft || !entity.mission_handler_due(now) {
+        return None;
     }
     let registry = ctx.overlay_registry;
     let delay = match entity.mission.current().known() {
@@ -169,7 +162,14 @@ pub(crate) fn dispatch_mission(
             let state = handler_state(entity);
             let Some((next, delay)) = attack_visit(sim, id, state, rules, registry, ctx.effects)
             else {
-                return true;
+                // The strike writes its own state and epilogue
+                // (`combat::aircraft_release`).
+                return Some(sim.commit_fire_visit(
+                    crate::sim::combat::world_fire::FireVisit::AircraftStrike(id),
+                    rules,
+                    registry,
+                    ctx.effects,
+                ));
             };
             write_state(sim, id, state, next);
             delay
@@ -202,13 +202,13 @@ pub(crate) fn dispatch_mission(
             | MissionType::Sabotage
             | MissionType::Eaten
             | MissionType::Rescue,
-        ) => return false,
+        ) => return None,
         _ => MISSION_STUB_FRAMES,
     };
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.mission.write_dispatch_epilogue(now as i32, delay);
     }
-    false
+    None
 }
 
 /// `ObjectClass::Distance_To @ 0x005F6440` from the aircraft; a NULL target
@@ -221,9 +221,7 @@ fn target_distance(
     let entities = &sim.substrate.entities;
     target
         .zip(entities.get(id))
-        .and_then(|(target, plane)| {
-            crate::sim::combat::object_distance_to(plane, &target, entities)
-        })
+        .and_then(|(target, plane)| crate::sim::combat::object_distance_to(plane, &target, sim))
         .unwrap_or(0)
 }
 
@@ -260,8 +258,8 @@ fn write_state(sim: &mut Simulation, id: u64, read: u8, next: u8) {
 }
 
 /// One Mission_Attack visit in the aircraft's dispatch: its state and delay,
-/// or `None` for a strike visit (states 4..9), which fires and so runs in
-/// the combat phase, where VERA's FireAt lives (`combat::aircraft_release`).
+/// or `None` for a strike visit (states 4..9), which fires through the
+/// receiver, where VERA's FireAt lives (`combat::aircraft_release`).
 fn attack_visit(
     sim: &mut Simulation,
     id: u64,
@@ -277,8 +275,9 @@ fn attack_visit(
         0 => sim.aircraft_begin_attack(id),
         1 => sim.aircraft_reengage(id, rules, frame_effects),
         3 => sim.aircraft_approach(id, rules, frame_effects),
-        4..=9 if sim.aircraft_strikes(id, state) => return None,
-        4..=9 => (10, 1),
+        // Each strike state opens with its own Target and Ammo test
+        // (`attack_mission::strike_leaves`).
+        4..=9 => return None,
         10 => sim.aircraft_exit(id, rules, registry, frame_effects),
         // State 2 (`0x00418D1D`) is the epilogue alone. Mission_Attack runs
         // as the Attack mission's handler, so its epilogue reads Attack's

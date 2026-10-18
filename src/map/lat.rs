@@ -52,6 +52,7 @@ impl TileRange {
 /// One LAT group expressed entirely as absolute tile ids.
 #[derive(Debug, Clone)]
 pub struct LatGroundType {
+    #[cfg(test)]
     pub name: String,
     pub base_tile: i32,
     pub lat_base: i32,
@@ -183,6 +184,7 @@ pub fn parse_lat_config(ini_data: &[u8], lookup: &TilesetLookup) -> LatConfig {
             .collect::<Vec<_>>();
 
         grounds.push(LatGroundType {
+            #[cfg(test)]
             name: name.to_string(),
             base_tile,
             lat_base,
@@ -215,7 +217,7 @@ fn neighbor_tile(cells: &[MapCell], by_coord: &HashMap<(u16, u16), usize>, x: i3
 ///
 /// The third parameter remains for the existing map-build API; all lookup
 /// data needed by the pass has already been resolved into `lat_config`.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn apply_lat(cells: &mut [MapCell], lat_config: &LatConfig, _lookup: &TilesetLookup) {
     if lat_config.grounds.is_empty() {
         return;

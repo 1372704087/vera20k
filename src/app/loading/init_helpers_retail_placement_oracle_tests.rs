@@ -351,6 +351,7 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
         OWNER,
         POWER_PLANT,
         crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let category = crate::sim::production::category_for_object(
         rules.object(POWER_PLANT).expect("stock GAPOWR profile"),
@@ -412,7 +413,7 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
     .expect("stock GAPOWR preview");
     assert!(!preview.valid);
     assert!(
-        preview.cell_valid.iter().any(|valid| !valid),
+        preview.cells.iter().any(|cell| !cell.valid),
         "the ore-bearing foundation cell must be red"
     );
 
@@ -475,7 +476,14 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
     )
     .expect("stock GAPOWR valid preview");
     assert!(preview.valid);
-    assert_eq!(preview.cell_valid, vec![true; 4]);
+    assert_eq!(
+        preview
+            .cells
+            .iter()
+            .map(|cell| cell.valid)
+            .collect::<Vec<_>>(),
+        vec![true; 4]
+    );
     let generation_before_valid = sim.substrate.occupancy.generation();
     let accepted = CommandEnvelope::new(
         owner_id,

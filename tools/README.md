@@ -27,6 +27,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 | Refresh Anytown packet source provenance after helper maintenance | [checked native replay and receipt refresh](spatial_oracle/anytown_damage/README.md) |
 | Compare empty-IFV bridge pursuit, missiles, collapse, Stop and restoration | [conditional native continuation and input provenance](spatial_oracle/fv_cell_attack/README.md) |
 | Read/disassemble native VAs; scan callers, fields and bytes | [native inspection](native_inspect.md), `python -m tools.native_inspect` |
+| Refresh the compiled mouse-cursor descriptor and action-to-row tables | [mouse cursor tables](mouse_oracle/cursor_table.md), `python -m tools.mouse_oracle.cursor_table` |
 | Compare Ghidra decompiles, callers and native stack frames | [Ghidra comparisons](ghidra_compare.md), `python -m tools.ghidra_compare` |
 | Replay a recorded annotation pass onto another copy of the Ghidra database | [Ghidra annotation passes](ghidra_pass.md), `ApplyGhidraPass.java` |
 | Reproduce Foot coordinates and bridge source-layer / reachability queries | [checked Foot bridge-layer oracle](spatial_oracle/foot_bridge_layer.md) |
@@ -86,14 +87,19 @@ python -m tools.cargo_run -- build --locked --release --no-default-features --bi
 ## Cargo ownership and labeled builds
 
 ```sh
-python -m tools.cargo_run -- test -p vera20k --lib
-python -m tools.cargo_run -- clippy -p vera20k --lib
+python -m tools.cargo_run -- test --workspace --lib
+python -m tools.cargo_run -- clippy --workspace --lib
 python -m tools.cargo_run --label release-before -- build --locked --release -p vera20k --bin vera20k
-python -m tools.cargo_run --label tests-before -- test -p vera20k --lib --no-run
+python -m tools.cargo_run --label tests-before -- test --workspace --lib --no-run
 python -m tools.cargo_run --resolve asset --profile release
 python -m tools.cargo_run --resolve vera20k --profile release --from-label release-before
 python -m unittest tools.tests.test_cargo_run -v
 ```
+
+`--profile fast` (Cargo.toml) optimizes like `--release` but compiles the workspace crates
+incrementally, so a play-test, capture or other run after an edit rebuilds in a fraction of the
+time. Keep timing and performance numbers on `--release`. The runner records, labels and
+resolves `fast` host executables as it does `release` and `debug` ones.
 
 `--wait-seconds 60` bounds the wait (default one hour). Ctrl-C interrupts the
 runner. It does not kill other owners. Failed commands retain their exit code,
@@ -107,8 +113,23 @@ Unwrapped Cargo can still start after that observation: all sessions must use th
 runner to eliminate the check/start race. This coordinates one repository's
 worktrees; independent repository clones do not share the lock.
 
+`cargo test` holds that lock only while Cargo compiles. Cargo hands each test
+executable to a recorder, and the runner starts them after releasing the lock, with
+the arguments, environment and working directory Cargo gave them. They run at the
+same time (the client suite fills the cores the core suite leaves idle near its
+end); the first streams its output and each later one prints when those before it
+end. Every executable runs to its end, and any failure exits 101. A
+second lock per checkout stays held until the tests finish, so another run from the
+same checkout waits instead of relinking a running test. A runner configured for the
+host target in Cargo configuration takes precedence; the tests then run under the lock.
+
 Each worktree has a separate cache under
-`<CARGO_TARGET_DIR or checkout/target>/owned-worktrees/<checkout-path-hash>`.
+`<cache root>/owned-worktrees/<checkout-path-hash>`, where the cache root is
+`CARGO_TARGET_DIR` when set and otherwise the `target/` of the repository's primary
+checkout (the parent of the common Git directory), never the worktree's own `target/`.
+A checkout therefore has one cache whichever session builds it, as long as every
+session either leaves the variable unset or points it at that same directory; the
+runner notes on stderr when the registry holds another cache for the checkout.
 The first build compiles dependencies into this namespace, costing time and disk;
 subsequent builds reuse it. Existing shared caches are neither deleted nor trusted.
 `--target-dir`, `--manifest-path`, `--config` and `--message-format` are reserved
@@ -144,10 +165,13 @@ worktree, so the runner starts one only when it can matter:
   (`AUTOMATIC_INTERVAL_SECONDS`), or at once when a volume is below the minimum
   or cannot be measured. Any applied pass counts, including one that ended
   blocked or partial; a dry run does not. `--trim-cache` always runs one.
+- **Skipped** while the newest applied pass found nothing removable, finished
+  within that interval and nothing deciding removability has changed since:
+  cache directories, registered roots and profiles, and protected executables.
 
 Between passes the cache can exceed its budgets; the free-space reserve is still
-measured on every invocation. Defaults are **32 GiB total compiler
-cache**, **4 GiB incremental cache**, and **16 GiB minimum free space** per cache
+measured on every invocation. Defaults are **40 GiB total compiler
+cache**, **16 GiB incremental cache**, and **12 GiB minimum free space** per cache
 volume. Set `VERA20K_CACHE_GIB`, `VERA20K_INCREMENTAL_GIB`, and
 `VERA20K_MIN_FREE_GIB`, or pass `--cache-gib`, `--incremental-gib`, and
 `--min-free-gib` before `--`; they set the policy the next pass applies. Sizes
@@ -176,8 +200,13 @@ The owner records every new target (including failed, unlabelled, check and cust
 target invocations) in `owned-builds/cache-roots.json`. Historical labelled roots
 are adopted only when their live checkout/common Git directory and namespace
 prove ownership. Unregistered, abandoned or unverifiable caches stay untouched.
-Only orphaned `deps/*.rcgu.o` and complete finalized incremental sessions are eligible;
-paths must belong to exact Cargo profile directories. Cross-target profiles require
+Only orphaned `deps/*.rcgu.o`, complete finalized incremental sessions and older
+Mach-O/ELF executables in `deps` are eligible; paths must belong to exact Cargo
+profile directories. An older executable is a `<name>-<16 hex>` file with a newer
+one of the same name beside it, no other link, and no preserved or latest record
+naming it; a checkout whose `cargo_run` holds its lock keeps all of them, since
+its recorded tests may still run. Objects only older executables name become
+eligible after those executables, never ahead of them. Cross-target profiles require
 an executable path reported by Cargo or retained in a preserved build manifest.
 Older sessions are considered first; newest sessions are eligible if pressure
 remains. Working sessions and sessions containing links or unknown files stay
@@ -186,8 +215,8 @@ is accounted for in registered caches and required debug-reference paths survive
 Unknown external hardlinks remain protected; the cleaner never unlinks a required
 debug path. Cache and reclaimed-space accounting counts each inode once, and
 removing an alias does not claim freed allocation while another alias remains. Source, assets, native evidence,
-executables, libraries, labels and debug sidecars are never deletion candidates.
-Every saved executable remains protected, including library-test binaries.
+libraries, labels, debug sidecars and other executables are never deletion
+candidates. Every saved executable remains protected, including library-test binaries.
 Already absent debug inputs are reported separately as degraded debugging support;
 their absence does not block deletion of independently verified orphan objects.
 Existing dependencies remain protected even when another input of the same binary
@@ -212,7 +241,7 @@ nonzero on inspection/deletion errors. See [retention validation](cargo_cache_va
 
 Saved builds have a separate, explicit lifecycle. Default to unlabelled iteration;
 preserve only binaries needed for active comparisons, captures or debugging.
-Prefer release binaries for ordinary captures and label debug tests selectively.
+Prefer `fast` binaries for ordinary captures and label debug tests selectively.
 Evidence should reference the shared label, manifest, source/binary hashes and
 results instead of creating additional executable copies.
 
@@ -272,14 +301,14 @@ APFS clones/snapshots and unrelated volume activity can make observed reclamatio
 differ from file allocation; applying a plan rechecks real free space and tries
 additional eligible cold entries when necessary. Plans are never reused for deletion.
 
-`--resolve <BIN> --profile release|debug --from-label <LABEL>` selects a
+`--resolve <BIN> --profile release|fast|debug --from-label <LABEL>` selects a
 preserved executable from that label. It verifies the recorded artifact path,
 host/profile classification and actual SHA-256; missing, ambiguous, malformed or
 changed artifacts fail without falling back to a latest build. This uses the
 same preserved manifest owner as `--label`, including existing schema-1 labels.
 The original build source and toolchain metadata stay in the label's manifest.
 
-For shell use, `--resolve <BIN> --profile release|debug` prints only the absolute
+For shell use, `--resolve <BIN> --profile release|fast|debug` prints only the absolute
 verified path to stdout. Missing records/files or changed bytes produce a nonzero
 exit and diagnostics on stderr. It never builds or falls back to another profile;
 resolve mode accepts no Cargo arguments, label or build-wait option. For example:
@@ -294,11 +323,12 @@ Build after source changes; use a preserved label when exact build provenance is
 needed. The Python API permits an omitted profile for the existing MCP preference.
 
 The asset-browser MCP uses `cargo_run.resolve_binary` to discover emitted host
-release/debug executables from the per-checkout record in
+release/fast/debug executables from the per-checkout record in
 `<git-common-dir>/owned-builds/latest/`. That record is updated atomically after
 successful builds, and discovery verifies executable bytes. Cross-target and
-custom-profile builds still support explicit paths/labels; they are not auto-run
-by host tooling. Conventional target paths are not a fallback.
+other custom-profile builds (such as `shipping`) still support explicit
+paths/labels; they are not auto-run by host tooling. Conventional target paths
+are not a fallback.
 
 ## Python regression suite
 

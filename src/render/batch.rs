@@ -97,7 +97,8 @@ pub struct SpriteInstance {
     pub palette_light: crate::render::palette_light::PaletteLight,
     /// For a palette-indexed SHP atlas page, the palette row its indices
     /// resolve through, plus one (`ShpSpriteEntry::source_palette`); 0 samples
-    /// an RGBA page.
+    /// an RGBA page. Voxel pages use 0 for the theater/house palette and
+    /// 1 for the native global UNITSNO palette, bypassing house substitution.
     pub source_palette: u32,
 }
 
@@ -508,6 +509,7 @@ pub struct BatchRenderer {
     /// `unit_atlas_bind_group_layout` (group 1) + `voxel_palette_bind_group_layout`
     /// (group 2). Same vertex layout as the other batch pipelines.
     pub voxel_sprite_pipeline: wgpu::RenderPipeline,
+    voxel_passthrough_pipeline: wgpu::RenderPipeline,
     /// Layout for camera uniform bind group (group 0).
     /// Stored so other pipelines (e.g., fog shader) can reuse the same layout.
     camera_bind_group_layout: wgpu::BindGroupLayout,
@@ -1218,9 +1220,9 @@ impl BatchRenderer {
                 ],
                 push_constant_ranges: &[],
             });
-        let voxel_sprite_pipeline: wgpu::RenderPipeline =
+        let voxel_pipeline = |label, depth_compare| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Voxel Sprite Pipeline"),
+                label: Some(label),
                 layout: Some(&voxel_sprite_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &voxel_shader,
@@ -1249,14 +1251,20 @@ impl BatchRenderer {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_compare,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
-            });
+            })
+        };
+
+        let voxel_sprite_pipeline =
+            voxel_pipeline("Voxel Sprite Pipeline", wgpu::CompareFunction::Less);
+        let voxel_passthrough_pipeline =
+            voxel_pipeline("Voxel Color/A Only Pipeline", wgpu::CompareFunction::Always);
 
         Self {
             overlay_pipeline,
@@ -1277,6 +1285,7 @@ impl BatchRenderer {
             unit_atlas_bind_group_layout,
             voxel_palette_bind_group_layout,
             voxel_sprite_pipeline,
+            voxel_passthrough_pipeline,
             camera_bind_group_layout,
             camera_buffer,
             uploaded_camera: std::sync::RwLock::new(camera_uniform),
@@ -1691,11 +1700,17 @@ impl BatchRenderer {
         buffer: &'a wgpu::Buffer,
         start: u32,
         count: u32,
+        render_z: crate::render::tactical_draw_plan::RenderZPolicy,
     ) {
         if count == 0 {
             return;
         }
-        render_pass.set_pipeline(&self.voxel_sprite_pipeline);
+        let pipeline = if render_z == crate::render::tactical_draw_plan::RenderZPolicy::None {
+            &self.voxel_passthrough_pipeline
+        } else {
+            &self.voxel_sprite_pipeline
+        };
+        render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &atlas.bind_group, &[]);
         render_pass.set_bind_group(2, palette_bind_group, &[]);
@@ -1740,13 +1755,14 @@ impl BatchRenderer {
     /// without recreating the bind group.
     pub fn create_updatable_texture(
         &self,
-        gpu: &GpuContext,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         rgba_data: &[u8],
         width: u32,
         height: u32,
     ) -> (wgpu::Texture, BatchTexture) {
-        let texture: wgpu::Texture = gpu.device.create_texture_with_data(
-            &gpu.queue,
+        let texture: wgpu::Texture = device.create_texture_with_data(
+            queue,
             &wgpu::TextureDescriptor {
                 label: Some("Updatable Batch Texture"),
                 size: wgpu::Extent3d {
@@ -1766,32 +1782,31 @@ impl BatchRenderer {
         );
 
         let view: wgpu::TextureView = texture.create_view(&Default::default());
-        let sampler: wgpu::Sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Updatable Batch Sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
-        let bind_group: wgpu::BindGroup =
-            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Updatable Batch Texture BG"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.default_source_indices),
-                    },
-                ],
-            });
+        let bind_group: wgpu::BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Updatable Batch Texture BG"),
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.default_source_indices),
+                },
+            ],
+        });
 
         let batch_tex = BatchTexture {
             bind_group,
@@ -1827,15 +1842,6 @@ impl BatchRenderer {
     /// The color texture view and depth texture view must have identical UV layout
     /// (same atlas dimensions and tile placements) so the shader can sample both
     /// at the same UV coordinates.
-    pub fn create_zdepth_bind_group(
-        &self,
-        gpu: &GpuContext,
-        color_view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
-    ) -> wgpu::BindGroup {
-        self.create_zdepth_bind_group_on_device(&gpu.device, color_view, depth_view)
-    }
-
     pub(crate) fn create_zdepth_bind_group_on_device(
         &self,
         device: &wgpu::Device,
@@ -1868,10 +1874,10 @@ impl BatchRenderer {
         })
     }
 
-    /// Draw instances with the Z-depth pipeline (per-pixel frag_depth, Less compare).
+    /// Draw instances with the TMP Z-depth pipeline (per-pixel depth, LessEqual).
     ///
     /// Used for terrain tiles with TMP Z-data. The bind_group must be created via
-    /// `create_zdepth_bind_group()` with matching color + depth atlas textures.
+    /// `create_zdepth_bind_group_on_device()` with matching color + depth atlas textures.
     pub fn draw_with_buffer_zdepth<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
@@ -1900,14 +1906,27 @@ impl BatchRenderer {
         buffer: &'a wgpu::Buffer,
         count: u32,
     ) {
-        if count == 0 {
-            return;
-        }
-        render_pass.set_pipeline(&self.overlay_passthrough_pipeline);
-        render_pass.set_bind_group(0, &self.surface_camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &texture.bind_group, &[]);
-        render_pass.set_vertex_buffer(0, buffer.slice(..));
-        render_pass.draw(0..6, 0..count);
+        self.draw_with_buffer_passthrough_range(render_pass, texture, buffer, 0, count);
+    }
+
+    /// A contiguous direct-store range, bypassing both A and Z. Health pips
+    /// (native flags600 ->4912B0) share this owner with other surface stores.
+    pub(crate) fn draw_with_buffer_passthrough_range<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        texture: &'a BatchTexture,
+        buffer: &'a wgpu::Buffer,
+        start: u32,
+        count: u32,
+    ) {
+        self.draw_passthrough_range_bound(
+            render_pass,
+            texture,
+            buffer,
+            &self.surface_camera_bind_group,
+            start,
+            count,
+        );
     }
 
     /// Draw authoritative child-light mask quads through the native
@@ -2076,11 +2095,30 @@ impl BatchRenderer {
         start: u32,
         count: u32,
     ) {
+        self.draw_passthrough_range_bound(
+            render_pass,
+            texture,
+            buffer,
+            &self.camera_bind_group,
+            start,
+            count,
+        );
+    }
+
+    fn draw_passthrough_range_bound<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        texture: &'a BatchTexture,
+        buffer: &'a wgpu::Buffer,
+        camera: &'a wgpu::BindGroup,
+        start: u32,
+        count: u32,
+    ) {
         if count == 0 {
             return;
         }
         render_pass.set_pipeline(&self.overlay_passthrough_pipeline);
-        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        render_pass.set_bind_group(0, camera, &[]);
         render_pass.set_bind_group(1, &texture.bind_group, &[]);
         render_pass.set_vertex_buffer(0, buffer.slice(..));
         render_pass.draw(0..6, start..start + count);

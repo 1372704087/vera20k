@@ -232,6 +232,7 @@ fn sell_wall_command_for_cell(
         rx,
         ry,
         ignore_visibility,
+        sim.resolved_terrain.as_ref(),
     ) != crate::app::presentation::instances::CellVisibilityState::Visible
     {
         return None;
@@ -350,30 +351,51 @@ pub(crate) fn place_ready_building_at_cursor(state: &mut AppState, type_id: &str
     else {
         return;
     };
-    // Use the preview's stored (rx, ry) so the placed building exactly matches
-    // the cells the player saw, avoiding any cursor-movement drift between frames.
-    let (rx, ry) =
-        if let Some(preview) = state.match_state.input.building_placement_preview.as_ref() {
-            log::info!(
-                "Click placement: using preview ({},{}) size={}x{} type={}",
-                preview.rx,
-                preview.ry,
-                preview.width,
-                preview.height,
-                type_id,
-            );
-            (preview.rx, preview.ry)
-        } else {
-            crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
-                state,
-                state.match_state.input.cursor_x,
-                state.match_state.input.cursor_y,
-            )
-        };
-    if let Some(preview) = state.match_state.input.building_placement_preview.as_ref()
-        && !preview.valid
-    {
-        if let Some(reason) = &preview.reason {
+    // LeftUp4ABA16..4ABA59 uses its supplied clicked Cell and recomputes
+    // proximity, rather than latching the previous draw's coordinate/result.
+    let cursor_cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+        state,
+        state.match_state.input.cursor_x,
+        state.match_state.input.cursor_y,
+    );
+    let (origin, in_build_area) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            let sim = &runtime.simulation;
+            let rules = &runtime.resources.rules;
+            rules.object(type_id).map(|object| {
+                // LeftUp4ABA16 adds the same type-derived offset as preview,
+                // using this fresh clicked Cell rather than the last draw.
+                let origin = crate::rules::foundation::placement_origin_at_cursor(
+                    &object.foundation,
+                    cursor_cell,
+                );
+                let in_build_area = crate::sim::production::is_within_build_area(
+                    sim, rules, &owner, object, origin.0, origin.1,
+                );
+                (origin, in_build_area)
+            })
+        })
+        .unwrap_or((cursor_cell, false));
+    let (rx, ry) = origin;
+    // Visibility1181 is latched by UpdateFoundationCenter4A94DA. LeftUp
+    // checks it after the freshly recomputed proximity1180(4ABAA4/4ABAB2).
+    let visible = state
+        .match_state
+        .input
+        .building_placement_preview
+        .as_ref()
+        .is_none_or(|preview| preview.foundation_visible);
+    if !in_build_area || !visible {
+        if let Some(reason) = state
+            .match_state
+            .input
+            .building_placement_preview
+            .as_ref()
+            .and_then(|preview| preview.reason.as_ref())
+        {
             log::warn!(
                 "Ready building placement rejected locally: owner={} type={} cell=({}, {}) reason={}",
                 owner,
@@ -383,12 +405,13 @@ pub(crate) fn place_ready_building_at_cursor(state: &mut AppState, type_id: &str
                 reason.label()
             );
         }
-        // `DisplayClass::BandBox_LeftUp 0x004ABAAC/0x004ABABA`: a
-        // placement click whose pending building is not placeable
-        // (`+0x1180` clear, `BuildingClass 0x00452670` refused the cell)
-        // or not adjacent (`+0x1181` clear) goes to `0x004ABC76..
-        // 0x004ABC80 PlayEVA("EVA_CannotDeployHere", -1)` on the clicking
-        // machine, before any event is queued.
+        // LeftUp4ABAA4/4ABAB2 checks independent proximity/visibility
+        // bytes1180/1181, not the Cell draw's IsClearToBuild result. Failure
+        // reaches4ABC76 local CannotDeployHere before queuing. Near red terrain
+        // still emits PLACE; House4FB0E0/Unlimbo refuses it and restores the
+        // saved ready product through the existing input lifecycle owner.
+        // Native: cameo_order local_invalid_site_retains_then_valid_place;
+        // placement_render documents the Cell draw/admission boundary.
         crate::app::input::dispatch::push_local_eva(
             state,
             crate::app::input::sidebar_eva::EVA_CANNOT_DEPLOY_HERE,
@@ -837,6 +860,10 @@ pub(super) fn schedule_command_in_sim(
             let record = sim.encode_scatter_record(owner_id, entity_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
         }
+        Command::Cheer => {
+            let record = sim.encode_cheer_record(owner_id)?;
+            SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
+        }
         Command::ExitMatch => {
             let record = sim.encode_exit_record(owner_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
@@ -944,6 +971,45 @@ pub(crate) fn try_schedule_command(
 /// Preserve the existing unit-returning command boundary for ordinary callers.
 pub(crate) fn schedule_command(state: &mut AppState, owner: &str, payload: Command) {
     let _ = try_schedule_command(state, owner, payload);
+}
+
+/// AllToCheer536C00 ->730F30. The input owner retains only its admission
+/// frame; the ordinary scheduler and native Event2D codec own the command.
+pub(crate) fn queue_house_cheer(state: &mut AppState) {
+    let Some(owner) = preferred_local_owner_name(state) else {
+        return;
+    };
+    let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
+        return;
+    };
+    let _ = queue_house_cheer_in_sim(
+        &mut runtime.simulation,
+        &runtime.resources.rules,
+        &mut state.match_state.input,
+        &owner,
+    );
+}
+
+pub(super) fn queue_house_cheer_in_sim(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    input: &mut crate::app::input::state::MatchInputState,
+    owner: &str,
+) -> Option<u64> {
+    // Preserve the ordinary keyboard/bar Scenario+35A2 lock before entering
+    // the producer. Original730F30's own guard is the distinct Session+300
+    // defeat flag (active1cdd; tools/input_oracle/house_cheer.md).
+    if sim.session.input_locked() {
+        return None;
+    }
+    let current_frame = sim.session.binary_frame as i32;
+    let local_defeated = sim.local_player_defeated();
+    input.try_issue_cheer(
+        current_frame,
+        rules.general.maximum_cheer_rate(),
+        local_defeated,
+        || schedule_command_in_sim(sim, owner, Command::Cheer),
+    )
 }
 
 pub(crate) fn is_playable_house_name(name: &str) -> bool {

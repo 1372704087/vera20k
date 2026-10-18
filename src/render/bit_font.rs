@@ -15,7 +15,6 @@ use std::collections::HashMap;
 
 use crate::assets::fnt_file::{FntFile, FntGlyph};
 use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
-use crate::render::gpu::GpuContext;
 use crate::render::shell_text_reveal::{PathAReveal, encoded_unit_rgb};
 
 /// Hardcoded inter-glyph spacing.
@@ -128,6 +127,31 @@ impl BitFont {
         self.cell_height as f32
     }
 
+    /// ComputeTextRect4A59E0: whole-string width, horizontal alignment and
+    /// signed margins. Unlike the shell's wrapped layout, this query uses the
+    /// font's cell height and measures before clipping. PRIMARY70AC60 supplies
+    /// flags149 and margins[4,2]. Native pixels: primary_factory_status.json.
+    pub(crate) fn compute_text_rect(
+        &self,
+        text: &str,
+        [mut x, y]: [i32; 2],
+        flags: u32,
+        [margin_x, margin_y]: [i32; 2],
+    ) -> [i32; 4] {
+        let width = self.text_width(text) as i32;
+        if flags & 0x100 != 0 {
+            x = x.wrapping_sub(width / 2);
+        } else if flags & 0x200 != 0 {
+            x = x.wrapping_sub(width);
+        }
+        [
+            x.wrapping_sub(margin_x),
+            y.wrapping_sub(margin_y),
+            width.wrapping_add(margin_x.wrapping_mul(2)),
+            (self.cell_height as i32).wrapping_add(margin_y.wrapping_mul(2)),
+        ]
+    }
+
     pub fn build_text(
         &self,
         text: &str,
@@ -197,6 +221,45 @@ impl BitFont {
             emitted += 1;
         }
         instances
+    }
+
+    /// TextLabel's original434500 emission uses an inclusive UTF-16 count;
+    /// PathA434CD0 uses the next, hidden unit. For positive count C, its
+    /// cutoff and eight-unit gradient are exactly PathA(C+1, range8): both
+    /// blend unit i (zero-based) by (9-C+i)*31 through shared6612C0.
+    /// The white highlight is CRT4E8160's A80220 value, not a side color.
+    /// Executed paired controls: tools/storage_oracle/shell_text_label.json.
+    pub fn build_text_label(
+        &self,
+        text: &str,
+        x: f32,
+        y: f32,
+        depth: f32,
+        camera_offset: [f32; 2],
+        base_rgb: [u8; 3],
+        count: u32,
+    ) -> Vec<SpriteInstance> {
+        // Original cutoff43454D..51 is signed. Ordinary message lifetimes
+        // never approach this boundary, but retain it for wrapping counters.
+        if (count as i32) < 0 {
+            return Vec::new();
+        }
+        self.build_text_path_a(
+            text,
+            x,
+            y,
+            1.0,
+            depth,
+            camera_offset,
+            0,
+            PathAReveal {
+                count: if count == 0 { 0 } else { count + 1 },
+                range: 8,
+                base_rgb,
+                highlight_rgb: [255; 3],
+            },
+        )
+        .0
     }
 
     /// Glyph emission for the verified BITFONT Path-A UTF-16 reveal/tint path.
@@ -489,7 +552,7 @@ impl BitFont {
         ]
     }
 
-    pub fn fallback_5x7(gpu: &GpuContext, batch: &BatchRenderer) -> Self {
+    pub fn fallback_5x7(device: &wgpu::Device, queue: &wgpu::Queue, batch: &BatchRenderer) -> Self {
         const GLYPH_W: u32 = 5;
         const GLYPH_H: u32 = 7;
         const GLYPH_PAD: u32 = 1;
@@ -528,7 +591,9 @@ impl BitFont {
 
         Self {
             source_identity: None,
-            atlas_texture: Some(batch.create_texture(gpu, &rgba, atlas_w, atlas_h)),
+            atlas_texture: Some(
+                batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None),
+            ),
             glyphs,
             missing_glyph: None,
             cell_height: GLYPH_H + 1,
@@ -541,7 +606,12 @@ impl BitFont {
         }
     }
 
-    pub fn from_fnt(gpu: &GpuContext, batch: &BatchRenderer, fnt: &FntFile) -> Self {
+    pub fn from_fnt(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &BatchRenderer,
+        fnt: &FntFile,
+    ) -> Self {
         let mut entries: Vec<(u16, &FntGlyph)> = Vec::new();
         for cp in PACKED_CODEPOINT_RANGE {
             if let Some(g) = fnt.glyph(cp) {
@@ -570,7 +640,7 @@ impl BitFont {
 
         if entries.is_empty() && missing_owned.is_none() {
             log::warn!("FNT has no glyphs, falling back to hardcoded font");
-            return Self::fallback_5x7(gpu, batch);
+            return Self::fallback_5x7(device, queue, batch);
         }
 
         // Reserve a sentinel codepoint for the missing glyph that won't collide
@@ -651,8 +721,10 @@ impl BitFont {
             .glyph(0x20)
             .map(|g| g.width)
             .unwrap_or(DEFAULT_SPACE_WIDTH);
-        let atlas_texture = batch.create_texture(gpu, &rgba, atlas_w, atlas_h);
-        let darken_texture = batch.create_texture(gpu, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1);
+        let atlas_texture =
+            batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
+        let darken_texture =
+            batch.create_texture_on_device(device, queue, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1, None);
 
         log::info!(
             "BitFont atlas: {}x{} px, {} glyphs (+missing={}), space_width={}",
@@ -1229,6 +1301,76 @@ pub(crate) mod tests {
             instances[0].tint,
             [248.0 / 255.0, 252.0 / 255.0, 30.0 / 255.0]
         );
+    }
+
+    #[test]
+    fn text_label_glyph_count_and_colors_match_the_original_paired_paths() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/storage_oracle/shell_text_label.json",
+        ))
+        .unwrap();
+        let font = make_test_font(&[(b'A' as u16, 6)], 4);
+        let format = crate::render::native_surface_format::RGB565;
+        let packed = |instances: Vec<SpriteInstance>| {
+            instances
+                .iter()
+                .map(|glyph| format.pack_rgb8(glyph.tint.map(|c| (c * 255.0).round() as u8)))
+                .collect::<Vec<_>>()
+        };
+        let controls = corpus["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 16);
+        let mut label_controls = 0;
+        for row in controls {
+            let text = row["text"].as_str().unwrap();
+            let base_rgb = format.unpack_rgb8(row["base_rgb565"].as_u64().unwrap() as u16);
+            let highlight_rgb =
+                std::array::from_fn(|i| row["highlight_rgb"][i].as_u64().unwrap() as u8);
+            let expected = |field: &str| {
+                row[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap() as u16)
+                    .collect::<Vec<_>>()
+            };
+            // Both original bodies execute the shared6612C0, including the
+            // decreasing white-to-black signed-division controls. The count
+            // handed to PathA here is recorded from the native fixture.
+            let path_a = font
+                .build_text_path_a(
+                    text,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.5,
+                    [0.0; 2],
+                    0,
+                    PathAReveal {
+                        count: row["path_a_count"].as_u64().unwrap() as u32,
+                        range: 8,
+                        base_rgb,
+                        highlight_rgb,
+                    },
+                )
+                .0;
+            assert_eq!(packed(path_a), expected("path_a_rgb565"), "{row}");
+            // Actual TextLabel always uses the white CRT highlight; its
+            // production adapter must reproduce the other native body too.
+            if highlight_rgb == [255; 3] {
+                let label = font.build_text_label(
+                    text,
+                    0.0,
+                    0.0,
+                    0.5,
+                    [0.0; 2],
+                    base_rgb,
+                    row["native_count"].as_u64().unwrap() as u32,
+                );
+                assert_eq!(packed(label), expected("generic_rgb565"), "{row}");
+                label_controls += 1;
+            }
+        }
+        assert_eq!(label_controls, 8);
     }
 
     #[test]

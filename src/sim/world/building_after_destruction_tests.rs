@@ -9,10 +9,9 @@ use crate::rules::building_rubble::RubbleArt;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags, TargetKind};
 use crate::sim::house_state::HouseState;
 use crate::sim::overlay_grid::{OverlayGrid, RUBBLE_OVERLAY_INDEX};
-use crate::sim::world::{FrameEffects, Simulation};
+use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]
@@ -82,6 +81,7 @@ fn rules() -> RuleSet {
         RubbleArt {
             shp: "BOTH.SHP".into(),
             body_frame: 3,
+            shadow_frame: 7,
         },
     );
     rules.set_building_rubble_art_for_test(
@@ -89,6 +89,7 @@ fn rules() -> RuleSet {
         RubbleArt {
             shp: "RUIN.SHP".into(),
             body_frame: 3,
+            shadow_frame: 7,
         },
     );
     rules
@@ -138,188 +139,72 @@ fn sim() -> Simulation {
     sim
 }
 
-fn kill(sim: &mut Simulation, rules: &RuleSet, registry: &OverlayTypeRegistry, id: u64) {
-    let warhead = sim.interner.intern("KILLWH");
-    let hit = EntityDamageEvent::direct_receiver(
-        id,
-        100_000,
-        0,
-        RAD_NO_ATTACKER,
-        None,
-        warhead,
-        ReceiverCallFlags {
-            ignore_defenses: false,
-            arg6: false,
-        },
-    );
-    sim.commit_noncombat_aoe_hits(rules, Some(registry), &[hit], FrameEffects::default());
-}
-
-fn overlay(sim: &Simulation, cell: (u16, u16)) -> crate::sim::overlay_grid::OverlayCell {
-    *sim.overlay_grid.as_ref().unwrap().cell(cell.0, cell.1)
-}
-
-/// Every foundation cell takes overlay 0xEF with its data byte kept; only the
-/// north-west cell records the type the overlay draws read.
+/// Original440042..4400EA controls retain exact-zero timer expiry, including
+/// negative paused durations and signed frame wrap. The native terminal callees
+/// are observation sinks; occupancy/rubble below are Rust integration checks.
 #[test]
-fn a_destroyed_leave_rubble_building_leaves_rubble_on_its_foundation() {
+fn zero_health_building_ai_matches_original_terminal_gate() {
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/building_zero_health.json",
+    ))
+    .unwrap();
     let rules = rules();
     let registry = registry();
-    let mut sim = sim();
-    let ruin = sim
-        .spawn_object_at_height("RUIN", "Americans", 10, 12, 0, 0, &rules)
-        .expect("RUIN spawns");
-    // A listener force-firing a foundation cell, and installed navigation so
-    // the per-cell publish and zone repair run.
-    let listener = sim
-        .spawn_object_at_height("PLAIN", "Americans", 20, 20, 0, 0, &rules)
-        .expect("PLAIN spawns");
-    sim.substrate
-        .entities
-        .get_mut(listener)
-        .unwrap()
-        .attack_target
-        .set_for_test(Some(TargetKind::Cell(11, 13)));
-    sim.overlay_grid
-        .as_mut()
-        .unwrap()
-        .write_literal_bridge_state(sim.resolved_terrain.as_mut().unwrap(), 11, 13, 5);
-    assert!(sim.rebuild_dynamic_navigation(&rules));
-
-    kill(&mut sim, &rules, &registry, ruin);
-
-    assert!(
-        sim.substrate
-            .entities
-            .get(ruin)
-            .is_none_or(|entity| !entity.lifecycle.object_alive()),
-        "the building is gone"
-    );
-    let ruin_type = sim.interner.get("RUIN").expect("interned type");
-    for cell in [(10, 12), (11, 12), (10, 13), (11, 13)] {
-        let live = overlay(&sim, cell);
-        assert_eq!(live.overlay_id, Some(RUBBLE_OVERLAY_INDEX), "{cell:?}");
-        assert_eq!(
-            live.rubble_building_type,
-            (cell == (10, 12)).then_some(ruin_type),
-            "{cell:?}"
-        );
-    }
-    assert_eq!(
-        overlay(&sim, (11, 13)).overlay_data,
-        5,
-        "+0x11E is not written"
-    );
-    assert_eq!(
-        overlay(&sim, (12, 12)).overlay_id,
-        None,
-        "outside the foundation"
-    );
-    assert!(
-        sim.substrate
-            .entities
-            .get(listener)
-            .unwrap()
-            .attack_target
-            .target()
-            .is_none(),
-        "the cell detach sweep (0x0070D4A0) clears a target on a foundation cell"
-    );
-    assert!(sim.zone_grid.is_some() && sim.path_grid().is_some());
-}
-
-/// No rubble without `LeaveRubble=yes`, and none when the type's image is too
-/// short to carry a rubble frame (`0x0045F160` returns false).
-#[test]
-fn no_rubble_without_leave_rubble_or_rubble_art() {
-    let rules = rules();
-    let registry = registry();
-    for kind in ["PLAIN", "SHORT"] {
+    for row in corpus.as_array().unwrap() {
+        let input = &row["input"];
         let mut sim = sim();
+        sim.session.binary_frame = input["constructor_frame"].as_i64().unwrap() as u32;
         let id = sim
-            .spawn_object_at_height(kind, "Americans", 10, 12, 0, 0, &rules)
-            .expect("building spawns");
-        kill(&mut sim, &rules, &registry, id);
-        for cell in [(10, 12), (11, 12), (10, 13), (11, 13)] {
-            assert_eq!(overlay(&sim, cell).overlay_id, None, "{kind} {cell:?}");
+            .spawn_object_at_height("PLAIN", "Americans", 10, 12, 0, 0, &rules)
+            .unwrap();
+        let building = sim.substrate.entities.get_mut(id).unwrap();
+        building
+            .health
+            .set(input["health"].as_i64().unwrap() as i32);
+        if let Some(timer) = input["timer_override"].as_array() {
+            building.pending_c4_detonation.set_for_test(Some(
+                crate::sim::c4_plant::PendingC4Detonation::new(
+                    crate::sim::timer::CdTimer::from_raw(
+                        timer[0].as_i64().unwrap() as i32,
+                        timer[1].as_i64().unwrap() as i32,
+                    ),
+                    None,
+                ),
+            ));
         }
-    }
-}
-
-/// The crate tail places one crate at the north-west cell, whether or not
-/// the type leaves rubble: Money (data 0) for `CrateBeneathIsMoney=`, else the
-/// crate Mark's byte for a random powerup at pickup. Its only draw is the
-/// slot timer's.
-#[test]
-fn a_crate_beneath_building_leaves_a_crate_at_its_origin() {
-    let rules = rules();
-    let registry = registry();
-    let wood = registry.id_for_name("WOOD").unwrap();
-    for (kind, data) in [("CASH", 0u8), ("GIFT", u8::MAX)] {
-        let mut sim = sim();
-        let id = sim
-            .spawn_object_at_height(kind, "Americans", 10, 12, 0, 0, &rules)
-            .expect("building spawns");
-        assert!(sim.rebuild_dynamic_navigation(&rules));
-
-        kill(&mut sim, &rules, &registry, id);
-
-        let cell = overlay(&sim, (10, 12));
-        assert_eq!(
-            (cell.overlay_id, cell.overlay_data),
-            (Some(wood), data),
-            "{kind}"
+        sim.session.binary_frame = input["frame"].as_i64().unwrap() as u32;
+        sim.object_ai_visit_one(
+            id,
+            Some(&rules),
+            super::techno_ai::ObjectAiCtx {
+                overlay_registry: Some(&registry),
+                ..Default::default()
+            },
         );
-        let occupied: Vec<_> = sim
-            .crate_authority
-            .slots()
-            .iter()
-            .filter(|slot| !slot.is_empty())
-            .map(|slot| (slot.cell_x, slot.cell_y))
-            .collect();
-        assert_eq!(occupied, [(10, 12)], "{kind}");
+        let terminal = !row["output"]["terminal_callouts"]
+            .as_array()
+            .unwrap()
+            .is_empty();
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(id)
+                .is_none_or(|e| e.lifecycle.in_limbo()),
+            terminal,
+            "{}",
+            row["name"]
+        );
+        assert_eq!(
+            sim.occupancy()
+                .first_building_on_layer(
+                    10,
+                    12,
+                    crate::sim::movement::locomotor::MovementLayer::Ground
+                )
+                .is_none(),
+            terminal,
+            "{}",
+            row["name"]
+        );
     }
-}
-
-/// Every retail `CrateBeneath=` type also leaves rubble, and the rubble arm
-/// runs first: the origin cell then holds overlay 0xEF, the passable rubble
-/// cell is where Find_Nearby_Passable_Cell lands on this flat fixture, and
-/// the crate commit's no-overlay check
-/// (`CrateSlot__ValidateCellAndCreateOverlay`, reached from `0x004A17C0`)
-/// refuses it before the slot is taken or its timer drawn.
-/// Composed from the two ported owners; not compared against native
-/// execution.
-#[test]
-fn rubble_on_the_origin_cell_refuses_the_crate_beneath() {
-    let rules = rules();
-    let registry = registry();
-    let mut sim = sim();
-    let id = sim
-        .spawn_object_at_height("BOTH", "Americans", 10, 12, 0, 0, &rules)
-        .expect("BOTH spawns");
-    assert!(sim.rebuild_dynamic_navigation(&rules));
-
-    kill(&mut sim, &rules, &registry, id);
-
-    assert_eq!(
-        overlay(&sim, (10, 12)).overlay_id,
-        Some(RUBBLE_OVERLAY_INDEX)
-    );
-    assert!(
-        sim.crate_authority
-            .slots()
-            .iter()
-            .all(|slot| slot.is_empty())
-    );
-    // The refusal spends no Scenario draw. Death effects share the stream, so
-    // check the placer alone on the rubble-covered origin.
-    let rng_before = sim.scenario_rng.state();
-    assert!(!crate::sim::crates::place_crate(
-        &mut sim,
-        &rules,
-        &registry,
-        (10, 12),
-        Some(0)
-    ));
-    assert_eq!(sim.scenario_rng.state(), rng_before);
 }

@@ -66,7 +66,7 @@ impl Simulation {
 
     fn aircraft_guard_facts(&self, id: u64, rules: &RuleSet) -> GuardFacts {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
-        let object = rules.object(self.interner.resolve(entity.type_ref()));
+        let object = self.interner.object_type(entity.type_ref(), rules);
         GuardFacts {
             height: air_movement::current_fly_height(entity, self.resolved_terrain.as_ref()),
             flight_level: air_movement::type_flight_level(entity, Some((rules, &self.interner))),
@@ -78,10 +78,7 @@ impl Simulation {
             }),
             armed: object
                 .is_some_and(|object| crate::sim::combat::combat_weapon::is_armed(entity, object)),
-            ammo: entity
-                .aircraft_ammo
-                .as_ref()
-                .map_or(-1, |ammo| ammo.current()),
+            ammo: entity.ammo().map_or(-1, |ammo| ammo.current()),
             type_ammo: object.map_or(0, |object| object.ammo),
             human: self.owner_is_human(entity.owner()),
         }
@@ -122,7 +119,7 @@ impl Simulation {
             }
             let owner = unit.owner();
             if crate::sim::combat::combat_weapon::is_ally_by_object(
-                Some(&self.fog.alliances),
+                Some(&self.house_alliances),
                 &self.interner,
                 house,
                 owner,
@@ -277,10 +274,7 @@ impl GuardHost for WorldGuard<'_> {
 
     /// TarCom `+0x2B4`, as `Mission_Guard @ 0x0041A5C0` reads it (`0x0041A822`).
     fn target(&mut self) -> bool {
-        crate::sim::combat::target_present(
-            self.entity().attack_target.target(),
-            &self.sim.substrate.entities,
-        )
+        crate::sim::combat::target_present(self.entity().attack_target.target(), self.sim)
     }
 
     fn attack_bridge_unit(&mut self) {

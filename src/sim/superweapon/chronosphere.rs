@@ -36,10 +36,10 @@
 //! RESIDUALS:
 //! - An off-map cell of either block reads the shared dummy cell's
 //!   coordinates natively; VERA reads the requested cell's.
-//! - The warp latch (`TechnoClass+0x27C`) has two more writers,
-//!   `FootClass::ChronoWarpTo @ 0x004DF7F0` (`0x004DF9EA`) and
-//!   `InfantryClass::ChronoWarpTo @ 0x00522FE0` (`0x005231C1`), reached only
-//!   through their vtable slots; they and their callers are not ported.
+//!
+//! The other warp-latch writers, Foot4DF7F0 and Infantry522FE0, share the
+//! same Teleport state through `Simulation::foot_chrono_warp_to`; House
+//! Action128 uses that owner without running the Super's area/eater path.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::LocomotorKind;
@@ -63,11 +63,11 @@ const CHRONO_ANIM_Z_LIFT: i32 = 5;
 /// The `[SuperWeaponTypes]` index the Chronosphere's player click selects
 /// for the next click (the display's selected Super `0x008809A0` = 4 at
 /// `0x006CC46E`), a literal: retail ChronoWarpSpecial.
-pub(crate) const CHRONO_WARP_SELECTION_INDEX: usize = 4;
+pub const CHRONO_WARP_SELECTION_INDEX: usize = 4;
 
 impl Simulation {
     /// Every Super's held ChronoPlacement anim with its owner.
-    pub(crate) fn super_placement_anims(&self) -> Vec<(InternedId, AnimId)> {
+    pub fn super_placement_anims(&self) -> Vec<(InternedId, AnimId)> {
         self.super_weapons
             .iter()
             .flat_map(|(owner, weapons)| {

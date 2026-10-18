@@ -16,12 +16,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::rules::ruleset::RuleSet;
 use crate::sim::command::{COMMAND_RECORD_LEN, CommandEnvelope, CommandRecord};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::pathfinding::PathGrid;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::world::{Simulation, TickLane, TriggerInputs};
 
 /// Value written by the compiled legacy recorder at the start of a stream.
@@ -36,13 +36,6 @@ pub const NATIVE_REPLAY_HEADER_LEN: usize = 0x1d0;
 pub const NATIVE_REPLAY_SCENARIO_NAME_LEN: usize = 0x104;
 /// Raw retail options block stored at the end of the native header.
 pub const NATIVE_REPLAY_OPTIONS_LEN: usize = 0xb8;
-
-/// Legacy recorder bit. No active retail YR caller sets it.
-pub const REPLAY_FLAG_RECORD: u32 = 0x01;
-/// Playback bit set when session preparation opens an external `RECORD.BIN`.
-pub const REPLAY_FLAG_PLAYBACK: u32 = 0x02;
-/// Availability bit set by active retail YR's `-ATTRACT` command-line path.
-pub const REPLAY_FLAG_AVAILABLE: u32 = 0x04;
 
 /// Malformed native recording data.
 #[derive(Debug, Error)]
@@ -165,7 +158,7 @@ impl NativeReplayHeader {
         self.scenario_name[..len].copy_from_slice(&name.as_bytes()[..len]);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_options_bytes(&mut self, options: [u8; NATIVE_REPLAY_OPTIONS_LEN]) {
         self.options = options;
     }
@@ -243,7 +236,7 @@ impl NativeReplayFrame {
     }
 }
 
-/// Eager legacy-format document codec used by tooling and fixtures.
+/// Eager legacy-format document codec used by fixtures.
 ///
 /// Active retail YR cannot enter the corresponding recording path, and its
 /// playback path is streaming and tolerant of presentation short reads. Use
@@ -255,13 +248,6 @@ pub struct NativeReplay {
 }
 
 impl NativeReplay {
-    pub fn new(header: NativeReplayHeader) -> Self {
-        Self {
-            header,
-            frames: Vec::new(),
-        }
-    }
-
     pub fn encode(&self) -> std::result::Result<Vec<u8>, NativeReplayError> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.header.encode());
@@ -276,7 +262,7 @@ impl NativeReplay {
     /// The native stream has no tag for an omitted command batch. Its presence
     /// is known from session mode, frame, and network cadence, so the scheduler
     /// supplies that decision after each presentation record is decoded.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn decode_with_command_schedule(
         bytes: &[u8],
         mut has_command_batch: impl FnMut(usize, &NativeReplayPresentation) -> bool,
@@ -305,19 +291,13 @@ impl NativeReplay {
         Ok(Self { header, frames })
     }
 
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let bytes = self.encode().context("Failed to encode native replay")?;
-        std::fs::write(path, bytes)
-            .with_context(|| format!("Failed to write native replay: {}", path.display()))
-    }
-
     /// Initialize playback through the normal scenario-loading owner.
     ///
     /// No snapshot or serialized active-object vector is accepted here. The
     /// caller must rebuild the scenario from the header, after which frames are
     /// exposed in stream order for the scheduler's presentation and command
     /// rungs.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn initialize_playback<S, E>(
         &self,
         initialize_scenario: impl FnOnce(&NativeReplayHeader) -> std::result::Result<S, E>,
@@ -526,7 +506,7 @@ impl<'a, S> NativeReplayStream<'a, S> {
     }
 
     /// Finish through the verified native caller/session cadence.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn finish_scheduled_frame(
         &mut self,
         frame: i32,
@@ -562,7 +542,7 @@ pub fn selection_checksum(selected_objects: &[u32]) -> u32 {
 /// A zero kind is the native null sentinel. Other kinds occupy the high byte
 /// and the object's heap-pool identity (or the kind-specific raw value) is
 /// truncated to 24 bits.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn pack_selection_identity(kind: u8, raw_value: u32) -> u32 {
     if kind == 0 {
         u32::MAX
@@ -606,7 +586,7 @@ fn encode_frame(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn decode_presentation(
     bytes: &[u8],
     cursor: &mut usize,
@@ -638,7 +618,7 @@ fn decode_presentation(
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn decode_command_batch(
     bytes: &[u8],
     cursor: &mut usize,
@@ -654,7 +634,7 @@ fn decode_command_batch(
     Ok(commands)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn take<const N: usize>(
     bytes: &[u8],
     cursor: &mut usize,
@@ -703,8 +683,9 @@ pub struct ReplayHeader {
 }
 
 /// How often normal play's diagnostic log records the state hash: after every
-/// 15th frame, by tick number. A fixed frame count, never wall time, so any
-/// run of the same commands hashes the same frames. Tests, sim-bench and
+/// 15th frame, by tick number, and after the frame that ends the match. A
+/// fixed frame count, never wall time, so any run of the same commands hashes
+/// the same frames. Tests, sim-bench and
 /// replay verification can hash every frame instead
 /// ([`Simulation::hash_state_every`](crate::sim::world::Simulation::hash_state_every)).
 pub const PLAY_HASH_INTERVAL: std::num::NonZeroU64 = std::num::NonZeroU64::new(15).unwrap();
@@ -754,6 +735,7 @@ impl ReplayLog {
             .with_context(|| format!("Failed to write diagnostic log: {}", path.display()))
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn load(path: &Path) -> Result<Self> {
         let bytes = std::fs::read(path)
             .with_context(|| format!("Failed to read diagnostic log: {}", path.display()))?;
@@ -762,8 +744,10 @@ impl ReplayLog {
 }
 
 /// Headless runner for the Rust-only deterministic diagnostic log.
+#[cfg(any(test, feature = "test-support"))]
 pub struct ReplayRunner;
 
+#[cfg(any(test, feature = "test-support"))]
 impl ReplayRunner {
     /// Re-run diagnostic-log ticks through the bound runtime (F09): every
     /// tick runs the exact production frame transaction, so rules, heights,
@@ -771,7 +755,6 @@ impl ReplayRunner {
     /// resources and navigation re-snapshots per frame just as a recorded
     /// app session did - nothing is caller-substitutable and a mid-match
     /// path-grid change replays faithfully.
-    #[cfg(test)]
     pub fn run_runtime(
         runtime: &mut crate::sim::runtime::SimRuntime,
         replay: &ReplayLog,
@@ -794,6 +777,11 @@ impl ReplayRunner {
                 current
             );
         }
+        // Playback returns every frame's hash, so a test world hashes each one;
+        // a recording compared with it must ask for the same.
+        runtime
+            .simulation
+            .hash_state_every(std::num::NonZeroU64::MIN);
         let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = runtime
@@ -812,7 +800,6 @@ impl ReplayRunner {
     /// Fixture-only replay runner (F09): re-run diagnostic-log ticks with
     /// explicitly supplied resources. Production replay execution goes
     /// through `run_runtime`, whose resources are bound in the `SimRuntime`.
-    #[cfg(test)]
     pub(crate) fn run_fixture(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -826,7 +813,6 @@ impl ReplayRunner {
     /// Fixture-only variant with the static overlay type registry used by the
     /// recorded map. Overlay-backed simulation authority (including miner
     /// resource queries) must see the same registry on record and replay.
-    #[cfg(test)]
     pub(crate) fn run_fixture_with_overlay_registry(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -850,7 +836,6 @@ impl ReplayRunner {
     /// uses, with caller-owned static map trigger definitions. Diagnostic
     /// logs own commands and hashes. Production replay execution is
     /// `run_runtime`.
-    #[cfg(test)]
     pub(crate) fn run_fixture_master_frame(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -888,6 +873,9 @@ impl ReplayRunner {
             }
         }
         sim.install_fixture_path_grid(path_grid);
+        // Playback returns every frame's hash, so a test world hashes each one;
+        // a recording compared with it must ask for the same.
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         let mut hashes: Vec<Option<u64>> = Vec::with_capacity(replay.ticks.len());
         for entry in &replay.ticks {
             let due_commands = sim.take_due_replay_commands(entry.commands.iter().cloned());
@@ -1455,6 +1443,7 @@ mod tests {
     fn diagnostic_replay_reproduces_midmatch_game_speed_transition() {
         let make_sim = || {
             let mut sim = Simulation::with_seed(7);
+            sim.hash_state_every(std::num::NonZeroU64::MIN);
             let owner = sim.interner.intern("Local");
             sim.houses.insert(
                 owner,

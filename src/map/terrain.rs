@@ -18,6 +18,34 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 #[path = "terrain_bridge_click_tests.rs"]
 mod bridge_click_tests;
 
+#[cfg(test)]
+mod plane_inverse_tests {
+    #[test]
+    fn plane_xyz_matches_original_tactical_body() {
+        let vectors = crate::test_fixture::json("tools/bridge_click_oracle/plane_vectors.json");
+        let mut count = 0;
+        for row in vectors["cases"].as_array().unwrap() {
+            if row["native_exit"] != "plane" {
+                continue; // Upper-window rejection is the caller's admission.
+            }
+            let world = &row["world_input"];
+            let actual = super::screen_to_plane_leptons(
+                world[0].as_i64().unwrap() as f32,
+                world[1].as_i64().unwrap() as f32,
+            );
+            let expected = &row["expected_xyz"];
+            assert_eq!(
+                actual.to_array(),
+                std::array::from_fn(|i| expected[i].as_i64().unwrap() as i32),
+                "{}",
+                row["name"],
+            );
+            count += 1;
+        }
+        assert_eq!(count, 22);
+    }
+}
+
 /// Isometric tile diamond width in pixels (RA2 standard).
 pub const TILE_WIDTH: f32 = 60.0;
 
@@ -62,7 +90,7 @@ pub trait TacticalBridgeLookup: std::fmt::Debug {
 }
 
 /// Native oracle fixtures supply literal cells; production uses the live grid.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl TacticalBridgeLookup for BTreeMap<(u16, u16), TacticalBridgeCell> {
     fn bridge_cell(&self, rx: u16, ry: u16) -> Option<TacticalBridgeCell> {
         self.get(&(rx, ry)).copied()
@@ -188,6 +216,7 @@ impl LocalBounds {
     }
 
     /// Check if a screen position is within the playable area.
+    #[cfg(test)]
     pub fn contains(&self, screen_x: f32, screen_y: f32) -> bool {
         screen_x >= self.pixel_x
             && screen_x < self.pixel_x + self.pixel_w
@@ -233,8 +262,6 @@ pub struct TerrainCell {
     pub rx: u16,
     /// Isometric cell Y coordinate (preserved for lighting lookups).
     pub ry: u16,
-    /// True when the resolved terrain classifies the cell as water.
-    pub is_water: bool,
     /// Tile visual variant index: 0 = pristine, positive = suffix sibling.
     pub variant: u8,
     /// RGB color tint from map lighting. [1,1,1] = full brightness (default).
@@ -243,11 +270,6 @@ pub struct TerrainCell {
     pub radar_left: [u8; 3],
     /// Per-tile radar minimap color (right half of isometric diamond), from TMP header.
     pub radar_right: [u8; 3],
-    /// Mirrors `ResolvedTerrainCell.has_damaged_data` — true when this cell's
-    /// TMP sub-tile carries a baked damaged-variant pixel set. Cached at
-    /// `TerrainGrid` construction; treat as map-load-immutable. Drives the
-    /// per-frame variant-override decision in `build_visible_instances`.
-    pub has_damaged_data: bool,
 }
 
 /// Pre-computed terrain grid ready for rendering.
@@ -285,7 +307,8 @@ pub struct TerrainGrid {
 /// drawn on the cell's diamond centre, `iso_to_screen + (TILE_WIDTH/2,
 /// TILE_HEIGHT/2)` — see `util::lepton::lepton_to_screen`. Callers that want to
 /// place something on the middle of a cell rather than on its tile art must add
-/// that half-tile themselves, as the smudge, sparkle and target-line paths do.
+/// that half-tile themselves, as the sparkle and target-line paths do. The
+/// native smudge caller adds only half-width; see `render::smudge`.
 ///
 /// The `+ TILE_HEIGHT/2` in Y is a constant bias VERA carries on every world
 /// layer relative to the original's absolute tactical pixel; it is invisible
@@ -329,6 +352,33 @@ pub fn screen_to_iso(screen_x: f32, screen_y: f32) -> (f32, f32) {
     let rx: f32 = (col + row) / 2.0;
     let ry: f32 = (row - col) / 2.0;
     (rx, ry)
+}
+
+/// The separate Z=0 plane XYZ returned by Tactical6D2280, not the
+/// height/bridge Cell answer from6D6590. Input uses VERA world pixels.
+///
+/// Original ctor6D1DC5 stores matrix coefficients408888CE/410888CE:
+/// A=8947918/2^21, B=2*A. For map-sized integer pixels (|x|,|y| <=65536)
+/// both products/sums are exact in native53-bit precision. Its toward-zero
+/// f32 store then integer conversion equals truncating this exact rational:
+/// the result is below2^24, where every integer is representable. A normal
+/// nearest-rounded f32 store is wrong; consumed +/-2006 controls catch it.
+/// No x87 emulator or presentation write into simulation state is needed.
+/// Tools/bridge_click_oracle/plane_vectors.json executes the original body.
+///
+/// As with the shared Cell inverse, fractional camera/zoom pixels select the
+/// containing pixel; this presentation extension is not native parity proof.
+/// Arbitrary out-of-map/overflow pixel inputs are outside this numeric bound.
+pub fn screen_to_plane_leptons(world_x: f32, world_y: f32) -> glam::IVec3 {
+    let x = i64::from(world_x.floor() as i32);
+    let y = i64::from(world_y.floor() as i32) - i64::from(crate::util::lepton::WORLD_ROW_BIAS_PX);
+    const NUMERATOR: i64 = 0x88_88ce;
+    const DENOMINATOR: i64 = 1 << 21;
+    glam::IVec3::new(
+        ((x + 2 * y) * NUMERATOR / DENOMINATOR) as i32,
+        ((-x + 2 * y) * NUMERATOR / DENOMINATOR) as i32,
+        0,
+    )
 }
 
 /// Convert tactical/client pixels to isometric cell coordinates using the
@@ -521,95 +571,8 @@ fn tactical_cardinal_neighbor(rx: u16, ry: u16, direction: u8) -> Option<(u16, u
     Some((nx as u16, ny as u16))
 }
 
-/// Convert screen-space pixel position to isometric cell, accounting for terrain elevation.
-///
-/// Iteratively refines the cell guess by looking up the actual terrain height at each
-/// candidate cell and re-solving with the corrected screen Y. This fixes the z=0
-/// assumption in `screen_to_iso` which causes clicks on elevated terrain to resolve
-/// to the wrong cell.
-///
-/// Converges in 1-3 iterations on typical RA2 terrain gradients.
-#[cfg(test)]
-pub fn screen_to_iso_with_height(
-    screen_x: f32,
-    screen_y: f32,
-    height_map: &BTreeMap<(u16, u16), u8>,
-) -> (f32, f32) {
-    screen_to_iso_with_height_and_bridges(screen_x, screen_y, height_map, None)
-}
-
-/// Convert screen coordinates to isometric cell coordinates, accounting for
-/// terrain height and optionally bridge deck height.
-///
-/// When `bridge_height_map` is provided and the resolved cell has a bridge deck,
-/// the bridge deck elevation is used instead of the ground elevation. This makes
-/// clicks on high bridge surfaces resolve to the correct cell.
-pub fn screen_to_iso_with_height_and_bridges(
-    screen_x: f32,
-    screen_y: f32,
-    height_map: &BTreeMap<(u16, u16), u8>,
-    bridge_height_map: Option<&BTreeMap<(u16, u16), u8>>,
-) -> (f32, f32) {
-    // First pass: resolve using ground height (existing behavior).
-    let (mut rx, mut ry) = screen_to_iso(screen_x, screen_y);
-    for _ in 0..3 {
-        let cell_rx: u16 = rx.round().max(0.0) as u16;
-        let cell_ry: u16 = ry.round().max(0.0) as u16;
-        let z: u8 = height_map.get(&(cell_rx, cell_ry)).copied().unwrap_or(0);
-        if z == 0 {
-            break;
-        }
-        let corrected_y: f32 = screen_y + f32::from(z as i8) * HEIGHT_STEP;
-        let (new_rx, new_ry) = screen_to_iso(screen_x, corrected_y);
-        if (new_rx - rx).abs() < 0.01 && (new_ry - ry).abs() < 0.01 {
-            break;
-        }
-        rx = new_rx;
-        ry = new_ry;
-    }
-
-    // Second pass: bridge deck click resolution. The bridge surface is elevated
-    // (deck_level = ground + 4), so the ground resolution above can shift the
-    // result by up to ~3 cells away from the actual bridge cell. We search a
-    // neighborhood around the ground-resolved cell for any bridge entries and
-    // test each at its deck height. The closest match wins.
-    if let Some(bridge_map) = bridge_height_map {
-        let cell_rx: u16 = rx.round().max(0.0) as u16;
-        let cell_ry: u16 = ry.round().max(0.0) as u16;
-        let mut best: Option<(f32, f32)> = None;
-        let mut best_dist: f32 = f32::MAX;
-        for dy in -3i32..=3 {
-            for dx in -3i32..=3 {
-                let bx_i: i32 = cell_rx as i32 + dx;
-                let by_i: i32 = cell_ry as i32 + dy;
-                if bx_i < 0 || by_i < 0 {
-                    continue;
-                }
-                let bx: u16 = bx_i as u16;
-                let by: u16 = by_i as u16;
-                if let Some(&bridge_z) = bridge_map.get(&(bx, by)) {
-                    let corrected_y: f32 = screen_y + f32::from(bridge_z as i8) * HEIGHT_STEP;
-                    let (new_rx, new_ry) = screen_to_iso(screen_x, corrected_y);
-                    let dist: f32 = (new_rx - bx as f32).abs() + (new_ry - by as f32).abs();
-                    if dist < 0.7 && dist < best_dist {
-                        best = Some((new_rx, new_ry));
-                        best_dist = dist;
-                    }
-                }
-            }
-        }
-        if let Some((brx, bry)) = best {
-            rx = brx;
-            ry = bry;
-        }
-    }
-
-    (rx, ry)
-}
-
-/// Build a TerrainGrid from the resolved terrain stage: the final
-/// LAT-adjusted tile choice and the water classification from resolved
-/// terrain metadata.
+/// Build a TerrainGrid from the resolved terrain stage's final LAT-adjusted
+/// tile choice.
 pub fn build_terrain_grid_from_resolved(
     resolved: &ResolvedTerrainGrid,
     local_bounds: Option<LocalBounds>,
@@ -637,12 +600,10 @@ pub fn build_terrain_grid_from_resolved(
             z: cell.level,
             rx: cell.rx,
             ry: cell.ry,
-            is_water: cell.final_tile_index >= 0 && cell.is_water,
             variant: cell.variant,
             tint: [1.0, 1.0, 1.0],
             radar_left: cell.radar_left,
             radar_right: cell.radar_right,
-            has_damaged_data: cell.has_damaged_data,
         });
         min_x = min_x.min(sx);
         min_y = min_y.min(sy);
@@ -1019,260 +980,6 @@ mod tests {
             high_suffix_sentinels > 0,
             "at least one of the 125 visible ClearTile fallbacks must select e/f/g"
         );
-    }
-
-    #[test]
-    fn gsi_04_03c_terrain_instances_have_one_ordinary_bucket() {
-        // Create a small grid manually.
-        let grid: TerrainGrid = TerrainGrid {
-            cells: vec![
-                TerrainCell {
-                    screen_x: 0.0,
-                    screen_y: 0.0,
-                    tile_id: 0,
-                    sub_tile: 0,
-                    z: 0,
-                    rx: 1,
-                    ry: 0,
-                    is_water: false,
-                    variant: 0,
-                    tint: [1.0, 1.0, 1.0],
-                    radar_left: [0, 0, 0],
-                    radar_right: [0, 0, 0],
-                    has_damaged_data: false,
-                },
-                TerrainCell {
-                    screen_x: 5000.0,
-                    screen_y: 5000.0,
-                    tile_id: 0,
-                    sub_tile: 0,
-                    z: 0,
-                    rx: 100,
-                    ry: 100,
-                    is_water: false,
-                    variant: 0,
-                    tint: [1.0, 1.0, 1.0],
-                    radar_left: [0, 0, 0],
-                    radar_right: [0, 0, 0],
-                    has_damaged_data: false,
-                },
-            ],
-            world_width: 5060.0,
-            world_height: 5030.0,
-            origin_x: 0.0,
-            origin_y: 0.0,
-            local_bounds: None,
-            bridge_middle_tiles: None,
-        };
-
-        // Camera at origin, 1024x768 viewport — only first cell should be visible.
-        let result: crate::render::terrain_instances::TerrainInstances =
-            crate::render::terrain_instances::build_visible_instances(
-                &grid, None, 0.0, 0.0, 1024.0, 768.0, None, None,
-            );
-        assert_eq!(result.normal.len(), 1);
-    }
-
-    #[test]
-    fn terrain_tile_instances_consume_per_cell_lighting() {
-        let grid: TerrainGrid = TerrainGrid {
-            cells: vec![
-                TerrainCell {
-                    screen_x: 0.0,
-                    screen_y: 0.0,
-                    tile_id: 0,
-                    sub_tile: 0,
-                    z: 0,
-                    rx: 1,
-                    ry: 0,
-                    is_water: false,
-                    variant: 0,
-                    tint: [1.0, 1.0, 1.0],
-                    radar_left: [0, 0, 0],
-                    radar_right: [0, 0, 0],
-                    has_damaged_data: false,
-                },
-                TerrainCell {
-                    screen_x: 60.0,
-                    screen_y: 0.0,
-                    tile_id: 0,
-                    sub_tile: 0,
-                    z: 4,
-                    rx: 2,
-                    ry: 0,
-                    is_water: false,
-                    variant: 0,
-                    tint: [1.0, 1.0, 1.0],
-                    radar_left: [0, 0, 0],
-                    radar_right: [0, 0, 0],
-                    has_damaged_data: false,
-                },
-            ],
-            world_width: 120.0,
-            world_height: 30.0,
-            origin_x: 0.0,
-            origin_y: 0.0,
-            local_bounds: None,
-            bridge_middle_tiles: None,
-        };
-        let lights = crate::map::lighting::build_cell_light_grid_from_heights(
-            [((1, 0), 0), ((2, 0), 4)],
-            &crate::map::lighting::LightingConfig::default(),
-        );
-
-        let result = crate::render::terrain_instances::build_visible_instances(
-            &grid,
-            Some(&lights),
-            0.0,
-            0.0,
-            1024.0,
-            768.0,
-            None,
-            None,
-        );
-
-        assert_eq!(result.normal.len(), 2);
-        assert!((result.normal[0].tint[0] - 0.95).abs() < 0.001);
-        assert!((result.normal[1].tint[0] - 0.982).abs() < 0.001);
-    }
-
-    fn live_tile_grid() -> TerrainGrid {
-        TerrainGrid {
-            cells: vec![TerrainCell {
-                screen_x: 0.0,
-                screen_y: 0.0,
-                tile_id: 100,
-                sub_tile: 3,
-                z: 4,
-                rx: 0,
-                ry: 0,
-                is_water: false,
-                variant: 2,
-                tint: [1.0; 3],
-                radar_left: [0; 3],
-                radar_right: [0; 3],
-                has_damaged_data: false,
-            }],
-            world_width: TILE_WIDTH,
-            world_height: TILE_HEIGHT,
-            origin_x: 0.0,
-            origin_y: 0.0,
-            local_bounds: None,
-            bridge_middle_tiles: None,
-        }
-    }
-
-    type LiveTileDraw = (Vec<(u16, u8, u8)>, Vec<(f32, f32)>);
-
-    /// Draws the level-4 grid cell against a live cell holding `live` (tile,
-    /// subtile, level, Recalc variant), with an atlas holding `resident`
-    /// tiles. Returns every lookup and the drawn (screen y, z_adjust).
-    fn draw_live_tile(live: (i32, u8, u8, u8), resident: &[u16]) -> LiveTileDraw {
-        let mut cell = crate::map::resolved_terrain::test_flat_cell(0, 0);
-        (
-            cell.final_tile_index,
-            cell.final_sub_tile,
-            cell.level,
-            cell.variant,
-        ) = live;
-        let terrain =
-            crate::map::resolved_terrain::ResolvedTerrainGrid::from_cells(1, 1, vec![cell]);
-        let calls = std::cell::RefCell::new(Vec::new());
-        let lookup = |tid: u16, sub: u8, var: u8| -> Option<TilePlacement> {
-            calls.borrow_mut().push((tid, sub, var));
-            resident.contains(&tid).then_some(TilePlacement {
-                uv_origin: [0.0, 0.0],
-                uv_size: [1.0, 1.0],
-                pixel_size: [TILE_WIDTH, TILE_HEIGHT],
-                draw_offset: [0.0, 0.0],
-            })
-        };
-        let drawn = crate::render::terrain_instances::build_visible_instances(
-            &live_tile_grid(),
-            None,
-            0.0,
-            0.0,
-            1024.0,
-            768.0,
-            Some(&lookup),
-            Some(&terrain),
-        )
-        .normal
-        .iter()
-        .map(|instance| (instance.position[1], instance.z_adjust))
-        .collect();
-        (calls.into_inner(), drawn)
-    }
-
-    #[test]
-    fn draw_reads_the_live_tile_and_level_a_publication_wrote() {
-        let rows = crate::render::native_z::TILE_HEIGHT_ROWS as f32;
-        // Unchanged cell: grid position (level 4) and its Recalc file.
-        assert_eq!(
-            draw_live_tile((100, 3, 4, 2), &[100]),
-            (vec![(100, 3, 2)], vec![(0.0, -rows - 2.0 * rows)])
-        );
-        // A collapse flood writes a new tile and level 0; Recalc picked file 1.
-        assert_eq!(
-            draw_live_tile((203, 3, 0, 1), &[100, 203]),
-            (vec![(203, 3, 1)], vec![(4.0 * HEIGHT_STEP, -rows)])
-        );
-    }
-
-    #[test]
-    fn draw_keeps_the_grid_tile_when_the_live_tile_is_not_resident() {
-        let rows = crate::render::native_z::TILE_HEIGHT_ROWS as f32;
-        assert_eq!(
-            draw_live_tile((203, 3, 0, 1), &[100]),
-            (
-                vec![(203, 3, 1), (100, 3, 2)],
-                vec![(0.0, -rows - 2.0 * rows)]
-            )
-        );
-    }
-
-    #[test]
-    fn test_screen_to_iso_with_height_flat_terrain() {
-        // On flat terrain (z=0 everywhere), result matches plain screen_to_iso.
-        let height_map: BTreeMap<(u16, u16), u8> = BTreeMap::new();
-        let (rx, ry) = screen_to_iso_with_height(300.0, 150.0, &height_map);
-        let (rx0, ry0) = screen_to_iso(300.0, 150.0);
-        assert!((rx - rx0).abs() < 0.01);
-        assert!((ry - ry0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_screen_to_iso_with_height_elevated() {
-        // Cell (10, 5) at z=4:
-        //   iso_to_screen = ((10-5)*30-30, (10+5)*15+15-4*15) = (120, 165)
-        //   Tile center = (120+30, 165+15) = (150, 180)
-        let mut height_map: BTreeMap<(u16, u16), u8> = BTreeMap::new();
-        for rx in 8..=12 {
-            for ry in 3..=7 {
-                height_map.insert((rx, ry), 4);
-            }
-        }
-        let (rx, ry) = screen_to_iso_with_height(150.0, 180.0, &height_map);
-        assert!((rx - 10.0).abs() < 0.6, "rx={rx}, expected ~10");
-        assert!((ry - 5.0).abs() < 0.6, "ry={ry}, expected ~5");
-    }
-
-    #[test]
-    fn test_screen_to_iso_with_height_convergence() {
-        // Verify the function converges and doesn't overshoot on steep terrain.
-        let mut height_map: BTreeMap<(u16, u16), u8> = BTreeMap::new();
-        // A ridge: cells with ry < 10 are at z=6, ry >= 10 at z=0.
-        for rx in 0..30 {
-            for ry in 0..10 {
-                height_map.insert((rx, ry), 6);
-            }
-        }
-        // Click on the elevated part: cell (15, 5) at z=6.
-        // iso_to_screen = ((15-5)*30-30, (15+5)*15+15-6*15) = (270, 225)
-        // Center: (270+30, 225+15) = (300, 240).
-        let (rx, ry) = screen_to_iso_with_height(300.0, 240.0, &height_map);
-        assert!((rx - 15.0).abs() < 0.6, "rx={rx}, expected ~15");
-        assert!((ry - 5.0).abs() < 0.6, "ry={ry}, expected ~5");
     }
 
     #[test]

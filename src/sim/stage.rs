@@ -16,7 +16,7 @@ use crate::sim::timer::CdTimer;
 /// owns a distinct instance at+620 (constructor43B7F5, Repair44BBF2).
 /// Fields remain private; family receivers use the owner's operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct StageClass {
+pub struct StageClass {
     value: i32,
     changed: u8,
     timer: CdTimer,
@@ -25,7 +25,9 @@ pub(crate) struct StageClass {
 }
 
 impl StageClass {
-    pub(crate) const fn constructed(now: i32) -> Self {
+    /// The same semantic initial value/rate/increment as Sidebar record
+    /// constructor6AC7C0; presentation retains its own instance.
+    pub const fn constructed(now: i32) -> Self {
         Self {
             value: 0,
             changed: 0,
@@ -35,9 +37,9 @@ impl StageClass {
         }
     }
 
-    /// Original6FABC4 and4509DE: advance at most once, even after a long gap.
+    /// Original6FABC4,4509DE and StripAI6A8FBE: advance at most once, even after a long gap.
     /// The changed byte records passing the gate, including increment zero.
-    pub(crate) fn advance(&mut self, now: i32) -> bool {
+    pub fn advance(&mut self, now: i32) -> bool {
         let stepped = self.timer.expired(now) && self.rate != 0;
         self.changed = u8::from(stepped);
         if stepped {
@@ -50,7 +52,7 @@ impl StageClass {
     /// DoAction51D9D2..51DA96, Unit Unlimbo737BF5..737C75, and the
     /// existing harvesting/building receivers
     /// restart value/rate/timer while retaining the independent FC/110 fields.
-    pub(crate) fn restart(&mut self, value: i32, now: i32, rate: i32) {
+    pub fn restart(&mut self, value: i32, now: i32, rate: i32) {
         self.value = value;
         self.timer.start(now, rate);
         self.rate = rate;
@@ -61,12 +63,12 @@ impl StageClass {
         self.value = value;
     }
 
-    pub(crate) const fn value(&self) -> i32 {
+    pub const fn value(&self) -> i32 {
         self.value
     }
 
-    #[cfg(test)]
-    pub(crate) const fn timer(&self) -> CdTimer {
+    #[cfg(any(test, feature = "test-support"))]
+    pub const fn timer(&self) -> CdTimer {
         self.timer
     }
 
@@ -75,12 +77,12 @@ impl StageClass {
         self.rate = rate;
     }
 
-    pub(crate) const fn rate(&self) -> i32 {
+    pub const fn rate(&self) -> i32 {
         self.rate
     }
 
     /// Raw prior state supplied by a native corpus, never a production writer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn from_native_fixture(
         value: i32,
         changed: u8,

@@ -44,14 +44,14 @@ impl Simulation {
     /// Insertion order, stamps and payloads are copied without admitting,
     /// draining or exposing writable queue state. Ordinary rendering does not
     /// call this diagnostic boundary.
-    pub(crate) fn pending_command_snapshot(&self) -> Vec<CommandEnvelope> {
+    pub fn pending_command_snapshot(&self) -> Vec<CommandEnvelope> {
         self.pending_commands.clone()
     }
 
     /// Whether provisional local selection still has authoritative queued
     /// work. Derive this from the existing queue; selected-bit equality cannot
     /// distinguish an unconsumed snapshot from later lifecycle deselection.
-    pub(crate) fn has_pending_selection_commands(&self) -> bool {
+    pub fn has_pending_selection_commands(&self) -> bool {
         self.pending_commands
             .iter()
             .any(|command| matches!(command.payload, Command::Select { .. }))
@@ -62,7 +62,7 @@ impl Simulation {
     ///
     /// This read-only projection lets fresh-map and snapshot replacement sync
     /// client UI without consuming or applying a pending authoritative command.
-    pub(crate) fn projected_in_game_options_speed(&self) -> Option<u8> {
+    pub fn projected_in_game_options_speed(&self) -> Option<u8> {
         let mut projected = u8::try_from(self.session.game_options.game_speed)
             .ok()
             .filter(|speed| *speed <= crate::sim::game_options::IN_GAME_OPTIONS_MAX_SPEED);
@@ -88,7 +88,7 @@ impl Simulation {
     }
 
     /// Consume the terminal edge raised by one executed EXIT command.
-    pub(crate) fn take_executed_exit_owner(&mut self) -> Option<InternedId> {
+    pub fn take_executed_exit_owner(&mut self) -> Option<InternedId> {
         self.executed_exit_owner.take()
     }
 
@@ -175,7 +175,7 @@ impl Simulation {
     /// due filter, malformed future-stamped replay entries are discarded, and
     /// unrelated/future simulation work remains untouched. Keeping a consumed
     /// PLACE would leave replay/save state different from the ordinary app.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn take_due_replay_commands(
         &mut self,
         commands: impl IntoIterator<Item = CommandEnvelope>,
@@ -253,32 +253,16 @@ impl Simulation {
         };
         (applied
             && rules
-                .and_then(|rules| rules.object(self.interner.resolve(type_id)))
+                .and_then(|rules| self.interner.object_type(type_id, rules))
                 .is_some_and(|object| !object.wall))
         .then_some(command.owner)
     }
 
     fn command_uses_megamission(command: &Command) -> bool {
-        matches!(
-            command,
-            Command::Move { .. }
-                | Command::MoveToObject { .. }
-                | Command::Attack { .. }
-                | Command::ForceAttack { .. }
-                | Command::AttackMove { .. }
-                | Command::Guard { .. }
-                | Command::MinerReturn { .. }
-                | Command::RepairAtDepot { .. }
-                | Command::EnterTransport { .. }
-                | Command::EnterBunker { .. }
-                | Command::EjectBunker { .. }
-                | Command::UnloadPassengers { .. }
-                | Command::HarvestCell { .. }
-                | Command::CaptureBuilding { .. }
-                | Command::PlantC4 { .. }
-                | Command::ToggleInfantryDeploy { .. }
-                | Command::ForceAttackCell { .. }
-        )
+        if let Command::PlanningRecord { record } = command {
+            return record.opcode() == 4;
+        }
+        command.megamission_actor().is_some()
     }
 
     /// The run key of `0x0064CDA0`'s caller: action, target and destination
@@ -287,18 +271,37 @@ impl Simulation {
     /// onto an object, and an attack-move with a target or an object
     /// destination, have no key: each ends a run and is never spread. The
     /// click never sends an attack-move with both tokens.
-    fn formation_key(command: &Command) -> Option<(u8, u16, u16)> {
+    fn formation_key(command: &Command) -> Option<((u8, i32, u8), u16, u16)> {
         match command {
             Command::Move {
                 target_rx,
                 target_ry,
                 ..
-            } => Some((0, *target_rx, *target_ry)),
+            } => Some(((2, 0, 0), *target_rx, *target_ry)),
             Command::AttackMove {
                 target: None,
                 destination: Some(crate::sim::combat::TargetKind::Cell(rx, ry)),
                 ..
-            } => Some((1, *rx, *ry)),
+            } => Some(((29, 0, 0), *rx, *ry)),
+            // 64CB0A..64CBDB groups all staged opcode4 records by mission,
+            // target and destination tokens, including planning flags1/2.
+            Command::PlanningRecord { record } if record.opcode() == 4 => {
+                let p = record.payload();
+                if p[16] != 11 {
+                    return None;
+                }
+                let destination = i32::from_le_bytes(p[12..16].try_into().ok()?);
+                let crate::sim::command::MegaMissionTarget::Cell { x, y } =
+                    crate::sim::command::MegaMissionTarget::from_token(destination, 11)?
+                else {
+                    return None;
+                };
+                Some((
+                    (p[5], i32::from_le_bytes(p[7..11].try_into().ok()?), p[11]),
+                    x as u16,
+                    y as u16,
+                ))
+            }
             _ => None,
         }
     }
@@ -307,6 +310,13 @@ impl Simulation {
         match command {
             Command::Move { entity_id, .. } | Command::AttackMove { entity_id, .. } => {
                 Some(*entity_id)
+            }
+            Command::PlanningRecord { record } if record.opcode() == 4 => {
+                let p = record.payload();
+                if p[4] != 0x34 {
+                    return None;
+                }
+                u64::try_from(i32::from_le_bytes(p[0..4].try_into().ok()?)).ok()
             }
             _ => None,
         }
@@ -329,8 +339,9 @@ impl Simulation {
             .entities
             .get(entity_id)
             .expect("a group member stays live while its run is staged");
-        let movement_zone = rules
-            .object(self.interner.resolve(entity.type_ref()))
+        let movement_zone = self
+            .interner
+            .object_type(entity.type_ref(), rules)
             .map_or_else(Default::default, |object| object.movement_zone);
         let cells = NativeCellQuery::canonical(terrain);
         GroupMemberTarget {
@@ -517,6 +528,16 @@ impl Simulation {
                         } => {
                             *target_rx = assignment.destination.0 as u16;
                             *target_ry = assignment.destination.1 as u16;
+                        }
+                        Command::PlanningRecord { record } => {
+                            let destination = crate::sim::command::MegaMissionTarget::Cell {
+                                x: assignment.destination.0,
+                                y: assignment.destination.1,
+                            }
+                            .token()
+                            .expect("Cell target token");
+                            record.payload_mut()[12..16]
+                                .copy_from_slice(&destination.0.to_le_bytes());
                         }
                         _ => {}
                     }

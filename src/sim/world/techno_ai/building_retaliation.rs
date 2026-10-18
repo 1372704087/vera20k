@@ -39,10 +39,12 @@
 //!   Frequency: common in AI games. Later owner: the missile-source chain,
 //!   which also owns kill credit, ShouldRetaliate and experience.
 //! - `NotifyUnderAttack` springs TEvent 6 ("attacked by any house") on the
-//!   house's tags (`0x004F95D4..0x004F95FD`, `0x006E53A0`); VERA's trigger
-//!   runtime evaluates no such event. Trigger: maps with house-attached
-//!   attack triggers. Effect: the trigger does not fire. Later owner: the
-//!   trigger subsystem.
+//!   house's tags (`0x004F95D4..0x004F95FD`, `0x006E53A0`). VERA evaluates
+//!   event6 but lacks this House-tag ingress. Trigger: a house-attached tag
+//!   with an admitted attacked event. Effect: this producer does not spring
+//!   it. Active retail skirmish reachability is unproved; a plain event6 is
+//!   object-classified, so House attachment needs a compound/linked event.
+//!   Later owner: the House-tag trigger chain.
 //! - The killing blow of a Selling or `Explodes=` building, which keeps
 //!   IsAlive and runs the block natively: the residual at the call in
 //!   `combat::world_receiver::commit_entities`.
@@ -94,16 +96,12 @@ impl Simulation {
         let obj = self.object_type(building.type_ref(), rules)?;
         // The radar cell is the building's GetCoords (vt+0x48, `0x00447AC0`,
         // the foundation centre; `0x004F94AE`, `0x004F950E`, `0x004F956A`).
-        let (rx, ry, _, _) =
-            resolve_target_coords(&TargetKind::Entity(id), &self.substrate.entities)?;
+        let (rx, ry, _, _) = resolve_target_coords(&TargetKind::Entity(id), self)?;
         let ping = (!obj.insignificant && !obj.is_1x1_with_undeploy()).then(|| UnderAttackEvent {
             rx,
             ry,
             owner: building.owner(),
-            // The ore-miner line (`0x004F9491..0x004F94A3`): the deployed
-            // Slave Miner.
-            miner: obj.undeploys_into.is_some() && obj.resource_gatherer,
-            structure: true,
+            victim_type: building.type_ref(),
         });
         if building.mission.current().known() == Some(MissionType::Selling)
             || is_ally_by_object(

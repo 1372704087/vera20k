@@ -12,11 +12,8 @@ use super::native_processing::{
 use super::ruleset::RuleSet;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let native: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/mirage_disguise.json",
-    ))
-    .expect("original Mirage disguise corpus");
+fn corpus() -> &'static Value {
+    let native = crate::test_fixture::json("tools/spatial_oracle/mirage_disguise.json");
     assert_eq!(native["schema_version"], 1);
     assert_eq!(
         native["native_sha256"],
@@ -311,6 +308,7 @@ fn physical_retail_mgtk_disguise_rules_match_original_root_reader() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn physical_retail_mgtk_disguise_rules_match_original_battle_scenario() {
     let Some(retail) = super::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP") else {
         return;

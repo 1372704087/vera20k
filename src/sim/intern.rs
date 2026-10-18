@@ -12,6 +12,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use crate::rules::object_type::ObjectType;
+use crate::rules::ruleset::{RuleSet, TypeHandle};
+use crate::sim::type_handle_table::TypeHandleTable;
+
 /// Interned string handle — `Copy`, `Eq`, `Ord`, `Hash`. Zero-cost clones.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize,
@@ -55,6 +59,9 @@ pub struct StringInterner {
     to_id: BTreeMap<String, InternedId>,
     /// ID (index) → display string (first-seen casing).
     to_str: Vec<String>,
+    /// Derived: each id's object handle in the bound rules
+    /// ([`Self::bind_types`]). Never serialized; a load binds again.
+    types: TypeHandleTable,
 }
 
 impl StringInterner {
@@ -63,7 +70,29 @@ impl StringInterner {
         Self {
             to_id: BTreeMap::new(),
             to_str: Vec::new(),
+            types: TypeHandleTable::default(),
         }
+    }
+
+    /// Resolve the strings interned so far to their objects in `rules`, so
+    /// [`Self::object_type`] answers for them without hashing a name.
+    pub fn bind_types(&mut self, rules: &RuleSet) {
+        self.types = TypeHandleTable::build(rules, self);
+    }
+
+    /// The object type `id` names in `rules`, as
+    /// `rules.object(self.resolve(id))` answers, through the bound handles
+    /// where they apply.
+    #[inline]
+    pub fn object_type<'r>(&self, id: InternedId, rules: &'r RuleSet) -> Option<&'r ObjectType> {
+        self.types.object(self, id, rules)
+    }
+
+    /// The handle of the object type `id` names in `rules`, as
+    /// `rules.type_handle(self.resolve(id))` answers, the same way.
+    #[inline]
+    pub fn type_handle(&self, id: InternedId, rules: &RuleSet) -> Option<TypeHandle> {
+        self.types.handle(self, id, rules)
     }
 
     /// Intern a string, returning its ID. If already interned (case-insensitive),
@@ -133,22 +162,25 @@ impl<'de> serde::Deserialize<'de> for StringInterner {
         Ok(StringInterner {
             to_id,
             to_str: strings,
+            types: TypeHandleTable::default(),
         })
     }
 }
 
 // ---------------------------------------------------------------------------
-// Test / convenience helpers
+// Test helpers
 // ---------------------------------------------------------------------------
 //
-// `pub` (not `#[cfg(test)]`) because integration tests in `tests/` link
-// against the lib compiled WITHOUT `cfg(test)` and would lose access. The
+// Also compiled under `test-support`, because client-crate tests and core
+// fixture code link against the lib compiled WITHOUT `cfg(test)`. The
 // `RefCell` here is safe — single-threaded test use, never read from sim
 // hashed state, never invoked from a sim tick. `#[doc(hidden)]` keeps these
 // out of the public API surface.
 
+#[cfg(any(test, feature = "test-support"))]
 use std::cell::RefCell;
 
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     /// Thread-local interner used by `test_intern()` so that test entities
     /// created independently still share consistent IDs.
@@ -160,6 +192,7 @@ thread_local! {
 /// This lets `GameEntity::test_default()` and other test helpers create
 /// entities with consistent `InternedId` values without requiring callers
 /// to manage an explicit interner.
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub fn test_intern(s: &str) -> InternedId {
     TEST_INTERNER.with(|cell| cell.borrow_mut().intern(s))
@@ -167,7 +200,7 @@ pub fn test_intern(s: &str) -> InternedId {
 
 /// Get a copy of the thread-local test interner for use in test assertions
 /// that need to resolve IDs back to strings.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub fn test_interner() -> StringInterner {
     TEST_INTERNER.with(|cell| cell.borrow().clone())

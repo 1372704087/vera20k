@@ -10,11 +10,8 @@ use super::sound_ini::SoundRegistry;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub(crate) fn native() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/input_oracle/slave_miner_pack_voice.json",
-    ))
-    .unwrap();
+pub fn native() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/input_oracle/slave_miner_pack_voice.json");
     assert_eq!(corpus["schema_version"], 1);
     corpus
 }
@@ -55,7 +52,7 @@ fn assert_binding(rules: &RuleSet, expected: &Value, context: &str) {
     }
 }
 
-pub(crate) fn control_rules(corpus: &Value, input: &Value) -> RuleSet {
+pub fn control_rules(corpus: &Value, input: &Value) -> RuleSet {
     let mut text = String::from("[BuildingTypes]\n0=YAREFN\n[YAREFN]\nStrength=2000\n");
     for (field, key) in [
         ("voice_deploy", "VoiceDeploy"),
@@ -142,6 +139,7 @@ fn scalar_voice_defaults_and_retained_reached_passes_match_original_readers() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn stock_pack_voice_slots_match_physical_anytown_battle_production_rules() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
     else {

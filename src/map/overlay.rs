@@ -110,6 +110,7 @@ impl OverlayDataPack {
         !self.bytes.is_empty()
     }
 
+    #[cfg(test)]
     pub fn decoded_len(&self) -> usize {
         self.bytes.len()
     }
@@ -179,7 +180,7 @@ pub struct TerrainObject {
 ///
 /// Both sections are base64-encoded, LCW-compressed grids of 262,144 bytes.
 /// Returns a list of cells where an overlay is present (type != 0xFF).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn parse_overlays(ini: &IniFile) -> Vec<OverlayEntry> {
     parse_overlay_packs(ini).entries
 }

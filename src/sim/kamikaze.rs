@@ -126,7 +126,7 @@ impl KamikazeTracker {
     }
 
     /// Clear (`0x0054E6F0`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn clear(&mut self, frame: u32) {
         self.nodes.clear();
         self.timer = CdTimer::started(frame as i32, CLEAR_RESTART_FRAMES);
@@ -274,7 +274,7 @@ impl KamikazeHost for WorldHost<'_> {
             .substrate
             .entities
             .get_mut(child)
-            .and_then(|entity| entity.aircraft_ammo.as_mut())
+            .and_then(|entity| entity.ammo_mut())
         {
             ammo.load_single_round();
         }
@@ -323,12 +323,8 @@ impl Simulation {
                 .resolved_terrain
                 .as_ref()
                 .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-            crate::sim::movement::ground_pose::target_get_coords(
-                target,
-                &self.substrate.entities,
-                cells.as_ref(),
-            )
-            .map(|coord| [coord.x, coord.y])
+            crate::sim::movement::ground_pose::target_get_coords(target, self, cells.as_ref())
+                .map(|coord| [coord.x, coord.y])
         });
         push(
             &mut WorldHost {

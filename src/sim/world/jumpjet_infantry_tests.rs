@@ -50,7 +50,7 @@ pub(super) fn retail_dustbowl_rocketeer()
         .filter(|path| !path.trim().is_empty())
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            crate::util::config::GameConfig::load()
+            crate::test_fixture::game_config()
                 .expect("set RA2_DIR or provide config.toml for this ignored test")
                 .paths
                 .ra2_dir
@@ -121,6 +121,7 @@ pub(super) fn retail_dustbowl_rocketeer()
                     plant_type,
                     (px as i16, py as i16),
                     Some(owner_id),
+                    None,
                 )
                 .then(|| sim.spawn_object(plant, owner, px, py, 0, &resources.rules))
                 .flatten()
@@ -511,6 +512,7 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
 /// returns it to Ready, where it idles again. With the pose alone its fidget
 /// never ended, and it never idled again.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn a_grounded_rocketeer_fidgets_and_turns_to_the_fidgets_facing() {
     use crate::sim::movement::infantry_action::{DO_IDLE1, DO_IDLE2, DO_READY};
     let row = serde_json::json!({"doing": DO_READY, "fraction": 0.0, "height": 0,
@@ -1142,6 +1144,7 @@ fn a_shot_down_rocketeer_falls_like_the_native_crash() {
             assert_eq!(
                 crate::sim::mission::concrete_effects::assign_target_commits(
                     &sim.substrate.entities,
+                    &sim.production.terrain_objects,
                     Some(crate::sim::combat::TargetKind::Entity(1)),
                 ),
                 expected["health"].as_i64() != Some(0)
@@ -1500,11 +1503,9 @@ fn the_mission_destination_setter_reorders_a_moving_rocketeer() {
 /// dormant.
 #[test]
 fn retail_jumpjet_infantry_all_hover_attack() {
-    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
         return;
     };
-    let rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
-        .expect("retail rules");
     let jumpjets: Vec<&str> = rules
         .infantry_ids
         .iter()

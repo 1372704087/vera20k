@@ -8,7 +8,6 @@
 //! and class suffix effects are compared separately from real Bullet effects
 //! and RNG. Direct Bullet delivery has its own combat regression coverage.
 
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use serde_json::{Value, json};
@@ -28,7 +27,7 @@ use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionTimer};
 use crate::sim::movement::ground_pose;
 use crate::sim::movement::locomotion::piggyback::{LocomotorRuntimePayload, WalkRuntime};
 use crate::sim::movement::locomotor::LocomotorState;
-use crate::sim::radiation::{RadSite, RadiationState};
+use crate::sim::radiation::RadiationState;
 use crate::sim::rng::SimRng;
 use crate::sim::stage::StageClass;
 use crate::sim::timer::CdTimer;
@@ -214,26 +213,14 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     terrain.write_native_cell_flags(current, input["cell_flags"].as_u64().unwrap() as u32);
     sim.resolved_terrain = Some(terrain);
     if input["site"].is_object() {
-        let mut sites = BTreeMap::new();
-        sites.insert(
-            (10u16, 10u16),
-            RadSite {
-                center: (10, 10),
-                spread: 0,
-                radius_leptons: 128,
-                level: signed(&input["site"]["level"]),
-                level_steps: 0,
-                duration: signed(&input["site"]["duration"]),
-                remaining: signed(&input["site"]["remaining"]),
-                level_timer: CdTimer::default(),
-            },
+        // Supplied retained site words; no detonation/activation producer is
+        // certified by this component fixture. Its owner maintains membership.
+        sim.radiation = RadiationState::from_retained_site_for_test(
+            (10, 10),
+            signed(&input["site"]["level"]),
+            signed(&input["site"]["duration"]),
+            signed(&input["site"]["remaining"]),
         );
-        // Supplied retained site words, transported with the owner's existing
-        // serialization. No detonation/activation producer is certified here.
-        let cells = BTreeMap::<(u16, u16), f64>::new();
-        sim.radiation =
-            bincode::deserialize::<RadiationState>(&bincode::serialize(&(cells, sites)).unwrap())
-                .unwrap();
     }
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor.health.set_for_test(100);
@@ -692,17 +679,16 @@ fn native_deployed_guard_unsupported_controls_remain_declared() {
         .find(|row| row["input"]["name"] == "fire_error_ammo_zero")
         .unwrap();
     let (sim, _rules, id) = supplied_fixture(ammo);
-    // Original6FCA0D reads Techno+2FC; current FireSubject reads only the
-    // AircraftAmmo owner and maps Infantry's absent component to−1. Generic
-    // finite Techno ammo lifecycle is required separately; never fake it here.
+    // Original6FCA0D reads live Techno+2FC. This supplied rules fixture has
+    // unlimited Ammo and does not reproduce the separate zero-ammo producer.
     assert_eq!(ammo["guard_before"]["ammo"], 0);
     assert!(
         sim.substrate
             .entities
             .get(id)
             .unwrap()
-            .aircraft_ammo
-            .is_none()
+            .ammo()
+            .is_some_and(|ammo| ammo.current() == -1)
     );
     let speed = rows
         .iter()

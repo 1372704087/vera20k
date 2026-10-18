@@ -5,6 +5,7 @@
 //! the production receiver on retail rules.
 
 use super::unit_damage_response::{CrushCharge, crush_distance};
+use crate::rules::retail_ini_fixture::retail_unlayered_rules;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::world_receiver::{ReceiverRun, commit_entities};
 use crate::sim::combat::{EntityDamageEvent, ReceiverCallFlags};
@@ -52,18 +53,13 @@ fn should_crush_it_matches_native_execution() {
     }
 }
 
-fn retail_rules() -> Option<RuleSet> {
-    let (ini, art) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
-    Some(RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules"))
-}
-
 /// Retail's reach and IQ, and its miners: of the `Harvester=` vehicles (none
 /// is a `Weeder=`), the War and Chrono Miners count `Tiberium` pips over a
 /// positive `Storage=`; their unloading classes count none.
 #[test]
 fn retail_harvesters_carry_tiberium_pips() {
     use crate::rules::object_type::PipScale::{None, Tiberium};
-    let Some(rules) = retail_rules() else {
+    let Some(rules) = retail_unlayered_rules() else {
         return;
     };
     assert_eq!(rules.combat_damage.crush, 460);
@@ -168,7 +164,7 @@ const ENTER: MissionId = MissionId::from_known(MissionType::Enter);
 /// source or a killing one.
 #[test]
 fn computer_crusher_charges_a_crushable_attacker() {
-    let Some(rules) = retail_rules() else {
+    let Some(rules) = retail_unlayered_rules() else {
         return;
     };
     let charge = |damage: i32, setup: &dyn Fn(&mut Simulation, u64, u64) -> u64| {
@@ -272,7 +268,7 @@ fn computer_crusher_charges_a_crushable_attacker() {
 /// replaces the berserk Hunt.
 #[test]
 fn gassed_computer_fortress_charges_the_chaos_drone() {
-    let Some(rules) = retail_rules() else {
+    let Some(rules) = retail_unlayered_rules() else {
         return;
     };
     let mut sim = arena(&rules);
@@ -307,7 +303,7 @@ fn gassed_computer_fortress_charges_the_chaos_drone() {
 /// (vt+0x530 per type), so a nearer GAREFN loses to the NAREFN.
 #[test]
 fn damaged_computer_miner_heads_for_its_refinery() {
-    let Some(rules) = retail_rules() else {
+    let Some(rules) = retail_unlayered_rules() else {
         return;
     };
     let strength = rules.object("HARV").unwrap().strength;
@@ -351,11 +347,74 @@ fn damaged_computer_miner_heads_for_its_refinery() {
     assert_eq!(retreat(10, strength / 2, &nearer_garefn), (true, true));
 }
 
+///Unit ReceiveDamage737C90's virtual+2B8 gate consumes the shared708C30
+/// result, including masked divide-by-zero and signed Storage. The original
+/// ammo-pip corpus supplies these changed outcomes; the old Storage>0
+/// approximation refused a loaded zero-storage miner.
+#[test]
+fn damaged_miner_retreat_consumes_original_signed_storage_fill() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch;
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/ammo_pips.json");
+    let mut checked = 0;
+    for storage in ["0", "-1"] {
+        let Some(fixture) = retail_battle_rules_for_map_with_patch(
+            "XMP03T4.MAP",
+            &IniFile::from_str(&format!("[HARV]\nStorage={storage}\n")),
+        ) else {
+            return;
+        };
+        let rules = &fixture.rules;
+        for row in native["fill_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                row["input"]["type_name"] == "HARV"
+                    && row["input"]["configuration"]["Storage"] == storage
+            })
+        {
+            let total = row["arithmetic"]["storage_total"].as_u64().unwrap();
+            let mut sim = arena(rules);
+            let refinery = spawn(&mut sim, rules, "NAREFN", "Russians", (14, 4));
+            let miner = spawn(&mut sim, rules, "HARV", "Russians", (12, 12));
+            let tank = spawn(&mut sim, rules, "MTNK", "Americans", (12, 14));
+            let entity = sim.substrate.entities.get_mut(miner).unwrap();
+            entity
+                .health
+                .set_for_test(rules.object("HARV").unwrap().strength / 2);
+            entity.miner.as_mut().unwrap().set_cargo_for_test(vec![
+                CargoBale {
+                    resource_type: ResourceType::Ore,
+                    value: 25
+                };
+                total as usize
+            ]);
+            hit(&mut sim, rules, miner, tank, 1);
+            let positive = row["result"].as_i64().unwrap() > 0;
+            assert_eq!(queued(&sim, miner) == ENTER, positive, "{row}");
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(miner)
+                    .unwrap()
+                    .radio_contacts
+                    .slot(0)
+                    == Some(refinery),
+                positive,
+                "{row}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 4);
+}
+
 /// A vehicle on a cell of the War Factory it is in radio contact with takes
 /// no hit unless the hit ignores defences.
 #[test]
 fn vehicle_inside_its_war_factory_takes_no_hit() {
-    let Some(rules) = retail_rules() else {
+    let Some(rules) = retail_unlayered_rules() else {
         return;
     };
     let health_after = |ignore_defenses: bool| {

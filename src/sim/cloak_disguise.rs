@@ -61,12 +61,15 @@ pub struct CloakRuntime {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CloakTickFacts {
     pub current_frame: i32,
-    /// Head gate at 0x006FB740: usable intrinsic cloak with no firing/chrono
-    /// activity, or the current rank's CLOAK ability.
+    /// State-zero head at6FB740: usable intrinsic cloak without EMP/paralysis/
+    /// chrono activity, or the current rank's CLOAK ability, followed by the
+    /// WeaponsFactory radio-contact exclusion. Retained-target range belongs
+    /// to CanAutoCloak below.
     pub state_zero_head_allows: bool,
-    /// Exact `CanAutoCloak @ 0x006FBDC0` result from current world facts.
+    /// `CanAutoCloak @ 0x006FBDC0` input from the current world adapter;
+    /// its ability producers and remaining coverage are documented there.
     pub can_auto_cloak: bool,
-    /// Exact `ShouldUncloak @ 0x006FBC90` result from current world facts.
+    /// `ShouldUncloak @ 0x006FBC90` input from the same world adapter.
     pub should_uncloak: bool,
     /// Strict `ConditionRed < health_ratio` comparison.
     pub health_above_red: bool,
@@ -282,13 +285,13 @@ impl CloakRuntime {
     }
 
     /// Install a fixture's state.
-    #[cfg(test)]
-    pub(crate) fn set_state_for_test(&mut self, state: i32) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_state_for_test(&mut self, state: i32) {
         self.state = state;
     }
 
     /// Install a fixture's progress.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_depth_for_test(&mut self, depth: u32) {
         self.depth = depth;
     }
@@ -452,14 +455,6 @@ impl CloakRuntime {
         result
     }
 
-    /// `CanAutoCloak @ 0x006FBDC0`'s two timer gates: the object's weapon
-    /// rearm countdown (`+0x2EC`, `param_1[0xbb]`/`[0xbd]`, checked right after
-    /// the `CloakState == 2` early-out, so a sub that just fired stays surfaced
-    /// for its whole `ROF=`), then the CloakDelay above.
-    pub fn recloak_delay_expired(&self, now: i32, rearm_timer: CdTimer) -> bool {
-        rearm_timer.expired(now) && self.recloak_delay.expired(now)
-    }
-
     /// `CloakState == 2` — fully cloaked. The only state the native target
     /// legality gates reject; 1 (cloaking) and 3 (uncloaking) stay legal.
     pub fn is_fully_cloaked(&self) -> bool {
@@ -519,36 +514,39 @@ pub fn is_disguised_to(
     !disguised_as_house_present || disguised_as_is_observer_or_ally
 }
 
-/// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
-/// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
-/// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
-/// about the observer, then the observer about the house it wears (`+0x51C`).
-/// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
-/// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
-pub(crate) fn object_disguised_to(
-    object: &crate::sim::game_entity::GameEntity,
-    observer: InternedId,
-    fog: Option<&crate::sim::vision::FogState>,
-    alliances: Option<&crate::map::houses::HouseAllianceMap>,
-    interner: &crate::sim::intern::StringInterner,
-) -> bool {
-    let Some(disguise) = object.disguise.as_ref() else {
-        return false;
-    };
-    let allied = |asker: InternedId, other: InternedId| {
-        crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
-    };
-    is_disguised_to(
-        disguise.disguised,
-        allied(object.owner(), observer),
-        fog.is_some_and(|fog| {
-            fog.detects_disguise_for_house(observer, object.position.rx(), object.position.ry())
-        }),
-        disguise
-            .disguised_as_house
-            .is_some_and(|fake| allied(observer, fake)),
-        disguise.disguised_as_house.is_some(),
-    )
+impl crate::sim::game_entity::GameEntity {
+    /// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
+    /// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
+    /// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
+    /// about the observer, then the observer about the house it wears (`+0x51C`).
+    /// Unit746750/Infantry5227F0; DrawExtras6F5357 also consumes this query.
+    /// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
+    /// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
+    pub fn is_disguised_to(
+        &self,
+        observer: InternedId,
+        fog: Option<&crate::sim::vision::FogState>,
+        alliances: Option<&crate::map::houses::HouseAllianceMap>,
+        interner: &crate::sim::intern::StringInterner,
+    ) -> bool {
+        let Some(disguise) = self.disguise.as_ref() else {
+            return false;
+        };
+        let allied = |asker: InternedId, other: InternedId| {
+            crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
+        };
+        is_disguised_to(
+            disguise.disguised,
+            allied(self.owner(), observer),
+            fog.is_some_and(|fog| {
+                fog.detects_disguise_for_house(observer, self.position.rx(), self.position.ry())
+            }),
+            disguise
+                .disguised_as_house
+                .is_some_and(|fake| allied(observer, fake)),
+            disguise.disguised_as_house.is_some(),
+        )
+    }
 }
 
 /// The disguise arm of `Evaluate_Candidate`, `0x006F84B1..0x006F854B`.
@@ -607,7 +605,7 @@ pub enum DisguiseGateOutcome {
 
 #[path = "cloak_transitions.rs"]
 pub(crate) mod transitions;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use transitions::{StartCloakingResult, StartUncloakingResult};
 
 /// Retained Techno disguise identity and re-disguise timer. Original
@@ -814,7 +812,7 @@ impl crate::sim::world::Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return Ok(());
         };
-        let Some(object_type) = rules.object(self.interner.resolve(entity.type_ref())) else {
+        let Some(object_type) = self.interner.object_type(entity.type_ref(), rules) else {
             return Ok(());
         };
         if entity.category() != EntityCategory::Unit
@@ -952,10 +950,6 @@ mod sound_tests;
 #[cfg(test)]
 #[path = "mirage_disguise_tests.rs"]
 pub(in crate::sim) mod mirage_tests;
-
-#[cfg(test)]
-#[path = "spy_disguise_tests.rs"]
-mod spy_disguise_tests;
 
 #[cfg(test)]
 mod tests {

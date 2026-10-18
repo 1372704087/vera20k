@@ -380,3 +380,31 @@ wrapper. The `natural_spread_followup` stage in `ore_queue.validation.json` (in 
 source/native/binary/input/result hashes and the earlier enqueue evidence intact.
 The value-owner consolidation also resolves issue #713. Adjacent authored-crate
 Land1-versus5 admission remains issue #993, unchanged by this kernel move.
+
+## Physical authored natural history
+
+`ore_queue --authored-natural --write` (then `--check`) continues the existing
+physical XMP03T4 authored setup in the same Navigation VM. Set the existing
+`VERA20K_SHRAPNEL_INPUTS` and `VERA20K_ANYTOWN_INPUTS` extraction-bundle variables.
+The separate consumed `ore_authored_natural.json` records original Resize field
+stores, native-normalized LocalSize, explicit UI/session priors and the actual
+skirmish session flags producer and later Scenario overwrite. Native seed0 is
+independent of the normal production scenario's whole-startup RNG history.
+
+Original Growth722C40 then Spread7221B0 execute on every frame0..660; original
+725C70 drains after frame increment. Rows retain queue/heap/bitmap/timer state,
+all three full RNG states, actual draw events and changed physical Cells, runtime
+ID cursor and original Overlay/Object Mark/lifetime. Native-equal no-op snapshots
+reference the preceding full state using `same_after_as_frame`; no future state
+is inferred. Intervening no-op ranges are checked free of Cell writes, gameplay
+events and RNG changes. The component omits other Logic/AI systems and full
+native skirmish startup. Supplied missing startup registries preserve the already
+populated Abstract vector. Live ore refuses any reached animation-constructor
+boundary rather than inheriting the authored bootstrap's animation substitute.
+
+`bridge_shadow_render --ore-natural --write` (then `--check`) uses the existing
+raster owner with the physical XMP map layer, checks its relevant reader/source
+facts against that CPU corpus, and retains two original source72,25 rasters for
+density4 and5. Point/clip/A127/surface/Z inputs are explicit raster priors;
+production fog/A transport and GPU drawing are independent consumer checks.
+The old `--ore` and default ore queue packets remain unchanged.

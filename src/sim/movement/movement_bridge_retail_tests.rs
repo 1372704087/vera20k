@@ -20,7 +20,7 @@
 //! order the rest of the tree uses). Run them with:
 //!
 //! ```text
-//! cargo test -p vera20k --lib sim::movement::movement_bridge_retail_tests -- --ignored --nocapture
+//! cargo test -p vera20k-core --lib sim::movement::movement_bridge_retail_tests -- --ignored --nocapture
 //! ```
 
 use std::path::PathBuf;
@@ -47,11 +47,14 @@ mod bridge_restamp_retail_probe;
 #[path = "bridge_tile_retail_probe.rs"]
 mod bridge_tile_retail_probe;
 
+#[path = "sov01_bridge_retail_tests.rs"]
+mod sov01_bridge_retail_tests;
+
 /// Retail install root, or `None` to skip.
 fn retail_dir() -> Option<PathBuf> {
     let dir = match std::env::var("RA2_DIR") {
         Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
-        _ => match crate::util::config::GameConfig::load() {
+        _ => match crate::test_fixture::game_config() {
             Ok(config) => config.paths.ra2_dir,
             Err(_) => return None,
         },

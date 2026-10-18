@@ -5,9 +5,9 @@
 //!   `[General]` RepairStep=, RepairPercent= and SeparateAircraft=, read
 //!   through the production reader;
 //! - `toggle` rows: [`production::toggle_repair`] over the controls VERA
-//!   issues (-1, 0 and 1): the repair byte, and for a row whose owner is the
-//!   local player the EVA and the sound at the building's Location (the app
-//!   applies `IsHumanPlayer`);
+//!   issues (-1, 0 and 1): the repair byte, the native Flash(7) request's
+//!   countdown through the existing Building flash owner, and for a row
+//!   whose owner is the local player the EVA and sound at its Location;
 //! - `update` rows: [`production::update_repair_and_power`] on a building of
 //!   the row's house: health and its estimate, the repair byte, the retained
 //!   damage state, the smoke's done byte, the owner's balance and spending
@@ -18,7 +18,7 @@
 //! - `release` rows: `HouseState::release_repair_latch`.
 //!
 //! Not compared: the wrench byte (`+0x6DE`, read only by the Building CRC),
-//! ToggleRepair's flash and the redraw byte (presentation), and the
+//! the redraw byte (presentation), and the
 //! damage-state slot anims, which a building without art does not own: the
 //! retained flag they follow is compared (`building_art_transition` replays
 //! the anims), and the rows' anims change with it.
@@ -43,11 +43,33 @@ use serde_json::{Value, json};
 /// `ScoldSound=`.
 const SOUNDS: [(i64, &str); 2] = [(42, "OracleClick"), (43, "OracleScold")];
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_repair.json",
-    ))
-    .unwrap()
+fn rules_with_fixed_sounds(root: IniFile, sounds: IniFile) -> RuleSet {
+    let mut owner = crate::rules::process_owner::NativeRulesProcessOwner::from_cold_start_sources(
+        root,
+        None,
+        IniFile::empty(),
+        std::sync::Arc::new(crate::rules::sound_ini::SoundRegistry::from_ini(&sounds)),
+    )
+    .unwrap();
+    owner
+        .load_scenario(
+            crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
+            &IniFile::empty(),
+        )
+        .unwrap()
+        .into_parts()
+        .0
+}
+
+fn oracle_rules_with_sounds(root: IniFile) -> RuleSet {
+    rules_with_fixed_sounds(
+        root,
+        IniFile::from_str("[SoundList]\n0=OracleClick\n1=OracleScold\n"),
+    )
+}
+
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_repair.json")
 }
 
 fn constant(corpus: &Value, name: &str) -> u64 {
@@ -181,14 +203,11 @@ fn the_repair_step_cost_matches_the_original() {
 /// `BuildingClass::ToggleRepair @ 0x00446FF0` over the controls VERA issues.
 #[test]
 fn toggle_repair_matches_the_original() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
-        // VERA's rules reader reads `[AudioVisual]` sounds only with a
-        // non-empty `[General]` section.
+    let rules = oracle_rules_with_sounds(IniFile::from_str(&format!(
         "[General]\nFixtureOnly=1\n[AudioVisual]\nGenericClick={}\nScoldSound={}\n[InfantryTypes]\n\
          [VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n0=YAREFN\n[YAREFN]\nStrength=1000\n",
         SOUNDS[0].1, SOUNDS[1].1
-    )))
-    .unwrap();
+    )));
     let mut compared = 0;
     for row in corpus()["toggle"].as_array().unwrap() {
         let input = &row["input"];
@@ -204,6 +223,10 @@ fn toggle_repair_matches_the_original() {
         let mut sim = Simulation::new();
         sim.session.game_mode_nonzero = input["game_mode"].as_i64().unwrap_or(1) != 0;
         let owner = sim.interner.intern("AI");
+        // Native House50B6F0's nonzero-mode identity input, distinct from
+        // its campaign human/control bytes. The flash call is gated here;
+        // the sound events retain their app-side audibility admission.
+        sim.session.current_house = (input["player"] == true).then_some(owner);
         let mut house = HouseState::new(owner, 0, None, input["human"] == true, 0, 10);
         house.player_control = input["player_control"] == true;
         sim.houses.insert(owner, house);
@@ -224,11 +247,42 @@ fn toggle_repair_matches_the_original() {
         );
         building.repairing.set_for_test(input["repairing"] == 1);
         sim.substrate.entities.insert(building);
-        assert!(production::toggle_repair(&mut sim, &rules, 1, control));
+        let timer_before = sim.houses[&owner].repair_latch_timer;
+        let latch_before = sim.houses[&owner].repair_start_latch;
+        let (admitted, draws) = crate::sim::rng::trace_draws(|| {
+            production::toggle_repair(&mut sim, &rules, 1, control)
+        });
+        assert!(admitted);
+        assert!(
+            draws.is_empty(),
+            "{name}: manual ToggleRepair spends no RNG"
+        );
+        assert_eq!(
+            sim.houses[&owner].repair_latch_timer, timer_before,
+            "{name}"
+        );
+        assert_eq!(
+            sim.houses[&owner].repair_start_latch, latch_before,
+            "{name}"
+        );
         assert_eq!(
             u64::from(sim.substrate.entities.get(1).unwrap().repairing.is_on()),
             row["repairing"].as_u64().unwrap(),
             "{name}: +0x6E8"
+        );
+        // Original446FF0 calls456E00(7) at447091, before EVA/GenericClick.
+        // The corpus records that actual call; the shared flash owner
+        // supplies the countdown rather than a repair-specific timer.
+        let native_flash = row["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event[0] == "flash")
+            .map_or(0, |event| event[1].as_i64().unwrap());
+        assert_eq!(
+            i64::from(sim.substrate.entities.get(1).unwrap().flashing.frames()),
+            native_flash,
+            "{name}: Building456E00 Flash request"
         );
         let native = native_sounds(row);
         if local_player(input) {
@@ -249,7 +303,7 @@ fn toggle_repair_matches_the_original() {
 fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u64>) {
     let int = |key: &str, default: i64| input[key].as_i64().unwrap_or(default) as i32;
     let flag = |key: &str, default: bool| input[key].as_bool().unwrap_or(default);
-    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+    let rules = oracle_rules_with_sounds(IniFile::from_str(&format!(
         "[General]\nRepairStep=8\nRepairPercent=15%\nRepairRate=.016\n[AI]\nCreditReserve={}\n\
          [IQ]\nRepairSell=1\nSellBack=2\n[AudioVisual]\nConditionYellow=50%\nConditionRed=25%\n\
          GenericClick={}\nScoldSound={}\n[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
@@ -263,8 +317,7 @@ fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u
         SOUNDS[1].1,
         int("cost", 2500),
         yes_no(flag("click_repairable", true)),
-    )))
-    .unwrap();
+    )));
     assert_eq!(
         rules.general.repair_percent.to_bits(),
         constant(corpus, "percent_15")
@@ -356,7 +409,7 @@ fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u
             .spawn_particle_system(
                 crate::rules::particle_system_type::ParticleSystemTypeId(0),
                 glam::IVec3::ZERO,
-                Some(1),
+                Some(crate::sim::combat::TargetKind::Entity(1)),
                 Some(1),
                 glam::IVec3::ZERO,
                 None,
@@ -632,7 +685,12 @@ fn retail_repair_keys_read_as_the_oracle_writes_them() {
     ))
     .unwrap();
     assert_eq!(
-        bits(without_key.general.difficulty_rows.map(|row| row.repair_delay)),
+        bits(
+            without_key
+                .general
+                .difficulty_rows
+                .map(|row| row.repair_delay)
+        ),
         [constant(&corpus, "delay_02_default"); 3]
     );
     assert_eq!(
@@ -643,7 +701,10 @@ fn retail_repair_keys_read_as_the_oracle_writes_them() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
+    let Some(soundmd) = crate::rules::retail_ini_fixture::retail_ini("soundmd.ini") else {
+        return;
+    };
+    let rules = rules_with_fixed_sounds(ini, soundmd);
     assert_eq!(rules.general.repair_step, 8);
     assert_eq!(
         rules.general.repair_percent.to_bits(),
@@ -669,8 +730,18 @@ fn retail_repair_keys_read_as_the_oracle_writes_them() {
     // SetDifficulty copies the house's row (HouseDifficulty order: 0 is a
     // Hard AI reading [Easy]).
     let mut house = HouseState::new(Default::default(), 0, None, false, 0, 10);
-    house.set_difficulty(HouseDifficulty::Easy, &rules.general, Default::default(), true, 0, 0);
-    assert_eq!(house.repair_delay().to_bits(), constant(&corpus, "delay_05"));
+    house.set_difficulty(
+        HouseDifficulty::Easy,
+        &rules.general,
+        Default::default(),
+        true,
+        0,
+        0,
+    );
+    assert_eq!(
+        house.repair_delay().to_bits(),
+        constant(&corpus, "delay_05")
+    );
 }
 
 /// The repair step's `ADD`s wrap and its clamp compares signed against the

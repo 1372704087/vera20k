@@ -91,7 +91,7 @@ pub(crate) struct DroppedImpact {
 /// `End_Piggyback @ 0x0054DA50` clears both latches ([`Self::end`]). The swap
 /// latch is independent of MCV Unit+68C and the infantry deploy animation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct LocomotorLift {
+pub struct LocomotorLift {
     #[serde(default)]
     swap_active: bool,
     #[serde(default)]
@@ -138,25 +138,25 @@ impl LocomotorLift {
     }
 
     /// Install a fixture's swap latch.
-    #[cfg(test)]
-    pub(crate) fn set_swap_active_for_test(&mut self, swap_active: bool) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_swap_active_for_test(&mut self, swap_active: bool) {
         self.swap_active = swap_active;
     }
 
     /// Install a fixture's end latch.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_may_end_for_test(&mut self, may_end: bool) {
         self.may_end = may_end;
     }
 
     /// Install a fixture's held object.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_target_for_test(&mut self, target: Option<u64>) {
         self.target = target;
     }
 
     /// Install a fixture's holder.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_source_for_test(&mut self, source: Option<u64>) {
         self.source = source;
     }
@@ -218,19 +218,19 @@ impl DropCredit {
     }
 
     /// Install a fixture's drop latch.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_being_manipulated_for_test(&mut self, being_manipulated: bool) {
         self.being_manipulated = being_manipulated;
     }
 
     /// Install a fixture's dropping Magnetron.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_manipulated_by_for_test(&mut self, manipulated_by: Option<u64>) {
         self.manipulated_by = manipulated_by;
     }
 
     /// Install a fixture's credited house.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_warped_by_house_for_test(
         &mut self,
         warped_by_house: Option<crate::sim::intern::InternedId>,
@@ -251,7 +251,7 @@ impl Simulation {
     /// owner (`+0x2B0`); a lifted Foot owner (`+0x6AD`). An owner holding
     /// another object then lets it go (`0x004695FD`, [`Self::release_locomotor`])
     /// before the rest are tested: no target object, a Unit target still in
-    /// its war factory ([`Self::unit_in_its_factory`]), a target not in the
+    /// its war factory ([`Self::unit_in_contact_war_factory`]), a target not in the
     /// Ground layer (`vt+0x78`), not a Foot, Iron Curtained (`vt+0x160`), not
     /// a Unit, already lifted, or one whose type's `Size=` the shot does not
     /// exceed (`FCOMP` at `0x004696BD`, so equal refuses). Then
@@ -296,7 +296,7 @@ impl Simulation {
         {
             return;
         }
-        let in_factory = object.is_some_and(|id| self.unit_in_its_factory(id, rules));
+        let in_factory = object.is_some_and(|id| self.unit_in_contact_war_factory(id, rules));
         if firer.lift.target().is_some() {
             self.release_locomotor(owner, false, Some(rules), registry, effects);
         }
@@ -325,44 +325,6 @@ impl Simulation {
         if admitted {
             self.imbue_locomotor(owner, victim_id, kind, rules, registry, effects);
         }
-    }
-
-    /// `0x0046953E..0x004695E6`: a Unit whose radio contact 0
-    /// (`RadioClass::Contact @ 0x0065AD30`) is a `WeaponsFactory=` Building
-    /// that `Look_up_building_in_cell @ 0x0047C520` finds in the cell under
-    /// the Unit's Location: one still leaving its factory.
-    fn unit_in_its_factory(&self, id: u64, rules: &RuleSet) -> bool {
-        let Some(unit) = self
-            .substrate
-            .entities
-            .get(id)
-            .filter(|entity| entity.category() == EntityCategory::Unit)
-        else {
-            return false;
-        };
-        let Some(contact) = unit.radio_contacts.slot(0) else {
-            return false;
-        };
-        let factory = self
-            .substrate
-            .entities
-            .get(contact)
-            .filter(|building| building.category() == EntityCategory::Structure)
-            .and_then(|building| self.object_type(building.type_ref(), rules))
-            .is_some_and(|object| object.weapons_factory);
-        if !factory {
-            return false;
-        }
-        let location = crate::sim::movement::ground_pose::position_world_coord(&unit.position);
-        u16::try_from(location.x / 256)
-            .ok()
-            .zip(u16::try_from(location.y / 256).ok())
-            .and_then(|(rx, ry)| {
-                self.substrate
-                    .occupancy
-                    .first_building_on_layer(rx, ry, MovementLayer::Ground)
-            })
-            == Some(contact)
     }
 
     /// `TechnoClass::ImbueLocomotor @ 0x00710000`: `firer` installs a `kind`
@@ -972,7 +934,7 @@ impl Simulation {
 
     /// Jumpjet State 5's sink for a dropped object its own landing test
     /// refused over water (`0x0054CEB4..0x0054CF37`): `+0x3CD` and the Stun
-    /// ([`Self::begin_warp_sinking`]), its slaves freed to the dropping
+    /// ([`Self::begin_living_ship_sinking`]), its slaves freed to the dropping
     /// Magnetron with no house (`FreeSlaves(+0x428, 0)`, `0x0054CEDF`) and
     /// its SlaveManager deleted, and its death booked
     /// ([`Self::record_manipulated_kill`]).
@@ -983,7 +945,12 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
-        self.begin_warp_sinking(id, rules, effects);
+        self.begin_living_ship_sinking(
+            id,
+            crate::sim::world::LivingSinkTrigger::PostWarpValidation,
+            rules,
+            effects,
+        );
         let killer = self
             .substrate
             .entities

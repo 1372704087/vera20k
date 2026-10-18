@@ -104,8 +104,8 @@ impl CrashLatch {
     }
 
     /// Install a fixture's latch.
-    #[cfg(test)]
-    pub(crate) fn set_crashing_for_test(&mut self, crashing: bool) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_crashing_for_test(&mut self, crashing: bool) {
         self.crashing = crashing;
     }
 }
@@ -396,9 +396,11 @@ impl Simulation {
     /// native reads GetCoords again (`0x0074631A`), which the first bullet
     /// leaves unchanged.
     ///
-    /// RESIDUAL: CreateBullet's bright byte is 1 here; VERA's bullet takes the
-    /// weapon's. Presentation only. Native dereferences a missing
-    /// `DeathWeapon=`; VERA then books the death and UnInits with no bullets.
+    /// Create74628A/746355 each constructs an independent Bright1 Bullet
+    /// with no installed WeaponType. It remains in Limbo, but participates
+    /// in pointer expiry through its synchronous detonation and destruction.
+    /// Native dereferences a missing `DeathWeapon=`; VERA then books the
+    /// death and UnInits with no bullets.
     fn falling_damage(
         &mut self,
         id: u64,
@@ -433,40 +435,66 @@ impl Simulation {
             entity,
             self.resolved_terrain.as_ref(),
         );
-        let weapon_ref = combat
+        let weapon = combat
             .death_weapon
             .as_deref()
-            .and_then(|weapon| rules.weapon(weapon))
-            .map(|weapon| self.interner.intern(&weapon.id));
+            .and_then(|weapon| rules.weapon(weapon));
         let crush = self.interner.intern(&rules.bridge_warheads.crush_name);
         let c4 = self.interner.intern(&rules.bridge_warheads.c4_name);
-        let bullet = |warhead, z| {
-            weapon_ref.map(|weapon| crate::sim::projectile::ProjectileDetonation {
-                projectile_id: id,
-                source_id: attacker,
-                target: crate::sim::projectile::ProjectileTarget::Entity(id),
-                impact: crate::sim::projectile::ProjectileCoord::new(coords.x, coords.y, z),
-                payload: crate::sim::projectile::ProjectilePayload::new(damage, warhead, weapon),
-                reason: crate::sim::projectile::ProjectileDetonationReason::DeathWeapon,
-            })
-        };
-        let mut bridge_state_changed = self.commit_logic_projectile_detonations(
-            rules,
-            registry,
-            bullet(crush, coords.z.wrapping_sub(height)).as_slice(),
-            effects,
-        );
-        self.record_manipulated_kill(
-            id,
-            id,
-            UninitContext::new(Some(rules), registry).with_effects(effects),
-        );
-        bridge_state_changed |= self.commit_logic_projectile_detonations(
-            rules,
-            registry,
-            bullet(c4, coords.z).as_slice(),
-            effects,
-        );
+        let mut bridge_state_changed = false;
+        for (index, (warhead, z)) in [(crush, coords.z.wrapping_sub(height)), (c4, coords.z)]
+            .into_iter()
+            .enumerate()
+        {
+            if index == 1 {
+                self.record_manipulated_kill(
+                    id,
+                    id,
+                    UninitContext::new(Some(rules), registry).with_effects(effects),
+                );
+            }
+            if let Some(weapon) = weapon {
+                let payload = crate::sim::projectile::ProjectilePayload::new(
+                    damage,
+                    warhead,
+                    weapon
+                        .projectile
+                        .as_deref()
+                        .map(|kind| self.interner.intern(kind)),
+                    true,
+                );
+                // 74628A/746355 ->466380 ->410230 spends each ID here,
+                // interleaved with nested first-impact construction. No Fire:
+                // Object.Location stays zero and the Bullet never joins Logic.
+                let bullet_id = self.construct_projectile(
+                    attacker,
+                    crate::sim::projectile::ProjectileTarget::Entity(id),
+                    payload,
+                    rules,
+                );
+                let bullet = self
+                    .projectiles
+                    .get(bullet_id)
+                    .expect("constructed falling Bullet");
+                let detonation = crate::sim::projectile::ProjectileDetonation {
+                    projectile_id: bullet_id,
+                    source_id: bullet.source_id,
+                    target: bullet.target,
+                    impact: crate::sim::projectile::ProjectileCoord::new(coords.x, coords.y, z),
+                    payload: bullet.payload,
+                    reason: crate::sim::projectile::ProjectileDetonationReason::DeathWeapon,
+                };
+                bridge_state_changed |= self.commit_logic_projectile_detonations(
+                    rules,
+                    registry,
+                    &[detonation],
+                    effects,
+                );
+                // Release7462E2/74637A destroys this Bullet before the next
+                // constructor, including its common pointer-expiry broadcast.
+                self.destroy_unfired_projectile(bullet_id, rules, registry, effects);
+            }
+        }
         if self.substrate.entities.contains(id) {
             self.uninit_with_context(
                 id,

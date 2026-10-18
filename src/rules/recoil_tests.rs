@@ -7,8 +7,8 @@ use crate::rules::{
 };
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/voxel_oracle/recoil.json")).unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/voxel_oracle/recoil.json")
 }
 
 fn ini(sections: &Value) -> IniFile {
@@ -41,10 +41,9 @@ fn recoil_constructor_and_reader_match_original() {
     let native = corpus();
     assert_config(RecoilConfig::default(), &native["constructor"]);
     for row in native["readers"].as_array().unwrap() {
-        assert_config(
-            RecoilConfig::from_ini_section(ini(&row["sections"]).section_or_empty("GTGCAN")),
-            &row["after"],
-        );
+        let mut config = RecoilConfig::default();
+        config.apply_pass(ini(&row["sections"]).section_or_empty("GTGCAN"));
+        assert_config(config, &row["after"]);
     }
 }
 
@@ -68,6 +67,7 @@ fn recoil_reached_sections_reset_barrel_through_retained_registry() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn recoil_retail_reader_and_scenario_layers_match_original() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;

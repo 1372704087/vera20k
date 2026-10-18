@@ -40,13 +40,11 @@ pub fn encoded_unit_rgb(unit_position: u32, reveal: PathAReveal) -> Option<[u8; 
     }
     let gradient = reveal.range - remaining;
     let coefficient = (255 / reveal.range) * gradient;
-    Some(std::array::from_fn(|channel| {
-        let base = i32::from(base_rgb[channel]);
-        let highlight = i32::from(reveal.highlight_rgb[channel]);
-        let interpolated = base + (highlight - base) * coefficient as i32 / 256;
-        debug_assert!((0..=255).contains(&interpolated));
-        interpolated as u8
-    }))
+    Some(crate::render::native_surface_format::interpolate_rgb8(
+        base_rgb,
+        reveal.highlight_rgb,
+        coefficient,
+    ))
 }
 
 #[cfg(test)]

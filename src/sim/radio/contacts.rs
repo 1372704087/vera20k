@@ -33,7 +33,7 @@ impl Contacts {
     }
 
     /// Grow a prepared test vector without changing its existing slots.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_capacity(&mut self, n: usize) {
         let target = n.max(1);
         if target > self.slots.len() {
@@ -64,6 +64,7 @@ impl Contacts {
     }
 
     /// Count of filled slots.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn len(&self) -> usize {
         self.slots.iter().filter(|s| s.is_some()).count()
     }

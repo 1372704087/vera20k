@@ -25,7 +25,7 @@ use crate::sim::{movement::locomotor::MovementLayer, occupancy::CellObjectMember
 #[path = "entry_facts.rs"]
 mod entry_facts;
 pub(crate) use entry_facts::EntryFacts;
-use entry_facts::{BlockerFacts, CellFacts};
+use entry_facts::{BlockerFacts, CellFacts, PlainCell};
 
 #[cfg(test)]
 #[path = "unit_entry_tests.rs"]
@@ -38,6 +38,10 @@ mod infantry_entry_priority_tests;
 #[cfg(test)]
 #[path = "wall_entry_tests.rs"]
 mod wall_entry_tests;
+
+#[cfg(test)]
+#[path = "plain_entry_tests.rs"]
+mod plain_entry_tests;
 
 /// The +1AC decision reads live simulation state without borrowing the bridge
 /// publisher. Native Map lookups still stamp the canonical shared Dummy through
@@ -66,6 +70,18 @@ impl<'a> EntryReadContext<'a> {
             }
             _ => EntryCell::Live(cell),
         }
+    }
+
+    /// Real cell `index`'s [`PlainCell`], read through the batch's `facts`.
+    fn plain_cell(&self, facts: &EntryFacts, index: usize) -> PlainCell {
+        facts.plain(index, || {
+            PlainCell::new(
+                facts.cell(index, || CellFacts::of(self.sim, index)),
+                self.terrain()
+                    .tube_for_native_cell(Cell::Real(index))
+                    .is_some(),
+            )
+        })
     }
 
     fn prelude_reads(&self) -> PreludeReads<'a> {
@@ -152,7 +168,7 @@ impl EntryCell {
             Self::Live(cell) => crate::sim::cell_rect::retained_cell_is_in_playfield(
                 cell,
                 live.sim.playfield_bounds,
-                live.terrain(),
+                &crate::map::resolved_terrain::NativeCellQuery::canonical(live.terrain()),
             ),
         }
     }
@@ -224,8 +240,8 @@ impl PreludeReads<'_> {
 
 impl PreludeCells for PreludeReads<'_> {
     fn coord(&self, cell: Cell) -> (i16, i16) {
-        self.kept(cell)
-            .map_or_else(|| self.query.coord(cell), |facts| facts.coord)
+        // A real cell's coordinate is its index's; only the Dummy's is read.
+        self.query.coord(cell)
     }
 
     fn lookup(&self, coord: (i16, i16)) -> Cell {
@@ -617,8 +633,9 @@ fn classify_entry(
         .get(id)
         .ok_or("repair admission retired entity")?;
     let obj = live
-        .rules
-        .object(live.sim.interner.resolve(e.type_ref()))
+        .sim
+        .interner
+        .object_type(e.type_ref(), live.rules)
         .ok_or("repair admission missing ObjectType")?;
     if e.category() == EntityCategory::Structure {
         return building_impassable(live, e, obj, cell).map(|hard| if hard { 7 } else { 0 });
@@ -711,7 +728,7 @@ impl<'a> EntryMover<'a> {
 
     fn object_type(&self, live: &EntryReadContext<'a>, id: InternedId) -> Option<&'a ObjectType> {
         self.types
-            .get_or(id, || live.rules.object(live.sim.interner.resolve(id)))
+            .get_or(id, || live.sim.interner.object_type(id, live.rules))
     }
 
     fn allied_with(&self, live: &EntryReadContext<'_>, house: InternedId) -> bool {
@@ -801,8 +818,9 @@ impl Simulation {
                 )
             })
             .ok_or("Foot entry requires a live Infantry or Unit receiver")?;
-        let obj = rules
-            .object(self.interner.resolve(e.type_ref()))
+        let obj = self
+            .interner
+            .object_type(e.type_ref(), rules)
             .ok_or("repair admission missing ObjectType")?;
         let mover = EntryMover::new(&live, id, e, obj);
         Ok(FootEntryReceiver { live, mover })
@@ -811,6 +829,87 @@ impl Simulation {
 
 /// Infantry 0x0051BF90 / Unit 0x0073F0A0 for a resolved Foot receiver.
 fn classify_foot_entry<'a>(
+    live: &EntryReadContext<'a>,
+    mover: &EntryMover<'a>,
+    cell: Cell,
+    args: crate::sim::movement::infantry_entry::InfantryEntryArgs,
+) -> Result<u8, String> {
+    if let Some(code) = plain_entry(live, mover, cell, args) {
+        debug_assert!(
+            !crate::sim::touch_log::live_read_check_enabled()
+                || full_foot_entry(live, mover, cell, args) == Ok(code),
+            "a plain step to {cell:?} answers {code}, unlike the full +1AC"
+        );
+        return Ok(code);
+    }
+    full_foot_entry(live, mover, cell, args)
+}
+
+/// VERA-only: [`full_foot_entry`]'s answer to a compass step at a known
+/// height between two real cells of a path batch when neither cell has a
+/// structural bridge (`0x100`) or tube, the target holds no raw occupation,
+/// listed object, wall or crate, lies in the playfield and is at the path's
+/// height, and the mover is Infantry or an unrestricted Unit. Every test of
+/// the full body then passes the step through to the land row: the tube
+/// tests find no tube on the target or on the backstep (the source), the
+/// Foot4D9C60 prelude admits a level step from a flat cell and selects the
+/// ground list and ground raw byte, the object walk finds nothing, and both
+/// tails answer 0 for a clear raw byte. So the answer is 0, or 7 for a zero
+/// row (a tethered Infantry skips the row and answers 0), read from both
+/// cells' [`PlainCell`]s instead of their facts: a search's flood asks this
+/// of most cells it reaches. `None` for any other ask, which the full body
+/// answers.
+fn plain_entry(
+    live: &EntryReadContext<'_>,
+    mover: &EntryMover<'_>,
+    cell: Cell,
+    args: crate::sim::movement::infantry_entry::InfantryEntryArgs,
+) -> Option<u8> {
+    let facts = live.facts?;
+    let (Cell::Real(target), Some(Cell::Real(source))) = (cell, args.previous_cell) else {
+        return None;
+    };
+    if !(0..8).contains(&args.direction) || args.height == -1 {
+        return None;
+    }
+    let infantry = mover.e.category() == EntityCategory::Infantry;
+    if !infantry && mover.obj.movement_restricted_to.is_some() {
+        return None;
+    }
+    let to = live.plain_cell(facts, target);
+    if !to.empty() || args.height != i32::from(to.level()) {
+        return None;
+    }
+    if !live.plain_cell(facts, source).flat()
+        || crate::sim::movement::infantry_entry::backstep_cell(
+            &live.prelude_reads(),
+            cell,
+            args.direction,
+        ) != Cell::Real(source)
+    {
+        return None;
+    }
+    if to.overlay() {
+        let overlay = facts
+            .cell(target, || CellFacts::of(live.sim, target))
+            .overlay
+            .overlay_id?;
+        let flags = live.registry?.flags(overlay)?;
+        if flags.crate_type || flags.wall {
+            return None;
+        }
+    }
+    if infantry && mover.e.tether.partner().is_some() {
+        return Some(0);
+    }
+    let nonzero = to.row_nonzero(mover.obj.speed_type)?;
+    Some(if nonzero { 0 } else { 7 })
+}
+
+/// Infantry 0x0051BF90 / Unit 0x0073F0A0, every branch. [`plain_entry`]
+/// answers the steps that pass every test here before the land row; a test
+/// added before the land row needs its condition there too.
+fn full_foot_entry<'a>(
     live: &EntryReadContext<'a>,
     mover: &EntryMover<'a>,
     cell: Cell,
@@ -1217,7 +1316,12 @@ fn classify_foot_entry<'a>(
                 entry_result = entry_result.max(1);
                 continue;
             }
-            if !infantry && crusher && bump_crush::can_crush(capability, b.crush) {
+            if !infantry
+                && crusher
+                && bump_crush::can_crush(capability, b.crush, |owner| {
+                    mover.allied_with(live, owner)
+                })
+            {
                 crush_latch = true;
                 continue;
             }
@@ -1451,16 +1555,21 @@ fn unit_post_walk_tail(
             live.sim
                 .substrate
                 .occupancy
-                .get(p.0 as u16, p.1 as u16)
-                .into_iter()
-                .flat_map(|list| list.iter_layer(MovementLayer::Ground))
-                .filter_map(|member| live.blocker(member.entity_id))
-                .find(|(unit, _)| unit.category() == EntityCategory::Unit)
+                .first_category_on_layer(
+                    p.0 as u16,
+                    p.1 as u16,
+                    MovementLayer::Ground,
+                    EntityCategory::Unit,
+                    &live.sim.substrate.entities,
+                )
+                .and_then(|id| live.blocker(id))
                 .is_some_and(|(unit, _)| {
-                    // IsCrushableBy asks the mover's House in both arms; the
-                    // caller's latch stands for the Crusher test.
-                    !mover.allied_with(live, unit.owner)
-                        && bump_crush::object_is_crushable_by(mover.obj.omni_crusher, unit.crush)
+                    // The caller's latch stands for the Crusher test.
+                    bump_crush::object_is_crushable_by(
+                        mover.obj.omni_crusher,
+                        unit.crush,
+                        |owner| mover.allied_with(live, owner),
+                    )
                 })
         };
         return if !walk.vehicle_occupied || first_unit_is_crushable() {
@@ -1569,6 +1678,7 @@ fn terrain_impassable(
             Some(speed),
             None,
             None,
+            None,
         ) {
             return Ok(true);
         }
@@ -1593,6 +1703,7 @@ fn building_impassable(
             crate::sim::build_site::building_speed_type(obj),
             Some(obj),
             Some(e.owner()),
+            None,
         )
     } else {
         crate::sim::build_site::can_place_building_at(
@@ -1602,6 +1713,7 @@ fn building_impassable(
             obj,
             live.coord(cell),
             Some(e.owner()),
+            None,
         )
     };
     Ok(!admitted)
@@ -1610,29 +1722,6 @@ fn building_impassable(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Two names 64 indexes apart share a slot: each is looked up again
-    /// after the other took the slot, and a missing fact keeps nothing.
-    #[test]
-    fn interned_cache_keeps_the_last_name_per_slot() {
-        let cache = InternedCache::<u32>::new();
-        let (a, b) = (InternedId::from_index(1), InternedId::from_index(65));
-        let look_ups = std::cell::Cell::new(0);
-        let get = |id, fact| {
-            cache.get_or(id, || {
-                look_ups.set(look_ups.get() + 1);
-                Some(fact)
-            })
-        };
-        assert_eq!(get(a, 10), Some(10));
-        assert_eq!(get(a, 99), Some(10));
-        assert_eq!(get(b, 20), Some(20));
-        assert_eq!(get(a, 30), Some(30));
-        assert_eq!(look_ups.get(), 3);
-        let c = InternedId::from_index(2);
-        assert_eq!(cache.get_or(c, || None), None);
-        assert_eq!(get(c, 40), Some(40));
-    }
 
     fn impassable(
         live: &EntryReadContext<'_>,
@@ -1745,46 +1834,6 @@ mod tests {
         }
     }
 
-    fn unit_fixture(flags: &str, blocker_category: EntityCategory) -> (Simulation, RuleSet, Cell) {
-        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
-        let rules=RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
-            "[VehicleTypes]\n0=MOVER\n1=BLOCKER\n[MOVER]\nSpeedType=Track\n[BuildingTypes]\n0=BUILDING\n1=HIDDEN\n[HIDDEN]\nInvisibleInGame=yes\n[BLOCKER]\nSpeedType=Track\n[BUILDING]\nFoundation=1x1\n{flags}\n"
-        ))).unwrap();
-        for (id, name, category, cell) in [
-            (90, "MOVER", EntityCategory::Unit, (15, 15)),
-            (
-                91,
-                if blocker_category == EntityCategory::Structure {
-                    "BUILDING"
-                } else {
-                    "BLOCKER"
-                },
-                blocker_category,
-                (16, 15),
-            ),
-        ] {
-            let mut e = GameEntity::test_default(id, name, "Americans", cell.0, cell.1);
-            e.set_owner_for_test(sim.intern("Americans"));
-            e.set_type_ref_for_test(sim.intern(name));
-            e.set_category_for_test(category);
-            sim.substrate.entities.insert(e);
-        }
-        sim.substrate.occupancy.add(
-            16,
-            15,
-            91,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::from_category(blocker_category),
-        );
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        (sim, rules, cell)
-    }
-
     #[test]
     fn infantry_usable_area_admission_is_independent_of_game_mode() {
         // Original51BF90 has no A8B238 read. Executed counter0/mode0/1
@@ -1867,347 +1916,6 @@ mod tests {
                 sim.mapgen_rng.logical_state(),
             ],
             rng_before,
-        );
-    }
-
-    fn unit_probe(
-        sim: &mut Simulation,
-        rules: &RuleSet,
-        cell: Cell,
-        mission: MissionType,
-        nav: Option<NavTargetRef>,
-    ) -> bool {
-        sim.mission_assign_exact(
-            90,
-            crate::sim::mission::MissionId::from_known(mission),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        sim.substrate
-            .entities
-            .get_mut(90)
-            .unwrap()
-            .navigation
-            .set_nav_com_for_test(nav);
-        impassable(
-            &EntryReadContext {
-                sim,
-                rules,
-                registry: None,
-                facts: None,
-            },
-            CellObjectMember::Entity(90),
-            cell,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn unit_absorb_and_grinding_keep_distinct_missions_and_object_targets() {
-        let target = Some(NavTargetRef::Building { id: 91 });
-        let (mut sim, rules, cell) = unit_fixture("UnitAbsorb=yes", EntityCategory::Structure);
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            target
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Eaten,
-            target
-        ));
-        assert!(
-            unit_probe(
-                &mut sim,
-                &rules,
-                cell,
-                MissionType::Enter,
-                Some(NavTargetRef::Cell { rx: 16, ry: 15 })
-            ),
-            "a Cell is not the Unit's object NavCom"
-        );
-        let (mut sim, rules, cell) = unit_fixture("Grinding=yes", EntityCategory::Structure);
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Eaten,
-            target
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            target
-        ));
-        // Supplied list topology isolates the later current-ground check.
-        // It does not claim a stock grinder/repair footprint scene.
-        sim.substrate.occupancy.add(
-            15,
-            15,
-            91,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::AppendBuilding,
-        );
-        assert!(
-            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
-            "current-ground Grinding arm has no mission/NavCom gate"
-        );
-    }
-
-    #[test]
-    fn exact_enter_unit_target_returns_before_a_later_hard_building() {
-        let (mut sim, rules, cell) = unit_fixture("", EntityCategory::Unit);
-        let mut b = GameEntity::test_default_of_category(
-            92,
-            "BUILDING",
-            "Americans",
-            16,
-            15,
-            EntityCategory::Structure,
-        );
-        b.set_owner_for_test(sim.intern("Americans"));
-        b.set_type_ref_for_test(sim.intern("BUILDING"));
-        sim.substrate.entities.insert(b);
-        sim.substrate.occupancy.add(
-            16,
-            15,
-            92,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::AppendBuilding,
-        );
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            Some(NavTargetRef::Entity { id: 91 })
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            Some(NavTargetRef::Cell { rx: 16, ry: 15 })
-        ));
-    }
-
-    #[test]
-    fn contacted_building_skips_when_a_different_building_is_first() {
-        let (mut sim, rules, cell) =
-            unit_fixture("NumberImpassableRows=-1", EntityCategory::Structure);
-        let mut b = GameEntity::test_default_of_category(
-            92,
-            "HIDDEN",
-            "Americans",
-            16,
-            15,
-            EntityCategory::Structure,
-        );
-        assert!(rules.object("HIDDEN").unwrap().invisible_in_game);
-        b.set_owner_for_test(sim.intern("Americans"));
-        b.set_type_ref_for_test(sim.intern("HIDDEN"));
-        sim.substrate.entities.insert(b);
-        sim.substrate.occupancy.remove(16, 15, 91);
-        for id in [92, 91] {
-            sim.substrate.occupancy.add(
-                16,
-                15,
-                id,
-                MovementLayer::Ground,
-                None,
-                crate::sim::occupancy::CellListInsertion::AppendBuilding,
-            );
-        }
-        assert!(unit_probe(&mut sim, &rules, cell, MissionType::Move, None));
-        sim.substrate
-            .entities
-            .get_mut(90)
-            .unwrap()
-            .mark_live_contact_with(91);
-        assert!(
-            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
-            "radio false row receiver skips only its checked Building"
-        );
-    }
-
-    fn infantry_fallback_fixture() -> (Simulation, RuleSet, Cell) {
-        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
-        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[InfantryTypes]\n0=MOVER\n1=BLOCKER\n[BuildingTypes]\n0=TARGET\n[MOVER]\nEngineer=yes\nSpeedType=Foot\n[BLOCKER]\nSpeedType=Foot\n[TARGET]\nFoundation=2x2\n",
-        )).unwrap();
-        // Supplied overlap isolates the literal ordered +1AC receiver; this
-        // is not a retail footprint/construction or complete capture scene.
-        for (id, name, owner, category, p) in [
-            (70, "MOVER", "Americans", EntityCategory::Infantry, (15, 15)),
-            (
-                71,
-                "TARGET",
-                "Americans",
-                EntityCategory::Structure,
-                (16, 15),
-            ),
-            (
-                72,
-                "BLOCKER",
-                "Russians",
-                EntityCategory::Infantry,
-                (16, 15),
-            ),
-        ] {
-            let mut entity = GameEntity::test_default(id, name, owner, p.0, p.1);
-            entity.set_owner_for_test(sim.intern(owner));
-            entity.set_type_ref_for_test(sim.intern(name));
-            entity.set_category_for_test(category);
-            if category == EntityCategory::Structure {
-                // Construction stamps the type's `Foundation=2x2`.
-                entity.type_facts.set_foundation_for_test("2x2".to_string());
-            }
-            entity
-                .position
-                .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(128));
-            entity
-                .position
-                .set_sub_y_for_test(crate::util::fixed_math::SimFixed::from_num(128));
-            sim.substrate.entities.insert(entity);
-        }
-        for (id, insertion) in [
-            (71, crate::sim::occupancy::CellListInsertion::AppendBuilding),
-            (
-                72,
-                crate::sim::occupancy::CellListInsertion::PrependNonBuilding,
-            ),
-        ] {
-            sim.substrate
-                .occupancy
-                .add(16, 15, id, MovementLayer::Ground, None, insertion);
-        }
-        sim.mission_assign_exact(
-            70,
-            crate::sim::mission::MissionId::from_known(MissionType::Capture),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        (sim, rules, cell)
-    }
-
-    #[test]
-    fn infantry_first_building_skip_preserves_a_later_target_refusal() {
-        let (mut sim, rules, cell) = infantry_fallback_fixture();
-        let probe = |sim: &mut Simulation| {
-            impassable(
-                &EntryReadContext {
-                    sim,
-                    rules: &rules,
-                    registry: None,
-                    facts: None,
-                },
-                CellObjectMember::Entity(70),
-                cell,
-            )
-            .unwrap()
-        };
-        assert!(
-            probe(&mut sim),
-            "unarmed mover cannot pass the ordinary enemy blocker"
-        );
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .set_nav_com_for_test(Some(NavTargetRef::Building { id: 71 }));
-        assert!(
-            !probe(&mut sim),
-            "first-Building target skips the earlier enemy blocker"
-        );
-        let frame = sim.session.binary_frame;
-        crate::sim::superweapon::invulnerability::apply_invulnerability(
-            sim.substrate.entities.get_mut(71).unwrap(),
-            frame,
-            30,
-            crate::sim::superweapon::invulnerability::InvulnKind::ForceShield,
-        );
-        assert!(
-            probe(&mut sim),
-            "skip-current must continue into the protected target's refusal"
-        );
-    }
-
-    #[test]
-    fn infantry_first_building_lookup_uses_center_then_attack_identity() {
-        let (mut sim, rules, cell) = infantry_fallback_fixture();
-        let probe = |sim: &mut Simulation, blocker| {
-            let live = EntryReadContext {
-                sim,
-                rules: &rules,
-                registry: None,
-                facts: None,
-            };
-            infantry_target_admission(
-                &live,
-                live.sim.substrate.entities.get(70).unwrap(),
-                rules.object("MOVER").unwrap(),
-                blocker,
-                &live.blocker(blocker).unwrap().0,
-                cell,
-            )
-            .unwrap()
-        };
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 17, ry: 16 }));
-        assert_eq!(
-            probe(&mut sim, 72),
-            InfantryTargetAdmission::SkipCurrent,
-            "first Building+48 center differs from its raw anchor"
-        );
-        assert_eq!(
-            probe(&mut sim, 71),
-            InfantryTargetAdmission::Ordinary,
-            "the first Building cannot skip itself via its own center"
-        );
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .set_nav_com_for_test(None);
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .attack_target
-            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(71)));
-        // Raw blocker lookup stamps(60,60), then first Building+48 stamps
-        //(62,62). Attack-target identity is deliberately evaluated last.
-        for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
-            let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
-            position.set_rx_for_test(p.0);
-            position.set_ry_for_test(p.1);
-        }
-        assert_eq!(probe(&mut sim, 72), InfantryTargetAdmission::SkipCurrent);
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (62, 62)
         );
     }
 

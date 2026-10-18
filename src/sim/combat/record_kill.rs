@@ -1,6 +1,6 @@
 //! `TechnoClass::Record_The_Kill @ 0x00702D40`: the kill's experience award
 //! and its score and House statistics. The world owner runs its synchronous
-//! Tag prefix before the existing arithmetic/accounting continuation.
+//! concrete-class and base Tag prefixes before the arithmetic/accounting continuation.
 
 use super::*;
 
@@ -52,11 +52,11 @@ fn award_kill_experience(
     let Some(killer) = entities.get(killer_id) else {
         return;
     };
-    let Some(killer_type) = rules.object(interner.resolve(killer.type_ref())) else {
+    let Some(killer_type) = interner.object_type(killer.type_ref(), rules) else {
         return;
     };
     let trainable_cost = |id: u64| -> Option<(u64, i32)> {
-        let object = rules.object(interner.resolve(entities.get(id)?.type_ref()))?;
+        let object = interner.object_type(entities.get(id)?.type_ref(), rules)?;
         object.trainable.then_some((id, cost_of(object)))
     };
     // Branch 1: a passenger firing from an OpenTopped transport pays its
@@ -73,8 +73,7 @@ fn award_kill_experience(
     } else {
         // Branch 4: an occupied building pays the occupant at its fire index.
         combat_weapon::firing_occupant_id(killer, killer_type).and_then(|occupant| {
-            let occupant_type =
-                rules.object(interner.resolve(entities.get(occupant)?.type_ref()))?;
+            let occupant_type = interner.object_type(entities.get(occupant)?.type_ref(), rules)?;
             Some((occupant, cost_of(occupant_type)))
         })
     };
@@ -185,7 +184,7 @@ fn record_the_kill(
     let victim_house = houses
         .get(&victim_owner)
         .map(crate::sim::house_state::HouseState::cost_factors);
-    let victim_type = rules.object(interner.resolve(victim.type_ref()));
+    let victim_type = interner.object_type(victim.type_ref(), rules);
     let insignificant_building = victim.category() == EntityCategory::Structure
         && victim_type.is_some_and(|object| object.insignificant);
     // `0x00702E64` asks the killer's house `HouseClass::IsAlly @ 0x004F9A90`,
@@ -230,8 +229,9 @@ fn record_the_kill(
 }
 
 impl crate::sim::world::Simulation {
-    /// Original702D40/703230 world entry. CostOf base precedes Tag callbacks;
-    /// every later owner/rank/Tag read belongs to its native continuation.
+    /// Original virtual E0/E4 world entry, including Unit744720's E0 prefix.
+    /// Base702D40/703230 captures CostOf after the Unit callbacks and before
+    /// its own Tag callbacks; later owner/rank/Tag reads remain live.
     /// Source/control flow: active Steam3e81a617 instruction bodies; existing
     /// object_health/house_statistics/veterancy corpora own the arithmetic.
     /// No own RNG, timer or detach; nested Tag actions use their existing owners.
@@ -245,6 +245,27 @@ impl crate::sim::world::Simulation {
         let Some(rules) = context.rules() else {
             return;
         };
+        if matches!(source, KillSource::Techno(_))
+            && self
+                .substrate
+                .entities
+                .get(victim_id)
+                .is_some_and(|victim| victim.category() == EntityCategory::Unit)
+        {
+            // Unit vt7F5C70+E0 ->744720..744797 (Steam3e81a617..08600).
+            // 744741 tests the incoming killer only for7;48 and29 follow
+            // even for NULL. Each call re-reads Object+34, without Alive/HP
+            // gates. This precedes the base CostOf and its6/4 callbacks.
+            // Source: original bodies/vtable via tools.native_inspect.
+            // RESIDUAL: hijacked Units (+338 !=-1) with a transferable Tag
+            // skip this prefix; hijacking state/crew transfer is not ported.
+            // No own RNG/timer/detach; synchronous Tag actions own those.
+            for kind in [7, 48, 29] {
+                if kind != 7 || source.is_present() {
+                    self.dispatch_object_tag_event(victim_id, kind, Some(victim_id), None, context);
+                }
+            }
+        }
         let Some(victim) = self.substrate.entities.get(victim_id) else {
             return;
         };
@@ -254,8 +275,9 @@ impl crate::sim::world::Simulation {
             .houses
             .get(&victim.owner())
             .map(HouseState::cost_factors);
-        let victim_cost = rules
-            .object(self.interner.resolve(victim.type_ref()))
+        let victim_cost = self
+            .interner
+            .object_type(victim.type_ref(), rules)
             .map_or(0, |object| rules.cost_of(object, victim_house.as_ref()));
         self.record_kill_tag_prefix(victim_id, source, context);
         record_the_kill(
@@ -268,6 +290,12 @@ impl crate::sim::world::Simulation {
             victim_cost,
             callback,
             rules,
+        );
+        #[cfg(any(test, feature = "test-support"))]
+        self.trace_lifecycle_for_test(
+            crate::sim::world::LifecycleTestEvent::RecordKillBookkeeping {
+                stable_id: victim_id,
+            },
         );
     }
 
@@ -373,13 +401,13 @@ impl KillRecord {
     }
 
     /// Install a fixture's killer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_killed_by_for_test(&mut self, killer: Option<InternedId>) {
         self.killed_by = killer;
     }
 
     /// Install a fixture's guard.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_destruction_recorded_for_test(&mut self, recorded: bool) {
         self.destruction_recorded = recorded;
     }

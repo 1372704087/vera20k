@@ -22,8 +22,8 @@ use super::*;
 use crate::rules::ini_parser::IniFile;
 use serde_json::Value;
 
-fn vectors() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/selfheal_oracle.json")).unwrap()
+fn vectors() -> &'static Value {
+    crate::test_fixture::json("tools/selfheal_oracle.json")
 }
 
 fn rows(section: &str) -> Vec<Value> {

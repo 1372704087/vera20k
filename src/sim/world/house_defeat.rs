@@ -48,28 +48,31 @@
 //! - The IsToDie path (`Flag_To_Die @ 0x004FC980`: DESTRUCT, REMOVEPLAYER, a
 //!   last human's EXIT) has no VERA producer; offline skirmish cannot reach
 //!   it.
-//! - The trigger-held original owner (`+0x2CC`/`+0x2E0`,
-//!   HouseClass::TransferUnitsTo) is not ported.
 //! - MPlayer_Defeated's capture-the-flag cleanup (Flag_Remove `0x004FBE40` at
 //!   `0x004FC112..0x004FC15E`, Scenario flag `0x10`) and the Harvester-Truce
 //!   UnInit loop (`0x004FC163`, Scenario flag `0x800`) are not ported; their
 //!   Scenario flags are off in stock skirmish.
 //! - The local-player branch (`0x004FC1B0..0x004FC307`) is ported for the
 //!   whole-map reveal, the radar and Session `+0x300` (see `mplayer_defeated`;
-//!   `local_player_defeated` names the ported readers). Its client UI is not:
-//!   beacons deleted (`0x00431410`), the command bar closed (`0x006D1660`),
-//!   planning and beacon modes left (`0x00637A10`, `0x004AC960`), and the
+//!   `local_player_defeated` names the ported readers). The borrowed client
+//!   boundary leaves planning (`0x00637A10`), supplies its2B event to the same
+//!   frame's dispatcher and rejects re-entry (`0x00731A50`). Remaining UI:
+//!   beacons deleted (`0x00431410`), beacon mode left (`0x004AC960`), and the
 //!   bytes `0x00A8D108..0x00A8D10F` that Taunt and dialog `0x73` read set and
-//!   that dialog refreshed (`0x004FC239..0x004FC25D`). Nor are Session
-//!   `+0x300`'s UI readers: band-box and type selection (`0x004AC03F`,
-//!   `0x00732950`), the planning, beacon, cheer and taunt commands
-//!   (`0x00731A50`, `0x00731A30`, `0x00730F30`, `0x0053636C`), the sidebar tab
-//!   (`0x006D08F5`), `RadarClass::SetRadarMode` (`0x00656CCC`), MakeAlly's
+//!   that dialog refreshed (`0x004FC239..0x004FC25D`). The command bar is
+//!   saved/closed6D1660 but restored4FC591→6D1610 on the common sole-human
+//!   terminal path, so its retained open state is unchanged. Wider multiplayer
+//!   close/restore paths remain outside this chain. Session+300 already guards
+//!   band-box/type/navigation selection, Cheer input and the command-bar
+//!   opener (`0x006D08F5`). Its F0 close remains allowed. Remaining UI readers
+//!   include beacon and taunt (`0x00731A30`, `0x0053636C`),
+//!   `RadarClass::SetRadarMode` (`0x00656CCC`), MakeAlly's
 //!   alliance line (`0x004F9E49`) and the dialog and session readers
 //!   (`0x004F1534`, `0x00657F4A`, `0x0078D52A`, `0x004E20BA`, `0x004F10FD`,
 //!   `0x0055EE60` and others). Trigger: the local player is defeated. Effect:
 //!   for the savour delay (retail `SavourDelay=.1`) those UI states and
-//!   commands stay as they were; a defeated house owns nothing left to command.
+//!   commands may stay as they were. Frequency: once on a local loss; beacon,
+//!   dialog and multiplayer consequences need their own connected mechanisms.
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -90,7 +93,7 @@ pub(crate) enum HouseBlowupSubset {
 
 impl Simulation {
     /// The house rung with its defeat pass: see [`Self::house_rung`].
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn check_defeat(
         &mut self,
         rules: Option<&RuleSet>,
@@ -103,6 +106,45 @@ impl Simulation {
             crate::sim::world::FrameEffects::default(),
         );
         self.queue_commands(generated);
+    }
+
+    /// House4F9265..4F9302 consumes the private tech-tree request after
+    /// this House's production choices. Keep this suffix distinct from the
+    /// earlier power/rate assessment: a Temporal release requests both, and
+    /// neither supplies UpdateFactoryQueue509140 or resumes a system hold.
+    pub(in crate::sim) fn recheck_house_tech_tree(
+        &mut self,
+        owner: InternedId,
+        rules: &RuleSet,
+    ) -> Vec<crate::sim::command::CommandEnvelope> {
+        let mut generated = Vec::new();
+        // House4F927C/4F92ED clears1FC before either pass; a status
+        // change inside50AF10 can retain a request for the next frame.
+        if self
+            .houses
+            .get_mut(&owner)
+            .is_some_and(|house| house.take_tech_recheck())
+        {
+            if self.session.current_house == Some(owner) {
+                for type_id in
+                    crate::sim::production::construction_options_for_owner(self, rules, owner)
+                {
+                    self.lifecycle_outputs
+                        .push(super::LifecycleOutput::SidebarConstructionOption { owner, type_id });
+                }
+                self.lifecycle_outputs
+                    .push(super::LifecycleOutput::SidebarRecalculated { owner });
+            }
+            // Strip recalculation precedes4F92F6/4F92FD's Super
+            // revoke/grant passes. Carry generated ABANDON events
+            // to MainTick's post-Logic647260 dispatcher.
+            generated.extend(crate::sim::production::recalculate_strips(
+                self, rules, owner,
+            ));
+            crate::sim::superweapon::update_owned_supers(self, rules, owner);
+            crate::sim::superweapon::grant_provided_supers(self, rules, owner);
+        }
+        generated
     }
 
     /// The house rung's per-house steps in HouseClass::Array order: each
@@ -183,10 +225,10 @@ impl Simulation {
                         frame_effects,
                     );
                 }
-                self.mplayer_defeated(
+                generated.extend(self.mplayer_defeated(
                     owner,
                     UninitContext::new(rules, registry).with_effects(frame_effects),
-                );
+                ));
             }
             self.raise_house_tags(owner, rules, registry, frame_effects);
             if let Some(rules) = rules {
@@ -200,26 +242,11 @@ impl Simulation {
                 crate::sim::ai_base_building::update_production_choices(
                     self, rules, owner, registry,
                 );
-                // House4F927C/4F92ED clears1FC before either pass; a status
-                // change inside50AF10 can retain a request for the next frame.
-                if self
-                    .houses
-                    .get_mut(&owner)
-                    .is_some_and(|house| house.take_tech_recheck())
-                {
-                    // Strip recalculation precedes4F92F6/4F92FD's Super
-                    // revoke/grant passes. Carry generated ABANDON events
-                    // to MainTick's post-Logic647260 dispatcher.
-                    generated.extend(crate::sim::production::recalculate_strips(
-                        self, rules, owner,
-                    ));
-                    crate::sim::superweapon::update_owned_supers(self, rules, owner);
-                    crate::sim::superweapon::grant_provided_supers(self, rules, owner);
-                }
+                generated.extend(self.recheck_house_tech_tree(owner, rules));
             }
             if let Some(house) = self.houses.get_mut(&owner) {
                 house.release_repair_latch(self.session.binary_frame);
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 if self
                     .house_update_append_after_test
                     .is_some_and(|(after, _)| after == owner)
@@ -307,6 +334,7 @@ impl Simulation {
     /// - for a computer house at `[IQ] MaxIQLevels` under `[AI] Paranoid`,
     ///   Computer_Paranoid (`0x004FC10D`, `sim::house_diplomacy`);
     /// - for the current house (`PlayerPtr`, `0x004FC1B0..0x004FC1B7`), the
+    ///   local planning exit (`0x004FC1EE`) through its existing client owner,
     ///   whole-map reveal ([`Self::reveal_entire_map`] at `0x004FC20F`, which
     ///   also writes the map-clear byte `+0x241`) and the radar switched on
     ///   (`RadarClass::SetTacticalMapAvailable(1)` at `0x004FC21B`), which
@@ -317,7 +345,11 @@ impl Simulation {
     /// - the announcement (`0x004FC262..0x004FC2EA` for the current house,
     ///   `0x004FC343..0x004FC3BC` for another; the app decides which) and the
     ///   loss.
-    fn mplayer_defeated(&mut self, owner: InternedId, context: UninitContext<'_>) {
+    fn mplayer_defeated(
+        &mut self,
+        owner: InternedId,
+        context: UninitContext<'_>,
+    ) -> Option<crate::sim::command::CommandEnvelope> {
         if let Some(house) = self.houses.get_mut(&owner) {
             house.is_defeated = true;
         }
@@ -335,18 +367,33 @@ impl Simulation {
         {
             self.computer_paranoid(rules, context.registry(), context.effects());
         }
-        if self.session.current_house == Some(owner) {
+        let planning_commit = if self.session.current_house == Some(owner) {
+            // Original1cdd:4FC1EE ->637A10, before Session+300/reveal
+            // and the loss announcement. Input owns the exit and2B event;
+            // House returns it to MainTick's existing post-Logic dispatcher.
+            // Earlier death cues precede EndPlanningModeSound; MatchOutcome's
+            // synchronous flush later delivers that cue before the local EVA.
+            // Executable controls: spatial_oracle/planning_local_defeat.
+            context.effects().flush_sound(self, context.rules());
+            let commit = context
+                .effects()
+                .leave_local_planning(self, context.rules());
             self.reveal_entire_map(Some(owner), context);
             self.power_states
                 .entry(owner)
                 .or_default()
                 .set_tactical_map_available();
-        } else if let Some(house) = self.houses.get_mut(&owner) {
-            house.map_is_clear = true;
-        }
+            commit
+        } else {
+            if let Some(house) = self.houses.get_mut(&owner) {
+                house.map_is_clear = true;
+            }
+            None
+        };
         self.sound_events
             .push(SimSoundEvent::PlayerDefeated { house: owner });
         self.flag_house_to_lose(owner, context.rules(), false, context.effects());
+        planning_commit
     }
 
     /// `HouseClass::Flag_To_Win4FC9E0`, common offline campaign/skirmish path.
@@ -510,8 +557,10 @@ impl Simulation {
     /// flag, which only [`Self::mplayer_defeated`] sets. Its readers here are
     /// the House radar recheck (`0x004F84FB`), the Lightning Storm's outages
     /// (`0x00539FE0`), the superweapon EVA lines (`0x004468DA`, `0x006CCCF0`
-    /// and the other `SuperClass::Launch` cases) and selection navigation.
-    pub(crate) fn local_player_defeated(&self) -> bool {
+    /// and the other `SuperClass::Launch` cases), selection navigation,
+    /// AllToCheer input (`0x00730F30`), the command-bar opener (`0x006D08F5`)
+    /// and local planning admission (`0x00731A50`).
+    pub fn local_player_defeated(&self) -> bool {
         self.session
             .current_house
             .and_then(|house| self.houses.get(&house))
@@ -569,7 +618,7 @@ impl Simulation {
                     arg6: true,
                 },
             );
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             BLOWUP_TRACE.with(|trace| trace.borrow_mut().push(event));
             self.commit_direct_damage_receiver(rules, registry, event, frame_effects);
             last = Some(id);
@@ -626,8 +675,8 @@ impl Simulation {
 
     /// TechnoGetOriginalOwner70F820: MindControlledBy's CaptureManager is
     /// read before the current Owner. No manager node means native NULL.
-    /// The trigger-transfer+2CC/+2E0 producer remains an explicit module
-    /// residual; ordinary ChangeOwner/Engineer capture does not set that latch.
+    /// Trigger transfers retain +2CC/+2E0 independently; an ordinary capture
+    /// clears +2E0 without clearing +2CC, so this can legitimately return None.
     pub(crate) fn techno_original_owner(&self, id: u64) -> Option<InternedId> {
         let entity = self.substrate.entities.get(id)?;
         if let Some(controller) = entity.mind_control.controller() {
@@ -637,6 +686,8 @@ impl Simulation {
                 .capture_manager
                 .as_ref()?
                 .original_owner(id)
+        } else if entity.mind_control.house_controller().is_some() {
+            entity.mind_control.house_original_owner()
         } else {
             Some(entity.owner())
         }
@@ -697,14 +748,14 @@ impl Simulation {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     /// Blowup_All's receiver calls, in order, for the native comparison.
     static BLOWUP_TRACE: std::cell::RefCell<Vec<EntityDamageEvent>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn take_blowup_trace() -> Vec<EntityDamageEvent> {
     BLOWUP_TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
 }

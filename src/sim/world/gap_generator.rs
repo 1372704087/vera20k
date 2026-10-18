@@ -57,7 +57,7 @@ impl GapDeposit {
 /// change of sample runs the operational edges.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct LastOperational {
+pub struct LastOperational {
     operational: bool,
 }
 
@@ -68,7 +68,7 @@ impl LastOperational {
     }
 
     /// Install a fixture's sample.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, operational: bool) {
         self.operational = operational;
     }
@@ -87,14 +87,14 @@ impl Simulation {
     /// Shared4555D0 inputs represented by Building and House owners. Native
     /// The warp's HasPower latch and Tesla charger list retain separate owners.
     /// EMP remains outside this adapter's represented inputs.
-    pub(crate) fn building_operational_state(&self, id: u64, rules: &RuleSet) -> Option<bool> {
+    pub fn building_operational_state(&self, id: u64, rules: &RuleSet) -> Option<bool> {
         let entity = self.substrate.entities.get(id)?;
         if entity.category() != EntityCategory::Structure {
             return None;
         }
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
         let facts = power_system::OperationalFacts {
-            // `0x004555DA`: an offline building (the warp's latch) is not
+            // `0x004555DA`: an offline building (independent latch) is not
             // operational unless two retained Tesla chargers bypass it.
             online: entity.building_online(),
             tesla_chargers: entity.tesla_charge.chargers().len() as i32,
@@ -133,7 +133,7 @@ impl Simulation {
         if !entity.lifecycle.object_alive() || entity.lifecycle.in_limbo() {
             return None;
         }
-        let object = rules.object(self.interner.resolve(entity.type_ref()))?;
+        let object = self.interner.object_type(entity.type_ref(), rules)?;
         object
             .gap_generator
             .then(|| {
@@ -178,6 +178,26 @@ impl Simulation {
         }
         // `0x0043FB6D..0x0043FBE3`: the working sound precedes the dispatcher.
         self.building_working_sound_edge(id, operational, rules, frame_effects);
+        self.dispatch_building_operational(id, rules, registry, frame_effects);
+        //43FBEF stores the caller's sample, independently of the dispatcher's
+        //fresh vt350 read. Action36 also calls4549B0 but does not store6C8.
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.building_last_operational.operational = operational;
+        }
+    }
+
+    /// Original4549B0: a direct caller dispatches even without a43FB20 edge.
+    /// The first virtual350 read is the shared4555D0 operational predicate.
+    pub(crate) fn dispatch_building_operational(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(operational) = self.building_operational_state(id, rules) else {
+            return;
+        };
         // The dispatcher opens with its `PowersUnit=` arms
         // (`sim::powered_unit`).
         self.powered_center_edge(id, operational, rules, frame_effects);
@@ -193,14 +213,6 @@ impl Simulation {
             }
         }
         self.update_building_anim_power(id, operational, rules);
-        //43FBEF stores6C8 after the dispatcher returns. A SpySat bracket does
-        //not change this sample, even when it changes one viewer's269.
-        self.substrate
-            .entities
-            .get_mut(id)
-            .unwrap()
-            .building_last_operational
-            .operational = operational;
     }
 
     /// One viewer's gap add `0x006FB170` or removal `0x006FB470` (latch `+0x269`,
@@ -231,7 +243,6 @@ impl Simulation {
             ry: entity.position.ry(),
             radius,
         };
-        self.fog.alliances = self.house_alliances.clone();
         // A normal scenario constructs its viewer Houses before Technos.
         self.fog
             .by_owner
@@ -244,6 +255,7 @@ impl Simulation {
             .collect();
         vision::publish_gap_generator_event(
             &mut self.fog,
+            &self.house_alliances,
             viewer,
             source,
             active,
@@ -252,9 +264,10 @@ impl Simulation {
         );
     }
 
-    /// Techno6F6AC0 calls ordinary release, then6FB470, before Object Conceal.
+    /// Techno6F6AC0 calls6FB470 before Object Conceal; DisableStuff4524E9
+    /// invokes the same removal immediately, independently of operational6C8.
     /// Removal has no operational check and leaves cached26C/Building6C8 alone.
-    pub(super) fn remove_building_gap_before_limbo(&mut self, id: u64) {
+    pub(crate) fn remove_building_gap(&mut self, id: u64) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -294,19 +307,7 @@ impl Simulation {
         if entity.category() != EntityCategory::Structure {
             return;
         }
-        self.fog.alliances = self.house_alliances.clone();
-        let config = self.sight_reveal_config(rules);
-        let heights = self.sight_height_grid(&config);
-        let ability = config.sight_ability(entity, &self.interner, rules);
-        vision::reveal_entity_vision(
-            &mut self.fog,
-            entity,
-            &config,
-            heights.levels(),
-            self.resolved_terrain.as_ref(),
-            ability,
-            &self.interner,
-        );
+        self.update_object_sight_with_context(id, 0, None, super::UninitContext::new(rules, None));
     }
 
     /// The live4ADEE0/4ADCD0 bracket visits gap candidates even if they had no

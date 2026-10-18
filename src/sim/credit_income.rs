@@ -17,10 +17,10 @@
 
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::entity_store::EntityStore;
 use crate::sim::intern::InternedId;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::mission::MissionType;
+use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
 
@@ -85,7 +85,7 @@ impl Drain {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Drain {
     pub(crate) fn set_target_for_test(&mut self, target: Option<u64>) {
         self.target = target;
@@ -109,7 +109,7 @@ fn produce_cash_fires(timer: CdTimer, frame: u32) -> bool {
 
 /// [`Economy::add_credits`](crate::sim::economy::Economy::add_credits) on
 /// `owner`'s wallet (`HouseClass::Add_Credits @ 0x004F9950`).
-pub(crate) fn add_credits(sim: &mut Simulation, owner: InternedId, amount: i32) {
+pub fn add_credits(sim: &mut Simulation, owner: InternedId, amount: i32) {
     if let Some(house) = sim.houses.get_mut(&owner) {
         house.economy.add_credits(amount);
     }
@@ -158,7 +158,7 @@ pub(crate) fn produce_cash_on_owner_change(
     if entity.category() != EntityCategory::Structure {
         return;
     }
-    let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
         return;
     };
     let old_passive = sim
@@ -217,7 +217,7 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
         return;
     }
     let owner = entity.owner();
-    let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
         return;
     };
     let amount = obj.produce_cash_amount;
@@ -246,29 +246,6 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
 // Floating Disc money drain
 // ---------------------------------------------------------------------------
 
-/// `MapClass::Look_up_building_in_cell`-equivalent for the drain link: the
-/// live structure whose foundation covers `(rx, ry)`.
-pub(crate) fn building_at_cell(sim: &Simulation, rx: u16, ry: u16) -> Option<u64> {
-    building_at_cell_in_store(&sim.substrate.entities, rx, ry)
-}
-
-/// [`building_at_cell`] over a bare entity store (the combat host holds no
-/// `Simulation` while it applies fire emissions).
-/// Serves `CellClass::Look_up_building_in_cell @ 0x0047C520` (the first Building
-/// on the cell's `+0xE4` list) with a foundation test over each live structure.
-pub(crate) fn building_at_cell_in_store(entities: &EntityStore, rx: u16, ry: u16) -> Option<u64> {
-    entities.values().find_map(|entity| {
-        if entity.category() != EntityCategory::Structure || entity.death.is_dying() {
-            return None;
-        }
-        let (width, height) =
-            crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
-        let (bx, by) = (entity.position.rx(), entity.position.ry());
-        (rx >= bx && rx < bx.saturating_add(width) && ry >= by && ry < by.saturating_add(height))
-            .then_some(entity.stable_id())
-    })
-}
-
 /// `0x0070FD70` (DB label `BuildingClass__EnterTransport` is a misnomer; the
 /// sole caller is `TechnoClass::Fire_At @ 0x006FDF8C` on the `DrainWeapon`
 /// arm): when the building in the drainer's own cell is the target, set
@@ -289,7 +266,13 @@ pub(crate) fn install_drain_link(sim: &mut Simulation, drainer_id: u64, victim_i
     else {
         return false;
     };
-    if building_at_cell_in_store(&sim.substrate.entities, rx, ry) != Some(victim_id) {
+    // 70FD8D: first ground Building, before any reciprocal-link writes.
+    if sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(rx, ry, MovementLayer::Ground)
+        != Some(victim_id)
+    {
         return false;
     }
     if let Some(victim) = sim.substrate.entities.get_mut(victim_id) {
@@ -404,8 +387,9 @@ pub(crate) fn drain_common_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
     let type_ref = entity.type_ref();
 
     if let Some(drainer_id) = draining_me
-        && rules
-            .object(sim.interner.resolve(type_ref))
+        && sim
+            .interner
+            .object_type(type_ref, rules)
             .is_some_and(|obj| obj.resource_destination)
     {
         let delay = rules.general.drain_money_frame_delay;
@@ -461,7 +445,12 @@ pub(crate) fn drain_unit_ai_step(sim: &mut Simulation, stable_id: u64) {
     if (sim.session.binary_frame as i32).wrapping_rem(16) != 2 {
         return;
     }
-    if building_at_cell(sim, rx, ry) != Some(target) {
+    if sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(rx, ry, MovementLayer::Ground)
+        != Some(target)
+    {
         stop_drain(sim, stable_id);
     }
 }
@@ -482,6 +471,10 @@ mod tests {
     /// first Attack dispatch drops the target on the fog-visibility retarget
     /// (`combat::resolve_attacker_fire`) before any shot is resolved.
     fn rules() -> RuleSet {
+        rules_with_refinery_foundation("2x2")
+    }
+
+    fn rules_with_refinery_foundation(foundation: &str) -> RuleSet {
         RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(
             "[General]\nDrainMoneyFrameDelay=30\nDrainMoneyAmount=30\n\n\
              [InfantryTypes]\n[AircraftTypes]\n\
@@ -502,7 +495,7 @@ mod tests {
              DrainWeapon=yes\nOmniFire=yes\n\n\
              [DiskWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\n\
              [AntiB]\nVerses=0%,0%,0%,0%,0%,0%,100%,100%,100%,100%,100%\n",
-        ), &IniFile::from_str("[CAOILD]\nFoundation=2x2\n[CAOILDP]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n[NAREFN]\nFoundation=2x2\n"))
+        ), &IniFile::from_str(&format!("[CAOILD]\nFoundation=2x2\n[CAOILDP]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n[NAREFN]\nFoundation={foundation}\n")))
         .expect("credit-income test rules parse")
     }
 
@@ -557,6 +550,80 @@ mod tests {
 
     fn credits(sim: &Simulation, owner: InternedId) -> i32 {
         sim.houses[&owner].economy.credits()
+    }
+
+    /// Original 70FD8D/47C520 queries the actual ground list, not the enclosing
+    /// rectangle. Explicit authored ART selects the native special foundation;
+    /// stock GAREFN/NAREFN instead use rectangular 4x3 foundations.
+    #[test]
+    fn cell_building_query_disc_refuses_an_authored_refinery_foundation_hole() {
+        let rules = rules_with_refinery_foundation("3x3Refinery");
+        let mut sim = Simulation::new();
+        let refinery = sim
+            .spawn_object("NAREFN", "Americans", 20, 20, 0, &rules)
+            .unwrap();
+        let disc = sim
+            .spawn_object("DISK", "YuriCountry", 22, 21, 0, &rules)
+            .unwrap();
+        assert!(!install_drain_link(&mut sim, disc, refinery));
+        assert_eq!(sim.entities().get(disc).unwrap().drain.target(), None);
+        assert_eq!(
+            sim.entities().get(refinery).unwrap().drain.draining_me(),
+            None
+        );
+    }
+
+    /// Original 47C520 has no dying predicate; Mark removal, not death state,
+    /// changes the query result. Exercise both install and the existing signed
+    /// frame%16==2 recheck through the drain owner, with explicit lifetime priors.
+    #[test]
+    fn cell_building_query_disc_follows_marked_lifetime_and_recheck_phase() {
+        let rules = rules();
+        let mut sim = Simulation::new();
+        let refinery = sim
+            .spawn_object("NAREFN", "Americans", 20, 20, 0, &rules)
+            .unwrap();
+        let disc = sim
+            .spawn_object("DISK", "YuriCountry", 21, 21, 0, &rules)
+            .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(refinery)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
+        assert!(
+            install_drain_link(&mut sim, disc, refinery),
+            "still on the ground list"
+        );
+        sim.session.binary_frame = 2;
+        drain_unit_ai_step(&mut sim, disc);
+        assert_eq!(
+            sim.entities().get(disc).unwrap().drain.target(),
+            Some(refinery)
+        );
+        assert!(sim.unmark_entity_remove(
+            refinery,
+            crate::sim::world::UninitContext::with_rules(&rules)
+        ));
+        sim.session.binary_frame = 17;
+        drain_unit_ai_step(&mut sim, disc);
+        assert_eq!(
+            sim.entities().get(disc).unwrap().drain.target(),
+            Some(refinery),
+            "not a recheck frame"
+        );
+        sim.session.binary_frame = 18;
+        drain_unit_ai_step(&mut sim, disc);
+        assert_eq!(sim.entities().get(disc).unwrap().drain.target(), None);
+        assert_eq!(
+            sim.entities().get(refinery).unwrap().drain.draining_me(),
+            None
+        );
+        assert!(
+            !install_drain_link(&mut sim, disc, refinery),
+            "stored but unlisted"
+        );
     }
 
     /// §2.13: capture from a `MultiplayPassive` house grants
@@ -763,7 +830,11 @@ mod tests {
         let disk = sim
             .spawn_object("DISK", "YuriCountry", 21, 21, 0, &rules)
             .expect("disc spawns");
-        assert_eq!(building_at_cell(&sim, 21, 21), Some(refinery));
+        assert_eq!(
+            sim.occupancy()
+                .first_building_on_layer(21, 21, MovementLayer::Ground),
+            Some(refinery)
+        );
         assert!(install_drain_link(&mut sim, disk, refinery));
         assert_eq!(
             sim.substrate.entities.get(disk).unwrap().drain.target,

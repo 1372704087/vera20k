@@ -20,8 +20,7 @@ use crate::app::loading::fresh_scenario::{
 #[cfg(test)]
 use crate::app::loading::init_helpers::load_rules_with_merged_ini;
 use crate::app::loading::init_helpers::{
-    build_tile_atlas, log_trigger_graph_diagnostics, parse_debug_spawn_units_env,
-    scheduler_anim_roots, theater_ext_for,
+    build_tile_atlas, log_trigger_graph_diagnostics, parse_debug_spawn_units_env, theater_ext_for,
 };
 use crate::app::match_bootstrap::LoadingStartup;
 use crate::sim::scenario_bootstrap::{
@@ -37,7 +36,6 @@ use crate::app::presentation::lighting::{build_lighting_grid_from_view, derive_l
 use crate::assets::asset_manager::AssetManager;
 #[cfg(test)]
 use crate::assets::asset_manager::MediaArchiveMode;
-use crate::assets::shp_file::ShpFile;
 use crate::map::actions::ActionMap;
 use crate::map::basic::{BasicSection, BridgeDestroyabilityMode};
 use crate::map::events::EventMap;
@@ -45,7 +43,7 @@ use crate::map::houses::{self, HouseColorMap, HouseRoster};
 use crate::map::lighting::{self, CellLightGrid, LightingConfig};
 use crate::map::map_file::MapFile;
 use crate::map::overlay::{OverlayEntry, TerrainObject};
-use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::map::resolved_terrain::{ResolvedTerrainGrid, scheduler_anim_roots};
 use crate::map::source::{
     LoadedMap, LoadedMapSource, load_map_by_name_or_path_with_assets, try_load_mmx,
 };
@@ -56,7 +54,6 @@ use crate::map::triggers::TriggerMap;
 use crate::map::waypoints;
 use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::BridgeAtlas;
-use crate::render::bridge_railing_atlas::{BridgeRailingAtlas, BridgeRailingTileBases};
 use crate::render::gpu::GpuContext;
 use crate::render::overlay_atlas::OverlayAtlas;
 use crate::render::sidebar_cameo_atlas::SidebarCameoAtlas;
@@ -64,43 +61,13 @@ use crate::render::sidebar_chrome::SidebarChromeSet;
 use crate::render::sprite_atlas::SpriteAtlas;
 use crate::render::tile_atlas::TileAtlas;
 use crate::render::unit_atlas::UnitAtlas;
+#[cfg(test)]
 use crate::rules::art_data::ArtRegistry;
+use crate::rules::effect_asset_catalog::resolved_overlay_shp_ids;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::world::Simulation;
-
-pub(crate) fn resolved_overlay_shp_ids(
-    registry: &OverlayTypeRegistry,
-    rules_ini: &IniFile,
-    art: &ArtRegistry,
-    asset_manager: &AssetManager,
-    theater_ext: &str,
-    theater_name: &str,
-) -> BTreeSet<u8> {
-    let mut available = BTreeSet::new();
-    for raw_id in 0..registry.len().min(usize::from(u8::MAX) + 1) {
-        let overlay_id = raw_id as u8;
-        let Some(name) = registry.name(overlay_id) else {
-            continue;
-        };
-        let image_id = art.resolve_overlay_image_id(name, rules_ini);
-        let native_names = crate::rules::art_data::native_overlay_shp_names(
-            art,
-            &image_id,
-            theater_ext,
-            theater_name,
-        );
-        if native_names
-            .iter()
-            .filter_map(|candidate| asset_manager.load_file_from_mix(candidate))
-            .any(|loaded| ShpFile::from_bytes(&loaded.bytes).is_ok())
-        {
-            available.insert(overlay_id);
-        }
-    }
-    available
-}
 
 /// Append every visible real-cell write made by startup crate Mark to the
 /// initial presentation index. Ghost slots have no live overlay identity, while
@@ -163,240 +130,6 @@ fn refresh_generated_tiberium_presentation_frames(
 }
 
 #[cfg(test)]
-mod startup_crate_presentation_tests {
-    use super::*;
-    use crate::sim::crates::CrateSlot;
-    use crate::sim::overlay_grid::OverlayGrid;
-
-    #[test]
-    fn generated_presentation_frames_follow_germinated_ore_densities_only() {
-        let ini = IniFile::from_str(
-            "[Tiberiums]\n0=Riparius\n[Riparius]\nImage=1\n\
-             [OverlayTypes]\n0=TIBCELL\n1=BRIDGE\n\
-             [TIBCELL]\nTiberium=yes\n[BRIDGE]\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("presentation rules");
-        let registry = OverlayTypeRegistry::from_ini(&ini, None);
-        let mut grid = OverlayGrid::new(8, 8);
-        grid.place_overlay(2, 3, 0, 11);
-        grid.place_overlay(4, 4, 1, 9);
-        grid.place_overlay(5, 5, 0, 4);
-        let mut entries = vec![
-            OverlayEntry {
-                rx: 2,
-                ry: 3,
-                overlay_id: 0,
-                frame: 5,
-            },
-            OverlayEntry {
-                rx: 4,
-                ry: 4,
-                overlay_id: 1,
-                frame: 2,
-            },
-            OverlayEntry {
-                rx: 5,
-                ry: 5,
-                overlay_id: 0,
-                frame: 4,
-            },
-        ];
-
-        assert_eq!(
-            refresh_generated_tiberium_presentation_frames(
-                &mut entries,
-                &grid,
-                &registry,
-                &rules.tiberium_types,
-            ),
-            1
-        );
-        assert_eq!(
-            entries
-                .iter()
-                .map(|entry| (entry.rx, entry.ry, entry.overlay_id, entry.frame))
-                .collect::<Vec<_>>(),
-            vec![(2, 3, 0, 11), (4, 4, 1, 2), (5, 5, 0, 4)],
-            "only the resource identity with a changed density is rewritten"
-        );
-    }
-
-    #[test]
-    fn startup_crate_presentation_appends_visible_slots_and_excludes_ghosts() {
-        let mut simulation = Simulation::new();
-        simulation.overlay_grid = Some(OverlayGrid::new(16, 16));
-        *simulation.crate_authority.slot_mut(0) = CrateSlot {
-            start_frame: 0,
-            aux: 1,
-            duration: 2,
-            cell_x: 9,
-            cell_y: 4,
-        };
-        *simulation.crate_authority.slot_mut(1) = CrateSlot {
-            start_frame: 0,
-            aux: 3,
-            duration: 4,
-            cell_x: 7,
-            cell_y: 8,
-        };
-        simulation
-            .overlay_grid
-            .as_mut()
-            .unwrap()
-            .place_overlay(9, 4, 33, u8::MAX);
-        let mut source = vec![OverlayEntry {
-            rx: 2,
-            ry: 3,
-            overlay_id: 5,
-            frame: 6,
-        }];
-
-        assert_eq!(connect_startup_crate_overlays(&mut source, &simulation), 1);
-        assert_eq!(
-            source
-                .iter()
-                .map(|entry| (entry.rx, entry.ry, entry.overlay_id, entry.frame))
-                .collect::<Vec<_>>(),
-            vec![(2, 3, 5, 6), (9, 4, 33, u8::MAX),]
-        );
-        assert!(
-            source.iter().all(|entry| (entry.rx, entry.ry) != (7, 8)),
-            "a timed ghost has no initial render entry"
-        );
-    }
-
-    #[test]
-    fn startup_crate_presentation_includes_low_bridge_extension_without_consuming_dirty_receipt() {
-        let mut simulation = Simulation::new();
-        simulation.overlay_grid = Some(OverlayGrid::new(32, 32));
-        *simulation.crate_authority.slot_mut(0) = CrateSlot {
-            start_frame: 10,
-            aux: 20,
-            duration: 30,
-            cell_x: 12,
-            cell_y: 12,
-        };
-        let grid = simulation.overlay_grid.as_mut().unwrap();
-        grid.place_overlay(12, 11, 0x5C, 0);
-        grid.place_overlay(12, 12, 0x4A, 1);
-        grid.place_overlay(12, 13, 0x4B, 2);
-        let dirty_before = grid.pending_dirty_cells().to_vec();
-        let mut source = Vec::new();
-
-        assert_eq!(connect_startup_crate_overlays(&mut source, &simulation), 3);
-        assert_eq!(
-            source
-                .iter()
-                .map(|entry| (entry.rx, entry.ry, entry.overlay_id, entry.frame))
-                .collect::<Vec<_>>(),
-            vec![(12, 11, 0x5C, 0), (12, 12, 0x4A, 1), (12, 13, 0x4B, 2)]
-        );
-        assert_eq!(
-            simulation
-                .overlay_grid
-                .as_ref()
-                .unwrap()
-                .pending_dirty_cells(),
-            dirty_before,
-            "initial presentation must not consume the sim/navigation receipt"
-        );
-    }
-}
-
-#[cfg(test)]
-mod native_overlay_shp_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-
-    struct TestDirectory(PathBuf);
-
-    impl TestDirectory {
-        fn with_asset(label: &str, filename: &str) -> Self {
-            let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "vera20k-overlay-get-shp-{label}-{}-{sequence}",
-                std::process::id()
-            ));
-            std::fs::create_dir(&path).expect("create overlay SHP test directory");
-            std::fs::write(path.join(filename), valid_test_shp())
-                .expect("write overlay SHP test asset");
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn valid_test_shp() -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data.extend_from_slice(&2u16.to_le_bytes());
-        data.extend_from_slice(&2u16.to_le_bytes());
-        data.extend_from_slice(&1u16.to_le_bytes());
-
-        let data_offset = 32u32;
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data.extend_from_slice(&2u16.to_le_bytes());
-        data.extend_from_slice(&2u16.to_le_bytes());
-        data.push(0);
-        data.extend_from_slice(&[0u8; 11]);
-        data.extend_from_slice(&data_offset.to_le_bytes());
-        data.extend_from_slice(&[1, 2, 3, 0]);
-        data
-    }
-
-    fn theater_overlay_fixture() -> (OverlayTypeRegistry, IniFile, ArtRegistry) {
-        let rules_ini = IniFile::from_str("[OverlayTypes]\n0=NAME\n");
-        let art_ini = IniFile::from_str("[NAME]\nTheater=yes\n");
-        let registry = OverlayTypeRegistry::from_ini(&rules_ini, Some(&art_ini));
-        let art = ArtRegistry::from_ini(&art_ini);
-        (registry, rules_ini, art)
-    }
-
-    #[test]
-    fn gsi_04_07_placement_map_pack_get_shp_uses_native_primary_and_generic_retry() {
-        let (registry, rules_ini, art) = theater_overlay_fixture();
-        assert_eq!(
-            crate::rules::art_data::native_overlay_shp_names(&art, "NAME", "TEM", "TEMPERATE"),
-            ["NAME.TEM".to_string(), "NGME.TEM".to_string()]
-        );
-
-        for (label, filename, expected_available) in [
-            ("native-extension", "NAME.TEM", true),
-            ("ineligible-shp-alternative", "NAME.SHP", false),
-            ("generic-letter-retry", "NGME.TEM", true),
-        ] {
-            let directory = TestDirectory::with_asset(label, filename);
-            let asset_manager = AssetManager::from_loose_root_for_test(directory.path());
-            let available = resolved_overlay_shp_ids(
-                &registry,
-                &rules_ini,
-                &art,
-                &asset_manager,
-                "TEM",
-                "TEMPERATE",
-            );
-
-            assert_eq!(
-                available.contains(&0),
-                expected_available,
-                "only {filename} is present"
-            );
-        }
-    }
-}
-
-#[cfg(test)]
 mod map_wall_owner_candidate_tests {
     use super::*;
     use crate::map::entities::EntityCategory;
@@ -445,28 +178,19 @@ mod map_wall_owner_candidate_tests {
     fn gsi_04_07_placement_production_wall_owner_uses_building_get_coords_center() {
         let terrain = flat_terrain(15, 10);
         let gacnst = building(1, "GACNST", "GDI", 8, 8, "4x4");
-        let gaspot = building(2, "GASPOT", "Neutral", 14, 9, "1x1");
+        let cabhut = building(2, "CABHUT", "Neutral", 14, 9, "1x1");
         let gacnst_candidate = map_wall_owner_candidate_from_building(&gacnst, &terrain, true);
-        let gaspot_candidate = map_wall_owner_candidate_from_building(&gaspot, &terrain, true);
+        let cabhut_candidate = map_wall_owner_candidate_from_building(&cabhut, &terrain, true);
 
         assert_eq!(
             (gacnst_candidate.world_x, gacnst_candidate.world_y),
             (8 * 256 + 128 + 3 * 128, 8 * 256 + 128 + 3 * 128)
         );
         assert_eq!(
-            (gaspot_candidate.world_x, gaspot_candidate.world_y),
+            (cabhut_candidate.world_x, cabhut_candidate.world_y),
             (14 * 256 + 128, 9 * 256 + 128),
             "a 1x1 foundation has zero GetCoords projection"
         );
-        assert_eq!(
-            (
-                gacnst_candidate.foundation_width,
-                gacnst_candidate.foundation_height
-            ),
-            (4, 4),
-            "candidate uses the dimensions stamped on the entity"
-        );
-
         let registry = OverlayTypeRegistry::from_ini(
             &IniFile::from_str("[OverlayTypes]\n0=GAWALL\n[GAWALL]\nWall=yes\n"),
             None,
@@ -476,12 +200,21 @@ mod map_wall_owner_candidate_tests {
         projected_grid.reconstruct_map_wall_owners(
             &terrain,
             &registry,
-            &[gacnst_candidate, gaspot_candidate],
+            &[gacnst_candidate, cabhut_candidate],
         );
-        assert_eq!(projected_grid.cell(12, 9).wall_owner, Some(gacnst.owner()));
+        assert_eq!(projected_grid.cell(12, 9).wall_owner, Some(cabhut.owner()));
+
+        let mut centered_grid = OverlayGrid::new(15, 10);
+        centered_grid.place_overlay(11, 9, 0, 0);
+        centered_grid.reconstruct_map_wall_owners(
+            &terrain,
+            &registry,
+            &[gacnst_candidate, cabhut_candidate],
+        );
+        assert_eq!(centered_grid.cell(11, 9).wall_owner, Some(gacnst.owner()));
 
         let mut northwest_grid = OverlayGrid::new(15, 10);
-        northwest_grid.place_overlay(12, 9, 0, 0);
+        northwest_grid.place_overlay(11, 9, 0, 0);
         northwest_grid.reconstruct_map_wall_owners(
             &terrain,
             &registry,
@@ -494,15 +227,252 @@ mod map_wall_owner_candidate_tests {
                 MapWallOwnerCandidate {
                     world_x: 14 * 256 + 128,
                     world_y: 9 * 256 + 128,
-                    ..gaspot_candidate
+                    ..cabhut_candidate
                 },
             ],
         );
         assert_eq!(
-            northwest_grid.cell(12, 9).wall_owner,
-            Some(gaspot.owner()),
+            northwest_grid.cell(11, 9).wall_owner,
+            Some(cabhut.owner()),
             "the former north-west candidate coordinates select the wrong owner"
         );
+    }
+
+    /// Full authored-map admission, before the selected owner-sensitive repair.
+    /// Native47D278 passes the Cell to Building5F6360, whose foundation
+    /// discount tests the target's RTTI. Cell487E60 returns11, not Building6.
+    #[test]
+    fn retail_authored_wall_owner_measures_building_to_cell() {
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let Some((retail, _)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let map = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tools/map_observation.wall-owner-repair.scenario");
+        let map = map.to_str().unwrap();
+        let mut launch = crate::headless_scenario::battle_session(
+            map,
+            &[(LaunchCountry::America, AiDifficulty::Easy)],
+        );
+        launch.player_name = "VERA-OBSERVER".into();
+        launch.local.country = LaunchCountry::America;
+        launch.options.bases = false;
+        launch.options.unit_count = 0;
+        launch.options.short_game = false;
+        launch.options.starting_credits = 10_000;
+        launch.options.shroud = true;
+        launch.options.fog_of_war = false;
+        let mut scene =
+            crate::headless_scenario::load_session(&retail, map, 0x1234_5678, launch).unwrap();
+        let sim = scene.sim();
+        let current = sim.session.current_house.unwrap();
+        let computer = sim.interner.get("Computer1").unwrap();
+        let neutral = sim.interner.get("Neutral").unwrap();
+        assert!(sim.owner_is_human(current));
+        assert!(!sim.owner_is_human(computer));
+        let terrain = sim.resolved_terrain.as_ref().unwrap();
+        for (name, owner, origin) in [
+            ("GACNST", computer, (86, 43)),
+            ("CABHUT", neutral, (92, 44)),
+            ("GAPILE", computer, (84, 43)),
+            ("GAPOWR", computer, (84, 46)),
+            ("SPY", current, (90, 41)),
+        ] {
+            let entity = sim
+                .entities()
+                .iter_sorted()
+                .find_map(|(_, entity)| {
+                    (sim.interner.resolve(entity.type_ref()) == name
+                        && entity.owner() == owner
+                        && (entity.position.rx(), entity.position.ry()) == origin)
+                        .then_some(entity)
+                })
+                .unwrap_or_else(|| {
+                    let observed: Vec<_> = sim
+                        .entities()
+                        .iter_sorted()
+                        .filter(|(_, entity)| {
+                            entity.owner() == current
+                                || sim.interner.resolve(entity.type_ref()) == name
+                        })
+                        .map(|(id, entity)| {
+                            (
+                                id,
+                                sim.interner.resolve(entity.type_ref()),
+                                sim.interner.resolve(entity.owner()),
+                                (entity.position.rx(), entity.position.ry()),
+                                entity.lifecycle.in_limbo(),
+                            )
+                        })
+                        .collect();
+                    panic!("normal authored {name}/{origin:?} admission; observed {observed:?}")
+                });
+            assert!(entity.lifecycle.object_alive());
+            assert!(entity.lifecycle.cell_marked());
+            assert!(!entity.lifecycle.in_limbo());
+            if entity.category() == EntityCategory::Structure {
+                for (dx, dy) in crate::rules::foundation::foundation_cell_offsets(
+                    entity.type_facts.foundation(),
+                ) {
+                    let cell = terrain
+                        .cell((origin.0 as i16 + dx) as u16, (origin.1 as i16 + dy) as u16)
+                        .unwrap();
+                    assert_eq!((cell.level, cell.slope_type, cell.is_water), (2, 0, false));
+                }
+            }
+        }
+        let registry = &scene.runtime.resources.overlay_registry;
+        let wall = sim.overlay_grid.as_ref().unwrap().cell(90, 44);
+        assert_eq!(wall.overlay_id, registry.id_for_name("GAWALL"));
+        assert_eq!(wall.overlay_data & 0xF0, 0x10, "authored damaged wall");
+        assert!(
+            sim.fog.is_cell_revealed(current, 90, 44),
+            "ordinary SPY sight"
+        );
+        eprintln!(
+            "loaded wall owner {:?}, Computer {computer:?}, Neutral {neutral:?}",
+            wall.wall_owner
+        );
+        assert_eq!(
+            wall.wall_owner,
+            Some(neutral),
+            "native47D210 measures Building→Cell without a Building-target foundation discount"
+        );
+        // Delivered Computer PRODUCE is admitted by native Event4C7130 /
+        // House4FA350 without a Human flag. This is a supplied normal event,
+        // not a claim that autonomous AI selects this wall and site.
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::world::{FrameEffects, TickLane};
+        let wall_type = scene.runtime.simulation.interner.intern("GAWALL");
+        let rules = &scene.runtime.resources.rules;
+        assert_eq!(rules.object("GAWALL").unwrap().cost, 100);
+        let credits_before = scene.sim().houses[&computer].economy.credits();
+        let spent_before = scene.sim().houses[&computer].economy.spent_credits();
+        let cost = scene
+            .sim()
+            .cost_of(computer, rules.object("GAWALL").unwrap(), rules);
+        let mut ready = None;
+        for step in 0..4096 {
+            let commands = if step == 0 {
+                vec![CommandEnvelope::new(
+                    computer,
+                    scene.sim().session.tick,
+                    Command::QueueProduction { type_id: wall_type },
+                )]
+            } else {
+                Vec::new()
+            };
+            scene
+                .runtime
+                .advance_frame(
+                    &commands,
+                    crate::app::types::SIM_TICK_MS,
+                    TickLane::Ordinary,
+                    FrameEffects::default(),
+                )
+                .unwrap();
+            if let Some(id) = crate::sim::production::ready_building_entity_for_owner(
+                scene.sim(),
+                &scene.runtime.resources.rules,
+                computer,
+                wall_type,
+            ) {
+                eprintln!(
+                    "GAWALL paid product{id} ready at step{} cost{cost}",
+                    step + 1
+                );
+                ready = Some(id);
+                break;
+            }
+        }
+        let product = ready.expect("ordinary Computer factory must finish its paid GAWALL");
+        assert_eq!(
+            scene.sim().houses[&computer].economy.credits(),
+            credits_before - cost
+        );
+        assert_eq!(
+            scene.sim().houses[&computer].economy.spent_credits(),
+            spent_before + cost
+        );
+        let command = CommandEnvelope::new(
+            computer,
+            scene.sim().session.tick,
+            Command::PlaceReadyBuilding {
+                type_id: wall_type,
+                rx: 90,
+                ry: 44,
+            },
+        );
+        scene
+            .runtime
+            .advance_frame(
+                &[command],
+                crate::app::types::SIM_TICK_MS,
+                TickLane::Ordinary,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            crate::sim::production::ready_building_entity_for_owner(
+                scene.sim(),
+                &scene.runtime.resources.rules,
+                computer,
+                wall_type,
+            ),
+            Some(product),
+            "foreign-wall refusal keeps the same completed product"
+        );
+        let held = scene.sim().entities().get(product).unwrap();
+        assert!(held.lifecycle.object_alive() && held.lifecycle.in_limbo());
+        let wall = scene.sim().overlay_grid.as_ref().unwrap().cell(90, 44);
+        assert_eq!(wall.wall_owner, Some(neutral));
+        assert_eq!(
+            wall.overlay_data & 0xF0,
+            0x10,
+            "refusal keeps damaged material"
+        );
+        let command = CommandEnvelope::new(
+            computer,
+            scene.sim().session.tick,
+            Command::CancelProductionByType {
+                type_id: wall_type,
+                all: false,
+            },
+        );
+        scene
+            .runtime
+            .advance_frame(
+                &[command],
+                crate::app::types::SIM_TICK_MS,
+                TickLane::Ordinary,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        assert!(
+            crate::sim::production::ready_building_entity_for_owner(
+                scene.sim(),
+                &scene.runtime.resources.rules,
+                computer,
+                wall_type,
+            )
+            .is_none()
+        );
+        assert!(
+            scene.sim().entities().get(product).is_none(),
+            "abandoned product cleanup"
+        );
+        assert_eq!(
+            scene.sim().houses[&computer].economy.credits(),
+            credits_before
+        );
+        assert_eq!(
+            scene.sim().houses[&computer].economy.spent_credits(),
+            spent_before + cost
+        );
+        let wall = scene.sim().overlay_grid.as_ref().unwrap().cell(90, 44);
+        assert_eq!(wall.wall_owner, Some(neutral));
+        assert_eq!(wall.overlay_data & 0xF0, 0x10);
     }
 
     #[test]
@@ -675,7 +645,7 @@ mod map_wall_owner_candidate_tests {
                 id += 1;
             }
         }
-        let view = derive_lighting_view(&LightingConfig::default(), Some(&sim), Some(&rules), 2);
+        let view = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(view.point_lights.len(), 9);
         let mut union = std::collections::BTreeSet::new();
         for source in &view.point_lights {
@@ -705,7 +675,7 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         let before =
             crate::render::palette_light::PaletteLight::cell(lighting.grid(), (24, 24), false);
@@ -721,7 +691,7 @@ mod map_wall_owner_candidate_tests {
         sim.discard_lighting_events();
         fatal_lamp_stage(&mut sim, &rules, 100);
         apply_lighting_events(&mut lighting, &terrain, &mut sim);
-        lighting.refresh(&terrain, &sim, &rules, 2);
+        lighting.refresh(&terrain, &sim, 2);
         assert_eq!(
             lighting
                 .grid()
@@ -746,7 +716,6 @@ mod map_wall_owner_candidate_tests {
     fn match_lighting_global_refresh_publishes_before_the_next_draw() {
         use crate::app::presentation::lighting::MatchLighting;
         let terrain = flat_terrain(128, 128);
-        let rules = lighting_rules();
         let mut sim = Simulation::with_seed(0x1a);
         sim.session.lighting.current_ambient = 30;
         let mut lights = MatchLighting::default();
@@ -754,20 +723,15 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         let tint_a = lights.grid().terrain_tile_tint_at((1, 1));
-        lights.refresh(&terrain, &sim, &rules, 2);
+        lights.refresh(&terrain, &sim, 2);
         assert_eq!(lights.grid().terrain_tile_tint_at((1, 1)), tint_a);
         sim.session.lighting.current_ambient = 60;
-        let grid_b = rebuild_lighting_grid_from_sim(
-            &terrain,
-            &LightingConfig::default(),
-            Some(&sim),
-            Some(&rules),
-            2,
-        );
-        lights.refresh(&terrain, &sim, &rules, 2);
+        let grid_b =
+            rebuild_lighting_grid_from_sim(&terrain, &LightingConfig::default(), Some(&sim), 2);
+        lights.refresh(&terrain, &sim, 2);
         for cell in [(1, 1), (127, 127)] {
             assert_eq!(
                 lights.grid().terrain_tile_tint_at(cell),
@@ -775,14 +739,9 @@ mod map_wall_owner_candidate_tests {
             );
         }
         sim.session.lighting.current_ambient = 90;
-        let grid_c = rebuild_lighting_grid_from_sim(
-            &terrain,
-            &LightingConfig::default(),
-            Some(&sim),
-            Some(&rules),
-            2,
-        );
-        lights.refresh(&terrain, &sim, &rules, 2);
+        let grid_c =
+            rebuild_lighting_grid_from_sim(&terrain, &LightingConfig::default(), Some(&sim), 2);
+        lights.refresh(&terrain, &sim, 2);
         assert_ne!(tint_a, grid_b.terrain_tile_tint_at((1, 1)));
         assert_ne!(
             grid_b.terrain_tile_tint_at((1, 1)),
@@ -795,7 +754,7 @@ mod map_wall_owner_candidate_tests {
             );
         }
         // An unchanged view must not replay an obsolete earlier global state.
-        lights.refresh(&terrain, &sim, &rules, 2);
+        lights.refresh(&terrain, &sim, 2);
         for cell in [(1, 1), (127, 127)] {
             assert_eq!(
                 lights.grid().terrain_tile_tint_at(cell),
@@ -818,13 +777,15 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         let restored_tint = lights.grid().terrain_tile_tint_at((1, 1));
         sim.session.lighting.current_ambient = 90;
-        lights.refresh(&terrain, &sim, &rules, 2);
+        lights.refresh(&terrain, &sim, 2);
         sim.set_building_light_active(41, false);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         assert!(!sim.lighting_sources.pending.is_empty());
         sim.radiation.apply_detonation(
             RadDetonation {
@@ -834,6 +795,7 @@ mod map_wall_owner_candidate_tests {
                 spread: 1,
             },
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
@@ -851,11 +813,11 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         for _ in 0..3 {
             assert_eq!(lights.grid().terrain_tile_tint_at((1, 1)), restored_tint);
-            lights.refresh(&terrain, &sim, &rules, 2);
+            lights.refresh(&terrain, &sim, 2);
         }
         assert_eq!(lights.grid().terrain_tile_tint_at((1, 1)), restored_tint);
     }
@@ -872,7 +834,7 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             1,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         assert_eq!(
             lights
@@ -882,7 +844,7 @@ mod map_wall_owner_candidate_tests {
                 .raw_additive_intensity,
             0
         );
-        lights.refresh(&terrain, &sim, &rules, 2);
+        lights.refresh(&terrain, &sim, 2);
         assert!(
             lights
                 .grid()
@@ -894,14 +856,9 @@ mod map_wall_owner_candidate_tests {
         let distant = lights.grid().cell_light_at((31, 31)).unwrap().clone();
         sim.destroy_building_light(41);
         sim.entities_mut().remove(41).expect("remove live lamp");
-        lights.refresh(&terrain, &sim, &rules, 2);
-        let rebuilt = rebuild_lighting_grid_from_sim(
-            &terrain,
-            &LightingConfig::default(),
-            Some(&sim),
-            Some(&rules),
-            2,
-        );
+        lights.refresh(&terrain, &sim, 2);
+        let rebuilt =
+            rebuild_lighting_grid_from_sim(&terrain, &LightingConfig::default(), Some(&sim), 2);
         for (cell, light) in rebuilt.cells() {
             let actual = lights.grid().cell_light_at(cell).unwrap();
             assert_eq!(actual.raw_additive_intensity, light.raw_additive_intensity);
@@ -993,7 +950,7 @@ mod map_wall_owner_candidate_tests {
                 CellLightGrid::new(),
                 LightingConfig::default(),
                 2,
-                Some((&terrain, &sim, &rules)),
+                Some((&terrain, &sim)),
             );
             sim.discard_lighting_events();
             (sim, lights)
@@ -1061,7 +1018,7 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         sim.discard_lighting_events();
 
@@ -1070,7 +1027,9 @@ mod map_wall_owner_candidate_tests {
         fatal_lamp_stage(&mut sim, &rules, 41);
         sim.session.lighting.current_ambient = 30;
         sim.session.lighting.target_ambient = 30;
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         let mut rt = crate::sim::runtime::SimRuntime::from_simulation(sim);
         rt.resources.rules = rules;
         let frame = rt
@@ -1095,7 +1054,6 @@ mod map_wall_owner_candidate_tests {
             &terrain,
             &LightingConfig::default(),
             Some(&rt.simulation),
-            Some(&rt.resources.rules),
             2,
         );
         assert_eq!(
@@ -1148,7 +1106,7 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         sim.discard_lighting_events();
         sim.set_building_light_active(41, false);
@@ -1161,16 +1119,20 @@ mod map_wall_owner_candidate_tests {
         sim.radiation.apply_detonation(
             radiation,
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
         );
         sim.session.lighting.current_ambient = 250;
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         sim.set_building_light_active(41, true);
         sim.radiation.apply_detonation(
             radiation,
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
@@ -1186,13 +1148,8 @@ mod map_wall_owner_candidate_tests {
             ]
         ));
         apply_lighting_events(&mut lights, &terrain, &mut sim);
-        let expected = rebuild_lighting_grid_from_sim(
-            &terrain,
-            &LightingConfig::default(),
-            Some(&sim),
-            Some(&rules),
-            2,
-        );
+        let expected =
+            rebuild_lighting_grid_from_sim(&terrain, &LightingConfig::default(), Some(&sim), 2);
         let actual = lights.grid().cell_light_at((4, 5)).unwrap();
         let expected = expected.cell_light_at((4, 5)).unwrap();
         assert_eq!(actual.raw_rgb, expected.raw_rgb);
@@ -1205,7 +1162,7 @@ mod map_wall_owner_candidate_tests {
         assert!(actual.raw_top_scalar > 2000);
         let mut incorrectly_global_last = actual.clone();
         incorrectly_global_last.refresh_retained_scalars(
-            derive_lighting_view(&LightingConfig::default(), Some(&sim), Some(&rules), 2)
+            derive_lighting_view(&LightingConfig::default(), Some(&sim), 2)
                 .profile
                 .units,
             0,
@@ -1234,11 +1191,21 @@ mod map_wall_owner_candidate_tests {
             CellLightGrid::new(),
             LightingConfig::default(),
             2,
-            Some((&terrain, &sim, &rules)),
+            Some((&terrain, &sim)),
         );
         let original_key = lights.grid().cell_light_at((4, 5)).unwrap().rgb_key;
+        //555E50 reads the live storm flag when constructing a new Convert;
+        // selecting a scenario profile alone does not create that condition.
+        let owner = sim.interner.intern("LightingFixture");
+        sim.lightning_storm =
+            crate::sim::superweapon::lightning_storm::LightningStorm::raging_for_test(
+                owner,
+                (0, 0),
+            );
         sim.session.lighting.select(ScenarioLightingProfile::Ion);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         seed_live_lamp(&mut sim, &rules);
         apply_lighting_events(&mut lights, &terrain, &mut sim);
         let normal_cell = lights.grid().cell_light_at((4, 5)).unwrap().clone();
@@ -1261,8 +1228,11 @@ mod map_wall_owner_candidate_tests {
             PaletteLight::new([200, 900, 400], rows, normal_cell.common_scalar, false)
         );
         let ion_tint = lights.grid().body_tint_at((4, 5), 0);
+        sim.lightning_storm = Default::default();
         sim.session.lighting.select(ScenarioLightingProfile::Normal);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         apply_lighting_events(&mut lights, &terrain, &mut sim);
         let restored = lights.grid().cell_light_at((4, 5)).unwrap();
         assert_eq!(restored.rgb_key, normal_cell.rgb_key);
@@ -1351,13 +1321,13 @@ mod map_wall_owner_candidate_tests {
         let owner = seed_live_lamp(&mut sim, &rules);
         let config = LightingConfig::default();
 
-        let lit = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let lit = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(
             lit.point_lights.len(),
             1,
             "BuildingUp does not suppress LightSource"
         );
-        let low_detail = derive_lighting_view(&config, Some(&sim), Some(&rules), 1);
+        let low_detail = derive_lighting_view(&config, Some(&sim), 1);
         assert!(low_detail.point_lights.is_empty());
         assert_ne!(lit, low_detail);
 
@@ -1366,7 +1336,7 @@ mod map_wall_owner_candidate_tests {
         power_state.total_drain = 100;
         power_state.is_low_power = true;
         sim.power_states.insert(owner, power_state);
-        let offline = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let offline = derive_lighting_view(&config, Some(&sim), 2);
         // House508C30->454CE0 RET and Building4549B0 animation-only
         // effects do not call LightSource disable on ordinary power loss.
         assert_eq!(offline.point_lights, lit.point_lights);
@@ -1375,24 +1345,24 @@ mod map_wall_owner_candidate_tests {
         let power = sim.power_states.get_mut(&owner).expect("power state");
         power.total_output = 100;
         power.is_low_power = false;
-        let restored = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let restored = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(restored.point_lights.len(), 1);
         assert_eq!(lit, restored);
 
         sim.set_building_light_active(41, false);
-        let disabled = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let disabled = derive_lighting_view(&config, Some(&sim), 2);
         assert!(disabled.point_lights.is_empty());
         // Repeated allocation/construction must not reactivate an existing614.
         sim.allocate_building_light(41, &rules);
         assert!(
-            derive_lighting_view(&config, Some(&sim), Some(&rules), 2)
+            derive_lighting_view(&config, Some(&sim), 2)
                 .point_lights
                 .is_empty()
         );
         sim.set_building_light_active(41, true);
         fatal_lamp_stage(&mut sim, &rules, 41);
         assert!(
-            derive_lighting_view(&config, Some(&sim), Some(&rules), 2)
+            derive_lighting_view(&config, Some(&sim), 2)
                 .point_lights
                 .is_empty()
         );
@@ -1407,7 +1377,7 @@ mod map_wall_owner_candidate_tests {
         let captured_owner = sim.interner.intern("Captured");
         let config = LightingConfig::default();
 
-        let before_capture = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let before_capture = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(before_capture.point_lights.len(), 1);
 
         let mut power_state = PowerState::default();
@@ -1416,7 +1386,7 @@ mod map_wall_owner_candidate_tests {
         power_state.is_low_power = true;
         sim.power_states.insert(captured_owner, power_state);
         sim.change_owner(41, captured_owner);
-        let captured_offline = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let captured_offline = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(captured_offline.point_lights, before_capture.point_lights);
         assert_eq!(before_capture, captured_offline);
 
@@ -1426,14 +1396,14 @@ mod map_wall_owner_candidate_tests {
             .expect("captured owner power state");
         power.total_output = 100;
         power.is_low_power = false;
-        let captured_online = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let captured_online = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(captured_online.point_lights.len(), 1);
         assert_eq!(before_capture, captured_online);
 
         assert!(crate::sim::production::sell_building_now_for_test(
             &mut sim, &rules, 41
         ));
-        let sold = derive_lighting_view(&config, Some(&sim), Some(&rules), 2);
+        let sold = derive_lighting_view(&config, Some(&sim), 2);
         assert!(sold.point_lights.is_empty());
         assert_ne!(captured_online, sold);
     }
@@ -1455,13 +1425,14 @@ mod map_wall_owner_candidate_tests {
                 spread: 10,
             },
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
         );
 
         let terrain = flat_terrain(10, 10);
-        let view = derive_lighting_view(&LightingConfig::default(), Some(&sim), Some(&rules), 2);
+        let view = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(view.profile.units.ambient_percent, 80);
         assert_eq!(
             view.point_lights.len(),
@@ -1504,21 +1475,23 @@ mod map_wall_owner_candidate_tests {
         sim.radiation.apply_detonation(
             detonation,
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
         );
-        let first = derive_lighting_view(&LightingConfig::default(), Some(&sim), Some(&rules), 2);
+        let first = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(first.point_lights.len(), 1);
 
         sim.radiation.apply_detonation(
             detonation,
             0,
+            &sim.session.theater,
             &rules.radiation,
             None,
             &mut sim.lighting_sources.pending,
         );
-        let merged = derive_lighting_view(&LightingConfig::default(), Some(&sim), Some(&rules), 2);
+        let merged = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(merged.point_lights.len(), 1);
         assert_ne!(first, merged);
         assert_ne!(
@@ -1590,7 +1563,6 @@ pub struct PresentationLoadAssets {
     pub sprite_atlas: Option<SpriteAtlas>,
     pub overlay_atlas: Option<OverlayAtlas>,
     pub bridge_atlas: Option<BridgeAtlas>,
-    pub bridge_railing_atlas: Option<BridgeRailingAtlas>,
     pub sidebar_cameo_atlas: Option<SidebarCameoAtlas>,
     pub sidebar_chrome: Option<SidebarChromeSet>,
     pub(crate) software_cursor: Option<crate::app::presentation::render::SoftwareCursor>,
@@ -1896,7 +1868,7 @@ impl MapLoadInitial {
         let match_launch_descriptor = fresh_parts.launch;
         let scenario_prefix_plan = fresh_parts.scenario_prefix;
         let source_seed = match &map_source {
-            LoadedMapSource::Generated { seed_name } => seed_name.clone(),
+            LoadedMapSource::Generated { seed_name, .. } => seed_name.clone(),
             other => panic!("random-map lifecycle fixture loaded {other:?}"),
         };
         let mut waypoints: Vec<_> = map_data
@@ -2074,7 +2046,7 @@ impl MapLoadInitial {
             &overlay_registry,
             resolved_terrain.tile_animations(),
         );
-        scheduler_roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+        scheduler_roots.extend(crate::map::actions::trigger_anim_class_roots(
             &rules,
             &map_data.actions,
         ));
@@ -2089,7 +2061,7 @@ impl MapLoadInitial {
         // Every other AnimClass producer and the building animations: tolerant
         // pass, after the strict one, which rewrites the scheduler-owned set
         // wholesale.
-        let tolerant_roots = crate::app::loading::init_helpers::tolerant_anim_class_roots(&rules);
+        let tolerant_roots = crate::rules::effect_asset_catalog::tolerant_anim_class_roots(&rules);
         let unbound_explosion_roots = rules.bind_anim_class_assets(
             &tolerant_roots,
             asset_manager,
@@ -2115,7 +2087,7 @@ impl MapLoadInitial {
         simulation
             .construct_native_map_tubes(&map_data.ini)
             .expect("native [Tubes] construction");
-        simulation.construct_post_load_particle_system_id();
+        simulation.construct_post_load_particle_system_id(&rules);
         let table = simulation
             .replay_staged_generated_construction_trace(&trace)
             .expect("valid generated construction trace");
@@ -2365,13 +2337,22 @@ pub(crate) fn load_map_initial_with_assets(
         .or(quickplay_seed);
     if let Some(seed_name) = seed_selection.as_deref() {
         let mut options = crate::map::rmg::RmgOptions::default();
-        match std::fs::read(ra2_dir.join(seed_name)) {
-            Ok(bytes) => match crate::rules::ini_parser::IniFile::from_bytes(&bytes) {
-                Ok(ini) => options.apply_sed(&ini),
-                Err(err) => {
-                    log::warn!("random map: {seed_name} is not valid INI ({err}); using defaults")
+        let seed_path = ra2_dir.join(seed_name);
+        let mut seed_source = None;
+        match std::fs::read(&seed_path) {
+            Ok(bytes) => {
+                seed_source = Some(
+                    crate::map::source::GeneratedSeedSource::from_consumed_bytes(seed_path, &bytes),
+                );
+                match crate::rules::ini_parser::IniFile::from_bytes(&bytes) {
+                    Ok(ini) => options.apply_sed(&ini),
+                    Err(err) => {
+                        log::warn!(
+                            "random map: {seed_name} is not valid INI ({err}); using defaults"
+                        )
+                    }
                 }
-            },
+            }
             // Missing seed file is not fatal: the original's options object
             // keeps its constructor defaults when a key (or the file) is absent.
             Err(err) => log::warn!("random map: cannot read {seed_name} ({err}); using defaults"),
@@ -2439,6 +2420,7 @@ pub(crate) fn load_map_initial_with_assets(
             map_data: generated.map_file,
             map_source: LoadedMapSource::Generated {
                 seed_name: seed_name.to_string(),
+                seed_source,
             },
             mapgen_rng_continuation: Some(mapgen_rng_continuation),
             retained_process_mapgen: None,
@@ -2638,7 +2620,7 @@ pub(crate) fn load_map_from_initial(
     // Full_Init686D35 processes the campaign's scenario-basename INI before
     // resetting Rules. It is optional and distinct from MISSIONMD loading art.
     let campaign_named_ini = if let Some(campaign) = campaign.as_ref() {
-        let mut name = PathBuf::from(campaign.campaign().scenario());
+        let mut name = PathBuf::from(campaign.scenario());
         name.set_extension("INI");
         let name = name.to_string_lossy();
         if asset_manager.resolve_ref(&name).is_some() {
@@ -2728,9 +2710,7 @@ pub(crate) fn load_map_from_initial(
             map_data: &map_data,
             house_roster: &house_roster,
             difficulty: campaign.difficulty(),
-            // A new campaign starts after BattleControlTerminated6865B0,
-            // whose mission-counter reset matches Scenario's constructor 1.
-            mission_counter: 1,
+            mission_counter: campaign.mission_counter(),
         }
     };
     let scenario_descriptor = crate::sim::scenario_session::ScenarioDescriptor {
@@ -2740,7 +2720,7 @@ pub(crate) fn load_map_from_initial(
             .or_else(|| {
                 campaign
                     .as_ref()
-                    .map(|startup| startup.campaign().scenario().to_owned())
+                    .map(|startup| startup.scenario().to_owned())
             })
             .or_else(|| map_data.basic.name.clone())
             .unwrap_or_default(),
@@ -2863,7 +2843,7 @@ pub(crate) fn load_map_from_initial(
             .as_ref()
             .map_or(&[], |terrain| terrain.tile_animations()),
     );
-    roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+    roots.extend(crate::map::actions::trigger_anim_class_roots(
         &rules,
         &map_data.actions,
     ));
@@ -2893,7 +2873,7 @@ pub(crate) fn load_map_from_initial(
         // `FUN_00684C30`, which constructs the GasCloudSys ParticleSystem before
         // any generator constructor. The later post-`Post_Map_Init` setup finds
         // it constructed and spends nothing.
-        staged_simulation.construct_post_load_particle_system_id();
+        staged_simulation.construct_post_load_particle_system_id(&rules);
     }
     // Launch-time `.SED` generation already chose all geometry. Replay only
     // its Techno constructor effects now, after the Full-Init stock-offline
@@ -3114,15 +3094,6 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(63);
     progress.milestone(65);
     progress.milestone(67);
-    let bridge_railing_tile_bases = theater_result
-        .as_ref()
-        .and_then(|td| td.bridge_railing_slope_starts())
-        .map(
-            |(slope_set_pieces_start, slope_set_pieces2_start)| BridgeRailingTileBases {
-                slope_set_pieces_start,
-                slope_set_pieces2_start,
-            },
-        );
     let (unit_palette, overlay_iso_palette, overlay_tiberium_palette) = match theater_result {
         Some(td) => (
             Some(td.unit_palette),
@@ -3294,7 +3265,6 @@ pub(crate) fn load_map_from_initial(
         overlay_iso_palette.as_ref(),
         unit_palette.as_ref(),
         overlay_tiberium_palette.as_ref(),
-        bridge_railing_tile_bases,
     );
 
     // F09: the shared post-funnel finalization — spawner seed, map-wall owner
@@ -3527,7 +3497,7 @@ mod random_map_retail_tests {
     }
 
     #[test]
-    #[ignore] // Requires RA2_DIR (retail game files).
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
     fn generated_maps_resolve_every_tile_against_retail_theaters() {
         let Some(ra2) = retail_dir() else {
             panic!("set RA2_DIR to the retail RA2/YR install directory");

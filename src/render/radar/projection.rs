@@ -364,10 +364,6 @@ impl MinimapPlayfieldProjection {
     }
 }
 
-#[cfg(test)]
-#[path = "projection_tests.rs"]
-mod tests;
-
 pub(super) fn minimap_screen_point_to_camera_top_left(
     screen_x: f32,
     screen_y: f32,

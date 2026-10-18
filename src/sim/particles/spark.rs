@@ -62,6 +62,7 @@ struct SparkCollisionDecision {
     transient_reflection: Option<[NativeF32Bits; 3]>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SparkTickInputs {
     pub gravity: NativeF32Bits,
@@ -154,7 +155,6 @@ fn add_stored_f32(
     X87Chop53::store_f32(sum).map_err(Into::into)
 }
 
-#[cfg(test)]
 pub fn resolve_collision(
     motion: SparkMotionStep,
     facts: SparkCollisionFacts,
@@ -279,7 +279,13 @@ pub(super) fn classify_collision_kind(
     }
     if facts.accepted_building {
         Ok(Some(SparkCollisionKind::Building))
-    } else if matches!(facts.wall_overlay_id, Some(0x02) | Some(0x1a) | Some(0xf3)) {
+    } else if matches!(
+        crate::sim::cell_kernel::wall_connection_step(
+            facts.wall_overlay_id.map_or(-1, i32::from),
+            -1
+        ),
+        crate::sim::cell_kernel::WallConnectionStep::Return(true)
+    ) {
         Ok(Some(SparkCollisionKind::Wall))
     } else {
         Ok(None)
@@ -489,7 +495,7 @@ pub fn advance_color(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn tick_particle_with_facts(
     particle: &mut Particle,
     inputs: SparkTickInputs,

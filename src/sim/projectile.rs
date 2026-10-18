@@ -50,8 +50,8 @@
 //! remains open.
 
 mod homing;
-pub(crate) mod launch;
-mod native_math;
+pub mod launch;
+pub(crate) mod native_math;
 
 use std::collections::BTreeMap;
 
@@ -59,6 +59,7 @@ use crate::map::resolved_terrain::{ResolvedTerrainGrid, SharedCellDummy};
 use crate::sim::anim_class::AnimId;
 use crate::sim::intern::{InternedId, StringInterner};
 use crate::sim::rng::SimRng;
+use crate::sim::touch_log::{TouchLogs, Touched};
 
 /// The warhead ID the AI's impact compares against (`0x0081AF98`).
 const NUKE_WARHEAD: &str = "NUKE";
@@ -207,22 +208,22 @@ pub(crate) fn cell_ground_coord(
     rx: u16,
     ry: u16,
 ) -> ProjectileCoord {
-    let x = i32::from(rx)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = i32::from(ry)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z = terrain
-        .and_then(|grid| grid.cell(rx, ry))
-        .map(|cell| {
-            crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, x, y)
-                .expect("resolved CellClass target must have a supported slope")
-        })
-        // Mapless fixtures use flat ground. Production misses retain the
-        // shared CellClass and use dummy_cell_ground_coord instead.
-        .unwrap_or(0);
-    ProjectileCoord::new(x, y, z)
+    if let Some(cell) = terrain.and_then(|grid| grid.cell(rx, ry)) {
+        let point = crate::sim::cell_rect::CellRef::Real(cell)
+            .center_coordinate()
+            .expect("resolved CellClass target must have a supported slope");
+        return ProjectileCoord::new(point.x, point.y, point.z);
+    }
+    // Preserve the mapless/missing-cell flat-ground adapter. Production misses
+    // retain the shared CellClass and use dummy_cell_ground_coord instead.
+    let point = crate::sim::cell_kernel::cell_center(
+        crate::sim::cell_kernel::CellCoordinate {
+            x: i32::from(rx as i16),
+            y: i32::from(ry as i16),
+        },
+        0,
+    );
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// CellClass virtual +0x58 @ 0x00486890: +0x48 ground coordinate plus 416
@@ -248,21 +249,12 @@ pub(crate) fn cell_target_coord(
 /// The shared fallback CellClass's +0x48 coordinate. Read the retained dummy
 /// at the receiver boundary; later map misses can change this same identity.
 pub(crate) fn dummy_cell_ground_coord(dummy: &SharedCellDummy) -> ProjectileCoord {
-    let snapshot = dummy.snapshot();
-    let x = snapshot
-        .coord
-        .0
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = snapshot
-        .coord
-        .1
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z =
-        crate::util::lepton::ground_height_leptons(snapshot.level as u8, snapshot.slope_type, x, y)
-            .expect("shared CellClass target must have a supported slope");
-    ProjectileCoord::new(x, y, z)
+    let point = crate::sim::cell_rect::CellRef::Dummy {
+        cell: dummy.clone(),
+    }
+    .center_coordinate()
+    .expect("shared CellClass target must have a supported slope");
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// Resolve the current virtual `CellClass::GetTargetCoords` value for the one
@@ -298,6 +290,20 @@ pub enum ProjectileTarget {
     /// The enum stores the pointer kind, not a coordinate snapshot; Simulation
     /// owns the live identity and BulletClass AI resolves it every visit.
     DummyCell,
+    /// TerrainClass is an Object target with its own retained coordinate and
+    /// lifetime, not a Techno or a cell. SpawnShrapnel46A59B retains this pointer.
+    Terrain(u64),
+}
+
+impl ProjectileTarget {
+    /// Stable identity of a represented Object pointer. IDs are unique across
+    /// stores; retaining the enum kind still controls coordinate dispatch.
+    pub(crate) fn object_id(self) -> Option<u64> {
+        match self {
+            Self::Entity(id) | Self::Terrain(id) => Some(id),
+            Self::Cell { .. } | Self::None | Self::DummyCell => None,
+        }
+    }
 }
 
 /// What to do when an entity target no longer exists.
@@ -390,10 +396,6 @@ pub fn projectile_bridge_crossing(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectileCollisionResponse {
     TargetZClamp(ProjectileCoord),
-    SlopeMatrixReflect {
-        impact: ProjectileCoord,
-        velocity: ProjectileVelocity,
-    },
     /// Ordinary pre-commit AI 467494..467B7A, including its early returns.
     Ordinary {
         candidate: ProjectileCoord,
@@ -406,15 +408,24 @@ pub enum ProjectileCollisionResponse {
     ImpactLadder(ImpactLadderWorld),
 }
 
+/// The target virtual requested at a Bullet AI boundary. Object410540
+/// forwards+58 to GetCoords; Cell+58 includes its deck. Guided AI466B5D..466BAB then
+/// substitutes Object+A4, whereas final fuse snapping467CA9..467E4D uses+48.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectileTargetQuery {
+    GetCoords,
+    TargetAim,
+    GuidanceAim,
+}
+
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum ProjectileCollisionPhase {
+pub enum ProjectileCollisionPhase {
     Ordinary {
         /// Native Bullet+E8 at tail entry: pre-scratch for ordinary, post-ramp for Vertical.
         persistent_velocity: ProjectileVelocity,
         motion: ProjectileCollisionMotion,
     },
     Shared,
-    TargetLocation,
     /// `0x00468D80` asks the target and the warhead for
     /// [`resolve_impact_coord`]; the candidate is the bullet's Location.
     ImpactLadder,
@@ -529,7 +540,7 @@ pub fn resolve_impact_coord(
 /// Ordinary AI compares its binary64 candidate before ftol; the bridge and
 /// cell lookups separately consume the integer coordinate (467494..4677D3).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ProjectileCollisionMotion {
+pub struct ProjectileCollisionMotion {
     pub candidate: [crate::util::native_x87::NativeF64Bits; 3],
     pub velocity: [crate::util::native_x87::NativeF64Bits; 3],
 }
@@ -561,7 +572,7 @@ impl ProjectileCollisionMotion {
 /// Original Bullet AI467666..467778: inverse slope, Elasticity scalar,
 /// negate LOCAL Z, forward slope, negate world Y. Native stores every matrix
 /// intermediate as chopped f32 and retains resulting doubles until copyback.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn projectile_slope_reflect_with_elasticity(
     velocity: ProjectileVelocity,
     slope_type: u8,
@@ -579,7 +590,7 @@ pub(crate) fn projectile_slope_reflect_double(
     elasticity_bits: u64,
 ) -> Option<[crate::util::native_x87::NativeF64Bits; 3]> {
     use crate::util::native_x87::{NativeF64Bits, X87Chop53};
-    let matrix = crate::sim::particles::spark_world::slope_matrix(slope_type).ok()?;
+    let matrix = crate::map::voxel_slope::slope_matrix(slope_type)?;
     let mut vector = [crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO; 3];
     for (out, input) in vector.iter_mut().zip(velocity) {
         *out = X87Chop53::store_f32(X87Chop53::load_f64(input).ok()?).ok()?;
@@ -700,9 +711,8 @@ pub fn projectile_shrapnel_count(
 ///
 /// Both deliveries dispatch the chain through one owner,
 /// `combat::world_receiver::run_special_detonation_arm`: a visible bullet at
-/// its detonation, and an `Inviso=` bullet's first AI visit (every stock
-/// special weapon but the dog's and the
-/// Terror Drone's jump is Inviso).
+/// its detonation, and an `Inviso=` bullet once its AI admits detonation.
+/// Inviso placement does not bypass the common Arm-gated proximity fuse.
 ///
 /// Special effects dispatch through their shared state owners, including
 /// Airstrike (`airstrike`): a flare starts or retargets its firer's aircraft.
@@ -731,7 +741,7 @@ pub enum SpecialDetonationAction {
     ElectricAssault,
     /// `Parasite=` (`+0x159`), test `0x004693d3` ->
     /// `ParasiteClass::AttachTo @ 0x0062a980`, ported in `combat/parasite.rs`
-    /// (the Giant Squid's grapple is that module's residual).
+    /// (including the Naval+Organic grapple in its child module).
     Parasite,
     /// `Temporal=` (`+0x15a`), test `0x00469423` ->
     /// `TemporalClass::InitiateWarp @ 0x0071af20`, ported in `temporal` (the
@@ -790,6 +800,7 @@ impl SpecialDetonationAction {
     /// True for every arm that claims the detonation away from
     /// `Apply_area_damage @ 0x00489280` and
     /// `BulletClass::SpawnShrapnel @ 0x0046a310`.
+    #[cfg(test)]
     pub fn suppresses_ordinary_damage(self) -> bool {
         self != SpecialDetonationAction::OrdinaryDamage
     }
@@ -890,8 +901,13 @@ pub struct ProjectilePayload {
     /// Damage after firing-side modifiers, before target/warhead resolution.
     pub base_damage: i32,
     pub warhead: InternedId,
-    /// Weapon identity retained for impact-only effects such as radiation.
-    pub weapon: InternedId,
+    /// Construct4664C0's independent BulletType pointer (+AC).
+    projectile_type: Option<InternedId>,
+    /// Constructor466401 clears +130. Only SetWeaponType installs it;
+    /// shrapnel and direct falling-damage bullets leave it null.
+    installed_weapon: Option<InternedId>,
+    /// Construct4664E6's byte argument, independent of installed Weapon.
+    bright: bool,
     /// `BulletClass+0x150`, 1/256 units: `BulletClass::Construct` writes
     /// [`Self::UNSCALED`] (`0x00466546`) and only a Prism master's supported
     /// shot writes another value (`BuildingClass::ProcessDelayedFire`,
@@ -907,13 +923,39 @@ impl ProjectilePayload {
     pub const UNSCALED: i32 = 256;
 
     /// A payload as `BulletClass::Construct` leaves it: unscaled damage.
-    pub fn new(base_damage: i32, warhead: InternedId, weapon: InternedId) -> Self {
+    pub fn new(
+        base_damage: i32,
+        warhead: InternedId,
+        projectile_type: Option<InternedId>,
+        bright: bool,
+    ) -> Self {
         Self {
             base_damage,
             warhead,
-            weapon,
+            projectile_type,
+            installed_weapon: None,
+            bright,
             damage_multiplier: Self::UNSCALED,
         }
+    }
+
+    pub fn projectile_type(&self) -> Option<InternedId> {
+        self.projectile_type
+    }
+
+    pub fn installed_weapon(&self) -> Option<InternedId> {
+        self.installed_weapon
+    }
+
+    pub fn bright(&self) -> bool {
+        self.bright
+    }
+
+    /// The sole +130 mutation, corresponding to SetWeaponType46B260.
+    /// Constructing another payload does not infer this reference from type.
+    pub fn with_installed_weapon(mut self, weapon: Option<InternedId>) -> Self {
+        self.installed_weapon = weapon;
+        self
     }
 
     /// The same payload carrying another `+0x150` multiplier, as a Prism
@@ -985,7 +1027,8 @@ pub struct ProjectileSpawn {
     pub payload: ProjectilePayload,
     /// The bullet's CURRENT speed in leptons per frame — native's
     /// `ftol(|velocity|)`, not the weapon's `Speed=`. `TechnoClass::FireAt
-    /// @ 0x006FEA3A` launches every `ROT > 0` or `Vertical` bullet at 1, and
+    /// @ 0x006FEA3A` uses scalar1 for `ROT > 0` or `Vertical` only when
+    /// `RadialFireSegments=0`; a nonzero value retains its clamped scalar.
     /// `BulletClass::Fire @ 0x00468B2C` renormalises a `ROT > 0` bullet's
     /// vector to magnitude 1.0 regardless; `Speed=` only becomes the ceiling
     /// stored at `Bullet+0x110`. Non-homing, non-vertical bullets do keep the
@@ -1071,6 +1114,19 @@ pub struct Projectile {
 }
 
 impl Projectile {
+    /// The ids [`ProjectileStore::pointer_expired`] compares: the source
+    /// (Owner `+0xB0`), target object (`+0x10C`) and awaited Anim (`+0x154`). A source already
+    /// `RAD_NO_ATTACKER` stays so, which changes nothing. VERA-only: feeds the
+    /// pointer-expiry listener index (`ExpiryListeners`); a field that
+    /// callback compares must be named here too.
+    pub(crate) fn expiry_names(&self) -> [Option<u64>; 3] {
+        [
+            (self.source_id != crate::sim::combat::RAD_NO_ATTACKER).then_some(self.source_id),
+            self.target.object_id(),
+            self.awaited_anim,
+        ]
+    }
+
     /// The House whose colour scheme draws a `FirersPalette=` bullet
     /// (`+0x114`); `None` is native's -1.
     pub fn firer_house(&self) -> Option<InternedId> {
@@ -1188,7 +1244,7 @@ impl ProjectileNukeImpact {
 
 /// What `BulletClass::AI`'s `NUKE` block and the wait it starts read
 /// outside the store.
-pub(crate) struct NukeImpactContext<'a> {
+pub struct NukeImpactContext<'a> {
     interner: &'a StringInterner,
     nuke_ball_type: &'a dyn Fn() -> bool,
 }
@@ -1226,30 +1282,35 @@ enum ProjectileAiPhase {
     Flight(ProjectileCoord),
 }
 
-impl ProjectileAiHead {
+impl ProjectileStore {
     /// Original Bullet466826..4668B8: a type's Trailer is constructed at the
     /// pre-flight Object Location on a global signed-frame cadence. The Anim
     /// constructor, not this producer, owns any identity/RNG consumption.
     /// Native executable comparisons: tools/projectile_oracle/projectile_trailer.json.
     pub(crate) fn trailer<'a>(
         &self,
+        head: &ProjectileAiHead,
         kind: &'a crate::rules::projectile_type::ProjectileType,
         binary_frame: u32,
     ) -> Option<(&'a str, ProjectileCoord)> {
-        let ProjectileAiPhase::Flight(position) = self.phase else {
+        let ProjectileAiPhase::Flight(position) = head.phase else {
             return None;
         };
         let name = kind.trailer.as_deref()?;
-        // RESIDUAL: authored Scalable+Trailer needs InitScalable46B280's
-        // process-wide list and type-level ScaledSpawnDelay46C840, including
-        // removal and save/load. Keep that unsupported producer absent instead
-        // of inventing its cadence. The ordinary retail emitting types leave
-        // Scalable false; Torpedo uses retained SpawnDelay3.
-        if kind.scalable {
-            return None;
-        }
+        // Original466826 checks Trailer before466834 reads the retained
+        // type's scaled delay. Its current Scalable flag does not gate this
+        // read; an override survives removal of the last enrolled Bullet.
+        let scaled = self
+            .get(head.id)
+            .and_then(|bullet| bullet.payload.projectile_type())
+            .map_or(0, |kind| self.scaled_spawn_delay(kind));
+        let delay = if scaled != 0 {
+            scaled
+        } else {
+            kind.spawn_delay
+        };
         let remainder = (binary_frame as i32)
-            .checked_rem(kind.spawn_delay)
+            .checked_rem(delay)
             .expect("Bullet Trailer native IDIV requires a nonzero, nonoverflowing SpawnDelay");
         (remainder == 0).then_some((name, position))
     }
@@ -1276,13 +1337,119 @@ impl ProjectileAdvanceResult {
 ///
 /// Storage order is distinct from the world's live Logic vector. The world
 /// visits one registered Bullet at a time, including a newly appended shot
-/// later in the same object pass.
+/// later in the same object pass. Every `&mut Projectile` goes through the
+/// store, which notes it in a touch log.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectileStore {
     projectiles: BTreeMap<u64, Projectile>,
+    /// Original process vector89DE18: enrollment order, independently of
+    /// Bullet storage/Logic order. Duplicate InitScalable calls append twice.
+    scalable_members: Vec<u64>,
+    /// BulletType+2E8 runtime values, keyed by the retained type identity.
+    /// Missing is constructor zero; zero writes remove the redundant entry.
+    scaled_spawn_delays: BTreeMap<InternedId, i32>,
+    /// Which bullets may have changed since [`Self::take_touched`]. One
+    /// reader: the pointer-expiry listener index. Transient: never saved,
+    /// compared or hashed.
+    #[serde(skip)]
+    touched: TouchLogs<1>,
 }
 
 impl ProjectileStore {
+    /// Unit741439 calls InitScalable46B280 only for its non-null returned
+    /// Bullet whose CURRENT retained type is Scalable. Generic construction
+    /// and Fire do not enroll. No RNG/timer or per-Bullet cadence is added.
+    pub(crate) fn init_scalable(
+        &mut self,
+        id: u64,
+        kind: &crate::rules::projectile_type::ProjectileType,
+    ) {
+        let Some(type_id) = self
+            .get(id)
+            .and_then(|bullet| bullet.payload.projectile_type())
+        else {
+            return;
+        };
+        if !kind.scalable {
+            return;
+        }
+        self.scalable_members.push(id);
+        //46B2D6..46B302: signed count-5/clamp, signed IMUL division by3,
+        // then wrapping base addition. Consumed native threshold/overflow
+        // controls: projectile_trailer.json::scalable_controls.
+        let count =
+            i32::try_from(self.scalable_members.len()).expect("native scalable vector count");
+        let delay = kind
+            .spawn_delay
+            .wrapping_add(count.wrapping_sub(5).max(0) / 3);
+        self.set_scaled_spawn_delay(type_id, delay);
+    }
+
+    fn set_scaled_spawn_delay(&mut self, type_id: InternedId, delay: i32) {
+        if delay == 0 {
+            self.scaled_spawn_delays.remove(&type_id);
+        } else {
+            self.scaled_spawn_delays.insert(type_id, delay);
+        }
+    }
+
+    pub(crate) fn scaled_spawn_delay(&self, type_id: InternedId) -> i32 {
+        self.scaled_spawn_delays.get(&type_id).copied().unwrap_or(0)
+    }
+
+    /// Whether the scalable process vector (`0x0089DE18`) holds `id`.
+    pub(crate) fn scalable_enrolled(&self, id: u64) -> bool {
+        self.scalable_members.contains(&id)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn scalable_members(&self) -> &[u64] {
+        &self.scalable_members
+    }
+
+    pub(crate) fn hash_scalable_runtime(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        if !self.scalable_members.is_empty() || !self.scaled_spawn_delays.is_empty() {
+            b"bullet-scalable-runtime-v1".hash(hasher);
+            self.scalable_members.hash(hasher);
+            self.scaled_spawn_delays.hash(hasher);
+        }
+    }
+
+    pub(crate) fn validate_scalable_runtime(
+        &self,
+        interner: &crate::sim::intern::StringInterner,
+    ) -> Result<(), &'static str> {
+        for id in &self.scalable_members {
+            let Some(type_id) = self
+                .get(*id)
+                .and_then(|bullet| bullet.payload.projectile_type())
+            else {
+                return Err("scalable member must reference a stored typed Bullet");
+            };
+            if interner.try_resolve(type_id).is_none() {
+                return Err("scalable member type must resolve in the interner");
+            }
+        }
+        for (&type_id, &delay) in &self.scaled_spawn_delays {
+            if interner.try_resolve(type_id).is_none() {
+                return Err("scaled delay type must resolve in the interner");
+            }
+            if delay == 0 {
+                return Err("zero scaled delay must use the constructor default");
+            }
+        }
+        Ok(())
+    }
+
+    /// Normal native LoadContent67E739 clears the old scene; BulletLoad
+    /// 46AE70 does not reenroll loaded Bullets. BulletTypeSave46C730/Load
+    /// 46C6A0 preserve raw+2E8. Mechanical serde/Clone retain both states;
+    /// only the world's existing native-load boundary calls this method.
+    pub(crate) fn restore_scalable_after_load(&mut self) {
+        self.scalable_members.clear();
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -1299,8 +1466,20 @@ impl ProjectileStore {
         self.projectiles.get(&id)
     }
 
-    pub(crate) fn get_mut(&mut self, id: u64) -> Option<&mut Projectile> {
-        self.projectiles.get_mut(&id)
+    /// Re-read the authoritative fields at a DetonateAtCoord callback
+    /// boundary. The explicit impact and reason belong to the caller;
+    /// source/target may have changed during synchronous receiver callbacks.
+    pub(crate) fn current_detonation(&self, request: ProjectileDetonation) -> ProjectileDetonation {
+        self.get(request.projectile_id).map_or(request, |bullet| {
+            detonation(bullet, request.impact, request.reason)
+        })
+    }
+
+    pub fn get_mut(&mut self, id: u64) -> Option<&mut Projectile> {
+        let stored = self.projectiles.len();
+        let projectile = self.projectiles.get_mut(&id)?;
+        self.touched.note(id, stored);
+        Some(projectile)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&u64, &Projectile)> {
@@ -1308,44 +1487,88 @@ impl ProjectileStore {
     }
 
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (&u64, &mut Projectile)> {
+        self.touched.note_all();
         self.projectiles.iter_mut()
     }
 
     pub(crate) fn remove(&mut self, id: u64) -> Option<Projectile> {
-        self.projectiles.remove(&id)
+        let removed = self.projectiles.remove(&id);
+        if removed.is_some() {
+            self.touched.note(id, self.projectiles.len());
+        }
+        removed
+    }
+
+    /// Take the touch log, leaving it empty.
+    pub(crate) fn take_touched(&mut self) -> Touched {
+        self.touched.take(0)
     }
 
     /// BulletClass::LoseTarget468430 changes only +10C. Its world query is
     /// shared with PointerExpired468517..46859C; neither resets flight state.
     pub(crate) fn lose_targets(&mut self, target_id: u64, replacement: ProjectileTarget) {
-        for projectile in self.projectiles.values_mut().rev() {
-            if projectile.target == ProjectileTarget::Entity(target_id) {
+        let stored = self.projectiles.len();
+        for (&id, projectile) in self.projectiles.iter_mut().rev() {
+            if projectile.target.object_id() == Some(target_id) {
                 projectile.target = replacement;
+                self.touched.note(id, stored);
             }
         }
     }
 
-    /// Apply `BulletClass::PointerExpired @ 0x004684E0` to one stored Bullet.
+    /// Apply `BulletClass::PointerExpired @ 0x004684E0` to one stored Bullet,
+    /// or `None` when it is not stored: whether any retained reference changed,
+    /// and whether another scalable-list match remains after this callback's
+    /// first removal, when that arm was enabled. Once false, the same
+    /// broadcast can skip further scans; a disabled arm reports false
+    /// without scanning.
     ///
-    /// Source and target are independent arms: when both match the expired
-    /// object, both change in the same synchronous callback. The projectile
+    /// Source, target and awaited Anim are independent arms: all matching
+    /// references change in the same synchronous callback. The projectile
     /// itself remains stored and registered; repeated callbacks are no-ops.
     pub(crate) fn pointer_expired(
         &mut self,
         projectile_id: u64,
         expired_id: u64,
         replacement_target: ProjectileTarget,
-    ) -> bool {
-        let Some(projectile) = self.projectiles.get_mut(&projectile_id) else {
-            return false;
-        };
+        expired_scalable_bullet_uninit: bool,
+    ) -> Option<(bool, bool)> {
+        let projectile = self.get_mut(projectile_id)?;
+        let mut changed = false;
         if projectile.source_id == expired_id {
+            changed |= expired_id != crate::sim::combat::RAD_NO_ATTACKER;
             projectile.source_id = crate::sim::combat::RAD_NO_ATTACKER;
         }
-        if projectile.target == ProjectileTarget::Entity(expired_id) {
+        if projectile.target.object_id() == Some(expired_id) {
             projectile.target = replacement_target;
+            changed = true;
         }
-        true
+        // Original4685BE..4685C6, before the control gate: expiry clears
+        // +154 synchronously, but only the next AI clears wait byte+158.
+        if projectile.awaited_anim == Some(expired_id) {
+            projectile.awaited_anim = None;
+            changed = true;
+        }
+        //4685CC..46865D: only a PRESENT Bullet subscriber, control!=0,
+        // expired RTTI8/current type.Scalable removes its FIRST matching
+        // process-vector entry. Each subscriber can remove another duplicate;
+        // no remove-all/death scan or cadence recomputation belongs here.
+        if expired_scalable_bullet_uninit
+            && let Some(index) = self
+                .scalable_members
+                .iter()
+                .position(|&id| id == expired_id)
+        {
+            self.scalable_members.remove(index);
+            // The removed entry was the first match, so only its surviving
+            // suffix can hold another. Avoid rescanning known misses at the
+            // remaining Bullet subscribers in the same common broadcast.
+            return Some((
+                changed,
+                self.scalable_members[index..].contains(&expired_id),
+            ));
+        }
+        Some((changed, false))
     }
 
     /// Supply a constructed/in-flight Bullet boundary for a focused fixture.
@@ -1354,55 +1577,56 @@ impl ProjectileStore {
     // AbstractClass::Create_ID @ 0x00410230 obtains this identity from
     // ScenarioClass::NextUniqueID @ 0x0068BCB0; the store never owns a second
     // allocator.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn spawn(&mut self, id: u64, spawn: ProjectileSpawn) -> u64 {
         self.spawn_at(id, 0, spawn, spawn.origin)
     }
 
-    pub(crate) fn spawn_at(
+    /// Constructor466380/Construct4664C0 before Fire: registered as an
+    /// Object/Bullet observer, still in Limbo with zero Location. Velocity is
+    /// unused until Fire; initialize its Rust representation to zero.
+    pub(crate) fn construct(
         &mut self,
         id: u64,
+        native_unique_id: i32,
         binary_frame: u32,
-        spawn: ProjectileSpawn,
-        location: ProjectileCoord,
+        source_id: u64,
+        target: ProjectileTarget,
+        payload: ProjectilePayload,
     ) -> u64 {
+        let zero = ProjectileCoord::new(0, 0, 0);
+        assert!(
+            !self.projectiles.contains_key(&id),
+            "duplicate Bullet identity {id}"
+        );
+        self.touched.note(id, self.projectiles.len());
         self.projectiles.insert(
             id,
             Projectile {
                 id,
-                native_unique_id: spawn.native_unique_id,
+                native_unique_id,
                 in_logic_vector: false,
-                source_id: spawn.source_id,
-                position: location,
-                launch_origin: spawn.origin,
-                launch_target: spawn.initial_target_position,
-                previous_cell: ((spawn.origin.x / 256) as i16, (spawn.origin.y / 256) as i16),
-                target: spawn.target,
-                last_target_position: spawn.initial_target_position,
-                payload: spawn.payload,
-                speed_leptons_per_frame: spawn.speed_leptons_per_frame,
-                velocity: spawn.velocity,
-                trajectory: spawn.trajectory,
-                guidance: spawn.guidance,
-                visual: spawn.visual,
-                arm_timer: crate::sim::timer::CdTimer::started(
-                    binary_frame as i32,
-                    spawn.arm_frames,
-                ),
-                fuse_frames_remaining: spawn.fuse_frames,
-                ranged_fuse: spawn.ranged_fuse,
-                proximity_reference: spawn.initial_target_position,
-                // `ProximityDetector::Setup @ 0x004E1130` seeds `+0x24` with
-                // the FULL distance from the placed Object.Location to its
-                // reference coordinate (Fire468A63..468A93), not FireCoord
-                // or the halved distance `Check` writes afterwards.
-                last_distance_half: proximity_initial_distance(
-                    location,
-                    spawn.initial_target_position,
-                ),
-                tracks_target: spawn.tracks_target,
-                target_expiry: spawn.target_expiry,
-                collision: spawn.collision,
+                source_id,
+                position: zero,
+                launch_origin: zero,
+                launch_target: zero,
+                previous_cell: (-1, -1),
+                target,
+                last_target_position: zero,
+                payload,
+                speed_leptons_per_frame: 0,
+                velocity: ProjectileVelocity::new(0, 0, 0),
+                trajectory: ProjectileTrajectory::Straight,
+                guidance: None,
+                visual: ProjectileVisualState::new(0, 0, 0),
+                arm_timer: crate::sim::timer::CdTimer::started(binary_frame as i32, 0),
+                fuse_frames_remaining: None,
+                ranged_fuse: false,
+                proximity_reference: zero,
+                last_distance_half: 0,
+                tracks_target: false,
+                target_expiry: TargetExpiryPolicy::DetonateAtLastKnown,
+                collision: ProjectileCollisionPolicy::NONE,
                 on_bridge: false,
                 firer_house: None,
                 awaiting_anim: false,
@@ -1412,17 +1636,59 @@ impl ProjectileStore {
         id
     }
 
+    pub(crate) fn spawn_at(
+        &mut self,
+        id: u64,
+        binary_frame: u32,
+        spawn: ProjectileSpawn,
+        location: ProjectileCoord,
+    ) -> u64 {
+        self.construct(
+            id,
+            spawn.native_unique_id,
+            binary_frame,
+            spawn.source_id,
+            spawn.target,
+            spawn.payload,
+        );
+        // Fire468670 owns placement, motion and proximity initialization;
+        // direct detonations never execute this part of the lifetime.
+        let projectile = self.get_mut(id).expect("constructed Bullet");
+        projectile.position = location;
+        projectile.launch_origin = spawn.origin;
+        projectile.launch_target = spawn.initial_target_position;
+        projectile.previous_cell = ((spawn.origin.x / 256) as i16, (spawn.origin.y / 256) as i16);
+        projectile.last_target_position = spawn.initial_target_position;
+        projectile.speed_leptons_per_frame = spawn.speed_leptons_per_frame;
+        projectile.velocity = spawn.velocity;
+        projectile.trajectory = spawn.trajectory;
+        projectile.guidance = spawn.guidance;
+        projectile.visual = spawn.visual;
+        projectile.arm_timer =
+            crate::sim::timer::CdTimer::started(binary_frame as i32, spawn.arm_frames);
+        projectile.fuse_frames_remaining = spawn.fuse_frames;
+        projectile.ranged_fuse = spawn.ranged_fuse;
+        projectile.proximity_reference = spawn.initial_target_position;
+        // ProximitySetup4E1130 measures placed Location, not FireCoord.
+        projectile.last_distance_half =
+            proximity_initial_distance(location, spawn.initial_target_position);
+        projectile.tracks_target = spawn.tracks_target;
+        projectile.target_expiry = spawn.target_expiry;
+        projectile.collision = spawn.collision;
+        id
+    }
+
     /// `0x00467F36`: the anim a waiting bullet holds (`+0x154`), or none
     /// when none was constructed, which ends the wait at its next AI.
     pub(crate) fn await_anim(&mut self, id: u64, anim: Option<AnimId>) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.awaited_anim = anim;
         }
     }
 
     /// Bullet `+0x114` as `BulletClass::Construct` leaves it.
     pub(crate) fn set_firer_house(&mut self, id: u64, house: Option<InternedId>) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.firer_house = house;
         }
     }
@@ -1430,7 +1696,7 @@ impl ProjectileStore {
     /// `BulletClass::Construct @ 0x004664C0`'s Owner (`+0xB0`) on a re-fired
     /// bullet.
     pub(crate) fn set_owner(&mut self, id: u64, owner: u64) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.source_id = owner;
         }
     }
@@ -1438,8 +1704,8 @@ impl ProjectileStore {
     /// `AircraftClass::Fire_At @ 0x00415EE0`'s course for the bullet
     /// TechnoClass::FireAt answered: its velocity (`+0xE8`)
     /// ([`launch::aircraft_bullet_velocity`]), and the speed it implies.
-    pub(crate) fn redirect(&mut self, id: u64, velocity: ProjectileVelocity) {
-        if let Some(projectile) = self.projectiles.get_mut(&id) {
+    pub fn redirect(&mut self, id: u64, velocity: ProjectileVelocity) {
+        if let Some(projectile) = self.get_mut(id) {
             projectile.velocity = velocity;
             projectile.speed_leptons_per_frame =
                 projectile_velocity_magnitude(velocity).clamp(0.0, f64::from(u16::MAX)) as u16;
@@ -1459,7 +1725,7 @@ impl ProjectileStore {
     /// its starting distance is 0. FireAt then copies the target's OnBridge
     /// (`0x006FF08B`).
     pub(crate) fn fire_inviso(&mut self, id: u64, placement: ProjectileCoord, on_bridge: bool) {
-        let Some(projectile) = self.projectiles.get_mut(&id) else {
+        let Some(projectile) = self.get_mut(id) else {
             return;
         };
         projectile.position = placement;
@@ -1486,7 +1752,7 @@ impl ProjectileStore {
     /// ordering and the world's retirement transaction.
     /// `collides_at` is a world-owned terrain/wall admission predicate for the
     /// candidate next coordinate; ordinary object collision is not supplied.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn advance(
         &mut self,
         binary_frame: u32,
@@ -1511,7 +1777,6 @@ impl ProjectileStore {
                 |projectile, candidate, phase| match phase {
                     ProjectileCollisionPhase::Ordinary { .. } => None,
                     ProjectileCollisionPhase::Shared => collides_at(projectile, candidate),
-                    ProjectileCollisionPhase::TargetLocation => None,
                     ProjectileCollisionPhase::ImpactLadder => None,
                 },
                 None,
@@ -1528,25 +1793,19 @@ impl ProjectileStore {
                 .iter()
                 .map(|detonation| &detonation.projectile_id),
         ) {
-            self.projectiles.remove(id);
+            self.remove(*id);
         }
         result
     }
 
     /// Original Bullet466705..466822. No target or Cell query precedes the
     /// optional Trailer constructor at the resulting Flight boundary.
-    /// `anim_live` answers whether the awaited anim still lives. Its UnInit
-    /// clears a waiting bullet's `+0x154` (`BulletClass::PointerExpired
-    /// 0x004685BE`, reached through the holder list `0x00B0F5B8`); VERA
-    /// reuses no anim id, so a dead one's id finds nothing.
-    pub(crate) fn begin_ai_visit(
-        &mut self,
-        id: u64,
-        anim_live: impl FnOnce(AnimId) -> bool,
-    ) -> Option<ProjectileAiHead> {
-        let projectile = self.projectiles.get_mut(&id)?;
+    /// Original46670F tests the retained pointer, without querying Anim
+    /// liveness. PointerExpired4685BE clears it at the Anim's retirement.
+    pub(crate) fn begin_ai_visit(&mut self, id: u64) -> Option<ProjectileAiHead> {
+        let projectile = self.get_mut(id)?;
         let phase = if projectile.awaiting_anim {
-            if projectile.awaited_anim.is_some_and(anim_live) {
+            if projectile.awaited_anim.is_some() {
                 ProjectileAiPhase::Waiting
             } else {
                 projectile.awaiting_anim = false;
@@ -1561,14 +1820,14 @@ impl ProjectileStore {
 
     /// Test adapter joining the shared AI head and continuation without the
     /// world's intervening Trailer constructor or retirement transaction. An
-    /// awaited anim counts as dead; a test needing a live one calls
-    /// [`Self::begin_ai_visit`] itself.
-    #[cfg(test)]
-    pub(crate) fn advance_one(
+    /// awaited pointer obeys [`Self::begin_ai_visit`]. Supplied coordinates serve every query;
+    /// world integration tests cover the separate target virtuals.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn advance_one(
         &mut self,
         id: u64,
         binary_frame: u32,
-        target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
+        mut target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
         terrain: Option<&ResolvedTerrainGrid>,
         shared_cell_dummy: &SharedCellDummy,
         rules_gravity: i32,
@@ -1582,11 +1841,11 @@ impl ProjectileStore {
         ) -> Option<ProjectileCollisionResponse>,
         nuke: Option<&NukeImpactContext<'_>>,
     ) -> Option<ProjectileAdvanceResult> {
-        let head = self.begin_ai_visit(id, |_| false)?;
+        let head = self.begin_ai_visit(id)?;
         self.advance_after_head(
             head,
             binary_frame,
-            target_position,
+            |target, _query| target.object_id().and_then(&mut target_position),
             terrain,
             shared_cell_dummy,
             rules_gravity,
@@ -1602,7 +1861,10 @@ impl ProjectileStore {
         &mut self,
         head: ProjectileAiHead,
         binary_frame: u32,
-        mut resolve_target_position: impl FnMut(u64) -> Option<ProjectileCoord>,
+        mut resolve_target_position: impl FnMut(
+            ProjectileTarget,
+            ProjectileTargetQuery,
+        ) -> Option<ProjectileCoord>,
         terrain: Option<&ResolvedTerrainGrid>,
         shared_cell_dummy: &SharedCellDummy,
         rules_gravity: i32,
@@ -1619,7 +1881,7 @@ impl ProjectileStore {
         let mut result = ProjectileAdvanceResult::default();
 
         let id = head.id;
-        let projectile = self.projectiles.get_mut(&id)?;
+        let projectile = self.get_mut(id)?;
         match head.phase {
             ProjectileAiPhase::Waiting => return Some(result),
             ProjectileAiPhase::AnimEnded => {
@@ -1641,33 +1903,44 @@ impl ProjectileStore {
             // collision, and reached-target decisions.
             ProjectileTarget::None => ProjectileCoord::new(0, 0, 0),
             ProjectileTarget::DummyCell => dummy_cell_target_coord(shared_cell_dummy),
-            ProjectileTarget::Entity(target_id) => match resolve_target_position(target_id) {
-                Some(position) => {
+            // AI466B5D..466BAB feeds+A4 to guided steering. Fire's frozen
+            // reference and the later +48 fuse snap remain separate queries.
+            target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                match resolve_target_position(
+                    target,
                     if projectile.tracks_target {
-                        projectile.last_target_position = position;
+                        ProjectileTargetQuery::GuidanceAim
+                    } else {
+                        ProjectileTargetQuery::TargetAim
+                    },
+                ) {
+                    Some(position) => {
+                        if projectile.tracks_target {
+                            projectile.last_target_position = position;
+                        }
+                        projectile.last_target_position
                     }
-                    projectile.last_target_position
+                    None => match projectile.target_expiry {
+                        TargetExpiryPolicy::Expire => {
+                            result.expired.push(id);
+                            return Some(result);
+                        }
+                        // `Arm=` is NOT consulted here. The detonation
+                        // admission at `BulletClass::AI 0x00467C70` tests only
+                        // the impact flag and the proximity-fuse result; the
+                        // Arm counter lives inside `ProximityDetector::Check`
+                        // and gates that one result alone.
+                        TargetExpiryPolicy::DetonateAtLastKnown => {
+                            result.detonations.push(detonation(
+                                projectile,
+                                projectile.last_target_position,
+                                ProjectileDetonationReason::TargetExpired,
+                            ));
+                            return Some(result);
+                        }
+                    },
                 }
-                None => match projectile.target_expiry {
-                    TargetExpiryPolicy::Expire => {
-                        result.expired.push(id);
-                        return Some(result);
-                    }
-                    // `Arm=` is NOT consulted here. The detonation
-                    // admission at `BulletClass::AI 0x00467C70` tests only
-                    // the impact flag and the proximity-fuse result; the
-                    // Arm counter lives inside `ProximityDetector::Check`
-                    // and gates that one result alone.
-                    TargetExpiryPolicy::DetonateAtLastKnown => {
-                        result.detonations.push(detonation(
-                            projectile,
-                            projectile.last_target_position,
-                            ProjectileDetonationReason::TargetExpired,
-                        ));
-                        return Some(result);
-                    }
-                },
-            },
+            }
         };
 
         if let Some(fuse) = projectile.fuse_frames_remaining.as_mut() {
@@ -1842,10 +2115,6 @@ impl ProjectileStore {
             .flatten()
             .map(|response| match response {
                 ProjectileCollisionResponse::TargetZClamp(impact) => impact,
-                ProjectileCollisionResponse::SlopeMatrixReflect { impact, velocity } => {
-                    projectile.velocity = velocity;
-                    impact
-                }
                 ProjectileCollisionResponse::Ordinary { .. }
                 | ProjectileCollisionResponse::ImpactLadder(_) => {
                     unreachable!("only the shared probe answers here")
@@ -1899,14 +2168,9 @@ impl ProjectileStore {
             {
                 // +58 is fetched even in the unconditional mode-one arm.
                 let aim = match projectile.target {
-                    ProjectileTarget::Entity(id) => match collides_at(
-                        projectile,
-                        selected_candidate,
-                        ProjectileCollisionPhase::TargetLocation,
-                    ) {
-                        Some(ProjectileCollisionResponse::TargetZClamp(location)) => Some(location),
-                        _ => resolve_target_position(id),
-                    },
+                    target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                        resolve_target_position(target, ProjectileTargetQuery::TargetAim)
+                    }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_target_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_target_coord(shared_cell_dummy)),
                     ProjectileTarget::None => None,
@@ -1922,7 +2186,9 @@ impl ProjectileStore {
                 });
                 let location = match projectile.target {
                     _ if !snap => None,
-                    ProjectileTarget::Entity(id) => resolve_target_position(id),
+                    target @ (ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_)) => {
+                        resolve_target_position(target, ProjectileTargetQuery::GetCoords)
+                    }
                     ProjectileTarget::Cell { rx, ry } => Some(cell_ground_coord(terrain, rx, ry)),
                     ProjectileTarget::DummyCell => Some(dummy_cell_ground_coord(shared_cell_dummy)),
                     ProjectileTarget::None => None,
@@ -2089,7 +2355,7 @@ pub(crate) fn projectile_final_snap_admitted(
 }
 
 /// Live Rules +16B8, with the Type +295 Floater override (4671B9/48ACF0).
-pub(crate) fn projectile_gravity(
+pub fn projectile_gravity(
     rules_gravity: i32,
     floater: bool,
 ) -> crate::util::native_x87::NativeF64Bits {
@@ -2131,7 +2397,7 @@ fn ordinary_motion_candidate(
     motion
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[test]
 fn original_ordinary_repeated_live_gravity_preserves_both_coordinate_versions() {
     use crate::util::native_x87::NativeF64Bits;
@@ -2231,7 +2497,7 @@ fn vertical_velocity_ramp(
     }))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[test]
 fn original_vertical_repeated_motion_preserves_binary64_and_integer_add_order() {
     use crate::util::native_x87::NativeF64Bits;
@@ -2587,16 +2853,15 @@ mod tests {
             origin: ProjectileCoord::new(0, 0, 0),
             target,
             initial_target_position: match target {
-                ProjectileTarget::Entity(_) => ProjectileCoord::new(128, 0, 0),
+                ProjectileTarget::Entity(_) | ProjectileTarget::Terrain(_) => {
+                    ProjectileCoord::new(128, 0, 0)
+                }
                 ProjectileTarget::Cell { rx, ry } => cell_target_coord(None, rx, ry),
                 ProjectileTarget::None => ProjectileCoord::new(0, 0, 0),
                 ProjectileTarget::DummyCell => ProjectileCoord::new(0, 0, 0),
             },
-            payload: ProjectilePayload::new(
-                40,
-                InternedId::from_index(3),
-                InternedId::from_index(4),
-            ),
+            payload: ProjectilePayload::new(40, InternedId::from_index(3), None, false)
+                .with_installed_weapon(Some(InternedId::from_index(4))),
             speed_leptons_per_frame: 64,
             velocity: ProjectileVelocity::new(64, 0, 0),
             trajectory: ProjectileTrajectory::Straight,
@@ -3445,7 +3710,7 @@ mod tests {
             .iter()
             .enumerate()
         {
-            let actual = crate::sim::particles::spark_world::slope_matrix(slope as u8).unwrap();
+            let actual = crate::map::voxel_slope::slope_matrix(slope as u8).unwrap();
             for (actual, expected) in actual.into_iter().zip(row.as_array().unwrap()) {
                 assert_eq!(
                     u64::from(actual.bits()),
@@ -3462,10 +3727,9 @@ mod tests {
                 .map(|value| value.as_i64().unwrap() as i32)
                 .collect();
             use crate::util::native_x87::{NativeF64Bits, X87Chop53};
-            let matrix = crate::sim::particles::spark_world::slope_matrix(
-                row["slope"].as_u64().unwrap() as u8,
-            )
-            .unwrap();
+            let matrix =
+                crate::map::voxel_slope::slope_matrix(row["slope"].as_u64().unwrap() as u8)
+                    .unwrap();
             let vector = std::array::from_fn(|i| {
                 X87Chop53::store_f32(X87Chop53::load_i32(components[i])).unwrap()
             });

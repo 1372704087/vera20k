@@ -6,11 +6,8 @@ use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
 use crate::sim::pathfinding::PathGrid;
 use crate::util::fixed_math::SimFixed;
 
-fn corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/locomotor_head_coordinates.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/locomotor_head_coordinates.json")
 }
 
 fn coord(value: &serde_json::Value) -> DriveCoord {
@@ -193,6 +190,7 @@ fn destination_change_preserves_the_committed_head() {
             z: -347,
         },
         None,
+        0,
     );
     assert_eq!(
         entity

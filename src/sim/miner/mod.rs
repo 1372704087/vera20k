@@ -8,7 +8,6 @@
 //! - Part of sim/ -- may depend on rules/ for data-driven miner detection.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-mod exit_cell_search;
 mod harvest_mission;
 #[cfg(test)]
 pub mod miner_dock;
@@ -18,15 +17,9 @@ mod refinery_dock;
 pub(crate) use refinery_dock::UnloadImage;
 
 #[cfg(test)]
-#[path = "miner_tests.rs"]
-mod miner_tests;
-
-#[cfg(test)]
 #[path = "outbound_drive_tests.rs"]
 mod outbound_drive_tests;
 
-// Generic nearby-passable-cell search, reused by the tank-bunker exit placement.
-pub(crate) use self::exit_cell_search::find_nearby_passable_cell_with_index;
 pub(crate) use self::harvest_mission::mission_harvest;
 pub(crate) use self::miner_system::extract_bale;
 pub(crate) use self::refinery_dock::{
@@ -296,20 +289,20 @@ impl Miner {
     }
 
     /// Install a fixture's hold.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_cargo_for_test(&mut self, cargo: Vec<CargoBale>) {
         self.cargo = cargo;
     }
 
     /// Install a fixture's unload latch.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_unload_active_for_test(&mut self, active: bool) {
         self.unload_active = active;
     }
 
     /// Install a fixture's harvest latch.
-    #[cfg(test)]
-    pub(crate) fn set_harvesting_for_test(&mut self, harvesting: bool) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_harvesting_for_test(&mut self, harvesting: bool) {
         self.harvesting = harvesting;
     }
 
@@ -318,18 +311,8 @@ impl Miner {
         self.cargo.len() as u16 >= self.capacity_bales
     }
 
-    /// How many of the 5 UI pips should be filled.
-    /// Each pip = 20% of capacity, rounded down.
-    pub fn cargo_pips(&self) -> u8 {
-        if self.capacity_bales == 0 {
-            return 0;
-        }
-        let ratio = (self.cargo.len() as u32 * 5) / self.capacity_bales as u32;
-        (ratio as u8).min(5)
-    }
-
     /// Total credit value of all bales currently in the hold.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn cargo_value(&self) -> u32 {
         self.cargo.iter().map(|b| b.value as u32).sum()
     }
@@ -442,37 +425,6 @@ mod tests {
             cfg.chrono_miner_capacity as u32 * cfg.gem_bale_value as u32,
             1000
         );
-    }
-
-    #[test]
-    fn cargo_pips_shows_five_steps() {
-        let cfg = MinerConfig::default();
-        let mut miner = Miner::new(MinerKind::War, &cfg, 0);
-        assert_eq!(miner.cargo_pips(), 0);
-        // Fill 20% (8 of 40 bales)
-        for _ in 0..8 {
-            miner.cargo.push(CargoBale {
-                resource_type: ResourceType::Ore,
-                value: 25,
-            });
-        }
-        assert_eq!(miner.cargo_pips(), 1);
-        // Fill 40%
-        for _ in 0..8 {
-            miner.cargo.push(CargoBale {
-                resource_type: ResourceType::Ore,
-                value: 25,
-            });
-        }
-        assert_eq!(miner.cargo_pips(), 2);
-        // Fill 100%
-        while !miner.is_full() {
-            miner.cargo.push(CargoBale {
-                resource_type: ResourceType::Ore,
-                value: 25,
-            });
-        }
-        assert_eq!(miner.cargo_pips(), 5);
     }
 
     #[test]

@@ -64,17 +64,6 @@
 //!   idle slaves and hunts.
 //!
 //! ## Residuals
-//! - A player moves a refinery natively by clicking a cell with it selected
-//!   (`BuildingClass` cell click `0x004436F0`: SetRallyPoint's ArchiveTarget
-//!   event 0x1E, then SELL 0x16 -> `Sell_Back(-1) @ 0x00447110`); Selling
-//!   then runs HandleReturnedSlaves' building arm for an archived field
-//!   (`0x0044AA3D..0x0044AA9F`: FindDeployCell beside it becomes the
-//!   archive) and the Slave Miner drives there. VERA's app has no such click
-//!   (it undeploys on a self-click, which retail never offers); the building
-//!   arm is unreachable without it. Trigger: a player's move order for a
-//!   refinery (or Construction Yard). Effect: no move order. Frequency:
-//!   occasional. Downstream: VERA's rally click archives a cell only on
-//!   rally-line factories, so a refinery never holds a player's archive.
 //! - Two recall sites have no VERA anchor: FootClass::Mission_Hunt's reset
 //!   when it picks a destination (`0x004D553D..0x004D5547`; VERA's Hunt port
 //!   has no destination step) and FootClass::Mission_AreaGuard's hunt start
@@ -87,12 +76,6 @@
 //!   `UnitClass::What_Action` gives the Harvest action to a
 //!   ResourceGatherer/ResourceDestination type. The dispatch treats it as
 //!   the plain Unit it is natively (`techno_ai/mission_handlers.rs`).
-//! - A loaded slave walks home without Carry (39, Do_Action's remap of Walk
-//!   for a full slave load, `0x0051D739..0x0051D773`). Trigger: every slave carrying a load
-//!   home. Effect: the Doing value and the walk sequence shown; 0, 3, 38 and
-//!   39 are all interruptible, so readiness, Scatter and the fire error
-//!   answer alike. Frequency: every trip. Downstream: none beyond the Doing
-//!   hash.
 //! - FreeSlaves callers other than the death arm (`0x00702065`), the Temporal
 //!   erase (`0x0071AAA7`) and the destructor (`0x006F4571`): the Teleport
 //!   post-warp (`0x00718998`, `0x00718AEF`) and the Jumpjet crash
@@ -126,7 +109,7 @@ const DO_SHOVEL: i32 = 38;
 
 /// The manager's own state (`SlaveManagerClass+0x5C`, jump table `0x006B0238`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) enum ManagerState {
+pub enum ManagerState {
     /// 0: idle; a building owner moves on once it has built up.
     Ready = 0,
     /// 1: a Slave Miner looks for a field (chain 6).
@@ -164,7 +147,7 @@ pub(crate) enum SlaveState {
 
 /// A `SlaveControl` node (0x14 bytes): the slave, its state and its timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SlaveNode {
+pub struct SlaveNode {
     slave: Option<u64>,
     state: SlaveState,
     timer: CdTimer,
@@ -172,7 +155,7 @@ pub(crate) struct SlaveNode {
 
 impl SlaveNode {
     /// A fixture's node.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn for_test(slave: Option<u64>, state: SlaveState, timer: CdTimer) -> Self {
         Self {
             slave,
@@ -182,31 +165,31 @@ impl SlaveNode {
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn slave(&self) -> Option<u64> {
         self.slave
     }
 
     /// A fixture's value.
-    #[cfg(test)]
-    pub(crate) fn set_slave_for_test(&mut self, slave: Option<u64>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_slave_for_test(&mut self, slave: Option<u64>) {
         self.slave = slave;
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn state(&self) -> SlaveState {
         self.state
     }
 
     /// A fixture's value.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_state_for_test(&mut self, state: SlaveState) {
         self.state = state;
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn timer(&self) -> &CdTimer {
         &self.timer
     }
@@ -216,7 +199,7 @@ impl SlaveNode {
 /// is the entity holding it; FreeSlaves takes it off the master, which stands
 /// for the owner's release (`0x006B0C67`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SlaveManager {
+pub struct SlaveManager {
     /// `+0x28`: the `Enslaves=` type.
     slave_type: InternedId,
     /// `+0x30`: `SlaveRegenRate`.
@@ -264,22 +247,22 @@ impl SlaveManager {
         }
     }
 
-    pub(crate) fn state(&self) -> ManagerState {
+    pub fn state(&self) -> ManagerState {
         self.state
     }
 
-    #[cfg(test)]
-    pub(crate) fn frame(&self) -> i32 {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn frame(&self) -> i32 {
         self.frame
     }
 
-    #[cfg(test)]
-    pub(crate) fn nodes(&self) -> &[SlaveNode] {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn nodes(&self) -> &[SlaveNode] {
         &self.nodes
     }
 
-    #[cfg(test)]
-    pub(crate) fn ai_timer(&self) -> CdTimer {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn ai_timer(&self) -> CdTimer {
         self.ai_timer
     }
 
@@ -296,8 +279,8 @@ impl SlaveManager {
             .any(|node| node.slave == Some(slave))
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_for_test(
         &mut self,
         state: ManagerState,
         frame: i32,
@@ -315,25 +298,25 @@ impl SlaveManager {
 /// the master whose manager holds it, and its Storage (`+0x33C`), one bale
 /// per level of ore or gems. Only this module writes it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SlaveLink {
+pub struct SlaveLink {
     owner: Option<u64>,
     cargo: Vec<CargoBale>,
 }
 
 impl SlaveLink {
     /// SlaveOwner: the master whose manager holds this slave.
-    pub(crate) fn owner(&self) -> Option<u64> {
+    pub fn owner(&self) -> Option<u64> {
         self.owner
     }
 
     /// The Storage levels the slave carries, in the order it cut them.
-    pub(crate) fn cargo(&self) -> &[CargoBale] {
+    pub fn cargo(&self) -> &[CargoBale] {
         &self.cargo
     }
 
     /// A slave of `master` carrying `cargo`, for fixtures.
-    #[cfg(test)]
-    pub(crate) fn for_test(master: Option<u64>, cargo: Vec<CargoBale>) -> Self {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(master: Option<u64>, cargo: Vec<CargoBale>) -> Self {
         Self {
             owner: master,
             cargo,
@@ -687,7 +670,7 @@ impl Simulation {
             let Ok(coord) = crate::sim::movement::nav_target_coordinate(
                 target,
                 Some(slave),
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain.as_ref(),
                 Some((rules, &self.interner)),
             ) else {
@@ -1055,8 +1038,9 @@ impl Simulation {
     /// can deploy on and hunts (state 2, its live slaves reset); with no
     /// such cell, or no NavCom, it guards (state 0 at now).
     ///
-    /// The building arm (an archived field) belongs to the refinery's
-    /// relocation (module residual).
+    /// Building6B0F14..6B0FEE uses ArchiveTarget instead: success replaces
+    /// the archive with FindDeployCell, enters PackingUp and recalls slaves;
+    /// a search miss leaves its state/archive intact. Selling44AA9F calls it.
     pub(crate) fn handle_returned_slaves(
         &mut self,
         master: u64,
@@ -1067,14 +1051,23 @@ impl Simulation {
         let Some(owner) = self.substrate.entities.get(master) else {
             return;
         };
-        let field = (owner.category() == EntityCategory::Unit)
-            .then_some(owner.navigation.nav_com())
-            .flatten()
+        let building = owner.category() == EntityCategory::Structure;
+        let destination = if building {
+            owner.archive_target().map(|target| match target {
+                TargetKind::Cell(x, y) => crate::sim::components::NavTargetRef::cell(x, y),
+                TargetKind::Entity(id) => crate::sim::components::NavTargetRef::object(id),
+            })
+        } else if owner.category() == EntityCategory::Unit {
+            owner.navigation.nav_com()
+        } else {
+            None
+        };
+        let field = destination
             .and_then(|target| {
                 crate::sim::movement::nav_target_coordinate(
                     target,
                     Some(master),
-                    &self.substrate.entities,
+                    self,
                     self.resolved_terrain.as_ref(),
                     Some((rules, &self.interner)),
                 )
@@ -1091,13 +1084,21 @@ impl Simulation {
             return;
         };
         match self.find_deploy_cell(master, field, rules) {
+            None if building => {} //6B0F8E..6B0FA0: no fallback writes.
             None => {
                 self.set_manager_state(master, ManagerState::Ready, now);
                 self.queue_slave_mission(master, MissionType::Guard);
             }
             Some(cell) => {
-                self.send_slave_master(master, cell, rules, frame_effects);
-                self.set_manager_state(master, ManagerState::Travelling, i32::MAX);
+                if building {
+                    if let Some(owner) = self.substrate.entities.get_mut(master) {
+                        owner.set_archive_target(Some(TargetKind::Cell(cell.0, cell.1)));
+                    }
+                    self.set_manager_state(master, ManagerState::PackingUp, i32::MAX);
+                } else {
+                    self.send_slave_master(master, cell, rules, frame_effects);
+                    self.set_manager_state(master, ManagerState::Travelling, i32::MAX);
+                }
                 self.reset_live_slaves(master, rules, frame_effects);
             }
         }
@@ -1115,8 +1116,7 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<(u16, u16)> {
         use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
-            find_nearby_passable_cell_with_options, map_owned_radius_cap,
+            NearbyArgs, NearbyFootprint, NearbySearchOptions, PassabilityArgs,
         };
         let owner = self.substrate.entities.get(master)?;
         let object = self.object_type(owner.type_ref(), rules)?;
@@ -1137,17 +1137,9 @@ impl Simulation {
                 search.zone_check_bridge,
             )
         })?;
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
-        let grid = self.path_grid_snapshot();
-        let found = find_nearby_passable_cell_with_options(
+        let found = self.nearby_passable_cell(
             search.seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
+            NearbyArgs {
                 passability: PassabilityArgs {
                     speed_type: search.speed_type,
                     // A DWORD -1 disables the comparison; FNPC turns a raw
@@ -1160,20 +1152,11 @@ impl Simulation {
                 allow_bridge_cells: search.allow_bridge_cells,
                 check_height: search.check_height,
                 check_occupancy: search.check_occupancy,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
                 target_cell: Some(search.target),
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
+                options: NearbySearchOptions {
+                    reject_any_overlay: search.reject_any_overlay,
+                },
             },
-            NearbySearchOptions {
-                reject_any_overlay: search.reject_any_overlay,
-            },
-            self.session.binary_frame,
         )?;
         Some((
             found.0 + u16::from(foundation.0 > 2),
@@ -1271,7 +1254,7 @@ impl Simulation {
     /// `0x00522D30`: Tiberium_Load (`0x00708BC0`, the stored amount over
     /// `Storage`) equals 1.0. Every cut is a whole level, so that is a full
     /// store.
-    fn slave_is_full(&self, slave: u64, rules: &RuleSet) -> bool {
+    pub(crate) fn slave_is_full(&self, slave: u64, rules: &RuleSet) -> bool {
         let Some(entity) = self.substrate.entities.get(slave) else {
             return false;
         };

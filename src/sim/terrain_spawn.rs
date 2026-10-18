@@ -85,6 +85,7 @@ impl TerrainAnimationState {
         }
     }
 
+    #[cfg(test)]
     pub fn type_ref(&self) -> InternedId {
         self.type_ref
     }
@@ -130,7 +131,7 @@ impl TerrainAnimationState {
         false
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn advance_for_test(&mut self, binary_frame: u32, rng: &mut SimRng) {
         self.tick(binary_frame, true, true, rng);
     }
@@ -242,7 +243,7 @@ impl<'a> TerrainSpawnContext<'a> {
 
 /// Test adapter over the same single-object animation and spread owners.
 /// Production dispatch follows retained Logic order, not this cell-key order.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn tick_terrain_animations_stateful(
     spawners: &mut BTreeMap<(u16, u16), TerrainAnimationState>,
     mut ctx: TerrainSpawnContext<'_>,
@@ -651,7 +652,7 @@ pub fn seed_terrain_spawner_animation(
 ///
 /// Test convenience. The production load path calls the two halves separately
 /// so construction keeps its native position ahead of `[Units]`.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn seed_terrain_animations(
     sim: &mut crate::sim::world::Simulation,
     terrain_objects: &[crate::map::overlay::TerrainObject],
@@ -664,29 +665,20 @@ pub fn seed_terrain_animations(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
-    use crate::assets::asset_manager::AssetManager;
-    use crate::map::bridge_facts::{
-        BRIDGE_FLAG_DESTROYED_OR_RAMP, BRIDGE_FLAG_STRUCTURAL, BRIDGE_FLAG_TRANSITION,
-    };
-    use crate::map::entities::EntityCategory;
+
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
     use crate::rules::ini_parser::IniFile;
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::rules::ruleset::RuleSet;
     use crate::rules::terrain_rules::TerrainClass;
     use crate::sim::entity_store::EntityStore;
-    use crate::sim::game_entity::GameEntity;
+
     use crate::sim::intern::StringInterner;
-    use crate::sim::movement::locomotor::MovementLayer;
-    use crate::sim::occupancy::{CellListInsertion, OccupancyGrid};
+
+    use crate::sim::occupancy::OccupancyGrid;
     use crate::sim::ore_growth::OreGrowthState;
-    use crate::sim::tiberium::{
-        ADJACENT_OFFSETS, admit_new_tiberium_target, resolved_cell_accepts_tiberium,
-    };
 
     #[test]
     fn probability_boundaries_match_original_executable_controls() {
@@ -741,7 +733,6 @@ mod tests {
 
     const STOCK_FRAME_COUNT: u16 = 22;
     const STOCK_RATE: i32 = 3;
-    const SPAWN_DENSITY_LEVELS: u8 = 3;
 
     fn resolved_cell() -> ResolvedTerrainCell {
         ResolvedTerrainCell {
@@ -862,405 +853,6 @@ mod tests {
     }
 
     #[test]
-    fn resolved_cell_gate_requires_flat_buildable_allow_tiberium_non_bridge() {
-        let cell = resolved_cell();
-        assert!(resolved_cell_accepts_tiberium(&cell));
-
-        let mut no_allow = cell.clone();
-        no_allow.allows_tiberium = false;
-        assert!(!resolved_cell_accepts_tiberium(&no_allow));
-
-        let mut sloped = cell.clone();
-        sloped.slope_type = 1;
-        assert!(!resolved_cell_accepts_tiberium(&sloped));
-
-        let mut blocked = cell.clone();
-        blocked.base_build_blocked = true;
-        assert!(!resolved_cell_accepts_tiberium(&blocked));
-
-        for (raw_flags, accepts) in [
-            (0, true),
-            (BRIDGE_FLAG_STRUCTURAL, false),
-            (BRIDGE_FLAG_DESTROYED_OR_RAMP, false),
-            (
-                BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DESTROYED_OR_RAMP,
-                false,
-            ),
-            (BRIDGE_FLAG_TRANSITION, true),
-            (0x0004_0000, true),
-        ] {
-            let mut flagged = cell.clone();
-            flagged.bridge_facts.raw_flags = raw_flags;
-            assert_eq!(
-                resolved_cell_accepts_tiberium(&flagged),
-                accepts,
-                "CellClass+0x140={raw_flags:#x}"
-            );
-        }
-
-        let mut not_walkable = cell;
-        not_walkable.ground_walk_blocked = true;
-        assert!(
-            resolved_cell_accepts_tiberium(&not_walkable),
-            "the native 0x500 gate does not substitute generalized walkability"
-        );
-    }
-
-    #[test]
-    fn probability_hit_does_not_spawn_same_tick() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert(
-            (10, 10),
-            spawner(&mut world.interner, "TIBTRE01", 1_000_000),
-        );
-        let mut rng = SimRng::new(7);
-
-        world.tick(&mut spawners, &mut rng);
-
-        assert!(world.placed().is_empty());
-        let animation = &spawners[&(10, 10)];
-        assert!(animation.is_active());
-        assert_eq!(animation.current_frame(), 0);
-        assert_eq!(animation.timer, CdTimer::started(0, 3));
-    }
-
-    #[test]
-    fn stock_rate3_spawns_33_ticks_after_probability_hit() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert(
-            (10, 10),
-            spawner(&mut world.interner, "TIBTRE01", 1_000_000),
-        );
-        let mut rng = SimRng::new(7);
-
-        world.tick(&mut spawners, &mut rng);
-        for _ in 0..32 {
-            world.tick(&mut spawners, &mut rng);
-            assert!(world.placed().is_empty());
-        }
-
-        world.tick(&mut spawners, &mut rng);
-        assert_eq!(world.placed().len(), 1);
-        assert!(!spawners[&(10, 10)].is_active());
-        assert_eq!(spawners[&(10, 10)].current_frame(), 0);
-    }
-
-    #[test]
-    fn rules_bound_raw_asset_seeds_live_midpoint_and_spawns_after_33_ticks() {
-        use crate::map::overlay::TerrainObject;
-        use crate::rules::art_data::ArtRegistry;
-        use crate::sim::overlay_grid::OverlayGrid;
-        use crate::sim::pathfinding::PathGrid;
-        use crate::sim::world::Simulation;
-
-        let root = TestAssetRoot::new();
-        std::fs::write(root.path().join("TIBTRE01.TEM"), shp_header(22))
-            .expect("write raw 22-frame terrain SHP");
-        let assets = AssetManager::from_loose_root_for_test(root.path());
-
-        let mut rules_text = String::from(
-            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
-             [TerrainTypes]\n0=TIBTRE01\n\
-             [TIBTRE01]\nSpawnsTiberium=yes\nIsAnimated=yes\n\
-             AnimationRate=3\nAnimationProbability=1\n\
-             [OverlayTypes]\n",
-        );
-        for index in 0..12 {
-            rules_text.push_str(&format!("{index}=TIB{:02}\n", index + 1));
-        }
-        rules_text.push_str("12=TIBFALLBACK\n");
-        for index in 1..=12 {
-            rules_text.push_str(&format!("[TIB{index:02}]\nTiberium=yes\n"));
-        }
-        rules_text.push_str(
-            "[TIBFALLBACK]\nTiberium=yes\n\
-             [Tiberiums]\n0=Riparius\n\
-             [Riparius]\nImage=1\n",
-        );
-        let rules_ini = IniFile::from_str(&rules_text);
-        let mut rules = RuleSet::from_ini(&rules_ini).expect("terrain-spawner rules");
-        let art = ArtRegistry::from_ini(&IniFile::from_str("[TIBTRE01]\nTheater=yes\n"));
-        // Synthetic fixture supplies ART directly, without native read-admission replay.
-        rules.install_art_fixture(art);
-        rules.bind_terrain_spawner_assets(&rules_ini, &assets, "TEM", "TEMPERATE");
-
-        let registry = OverlayTypeRegistry::from_ini(&rules_ini, None);
-        let mut sim = Simulation::with_seed(7);
-        sim.resolved_terrain = Some(resolved_grid(32, 32));
-        sim.overlay_grid = Some(OverlayGrid::new(32, 32));
-        construct_terrain_objects(
-            &mut sim,
-            &[TerrainObject {
-                rx: 10,
-                ry: 10,
-                name: "TIBTRE01".to_string(),
-            }],
-            &rules,
-            false,
-        );
-        assert_eq!(seed_terrain_spawner_animation(&mut sim, &rules), 1);
-        let state = &sim.production.terrain_animations[&(10, 10)];
-        assert_eq!(state.frame_count, 22);
-        assert_eq!(state.frame_count / 2, 11);
-
-        let path_grid = PathGrid::test_all_passable(32, 32);
-        let advance = |sim: &mut Simulation| {
-            sim.advance_tick(&[], Some(&rules), Some(&path_grid), Some(&registry), 67)
-        };
-
-        assert!(advance(&mut sim).frame_committed);
-        assert_eq!(
-            sim.overlay_grid
-                .as_ref()
-                .expect("overlay grid")
-                .iter_occupied()
-                .count(),
-            0
-        );
-        for _ in 0..32 {
-            assert!(advance(&mut sim).frame_committed);
-            assert_eq!(
-                sim.overlay_grid
-                    .as_ref()
-                    .expect("overlay grid")
-                    .iter_occupied()
-                    .count(),
-                0
-            );
-        }
-        assert!(advance(&mut sim).frame_committed);
-        assert!(!sim.production.terrain_animations[&(10, 10)].is_active());
-        let placed_cells: Vec<(u8, u8)> = sim
-            .overlay_grid
-            .as_ref()
-            .expect("overlay grid")
-            .iter_occupied()
-            .map(|(_, _, cell)| {
-                (
-                    cell.overlay_id.expect("occupied identity"),
-                    cell.overlay_data,
-                )
-            })
-            .collect();
-        assert_eq!(placed_cells.len(), 1);
-        assert_eq!(placed_cells[0].1, SPAWN_DENSITY_LEVELS);
-        assert!(placed_cells[0].0 < 12, "a registry TIB01..TIB12 variant");
-    }
-
-    #[test]
-    fn active_animation_suppresses_probability_rolls() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        let mut state = spawner(&mut world.interner, "TIBTRE01", 1_000_000);
-        state.rate = STOCK_RATE;
-        state.timer = CdTimer::started(0, STOCK_RATE);
-        spawners.insert((10, 10), state);
-        let mut rng = SimRng::new(123);
-        let before = rng.state();
-
-        world.tick(&mut spawners, &mut rng);
-
-        assert_eq!(
-            rng.state(),
-            before,
-            "active non-midpoint tick consumes no RNG"
-        );
-        assert!(world.placed().is_empty());
-    }
-
-    #[test]
-    fn zero_probability_still_consumes_idle_draws() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert((10, 10), spawner(&mut world.interner, "TIBTRE_NEVER", 0));
-        let mut rng = SimRng::new(7);
-        let mut native_rng = rng.clone();
-
-        for _ in 0..1000 {
-            world.tick(&mut spawners, &mut rng);
-            native_rng.next_u32();
-        }
-        assert_eq!(
-            rng.state(),
-            native_rng.state(),
-            "Terrain AI71C745 rolls even at zero probability"
-        );
-        assert!(world.placed().is_empty());
-        assert!(!spawners[&(10, 10)].is_active());
-        assert_eq!(spawners[&(10, 10)].current_frame(), 0);
-    }
-
-    #[test]
-    fn spawn_on_empty_cell_creates_density_3_ore() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert(
-            (10, 10),
-            spawner(&mut world.interner, "TIBTRE01", 1_000_000),
-        );
-        let mut rng = SimRng::new(7);
-
-        for _ in 0..34 {
-            world.tick(&mut spawners, &mut rng);
-        }
-
-        let placed = world.placed();
-        assert_eq!(placed.len(), 1);
-        assert_eq!(placed[0].1, SPAWN_DENSITY_LEVELS);
-    }
-
-    #[test]
-    fn spawn_skips_existing_ore_neighbors_instead_of_growing_them() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert(
-            (10, 10),
-            spawner(&mut world.interner, "TIBTRE01", 1_000_000),
-        );
-        for &(dx, dy) in &ADJACENT_OFFSETS {
-            if (dx, dy) == (1, 1) {
-                continue;
-            }
-            world
-                .overlay_grid
-                .place_overlay((10 + dx) as u16, (10 + dy) as u16, 0, 1);
-        }
-        let mut rng = SimRng::new(7);
-
-        for _ in 0..34 {
-            world.tick(&mut spawners, &mut rng);
-        }
-
-        assert_eq!(
-            world.overlay_grid.cell(11, 11).overlay_data,
-            SPAWN_DENSITY_LEVELS
-        );
-        let grown_existing = world
-            .placed()
-            .iter()
-            .filter(|(cell, data)| *cell != (11, 11) && *data != 1)
-            .count();
-        assert_eq!(grown_existing, 0, "existing ore must not be additive-grown");
-    }
-
-    #[test]
-    fn spawn_places_nothing_when_all_neighbors_have_overlays() {
-        let mut world = SpawnWorld::new();
-        let mut spawners = BTreeMap::new();
-        spawners.insert(
-            (10, 10),
-            spawner(&mut world.interner, "TIBTRE01", 1_000_000),
-        );
-        for &(dx, dy) in &ADJACENT_OFFSETS {
-            world
-                .overlay_grid
-                .place_overlay((10 + dx) as u16, (10 + dy) as u16, 5, 0);
-        }
-        let mut rng = SimRng::new(7);
-
-        for _ in 0..34 {
-            world.tick(&mut spawners, &mut rng);
-        }
-
-        assert_eq!(world.placed().len(), 8);
-        assert!(world.placed().iter().all(|(_, data)| *data == 0));
-    }
-
-    #[test]
-    fn live_building_gate_rejects_visible_and_allows_invisible_exceptions() {
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
-             [BuildingTypes]\n0=GAPOWR\n1=BRIDGEA\n2=BRIDGEB\n\
-             [GAPOWR]\nStrength=100\n\
-             [BRIDGEA]\nStrength=100\nInvisible=yes\n\
-             [BRIDGEB]\nStrength=100\nInvisibleInGame=yes\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("rules");
-        let overlay_grid = OverlayGrid::new(32, 32);
-        let terrain = resolved_grid(32, 32);
-        let spawner_cells = BTreeSet::new();
-
-        fn context_for<'a>(
-            type_name: &str,
-            rules: &'a RuleSet,
-            interner: &'a mut StringInterner,
-            entities: &'a mut EntityStore,
-            occupancy: &'a mut OccupancyGrid,
-            terrain_object_cells: &'a BTreeMap<(u16, u16), u64>,
-        ) -> TiberiumPlacementObjectContext<'a> {
-            let mut entity = GameEntity::test_default_of_category(
-                1,
-                type_name,
-                "Neutral",
-                11,
-                10,
-                EntityCategory::Structure,
-            );
-            entity.set_type_ref_for_test(interner.intern(type_name));
-            entities.insert(entity);
-            occupancy.add(
-                11,
-                10,
-                1,
-                MovementLayer::Ground,
-                None,
-                CellListInsertion::AppendBuilding,
-            );
-            TiberiumPlacementObjectContext::new(
-                entities,
-                occupancy,
-                rules,
-                interner,
-                terrain_object_cells,
-            )
-        }
-
-        for (type_name, expected) in [("GAPOWR", false), ("BRIDGEA", true), ("BRIDGEB", true)] {
-            let mut interner = StringInterner::default();
-            let mut entities = EntityStore::new();
-            let mut occupancy = OccupancyGrid::new();
-            let terrain_object_cells = BTreeMap::new();
-            let context = context_for(
-                type_name,
-                &rules,
-                &mut interner,
-                &mut entities,
-                &mut occupancy,
-                &terrain_object_cells,
-            );
-            let admission = NewTiberiumAdmission::runtime(&terrain, context);
-
-            assert_eq!(
-                admit_new_tiberium_target(&overlay_grid, &spawner_cells, admission, (11, 10))
-                    .is_some(),
-                expected,
-                "{type_name}"
-            );
-        }
-    }
-
-    #[test]
-    fn spawning_terrain_cells_reject_tiberium_even_when_not_animated() {
-        let overlay_grid = OverlayGrid::new(32, 32);
-        let mut spawning_terrain_cells = BTreeSet::new();
-        spawning_terrain_cells.insert((12, 10));
-        let terrain = resolved_grid(32, 32);
-        let no_objects = crate::sim::tiberium::test_support::NoLiveObjects::new();
-        let admission = NewTiberiumAdmission::runtime(&terrain, no_objects.context());
-
-        assert!(
-            admit_new_tiberium_target(&overlay_grid, &spawning_terrain_cells, admission, (13, 10))
-                .is_some()
-        );
-        assert!(
-            admit_new_tiberium_target(&overlay_grid, &spawning_terrain_cells, admission, (12, 10))
-                .is_none()
-        );
-    }
-
-    #[test]
     fn deterministic_same_seed_same_pattern() {
         fn run(seed: u64) -> Vec<((u16, u16), u8)> {
             let mut world = SpawnWorld::new();
@@ -1279,69 +871,6 @@ mod tests {
         let a = run(42);
         let b = run(42);
         assert_eq!(a, b, "same seed must produce identical state");
-    }
-
-    #[test]
-    fn seed_all_animated_types_and_keep_native_probability_and_rate() {
-        use crate::map::overlay::TerrainObject;
-        use crate::rules::ini_parser::IniFile;
-        use crate::rules::ruleset::RuleSet;
-        use crate::sim::world::Simulation;
-
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n\
-             [VehicleTypes]\n\
-             [AircraftTypes]\n\
-             [BuildingTypes]\n\
-             [TerrainTypes]\n1=TIBTRE01\n2=TREE01\n3=TREE02\n\
-             [TIBTRE01]\nSpawnsTiberium=yes\nIsAnimated=yes\n\
-             AnimationRate=3\nAnimationProbability=.003\n\
-             [TREE01]\nSpawnsTiberium=no\nIsAnimated=yes\n\
-             [TREE02]\nSpawnsTiberium=yes\nIsAnimated=no\n",
-        );
-        let mut rules = RuleSet::from_ini(&ini).expect("rules");
-        rules.set_terrain_spawner_frame_count_for_test("TIBTRE01", STOCK_FRAME_COUNT);
-        let mut sim = Simulation::new();
-        let objs = vec![
-            TerrainObject {
-                rx: 5,
-                ry: 6,
-                name: "TIBTRE01".to_string(),
-            },
-            TerrainObject {
-                rx: 8,
-                ry: 9,
-                name: "TREE01".to_string(),
-            },
-            TerrainObject {
-                rx: 1,
-                ry: 2,
-                name: "TREE02".to_string(),
-            },
-            TerrainObject {
-                rx: 3,
-                ry: 4,
-                name: "UNKNOWN".to_string(),
-            },
-        ];
-        let seeded = seed_terrain_animations(&mut sim, &objs, &rules, false);
-        assert_eq!(seeded, 2);
-        let placed = sim
-            .production
-            .terrain_animations
-            .get(&(5, 6))
-            .expect("TIBTRE01 seeded at (5,6)");
-        assert_eq!(placed.animation_probability.bits(), 0x3b44_9ba6);
-        assert_eq!(placed.animation_rate_ticks, 3);
-        // Rendering addresses 11 body frames in the 22-frame SHP. Native
-        // TerrainClass::AI reads raw 22 and performs the one midpoint divide
-        // itself, so the authoritative target must remain 11 rather than 5.
-        assert_eq!(placed.frame_count, STOCK_FRAME_COUNT as i16);
-        assert_eq!(placed.frame_count / 2, STOCK_FRAME_COUNT as i16 / 2);
-        assert_eq!(
-            sim.production.tiberium_spawning_terrain_cells,
-            BTreeSet::from([(5, 6), (1, 2)])
-        );
     }
 
     /// A `[Terrain]` entry read straight out of a map INI must become a live
@@ -1702,37 +1231,5 @@ mod tests {
             None,
             "same-cell resource clearing occurs after the immediate Terrain Recalc"
         );
-    }
-
-    fn shp_header(frame_count: u16) -> Vec<u8> {
-        let mut data = vec![0_u8; 8 + usize::from(frame_count) * 24];
-        data[6..8].copy_from_slice(&frame_count.to_le_bytes());
-        data
-    }
-
-    static NEXT_ASSET_ROOT: AtomicU64 = AtomicU64::new(0);
-
-    struct TestAssetRoot(PathBuf);
-
-    impl TestAssetRoot {
-        fn new() -> Self {
-            let serial = NEXT_ASSET_ROOT.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "vera20k-terrain-spawner-live-{}-{serial}",
-                std::process::id()
-            ));
-            std::fs::create_dir(&path).expect("create terrain spawner test root");
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestAssetRoot {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
     }
 }

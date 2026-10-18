@@ -39,8 +39,8 @@ fn retail_rules() -> Option<RuleSet> {
     ])
 }
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -69,7 +69,7 @@ fn relight_profiles(sim: &Simulation) -> Vec<ScenarioLightingProfile> {
         .pending
         .iter()
         .filter_map(|event| match event {
-            LightingEvent::RelightProfile { cell_profile } => Some(*cell_profile),
+            LightingEvent::RelightProfile { cell_profile, .. } => Some(*cell_profile),
             _ => None,
         })
         .collect()

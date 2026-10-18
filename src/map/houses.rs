@@ -111,6 +111,19 @@ pub struct HouseRoster {
     pub houses: Vec<HouseDefinition>,
 }
 
+/// `HouseClass::FromName @ 0x0050C170`: the first byte-exact stored name in
+/// House-array order. Names are the bounded native strings, not case-folded
+/// owner keys, country selectors or participant display handles. The roster
+/// readers and live authored-object admission share this one query.
+/// Source: original gamemd instructions50C170..50C20D; the consumed native
+/// campaign_start_houses corpus also covers the Allies/Basic.Player callers.
+pub(crate) fn find_house_index<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+    requested: &str,
+) -> Option<usize> {
+    names.into_iter().position(|name| name == requested)
+}
+
 impl HouseRoster {
     /// Convert roster entries to the color map used by render code.
     pub fn color_map(&self) -> HouseColorMap {
@@ -118,11 +131,6 @@ impl HouseRoster {
             .iter()
             .map(|house| (house.name.clone(), house.color))
             .collect()
-    }
-
-    /// Original House::FromName50C170 uses byte-exact names in array order.
-    pub(crate) fn find_house_index(&self, name: &str) -> Option<usize> {
-        self.houses.iter().position(|house| house.name == name)
     }
 
     /// Project the authored directed graph. Full scenario admission and its
@@ -170,14 +178,20 @@ pub fn are_houses_friendly(alliances: &HouseAllianceMap, a: &str, b: &str) -> bo
 /// always allied with itself. [`are_houses_friendly`] keeps its symmetric OR
 /// for the call sites not yet traced to their native asker (#582).
 pub fn is_allied_with(alliances: &HouseAllianceMap, asker: &str, other: &str) -> bool {
-    if asker.eq_ignore_ascii_case(other) {
-        return true;
+    ally_test(alliances, asker)(other)
+}
+
+/// [`is_allied_with`] for one `asker`, to ask of many others: the asker's ally
+/// set is looked up once.
+pub fn ally_test<'a>(
+    alliances: &'a HouseAllianceMap,
+    asker: &'a str,
+) -> impl Fn(&str) -> bool + 'a {
+    let allies = with_house_key(asker, |asker| alliances.get(asker));
+    move |other| {
+        asker.eq_ignore_ascii_case(other)
+            || allies.is_some_and(|set| with_house_key(other, |other| set.contains(other)))
     }
-    with_house_key(asker, |asker| {
-        alliances
-            .get(asker)
-            .is_some_and(|set| with_house_key(other, |other| set.contains(other)))
-    })
 }
 
 /// Mutual-alliance test — both houses must name each other.
@@ -215,7 +229,7 @@ fn with_house_key<R>(name: &str, f: impl FnOnce(&str) -> R) -> R {
 /// This remains as a compatibility helper for systems that only need color.
 /// `schemes` is the parsed `[Colors]` list used to resolve each house's
 /// `Color=<name>` to a `[Colors]` entry index.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn parse_house_colors(ini: &IniFile, schemes: &[ColorSchemeEntry]) -> HouseColorMap {
     parse_house_roster(ini, schemes, None).color_map()
 }
@@ -301,7 +315,9 @@ pub fn parse_house_roster(
     for index in 0..roster.houses.len() {
         let allies = ini
             .section_or_empty(&roster.houses[index].name)
-            .read_houses_list("Allies", 0, |name| roster.find_house_index(name));
+            .read_houses_list("Allies", 0, |name| {
+                find_house_index(roster.houses.iter().map(|house| house.name.as_str()), name)
+            });
         roster.houses[index].allies = allies;
     }
     log::info!(

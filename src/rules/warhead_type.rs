@@ -106,8 +106,9 @@ pub struct WarheadType {
     /// written by `WarheadTypeClass::ReadINI` @ `0x0075d4ee` from the key
     /// string at `0x00847e34`. (`+0x14B` is `Sonic=`, not this.)
     pub conventional: bool,
-    /// Area-damage rocker: detonation pushes a rocker impulse into every
-    /// vehicle in a 3×3 cell radius (`Rocker=` in `[Warhead]`). Default `no`.
+    /// Area-damage rocker: `489B49..489E87` visits 49 cells (center ±3 per
+    /// axis) after receivers. Shared `Techno70B280` owns the loaded-VXL
+    /// candidate gate (`Rocker=` in `[Warhead]`). Default `no`.
     /// `WarheadTypeClass+0x14E`, written by `WarheadTypeClass::ReadINI`
     /// @ `0x0075d5be` from the key string at `0x00847de8`.
     pub rocker: bool,
@@ -201,15 +202,6 @@ pub struct WarheadType {
     /// Calls in airstrike. `WarheadTypeClass+0x16C` (ReadINI `0x0075D8F0`),
     /// read by `TechnoClass::What_Weapon_Should_I_Use @ 0x006F3481`.
     pub airstrike: bool,
-    /// Tesla weapon. Native offset **UNKNOWN** — VERA-internal, gamemd
-    /// equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body @ 0x0075D3A0`
-    /// (body `0x0075D3A0`-`0x0075DEBD`) pushes 61 distinct key strings and
-    /// none of them is `Electric`; `search_strings ^Electric$` over the image
-    /// returns nothing. So there is no native `Electric=` warhead key to bind
-    /// to, and `+0x178` — the offset previously claimed here — is
-    /// `PsychicDamage=`. Stock `rulesmd.ini` authors no `Electric=` line, so
-    /// this field is always `false` in stock play.
-    pub electric: bool,
     /// Radiation contamination. `WarheadTypeClass+0x177`, written by
     /// `WarheadTypeClass::ReadINI` @ `0x0075d9c7` from the key string at
     /// `0x00839e80`. (`+0x179` is `AffectsAllies=`, not this.)
@@ -246,30 +238,12 @@ pub struct WarheadType {
     /// `0x00847CF4`), tested last in the detonation chain at
     /// `BulletClass::DetonateAtCoord @ 0x00469a2c`.
     pub nuke_maker: bool,
-
-    // --- Int fields ---
     /// `EMEffect=`, a bool at `WarheadTypeClass+0x154`: `ReadBool` at
     /// `0x0075D7C1` with the field as default, which the constructor zeroes
     /// (`0x0075CFB3`). The bullet's impact resolution skips its last snaps
     /// for it (`0x00468E9F`). The one stock `EMEffect=yes`, `[EMPuls]`, is
     /// mounted by no stock weapon.
-    /// RESIDUAL: `Paralyzes=` (`+0x170`, `ReadInt` at `0x0075D92A`) is not
-    /// parsed; its one stock user, `[ParasitePlus]`, belongs to the unported
-    /// parasite effect.
     pub em_effect: bool,
-    /// Money transfer on hit. Native offset **UNKNOWN** — VERA-internal,
-    /// gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body` reads no
-    /// `TransactMoney=` key (and no such string exists in the image);
-    /// `+0x17C` — the offset previously claimed here — is `ShakeXlo=`, an int.
-    /// Stock `rulesmd.ini` authors no `TransactMoney=` line, so this field is
-    /// always 0 in stock play.
-    pub transact_money: i32,
-    /// Infantry death type for cell-level kills. Native offset **UNKNOWN** —
-    /// VERA-internal, gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body`
-    /// writes nothing at `+0x114` and reads no `CellInfDeath=` key (no such
-    /// string exists in the image). Stock `rulesmd.ini` authors no
-    /// `CellInfDeath=` line, so this field is always 0 in stock play.
-    pub cell_inf_death: i32,
 
     // --- List fields ---
     /// `[VoxelAnims]` type names thrown on detonation.
@@ -278,30 +252,16 @@ pub struct WarheadType {
     /// -> warhead `+0x18C`, resolved through the `VoxelAnimTypeClass` name
     /// lookup at `0x0074B960`. These are voxel-anim types, NOT AnimTypes.
     ///
-    /// RESIDUAL (GSI-05.14) — the four warhead debris keys parse and nothing
-    /// reads them, and the producer players actually see lives on a different
-    /// class. `WarheadTypeClass::ReadINI` reads exactly `DebrisTypes=`,
-    /// `DebrisMaximums=` (`0x0075DCFC` -> `+0x1A8`), `MinDebris=`
-    /// (`0x0075DAAB` -> `+0x1C8`) and `MaxDebris=` (`0x0075DA95` -> `+0x1C4`);
-    /// no stock warhead authors any of them, so these fields are stock-dead.
-    /// The 456 `MaxDebris=`, 272 `MinDebris=`, 36 `DebrisTypes=`, 36
-    /// `DebrisMaximums=` and 166 `DebrisAnims=` lines in stock rules all sit on
-    /// TechnoType sections, read by `TechnoTypeClass::ReadINI` (`0x007126EB`,
-    /// `0x0071274F`) — that is the live producer, and `src/rules/object_type.rs`
-    /// already parses its `MaxDebris=`/`MinDebris=` pair. The three stock
-    /// `Debris=` lines are TiberiumClass keys (`TiberiumClass::ReadINI_Fields`
-    /// @ `0x00721B4F`, sections `[Cruentus]`/`[Vinifera]`/`[Aboreus]`) naming
-    /// AnimTypes CRYSTAL1-4, unrelated to either.
+    /// Stock Smashing (Brute Smash/SmashE) and TRexWH author MinDebris1 /
+    /// MaxDebris3, with no typed entries: Bullet469D06..469EBA uses the
+    /// fallback General.MetallicDebris SHP path on each admitted hit. This
+    /// differs from TechnoType debris, which belongs to the death receiver.
     ///
-    /// The TechnoType side is ported: `throw_debris_for_death` launches a dying
-    /// object's `DebrisTypes=` into the `VoxelAnimClass` store
-    /// (`sim::voxel_anim`) and records its `DebrisAnims=` rows, which stay
-    /// unbound on stock (the GSI-05.14 residual there). These four warhead
-    /// keys still have no reader.
-    /// - Trigger: a mod authoring warhead debris keys; none in stock.
-    /// - Player effect: none in stock; the native reader of these warhead
-    ///   fields is not traced.
-    /// - Frequency: zero in unmodded play.
+    /// RESIDUAL: the authored nonempty typed-warhead arm469D40..469E18
+    /// still lacks VoxelAnim emission. Its budget request precedes that arm;
+    /// a nonempty list must not instead produce fallback metallic SHPs.
+    /// Stock Brute's empty typed list does not exercise this residual. General
+    /// Airburst child emission469EBA..46A28A is a separate later mechanism.
     pub debris_types: Vec<String>,
     /// Per-type debris count cap.
     ///
@@ -406,7 +366,6 @@ impl WarheadType {
             mind_control: section.read_bool("MindControl", false),
             poison: section.read_bool("Poison", false),
             airstrike: section.read_bool("Airstrike", false),
-            electric: section.read_bool("Electric", false),
             radiation: section.read_bool("Radiation", false),
             culling: section.read_bool("Culling", false),
             paralyzes: section.read_int("Paralyzes", 0),
@@ -415,11 +374,7 @@ impl WarheadType {
             electric_assault: section.read_bool("ElectricAssault", false),
             bomb_disarm: section.read_bool("BombDisarm", false),
             nuke_maker: section.read_bool("NukeMaker", false),
-
-            // Int fields — all default 0
             em_effect: section.read_bool("EMEffect", false),
-            transact_money: section.read_int("TransactMoney", 0),
-            cell_inf_death: section.read_int("CellInfDeath", 0),
 
             // List fields
             debris_types,
@@ -582,7 +537,6 @@ mod tests {
 
         assert!(wh.mind_control);
         assert!(!wh.temporal);
-        assert!(!wh.electric);
         assert!(!wh.ivan_bomb);
     }
 

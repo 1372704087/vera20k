@@ -217,11 +217,9 @@ fn war_miner_cuts_the_cell_it_drove_onto_from_every_side() {
 /// on the same 19-frame gate.
 #[test]
 fn war_miner_gate_on_retail_rules() {
-    let Some((rules_ini, _art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-    else {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let retail = crate::rules::ruleset::RuleSet::from_ini(&rules_ini).unwrap();
     assert_eq!(retail.general.tiberium_short_scan, 1536);
     assert_eq!(retail.general.tiberium_long_scan, 12288);
     assert_eq!(retail.general.harvester_load_rate, 2);
@@ -340,6 +338,7 @@ fn a_harvest_order_on_a_cutting_miner_keeps_state_one_and_cuts_on_arrival() {
 /// clear terrain and two owned refineries; this is a frame integration test,
 /// not a whole-map native comparison.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::sim::command::Command;

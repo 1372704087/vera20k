@@ -8,7 +8,6 @@
 //! - Any module may depend on util/.
 
 pub mod base64;
-pub(crate) mod bam_trig;
 pub mod case_insensitive_path;
 pub mod config;
 pub mod direction;
@@ -24,19 +23,24 @@ pub mod logging;
 pub(crate) mod lookup_hash;
 pub mod lzo;
 pub(crate) mod native_ballistics;
+pub mod native_color;
+pub(crate) mod native_coord;
 pub(crate) mod native_random;
 pub mod native_string;
 pub mod native_trig;
 pub mod native_x87;
+pub(crate) mod native_quaternion;
 pub mod pixel_conversion;
 pub mod read_helpers;
-pub(crate) mod retail_pointer_sort;
-pub(crate) mod sha256;
+pub mod retail_pointer_sort;
+pub mod sha256;
 pub mod single_instance;
 pub mod version;
-pub(crate) mod rect;
+pub mod rect;
 // pub mod color;
 
-pub(crate) mod native_file_time;
+pub mod native_file_time;
 
 pub mod native_file_name;
+
+pub mod native_affine;

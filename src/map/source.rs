@@ -17,7 +17,7 @@ const MAP_EXTENSIONS: [&str; 5] = ["mmx", "yro", "map", "mpr", "yrm"];
 /// Exact source whose bytes were parsed into the active map.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum LoadedMapSource {
+pub enum LoadedMapSource {
     Loose {
         path: PathBuf,
         payload_len: usize,
@@ -34,19 +34,42 @@ pub(crate) enum LoadedMapSource {
     },
     Generated {
         seed_name: String,
+        /// Actual seed-file input to generation. Older or missing-file sources
+        /// retain `None`; their constructor-default gameplay remains valid.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed_source: Option<GeneratedSeedSource>,
     },
     LegacyFallback {
         label: String,
     },
 }
 
+/// Identity of the seed bytes consumed by the normal generated-map loader.
+/// These bytes describe generation inputs, not the emitted map's INI bytes.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GeneratedSeedSource {
+    pub path: PathBuf,
+    pub payload_len: usize,
+    pub source_sha256: String,
+}
+
+impl GeneratedSeedSource {
+    pub fn from_consumed_bytes(path: PathBuf, bytes: &[u8]) -> Self {
+        Self {
+            path,
+            payload_len: bytes.len(),
+            source_sha256: sha256_hex(bytes),
+        }
+    }
+}
+
 /// Parsed map paired with the exact source consumed by the parser.
-pub(crate) struct LoadedMap {
+pub struct LoadedMap {
     pub map: MapFile,
     pub source: LoadedMapSource,
 }
 
-pub(crate) fn read_map_ini_for_metadata(path: &Path) -> Option<IniFile> {
+pub fn read_map_ini_for_metadata(path: &Path) -> Option<IniFile> {
     map_file::ini_from_file_bytes(std::fs::read(path).ok()?).ok()
 }
 
@@ -74,7 +97,7 @@ pub(crate) fn load_map_by_name_or_path(ra2_dir: &Path, map_name: &str) -> Result
     ))
 }
 
-pub(crate) fn load_map_by_name_or_path_with_assets(
+pub fn load_map_by_name_or_path_with_assets(
     ra2_dir: &Path,
     map_name: &str,
     assets: &AssetManager,
@@ -103,7 +126,7 @@ pub(crate) fn load_map_by_name_or_path_with_assets(
     }
 }
 
-pub(crate) fn asset_map_candidates(map_name: &str) -> Vec<String> {
+pub fn asset_map_candidates(map_name: &str) -> Vec<String> {
     let mut names = Vec::new();
     names.push(map_name.to_string());
     let has_extension = Path::new(map_name).extension().is_some();
@@ -131,7 +154,7 @@ fn load_map_from_path_with_source(path: &Path) -> Result<LoadedMap> {
 }
 
 /// Try loading .mmx map files from a list of candidates.
-pub(crate) fn try_load_mmx(ra2_dir: &Path, names: &[&str]) -> Result<LoadedMap> {
+pub fn try_load_mmx(ra2_dir: &Path, names: &[&str]) -> Result<LoadedMap> {
     for &name in names {
         let path: PathBuf = ra2_dir.join(name);
         if path.exists() {
@@ -152,18 +175,18 @@ pub(crate) fn try_load_mmx(ra2_dir: &Path, names: &[&str]) -> Result<LoadedMap> 
     ))
 }
 
-#[cfg(test)]
-pub(crate) mod test_support {
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support {
     use super::*;
     use crate::assets::mix_hash::mix_hash;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-    pub(crate) struct TestDirectory(PathBuf);
+    pub struct TestDirectory(PathBuf);
 
     impl TestDirectory {
-        pub(crate) fn new(label: &str) -> Self {
+        pub fn new(label: &str) -> Self {
             let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
                 "vera20k-map-source-{label}-{}-{sequence}",
@@ -173,11 +196,11 @@ pub(crate) mod test_support {
             Self(path)
         }
 
-        pub(crate) fn path(&self) -> &Path {
+        pub fn path(&self) -> &Path {
             &self.0
         }
 
-        pub(crate) fn write(&self, name: &str, bytes: &[u8]) {
+        pub fn write(&self, name: &str, bytes: &[u8]) {
             std::fs::write(self.0.join(name), bytes).expect("write test file");
         }
     }
@@ -188,7 +211,7 @@ pub(crate) mod test_support {
         }
     }
 
-    pub(crate) fn make_new_format_mix_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    pub fn make_new_format_mix_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let body_size: usize = entries.iter().map(|(_, body)| body.len()).sum();
         let mut data = Vec::new();
         data.extend_from_slice(&0u16.to_le_bytes());
@@ -227,6 +250,20 @@ mod tests {
     use super::test_support::{TestDirectory, make_new_format_mix_bytes};
     use super::*;
     use crate::assets::mix_hash::mix_hash;
+
+    #[test]
+    fn legacy_generated_source_keeps_absent_seed_identity() {
+        let legacy = serde_json::json!({"kind": "generated", "seed_name": "Old.SED"});
+        let source: LoadedMapSource = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(matches!(
+            source,
+            LoadedMapSource::Generated {
+                seed_source: None,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(source).unwrap(), legacy);
+    }
 
     #[test]
     fn asset_map_candidates_adds_retail_map_extensions_for_stems() {

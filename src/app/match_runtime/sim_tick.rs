@@ -8,7 +8,6 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Instant;
 
 use crate::app::AppState;
 use crate::app::input::commands::{preferred_local_owner, preferred_local_owner_name};
@@ -349,10 +348,6 @@ pub(crate) enum ExactStepError {
     FrameDelta { actual: u32 },
 }
 
-pub(crate) fn monotonic_frame_pacer_ms(state: &AppState, now: Instant) -> u64 {
-    crate::app::match_runtime::frame_pacer::wall_clock_ms(state.platform.frame_pacer_epoch, now)
-}
-
 /// One `AudioSystem::Pump @ 0x00406F70` service pass, run every frame whether
 /// or not the simulation stepped.
 ///
@@ -601,7 +596,7 @@ pub(crate) fn advance_in_game_runtime_exact_step(
         .ok_or(ExactStepError::SimulationMissing)?;
 
     advance_in_game_runtime_mode(state, RuntimeAdvanceMode::ExactOneStep, admitted);
-    let now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     state.platform.frame_pacer.reanchor(now_ms);
 
     let (tick_after, binary_frame_after) = state
@@ -701,6 +696,39 @@ fn advance_in_game_runtime_mode(
             frame_committed,
             tick_lane,
         );
+        if frame_committed {
+            // House4F92E2's strip pass reaches this frame as a pending
+            // recheck; membership must not wait for the next player input.
+            let recheck = state
+                .match_state
+                .match_presentation
+                .sidebar_projection
+                .cameo_recheck_pending();
+            // Native Strip AI6A8CF3 requests redraw throughout the authored
+            // flash window, even with no input. Reuse the one projection owner
+            // only in these windows; ordinary idle ticks do not enumerate cameos.
+            let flashing = state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|runtime| {
+                    state
+                        .match_state
+                        .match_presentation
+                        .sidebar_projection
+                        .cameo_redraw_requested(runtime.simulation.session.binary_frame as i32)
+                });
+            // StripDraw6A9540 asks each entry's availability and reads its
+            // Factory while drawing, so the drawn state follows the simulation
+            // even when no pass, input or flash window rebuilt the projection
+            // this frame.
+            if recheck || flashing {
+                // The rebuilt view takes the same drawn state.
+                crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+            } else {
+                crate::app::presentation::sidebar_render::refresh_sidebar_cameo_draw_state(state);
+            }
+        }
         if frame_committed && decision.admitted_by_pacer {
             let RuntimeAdvanceMode::WallClock { now_ms } = mode else {
                 unreachable!("only wall-clock admission records the frame pacer");
@@ -713,7 +741,7 @@ fn advance_in_game_runtime_mode(
 
     // MainThrottle55E33B publishes Logic visits per60 wall-clock buckets,
     // including the path where the pacer admitted no simulation frame.
-    let wall_ms = state.radar_presentation_ms(Instant::now());
+    let wall_ms = state.radar_presentation_ms();
     state
         .match_state
         .match_presentation
@@ -726,7 +754,7 @@ fn advance_in_game_runtime_mode(
     refresh_cell_lighting(state);
 
     crate::app::presentation::building_anim::update_radar_state(state);
-    crate::app::presentation::building_anim::update_power_bar_anim(state);
+    crate::app::presentation::building_anim::update_power_bar_anim(state, wall_ms);
     crate::app::presentation::sidebar_gadgets::update_sidebar_gadget_state(state);
     // Per-frame gadget idle tick (G22 rows 2/3 drag-off/drag-back tracking).
     crate::app::input::gadget_input::idle_tick(state);
@@ -742,7 +770,7 @@ fn advance_in_game_runtime_mode(
     // only `Main_Tick @ 0x0055D360`'s scenario-running head rule (retained ==
     // -1 -> `Queue_Song(-2)`; `InGameMusic == 0` -> `Stop(1)` + `Queue(-3)`)
     // belongs to the in-game frame.
-    let music_now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::presentation::building_anim::drain_sound_events(state);
     let in_game_music = state.persistence.options_profile.in_game_music;
     state.audio.main_tick_theme(in_game_music, music_now_ms);
@@ -819,7 +847,7 @@ fn advance_one_simulation_frame(
         let mut frame_overlay_removals: Vec<(u16, u16)> = Vec::new();
         let mut trigger_effects: Vec<TriggerEffect> = Vec::new();
         let mut camera_logic_frame: Option<u32> = None;
-        let mut super_weapon_messages: Vec<&'static str> = Vec::new();
+        let mut hud_messages = Vec::new();
         // Carried out of the sim borrow so the census can read `state` freely below.
         let mut census_tick: Option<u64> = None;
         let command_queue_route = state.match_state.session.mode().command_queue_route();
@@ -829,7 +857,7 @@ fn advance_one_simulation_frame(
             sim.prepare_unit_voice_visits(unit_voice_owners);
             sim.set_command_queue_route(command_queue_route);
             // Normal play hashes its state once every PLAY_HASH_INTERVAL
-            // frames, for the replay log.
+            // frames and on the frame that ends the match, for the replay log.
             sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
             // Delay-zero AnimClass construction can emit StartSound during the
             // final map-load sweep. Keep it until this first tactical drain;
@@ -864,17 +892,21 @@ fn advance_one_simulation_frame(
                         minimap.admit_radar_event(request, tick, Some(rules))
                     })
                 };
-                let boundary = super::sound_dispatch::FrameSoundBoundary::new(
+                let boundary = super::frame_effects::FrameClientBoundary::new(
                     playback,
                     local_owner_name.as_deref(),
                     &mut state.match_state.match_audio.sound_events,
                     &mut admit_radar,
+                )
+                .with_planning(
+                    &mut state.match_state.input.planning,
+                    &mut state.match_state.input.selection_state,
                 );
                 rt.advance_frame(
                     &due_commands,
                     SIM_TICK_MS,
                     tick_lane,
-                    FrameEffects::for_sound(&boundary),
+                    FrameEffects::for_sound(&boundary).with_local_defeat(&boundary),
                 )
                 .expect("simulation frame failed; prior world mutations remain")
             };
@@ -932,6 +964,7 @@ fn advance_one_simulation_frame(
                             .match_presentation
                             .in_game_options
                             .detail_level,
+                        &mut state.match_state.match_presentation.detail.borrow_mut(),
                     );
             }
             // Parity capture, if requested. The sim has already finalized all
@@ -971,7 +1004,7 @@ fn advance_one_simulation_frame(
                 &resources.rules,
                 local_owner_name.as_deref(),
             );
-            super_weapon_messages = super::sound_dispatch::super_weapon_messages(
+            hud_messages = super::sound_dispatch::hud_messages(
                 &frame_sound_events,
                 &sim.interner,
                 local_owner_name.as_deref(),
@@ -1070,7 +1103,7 @@ fn advance_one_simulation_frame(
                 .match_state
                 .match_presentation
                 .sidebar_projection
-                .apply_factory_output(&output, local_house)
+                .apply_lifecycle_output(&output, local_house)
             {
                 state
                     .match_state
@@ -1085,7 +1118,24 @@ fn advance_one_simulation_frame(
                 update_building_placement_preview(state);
             }
             match output {
-                LifecycleOutput::ProductionFactoryLinked { .. }
+                LifecycleOutput::PlanningNodeDeleted {
+                    owner,
+                    node_id,
+                    next_node,
+                } => {
+                    state.match_state.input.planning.node_deleted(
+                        node_id,
+                        if Some(owner) == local_house {
+                            next_node
+                        } else {
+                            None
+                        },
+                    );
+                }
+                LifecycleOutput::SidebarConstructionOption { .. }
+                | LifecycleOutput::SidebarRecalculated { .. }
+                | LifecycleOutput::ProductionBeginAttempted { .. }
+                | LifecycleOutput::ProductionFactoryLinked { .. }
                 | LifecycleOutput::ProductionFactoryAbandoning { .. }
                 | LifecycleOutput::ProductionFactoryUnlinked { .. }
                 | LifecycleOutput::BuildingPlacementRetry { .. }
@@ -1147,6 +1197,13 @@ fn advance_one_simulation_frame(
                         .electric_bolts
                         .create(birth);
                 }
+                LifecycleOutput::RadiationBeamCreated(birth) => {
+                    state
+                        .match_state
+                        .match_presentation
+                        .radiation_beams
+                        .create(birth);
+                }
                 LifecycleOutput::LineTrailConstructed { stable_id, style } => {
                     let presentation = &mut state.match_state.match_presentation;
                     presentation.line_trails.attach(
@@ -1192,8 +1249,8 @@ fn advance_one_simulation_frame(
             crate::app::input::dispatch::report_black_cell_causes(state);
         }
 
-        for csf_key in super_weapon_messages {
-            crate::app::input::messages::post_super_weapon_message(state, csf_key);
+        for message in hud_messages {
+            crate::app::input::messages::post_hud_message(state, message);
         }
 
         // Simulation has already finalized identity, passability, navigation,
@@ -1250,14 +1307,18 @@ fn refresh_cell_lighting(state: &mut AppState) {
     presentation.lighting.refresh(
         terrain,
         &runtime.simulation,
-        &runtime.resources.rules,
         presentation.in_game_options.detail_level,
     );
 }
 
 fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
+    let mut refresh_sidebar = false;
     for effect in effects {
         match effect {
+            TriggerEffect::MusicTheme { request } => {
+                let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                state.audio.queue_theme(request, wall_ms);
+            }
             TriggerEffect::ChronoScreen { command } => {
                 crate::app::chrono_screen::apply(state, *command);
             }
@@ -1283,6 +1344,9 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
             }
             // Consumed by the frame's existing bridge/terrain refresh.
             TriggerEffect::BridgeStateChanged => {}
+            TriggerEffect::HomeCamera { coord } => {
+                crate::app::input::camera::apply_home_camera(state, *coord);
+            }
             TriggerEffect::CameraAtCoord { coord, velocity } => {
                 crate::app::input::camera::apply_trigger_camera(state, *coord, *velocity);
             }
@@ -1297,7 +1361,41 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
             TriggerEffect::LocalizedMessage { csf_label } => {
                 crate::app::input::messages::post_trigger_message(state, csf_label);
             }
+            TriggerEffect::SelectSidebarTab { index } => {
+                refresh_sidebar = true;
+                let presentation = &mut state.match_state.match_presentation;
+                if let Some(tab) = presentation.sidebar_projection.selectable_tab(*index) {
+                    // Trigger6E4100 bypasses the player-input lock, retaining
+                    // each strip's independent scroll state.
+                    presentation.active_sidebar_tab = tab;
+                }
+            }
+            TriggerEffect::FlashSidebarCameo {
+                type_id,
+                duration,
+                frame,
+            } => {
+                refresh_sidebar = true;
+                if let Some(runtime) = state.match_state.sim_runtime.as_ref() {
+                    state
+                        .match_state
+                        .match_presentation
+                        .sidebar_projection
+                        .flash_cameo(
+                            *type_id,
+                            *duration,
+                            *frame,
+                            &runtime.simulation.interner,
+                            &runtime.resources.rules,
+                        );
+                }
+            }
         }
+    }
+    // Publish the tab and initial flash phase in this same ordered batch;
+    // input events are not required to expose trigger-authored UI changes.
+    if refresh_sidebar {
+        crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
     }
 }
 
@@ -1328,7 +1426,6 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
         state.match_state.input.building_placement_preview = None;
         return;
     };
-    // Offset so the foundation shadow centers on the cursor, not top-left corner.
     let (fw, fh, foundation_str) = rules
         .object(type_id)
         .map(|obj| {
@@ -1351,12 +1448,16 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
             fh,
         );
     }
-    // Place the foundation with cursor cell as the top-left corner.
-    let (rx, ry) = screen_point_to_world_cell(
+    let cursor_cell = screen_point_to_world_cell(
         state,
         state.match_state.input.cursor_x,
         state.match_state.input.cursor_y,
     );
+    // UpdateFoundationCenter4A91B0 uses center + the type's active offset.
+    // Resolve it before admission/ground/shroud, through the shared owner
+    // also used by a fresh LeftUp; rendering consumes the resulting Cells.
+    let (rx, ry) =
+        crate::rules::foundation::placement_origin_at_cursor(&foundation_str, cursor_cell);
     state.match_state.input.building_placement_preview =
         production::placement_preview_for_owner_with_overlays(
             sim,
@@ -1921,7 +2022,6 @@ mod modal_pump_tests {
             destroyed_structure: false,
             ownership_changed: false,
             bridge_state_changed: false,
-            movement: Default::default(),
         };
 
         assert!(should_record_replay_tick(&tick, &[]));

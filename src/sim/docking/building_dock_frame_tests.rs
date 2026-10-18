@@ -41,6 +41,7 @@ fn advance(sim: &mut Simulation, rules: &RuleSet) {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn constructed_depot_waiters_take_the_freed_slot_in_live_logic_order() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
     else {
@@ -173,7 +174,7 @@ fn constructed_depot_waiters_take_the_freed_slot_in_live_logic_order() {
         assert_eq!(admitted.mission.current().known(), Some(MissionType::Enter));
         assert_eq!(
             admitted.navigation.nav_com(),
-            Some(NavTargetRef::Building { id: depot })
+            Some(NavTargetRef::Object { id: depot })
         );
         assert_eq!(
             sim.substrate

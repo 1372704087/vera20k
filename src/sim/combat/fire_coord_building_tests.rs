@@ -133,11 +133,8 @@ fn building_aim_directions_match_the_original() {
             current,
         );
         let output = &row["output"];
-        let coords = crate::sim::combat::resolve_target_coords(
-            &TargetKind::Entity(1),
-            &sim.substrate.entities,
-        )
-        .map(coords_xy);
+        let coords =
+            crate::sim::combat::resolve_target_coords(&TargetKind::Entity(1), &sim).map(coords_xy);
         let native = &output["get_coords"];
         assert_eq!(
             coords,
@@ -155,11 +152,8 @@ fn building_aim_directions_match_the_original() {
     }
 }
 
-fn prism_native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn prism_native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 
 fn native_coord(value: &Value) -> ProjectileCoord {
@@ -228,11 +222,8 @@ fn building_primary_pixel_and_selected_flh_match_original_slot_and_burst_control
     }
 }
 
-fn voxel_native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_voxel_flh.json",
-    ))
-    .unwrap()
+fn voxel_native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_voxel_flh.json")
 }
 
 fn voxel_row<'a>(native: &'a Value, name: &str) -> &'a Value {

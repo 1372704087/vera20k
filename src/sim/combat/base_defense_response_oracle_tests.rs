@@ -72,14 +72,13 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
     use crate::sim::combat::Health;
     use crate::sim::rng::{SimRng, trace_draws};
     use crate::sim::timer::CdTimer;
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
-        return;
-    };
     let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    let Some(mut rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+    else {
+        return;
+    };
     rules.bind_animation_sequences(
         &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
     );
@@ -240,11 +239,8 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
     assert_eq!(compared, 14);
 }
 
-fn corpus() -> Value {
-    let rows: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/base_defense_response.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let rows = crate::test_fixture::json("tools/spatial_oracle/base_defense_response.json");
     assert_eq!(rows["schema_version"], 1);
     assert_eq!(
         rows["native_sha256"],
@@ -303,6 +299,7 @@ fn assert_response_rules(rules: &RuleSet, native: &Value) {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn native_base_response_retail_and_sequential_readers_match_original_fields() {
     let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;

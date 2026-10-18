@@ -13,6 +13,8 @@ pub(crate) mod lasers;
 pub(crate) mod line_trails;
 pub(crate) mod outcome_banner;
 pub(crate) mod overlay_index;
+pub(crate) mod radial_indicators;
+pub(crate) mod radiation_beams;
 pub(crate) mod render;
 pub(crate) mod selection_brackets;
 pub(crate) mod sidebar_build;
@@ -24,6 +26,18 @@ pub(crate) mod state;
 pub(crate) mod super_timers;
 pub(crate) mod target_lines;
 pub(crate) mod ui_overlays;
+
+#[cfg(test)]
+mod passenger_pip_tests;
+
+#[cfg(test)]
+mod ammo_pip_tests;
+
+#[cfg(test)]
+mod spawn_pip_tests;
+
+#[cfg(test)]
+mod absorber_pip_tests;
 
 pub(crate) mod lighting;
 

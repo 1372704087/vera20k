@@ -126,7 +126,7 @@ impl FreshScenarioLoadContextDescriptor {
             if accepted_rmg_start_staging.is_some() {
                 anyhow::bail!("random-map start staging cannot enter a campaign load");
             }
-            if campaign.campaign().scenario().is_empty() {
+            if campaign.scenario().is_empty() {
                 anyhow::bail!("campaign catalog entry has no Scenario");
             }
             return Ok(Self {
@@ -173,7 +173,7 @@ impl FreshScenarioLoadContextDescriptor {
         // token can move. Numeric mode IDs alone are not sufficient authority.
         crate::sim::scenario_bootstrap::stock_offline_start_callback_family(&session)?;
         let (materialization, staged_waypoints) = match physical_source {
-            LoadedMapSource::Generated { seed_name } => {
+            LoadedMapSource::Generated { seed_name, .. } => {
                 if !crate::map::rmg::is_seed_selection(selected_map)
                     || !crate::map::rmg::is_seed_selection(seed_name)
                 {

@@ -3,7 +3,8 @@
 //!
 //! Mirrors the original engine fixing one per-match RNG seed before any
 //! setup-phase draw, then seeding the scenario and main streams identically.
-//! Data flows one-way app→sim; this module depends only on sim/ siblings.
+//! Initialization flows app→sim. Scene retirement returns live ambient Rules
+//! writes to the process owner before its next scenario read.
 
 use std::collections::BTreeMap;
 use std::hash::Hash;
@@ -12,6 +13,11 @@ use crate::sim::game_options::GameOptions;
 use crate::sim::house_state::HouseDifficulty;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
+use crate::util::native_x87::{MaskedX87Chop53, NativeF32Bits, NativeF64Bits};
+
+#[path = "scenario_countdown.rs"]
+mod countdown;
+pub(crate) use countdown::ScenarioTimerAction;
 
 /// NukeLevel (`ScenarioClass+0x3574`): Set_Defaults stores 100 (`0x00683920`,
 /// the binary's only store to it) and no INI key reads it.
@@ -170,7 +176,8 @@ impl NukeFlash {
 /// Persistent ScenarioClass-style authority for global lighting transitions.
 ///
 /// The per-cell grid remains an app-derived cache. Only the profile inputs,
-/// mutable scalar/target, selection, and signed frame timer belong to lockstep.
+/// mutable scalar/target, live ambient inputs, selection and signed frame timer
+/// belong to lockstep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioLightingState {
     pub normal: ScenarioLightProfileUnits,
@@ -190,6 +197,10 @@ pub struct ScenarioLightingState {
     /// nuke flash runs.
     nuke_change_rate: i32,
     nuke_flash: NukeFlash,
+    /// Live Rules+1668/+1670 writes from Execute72/71. The immutable RuleSet
+    /// supplies untouched inputs; retirement returns writes to the process
+    /// Rules owner before its next prefix/read/reset sequence.
+    ambient_change_overrides: [Option<NativeF64Bits>; 2],
 }
 
 impl ScenarioLightingState {
@@ -214,6 +225,7 @@ impl ScenarioLightingState {
             transition_timer: CdTimer::started(0, 0),
             nuke_change_rate,
             nuke_flash: NukeFlash::OFF,
+            ambient_change_overrides: [None; 2],
         }
     }
 
@@ -296,8 +308,8 @@ impl ScenarioLightingState {
     }
 
     /// The flash as a test row sets it: status 0, 1 or 2 with its timer.
-    #[cfg(test)]
-    pub(crate) fn set_nuke_flash_for_test(&mut self, status: i32, start: i32, duration: i32) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_nuke_flash_for_test(&mut self, status: i32, start: i32, duration: i32) {
         let status = match status {
             0 => NukeFlashStatus::Off,
             1 => NukeFlashStatus::FadingIn,
@@ -312,7 +324,7 @@ impl ScenarioLightingState {
     }
 
     /// The flash's status (0, 1 or 2) and timer, as native stores them.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn nuke_flash_for_test(&self) -> (i32, i32, i32) {
         let status = match self.nuke_flash.status {
             NukeFlashStatus::Off => 0,
@@ -340,6 +352,75 @@ impl ScenarioLightingState {
     pub fn select(&mut self, profile: ScenarioLightingProfile) {
         self.selected_profile = profile;
         self.target_ambient = self.profile(profile).ambient_percent;
+    }
+
+    /// Execute1426E2E60 /1436E2EB0 /1446E2F00 retains the raw signed
+    /// percentage at3534/3538/353C. RecalcLighting takes all three normal
+    /// percentages times10 with32-bit wrapping, independently of the selected
+    /// alternate profile. Original Steam gamemd3e81a617..08600;30 executed
+    /// controls cover the reader, call arguments and post-call field stores.
+    pub(crate) fn retint_normal_component(&mut self, component: usize, value: i32) -> [i32; 3] {
+        match component {
+            0 => self.normal.red_percent = value,
+            1 => self.normal.green_percent = value,
+            2 => self.normal.blue_percent = value,
+            _ => unreachable!("RGB component comes from action142..=144"),
+        }
+        self.normal.alternate_rgb()
+    }
+
+    /// Execute73 inline6DF292..6DF2D1 writes the ordinary ambient even
+    /// during a storm, but changes the current target only outside a raging
+    /// storm. This does not select a profile or restart/advance the fade.
+    /// Original: trigger_map_lighting.json ambient_controls (+meta).
+    pub(crate) fn set_ambient_light(&mut self, value: i32, storm_active: bool) {
+        self.normal.ambient_percent = value;
+        if !storm_active {
+            self.target_ambient = value;
+        }
+    }
+
+    /// Execute71@6DF250 and72@6DF271 load +90 as binary32, not as an
+    /// integer value, and store binary64 to Rules+1670/+1668. The existing
+    /// integer action reader remains authoritative. No timer/RNG/detach or
+    /// immediate relight occurs. Steam gamemd3e81a617..08600, original
+    /// constructor/read/Execute and Logic controls in the nearby tests.
+    pub(crate) fn set_ambient_change_input(&mut self, rate: bool, bits: i32) {
+        self.ambient_change_overrides[usize::from(!rate)] =
+            Some(MaskedX87Chop53::store_f64_masked_chop(
+                MaskedX87Chop53::load_f32(NativeF32Bits::from_bits(bits as u32)),
+            ));
+    }
+
+    /// Alternate intervals still use the normal rate's zero gate and this
+    /// shared step, as Logic55B351/55B447 require.
+    pub(crate) fn ambient_change_terms(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> (bool, i32, i32) {
+        let [rate, step] = self.ambient_change_overrides;
+        if rate.is_none() && step.is_none() {
+            return (
+                rules.general.ambient_change_rate_nonzero,
+                rules.general.ambient_change_interval_frames,
+                rules.general.ambient_change_step,
+            );
+        }
+        let (nonzero, interval, delta) = crate::rules::ruleset::ambient_change_terms(
+            f64::from_bits(rate.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+            f64::from_bits(step.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+        );
+        (
+            rate.map_or(rules.general.ambient_change_rate_nonzero, |_| nonzero),
+            rate.map_or(rules.general.ambient_change_interval_frames, |_| interval),
+            step.map_or(rules.general.ambient_change_step, |_| delta),
+        )
+    }
+
+    /// Return live Rules scalar writes only once the outgoing scene has
+    /// stopped. Unlike TechnoTypes these survive the native Type reset.
+    pub fn retire_ambient_change_inputs(&mut self) -> [Option<NativeF64Bits>; 2] {
+        std::mem::take(&mut self.ambient_change_overrides)
     }
 
     /// RecalcLighting's RGB for the selected profile (`0x0053AD00`): the
@@ -465,7 +546,7 @@ impl ScenarioDescriptor {
     ///
     /// Map bounds, theater, objects, and active registration order are rebuilt
     /// by the ordinary map loader; a recording is never a snapshot restore.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn from_native_replay_header(header: &crate::sim::replay::NativeReplayHeader) -> Self {
         Self {
             seed: header.seed,
@@ -490,7 +571,7 @@ struct CampaignScenarioState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum CampaignScenarioStartupError {
+pub enum CampaignScenarioStartupError {
     #[error("campaign startup requires native GameMode zero")]
     NonCampaignMode,
     #[error("campaign Scenario startup inputs were already installed")]
@@ -525,6 +606,10 @@ pub struct ScenarioSession {
     input_locked: bool,
     /// Native ChronoScreenEffect globals; GPU surface/handle remain app-local.
     chrono_screen: crate::sim::superweapon::chrono_screen::ChronoScreenState,
+    /// Scenario+11E8 countdown and authored+11F4/+11F8 caption. Mutations
+    /// belong to the countdown owner; UI consumes only its retained view.
+    #[serde(default)]
+    scenario_countdown: countdown::ScenarioCountdown,
     /// Process scenario-active byte A8ED5C. StartScenario683E75 publishes1;
     /// MainGame48CEBF clears it on exit, and LoadGame67E6C4 republishes1.
     /// It is reconstructed by the committed load/start route, not inferred
@@ -602,7 +687,7 @@ pub struct ScenarioSession {
 }
 
 impl ScenarioSession {
-    pub(crate) fn install_waypoints(
+    pub fn install_waypoints(
         &mut self,
         waypoints: &std::collections::HashMap<u32, crate::map::waypoints::Waypoint>,
     ) {
@@ -617,13 +702,19 @@ impl ScenarioSession {
     /// Scenario::GetWaypointCoords68BCC0 copies the packed signed words. An
     /// unset valid slot is (0,0); reading outside its702-slot allocation is
     /// not a deterministic malformed-map contract and is rejected here.
-    pub(crate) fn waypoint_cell(&self, index: i32) -> Option<(i16, i16)> {
+    pub fn waypoint_cell(&self, index: i32) -> Option<(i16, i16)> {
         let index = u32::try_from(index).ok()?;
         (index < crate::map::waypoints::WAYPOINT_SLOT_COUNT)
             .then(|| self.waypoints.get(&index).copied().unwrap_or((0, 0)))
     }
 
-    pub(crate) fn first_multiplayer_start(&self) -> Option<crate::map::waypoints::Waypoint> {
+    /// Scenario IsWaypointValid68BD80: a bounded slot whose packed pair is
+    /// different from the initialized empty cell B05458=(0,0).
+    pub(crate) fn waypoint_is_valid(&self, index: i32) -> bool {
+        self.waypoint_cell(index).is_some_and(|cell| cell != (0, 0))
+    }
+
+    pub fn first_multiplayer_start(&self) -> Option<crate::map::waypoints::Waypoint> {
         self.waypoints
             .range(crate::map::waypoints::MULTIPLAYER_START_WAYPOINTS)
             .next()
@@ -642,11 +733,11 @@ impl ScenarioSession {
         self.computer_slot_has_team = true;
     }
 
-    pub(crate) const fn input_locked(&self) -> bool {
+    pub const fn input_locked(&self) -> bool {
         self.input_locked
     }
 
-    pub(crate) fn set_input_locked(&mut self, locked: bool) {
+    pub fn set_input_locked(&mut self, locked: bool) {
         self.input_locked = locked;
     }
 
@@ -676,11 +767,11 @@ impl ScenarioSession {
         commands
     }
 
-    pub(crate) const fn started(&self) -> bool {
+    pub const fn started(&self) -> bool {
         self.started
     }
 
-    pub(crate) fn set_started(&mut self, started: bool) {
+    pub fn set_started(&mut self, started: bool) {
         self.started = started;
     }
 
@@ -716,13 +807,13 @@ impl ScenarioSession {
     /// Main_Game55D283 calls BattleControlTerminated686570 on shell exit;
     /// its interior6865B0 resets Scenario+1254 to one. Difficulty and the
     /// current House keep their existing owners and are not rebound here.
-    pub(crate) fn reset_campaign_mission_counter_on_shell_exit(&mut self) {
+    pub fn reset_campaign_mission_counter_on_shell_exit(&mut self) {
         if let Some(campaign) = &mut self.campaign {
             campaign.mission_counter = 1;
         }
     }
 
-    pub(crate) fn campaign_house_difficulties(&self) -> Option<(HouseDifficulty, HouseDifficulty)> {
+    pub fn campaign_house_difficulties(&self) -> Option<(HouseDifficulty, HouseDifficulty)> {
         self.campaign
             .map(|campaign| (campaign.player_difficulty, campaign.computer_difficulty))
     }
@@ -752,6 +843,10 @@ impl ScenarioSession {
         if s.chrono_screen.active() {
             b"scenario-chrono-screen-v1".hash(hasher);
             s.chrono_screen.hash(hasher);
+        }
+        if !s.scenario_countdown.is_default() {
+            b"scenario-countdown-v1".hash(hasher);
+            s.scenario_countdown.hash(hasher);
         }
         if !s.waypoints.is_empty() {
             b"scenario-waypoints-v1".hash(hasher);
@@ -840,6 +935,10 @@ impl ScenarioSession {
             lighting.nuke_change_rate.hash(hasher);
             lighting.nuke_flash.hash(hasher);
         }
+        if lighting.ambient_change_overrides != [None; 2] {
+            0x1668u16.hash(hasher);
+            lighting.ambient_change_overrides.hash(hasher);
+        }
     }
 
     /// Hash per-match game options for lockstep verification.
@@ -868,7 +967,7 @@ impl ScenarioSession {
 
     /// Scenario+34B4 (`[Basic] IgnoreGlobalAITriggers=`): the computer's
     /// team creation skips the global (`AIMD.INI`) AI triggers.
-    pub(crate) const fn ignore_global_ai_triggers(&self) -> bool {
+    pub const fn ignore_global_ai_triggers(&self) -> bool {
         self.ignore_global_ai_triggers
     }
 
@@ -881,6 +980,7 @@ impl ScenarioSession {
             campaign: None,
             input_locked: false,
             chrono_screen: crate::sim::superweapon::chrono_screen::ChronoScreenState::default(),
+            scenario_countdown: countdown::ScenarioCountdown::default(),
             started: false,
             no_damage: desc.no_damage,
             free_radar: desc.free_radar,
@@ -1081,6 +1181,7 @@ mod tests {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             };
             sim.spawn_from_map(&[entity], None);

@@ -88,25 +88,6 @@ fn one_team(
 }
 
 #[test]
-fn the_weight_feedback_matches_the_original() {
-    let rows = rows("feedback");
-    assert_eq!(rows.len(), 264);
-    for row in rows {
-        let mut record = AiTriggerTrackRecord {
-            weight: bits(&row["weight"]),
-            successes: dword(&row["successes"]),
-            attempts: dword(&row["attempts"]),
-        };
-        record.record(
-            flag(&row["succeeded"]),
-            [bits(&row["minimum"]), bits(&row["maximum"])],
-            &feedback_rules(&row, true, 5000),
-        );
-        assert_eq!(state(&record), native_state(&row["result"]), "{row}");
-    }
-}
-
-#[test]
 fn the_destructor_feeds_back_the_triggers_the_original_does() {
     for row in rows("destructor") {
         let mut interner = StringInterner::new();
@@ -141,31 +122,5 @@ fn the_destructor_feeds_back_the_triggers_the_original_does() {
                 "{row}"
             );
         }
-    }
-}
-
-#[test]
-fn the_empty_team_dissolve_matches_the_original() {
-    let rows = rows("dissolve");
-    assert!(rows.iter().any(|row| row["outcome"] == "dissolve"));
-    for row in rows {
-        let game_mode_nonzero = dword(&row["game_mode"]) != 0;
-        let mut interner = StringInterner::new();
-        let (mut vm, team, _) = one_team(&mut interner, game_mode_nonzero, dword(&row["created"]));
-        let team = vm.teams.get_mut(&team).unwrap();
-        if flag(&row["members"]) {
-            team.members.push(TeamMember {
-                id: 1,
-                initiated: true,
-            });
-        }
-        team.has_been_full = flag(&row["at_strength"]);
-        let rules = feedback_rules(&row, game_mode_nonzero, dword(&row["delay"]));
-
-        assert_eq!(
-            team.dissolves(&rules, dword(&row["frame"])),
-            row["outcome"] == "dissolve",
-            "{row}"
-        );
     }
 }

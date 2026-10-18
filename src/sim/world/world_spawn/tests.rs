@@ -400,6 +400,7 @@ fn map_entity(type_id: &str, category: EntityCategory, cell: (u16, u16)) -> MapE
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
         trigger_tag: None,
     }
 }
@@ -699,6 +700,7 @@ fn signed_rot_reaches_spawn_combat_turn_and_snapshot_restore() {
             &[UnitFacingUpdate {
                 entity_id: id,
                 turret_destination: Some(0xC000),
+                turret_spins: false,
                 hull_destination: Some(0xC000),
                 turret_destination_is_idle_return: false,
             }],
@@ -1097,8 +1099,8 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .unwrap();
         assert_eq!(
             entity.sight.range(),
-            0,
-            "all three inputs lose information in fog range"
+            sight,
+            "the native signed Type Sight survives construction"
         );
         assert_eq!(entity.sight.is_zero(), sight == 0);
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
@@ -1127,7 +1129,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .get_mut(id)
             .unwrap()
             .sight
-            .set_sight_is_zero_for_test(sight != 0);
+            .stamp_type_sight(if sight == 0 { 1 } else { 0 });
         assert_ne!(
             changed_type_predicate.state_hash(),
             hash,
@@ -1764,10 +1766,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                 }
                 "PLANE" => {
                     assert_eq!(
-                        entity
-                            .aircraft_ammo
-                            .as_ref()
-                            .map(|ammo| (ammo.current(), ammo.max())),
+                        entity.ammo().map(|ammo| (ammo.current(), ammo.max())),
                         Some((5, 5))
                     );
                 }
@@ -1796,7 +1795,7 @@ fn techno_constructor_raw_entity_constructor_is_world_spawn_only() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = crate::test_fixture::checkout_root();
     let mut files = Vec::new();
     collect_rust_files(&root.join("src"), &mut files);
     let needle = ["GameEntity::", "new_at_frame_from_constructor_word("].concat();
@@ -2651,7 +2650,7 @@ fn aircraft_ammo_initialization_matches_native_for_authored_and_runtime_objects(
         assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1);
         let authored = sim.substrate.entities.values().next().unwrap();
         for entity in [&runtime, authored] {
-            let ammo = entity.aircraft_ammo.as_ref().unwrap();
+            let ammo = entity.ammo().unwrap();
             assert_eq!(
                 ammo.current(),
                 row["ammo"].as_i64().unwrap() as i32,

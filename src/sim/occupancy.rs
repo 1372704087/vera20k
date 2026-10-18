@@ -225,9 +225,9 @@ impl RawCellKey {
         cell: crate::map::cell_index::NativeCellIdentity,
     ) -> Self {
         match cell {
-            crate::map::cell_index::NativeCellIdentity::Real(index) => {
-                let cell = &terrain.cells()[index];
-                Self::Real(cell.rx, cell.ry)
+            crate::map::cell_index::NativeCellIdentity::Real(_) => {
+                let (x, y) = terrain.native_cell_coord(cell);
+                Self::Real(x as u16, y as u16)
             }
             crate::map::cell_index::NativeCellIdentity::Dummy => Self::Dummy,
         }
@@ -339,7 +339,7 @@ impl RawCellOccupationGrid {
         self.cells.get(&(rx, ry)).map_or(0, |cell| cell.ground)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn ground_infantry_owner(&self, rx: u16, ry: u16) -> Option<InternedId> {
         self.cells
             .get(&(rx, ry))
@@ -353,7 +353,7 @@ impl RawCellOccupationGrid {
     /// The interned house identity survives entity retirement and ownership
     /// changes, matching native's retained House index. Repair CanEnter uses
     /// this raw slot even when no infantry object remains in the selected list.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn mark_ground_infantry(&mut self, rx: u16, ry: u16, mask: u8, owner: InternedId) {
         let key = RawCellKey::Real(rx, ry);
         self.write_occupant(key, MovementLayer::Ground, mask, Some(owner), true);
@@ -363,7 +363,7 @@ impl RawCellOccupationGrid {
     /// `+0xF4`, `0x007EB14C`) resets the selected owner to `0xFFFFFFFF` only
     /// once `byte & 0x1C == 0`, i.e. after functional sub-cells 2..4 are all
     /// clear. Bits 0/1 do not retain it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn clear_ground_infantry(&mut self, rx: u16, ry: u16, mask: u8) {
         let key = RawCellKey::Real(rx, ry);
         self.write_occupant(key, MovementLayer::Ground, mask, None, false);
@@ -383,14 +383,14 @@ impl RawCellOccupationGrid {
         self.cells.get(&(rx, ry)).map_or(0, |cell| cell.deck)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn deck_infantry_owner(&self, rx: u16, ry: u16) -> Option<InternedId> {
         self.cells
             .get(&(rx, ry))
             .and_then(|cell| cell.deck_infantry_owner)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn mark_deck_infantry(&mut self, rx: u16, ry: u16, mask: u8, owner: InternedId) {
         let key = RawCellKey::Real(rx, ry);
         self.write_occupant(key, MovementLayer::Bridge, mask, Some(owner), true);
@@ -544,13 +544,13 @@ impl HiddenOccupationGrid {
 /// slot, and when it was released, is not reconstructible from entity positions
 /// or locomotor phase.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct AirSlotGrid {
+pub struct AirSlotGrid {
     cells: CellMap<u64>,
 }
 
 impl AirSlotGrid {
     /// The object holding the cell's slot, if any.
-    pub(crate) fn holder(&self, rx: u16, ry: u16) -> Option<u64> {
+    pub fn holder(&self, rx: u16, ry: u16) -> Option<u64> {
         self.cells.get(&(rx, ry)).copied()
     }
 
@@ -636,7 +636,7 @@ impl VehicleOccupationPlane {
         self.owners.remove(&entity_id);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn bits(&self) -> u8 {
         self.owners
             .values()
@@ -644,7 +644,7 @@ impl VehicleOccupationPlane {
             .fold(0, |bits, mark| bits | mark)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn bits_ignoring(&self, entity_id: u64) -> u8 {
         self.owners
             .iter()
@@ -665,7 +665,7 @@ struct CellVehicleOccupation {
 }
 
 impl CellVehicleOccupation {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn plane(&self, layer: MovementLayer) -> Option<&VehicleOccupationPlane> {
         match layer {
             MovementLayer::Ground => Some(&self.ground),
@@ -741,7 +741,7 @@ impl OwnerOccupationFootprints {
         self.marks.is_empty()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn len(&self) -> usize {
         self.marks.len()
     }
@@ -792,6 +792,9 @@ impl CellOccupationGrid {
     /// test has its bit on the other plane. A Unit standing on a deck or on
     /// the ground beneath it agrees; frequency elsewhere is unmeasured.
     pub(crate) fn reconcile_entity(&mut self, entity: &GameEntity, lists: &OccupancyGrid) {
+        if self.projection_unchanged(entity, lists) {
+            return;
+        }
         let old_footprints = self
             .footprints_by_owner
             .get_mut(&entity.stable_id())
@@ -834,6 +837,59 @@ impl CellOccupationGrid {
         {
             self.footprints_by_owner.remove(&entity.stable_id());
         }
+    }
+
+    /// Whether `entity`'s marks are already exactly the ones
+    /// [`Self::reconcile_entity`] would leave. Clearing and marking them again
+    /// would change nothing a reader sees: every plane write keeps the owner's
+    /// footprints with it, and their order only orders that function's clears.
+    fn projection_unchanged(&self, entity: &GameEntity, lists: &OccupancyGrid) -> bool {
+        let id = entity.stable_id();
+        let held = self.footprints_by_owner.get(&id);
+        if entity.category() != EntityCategory::Unit
+            || !entity.lifecycle.cell_marked()
+            || entity.passenger_role.is_inside_transport()
+        {
+            return held.is_none();
+        }
+        let mut wanted = [None; 8];
+        let mut count = 0;
+        let mut fits = true;
+        let mut want = |footprint: CellOccupationFootprint| {
+            if !matches!(
+                footprint.layer,
+                MovementLayer::Ground | MovementLayer::Bridge
+            ) || wanted[..count].contains(&Some(footprint))
+            {
+                return;
+            }
+            if count == wanted.len() {
+                fits = false;
+                return;
+            }
+            wanted[count] = Some(footprint);
+            count += 1;
+        };
+        let (rx, ry) = (entity.position.rx(), entity.position.ry());
+        if entity.foot_occupation_enabled()
+            && let Some(layer) = lists.listed_layer(rx, ry, id)
+        {
+            want(CellOccupationFootprint { rx, ry, layer });
+        }
+        if let Some(loco) = entity.locomotor.as_ref() {
+            loco.visit_track_occupation(|mark| {
+                want(CellOccupationFootprint {
+                    rx: mark.rx,
+                    ry: mark.ry,
+                    layer: mark.layer,
+                });
+            });
+        }
+        fits && held.map_or(0, |held| held.marks.len()) == count
+            && wanted[..count]
+                .iter()
+                .flatten()
+                .all(|footprint| held.is_some_and(|held| held.marks.contains(footprint)))
     }
 
     /// Exact explicit-plane mark. Ground/deck storage is independent.
@@ -898,7 +954,7 @@ impl CellOccupationGrid {
 
     /// Mark-layer selection: elevated objects use the deck only when the cell
     /// still carries the structural bridge fact.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn mark_vehicle_by_height(
         &mut self,
         rx: u16,
@@ -918,7 +974,7 @@ impl CellOccupationGrid {
 
     /// Clear-layer selection: the height result alone selects the deck. This
     /// preserves cleanup after the structural bridge flag has disappeared.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn clear_vehicle_by_height(
         &mut self,
         rx: u16,
@@ -935,7 +991,7 @@ impl CellOccupationGrid {
         layer
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn vehicle_bits(&self, rx: u16, ry: u16, layer: MovementLayer) -> u8 {
         self.cells
             .get(&(rx, ry))
@@ -943,7 +999,7 @@ impl CellOccupationGrid {
             .map_or(0, VehicleOccupationPlane::bits)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn vehicle_bits_ignoring(
         &self,
         rx: u16,
@@ -957,7 +1013,7 @@ impl CellOccupationGrid {
             .map_or(0, |plane| plane.bits_ignoring(entity_id))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn occupied_by_other(
         &self,
         rx: u16,
@@ -971,7 +1027,7 @@ impl CellOccupationGrid {
 
 /// A paid Drive point clears the owner's current-coordinate occupation before
 /// the coordinate commit. Object-list membership is intentionally untouched.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn clear_current_drive_occupation_for_paid_point(
     foot_occupation_enabled: &mut bool,
     occupation: &mut CellOccupationGrid,
@@ -1064,15 +1120,8 @@ impl CellOccupancy {
         objects.next().map(|object| object.entity_id)
     }
 
-    /// Non-infantry occupants on a given layer, preserving layer-list order.
-    pub fn blockers(&self, layer: MovementLayer) -> impl Iterator<Item = u64> + '_ {
-        self.occupants
-            .iter()
-            .filter(move |o| o.layer == layer && o.sub_cell.is_none())
-            .map(|o| o.entity_id)
-    }
-
     /// Infantry occupants on a given layer, preserving layer-list order.
+    #[cfg(test)]
     pub fn infantry(&self, layer: MovementLayer) -> impl Iterator<Item = (u64, u8)> + '_ {
         self.occupants
             .iter()
@@ -1085,18 +1134,10 @@ impl CellOccupancy {
         !self.occupants.iter().any(|o| o.layer == layer)
     }
 
-    /// Whether this cell has any non-infantry occupants on the given layer.
-    pub fn has_blockers_on(&self, layer: MovementLayer) -> bool {
-        self.occupants
-            .iter()
-            .any(|o| o.layer == layer && o.sub_cell.is_none())
-    }
-
     /// Whether this cell holds a structure on the given layer.
     ///
-    /// Strictly narrower than `has_blockers_on`, which also reports vehicles.
-    /// This is the predicate for gamemd's per-cell building lookup, which
-    /// returns only BuildingClass objects.
+    /// Vehicles do not count: this is the predicate for gamemd's per-cell
+    /// building lookup, which returns only BuildingClass objects.
     pub fn has_building_on(&self, layer: MovementLayer) -> bool {
         self.occupants
             .iter()
@@ -1133,11 +1174,10 @@ impl CellOccupancy {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OccupancyGrid {
     cells: CellMap<CellOccupancy>,
-    /// Monotonic counter bumped on every cell-membership mutation. Lets the
-    /// movement tick detect when a mover's pathfinding entity-block snapshot is
-    /// stale and must be rebuilt before a same-tick repath. Transient scheduling
-    /// state only: never serialized, never part of the state hash — it gates
-    /// *when* a deterministic rebuild happens, never *what* it produces.
+    /// Monotonic counter bumped on every cell-membership mutation, so tests can
+    /// tell whether membership changed between two points. Never serialized,
+    /// never part of the state hash.
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     generation: u64,
 }
@@ -1213,7 +1253,7 @@ impl OccupancyGrid {
 
     /// Hash each native ground/deck list independently: the Vec's interleaving
     /// of the two lists is only Rust storage. Empty retained map buckets and the
-    /// transient generation do not change membership. This stronger Rust peer
+    /// test-only generation counter do not change membership. This stronger Rust peer
     /// hash is not a claim that native64DAB0 directly folds Cell pointers.
     pub(crate) fn hash_memberships(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
@@ -1250,6 +1290,7 @@ impl OccupancyGrid {
     /// the serialized lists and never calls this lossy phase-based projection.
     /// VERA-only: projects the CellClass lists from each entity's Mark state
     /// (`lifecycle.cell_marked`) and transport role; live play's lists come from Mark.
+    #[cfg(test)]
     pub fn rebuild(entities: &crate::sim::entity_store::EntityStore) -> Self {
         let mut grid = Self::new();
         let mut ordered: Vec<&GameEntity> = entities.values().collect();
@@ -1307,15 +1348,26 @@ impl OccupancyGrid {
     pub fn new() -> Self {
         Self {
             cells: CellMap::new(),
+            #[cfg(any(test, feature = "test-support"))]
             generation: 0,
         }
     }
 
-    /// Current mutation generation. Bumped on every `add`/`remove` (and thus
-    /// `move_entity`). Compare across two points to detect whether cell
+    /// Current mutation generation. Bumped on every `add`/`remove`/`remove_on_layer`
+    /// (and thus `move_entity`). Compare across two points to detect whether cell
     /// membership changed in between. Transient — not hashed, resets to 0 on rebuild.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Bump the test-support `generation`; a no-op in other builds.
+    #[inline]
+    fn bump_generation(&mut self) {
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.generation = self.generation.wrapping_add(1);
+        }
     }
 
     /// Add an entity to a cell. For structures, caller must invoke once per
@@ -1329,7 +1381,7 @@ impl OccupancyGrid {
         sub_cell: Option<u8>,
         insertion: CellListInsertion,
     ) {
-        self.generation = self.generation.wrapping_add(1);
+        self.bump_generation();
         let new_occupant = CellOccupant {
             entity_id,
             layer,
@@ -1359,8 +1411,9 @@ impl OccupancyGrid {
 
     /// Remove an entity from a cell, walking ALL layers. No-op if entity not found.
     /// For structures, caller must invoke once per foundation cell.
+    #[cfg(test)]
     pub fn remove(&mut self, rx: u16, ry: u16, entity_id: u64) {
-        self.generation = self.generation.wrapping_add(1);
+        self.bump_generation();
         if let Some(occ) = self.cells.get_mut(&(rx, ry)) {
             occ.occupants.retain(|o| o.entity_id != entity_id);
             if occ.occupants.is_empty() {
@@ -1382,7 +1435,7 @@ impl OccupancyGrid {
     /// `remove`; the per-layer form is the authoritative two-layer selector and keeps
     /// the remove/add halves on the verified independent layers.
     pub fn remove_on_layer(&mut self, rx: u16, ry: u16, entity_id: u64, layer: MovementLayer) {
-        self.generation = self.generation.wrapping_add(1);
+        self.bump_generation();
         if let Some(occ) = self.cells.get_mut(&(rx, ry)) {
             occ.occupants
                 .retain(|o| !(o.entity_id == entity_id && o.layer == layer));
@@ -1396,6 +1449,7 @@ impl OccupancyGrid {
     ///
     /// Convenience for callers that do NOT change the occupant's object-list layer
     /// across the move (teleport, same-layer steps).
+    #[cfg(test)]
     pub fn move_entity(
         &mut self,
         old_rx: u16,
@@ -1450,6 +1504,12 @@ impl OccupancyGrid {
     /// `Look_up_building_in_cell` @ `0x0047C520` walks `+0xE4` only and returns
     /// the first `What_Am_I() == 6`, so it never selects the deck list. (There
     /// is no `CellClass::GetBuilding` in this program.)
+    /// Callers own native GameActive (`A8E9A0`) admission; this is the stored
+    /// list query for an admitted active context. Health, dying and limbo are
+    /// not query predicates: Mark owns list membership and lifetime. Original
+    /// 47C520..54E is exercised by the consumed engineer_repair_admission
+    /// controls in tools/spatial_oracle; inactive app/teardown lifetime is not
+    /// inferred from ScenarioSession.started (a different native byte).
     pub fn first_building_on_layer(&self, rx: u16, ry: u16, layer: MovementLayer) -> Option<u64> {
         self.get(rx, ry)?
             .iter_layer(layer)
@@ -1457,8 +1517,13 @@ impl OccupancyGrid {
             .map(|occupant| occupant.entity_id)
     }
 
-    /// Typed Cell query over a selected native list. The caller owns the native
-    /// scenario-ready gate; this method owns only literal head-to-tail traversal.
+    /// Typed Cell query over a selected native list. Unit `47EBA0` and Infantry
+    /// `47EC40` share this traversal; a nonzero native layer argument selects
+    /// Bridge, otherwise Ground. Select the first category match before caller
+    /// eligibility checks, without health, dying or limbo filters.
+    /// Callers own native GameActive (`A8E9A0`) admission. Original Unit query
+    /// and caller controls are consumed from `tools/spatial_oracle/cmin_dock`
+    /// and `cell_entry_crush_tail`; this method owns stored-list selection only.
     pub fn first_category_on_layer(
         &self,
         rx: u16,
@@ -1520,7 +1585,7 @@ impl OccupancyGrid {
     }
 
     /// Total number of occupied cells (for diagnostics).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn occupied_cell_count(&self) -> usize {
         self.cells.len()
     }
@@ -1530,30 +1595,6 @@ impl OccupancyGrid {
 mod tests {
     use super::*;
     use crate::sim::components::DriveOccupationFootprint;
-
-    #[test]
-    fn cell_list_layer_follows_on_bridge_not_the_path_layer() {
-        // The list is chosen by the occupant's OnBridge byte (`Object+0x8C`),
-        // not its locomotor path layer: pin a Ground path layer on the deck.
-        use crate::rules::locomotor_type::LocomotorKind;
-        use crate::sim::movement::locomotor::LocomotorState;
-
-        let mut entity = GameEntity::test_default(1, "HTNK", "Americans", 5, 5);
-        let mut loco = LocomotorState::for_test_kind(LocomotorKind::Drive);
-        loco.set_layer(MovementLayer::Ground);
-        entity.locomotor = Some(loco);
-
-        entity.set_on_bridge(true);
-        assert_eq!(
-            cell_list_layer_for_entity(&entity, None),
-            Some(MovementLayer::Bridge)
-        );
-        entity.set_on_bridge(false);
-        assert_eq!(
-            cell_list_layer_for_entity(&entity, None),
-            Some(MovementLayer::Ground)
-        );
-    }
 
     #[test]
     fn gsi_04_12_raw_occupation_preserves_every_raw_bit() {
@@ -1663,720 +1704,6 @@ mod tests {
         assert!(g2 > g1, "move_entity (remove+add) must bump generation");
         grid.remove(2, 2, 10);
         assert!(grid.generation() > g2, "remove must bump generation");
-    }
-
-    #[test]
-    fn add_and_get() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let occ = grid.get(5, 5).unwrap();
-        assert_eq!(occ.occupants.len(), 1);
-        assert_eq!(occ.occupants[0].entity_id, 1);
-        assert_eq!(occ.occupants[0].layer, MovementLayer::Ground);
-        assert!(occ.occupants[0].sub_cell.is_none());
-    }
-
-    #[test]
-    fn remove_cleans_up_empty_cell() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.remove(5, 5, 1);
-        assert!(grid.get(5, 5).is_none());
-        assert_eq!(grid.occupied_cell_count(), 0);
-    }
-
-    #[test]
-    fn remove_nonexistent_is_noop() {
-        let mut grid = OccupancyGrid::new();
-        grid.remove(5, 5, 99);
-        assert!(grid.get(5, 5).is_none());
-    }
-
-    #[test]
-    fn move_entity_transfers_between_cells() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.move_entity(
-            5,
-            5,
-            6,
-            6,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        assert!(grid.get(5, 5).is_none());
-        let occ = grid.get(6, 6).unwrap();
-        assert_eq!(occ.occupants.len(), 1);
-        assert_eq!(occ.occupants[0].entity_id, 1);
-    }
-
-    #[test]
-    fn layer_filtering() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            3,
-            MovementLayer::Ground,
-            Some(2),
-            CellListInsertion::PrependNonBuilding,
-        );
-
-        let occ = grid.get(5, 5).unwrap();
-        let ground_ids: Vec<u64> = occ
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ground_ids, vec![3, 1]);
-        let ground_blockers: Vec<u64> = occ.blockers(MovementLayer::Ground).collect();
-        assert_eq!(ground_blockers, vec![1]);
-        let bridge_blockers: Vec<u64> = occ.blockers(MovementLayer::Bridge).collect();
-        assert_eq!(bridge_blockers, vec![2]);
-        let ground_inf: Vec<(u64, u8)> = occ.infantry(MovementLayer::Ground).collect();
-        assert_eq!(ground_inf, vec![(3, 2)]);
-        assert_eq!(occ.infantry(MovementLayer::Bridge).count(), 0);
-    }
-
-    #[test]
-    fn is_empty_on_layer() {
-        let mut grid = OccupancyGrid::new();
-        assert!(grid.is_empty_on_layer(5, 5, MovementLayer::Ground));
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        assert!(grid.is_empty_on_layer(5, 5, MovementLayer::Ground));
-        assert!(!grid.is_empty_on_layer(5, 5, MovementLayer::Bridge));
-    }
-
-    #[test]
-    fn infantry_subcells() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            10,
-            MovementLayer::Ground,
-            Some(2),
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            11,
-            MovementLayer::Ground,
-            Some(3),
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            12,
-            MovementLayer::Ground,
-            Some(4),
-            CellListInsertion::PrependNonBuilding,
-        );
-
-        let occ = grid.get(5, 5).unwrap();
-        let inf: Vec<(u64, u8)> = occ.infantry(MovementLayer::Ground).collect();
-        assert_eq!(inf.len(), 3);
-        assert!(!occ.has_blockers_on(MovementLayer::Ground));
-    }
-
-    #[test]
-    fn multi_cell_building() {
-        let mut grid = OccupancyGrid::new();
-        for dy in 0..2u16 {
-            for dx in 0..2u16 {
-                grid.add(
-                    10 + dx,
-                    10 + dy,
-                    100,
-                    MovementLayer::Ground,
-                    None,
-                    CellListInsertion::AppendBuilding,
-                );
-            }
-        }
-        assert!(grid.contains_entity(10, 10, 100));
-        assert!(grid.contains_entity(11, 10, 100));
-        assert!(grid.contains_entity(10, 11, 100));
-        assert!(grid.contains_entity(11, 11, 100));
-        assert!(!grid.contains_entity(12, 12, 100));
-
-        for dy in 0..2u16 {
-            for dx in 0..2u16 {
-                grid.remove(10 + dx, 10 + dy, 100);
-            }
-        }
-        assert_eq!(grid.occupied_cell_count(), 0);
-    }
-
-    #[test]
-    fn count_on_layer() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            Some(2),
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            3,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        assert_eq!(grid.count_on_layer(5, 5, MovementLayer::Ground), 2);
-        assert_eq!(grid.count_on_layer(5, 5, MovementLayer::Bridge), 1);
-        assert_eq!(grid.count_on_layer(5, 5, MovementLayer::Air), 0);
-    }
-
-    #[test]
-    fn non_buildings_prepend_on_same_layer() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let ids: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ids, vec![2, 1]);
-    }
-
-    #[test]
-    fn buildings_append_on_same_layer() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            100,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let ids: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ids, vec![2, 1, 100]);
-    }
-
-    #[test]
-    fn ordered_queries_select_exact_layer_and_first_matching_category() {
-        let mut entities = crate::sim::entity_store::EntityStore::new();
-        let mut ground_aircraft =
-            crate::sim::game_entity::GameEntity::test_default(10, "ORCA", "Allies", 5, 5);
-        ground_aircraft.set_category_for_test(EntityCategory::Aircraft);
-        let mut ground_building =
-            crate::sim::game_entity::GameEntity::test_default(20, "GAPOWR", "Allies", 5, 5);
-        ground_building.set_category_for_test(EntityCategory::Structure);
-        let mut deck_building =
-            crate::sim::game_entity::GameEntity::test_default(30, "GAPOWR", "Allies", 5, 5);
-        deck_building.set_category_for_test(EntityCategory::Structure);
-        entities.insert(ground_aircraft);
-        entities.insert(ground_building);
-        entities.insert(deck_building);
-
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            20,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            10,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            30,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
-
-        assert_eq!(
-            grid.first_category_on_layer(
-                5,
-                5,
-                MovementLayer::Ground,
-                EntityCategory::Aircraft,
-                &entities,
-            ),
-            Some(10)
-        );
-        assert_eq!(
-            grid.first_building_on_layer(5, 5, MovementLayer::Ground),
-            Some(20)
-        );
-        assert_eq!(
-            grid.first_building_on_layer(5, 5, MovementLayer::Bridge),
-            Some(30)
-        );
-        assert_eq!(
-            grid.get(5, 5)
-                .unwrap()
-                .snapshot_layer(MovementLayer::Ground),
-            vec![10, 20]
-        );
-    }
-
-    #[test]
-    fn layers_have_independent_order() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            10,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            20,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let ground: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        let bridge: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Bridge)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ground, vec![2, 1]);
-        assert_eq!(bridge, vec![20, 10]);
-    }
-
-    #[test]
-    fn remove_preserves_remaining_order() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            3,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.remove(5, 5, 2);
-        let ids: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ids, vec![3, 1]);
-    }
-
-    #[test]
-    fn remove_on_layer_walks_only_the_selected_layer() {
-        // GATE A2: RemoveContent walks ONLY the selected per-cell list. With a
-        // single occupant tagged Ground, removing on the WRONG (Bridge) layer is a
-        // no-op; removing on the right (Ground) layer removes it.
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            7,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.remove_on_layer(5, 5, 7, MovementLayer::Bridge);
-        assert!(
-            grid.contains_entity(5, 5, 7),
-            "wrong-layer remove must miss"
-        );
-        grid.remove_on_layer(5, 5, 7, MovementLayer::Ground);
-        assert!(grid.get(5, 5).is_none(), "right-layer remove must hit");
-    }
-
-    #[test]
-    fn saved_memberships_retain_lists_and_derive_only_lookup_metadata() {
-        let mut entities = crate::sim::entity_store::EntityStore::new();
-        let mut infantry = GameEntity::test_default(1, "JUMPJET", "Americans", 5, 5);
-        infantry.set_category_for_test(EntityCategory::Infantry);
-        infantry.set_sub_cell(Some(3));
-        infantry.lifecycle.set_cell_marked(true);
-        infantry.locomotor = Some(
-            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-                crate::rules::locomotor_type::LocomotorKind::Jumpjet,
-            ),
-        );
-        infantry
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .set_layer(MovementLayer::Air);
-        infantry.position.set_exact_z_leptons_for_test(Some(400));
-        entities.insert(infantry);
-        let building = GameEntity::test_default_of_category(
-            2,
-            "CABHUT",
-            "Neutral",
-            5,
-            5,
-            EntityCategory::Structure,
-        );
-        entities.insert(building);
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            5,
-            5,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::AppendBuilding,
-        );
-        grid.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            Some(3),
-            CellListInsertion::PrependNonBuilding,
-        );
-        let raw = bincode::serialize(&grid).unwrap();
-        let mut restored: OccupancyGrid = bincode::deserialize(&raw).unwrap();
-        restored.restore_memberships(&entities).unwrap();
-        assert_eq!(
-            restored
-                .get(5, 5)
-                .unwrap()
-                .snapshot_layer(MovementLayer::Ground),
-            vec![1, 2]
-        );
-        assert_eq!(
-            restored
-                .get(5, 5)
-                .unwrap()
-                .infantry(MovementLayer::Ground)
-                .collect::<Vec<_>>(),
-            vec![(1, 3)]
-        );
-        assert!(
-            restored
-                .get(5, 5)
-                .unwrap()
-                .has_building_on(MovementLayer::Ground)
-        );
-        assert!(
-            !OccupancyGrid::rebuild(&entities).contains_entity(5, 5, 1),
-            "a projection from the live layer query loses this saved member"
-        );
-        restored.remove_on_layer(5, 5, 1, MovementLayer::Ground);
-        assert_eq!(
-            restored
-                .get(5, 5)
-                .unwrap()
-                .first_on_layer(MovementLayer::Ground),
-            Some(2)
-        );
-        entities.remove(2);
-        assert!(
-            restored
-                .restore_memberships(&entities)
-                .unwrap_err()
-                .contains("missing object 2")
-        );
-    }
-
-    #[test]
-    fn membership_hash_uses_selected_lists_not_storage_interleaving_or_generation() {
-        let hash = |grid: &OccupancyGrid| {
-            use std::hash::Hasher;
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            grid.hash_memberships(&mut hasher);
-            hasher.finish()
-        };
-        let mut first = OccupancyGrid::new();
-        first.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        first.add(
-            5,
-            5,
-            2,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let mut second = OccupancyGrid::new();
-        second.add(
-            5,
-            5,
-            2,
-            MovementLayer::Bridge,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        second.add(
-            5,
-            5,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        second.remove(9, 9, 99);
-        assert_eq!(hash(&first), hash(&second));
-        second.add(
-            5,
-            5,
-            3,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        assert_ne!(hash(&first), hash(&second));
-    }
-
-    #[test]
-    fn move_entity_reinserts_with_requested_order() {
-        let mut grid = OccupancyGrid::new();
-        grid.add(
-            1,
-            1,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.add(
-            2,
-            2,
-            2,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        grid.move_entity(
-            1,
-            1,
-            2,
-            2,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
-        let ids: Vec<u64> = grid
-            .get(2, 2)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ids, vec![1, 2]);
-    }
-
-    #[test]
-    fn rebuild_uses_category_insertion() {
-        let mut entities = crate::sim::entity_store::EntityStore::new();
-        let mut first = crate::sim::game_entity::GameEntity::test_default(1, "E1", "Allies", 5, 5);
-        first.set_category_for_test(EntityCategory::Infantry);
-        first.set_sub_cell(Some(2));
-        first.lifecycle.set_cell_marked(true);
-        let mut second =
-            crate::sim::game_entity::GameEntity::test_default(2, "HTNK", "Allies", 5, 5);
-        second.set_category_for_test(EntityCategory::Unit);
-        second.lifecycle.set_cell_marked(true);
-        let mut structure =
-            crate::sim::game_entity::GameEntity::test_default(100, "GAPOWR", "Allies", 5, 5);
-        structure.set_category_for_test(EntityCategory::Structure);
-        structure.lifecycle.set_cell_marked(true);
-        entities.insert(first);
-        entities.insert(second);
-        entities.insert(structure);
-        let grid = OccupancyGrid::rebuild(&entities);
-        let ids: Vec<u64> = grid
-            .get(5, 5)
-            .unwrap()
-            .iter_layer(MovementLayer::Ground)
-            .map(|o| o.entity_id)
-            .collect();
-        assert_eq!(ids, vec![2, 1, 100]);
-    }
-
-    #[test]
-    fn rebuild_expands_structure_foundation_cells() {
-        let mut entities = crate::sim::entity_store::EntityStore::new();
-        let mut structure =
-            crate::sim::game_entity::GameEntity::test_default(100, "GAPOWR", "Allies", 5, 5);
-        structure.set_category_for_test(EntityCategory::Structure);
-        structure
-            .type_facts
-            .set_foundation_for_test("2x2".to_string());
-        structure.lifecycle.set_cell_marked(true);
-        entities.insert(structure);
-
-        let grid = OccupancyGrid::rebuild(&entities);
-
-        for cell in [(5, 5), (5, 6), (6, 5), (6, 6)] {
-            assert!(
-                grid.contains_entity(cell.0, cell.1, 100),
-                "structure should occupy foundation cell {cell:?}"
-            );
-        }
-        assert_eq!(grid.occupied_cell_count(), 4);
-    }
-
-    #[test]
-    fn lifecycle_authority_alive_limbo_does_not_rebuild_occupancy() {
-        let mut entities = crate::sim::entity_store::EntityStore::new();
-        let limbo = crate::sim::game_entity::GameEntity::test_default(1, "MTNK", "Allies", 5, 5);
-
-        assert!(limbo.lifecycle.object_alive());
-        assert!(limbo.lifecycle.in_limbo());
-        assert!(!limbo.lifecycle.cell_marked());
-        entities.insert(limbo);
-
-        let grid = OccupancyGrid::rebuild(&entities);
-        assert!(!grid.contains_entity(5, 5, 1));
-        assert_eq!(grid.occupied_cell_count(), 0);
     }
 
     fn gsi_04_05_unit(stable_id: u64, rx: u16, ry: u16) -> crate::sim::game_entity::GameEntity {
@@ -2638,130 +1965,5 @@ mod tests {
 
         assert!(grid.exit_building((10, 10), "4x3", profile, Some((32, 32))));
         assert_eq!(grid.entry_count(), 0);
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_narefn_exact_counter_contribution() {
-        let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
-            occupy_height: 4,
-            ..Default::default()
-        };
-        profile.remove_occupy = [
-            Some((0, -2)),
-            Some((1, -1)),
-            Some((1, -2)),
-            Some((2, -1)),
-            Some((-2, 0)),
-            Some((-2, -1)),
-            Some((-2, -2)),
-            Some((3, 1)),
-        ];
-
-        assert!(grid.enter_building((10, 10), "4x3", profile, Some((32, 32))));
-        assert_eq!(grid.entry_count(), 16);
-        for offset in profile.remove_occupy.into_iter().flatten() {
-            assert_eq!(
-                grid.count(
-                    (i32::from(10u16) + i32::from(offset.0)) as u16,
-                    (i32::from(10u16) + i32::from(offset.1)) as u16,
-                ),
-                0,
-                "RemoveOccupy slot {offset:?}"
-            );
-        }
-        assert_eq!(grid.count(10, 10), 1);
-        assert_eq!(grid.count(9, 9), 1);
-
-        assert!(grid.exit_building((10, 10), "4x3", profile, Some((32, 32))));
-        assert_eq!(grid.entry_count(), 0);
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_overlap_counts_slots_and_exit_is_guarded() {
-        let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.add_occupy[0] = Some((0, 0));
-        profile.add_occupy[1] = Some((0, 0));
-        profile.remove_occupy[0] = Some((0, 0));
-
-        grid.enter_building((8, 8), "1x1", profile, Some((20, 20)));
-        assert_eq!(grid.count(8, 8), 2, "diagonal + two Add - one Remove");
-        grid.exit_building((8, 8), "1x1", profile, Some((20, 20)));
-        assert_eq!(grid.count(8, 8), 0, "final extra Add decrement is guarded");
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_remove_is_not_readded_on_exit() {
-        let mut grid = HiddenOccupationGrid::new();
-        let base = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        grid.enter_building((20, 20), "1x1", base, Some((40, 40)));
-        assert_eq!(grid.count(20, 20), 1);
-
-        let mut suppressor = base;
-        suppressor.remove_occupy[0] = Some((10, 10));
-        grid.enter_building((10, 10), "1x1", suppressor, Some((40, 40)));
-        assert_eq!(grid.count(20, 20), 0);
-        grid.exit_building((10, 10), "1x1", suppressor, Some((40, 40)));
-        assert_eq!(grid.count(20, 20), 0);
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_refinery_hole_is_not_a_diagonal_source() {
-        let mut grid = HiddenOccupationGrid::new();
-        let profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
-            occupy_height: 4,
-            ..Default::default()
-        };
-
-        grid.enter_building((10, 10), "3x3Refinery", profile, Some((32, 32)));
-        assert_eq!(grid.count(12, 11), 0, "native offset (2,1) is a hole");
-        assert_eq!(grid.count(12, 10), 1);
-        assert_eq!(grid.count(12, 12), 1);
-
-        grid.exit_building((10, 10), "3x3Refinery", profile, Some((32, 32)));
-        assert_eq!(grid.entry_count(), 0);
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_entry_interleaves_add_then_remove_per_slot() {
-        let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.remove_occupy[0] = Some((1, 0));
-        profile.add_occupy[1] = Some((1, 0));
-
-        grid.enter_building((10, 10), "0x0", profile, Some((32, 32)));
-        assert_eq!(grid.count(10, 10), 0, "0x0 has no foundation offsets");
-        assert_eq!(
-            grid.count(11, 10),
-            1,
-            "slot 0 Remove is guarded before slot 1 Add increments"
-        );
-
-        grid.exit_building((10, 10), "0x0", profile, Some((32, 32)));
-        assert_eq!(grid.entry_count(), 0);
-    }
-
-    #[test]
-    fn gsi_04_05_hidden_off_map_cells_are_ignored_and_increment_wraps() {
-        let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
-            occupy_height: 3,
-            ..Default::default()
-        };
-        profile.add_occupy[0] = Some((-1, 0));
-        profile.add_occupy[1] = Some((4, 0));
-        grid.enter_building((0, 0), "1x1", profile, Some((4, 4)));
-        assert_eq!(grid.entry_count(), 1);
-        assert_eq!(grid.count(0, 0), 1);
-
-        grid.cells.insert((2, 2), u32::MAX);
-        grid.increment((2, 2));
-        assert_eq!(grid.count(2, 2), 0);
-
-        let before = grid.clone();
-        profile.can_hide_things = false;
-        assert!(!grid.enter_building((1, 1), "1x1", profile, Some((4, 4))));
-        assert_eq!(grid, before);
     }
 }

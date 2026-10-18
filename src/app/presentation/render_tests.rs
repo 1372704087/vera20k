@@ -2,7 +2,6 @@ use super::HoverTargetKind;
 use crate::app::input::dispatch::CLICK_SELECT_RADIUS;
 use crate::app::input::entity_pick::{
     compute_box_selection_snapshot, compute_click_selection_snapshot, hover_target_at_point,
-    pick_enemy_target_stable_id,
 };
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
@@ -55,29 +54,16 @@ fn selected_order(store: &EntityStore) -> Vec<u64> {
         .collect()
 }
 
-fn allied_fog_with_visible_cells(
-    local_owner: &str,
-    allied_owner: &str,
-    visible_cells: &[(u16, u16)],
-) -> FogState {
-    let mut alliances = HouseAllianceMap::default();
-    let allied_names = BTreeSet::from([
-        local_owner.to_ascii_uppercase(),
-        allied_owner.to_ascii_uppercase(),
-    ]);
-    alliances.insert(local_owner.to_ascii_uppercase(), allied_names.clone());
-    alliances.insert(allied_owner.to_ascii_uppercase(), allied_names);
-
+fn fog_with_visible_cells(owner: &str, visible_cells: &[(u16, u16)]) -> FogState {
     let mut by_owner = BTreeMap::new();
     let mut visibility = crate::sim::vision::OwnerVisibility::new(64, 64);
     for &(rx, ry) in visible_cells {
         visibility.mark_visible(rx, ry);
     }
-    by_owner.insert(crate::sim::intern::test_intern(allied_owner), visibility);
+    by_owner.insert(crate::sim::intern::test_intern(owner), visibility);
 
     let mut fog = FogState::new(64, 64);
     fog.by_owner = by_owner;
-    fog.alliances = alliances;
     fog
 }
 
@@ -387,7 +373,6 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
     );
     let mut fog = FogState::new(64, 64);
     fog.by_owner = by_owner;
-    fog.alliances = alliances;
 
     // One store per case, both populated before the interner snapshot is taken
     // (it is a clone of the shared test interner, so every name has to be in it).
@@ -403,7 +388,7 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
         !band_rect_contains_drawn_object(
             &unit_only,
             &encounter_order(&unit_only),
-            Some(&fog),
+            Some((&fog, &alliances)),
             Some("Americans"),
             rect.0,
             rect.1,
@@ -417,7 +402,7 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
         band_rect_contains_drawn_object(
             &building_only,
             &encounter_order(&building_only),
-            Some(&fog),
+            Some((&fog, &alliances)),
             Some("Americans"),
             rect.0,
             rect.1,
@@ -547,7 +532,7 @@ fn test_click_selection_allows_visible_allied_units_for_local_owner() {
     store.insert(entity);
     let (cx, cy) = screen_of(&store, 7);
 
-    let fog = allied_fog_with_visible_cells("Americans", "British", &[(11, 10)]);
+    let fog = fog_with_visible_cells("British", &[(11, 10)]);
 
     let empty_heights: BTreeMap<(u16, u16), u8> = BTreeMap::new();
     let snapshot = compute_click_selection_snapshot(
@@ -574,6 +559,7 @@ fn test_click_selection_allows_visible_allied_units_for_local_owner() {
 #[test]
 fn test_pick_enemy_target_ignores_hidden_entities() {
     let mut sim = Simulation::new();
+    let player = sim.interner.intern("Americans");
     let soviet_id = sim.interner.intern("Soviet");
     let e1_id = sim.interner.intern("E1");
 
@@ -598,7 +584,8 @@ fn test_pick_enemy_target_ignores_hidden_entities() {
 
     let empty_heights: BTreeMap<(u16, u16), u8> = BTreeMap::new();
     let picked_hidden =
-        pick_enemy_target_stable_id(&sim, hx, hy, "Americans", false, None, &empty_heights, None);
+        hover_target_at_point(&sim, hx, hy, "Americans", false, None, &empty_heights, None)
+            .map(|hover| hover.stable_id);
     assert!(
         picked_hidden.is_none(),
         "Hidden enemy must not be targetable"
@@ -622,15 +609,16 @@ fn test_pick_enemy_target_ignores_hidden_entities() {
     sim.entities_mut().insert(visible);
     let (vx, vy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(3).expect("visible"));
-    sim.fog
-        .mark_visible_for_owner(crate::sim::intern::test_intern("Americans"), 11, 10);
+    sim.fog.mark_visible_for_owner(player, 11, 10);
 
     let picked_visible =
-        pick_enemy_target_stable_id(&sim, vx, vy, "Americans", false, None, &empty_heights, None);
+        hover_target_at_point(&sim, vx, vy, "Americans", false, None, &empty_heights, None)
+            .map(|hover| hover.stable_id);
     assert_eq!(picked_visible, Some(3));
 
     let still_hidden =
-        pick_enemy_target_stable_id(&sim, hx, hy, "Americans", false, None, &empty_heights, None);
+        hover_target_at_point(&sim, hx, hy, "Americans", false, None, &empty_heights, None)
+            .map(|hover| hover.stable_id);
     assert_ne!(still_hidden, Some(2));
 }
 
@@ -681,11 +669,16 @@ fn test_hover_target_distinguishes_friendly_and_enemy_categories() {
     sim.entities_mut().insert(enemy);
     let (enemy_sx, enemy_sy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(11).expect("enemy"));
-    sim.fog
-        .mark_visible_for_owner(crate::sim::intern::test_intern("Americans"), 20, 5);
-
     // Provide empty height maps — structure picking now uses foundation-based hit testing.
     let empty_heights: BTreeMap<(u16, u16), u8> = BTreeMap::new();
+    // This test classifies the two objects on open terrain. Reveal the actual
+    // clicked cells, including the building anchor's projection, before the
+    // shared ProcessClickCoords gate. Shroud rejection is tested separately.
+    for (x, y) in [(friendly_sx, friendly_sy), (enemy_sx, enemy_sy)] {
+        let (rx, ry) =
+            crate::app::match_runtime::sim_tick::world_point_to_cell(x, y, &empty_heights, None);
+        sim.fog.mark_visible_for_owner(americans_id, rx, ry);
+    }
     let friendly_hover = hover_target_at_point(
         &sim,
         friendly_sx,

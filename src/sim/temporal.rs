@@ -74,8 +74,8 @@
 //!   frozen until the chain lets go; native thaws it once its warp-in ends,
 //!   or when the chain lets go before the warp.
 //! - `Mark(2)` at warp start and release (vtable `+0x124`) and the building's
-//!   paused animation slots (`0x004521C0`/`0x00452210` pause and resume the 21
-//!   slots) are presentation; the online latch they share is
+//!   animation-slot translucency/fades (`0x004521C0`/`0x00452210`, Anim+119,
+//!   distinct from the power pause at+19E) are presentation; their independent online latch is
 //!   [`GameEntity::building_online`].
 //! - House `+0x1FC`, set at a building's warp start (`0x0071B13A`), release
 //!   (`0x0071AC49`, `0x0071AD17`) and erase (`0x0071AA60`), asks the House
@@ -89,40 +89,30 @@
 //!   `0x0050B04F`, in `superweapon`), and `ObjectTypeClass::FindFactory @
 //!   0x005F7900`'s online argument where the player's sidebar darkens a
 //!   cameo and a PRODUCE event looks for a factory (`production::can_build`).
+//!   Building lifecycle callbacks also run HouseUpdateFactoryQueue509140:
+//!   only-offline factories suspend a retained build with Suspend0, and a
+//!   later real callback can resume its system hold. Forced promotion uses
+//!   the shared held-start Resume owner. Temporal pause/release themselves
+//!   make no queue callback: warp alone keeps producing, while release alone
+//!   preserves a hold caused by another building's loss. GoOffline/GoOnline's
+//!   independent +660 owner is called by map input and trigger61/62.
 //!   Not wired:
-//!   - `HouseClass::Update_Factory_Queue @ 0x00509140` holds a build that
-//!     only offline factories could build (`FindFactory(1,1,1)`,
-//!     `0x0050924D`), and a build promoted then starts on hold
-//!     (`0x004FA45B`). VERA has neither (residual at
-//!     `FactoryRegistry::plan_revalidation`). Trigger: a building event or a
-//!     promotion while every factory of the kind is warped; a warp's start
-//!     runs no update (`0x004521C0`). Effect: VERA keeps producing during
-//!     the warp.
 //!   - `HouseClass::CanBuild`'s upgrade-prerequisite scan
 //!     (`0x004F7DE6..0x004F7E4E`: an upgrade prerequisite counts only on an
 //!     online, unsold host; plain prerequisites use the house counters),
 //!     CheckDockArrayOccupancy (`0x0044E855`). Effect: an option enabled by a
 //!     warped upgrade host
 //!     stays available.
-//!   - The player-only BuildingClass virtual `+0x4E0` (`0x004456D0`,
-//!     UpdateConstructionOptions: it adds the sidebar cameos of what the
-//!     building's factory kind can build) and the sensor-range circle
-//!     (`0x00456750`), both presentation. `0x0044017E` lies past
-//!     BuildingClass::Update's frozen jump, so no warp reaches it.
+//!   - The sensor-range circle (`0x00456750`), presentation. The separate
+//!     House4F92D2→Building4456D0 membership pass does honor the online latch:
+//!     existing cameos may stay dark while new additions wait for release.
+//!     `0x0044017E` reads660 for Tesla charging, not construction options.
 //! - A building's erase kills its garrison through `0x004585C0(0)` and deletes
 //!   absorbed passengers outright before Record_The_Kill; VERA's carrier
 //!   UnInit purges both inside the building's UnInit (each at health 0 with no
 //!   killer, booking a loss). Draws inside `0x004585C0` are not established.
 //! - SlaveManager release with the attacker as liberator (`0x006B0AE0`):
 //!   VERA models no slave release on any master death.
-//! - ReceiveGunner's rearm hand-over (`0x0074646E..0x007464B8`) is not
-//!   ported; only the TemporalClass moves. While the gunner's rearm timer
-//!   (`GameEntity::rearm_timer`) runs, native steps the IFV's burst index and
-//!   re-arms the IFV with `GetROF(7)`, one Scenario draw; RemoveGunner does
-//!   the same for the gunner with `GetROF(0)` (`0x0074655C..0x00746592`).
-//!   Trigger: a Chrono Legionnaire entering or leaving an IFV inside its
-//!   reload. Effect: VERA's IFV can fire a reload early, and one draw is
-//!   missing. Needs GetROF as a callable owner (it is inline in FireAt).
 //! - `WarpPerStep` (`+0x4C`, written each step, read by no sim function) and
 //!   the `+0x2C` timer and `+0x38`/`+0x3C` fields (no writer) are not kept.
 //! - An engineer turned away from a warped building (`0x00519EF2`) is not
@@ -132,10 +122,6 @@
 //! - `UnitClass::Receive_Radio` answers WANT_RIDE (`0x24`) with 0 while
 //!   warped (`0x0073745C..0x00737473`); the message is dormant in stock YR
 //!   and not represented.
-//! - A transport put through a Grinder loses its passengers through
-//!   RemoveGunner (`0x0073A0C8`/`0x0073A0DF`); VERA has no grinding. A dying
-//!   transport's pop (`0x00737FD4`) runs RemoveGunner through
-//!   `DepartureRoute::DeathEscape`.
 //! - The cursor readers of `+0x270` (What_Action: Techno `0x006FFF07`,
 //!   `0x007005CD`, `0x00700731`; Infantry `0x0051E59B`; Unit `0x00740165`,
 //!   `0x007402CA`) belong to the app; the sim accepts an Attack order on a
@@ -199,7 +185,7 @@ impl TemporalState {
 
     /// `TechnoClass+0x278`: the attacker heading the chain warping this
     /// object.
-    pub(crate) fn chain_head(&self) -> Option<u64> {
+    pub fn chain_head(&self) -> Option<u64> {
         self.head
     }
 
@@ -228,8 +214,8 @@ impl TemporalState {
     }
 
     /// A target warped by `head`, for fixtures outside this module.
-    #[cfg(test)]
-    pub(crate) fn warped_by_for_test(head: u64) -> Self {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn warped_by_for_test(head: u64) -> Self {
         Self {
             link: None,
             head: Some(head),
@@ -238,6 +224,15 @@ impl TemporalState {
 }
 
 impl GameEntity {
+    /// Stamp the coherent normal Temporal fixture through both state owners.
+    /// Native ClearLinkedList's exceptional still-offline state is configured
+    /// independently with the building power owner's fixture hook.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_temporal_for_test(&mut self, state: TemporalState) {
+        self.temporal = state;
+        self.set_building_online_for_test(!self.temporal.is_warped());
+    }
+
     /// `TechnoClass+0x270` BeingWarpedOut (vtable `+0x1D4`, `0x0070C5B0`):
     /// written by TemporalClass and by the Chronosphere's Teleport states
     /// (state 0 sets it, state 2 clears it). The ordinary teleport never
@@ -266,20 +261,6 @@ impl GameEntity {
         self.teleport_state()
             .is_some_and(|teleport| teleport.warp_in_active())
             || self.chrono_warp().is_some_and(|warp| warp.warping_in())
-    }
-
-    /// `BuildingClass+0x660`, the online latch: cleared at a warp's start
-    /// (`0x004521C0`, reached from InitiateWarp for a building) and set at its
-    /// release (`0x00452210`, from LetGo). Read by `Is_Operational @
-    /// 0x004555D0`, GetPowerDrain `0x0044E88F`, the radar scan `0x00508EA3`
-    /// and the Super hold pass's provider test (`0x0050B020`, `0x0050B04F`).
-    /// VERA represents only this writer: the map and trigger power toggle
-    /// (`GoOffline @ 0x00452360`, `GoOnline @ 0x00452260`) is not ported (no
-    /// player input reaches it: `superweapon::offline_only_supers`), and a
-    /// corrupt-head release (ClearLinkedList) that natively leaves the latch
-    /// cleared cannot arise here.
-    pub fn building_online(&self) -> bool {
-        !self.temporal.is_warped()
     }
 }
 
@@ -381,6 +362,7 @@ impl Simulation {
                         let requested = Some(crate::sim::combat::TargetKind::Entity(bunker));
                         let commits = crate::sim::mission::concrete_effects::assign_target_commits(
                             &self.substrate.entities,
+                            &self.production.terrain_objects,
                             requested,
                         );
                         if let Some(firer_entity) = self.substrate.entities.get_mut(firer) {
@@ -492,7 +474,8 @@ impl Simulation {
             }
         }
         // 0x0071B0EA sets `+0x270`, which the head above stands for; a
-        // building's online latch follows it (`0x004521C0`).
+        // building's independent online latch is forced off (`0x004521C0`).
+        self.set_building_online_for_temporal(target, false);
         // 0x0071B0FC..0x0071B10B: a gattling victim winds down one tick.
         if self
             .substrate
@@ -530,21 +513,21 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
-        let structure = match entity.category() {
-            EntityCategory::Unit if object.harvester => false,
+        match entity.category() {
+            EntityCategory::Unit if object.harvester => {}
             EntityCategory::Structure
                 if !object.insignificant && !object.is_1x1_with_undeploy() =>
             {
-                true
+                // HouseNotify owns the deployed-miner subtype.
             }
             _ => return,
-        };
+        }
         // The radar cell is the victim's GetCoords (vt+0x48): a building's
         // foundation centre (`0x00447AC0`; NotifyUnderAttack `0x004F94AE`,
         // `0x004F950E`, `0x004F956A`).
         let Some((rx, ry, _, _)) = crate::sim::combat::resolve_target_coords(
             &crate::sim::combat::TargetKind::Entity(target),
-            &self.substrate.entities,
+            self,
         ) else {
             return;
         };
@@ -552,10 +535,9 @@ impl Simulation {
             rx,
             ry,
             owner: entity.owner(),
-            miner: !structure,
-            structure,
+            victim_type: entity.type_ref(),
         };
-        self.dispatch_under_attack_events(&[event]);
+        self.dispatch_under_attack_events(&[event], rules);
     }
 
     /// `TemporalClass::CanWarpTarget @ 0x0071AE50`: a `Warpable=` type, not
@@ -579,30 +561,6 @@ impl Simulation {
             return false;
         }
         !self.unit_in_contact_war_factory(target, rules)
-    }
-
-    /// A Unit whose radio contact slot 0 (`0x0065AD30(0)`: the slot itself,
-    /// not the first filled one) is a `WeaponsFactory=` building that is also
-    /// the building in the Unit's own cell: one still leaving its factory.
-    /// TemporalClass::CanWarpTarget and the Chrono Warp (`SuperClass::Launch`
-    /// `0x006CC7BC..0x006CC858`) inline the same test.
-    pub(crate) fn unit_in_contact_war_factory(&self, id: u64, rules: &RuleSet) -> bool {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return false;
-        };
-        entity.category() == EntityCategory::Unit
-            && entity.radio_contacts.slot(0).is_some_and(|contact| {
-                self.substrate.entities.get(contact).is_some_and(|factory| {
-                    factory.category() == EntityCategory::Structure
-                        && self
-                            .object_type(factory.type_ref(), rules)
-                            .is_some_and(|object| object.weapons_factory)
-                }) && crate::sim::credit_income::building_at_cell(
-                    self,
-                    entity.position.rx(),
-                    entity.position.ry(),
-                ) == Some(contact)
-            })
     }
 
     /// `TemporalClass::Update @ 0x0071A760`, run for `head` by its target.
@@ -835,7 +793,7 @@ impl Simulation {
     /// Temporal firer is a Foot; a building or aircraft firer has no VERA
     /// idle selector.
     fn temporal_owner_idle(&mut self, attacker: u64, rules: &RuleSet, effects: FrameEffects<'_>) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         IDLE_TRACE.with(|trace| trace.borrow_mut().push(attacker));
         if self.substrate.entities.get(attacker).is_some_and(|entity| {
             matches!(
@@ -893,6 +851,7 @@ impl Simulation {
                     }
                 } else if let Some(target) = link.target {
                     self.set_temporal_head(target, None);
+                    self.set_building_online_for_temporal(target, true); //71AC3D
                     if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
                         (entity.category() == EntityCategory::Structure).then_some(entity.owner())
                     }) {
@@ -930,12 +889,8 @@ impl Simulation {
             return;
         };
         self.set_temporal_head(target, None);
-        if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
-            (entity.category() == EntityCategory::Structure).then_some(entity.owner())
-        }) {
-            self.invalidate_house_power(owner, false); //ClearWarp71AD04
-            self.request_house_tech_tree_recheck(owner); //71AD17
-        }
+        //71ADE9..71ADF2 clears Warp/Head, without ForceOnline or House
+        //dirty writes. This is not ClearWarp71ACD0 and can leave660 false.
         if let Some(stored) = self.temporal_link_mut(attacker) {
             stored.target = None;
         }
@@ -975,6 +930,7 @@ impl Simulation {
         };
         if let Some(target) = target {
             self.set_temporal_head(target, None);
+            self.set_building_online_for_temporal(target, true); //ClearWarp71AD0B
             if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
                 (entity.category() == EntityCategory::Structure).then_some(entity.owner())
             }) {
@@ -1040,10 +996,14 @@ impl Simulation {
     /// leaves a `Gunner=` transport (`0x004DE738..0x004DE742`): the
     /// TemporalClass returns to the gunner, which lets go of the IFV's victim
     /// (`0x00746557`).
-    pub(crate) fn temporal_remove_gunner(&mut self, ifv: u64, gunner: u64) {
-        if self.temporal_move_link(ifv, gunner) {
-            self.temporal_release_if_warping(gunner);
+    /// Returns whether the manager moved, so the passenger owner can run
+    /// the callback's conditional burst/GetROF/rearm continuation.
+    pub(crate) fn temporal_remove_gunner(&mut self, ifv: u64, gunner: u64) -> bool {
+        if !self.temporal_move_link(ifv, gunner) {
+            return false;
         }
+        self.temporal_release_if_warping(gunner);
+        true
     }
 
     /// Move a TemporalClass to another owner, re-pointing the chain and the
@@ -1331,7 +1291,7 @@ impl Simulation {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     /// Every `Enter_Idle_Mode` this module issues, in order, for the native
     /// corpus.
@@ -1339,7 +1299,7 @@ thread_local! {
 }
 
 /// Drain the idle trace (see `IDLE_TRACE`).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn take_idle_trace() -> Vec<u64> {
     IDLE_TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
 }

@@ -103,7 +103,7 @@ impl Simulation {
         let coord = crate::sim::movement::nav_target_coordinate(
             destination,
             Some(id),
-            &self.substrate.entities,
+            self,
             self.resolved_terrain.as_ref(),
             Some((rules, &self.interner)),
         )
@@ -149,7 +149,7 @@ impl Simulation {
             .substrate
             .entities
             .get(building)
-            .and_then(|entity| rules.object(self.interner.resolve(entity.type_ref())))
+            .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
         else {
             return ControlFlow::Continue(Some(dock));
         };
@@ -320,7 +320,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(building)
-                    .and_then(|e| rules.object(self.interner.resolve(e.type_ref())))
+                    .and_then(|e| self.interner.object_type(e.type_ref(), rules))
                     .is_some_and(|o| o.unit_repair || o.unit_reload)
             });
         let Some(pad) = pad else {
@@ -417,10 +417,7 @@ impl Simulation {
         let flight_level =
             air_movement::type_flight_level(entity, rules.map(|rules| (rules, &self.interner)));
         let armed_flight_level = (entity.attack_target.target().is_some()
-            && entity
-                .aircraft_ammo
-                .as_ref()
-                .is_some_and(|a| a.current() != 0))
+            && entity.ammo().is_some_and(|a| a.current() != 0))
         .then_some(flight_level);
         //4CCE1C..4CCE6E stores destination before landing-base/height reads.
         if let Some(state) = self
@@ -471,7 +468,7 @@ impl Simulation {
                 .is_some_and(|l| l.action_latch() != 0);
         let non_landable = aircraft
             && rules
-                .and_then(|r| r.object(self.interner.resolve(entity.type_ref())))
+                .and_then(|r| self.interner.object_type(entity.type_ref(), r))
                 .is_some_and(|o| !o.landable);
         if let Some(state) = entity.locomotor.as_mut().and_then(|l| l.fly_runtime_mut()) {
             let destination = state.destination();
@@ -526,8 +523,8 @@ impl Simulation {
     }
 
     /// `FlyLocomotionClass::Begin_Landing @ 0x004CFA70`. Its first gate
-    /// (Mission != Enter and `0x006385C0`) only refuses while Techno `+0x514`
-    /// holds a planning path; VERA has no planning mode, so it always passes.
+    /// (Mission != Enter and705D60 ->6385C0) consumes the next committed
+    /// planning order and skips landing when an event was generated.
     /// A live-type AirportBound Aircraft must be in radio contact with the
     /// building in its current cell (`+0x1BC`); otherwise native calls
     /// Enter_Idle_Mode(0, 1) (vt+0x484, `0x004176F0`) and does not land.
@@ -551,9 +548,16 @@ impl Simulation {
         {
             return false;
         }
+        //4CFA79..4CFA8E: Get_Mission excludes Enter(7), then a successful
+        //planning dispatch returns before any Fly landing flags are changed.
+        let entering = entity.mission.effective().known() == Some(MissionType::Enter);
+        if !entering && self.planning_start_actor(id) {
+            return false;
+        }
+        let entity = self.substrate.entities.get(id).unwrap();
         let airport_bound = entity.category() == crate::map::entities::EntityCategory::Aircraft
             && rules
-                .and_then(|r| r.object(self.interner.resolve(entity.type_ref())))
+                .and_then(|r| self.interner.object_type(entity.type_ref(), r))
                 .is_some_and(|o| o.airport_bound);
         if airport_bound {
             let cell = ground_pose::position_world_coord(&entity.position);
@@ -606,7 +610,7 @@ impl Simulation {
             });
         };
         let order = self.fly_stop_order(id, rules);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(order) = order {
             self.trace_lifecycle_for_test(super::LifecycleTestEvent::FlyStopOrdered { id, order });
         }
@@ -710,7 +714,7 @@ impl Simulation {
 /// What Fly's `Stop_Moving` does to a moving Aircraft
 /// ([`Simulation::fly_stop_order`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FlyStopOrder {
+pub enum FlyStopOrder {
     /// `ReceiveDamage` with `C4Warhead=` (`0x004CD0CD`).
     SelfDestruct,
     /// The owner's class setter (vt+0x480) with this target (`0x004CD0F7`,

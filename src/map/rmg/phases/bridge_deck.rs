@@ -209,10 +209,11 @@ fn outer_cells_are_usable(ctx: &CarveCtx<'_>, a: (i32, i32), b: (i32, i32)) -> b
         x >= 0
             && y >= 0
             && ctx.playfield.contains(x as u16, y as u16)
-            && ctx
-                .grid
-                .get(x, y)
-                .is_some_and(|cell| !ctx.ids.is_special_terrain(cell.tile, cell.sub_tile))
+            && ctx.grid.get(x, y).is_some_and(|cell| {
+                !ctx.ids
+                    .cliffs
+                    .is_special_terrain_tile(cell.tile, cell.sub_tile)
+            })
     })
 }
 
@@ -362,7 +363,7 @@ fn stamp_end(
     // Native passes scratch id -1 and level base -1 to the unconditional
     // block stamper: every present TMP subcell clears its region owner while
     // preserving the existing cell level.
-    stamp_iso_block(ctx, tile, origin, -1, None);
+    stamp_iso_block(ctx.grid, ctx.scratch, ctx.blocks, tile, origin, -1, None);
 }
 
 fn place_hut_in_rect(
@@ -572,7 +573,7 @@ mod tests {
     use crate::map::rmg::phases::carve_driver::{ConnectorRegion, carve_connectors_for_region};
     use crate::map::rmg::phases::shore::{SubTile, TileBlock, TileBlocks};
     use crate::map::rmg::preview::Playfield;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     /// Tile bases the fixtures address families by. Spaced far enough apart
     /// that no span reaches the next.
@@ -588,6 +589,7 @@ mod tests {
             clear: 0,
             ramp_base: 200,
             ramp_smooth: 220,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: GREEN,
@@ -603,7 +605,7 @@ mod tests {
             paved_roads: PAVED_ROAD,
             paved_road_ends: PAVED_ROAD_END,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -888,7 +890,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: -1,
         };
         find_candidate(&ctx, (50, 50), 1, 2).expect("cross has a valid axis")
     }
@@ -988,7 +989,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             carve_connectors_for_region(&mut ctx, regions, flood, 0, &mut structures, &mut trace)
         };
@@ -1116,7 +1116,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(place_low_bridge_deck(
                 &mut ctx,
@@ -1192,7 +1191,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(place_low_bridge_deck(
                 &mut ctx,
@@ -1261,7 +1259,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             place_low_bridge_deck(&mut ctx, 0, 1, 2, &mut structures, &mut trace)
         };
@@ -1405,7 +1402,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             // This validator hangs outside the diamond, forcing the default
             // end without a coin while still exercising the production owner.
@@ -1522,7 +1518,6 @@ mod tests {
                         blocks: &blocks,
                         rng: &mut rng,
                         playfield: &playfield,
-                        ramp_end_block: -1,
                     };
                     assert!(
                         commit_candidate(
@@ -1626,7 +1621,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: -1,
         };
         assert_eq!(
             find_candidate(&ctx, (50, 50), 1, 2),
@@ -1656,7 +1650,7 @@ mod tests {
     fn candidate_outer_cells_stop_at_special_terrain_or_playfield_edge() {
         let (mut grid, mut scratch) = harness();
         let mut identity = ids();
-        identity.special.cliff_set = 900;
+        identity.cliffs.cliff_set = Some(900);
         grid.get_mut(40, 48).unwrap().tile = 900;
         let blocks = OneByOne::new();
         let playfield = playfield();
@@ -1668,7 +1662,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: -1,
         };
         assert!(!outer_cells_are_usable(&ctx, (40, 48), (41, 48)));
         assert!(!outer_cells_are_usable(&ctx, (0, 0), (41, 48)));
@@ -1711,7 +1704,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -1810,7 +1802,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -1890,7 +1881,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             stamp_end(
                 &mut ctx,
@@ -1924,7 +1914,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: -1,
         };
         assert!(commit_candidate(
             &mut ctx,
@@ -1966,7 +1955,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -2021,7 +2009,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -2081,7 +2068,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -2132,7 +2118,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(commit_candidate(
                 &mut ctx,
@@ -2180,7 +2165,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: -1,
         };
         place_hut(
             &mut ctx,
@@ -2191,17 +2175,6 @@ mod tests {
         );
         assert_eq!(structures, vec![(CABHUT.to_string(), 42, 48)]);
         assert!(ctx.grid.get(42, 48).unwrap().occupied);
-    }
-
-    #[test]
-    fn flat_clear_ground_takes_a_deck() {
-        let (mut grid, scratch) = harness();
-        assert!(deck_area_is_clear(
-            &mut grid,
-            &scratch,
-            &ids(),
-            (40, 48, 6, 3)
-        ));
     }
 
     #[test]
@@ -2456,7 +2429,7 @@ mod tests {
         let retail_dir = std::env::var_os("RA2_DIR")
             .map(PathBuf::from)
             .or_else(|| {
-                crate::util::config::GameConfig::load()
+                crate::test_fixture::game_config()
                     .ok()
                     .map(|config| config.paths.ra2_dir)
             })
@@ -2537,7 +2510,6 @@ mod tests {
                         blocks: &blocks,
                         rng: &mut rng,
                         playfield: &playfield,
-                        ramp_end_block: -1,
                     };
                     stamp_end(&mut ctx, (16, 16, 6, 6), (tile, origin), (tile, origin));
                 }

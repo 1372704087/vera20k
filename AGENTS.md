@@ -12,11 +12,6 @@ The goal is to reproduce native gameplay behavior through a Rust-native architec
 while scaling to **20,000 units and 30 players**. VERA20k must build and run on Linux,
 macOS and Windows; keep architecture and dependencies compatible.
 
-All simulation-affecting math must produce identical results across supported
-platforms and CPU architectures for identical state, inputs and RNG. Prefer
-`SimFixed` for simulation calculations; document and validate any differences
-from native precision and rounding.
-
 Development follows complete gameplay mechanisms and their required dependencies,
 with clear ownership of state and shared logic. Native executable behavior and
 retail data establish what the implementation must reproduce.
@@ -75,8 +70,8 @@ each claim reached.
 Keep a native comparison only while a Rust test or tool consumes it: its harness and a
 small corpus of controls rather than bulk replays, with a sidecar recording the binary
 hash and the command. Sidecars pin no hashes of repository sources; those go stale
-without any change in native output. Validation results (test counts, Clippy, captures,
-critic findings) go in the PR description and the checkpoint, not the tree: do not
+without any change in native output. Validation results (test counts, captures, critic
+findings) go in the PR description and the checkpoint, not the tree: do not
 commit receipts, run logs, capture screenshots, critic reviews or static disassembly
 packets.
 
@@ -130,22 +125,25 @@ gameplay, range and overflow behavior. Presentation must not affect simulation
 determinism.
 
 `sim/` never depends on `render/`, `ui/`, `audio/` or `net/`.
+The engine (`util`, `assets`, `rules`, `map`, `sim`, `net` and the headless and
+skirmish roots) is the `vera20k-core` crate (`src/Cargo.toml`); `app`, `render`,
+`ui`, `audio` and `asset_tools` stay in `vera20k`, which re-exports core's modules.
+Core's test-only code also compiles under its `test-support` feature, so client
+tests reach it; only test modules and the hooks into them stay `#[cfg(test)]`.
 App code orchestrates without owning duplicate gameplay. Current module contracts
 and `advance_tick` phases describe the architecture. Name coordinate frames/units.
 
-VERA20k contains duplicate state, functions and call chains from incomplete migrations.
-Trace their use before changes. Untangle affected ownership, consolidate duplicates,
-finish required migrations and remove obsolete code/state. Preserve intentional
-differences, validate affected paths and keep cleanup within task scope.
+Trace affected state and call chains. Keep refactoring within the selected chain;
+fix affected ownership, duplication and maintainability issues without unrelated
+redesign. Finish migrations, update consumers and remove duplicate/superseded code
+and state in the same change. Preserve intentional differences, validate affected
+paths and retain existing owners for shared dependencies still used elsewhere.
 
-Fix refactoring in the code your change touches. File a GitHub issue labeled `refactor`
-only for what would change behavior outside your chain or is too big for the change;
-add `tooling` when it concerns tools, test infrastructure, CI or workflow. Search open
-issues first and comment on a match instead of filing a duplicate. Say where it is, why
-it hurts and what work it slowed down, not how to fix it, and comment again each time
-it slows work down. Issues are leads: verify them before acting, and correct or close
-any that prove wrong. Pick refactoring work by that recorded cost. When your PR fixes or
-changes what an open issue says, close or correct it in that PR.
+File `refactor` issues only for work outside the chain or too large for it; add
+`tooling` for tools, tests, CI or workflow. Search open issues for a match first.
+Describe location, impact and work delayed, not a proposed fix. Comment only with
+meaningful new evidence. Verify claims; correct or close false ones. Prioritize by
+recorded cost, and close or correct affected issues in the PR that changes them.
 
 Simulation state and shared decisions have one authoritative owner. Before adding
 state or decision logic, find existing writers and name the owner in the PR. Extend
@@ -165,21 +163,16 @@ remove before merge; the critic checks for them.
 Derived caches and indexes are allowed when their source of truth, update or
 invalidation rules, and consistency validation are explicit.
 
-One owner follows a complete mechanism through evidence, implementation, production
-integration and review. Consider the surrounding architecture and affected consumers,
-and use integration evidence appropriate to the change, including runtime reproduction
-when needed. Reassess worsening fixes.
-Design/plan artifacts are optional; implementation authority includes design choices.
+One owner completes one player-visible gameplay chain at a time through native
+evidence, implementation, production integration and review. Trace trigger,
+prerequisites, admission, effects, consumers and cleanup across classes/subsystems.
+Bound each chain to one common unit, weapon or screen path; other paths follow
+later. Prioritize by visibility and frequency. Research may range wider;
+implementation stays on the current chain.
 
-Work one complete chain at a time: a player-visible mechanism traced through its
-native call chains from trigger through prerequisites, admission, effects, downstream
-consumers and cleanup, across class and subsystem boundaries. Bound each chain to one
-common path (unit, weapon or screen route) so it stays reviewable; other paths are
-later chains. Pick the next chain by player visibility and frequency. Research may
-range wider; implementation stays on the current chain. In the same change, migrate
-affected consumers, delete superseded paths, and remove duplicates and dead code in
-the code the chain touches. Shared dependencies still used by other mechanisms remain
-with their existing owner.
+Consider the surrounding architecture and consumers. Use integration evidence
+appropriate to the change, including runtime reproduction when needed. Reassess
+worsening fixes. Plans are optional; implementation authority includes design choices.
 
 Record the RNG draws, timer writes and detach calls the chain passes in its residuals
 or ledger row, even when they are not ported. Behavior invented where a native body
@@ -200,14 +193,14 @@ don't stack unmerged implementation branches (researching ahead is fine).
 Residuals name trigger, effect, frequency and downstream risk; deferring required loop or
 determinism/authority/lifecycle work cannot close that loop.
 
-Delegate independent work with clear ownership. For substantial/risky changes, run
+Delegate independent work with clear ownership. For changes to gameplay behavior, run
 one fresh read-only [critic](.agents/skills/_shared/review.md) after implementation
-and validation, before opening the PR. The critic is free to inspect original evidence
+and focused tests, before the full suite. The critic is free to inspect original evidence
 and challenge scope/design. It identifies implementation defects and useful refactoring
 opportunities, explaining their impact and risks. The owner fixes confirmed defects,
 rejects false positives with evidence and may implement worthwhile in-scope refactors,
 validating all changes. Unrelated opportunities become `refactor` issues. Each validated,
-dependency-coherent mechanism gets its own PR and its own single critic pass; do not
+dependency-coherent mechanism gets its own PR and at most one critic pass; do not
 hold validated mechanisms back to batch them into one review. Do not run critics per
 implementation increment within a mechanism or repeat reviews after fixes or revisions
 unless the user explicitly asks.
@@ -222,7 +215,11 @@ Start `feature/<topic>` from fetched `origin/main`; isolate owned/dirty checkout
 Continue task-owned branches and commit validated increments. Never commit/push
 directly to `main`. Publication requires user/goal authority; PRs target `main`.
 Integrate promptly when authorized. Owners resolve conflicts and revalidate.
-Preserve unique/local data; use `sync` for complex cleanup.
+Preserve unique/local data: remove a worktree or branch only once its work is merged or
+saved, with `git worktree remove` and `git branch -d`, never forced.
+
+After each fetch, fast-forward `<main-checkout>` (`merge --ff-only origin/main`) when it is on
+`main` without tracked changes or a Cargo run; sessions load this contract from it.
 
 Choose validation appropriate to the change, considering native fidelity, connected
 production behavior and protection against regressions.
@@ -230,33 +227,37 @@ production behavior and protection against regressions.
 Avoid tests that merely mirror the implementation or require maintaining a second implementation of the same logic.
 Before fixing a bug whose expected behavior is established, first make a focused test fail on it where practical.
 
-- Working Rust: `cargo check -p vera20k` as needed; focused
-  `cargo test -p vera20k --lib <module_path>::`.
-- Rust PR readiness: one full `cargo test -p vera20k --lib` plus
-  `cargo clippy -p vera20k --lib` on the final candidate with retail `ini/` and
-  `VERA20K_REQUIRE_RETAIL_INI=1`; no baseline runs. Validate later fixes with
-  focused tests; repeat both only when a fix reaches beyond the tested modules or
-  a `main` merge conflicts. Cross-platform Clippy, Python tooling and lib-test
-  workflows (without retail INIs) are maintainer-dispatched and are not merge
-  requirements.
-  Agents run the local checks above; do not dispatch or wait for the manual
-  platform workflows unless the user asks.
-- Asset binding, loader or rules-closure changes: a release-build retail map load
+**Debug narrowly.** Rerun failing tests while debugging, then affected coverage.
+Skip `cargo check` when a planned test answers the same question.
+
+- Working Rust: start with focused
+  `cargo test -p <crate> --lib <module_path>::`, where `<crate>` is `vera20k-core`
+  for engine modules and `vera20k` for `app`, `render`, `ui`, `audio` and `asset_tools`.
+- Rust PR readiness: once per PR, after any critic fixes, one full
+  `cargo test --workspace --lib` with retail `ini/` and `VERA20K_REQUIRE_RETAIL_INI=1`;
+  no baseline runs, and rerun only after a failure or a `main` merge conflict. Tests
+  tagged `#[ignore = "slow; …"]` run (`-- --ignored`) only when your change touches
+  what they cover. Don't dispatch the manual platform workflows unless asked.
+- Clippy: once a month on `main`, not per PR: `cargo clippy --workspace --lib` in the
+  same environment, with its fixes in one PR.
+- Asset binding, loader or rules-closure changes: a `--profile fast` retail map load
   before merge; the lib suite never runs the app loader against retail assets.
-- Docs/skills: validate content, links/examples and tooling; no Cargo suite.
-- Python tools and skills (`tools/`, `.agents/skills/`): one `python -m tools.run_tests`
-  on the final candidate, with `tools/requirements-test.txt` installed. It passes on
-  `main`, so treat any failure as a regression.
+- Docs/Markdown-only skills: check content, links/examples and relevant tooling
+  (skill sync when applicable); no Cargo or full Python suite.
+- Python tools/skill scripts: run `python -m tools.run_tests` once on the final
+  candidate with `tools/requirements-test.txt` installed. Failures are regressions;
+  the suite passes on `main`.
 - Every `cargo test` uses `--lib`.
 
 Run Cargo through `python -m tools.cargo_run -- <cargo arguments>` from the checkout.
 It waits for other builds and serializes cooperating worktrees; do not compete with or
-kill a compile. Each run blocks every other session's Cargo until it finishes, so
+kill a compile. Each compile blocks every other session's Cargo until it finishes, so
 batch edits and run the narrowest command that answers your question.
 Default to unlabelled builds; label only active comparison, capture or debugging binaries.
-Prefer release captures and retain debug tests selectively. Reference hashes, manifests
-and results without extra executable copies. After each merge, dry-run retirement of
-superseded owned labels, preserving required binaries, dependencies and evidence.
+Build captures and play-tests with `--profile fast`, timing and performance numbers with
+`--release`; retain debug tests selectively. Reference hashes, manifests and results
+without extra executable copies. Dry-run retirement only when retiring owned labels
+or investigating disk pressure; preserve required binaries, dependencies and evidence.
 Resolve unmet minimum free space before another large build; follow the
 [retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Run
 `python -m tools.prepare_checkout` in a new worktree or clone.
@@ -302,9 +303,13 @@ their owner. Edit skills in `.agents/skills/`; generate Claude copies with
 `python tools/skill_sync.py --write`, verify with `--check`. Keep conditional detail
 where needed; remove superseded rules.
 
-When changing the shared project contract, update both `AGENTS.md` and `CLAUDE.md`.
-
 ## Codex notes
 
 Use Codex task tools for cross-session context; verify current source/Git before
 treating past conclusions as current. Load only relevant skills and references.
+
+## Claude Code notes
+
+Use host-native tools and relevant skills. For Codex session recovery, consult the
+primary checkout's `LOCAL.md`. Preserve explicitly requested `/loop` invocations.
+Memory holds durable preferences, not progress claims.

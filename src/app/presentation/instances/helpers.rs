@@ -47,7 +47,7 @@ pub(crate) fn observer_draw_context(
     let allied = local_owner.is_some_and(|observer| {
         crate::map::houses::is_allied_with(&sim.house_alliances, observer, owner)
     });
-    let object = rules.and_then(|r| r.object(sim.interner.resolve(entity.type_ref())));
+    let object = rules.and_then(|r| sim.interner.object_type(entity.type_ref(), r));
     let disguise_cell = entity
         .disguise
         .as_ref()
@@ -133,6 +133,7 @@ pub(crate) fn tactical_entity_admission(
     local_owner: Option<&str>,
     local_owner_id: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     ignore_visibility: bool,
     current_frame: u32,
     remap_row: u32,
@@ -146,6 +147,7 @@ pub(crate) fn tactical_entity_admission(
             && !is_entity_visible_for_local_owner(
                 local_owner,
                 fog,
+                alliances,
                 &entity.position,
                 owner,
                 ignore_visibility,
@@ -253,6 +255,7 @@ fn compose_tactical_screen_entity_encounter_order(
                         local_owner,
                         local_owner_id,
                         fog,
+                        &sim.house_alliances,
                         ignore_visibility,
                         current_frame,
                         0,
@@ -424,6 +427,7 @@ pub(crate) fn interpolated_screen_position_entity(
 pub(crate) fn is_entity_visible_for_local_owner(
     local_owner: Option<&str>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     pos: &Position,
     owner: &str,
     ignore_visibility: bool,
@@ -435,7 +439,7 @@ pub(crate) fn is_entity_visible_for_local_owner(
     let Some(local_owner) = local_owner else {
         return true;
     };
-    if fog.is_friendly(local_owner, owner) {
+    if crate::map::houses::are_houses_friendly(alliances, local_owner, owner) {
         return true;
     }
     let owner_id = local_owner_id.unwrap_or_default();
@@ -449,6 +453,7 @@ pub(crate) fn cell_visibility_for_local_owner(
     rx: u16,
     ry: u16,
     ignore_visibility: bool,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> CellVisibilityState {
     if ignore_visibility {
         return CellVisibilityState::Visible;
@@ -459,8 +464,24 @@ pub(crate) fn cell_visibility_for_local_owner(
     let Some(fog) = fog else {
         return CellVisibilityState::Visible;
     };
-    // Standard YR (FogOfWar=false): explored = fully visible, no intermediate state.
-    if fog.is_cell_revealed(local_owner_id, rx, ry) {
+    // Display::ProcessClickCoords69244C..692480 asks Map578080 for the
+    // clicked Cell centre's floor, then IsShrouded586360. The shroud lattice
+    // is flat: raw map coordinates reject visible high-ground targets.
+    // CellGetCoords486840 has the same floor input and no bridge-deck term.
+    // Executed suffix/Pick controls: spatial_oracle/click_shroud.json.
+    // Standard YR has FogOfWar=false; current sight is not an extra gate.
+    let shrouded = terrain.map_or_else(
+        || !fog.is_cell_revealed(local_owner_id, rx, ry),
+        |terrain| {
+            crate::sim::vision::cell_is_shrouded(
+                fog,
+                &crate::map::resolved_terrain::NativeCellQuery::isolated(terrain),
+                local_owner_id,
+                (rx, ry),
+            )
+        },
+    );
+    if !shrouded {
         CellVisibilityState::Visible
     } else {
         CellVisibilityState::Shrouded
@@ -524,10 +545,29 @@ mod tests {
     #[test]
     fn item83_equal_tactical_keys_keep_live_registration_order() {
         let mut sim = crate::sim::world::Simulation::new();
-        sim.entities_mut()
-            .insert(GameEntity::test_default(1, "E1", "Americans", 10, 10));
-        sim.entities_mut()
-            .insert(GameEntity::test_default(2, "E1", "Americans", 10, 10));
+        sim.fog = FogState::new(32, 32);
+        let owner = sim.interner.intern("Americans");
+        let type_ref = sim.interner.intern("E1");
+        // Stored entities use this Simulation's interner, not the separate
+        // global test interner used by standalone rendering-only fixtures.
+        let entity = |id| {
+            GameEntity::new_at_frame_zero_for_test(
+                id,
+                10,
+                10,
+                0,
+                0,
+                owner,
+                crate::sim::combat::Health::new(100),
+                type_ref,
+                EntityCategory::Unit,
+                0,
+                5,
+                true,
+            )
+        };
+        sim.entities_mut().insert(entity(1));
+        sim.entities_mut().insert(entity(2));
         sim.entities_mut()
             .get_mut(2)
             .unwrap()
@@ -542,8 +582,7 @@ mod tests {
         sim.reveal(1);
         sim.set_logic_order_for_test(vec![1, 2]);
         assert_eq!(tactical_entity_encounter_order(&sim), [2, 1]);
-        sim.entities_mut()
-            .insert(GameEntity::test_default(3, "E1", "Americans", 10, 10));
+        sim.entities_mut().insert(entity(3));
         sim.set_logic_order_for_test(vec![3, 1, 2]);
         assert_eq!(
             tactical_entity_encounter_order(&sim),
@@ -607,6 +646,7 @@ mod tests {
                 Some("Americans"),
                 Some(local_owner),
                 &sim.fog,
+                &sim.house_alliances,
                 false,
                 0,
                 0,
@@ -699,6 +739,7 @@ mod tests {
                     Some("Americans"),
                     Some(local),
                     &fog,
+                    &Default::default(),
                     false,
                     0,
                     0,
@@ -810,6 +851,7 @@ mod tests {
                     Some("Americans"),
                     Some(local),
                     &fog,
+                    &Default::default(),
                     false,
                     0,
                     0,
@@ -847,6 +889,7 @@ mod tests {
                 Some("Americans"),
                 Some(local_owner_id),
                 &fog,
+                &Default::default(),
                 ignore_visibility,
                 0,
                 0,
@@ -1005,7 +1048,7 @@ mod tests {
             &preflight,
             &visible,
             &[],
-            Some(&sim.fog),
+            Some((&sim.fog, &sim.house_alliances)),
             Some("Americans"),
             building_anchor.0 - 1.0,
             building_anchor.1 - 1.0,
@@ -1029,7 +1072,7 @@ mod tests {
                 &preflight,
                 &visible,
                 &[],
-                Some(&sim.fog),
+                Some((&sim.fog, &sim.house_alliances)),
                 Some("Americans"),
                 mobile_anchor.0 - 1.0,
                 mobile_anchor.1 - 1.0,
@@ -1051,8 +1094,25 @@ mod tests {
         use crate::sim::world::display_layers::DisplayLayer;
 
         let mut sim = Simulation::new();
-        let mut aircraft = entity_with_locomotor("BEAG", LocomotorKind::Fly, 900, 40, 40);
-        aircraft.set_category_for_test(EntityCategory::Aircraft);
+        sim.fog = FogState::new(64, 64);
+        let owner = sim.interner.intern("Americans");
+        let type_ref = sim.interner.intern("BEAG");
+        let mut aircraft = GameEntity::new_at_frame_zero_for_test(
+            1,
+            40,
+            40,
+            0,
+            0,
+            owner,
+            crate::sim::combat::Health::new(100),
+            type_ref,
+            EntityCategory::Aircraft,
+            0,
+            5,
+            true,
+        );
+        aircraft.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
+        aircraft.position.set_exact_z_leptons_for_test(Some(900));
         aircraft.lifecycle.set_in_limbo_for_test(true);
         sim.entities_mut().insert(aircraft);
         sim.reveal(1);

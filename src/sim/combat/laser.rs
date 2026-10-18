@@ -6,11 +6,12 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::weapon_type::WeaponType;
 use crate::sim::intern::InternedId;
-use crate::sim::projectile::ProjectileCoord;
+use crate::sim::projectile::{ProjectileCoord, ProjectileTarget};
 use crate::sim::world::{LifecycleOutput, Simulation};
+use crate::util::native_x87::NativeF32Bits;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LaserBirth {
+pub struct LaserBirth {
     pub frame: i32,
     pub from: ProjectileCoord,
     pub to: ProjectileCoord,
@@ -20,13 +21,19 @@ pub(crate) struct LaserBirth {
     /// Laser+21: the supported Prism main beam's doubled first color.
     pub supported: bool,
     pub color: LaserColor,
+    /// Laser+58, copied by54FE60. Ordinary lasers fade1→0; the delayed
+    /// ring caller4A778E/4A785F retains0.5 as its other endpoint.
+    pub fade_end: NativeF32Bits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LaserColor {
+pub enum LaserColor {
     /// House+56FC is resolved once at construction by the existing client
     /// color owner. Capture the owner now, never look up the firer later.
     House(InternedId),
+    /// The general54FE60 caller4A7526 copies the same House RGB and half
+    /// of it for the outer lines. It does not select DrawBeamSpecial.
+    HouseWithHalfOuter { owner: InternedId, spread: [u8; 3] },
     Explicit {
         inner: [u8; 3],
         outer: [u8; 3],
@@ -46,13 +53,13 @@ pub(crate) fn fired(
     weapon: &WeaponType,
     prism_support_count: i32,
 ) {
-    if !weapon.is_laser {
+    if super::world_fire::fire_at_effect(weapon) != super::world_fire::FireAtEffect::Laser {
         return;
     }
     let Some(source) = world.substrate.entities.get(source_id) else {
         return;
     };
-    let Some(obj) = rules.object(world.interner.resolve(source.type_ref())) else {
+    let Some(obj) = world.interner.object_type(source.type_ref(), rules) else {
         return;
     };
     // FireAt6FF4CC gates on the fired weapon above, but its building arm
@@ -72,20 +79,6 @@ pub(crate) fn fired(
     } else {
         weapon
     };
-    let from = super::fire_coord::fire_coordinate(
-        world,
-        rules,
-        &super::fire_coord::FireSource::of_entity(source),
-        obj,
-        weapon_index,
-        (source.weapon_burst.index() & 1) as u8,
-        Default::default(),
-    )
-    .coord;
-    let Some(to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
-        return;
-    };
-    let z_adjust = super::fire_coord::effect_z_adjust(world, source, from);
     let prism = source.category() == EntityCategory::Structure && rules.is_prism_type(obj);
     let supported = prism && prism_support_count > 0;
     // RESIDUAL: other non-building house-color callers use width1 vs native2
@@ -97,6 +90,37 @@ pub(crate) fn fired(
     } else {
         1
     };
+    if let Some(laser) = create(
+        world,
+        rules,
+        source_id,
+        target.projectile_target(world),
+        weapon_index,
+        weapon,
+        None,
+    ) {
+        // FireAt6FF50A..6FF571 changes the returned LaserDraw after the
+        // shared SpawnLaser constructor. Direct shrapnel calls omit this.
+        laser.width = width;
+        laser.supported = supported;
+    }
+}
+
+/// TechnoClass::SpawnLaser6FD210. The caller owns the IsLaser admission
+/// policy. Explicit source coordinates (SpawnShrapnel46A8AC/46AD81) keep
+/// ZAdjust0; only the NullCoord arm computes GetFLH and building ZAdjust.
+/// StaticInit6F2A50 establishes NullCoordB0EA90 as [0,0,0], so an explicitly
+/// supplied zero coordinate takes the same arm as `None`.
+pub(crate) fn create<'w>(
+    world: &'w mut Simulation,
+    rules: &RuleSet,
+    source_id: u64,
+    target: ProjectileTarget,
+    weapon_index: i32,
+    weapon: &WeaponType,
+    from: Option<ProjectileCoord>,
+) -> Option<&'w mut LaserBirth> {
+    let source = world.substrate.entities.get(source_id)?;
     let color = if weapon.is_house_color {
         LaserColor::House(source.owner())
     } else {
@@ -106,6 +130,54 @@ pub(crate) fn fired(
             spread: weapon.laser_outer_spread,
         }
     };
+    let (from, z_adjust) =
+        if let Some(from) = from.filter(|coord| *coord != ProjectileCoord::new(0, 0, 0)) {
+            (from, 0)
+        } else {
+            let object = world.interner.object_type(source.type_ref(), rules)?;
+            let from = super::fire_coord::fire_coordinate(
+                world,
+                rules,
+                &super::fire_coord::FireSource::of_entity(source),
+                object,
+                weapon_index,
+                (source.weapon_burst.index() & 1) as u8,
+                Default::default(),
+            )
+            .coord;
+            (
+                from,
+                super::fire_coord::effect_z_adjust(
+                    world,
+                    source,
+                    from,
+                    super::fire_coord::EffectDepthProjection::ClampedBuilding,
+                ),
+            )
+        };
+    let to = super::fire_coord::effect_target_coordinate(world, rules, target)?;
+    Some(construct(
+        world,
+        from,
+        to,
+        z_adjust,
+        weapon.laser_duration,
+        color,
+        NativeF32Bits::POSITIVE_ZERO,
+    ))
+}
+
+/// LaserDraw54FE60 initializes every caller's width1/unsupported object;
+/// caller-specific postprocessing mutates that one returned birth.
+pub(crate) fn construct(
+    world: &mut Simulation,
+    from: ProjectileCoord,
+    to: ProjectileCoord,
+    z_adjust: i32,
+    duration: i32,
+    color: LaserColor,
+    fade_end: NativeF32Bits,
+) -> &mut LaserBirth {
     world
         .lifecycle_outputs
         .push(LifecycleOutput::LaserCreated(LaserBirth {
@@ -113,11 +185,16 @@ pub(crate) fn fired(
             from,
             to,
             z_adjust,
-            duration: weapon.laser_duration,
-            width,
-            supported,
+            duration,
+            width: 1,
+            supported: false,
             color,
+            fade_end,
         }));
+    let Some(LifecycleOutput::LaserCreated(laser)) = world.lifecycle_outputs.last_mut() else {
+        unreachable!("newly appended laser birth")
+    };
+    laser
 }
 
 /// Building44ABD0's delayed support emission is unconditional once due.
@@ -131,7 +208,7 @@ pub(crate) fn support(
     let Some(source) = world.substrate.entities.get(source_id) else {
         return;
     };
-    let Some(obj) = rules.object(world.interner.resolve(source.type_ref())) else {
+    let Some(obj) = world.interner.object_type(source.type_ref(), rules) else {
         return;
     };
     let from = super::fire_coord::fire_coordinate(
@@ -144,16 +221,15 @@ pub(crate) fn support(
         Default::default(),
     )
     .coord;
-    world
-        .lifecycle_outputs
-        .push(LifecycleOutput::LaserCreated(LaserBirth {
-            frame: world.session.binary_frame as i32,
-            from,
-            to,
-            z_adjust: 0,
-            duration: rules.general.prism_support.duration,
-            width: 3,
-            supported: false,
-            color: LaserColor::House(source.owner()),
-        }));
+    let color = LaserColor::House(source.owner());
+    construct(
+        world,
+        from,
+        to,
+        0,
+        rules.general.prism_support.duration,
+        color,
+        NativeF32Bits::POSITIVE_ZERO,
+    )
+    .width = 3;
 }

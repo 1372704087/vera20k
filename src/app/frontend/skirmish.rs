@@ -12,7 +12,6 @@ use crate::map::map_file::MapFile;
 use crate::map::overlay::{OverlayEntry, TerrainObject};
 use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::{self, BridgeAtlas};
-use crate::render::bridge_railing_atlas::{self, BridgeRailingAtlas, BridgeRailingTileBases};
 use crate::render::gpu::GpuContext;
 use crate::render::overlay_assets::{render_overlay_names, resolve_overlay_name_for_render};
 use crate::render::overlay_atlas::{self, OverlayAtlas};
@@ -81,7 +80,6 @@ pub fn deployable_building_types(rules: Option<&RuleSet>) -> Vec<&str> {
 pub(crate) struct OverlayPresentationAssets {
     pub(crate) overlay_atlas: Option<OverlayAtlas>,
     pub(crate) bridge_atlas: Option<BridgeAtlas>,
-    pub(crate) bridge_railing_atlas: Option<BridgeRailingAtlas>,
     pub(crate) overlay_names: BTreeMap<u8, String>,
     pub(crate) overlay_radar_colors: HashMap<(u8, u8), [u8; 3]>,
 }
@@ -104,7 +102,6 @@ pub(crate) fn build_overlay_presentation(
     theater_iso_palette: Option<&Palette>,
     theater_unit_palette: Option<&Palette>,
     theater_tiberium_palette: Option<&Palette>,
-    bridge_railing_tile_bases: Option<BridgeRailingTileBases>,
 ) -> OverlayPresentationAssets {
     let force_tib_remap_enabled: bool = std::env::var("RA2_FORCE_TIB3_TO_TIB01")
         .ok()
@@ -254,25 +251,13 @@ pub(crate) fn build_overlay_presentation(
             overlay_registry,
             rules_ini,
             art_registry,
+            &rubble_arts,
         )
     });
-
-    let bridge_railing_atlas: Option<BridgeRailingAtlas> =
-        theater_palette.as_ref().and_then(|theater_pal| {
-            bridge_railing_atlas::build_bridge_railing_atlas(
-                gpu,
-                batch,
-                asset_manager,
-                theater_pal,
-                theater_ext,
-                bridge_railing_tile_bases,
-            )
-        });
 
     OverlayPresentationAssets {
         overlay_atlas: atlas,
         bridge_atlas,
-        bridge_railing_atlas,
         overlay_names,
         overlay_radar_colors,
     }
@@ -756,11 +741,16 @@ mod tests {
     fn current_house_collision_preserves_launch_label_and_distinct_colors() {
         for (handle, expected_key) in [
             ("Neutral", "Player"),
+            (" Neutral ", "Player"),
             ("SPECIAL", "Player"),
+            (" Special ", "Player"),
             ("computer1", "Player"),
+            (" Computer1 ", "Player"),
             ("Computer2", "Computer2"),
+            (" Computer2 ", " Computer2 "),
             ("Computer01", "Computer01"),
             ("Commander", "Commander"),
+            (" Commander ", " Commander "),
         ] {
             let mut session = test_session();
             session.player_name = handle.to_string();
@@ -792,9 +782,11 @@ mod tests {
             "Computer1"
         );
         let mut two_ai = test_session();
-        two_ai.player_name = "cOmPuTeR2".to_string();
         two_ai.opponents.push(two_ai.opponents[0].clone());
-        assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        for handle in ["cOmPuTeR2", " Computer2 "] {
+            two_ai.player_name = handle.to_owned();
+            assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        }
     }
 
     /// gamemd-derived: active YR `ScenarioClass__Gather_Start_Positions
@@ -1227,7 +1219,9 @@ mod tests {
 
         let spawned = sim.spawn_from_map(
             &[crate::map::entities::MapEntity {
-                owner: "Player".to_owned(),
+                // Native offline Structures resolves the generated AI name.
+                // The current human is excluded before the constructor.
+                owner: "Computer".to_owned(),
                 type_id: "GACNST".to_owned(),
                 health: 256,
                 cell_x: 30,
@@ -1243,20 +1237,21 @@ mod tests {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             }],
             Some(&rules),
         );
 
         assert_eq!(spawned, 1);
-        let player = sim
+        let computer = sim
             .interner
-            .get("Player")
-            .expect("pre-created player house");
-        assert_eq!(sim.houses[&player].tracking.buildings(), 1);
+            .get("Computer1")
+            .expect("pre-created first AI house");
+        assert_eq!(sim.houses[&computer].tracking.buildings(), 1);
         assert_eq!(
             sim.substrate.base_reservations.raw_mask(None, 28, 38),
-            1,
+            2,
             "Reveal writes the participant's house-index bit without a repair pass"
         );
     }
@@ -1322,8 +1317,10 @@ mod tests {
         );
         assert_eq!(credits("Computer3"), Some(10_000), "Normal: +0%");
         assert_eq!(credits("Computer4"), Some(10_000), "Easy: +0%");
-        assert_eq!(credits("Neutral"), Some(10_000));
-        assert_eq!(credits("Special"), Some(10_000));
+        // Fixed-tail Houses retain ctor4F58D8 cash0; the passive grant
+        // neither seeds them with participant cash nor adds a bonus.
+        assert_eq!(credits("Neutral"), Some(0));
+        assert_eq!(credits("Special"), Some(0));
         assert_eq!(credits("Observer"), Some(10_000));
     }
 

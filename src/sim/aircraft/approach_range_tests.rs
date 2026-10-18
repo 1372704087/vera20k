@@ -2,8 +2,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::foundation::FOUNDATION_TABLE;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::ammo::TechnoAmmo;
 use crate::sim::combat::TargetKind;
-use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
 use crate::sim::movement::locomotor::LocomotorState;
@@ -61,7 +61,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
     source
         .veterancy
         .set_rank_for_test((case["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
-    source.aircraft_ammo = Some(AircraftAmmo::new(2));
+    source.install_ammo_for_test(Some(TechnoAmmo::new(2)));
     source.mission.set_current_for_test(
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),
         3,
@@ -124,10 +124,10 @@ fn assert_native_in_range_result(sim: &Simulation, row: &Value) {
     };
     assert_eq!(sub_state, 4, "{row}");
     assert!(
-        !aircraft.aircraft_ammo.as_ref().unwrap().release_pending(),
+        !aircraft.ammo().unwrap().release_pending(),
         "the range branch only authorizes the next mission state"
     );
-    assert_eq!(aircraft.aircraft_ammo.as_ref().unwrap().current(), 2);
+    assert_eq!(aircraft.ammo().unwrap().current(), 2);
     assert!(
         crate::sim::movement::motion_query::is_moving(&aircraft) != Some(true),
         "{row}"
@@ -143,9 +143,7 @@ fn selected_strafe_range_branch_matches_native_and_dispatches_when_in_range() {
         let (mut sim, rules) = fixture(&row);
         let aircraft = sim.substrate.entities.get(1).unwrap();
         let target = aircraft.attack_target.target().unwrap();
-        let distance =
-            crate::sim::combat::object_distance_to(aircraft, &target, &sim.substrate.entities)
-                .unwrap();
+        let distance = crate::sim::combat::object_distance_to(aircraft, &target, &sim).unwrap();
         assert_eq!(distance, row["distance"].as_i64().unwrap() as i32, "{row}");
         let weapon = crate::sim::combat::combat_weapon::primary_for_tier(
             rules.object("ORCA").unwrap(),

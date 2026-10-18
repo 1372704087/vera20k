@@ -106,31 +106,85 @@ impl BuildCategory {
     }
 }
 
-/// What pip display to show below a unit's health bar (PipScale= in rules.ini).
-///
-/// Controls the type of pip overlay rendered beneath selected units:
-/// - `Tiberium`: cargo fill pips for harvesters (green=ore, colored=gem)
-/// - `Passengers`: passenger count pips for transports
-/// - `Ammo`: ammunition count pips
+/// TechnoType PipScale+3D4: constructor710D1C defaults to0; ReadINI714111
+/// uses ReadPipScale474940 (ReadString capacity32, case-insensitive names).
+/// Native values follow table81B9B0, not the order in a C++ header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(i32)]
 pub enum PipScale {
     #[default]
-    None,
-    Tiberium,
-    Passengers,
-    Ammo,
+    None = 0,
+    Ammo = 1,
+    Tiberium = 2,
+    Passengers = 3,
+    Power = 4,
+    MindControl = 5,
 }
 
 impl PipScale {
     fn from_ini(value: &str) -> Self {
-        match value.trim().to_ascii_lowercase().as_str() {
+        match value.to_ascii_lowercase().as_str() {
+            "ammo" => Self::Ammo,
             "tiberium" => Self::Tiberium,
             "passengers" => Self::Passengers,
-            "ammo" => Self::Ammo,
+            "power" => Self::Power,
+            "mindcontrol" => Self::MindControl,
             _ => Self::None,
         }
     }
 }
+
+/// InfantryType+DFC/E00 state, retained by the process-resident type.
+/// Constructors5236BD/5236C7 set1/7; admitted InfantryRead5240D1..524125
+/// unconditionally invokes the shared ReadPip for both current defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct InfantryPips {
+    pip: u32,
+    occupy_pip: u32,
+}
+
+impl Default for InfantryPips {
+    fn default() -> Self {
+        Self {
+            pip: 1,
+            occupy_pip: 7,
+        }
+    }
+}
+
+impl InfantryPips {
+    pub(crate) fn apply_pass(&mut self, section: &IniSection) {
+        self.pip = section.read_pip("Pip", self.pip);
+        self.occupy_pip = section.read_pip("OccupyPip", self.occupy_pip);
+    }
+}
+
+/// InfantryType constructor clears EBE/EC2/EC3/EC4. ReadINI reads these
+/// current-default flags, then 52466E..52469A forces Infiltrate for any role.
+/// Retain the postprocessed byte across reached rules passes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct InfantryInfiltration {
+    infiltrate: bool,
+    c4: bool,
+    engineer: bool,
+    agent: bool,
+}
+
+impl InfantryInfiltration {
+    pub(crate) fn apply_pass(&mut self, section: &IniSection) {
+        // InfantryTypeClass::ReadINI 5244A9/524545/524579/5245AD,
+        // then 52466E..52469A (retail gamemd.exe, Steam3e81a617..08600).
+        self.infiltrate = section.read_bool("Infiltrate", self.infiltrate);
+        self.c4 = section.read_bool("C4", self.c4);
+        self.engineer = section.read_bool("Engineer", self.engineer);
+        self.agent = section.read_bool("Agent", self.agent);
+        self.infiltrate |= self.c4 || self.engineer || self.agent;
+    }
+}
+
+#[cfg(test)]
+#[path = "infantry_infiltration_tests.rs"]
+mod infiltration_tests;
 
 /// What type of objects this building can produce (Factory= in rules.ini).
 ///
@@ -151,22 +205,27 @@ pub enum FactoryType {
 }
 
 impl FactoryType {
-    /// Parse the Factory= INI value (case-insensitive).
-    ///
-    /// RESIDUAL: native reads `Factory=` through `INIClass::ReadFactory @
-    /// 0x00474FF0`, the case-insensitive class-name table of
-    /// `AbstractType_From_Name @ 0x0040DCE0`, so the object class names
-    /// (`Unit`, `Infantry`, ...) and every other class parse too; VERA keeps
-    /// the four type names and reads anything else as no factory. Trigger: a
-    /// rules or map INI naming another class. Effect: each reader compares
-    /// that class its own way natively. Frequency: none in retail (all 14
-    /// `rulesmd.ini` `Factory=` values are type names).
-    pub fn from_ini(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "buildingtype" => Some(Self::BuildingType),
-            "infantrytype" => Some(Self::InfantryType),
-            "unittype" => Some(Self::UnitType),
-            "aircrafttype" => Some(Self::AircraftType),
+    /// Shared object/type aliases in Suggest_New_Object (4FBD80),
+    /// IncrementFactoryCount (4FFA50), Recount (4FF980) and
+    /// GetFactoryCount (500910), Steam3e81a617..08600. Exact RTTI
+    /// comparisons, including primary-factory grouping, must retain the raw value.
+    pub(crate) const fn for_production_rtti(value: i32) -> Option<Self> {
+        match value {
+            6 | 7 => Some(Self::BuildingType),
+            15 | 16 => Some(Self::InfantryType),
+            1 | 40 => Some(Self::UnitType),
+            2 | 3 => Some(Self::AircraftType),
+            _ => None,
+        }
+    }
+
+    /// Exact production Type RTTI projection, not ReadFactory's full enum.
+    const fn from_rtti(value: i32) -> Option<Self> {
+        match value {
+            7 => Some(Self::BuildingType),
+            16 => Some(Self::InfantryType),
+            40 => Some(Self::UnitType),
+            3 => Some(Self::AircraftType),
             _ => None,
         }
     }
@@ -372,7 +431,8 @@ pub struct ObjectType {
     /// `IdleRate=` — signed native-frame divisor for idle Foot body animation.
     /// Zero disables idle counter advancement.
     pub idle_rate: i32,
-    /// Inertia weight (`Weight=` in vehicle/aircraft sections). Default 2.0.
+    /// Inertia weight (`Weight=`), initially 1.0 from TechnoType710C66..710C71.
+    /// ReadINI7124CF..7124EA passes the current double as each pass's default.
     /// Used as the divisor in rocker-impulse force scaling: heavier units rock
     /// proportionally less per equivalent impulse. Retail range: 0.5 (lightest
     /// vehicles) to 5 (Aircraft Carrier).
@@ -469,7 +529,12 @@ pub struct ObjectType {
     /// Art.ini image reference. Defaults to the object's ID if not specified.
     /// Used to look up sprite/voxel filenames in art.ini.
     pub image: String,
-    /// Power generation (positive) or consumption (negative). Buildings only.
+    /// Signed Power read result for Buildings. Constructor45DEF6/45DEFC
+    /// starts output/drain at0;461060..4610A0 passes their reconstructed
+    /// signed value to ReadInt5276D0. The existing reached-history reader
+    /// retains that value; power consumers split generation from wrapping
+    /// negated consumption.
+    /// Source: building_power_status.json reader_controls.
     pub power: i32,
     /// Extra power bonus per occupant for `InfantryAbsorb`/`UnitAbsorb`
     /// buildings. Parsed from `ExtraPower=` (signed i32). Only contributes
@@ -517,12 +582,23 @@ pub struct ObjectType {
     /// with its retention. VoiceSelect chooses it for a deactivated object
     /// (`+0x1C8`, `0x00708EFD`) that has no SlaveOwner.
     pub voice_select_deactivated: Vec<String>,
-    /// Sound ID played when this unit is ordered to move.
-    pub voice_move: Option<String>,
-    /// Sound ID played when this unit is ordered to attack.
-    pub voice_attack: Option<String>,
+    /// VoiceMove vector at TechnoType+468/count+478. Constructor710DCD..
+    /// 710E03 leaves it empty;712AB3..712B1D reads ReadSoundList525430 with
+    /// current-vector retention. Fixed SOUNDMD binding preserves resolved
+    /// order/duplicates and skips unknown names. Source: move_order_voice.
+    voice_move: Vec<String>,
+    /// VoiceAttack vector at TechnoType+484/count+494. Ctor710DEF..710E26
+    /// creates an empty vector;712C5B..712CC5 uses ReadSoundList525430 with
+    /// current-list retention. The fixed SOUNDMD binder preserves every
+    /// resolved entry, including order/duplicates. Source: attack_order_voice.
+    voice_attack: Vec<String>,
+    /// Primary, primary-elite, secondary, secondary-elite voice IDs at
+    /// +580/+584/+588/+58C. Ctor710F55..710F68 sets -1;713679..713775
+    /// reads each exact key through ReadString128/Voc7514D0, retaining a
+    /// valid current ID on missing/empty/unknown text.
+    voice_attack_overrides: [Option<String>; 4],
     /// Registered scalar `VoiceHarvest=` (TechnoType+57C). Constructor710F4F
-    /// starts at -1; ReadINI71363D..713696 reads ReadString128 then Voc7514D0.
+    /// starts at -1; ReadINI stores at713696 after ReadString128/Voc7514D0.
     /// The fixed SOUNDMD reader retains the prior valid slot across passes.
     voice_harvest: Option<String>,
     /// Registered scalar `VoiceDeploy=` (TechnoType+590), default -1 at
@@ -531,16 +607,14 @@ pub struct ObjectType {
     /// Registered scalar `VoiceUndeploy=` (TechnoType+594), default -1 at
     /// constructor710F7B. ReadINI7137A5..7137FE follows VoiceDeploy.
     voice_undeploy: Option<String>,
-    /// Sound ID played when a harvester is manually ordered to return to a
-    /// friendly refinery (right-click own refinery).
-    pub voice_enter: Option<String>,
-    /// Sound ID played when this unit is ordered to capture a building.
-    ///
-    /// Retail gives capture its own order-ack slot and falls back to the Enter
-    /// slot only when this key is absent. Stock YR ships it on every engineer
-    /// (`EngAllAttackCommand` / `EngSovAttackCommand`), so the fallback is not
-    /// the ordinary-play path.
-    pub voice_capture: Option<String>,
+    /// VoiceEnter scalar at TechnoType+558, constructor710F19=-1.
+    /// ReadString128/Voc7514D0 stores at7130CD, retaining the current ID
+    /// for missing/empty/unresolved text. Enter709020 falls to Move for -1.
+    voice_enter: Option<String>,
+    /// VoiceCapture scalar at TechnoType+55C, constructor710F1F=-1.
+    /// The same retained reader stores at713109. Capture708DC0 falls to
+    /// Enter709020 for -1; registered scalars queue without a Main draw.
+    voice_capture: Option<String>,
     /// `PreventAttackMove=` — the type refuses attack-move orders even when it
     /// carries a real `Primary=`.
     ///
@@ -553,6 +627,13 @@ pub struct ObjectType {
     pub voice_die: Vec<String>,
     /// Ordered sound choices played when this entity dies or is destroyed.
     pub die_sounds: Vec<String>,
+    /// `CreateSound=` — TechnoType+534, constructor710EE3=-1. Original
+    /// reader712E75..712EB7 uses ReadString128 then VocFindIndex7514D0,
+    /// retaining the last valid fixed-catalog ID through reached rules passes.
+    /// House RecordLastBuilt4FB7CA overrides its class cue with this scalar.
+    create_sound: Option<String>,
+    /// Retained BuildingType+16B0 and EA4/EA8/EAC; Process owns reached reads.
+    secret_lab: crate::rules::secret_lab::SecretLabRules,
     /// `DamageSound=` — `TechnoTypeClass+0x538`, the type's own struck cue.
     ///
     /// Original gamemd (SHA2561cdd1180e490...) inherited constructor710AF0
@@ -688,6 +769,12 @@ pub struct ObjectType {
     /// Whether this unit has an independently rotating turret.
     /// Parsed from rules.ini `Turret=yes`. Only meaningful for vehicles/aircraft.
     pub has_turret: bool,
+    /// TechnoType+0xD21: `TurretSpins=` makes `UnitClass::Facing_Update`
+    /// replace its ordinary idle/target decision with a per-frame turret Set.
+    /// TechnoType construction writes false at `0x007114C4`; ReadINI reads the
+    /// exact `TurretSpins` key (`0x0084412C`) through `ReadBool @ 0x005295F0`,
+    /// using the current field as its default (`0x00713357`..`0x00713371`).
+    pub turret_spins: bool,
     /// Turret rotation speed in RA2 "ROT" units (degrees per game frame at 15fps).
     /// Higher = faster turret rotation. Only meaningful when `has_turret` is true.
     /// Typical values: 5 (War Miner), 7 (Grizzly/Rhino).
@@ -696,6 +783,10 @@ pub struct ObjectType {
     pub recoil: crate::rules::recoil::RecoilConfig,
     /// Six retained settings copied when this Techno creates an Airstrike manager.
     pub airstrike: crate::rules::airstrike::AirstrikeSettings,
+    /// TechnoType+6A4: constructor711134 sets zero; ReadINI7147B4..7147C8
+    /// uses exact `RadialFireSegments`, ReadInt5276D0 and the current value.
+    /// Signed and unclamped: FireAt distinguishes zero, negative and positive.
+    pub radial_fire_segments: i32,
     /// VXL turret model name for buildings (TurretAnim= in rules.ini, e.g., "SAM").
     /// The engine loads `{TurretAnim}.VXL` + `{TurretAnim}.HVA` as the turret model.
     pub turret_anim: Option<String>,
@@ -863,8 +954,9 @@ pub struct ObjectType {
     /// Native open-hold delay from `GateCloseDelay=` converted as
     /// `trunc(value * 900)`.
     pub gate_close_delay_ticks: u32,
-    /// Bonus credits storage for refineries (Storage= in rules.ini).
-    /// Refineries typically have Storage=300 — added to owner credits on placement.
+    /// Signed `Storage=` capacity from the TechnoType rules reader. Building
+    /// capacity contributes to House+310, read by Available_Storage4F69D0;
+    /// placement does not grant this many credits. Mobile cargo uses it too.
     pub storage: i32,
     /// Free unit spawned when this structure is placed (FreeUnit= in rules.ini).
     pub free_unit: Option<String>,
@@ -1128,6 +1220,9 @@ pub struct ObjectType {
     /// Whether this unit has normal TechnoType `Crusher=yes` capability.
     /// Distinct from `OmniCrusher=` and MovementZone crusher names.
     pub crusher: bool,
+    /// TechnoType+D2B: ctor711500 sets true; ReadINI7153DA..7153F5
+    /// reads TiltsWhenCrushes with the current byte as its Bool default.
+    pub tilts_when_crushes: bool,
     /// Whether this unit can crush non-Crushable targets (only Battle Fortress).
     /// Default: false. Parsed from `OmniCrusher=` in rules.ini.
     pub omni_crusher: bool,
@@ -1176,10 +1271,12 @@ pub struct ObjectType {
     /// Poison-warhead immunity.
     pub immune_to_poison: bool,
 
-    /// What type of objects this building can produce (Factory= in rules.ini).
-    /// None for non-factory buildings/units. Data-driven replacement for
-    /// hardcoded building-name checks in production queue logic.
-    pub factory: Option<FactoryType>,
+    /// BuildingType+EB8. Constructor45DD90 leaves0; ReadFactory474FF0 at
+    /// 460529 stores any recognized raw RTTI, including object classes.
+    /// Rules own this value; production categories are derived, never stored
+    /// as a second, lossy authority. Steam3e81a617..08600; native controls in
+    /// trigger_no_factories_events.json.
+    factory_rtti: i32,
     /// Native BuildingType `WeaponsFactory=` classification used by Unit
     /// ReadyToCommence. Independent from `Factory=` and `Naval=`.
     pub weapons_factory: bool,
@@ -1218,7 +1315,9 @@ pub struct ObjectType {
     /// only): the bomb cursor (`0x0051EB24..0x0051EB7E`), its only reader.
     pub ivan: bool,
     /// `Infiltrate=` (`InfantryTypeClass+0xEBE`, ReadBool `0x005244A9`,
-    /// constructor clear `0x0052378F`, infantry only): an unarmed infiltrator
+    /// constructor clear `0x0052378F`, infantry only). ReadINI's postpass
+    /// (`0x0052466E..0x0052469A`) also sets it for C4/Engineer/Agent, even
+    /// after explicit Infiltrate=no. An unarmed infiltrator
     /// still scans for a target (`0x0051E296..0x0051E2BC`), and a team on
     /// action 15 sends it in (`0x006EB71A..0x006EB759`).
     pub infiltrate: bool,
@@ -1427,15 +1526,21 @@ pub struct ObjectType {
     /// Parsed from `EliteOccupyWeapon=WeaponName` in rules.ini.
     pub elite_occupy_weapon: Option<String>,
 
-    /// pips.shp frame index for this infantry when garrisoned in a building.
-    /// Parsed from `OccupyPip=PersonGreen` in rules.ini.  Default 7 (PersonGreen).
-    /// Values: 7=PersonGreen, 8=PersonYellow, 9=PersonWhite, 10=PersonRed,
-    /// 11=PersonBlue, 12=PersonPurple.  Empty slots use frame 6.
-    pub occupy_pip: u32,
+    /// Immutable projection of the retained InfantryType Pip/OccupyPip state.
+    infantry_pips: InfantryPips,
 
     /// What pip display to render below the health bar (PipScale= in rules.ini).
     /// `Tiberium` shows per-bale cargo pips for harvesters using pips2.shp.
     pub pip_scale: PipScale,
+
+    /// TechnoType+3D8. Constructor710D22 clears this; the exact
+    /// PipsDrawForAll ReadBool71412B..714145 retains its current default.
+    /// Only the Building health caller uses this relationship bypass.
+    pips_draw_for_all: bool,
+
+    /// TechnoType+3E4: signed PipWrap. Constructor710D40 seeds0;
+    /// ReadInt714179..714198 uses the retained field as its default.
+    pip_wrap: i32,
 
     /// Whether this building absorbs infantry (Yuri Bio Reactor).
     /// Parsed from `InfantryAbsorb=yes` in rules.ini.
@@ -1594,9 +1699,14 @@ pub struct ObjectType {
     /// Constructor default UNCHECKED; every stock author writes it explicitly.
     pub overpowerable: bool,
 
-    /// Whether this unit shows an `Attack` cursor even on friendly targets.
-    /// Parsed from `AttackCursorOnFriendlies=yes` in rules.ini.
-    /// Used by Desolator and Boris whose weapons affect friendlies.
+    /// TechnoType+6C0: ctor71117B=false, ReadBool71523D reads
+    /// `AttackFriendlies` with the retained byte as default, no clamp.
+    attack_friendlies: bool,
+
+    /// TechnoType+6C1: ctor711181=false, ReadBool71525E reads
+    /// `AttackCursorOnFriendlies` with the retained byte as default.
+    /// Stock IVAN/CIVAN use it; the IvanBomb/Passengers exception belongs
+    /// to What_Action, not this immutable rule projection.
     pub attack_cursor_on_friendlies: bool,
 
     /// Whether this infantry uses the `Enter`/sabotage cursor instead of
@@ -1856,19 +1966,24 @@ pub struct ObjectType {
     pub refinery_smoke_offsets: [IVec3; 4],
     /// `RefinerySmokeFrames=` — frame count for the smoke particle system.
     pub refinery_smoke_frames: i32,
-    /// `GapRadiusInCells=` — per-object gap-generator radius (overrides the
-    /// global default for this object).
-    pub gap_radius_in_cells: u8,
+    /// ObjectType+238, ctor5F71A6=false; ReadBool5F9521..9549, current default.
+    /// Tactical6DBE59 admits the selected object's radial-indicator virtual.
+    has_radial_indicator: bool,
+    /// BuildingType+1708, ctor=false; ReadBool461030..46104A, current default.
+    concentric_radial_indicator: bool,
+    /// TechnoType+CD2: ReadInt713FBC stores AL without a clamp;4566EC
+    /// sign-extends it. The constructor's default is zero, not General.GapRadius.
+    pub gap_radius_in_cells: i8,
     /// `SuperGapRadiusInCells=` — oversized gap radius applied during
     /// specific game states.
-    pub super_gap_radius_in_cells: u8,
-    /// `PsychicDetectionRadius=` — selected Psychic Sensor ring radius.
-    pub psychic_detection_radius: u8,
+    pub super_gap_radius_in_cells: i8,
+    /// BuildingType+170C: signed ReadInt460C41, current default zero.
+    pub psychic_detection_radius: i32,
     /// `SensorArray=` — building sensor-array flag used by GetSensorRange.
     pub sensor_array: bool,
     /// `Sensors=` — generic cloak-sensor flag.
     pub sensors: bool,
-    /// `SensorsSight=` — fallback sensor/cloak-generator ring radius.
+    /// `SensorsSight=` — generic sensor coverage; not GetSensorRange4566B0.
     pub sensors_sight: u8,
     /// `DetectDisguise=` — `TechnoTypeClass+0xD31`, written by
     /// `TechnoTypeClass::ReadINI @ 0x0071444C` (key string `0x00843C78`).
@@ -1895,6 +2010,7 @@ pub struct ObjectType {
     /// `Cloakable=` — copied into Unit/Infantry runtime cloak ability.
     pub cloakable: bool,
     /// `CloakingSpeed=` — signed frame duration between cloak progress steps.
+    /// TechnoType710BE4 seeds7; ReadINI71243A..71244C retains it when omitted.
     pub cloaking_speed: i32,
     /// `CloakStop=` — FootClass requires an idle locomotor before reporting
     /// its runtime cloak ability as currently usable.
@@ -1918,6 +2034,120 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub const fn has_radial_indicator(&self) -> bool {
+        self.has_radial_indicator
+    }
+
+    pub const fn concentric_radial_indicator(&self) -> bool {
+        self.concentric_radial_indicator
+    }
+
+    /// Building GetSensorRange4566B0. The caller supplies retained+268 and
+    /// GetCurrentWeapon70E1A0's resolved range; Option already represents the
+    /// null WeaponStruct/WeaponType test70E240. No General.GapRadius fallback.
+    pub fn building_sensor_range(&self, gap_supercharged: bool, weapon_range: Option<i32>) -> i32 {
+        if self.psychic_detection_radius > 0 {
+            self.psychic_detection_radius
+        } else if self.gap_generator {
+            i32::from(if gap_supercharged {
+                self.super_gap_radius_in_cells
+            } else {
+                self.gap_radius_in_cells
+            })
+        } else if self.sensor_array || self.cloak_generator {
+            i32::from(self.cloak_radius_in_cells)
+        } else {
+            weapon_range
+                .filter(|range| *range > 0)
+                .map_or(0, |range| range / 256)
+        }
+    }
+
+    pub const fn attacks_friendlies(&self) -> bool {
+        self.attack_friendlies
+    }
+
+    /// Signed PipWrap configuration, before the draw caller's division.
+    pub const fn pip_wrap(&self) -> i32 {
+        self.pip_wrap
+    }
+
+    /// Building4598A0's current-type query: UnitAbsorb OR InfantryAbsorb.
+    /// Class-specific entry and lifecycle admission remain with each caller.
+    /// Original instructions/readers: procedural_drawing_oracle/absorber_pips.
+    pub const fn absorbs_passengers(&self) -> bool {
+        self.unit_absorb || self.infantry_absorb
+    }
+
+    pub const fn pips_draw_for_all(&self) -> bool {
+        self.pips_draw_for_all
+    }
+
+    /// InfantryType+DFC: passenger frame in Building PIPS or mobile PIPS2.
+    pub const fn pip(&self) -> u32 {
+        self.infantry_pips.pip
+    }
+
+    /// InfantryType+E00: raw PIPS frame for this infantry in a garrison.
+    /// Admitted missing-key passes can produce1..5 as well as person frames.
+    pub const fn occupy_pip(&self) -> u32 {
+        self.infantry_pips.occupy_pip
+    }
+
+    pub(crate) fn project_infantry_pips(&mut self, pips: InfantryPips) {
+        self.infantry_pips = pips;
+    }
+
+    pub(crate) fn project_infantry_infiltration(&mut self, flags: InfantryInfiltration) {
+        self.infiltrate = flags.infiltrate;
+        self.c4 = flags.c4;
+        self.engineer = flags.engineer;
+        self.agent = flags.agent;
+    }
+
+    /// TechnoType GetPipMax716290, virtual+74. Signed configuration capacity;
+    /// callers own allocation/fill bounds. Uses the live bound base weapon0,
+    /// not a capture manager's retained admission capacity or elite weapon.
+    pub fn pip_max(&self, rules: &crate::rules::ruleset::RuleSet) -> i32 {
+        match self.pip_scale {
+            PipScale::None => 0,
+            PipScale::Ammo => self.ammo,
+            PipScale::Tiberium => {
+                if self.category == ObjectCategory::Infantry {
+                    3
+                } else {
+                    5
+                }
+            }
+            PipScale::Passengers => self.passengers,
+            PipScale::Power => 10,
+            // Native7162B0 dereferences an admitted primary. Preserve the
+            // existing host's safe0 for an invalid missing binding; stock
+            // MindControl has a bound weapon and follows the original read.
+            PipScale::MindControl => self
+                .weapon_at(0)
+                .and_then(|name| rules.weapon(name))
+                .map_or(0, |weapon| weapon.damage),
+        }
+    }
+
+    /// The authoritative BuildingType+EB8 class, including non-production
+    /// RTTI names. Consumers must keep their own native comparisons.
+    pub const fn factory_rtti(&self) -> i32 {
+        self.factory_rtti
+    }
+
+    /// Native nonzero-Factory gates (HasOccurred17, AI, quarry and exit).
+    pub const fn has_factory(&self) -> bool {
+        self.factory_rtti != 0
+    }
+
+    /// Exact Type comparisons used by FindFactory, exit arms and rally.
+    /// Object RTTIs (Unit1/Infantry15/...) are deliberately not type RTTIs.
+    pub const fn factory_type(&self) -> Option<FactoryType> {
+        FactoryType::from_rtti(self.factory_rtti)
+    }
+
     pub(crate) fn target_coord_offset(&self) -> [i32; 3] {
         self.target_coord_offset
     }
@@ -1930,6 +2160,55 @@ impl ObjectType {
 
     pub fn voice_harvest(&self) -> Option<&str> {
         self.voice_harvest.as_deref()
+    }
+
+    pub fn voice_move(&self) -> &[String] {
+        &self.voice_move
+    }
+
+    pub fn voice_enter(&self) -> Option<&str> {
+        self.voice_enter.as_deref()
+    }
+
+    pub fn voice_capture(&self) -> Option<&str> {
+        self.voice_capture.as_deref()
+    }
+
+    pub fn voice_attack(&self) -> &[String] {
+        &self.voice_attack
+    }
+
+    /// VoiceAttack7090F8..70914A reads primary for index0, otherwise
+    /// secondary; its caller supplies the raw750010 elite predicate.
+    pub fn voice_attack_override(&self, weapon_index: i32, elite: bool) -> Option<&str> {
+        self.voice_attack_overrides[usize::from(weapon_index != 0) * 2 + usize::from(elite)]
+            .as_deref()
+    }
+
+    /// Bind the existing native type reader's list and scalar slots against
+    /// the one fixed catalog and its reached processed-section history.
+    pub(crate) fn bind_order_voice_references(
+        &mut self,
+        section: Option<&IniSection>,
+        sounds: &SoundRegistry,
+    ) {
+        self.voice_move = section.map_or_else(Vec::new, |section| {
+            sounds.read_rules_sound_list(section, "VoiceMove")
+        });
+        self.voice_attack = section.map_or_else(Vec::new, |section| {
+            sounds.read_rules_sound_list(section, "VoiceAttack")
+        });
+        self.voice_enter =
+            section.and_then(|section| sounds.read_rules_reference(section, "VoiceEnter"));
+        self.voice_capture =
+            section.and_then(|section| sounds.read_rules_reference(section, "VoiceCapture"));
+        self.voice_attack_overrides = [
+            "VoicePrimaryWeaponAttack",
+            "VoicePrimaryEliteWeaponAttack",
+            "VoiceSecondaryWeaponAttack",
+            "VoiceSecondaryEliteWeaponAttack",
+        ]
+        .map(|key| section.and_then(|section| sounds.read_rules_reference(section, key)));
     }
 
     pub fn voice_deploy(&self) -> Option<&str> {
@@ -1959,13 +2238,27 @@ impl ObjectType {
         self.damage_sound.as_deref()
     }
 
-    /// Bind TechnoType+538 through the shared registered-reference reader,
+    pub fn secret_lab(&self) -> &crate::rules::secret_lab::SecretLabRules {
+        &self.secret_lab
+    }
+
+    pub(crate) fn set_secret_lab(&mut self, rules: crate::rules::secret_lab::SecretLabRules) {
+        self.secret_lab = rules;
+    }
+
+    pub fn create_sound(&self) -> Option<&str> {
+        self.create_sound.as_deref()
+    }
+
+    /// Bind TechnoType+534/+538 in original712E75..712F07 read order,
     /// using only passes where this type existed in the native processing order.
-    pub(crate) fn bind_damage_sound_reference(
+    pub(crate) fn bind_scalar_sound_references(
         &mut self,
         section: Option<&IniSection>,
         sounds: &SoundRegistry,
     ) {
+        self.create_sound =
+            section.and_then(|section| sounds.read_rules_reference(section, "CreateSound"));
         self.damage_sound =
             section.and_then(|section| sounds.read_rules_reference(section, "DamageSound"));
     }
@@ -1999,6 +2292,7 @@ impl ObjectType {
 
     /// Base weapon-array slot 1 (`TechnoTypeClass+0x8B4`), gamemd's `Secondary`
     /// field. `Secondary=` or `Weapon2=`, same storage.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn secondary(&self) -> Option<&str> {
         self.weapon_at(WEAPON_SLOT_SECONDARY)
     }
@@ -2030,6 +2324,7 @@ impl ObjectType {
     /// `ElitePrimary` field: `ElitePrimary=` or `EliteWeapon1=`. Replaces
     /// [`Self::primary`] when the unit is at Elite tier (veterancy >= 200) and
     /// this slot names a weapon; Veteran tier (100..199) does NOT swap.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn elite_primary(&self) -> Option<&str> {
         self.elite_weapon_at(WEAPON_SLOT_PRIMARY)
     }
@@ -2037,6 +2332,7 @@ impl ObjectType {
     /// Elite weapon-array slot 1 (`TechnoTypeClass+0xAB0`), gamemd's
     /// `EliteSecondary` field: `EliteSecondary=` or `EliteWeapon2=`. Replaces
     /// [`Self::secondary`] at Elite tier under the same rule.
+    #[cfg(test)]
     pub fn elite_secondary(&self) -> Option<&str> {
         self.elite_weapon_at(WEAPON_SLOT_SECONDARY)
     }
@@ -2139,7 +2435,7 @@ impl ObjectType {
     /// rally click archives only on these, and their rally lines draw.
     pub fn has_rally_line(&self) -> bool {
         matches!(
-            self.factory,
+            self.factory_type(),
             Some(FactoryType::InfantryType | FactoryType::UnitType)
         ) || self.unit_repair
             || self.cloning
@@ -2218,7 +2514,9 @@ impl ObjectType {
     ///
     /// Missing keys get sensible defaults matching RA2's behavior.
     /// The `id` is the section name, and `category` comes from which
-    /// type registry listed this object.
+    /// type registry listed this object. Fields that only the ordered Process
+    /// owner (`native_processing`) reads keep their constructor values here;
+    /// `RuleSet::from_processed_rules` publishes that owner's retained result.
     pub fn from_ini_section(id: &str, section: &IniSection, category: ObjectCategory) -> Self {
         // BuildingType45FE50: Hospital, Armory460B03, then the three
         // barracks readers460B1D/37/51. Each starts at constructor0 and folds
@@ -2244,14 +2542,6 @@ impl ObjectType {
             section
                 .is_present(key)
                 .then(|| section.read_double(key, 0.0))
-        };
-        // These remaining legacy voice keys are sound lists (ReadSoundList
-        // 525430), but currently retain only the first sound. VoiceSelect,
-        // VoiceSpecialAttack and MoveSound use the complete list below.
-        let first_sound = |key: &str| {
-            section
-                .read_sound_list(key)
-                .and_then(|sounds| sounds.first().map(|sound| sound.to_string()))
         };
         // `GuardRange=` and `AirRangeBonus=` are ReadRange whole leptons
         // (`0x007122B3`, `0x007147A9`), kept here as cells; `None` marks an
@@ -2388,7 +2678,7 @@ impl ObjectType {
             walk_rate: section.read_int("WalkRate", 1),
             idle_rate: section.read_int("IdleRate", 0),
             // Double fields (`0x007124A3..0x007124E5`).
-            weight: sim_from_f32(section.read_double("Weight", 2.0) as f32),
+            weight: sim_from_f32(section.read_double("Weight", 1.0) as f32),
             accel_factor: sim_from_f32(section.read_double("AccelerationFactor", 0.03) as f32),
             decel_factor: sim_from_f32(section.read_double("DeaccelerationFactor", 0.002) as f32),
             accelerates: section.read_bool("Accelerates", true),
@@ -2476,8 +2766,15 @@ impl ObjectType {
                 .read_sound_list("VoiceSelectDeactivated")
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_default(),
-            voice_move: first_sound("VoiceMove"),
-            voice_attack: first_sound("VoiceAttack"),
+            voice_move: section
+                .read_sound_list("VoiceMove")
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
+            voice_attack: section
+                .read_sound_list("VoiceAttack")
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
+            voice_attack_overrides: [const { None }; 4],
             voice_harvest: None,
             voice_deploy: None,
             voice_undeploy: None,
@@ -2492,6 +2789,8 @@ impl ObjectType {
                 .read_sound_list("DieSound")
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_default(),
+            create_sound: None,
+            secret_lab: Default::default(),
             damage_sound: None,
             move_sound: section
                 .read_sound_list("MoveSound")
@@ -2545,17 +2844,22 @@ impl ObjectType {
                 .map(str::to_owned),
             chrono_in_sound: section.read_name("ChronoInSound", 0x80).map(str::to_owned),
             chrono_out_sound: section.read_name("ChronoOutSound", 0x80).map(str::to_owned),
-            // Native relative order: ManualReload713352, then
+            // Native relative order: ManualReload713352, TurretSpins713357,
             // TiltCrashJumpjet713386, then Turret. The shared bool reader
             // retains earlier-layer values when a later token is malformed.
             manual_reload: section.read_bool("ManualReload", false),
+            turret_spins: section.read_bool("TurretSpins", false),
             tilt_crash_jumpjet: section.read_bool("TiltCrashJumpjet", false),
             has_turret: section.read_bool("Turret", false),
             // gamemd writes a separate UnitType +0x398=10 for Harvester/Weeder,
             // but ROT= remains the parsed TechnoType +0x71C facing-rate field.
             turret_rot: section.read_int("ROT", 0),
-            recoil: crate::rules::recoil::RecoilConfig::from_ini_section(section),
-            airstrike: crate::rules::airstrike::AirstrikeSettings::from_ini_section(section),
+            // Constructor values. Recoil, Airstrike and RadialFireSegments
+            // are read only by the ordered Process owner (`native_processing`),
+            // whose retained per-pass result `RuleSet` publishes.
+            recoil: crate::rules::recoil::RecoilConfig::default(),
+            airstrike: crate::rules::airstrike::AirstrikeSettings::default(),
+            radial_fire_segments: 0,
             turret_anim: section.read_name("TurretAnim", 0x10).map(str::to_uppercase),
             turret_anim_is_voxel: section.read_bool("TurretAnimIsVoxel", false),
             turret_anim_x: section.read_int("TurretAnimX", 0),
@@ -2669,18 +2973,24 @@ impl ObjectType {
             // InfantryType5236A0 and BuildingType45DD9D pass Foot0 to
             // TechnoType710AF0, stored7110E0. Original Infantry constructor and
             // ENGINEER retail-layer reads: rules_oracle/infantry_speed_type.
-            // Other category defaults remain with this existing owner.
-            speed_type: section.read_speed_type(
-                "SpeedType",
-                if matches!(
-                    category,
-                    ObjectCategory::Building | ObjectCategory::Infantry
-                ) {
-                    SpeedType::Foot
-                } else {
-                    SpeedType::default()
-                },
-            ),
+            // A UnitType keeps its -1 constructor seed here: only the ordered
+            // Process owner reads it (`SpeedType::read_vehicle_pass`, retained
+            // across admitted Rules passes), and `RuleSet` publishes that value.
+            speed_type: if category == ObjectCategory::Vehicle {
+                SpeedType::Invalid
+            } else {
+                section.read_speed_type(
+                    "SpeedType",
+                    if matches!(
+                        category,
+                        ObjectCategory::Building | ObjectCategory::Infantry
+                    ) {
+                        SpeedType::Foot
+                    } else {
+                        SpeedType::default()
+                    },
+                )
+            },
             movement_zone: section
                 .read_name("MovementZone", 0x20)
                 .map(MovementZone::from_ini)
@@ -2749,6 +3059,7 @@ impl ObjectType {
             crushable: section.read_bool("Crushable", category == ObjectCategory::Infantry),
             deployed_crushable: section.read_bool("DeployedCrushable", true),
             crusher: section.read_bool("Crusher", false),
+            tilts_when_crushes: section.read_bool("TiltsWhenCrushes", true),
             omni_crusher: section.read_bool("OmniCrusher", false),
             omni_crush_resistant: section.read_bool("OmniCrushResistant", false),
             immune_to_radiation: section.read_bool("ImmuneToRadiation", false),
@@ -2794,10 +3105,13 @@ impl ObjectType {
             anti_air_value: building_int(section, category, "AntiAirValue"),
             anti_armor_value: building_int(section, category, "AntiArmorValue"),
             anti_infantry_value: building_int(section, category, "AntiInfantryValue"),
-            factory: section
-                .read_name("Factory", 0x20)
-                .and_then(FactoryType::from_ini),
-            weapons_factory: section.read_bool("WeaponsFactory", false),
+            factory_rtti: if category == ObjectCategory::Building {
+                section.read_factory("Factory", 0)
+            } else {
+                0
+            },
+            // `BuildingTypeClass::ReadINI` alone reads it (`0x00460A79`).
+            weapons_factory: building_bool(section, category, "WeaponsFactory"),
             armory,
             gdi_barracks,
             nod_barracks,
@@ -2808,12 +3122,14 @@ impl ObjectType {
                 .read_coord3_value("ExitCoord")
                 .map(|[x, y, z]| (x, y, z)),
 
-            // Cursor / interaction capability flags
-            engineer: section.read_bool("Engineer", false),
+            // Cursor / interaction capability flags. An InfantryType's
+            // Engineer, C4, Infiltrate and Agent start at the constructor's
+            // false: only the ordered Process owner reads them
+            // (`InfantryInfiltration`), and `RuleSet` publishes its result.
+            engineer: category != ObjectCategory::Infantry && section.read_bool("Engineer", false),
             ivan: category == ObjectCategory::Infantry && section.read_bool("Ivan", false),
-            infiltrate: category == ObjectCategory::Infantry
-                && section.read_bool("Infiltrate", false),
-            agent: category == ObjectCategory::Infantry && section.read_bool("Agent", false),
+            infiltrate: false,
+            agent: false,
             deployer: section.read_bool("Deployer", false),
             capturable: section.read_bool("Capturable", false),
             spyable: category == ObjectCategory::Building && section.read_bool("Spyable", false),
@@ -2851,9 +3167,8 @@ impl ObjectType {
             open_topped: section.read_bool("OpenTopped", false),
             gunner: section.read_bool("Gunner", false),
             ifv_mode: section.read_int("IFVMode", 0),
-            gunner_turrets: crate::rules::gunner_turrets::GunnerTurrets::from_ini_section(
-                id, section, category,
-            ),
+            // Constructor table; only the ordered Process owner reads it.
+            gunner_turrets: crate::rules::gunner_turrets::GunnerTurrets::default(),
             open_transport_weapon: section.read_int("OpenTransportWeapon", -1),
             deploy_fire: section.read_bool("DeployFire", false),
             // `TechnoTypeClass::Constructor @ 0x00711187` seeds -1, and
@@ -2869,24 +3184,16 @@ impl ObjectType {
             elite_occupy_weapon: section
                 .read_name("EliteOccupyWeapon", 0x80)
                 .map(str::to_owned),
-            occupy_pip: section
-                .read_name("OccupyPip", 0x20)
-                .map(|s| match s.to_ascii_lowercase().as_str() {
-                    "persongreen" => 7,
-                    "personyellow" => 8,
-                    "personwhite" => 9,
-                    "personred" => 10,
-                    "personblue" => 11,
-                    "personpurple" => 12,
-                    _ => 7,
-                })
-                .unwrap_or(7),
+            // Constructor values; only the ordered Process owner reads them.
+            infantry_pips: InfantryPips::default(),
             pip_scale: section
                 .read_name("PipScale", 0x20)
                 .map(PipScale::from_ini)
                 .unwrap_or_default(),
-            infantry_absorb: section.read_bool("InfantryAbsorb", false),
+            pips_draw_for_all: section.read_bool("PipsDrawForAll", false),
+            pip_wrap: section.read_int("PipWrap", 0),
             unit_absorb: section.read_bool("UnitAbsorb", false),
+            infantry_absorb: section.read_bool("InfantryAbsorb", false),
             grinding: section.read_bool("Grinding", false),
             hospital,
             bunkerable: section.read_bool("Bunkerable", category == ObjectCategory::Vehicle),
@@ -2938,9 +3245,10 @@ impl ObjectType {
             produce_cash_amount: section.read_int("ProduceCashAmount", 0),
             produce_cash_delay: section.read_int("ProduceCashDelay", 0),
             overpowerable: section.read_bool("Overpowerable", false),
+            attack_friendlies: section.read_bool("AttackFriendlies", false),
             attack_cursor_on_friendlies: section.read_bool("AttackCursorOnFriendlies", false),
             sabotage_cursor: section.read_bool("SabotageCursor", false),
-            c4: section.read_bool("C4", false),
+            c4: category != ObjectCategory::Infantry && section.read_bool("C4", false),
             can_c4: section.read_bool("CanC4", category == ObjectCategory::Building),
             eligible_for_delay_kill: section.read_bool("EligibleForDelayKill", false),
             invisible: section.read_bool("Invisible", false),
@@ -3048,15 +3356,15 @@ impl ObjectType {
                 IVec3::from_array(section.read_coord_tokens("RefinerySmokeOffsetFour", [0; 3])),
             ],
             refinery_smoke_frames: section.read_int("RefinerySmokeFrames", 25),
-            gap_radius_in_cells: section
-                .read_int("GapRadiusInCells", 0)
-                .clamp(0, u8::MAX as i32) as u8,
-            super_gap_radius_in_cells: section
-                .read_int("SuperGapRadiusInCells", 0)
-                .clamp(0, u8::MAX as i32) as u8,
-            psychic_detection_radius: section
-                .read_int("PsychicDetectionRadius", 0)
-                .clamp(0, u8::MAX as i32) as u8,
+            has_radial_indicator: section.read_bool("HasRadialIndicator", false),
+            concentric_radial_indicator: category == ObjectCategory::Building
+                && section.read_bool("ConcentricRadialIndicator", false),
+            // The reached-pass history folds current-default reads before
+            // this immutable projection. Low-byte storage commutes with
+            // absent/default reads; it must not become a saturation clamp.
+            gap_radius_in_cells: section.read_int("GapRadiusInCells", 0) as i8,
+            super_gap_radius_in_cells: section.read_int("SuperGapRadiusInCells", 0) as i8,
+            psychic_detection_radius: section.read_int("PsychicDetectionRadius", 0),
             sensor_array: section.read_bool("SensorArray", false),
             sensors: section.read_bool("Sensors", false),
             sensors_sight: section.read_int("SensorsSight", 0).clamp(0, u8::MAX as i32) as u8,
@@ -3065,7 +3373,7 @@ impl ObjectType {
                 .clamp(0, u8::MAX as i32) as u8,
             no_shadow: section.read_bool("NoShadow", false),
             cloakable: section.read_bool("Cloakable", false),
-            cloaking_speed: section.read_int("CloakingSpeed", 1),
+            cloaking_speed: section.read_int("CloakingSpeed", 7),
             cloak_stop: section.read_bool("CloakStop", false),
             cloak_radius_in_cells: section.read_int("CloakRadiusInCells", 20) as i8,
             cloak_generator: section.read_bool("CloakGenerator", false),
@@ -3202,7 +3510,7 @@ impl AbilityFlags {
         self.0[ability as usize]
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn from_abilities(abilities: &[Ability]) -> Self {
         let mut flags = [false; 18];
         for ability in abilities {
@@ -3231,9 +3539,26 @@ fn building_bool(section: &IniSection, category: ObjectCategory, key: &str) -> b
 mod infantry_speed_type_tests;
 
 #[cfg(test)]
+#[path = "vehicle_speed_type_tests.rs"]
+mod vehicle_speed_type_tests;
+
+#[cfg(test)]
+#[path = "infantry_pip_tests.rs"]
+mod infantry_pip_tests;
+
+#[cfg(test)]
+#[path = "ammo_pip_tests.rs"]
+mod ammo_pip_tests;
+
+#[cfg(test)]
+#[path = "absorber_pip_tests.rs"]
+mod absorber_pip_tests;
+
+#[cfg(test)]
 mod tests {
     /// `RevealToAll=` through the production reader on the retail layers.
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn reveal_to_all_reads_the_seven_stock_types() {
         let Some(retail) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -3314,6 +3639,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn combatant_retail_rules_mode_map_reads_match_original_execution() {
         let Some(retail) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -3415,6 +3741,102 @@ mod tests {
                 row.raw
             );
         }
+    }
+
+    #[test]
+    fn pip_scale_native_names_default_capacity_and_layer_retention() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+        // Reader474940's file-backed table81B9B0, through ReadString32.
+        for (raw, expected) in [
+            ("Ammo", PipScale::Ammo),
+            ("tIbErIuM", PipScale::Tiberium),
+            ("Passengers", PipScale::Passengers),
+            ("Power", PipScale::Power),
+            ("mInDcOnTrOl", PipScale::MindControl),
+            ("Unknown", PipScale::None),
+            ("5", PipScale::None),
+            ("MindControl,Ammo", PipScale::None),
+        ] {
+            let ini = IniFile::from_str(&format!("[MIND]\nPipScale={raw}\n"));
+            let object = ObjectType::from_ini_section(
+                "MIND",
+                ini.section("MIND").unwrap(),
+                ObjectCategory::Vehicle,
+            );
+            assert_eq!(object.pip_scale, expected, "{raw}");
+        }
+        let ini = IniFile::from_str(&format!(
+            "[MIND]\nPipScale=MindControl{}invalid\n",
+            " ".repeat(20)
+        ));
+        assert_eq!(
+            ObjectType::from_ini_section(
+                "MIND",
+                ini.section("MIND").unwrap(),
+                ObjectCategory::Vehicle
+            )
+            .pip_scale,
+            PipScale::MindControl,
+            "copy truncates to31 bytes BEFORE trim/name lookup"
+        );
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=MIND\n[MIND]\nPipScale=MindControl\n",
+        ));
+        for patch in ["Strength=500", "PipScale=", "PipScale=   ", "pipscale=Ammo"] {
+            layers.push(
+                RulesLayerKind::Scenario,
+                IniFile::from_str(&format!("[MIND]\n{patch}\n")),
+            );
+            assert_eq!(
+                RuleSet::from_rules_layers(&layers)
+                    .unwrap()
+                    .object("MIND")
+                    .unwrap()
+                    .pip_scale,
+                PipScale::MindControl,
+                "absent/empty/exact-case key: {patch}"
+            );
+        }
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[MIND]\nPipScale=Unknown\n"),
+        );
+        assert_eq!(
+            RuleSet::from_rules_layers(&layers)
+                .unwrap()
+                .object("MIND")
+                .unwrap()
+                .pip_scale,
+            PipScale::None
+        );
+        let default_ini = IniFile::from_str("[MIND]\nStrength=500\n");
+        assert_eq!(
+            ObjectType::from_ini_section(
+                "MIND",
+                default_ini.section("MIND").unwrap(),
+                ObjectCategory::Vehicle
+            )
+            .pip_scale,
+            PipScale::None
+        );
+    }
+
+    #[test]
+    fn retail_mastermind_uses_mind_control_pips_and_current_primary_capacity() {
+        let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let object = fixture.rules.object("MIND").unwrap();
+        assert_eq!(object.pip_scale, PipScale::MindControl);
+        assert_eq!(
+            fixture
+                .rules
+                .weapon(object.weapon_at(0).unwrap())
+                .unwrap()
+                .damage,
+            3
+        );
     }
 
     #[test]
@@ -3559,12 +3981,14 @@ mod tests {
             ini.section("CMIN").unwrap(),
             ObjectCategory::Vehicle,
         );
-        let sounds =
-            SoundRegistry::from_ini(&IniFile::from_str("[SoundList]\n0=ChronoMinerHarvest\n"));
+        let sounds = SoundRegistry::from_ini(&IniFile::from_str(
+            "[SoundList]\n0=ChronoMinerHarvest\n1=ChronoMinerMove\n2=ChronoMinerReturn\n",
+        ));
         obj.bind_deploy_voice_references(ini.section("CMIN"), &sounds);
-        assert_eq!(obj.voice_move, Some("ChronoMinerMove".to_string()));
+        obj.bind_order_voice_references(ini.section("CMIN"), &sounds);
+        assert_eq!(obj.voice_move(), ["ChronoMinerMove"]);
         assert_eq!(obj.voice_harvest(), Some("ChronoMinerHarvest"));
-        assert_eq!(obj.voice_enter, Some("ChronoMinerReturn".to_string()));
+        assert_eq!(obj.voice_enter(), Some("ChronoMinerReturn"));
 
         // Absent keys default to None (e.g. a plain tank).
         let none_ini: IniFile = IniFile::from_str("[MTNK]\nName=Grizzly\n");
@@ -3574,24 +3998,27 @@ mod tests {
             ObjectCategory::Vehicle,
         );
         assert_eq!(none_obj.voice_harvest(), None);
-        assert_eq!(none_obj.voice_enter, None);
+        assert_eq!(none_obj.voice_enter(), None);
     }
 
-    /// GSI-06.04 carry-over: retail's capture order-ack reads the type's own
-    /// `VoiceCapture=` slot and only falls back to Enter when the key is absent.
-    /// Stock engineers ship the key, so it must round-trip through the parse.
+    /// Capture708DC0 consumes the fixed type slot before its Enter fallback.
+    /// Stock engineers register this cue in SOUNDMD.
     #[test]
     fn gsi_06_parses_voice_capture_slot() {
         let ini: IniFile = IniFile::from_str(
             "[ENGINEER]\nName=Engineer\nVoiceMove=EngAllMove\n\
              VoiceEnter=EngAllMove\nVoiceCapture=EngAllAttackCommand\n",
         );
-        let obj = ObjectType::from_ini_section(
+        let mut obj = ObjectType::from_ini_section(
             "ENGINEER",
             ini.section("ENGINEER").unwrap(),
             ObjectCategory::Infantry,
         );
-        assert_eq!(obj.voice_capture, Some("EngAllAttackCommand".to_string()));
+        let sounds = SoundRegistry::from_ini(&IniFile::from_str(
+            "[SoundList]\n0=EngAllMove\n1=EngAllAttackCommand\n",
+        ));
+        obj.bind_order_voice_references(ini.section("ENGINEER"), &sounds);
+        assert_eq!(obj.voice_capture(), Some("EngAllAttackCommand"));
 
         // Absent key stays None, which is the retail "fall back to Enter" case.
         let none_ini: IniFile = IniFile::from_str("[E1]\nName=GI\n");
@@ -3600,7 +4027,7 @@ mod tests {
             none_ini.section("E1").unwrap(),
             ObjectCategory::Infantry,
         );
-        assert_eq!(none_obj.voice_capture, None);
+        assert_eq!(none_obj.voice_capture(), None);
     }
 
     /// GSI-06.04 carry-over: retail's attack-move eligibility is
@@ -4154,9 +4581,12 @@ mod tests {
         assert!(!parse("MISSING").weapons_factory);
         assert!(!parse("EXPLICIT_NO").weapons_factory);
         assert!(parse("EXPLICIT_YES").weapons_factory);
-        assert_eq!(parse("FACTORY_ONLY").factory, Some(FactoryType::UnitType));
+        assert_eq!(
+            parse("FACTORY_ONLY").factory_type(),
+            Some(FactoryType::UnitType)
+        );
         assert!(!parse("FACTORY_ONLY").weapons_factory);
-        assert_eq!(parse("WEAPONS_FACTORY_ONLY").factory, None);
+        assert_eq!(parse("WEAPONS_FACTORY_ONLY").factory_type(), None);
         assert!(parse("WEAPONS_FACTORY_ONLY").weapons_factory);
     }
 
@@ -4774,10 +5204,9 @@ mod tests {
 
     #[test]
     fn c4_flag_parses_from_ini() {
-        let ini = IniFile::from_str("[GHOST]\nC4=yes\n");
-        let section = ini.section("GHOST").unwrap();
-        let obj = ObjectType::from_ini_section("GHOST", section, ObjectCategory::Infantry);
-        assert!(obj.c4);
+        let ini = IniFile::from_str("[InfantryTypes]\n0=GHOST\n[GHOST]\nC4=yes\n");
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
+        assert!(rules.object("GHOST").unwrap().c4);
     }
 
     #[test]
@@ -5319,17 +5748,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn turret_spins_reads_constructor_default_and_rule_layer_overrides() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=DISK\n[DISK]\nTurret=yes\n",
+        ));
+        assert!(
+            !RuleSet::from_rules_layers(&layers)
+                .unwrap()
+                .object("DISK")
+                .unwrap()
+                .turret_spins
+        );
+
+        for (kind, patch, expected) in [
+            (RulesLayerKind::LangRule, "TurretSpins=yes", true),
+            (RulesLayerKind::GameMode, "TurretSpins=malformed", true),
+            (RulesLayerKind::Scenario, "TurretSpins=no", false),
+            (RulesLayerKind::Scenario, "TurretSpins=yes", true),
+        ] {
+            layers.push(kind, IniFile::from_str(&format!("[DISK]\n{patch}\n")));
+            let rules = RuleSet::from_rules_layers(&layers).unwrap();
+            assert_eq!(
+                rules.object("DISK").unwrap().turret_spins,
+                expected,
+                "{patch}"
+            );
+        }
+    }
+
+    /// The production rules reader on the stock battle source stack. DISK is
+    /// the authored `TurretSpins=yes` type; an ordinary tank remains the
+    /// default-false control.
+    #[test]
+    fn retail_flying_disk_turret_spins_reads_from_battle_rules_layers() {
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        assert!(retail.rules.object("DISK").unwrap().turret_spins);
+        assert!(!retail.rules.object("MTNK").unwrap().turret_spins);
+    }
+
     /// The production reader on retail `rulesmd.ini`: `CrateBeneath=` and
     /// `CrateBeneathIsMoney=` (BuildingTypeClass::ReadINI `0x00460EC1`,
     /// `0x00460EDB`), defaulting to the constructor's false.
     #[test]
     fn retail_crate_beneath_reads() {
-        use crate::rules::ruleset::RuleSet;
-
-        let Some((ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&ini).unwrap();
         for (id, beneath, money) in [
             ("CAWASH01", true, true),
             ("CARUS07", true, false),
@@ -5417,7 +5889,7 @@ mod tests {
             ObjectCategory::Vehicle,
         );
         assert!(!defaults.cloakable && !defaults.cloak_stop);
-        assert_eq!(defaults.cloaking_speed, 1);
+        assert_eq!(defaults.cloaking_speed, 7);
         assert_eq!(defaults.cloak_radius_in_cells, 20);
     }
 
@@ -5504,6 +5976,24 @@ mod tests {
         assert!(!obj.crusher);
     }
 
+    /// TechnoType ctor711500/default and ReadINI7153DA..7153F5.
+    #[test]
+    fn crush_tilt_reader_preserves_native_true_default_and_explicit_no() {
+        for (line, expected) in [
+            ("", true),
+            ("TiltsWhenCrushes=no", false),
+            ("TiltsWhenCrushes=yes", true),
+        ] {
+            let ini = IniFile::from_str(&format!("[MTNK]\nSpeed=7\n{line}\n"));
+            let object = ObjectType::from_ini_section(
+                "MTNK",
+                ini.section("MTNK").unwrap(),
+                ObjectCategory::Vehicle,
+            );
+            assert_eq!(object.tilts_when_crushes, expected);
+        }
+    }
+
     #[test]
     fn object_type_parses_accelerates_false() {
         let ini = IniFile::from_str("[MTNK]\nSpeed=7\nAccelerates=false\n");
@@ -5538,11 +6028,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_weight_default_two() {
+    fn parse_weight_constructor_default_one() {
         let ini: IniFile = IniFile::from_str("[MTNK]\nStrength=300\n");
         let section = ini.section("MTNK").expect("section");
         let obj = ObjectType::from_ini_section("MTNK", section, ObjectCategory::Vehicle);
-        assert_eq!(obj.weight, SimFixed::lit("2.0"));
+        assert_eq!(obj.weight, SimFixed::ONE);
     }
 
     #[test]
@@ -5567,16 +6057,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_retail_weight_grizzly_defaults_to_two() {
-        // Retail rulesmd.ini: MTNK (Grizzly) has no Weight= line, so it should
-        // fall back to the engine default 2.0.
+    fn absent_weight_keeps_the_techno_type_constructor_value() {
+        // Original TechnoType710C66..710C71 writes 1.0. UnitType7470D0
+        // does not replace it before its reader calls TechnoType712170.
         let ini = IniFile::from_str("[MTNK]\nStrength=300\n");
         let mtnk = ObjectType::from_ini_section(
             "MTNK",
             ini.section("MTNK").expect("MTNK section"),
             ObjectCategory::Vehicle,
         );
-        assert_eq!(mtnk.weight, SimFixed::lit("2.0"));
+        assert_eq!(mtnk.weight, SimFixed::ONE);
     }
 
     /// Retail `rulesmd.ini`, read from the gitignored `ini/` corpus.

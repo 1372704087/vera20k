@@ -550,13 +550,15 @@ impl GameSoundEvent {
 ///   only a sim-side producer and the same owner-keyed handle `MoveSound=`
 ///   already uses; the arbiter behind it is landed.
 ///
+/// Bio Reactor entry (`+0x270`) and successful InfantryAbsorb unload
+/// (`+0x274`) are wired through `VocAt`; their native callers are
+/// `InfantryClass::Per_Cell_Process @ 0x00519630` and
+/// `BuildingClass::Mission_Unload @ 0x0044D880`, respectively.
+///
 /// **`[AudioVisual]` keys with a verified native consumer but no VERA producer
-/// yet**, all read by `RulesClass::ReadAudioVisual @ 0x006691E0` and all
-/// UNCHECKED against their own callers unless noted:
-/// - `EnterGrinderSound`/`LeaveGrinderSound` (`+0x268`/`+0x26C`) and
-///   `EnterBioReactorSound` (`+0x270`) have no VERA consumer. The successful
-///   InfantryAbsorb `BuildingClass::Mission_Unload @ 0x0044D880` now reads and
-///   plays `LeaveBioReactorSound` (`+0x274`) through the direct `VocAt` event.
+/// yet**, all read by `RulesClass::ReadAudioVisual @ 0x006691E0`:
+/// - `LeaveGrinderSound` (`+0x26C`) has no VERA producer. Infantry Eaten
+///   arrival (`0x005198AD..0x005198C9`) emits `EnterGrinderSound` via `VocAt`.
 /// - The seven `Crate*Sound` keys (`+0x1E4`..`+0x1FC`): `sim/crates` places
 ///   and regenerates crates but nothing picks one up, so there is no VERA
 ///   producer to hang them on. The gap is a crate-pickup gap, not an audio one.
@@ -570,13 +572,17 @@ impl GameSoundEvent {
 ///   [`GameSoundEvent::CreditTick`] — reader `CreditsClass::Draw @ 0x004A24F4`;
 ///   `ImpactWaterSound`/`ImpactLandSound` (`+0x200`/`+0x204`) are the crash
 ///   impact's fallbacks, see above.)
-/// - **Dead on retail data, so not parsed:** `IceCrackSounds` (`+0x644`) is
+/// - **Other silent stock-default leads:** `IceCrackSounds` (`+0x644`) is
 ///   **empty** in stock `rulesmd.ini`;
 ///   `GateUp`/`GateDown` (`+0x404`/`+0x408`) and `Construction` (`+0x6C8`) are
-///   `Dummy`; `CreateUnitSound`/`CreateInfantrySound`/`CreateAircraftSound`
-///   (`+0x178`..`+0x180`) and `LeaveGrinderSound` are empty. `Dummy` is one of
+///   `Dummy`; `LeaveGrinderSound` is empty. `Dummy` is one of
 ///   the eight `[SoundList]` ids with no usable `Sounds=`, so it registers
-///   silently. Parsing any of these would add a field with no player effect.
+///   silently.
+/// - Rules `CreateUnitSound`/`CreateInfantrySound`/`CreateAircraftSound`
+///   (`+0x178`..`+0x180`) and type CreateSound are fixed-catalog references
+///   consumed by the shared production RecordLastBuilt4FB6B0 owner. Stock
+///   class defaults are unset, while types such as BORIS author an active cue;
+///   the existing VocAt event carries that cue without a new audio dispatcher.
 ///
 /// **Superweapon launch cues are landed** — see
 /// [`GameSoundEvent::SuperWeaponActivated`] and

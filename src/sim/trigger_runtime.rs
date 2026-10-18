@@ -12,12 +12,12 @@ use std::hash::{Hash, Hasher};
 use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSelector};
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::events::EventCondition;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::map::events::EventMap;
 use crate::map::resolved_terrain::NativeCellQuery;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::map::triggers::TriggerMap;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::map::variable_names::LocalVariableMap;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
@@ -44,29 +44,8 @@ const ACTION_SET_SUPER_CHARGE_PERCENTAGE: i32 = 129;
 const ACTION_SET_ALTERNATE_BASE: i32 = 137;
 const ACTION_CLEAR_ALTERNATE_BASE: i32 = 138;
 
-// Rust-only attribution of retiring the former duplicated announcement feed.
-// No native/gameplay state is restored, and release builds contain no control.
-#[cfg(test)]
-std::thread_local! {
-    static LEGACY_ANNOUNCEMENT_HASH_CONTROL: std::cell::Cell<bool> = const {
-        std::cell::Cell::new(false)
-    };
-}
-
-#[cfg(test)]
-pub(crate) fn with_legacy_announcement_hash_control_for_test<R>(read: impl FnOnce() -> R) -> R {
-    struct Restore(bool);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(|control| control.set(self.0));
-        }
-    }
-    let prior = LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(|control| control.replace(true));
-    let _restore = Restore(prior);
-    read()
-}
-
 const EVENT_ANY: i32 = 8;
+const EVENT_BRIDGE_COLLAPSED: i32 = 31;
 const EVENT_GLOBAL_IS_SET: i32 = 27;
 const EVENT_GLOBAL_IS_CLEAR: i32 = 28;
 const EVENT_LOCAL_IS_SET: i32 = 36;
@@ -75,6 +54,15 @@ const EVENT_ELAPSED_SCENARIO_TIME: i32 = 47;
 const EVENT_TECHTYPE_EXISTS: i32 = 60;
 const EVENT_TECHTYPE_DOES_NOT_EXIST: i32 = 61;
 const LOGICAL_FRAMES_PER_SECOND: i32 = crate::util::fixed_math::RA2_LOGIC_FRAMES_PER_SECOND as i32;
+
+/// Action20's music operand. Theme owns the immutable process catalog, so a
+/// type8 name is kept verbatim until that owner resolves it. This preserves
+/// Read6DD7E0's From_Name721210 result without a second music registry in sim.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ThemeRequest {
+    Name(String),
+    Index(i32),
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TriggerEffect {
@@ -91,6 +79,16 @@ pub enum TriggerEffect {
     },
     LocalizedMessage {
         csf_label: String,
+    },
+    /// Execute114 asks the retained client sidebar to select a nonempty strip.
+    SelectSidebarTab {
+        index: i32,
+    },
+    /// Execute115's named TechnoType cameo pulse, on the native frame clock.
+    FlashSidebarCameo {
+        type_id: crate::sim::intern::InternedId,
+        duration: i32,
+        frame: i32,
     },
     /// A synchronous trigger receiver already published changed bridge state.
     /// The frame owner includes this receipt in its existing terrain refresh.
@@ -110,6 +108,15 @@ pub enum TriggerEffect {
     /// while app resources own captured frames and physical audio.
     ChronoScreen {
         command: crate::sim::superweapon::chrono_screen::ChronoScreenCommand,
+    },
+    /// Execute20 queues the song; the shared Theme owner controls admission,
+    /// fade, subsequent playback and the process Main RNG.
+    MusicTheme {
+        request: ThemeRequest,
+    },
+    /// Home7315A0 also clears Follow, including when no coordinate is found.
+    HomeCamera {
+        coord: Option<[i32; 3]>,
     },
 }
 
@@ -317,11 +324,17 @@ impl RuntimeDefinitions {
             entry.literal_value()
         };
         // FindIndex7514D0 compares the untrimmed token case-insensitively.
-        let sound = (parameter_type == 7)
-            .then(|| entry.params.get(1))
-            .flatten()
-            .and_then(|name| sounds?.get(name))
-            .map(|sound| sound.id.clone());
+        let sound = if parameter_type == 7 {
+            entry.params.get(1).and_then(|name| sounds?.get(name))
+        } else if matches!(entry.kind, 19 | 98 | 99) {
+            //Execute's Voc call consumes +90 regardless of the authored
+            //parameter type. Resolve a literal ordinal once in this reader,
+            //through the same fixed catalog as a type7 name.
+            value.and_then(|index| sounds?.entry_by_index(index))
+        } else {
+            None
+        }
+        .map(|sound| sound.id.clone());
         RuntimeAction {
             entry,
             reference,
@@ -368,15 +381,17 @@ impl RuntimeDefinitions {
                     .linked_trigger_id
                     .as_deref()
                     .and_then(|name| definitions.trigger_type(name));
-                let events = map
+                let mut events = map
                     .events
                     .get(&id)
                     .map_or_else(Vec::new, |record| record.conditions.clone());
                 // Events are prepended, but their reference factories ran in
                 // source order before the retained reverse traversal.
-                for event in events.iter().rev() {
+                for event in events.iter_mut().rev() {
                     if let Some(team) = event.team_name.as_deref() {
-                        definitions.team_type(team);
+                        event.team_name = definitions
+                            .team_type(team)
+                            .map(|index| definitions.team_types[index].clone());
                     }
                 }
                 let actions = map
@@ -567,6 +582,9 @@ struct LiveTag {
     type_index: usize,
     ///6E4F44 prepends instances, reversing definition-construction order.
     triggers: Vec<usize>,
+    /// Native+2C is written by attachment operations, not reconstructed from
+    /// live Object/Cell indexes. Object5F3B80 frees an attached Object without
+    /// decrementing this counter; damage-events' destruction controls pin it.
     refs: i32,
     attached_cell: (i16, i16),
     pending: bool,
@@ -604,22 +622,22 @@ pub struct TriggerRuntime {
     map_cursor: i32,
     definitions_prepared: bool,
     classified: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fixture_awaiting_records: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fixture_difficulty: Option<i32>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     action_trace: Vec<(i32, i32)>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     dispatch_trace: Vec<(usize, i32)>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     freed_trace: Vec<&'static str>,
     /// Native stock comparison abandons its real first-poll stack at the same
     /// first gameplay action boundary; no action receives a success substitute.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     stop_before_action: Option<i32>,
 }
@@ -675,19 +693,6 @@ impl TriggerRuntime {
         self.map_cursor.hash(hasher);
         self.definitions_prepared.hash(hasher);
         self.classified.hash(hasher);
-        #[cfg(test)]
-        if LEGACY_ANNOUNCEMENT_HASH_CONTROL.with(std::cell::Cell::get) {
-            // Exact old Rust enum shape at HEAD40bcc7a7. Even None folded
-            // Option's discriminant. These no-Tag replay fixtures never wrote
-            // the placeholder; the current House result owner replaces it.
-            #[allow(dead_code)]
-            #[derive(Hash)]
-            enum LegacyAnnouncementKind {
-                Victory,
-                Defeat,
-            }
-            Option::<LegacyAnnouncementKind>::None.hash(hasher);
-        }
     }
     fn tag(&self, index: usize) -> Option<&LiveTag> {
         self.tags.get(index)?.as_ref()
@@ -775,6 +780,9 @@ struct TriggerActionContext {
     incoming_house: Option<crate::sim::intern::InternedId>,
     input: TagEventInput,
 }
+
+/// Scenario global variables: SetGlobal689670 rejects indices from 0x32.
+pub const SCENARIO_GLOBAL_COUNT: usize = 50;
 
 impl Simulation {
     /// Validate this owner's retained identities before the restore coordinator
@@ -943,16 +951,12 @@ impl Simulation {
                 }
             }
         }
-        let mut references = vec![0i32; runtime.tags.len()];
         for (&attachment, &index) in &runtime.attachments {
             if runtime.tag(index).is_none() {
                 return Err(format!("{attachment:?} references unresolved Tag {index}"));
             }
             let resolves = match attachment {
-                TagAttachment::Object(id) => {
-                    references[index] = references[index].wrapping_add(1);
-                    self.classify_object(id).is_some()
-                }
+                TagAttachment::Object(id) => self.classify_object(id).is_some(),
                 TagAttachment::Team(id) => self.team_script_vm.team(id).is_some(),
             };
             if !resolves {
@@ -980,20 +984,12 @@ impl Simulation {
             if !resolves {
                 return Err(format!("Tag {index} has an unresolved {cell:?} attachment"));
             }
-            references[index] = references[index].wrapping_add(1);
         }
-        for (index, tag) in runtime
-            .tags
-            .iter()
-            .enumerate()
-            .filter_map(|(index, tag)| tag.as_ref().map(|tag| (index, tag)))
-        {
-            if tag.refs != references[index] {
-                return Err(format!(
-                    "Tag {index} reference count disagrees with its Object/Cell attachments"
-                ));
-            }
-        }
+        // Original Object5F3B80/Techno6F4500 destructors do not call
+        // SetTag5F5B50(nullptr). A native Tag can therefore retain a counter
+        // after its last attached object is gone. Keep the saved authority;
+        // requiring equality with live indexes rejects valid death snapshots.
+        // Executed: tag_lifecycle --damage-events object_destruction_controls.
         Ok(())
     }
 
@@ -1002,7 +998,7 @@ impl Simulation {
     }
     /// Full_Init687984..6879CB registry ingress. No live instance is created
     /// until a Cell/Object attachment or Fill classification requires it.
-    pub(crate) fn initialize_trigger_definitions(
+    pub fn initialize_trigger_definitions(
         &mut self,
         map: &crate::map::map_file::MapFile,
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
@@ -1023,7 +1019,7 @@ impl Simulation {
     }
 
     fn trigger_difficulty(&self) -> i32 {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(difficulty) = self.trigger_runtime.fixture_difficulty {
             return difficulty;
         }
@@ -1035,7 +1031,7 @@ impl Simulation {
     /// Legacy unit fixtures declare one synthetic Tag per Trigger. This seam
     /// supplies fixture definitions only; construction, polling and actions use
     /// the same production owner. Map loading always uses the physical reader.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn initialize_map_triggers(&mut self, triggers: &TriggerMap, locals: &LocalVariableMap) {
         let mut ids: Vec<_> = triggers.keys().collect();
         ids.sort();
@@ -1083,7 +1079,7 @@ impl Simulation {
         };
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn install_pending_trigger_fixture(&mut self, inputs: TriggerInputs<'_>) {
         if !self.trigger_runtime.fixture_awaiting_records {
             return;
@@ -1247,7 +1243,7 @@ impl Simulation {
 
     /// Fill684D47..684EC1 registers in retained TagType order: map, Logic,
     /// then House. Registration does not increase the attachment refcount.
-    pub(crate) fn classify_map_triggers(&mut self, rules: Option<&crate::rules::ruleset::RuleSet>) {
+    pub fn classify_map_triggers(&mut self, rules: Option<&crate::rules::ruleset::RuleSet>) {
         if self.trigger_runtime.classified {
             return;
         }
@@ -1389,6 +1385,17 @@ impl Simulation {
             }
         }
         tag.is_some()
+    }
+
+    /// Physical Object storage disappears without a SetTag5F5B50 call.
+    /// Steam3e81a617 Object5F3B80, including actual scalar/drain controls in
+    /// tag_lifecycle --damage-events, leaves Tag+2C and the Tag itself intact.
+    /// Remove only the Rust index whose source object no longer exists; no
+    /// counter write, pending ticket, RNG draw or timer change belongs here.
+    pub(crate) fn finalize_object_trigger_tag_attachment(&mut self, object: u64) {
+        self.trigger_runtime
+            .attachments
+            .remove(&TagAttachment::Object(object));
     }
 
     /// Object5F5B50 attachment funnel. An absent/null authored reference clears
@@ -1537,7 +1544,7 @@ impl Simulation {
         }
         self.trigger_runtime.trigger_order.retain(|&t| t != index);
         self.trigger_runtime.triggers[index] = None;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trigger_runtime.freed_trace.push("trigger");
     }
 
@@ -1584,7 +1591,7 @@ impl Simulation {
         }
         self.trigger_runtime.tag_order.retain(|&t| t != index);
         self.trigger_runtime.tags[index] = None;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trigger_runtime.freed_trace.push("tag");
     }
     fn adjust_tag_destructor_cursors(&mut self, flags: u8, game_state: i32, started: bool) {
@@ -1628,6 +1635,133 @@ impl Simulation {
             .condition
             .clone();
         match condition.kind {
+            23 => {
+                //71EC9A gate, then71EEA9 scans all Teams for the retained
+                //Type pointer, null head and nonzero leaving byte. A match
+                //sets persistence before the generic true tail; a null
+                //incoming House skips that scan without latching.
+                if input.kind != 23 || self.buildup_bypass_active() {
+                    return false;
+                }
+                if incoming_house.is_none() {
+                    return true;
+                }
+                let team_type = match condition.team_name.as_deref() {
+                    Some(name) => {
+                        let Some(id) = self.interner.get(name) else {
+                            return false;
+                        };
+                        Some(id)
+                    }
+                    None => None,
+                };
+                if self.team_script_vm.has_empty_leaving_team(team_type) {
+                    *persistence = true;
+                    true
+                } else {
+                    false
+                }
+            }
+            34 => {
+                //71EDBB..71EE54: 68BD00 waypoint Location versus actor
+                //GetCoords, signed wrapping deltas, sqrtApprox/ftol <=1280.
+                //No persistence, Event+54, timer, RNG or detach write.
+                if input.kind != 34 || self.buildup_bypass_active() {
+                    return false;
+                }
+                let Some(waypoint) = self.trigger_waypoint_location(condition.value) else {
+                    return false;
+                };
+                let Some(actor) = input.actor.and_then(|id| self.substrate.entities.get(id)) else {
+                    return false;
+                };
+                let point = crate::sim::movement::ground_pose::object_get_coords(
+                    actor,
+                    self.resolved_terrain.as_ref(),
+                );
+                crate::util::native_x87::distance_3d_leptons([point.x, point.y, point.z], waypoint)
+                    <= 0x500
+            }
+            14 => self.session.scenario_timer_elapsed(),
+            // HasOccurred45@71EAE7 /46@71EB06 read Scenario+352C,
+            // not normal/target ambient: signed inclusive comparisons with
+            // Event+34. Both return directly, without House/raised-kind or
+            // A8ED6B admission, persistence, timer, RNG or detach writes.
+            // Original Steam gamemd3e81a617..08600, instruction reading.
+            45 => self.session.lighting.current_ambient <= condition.value,
+            46 => self.session.lighting.current_ambient >= condition.value,
+            17 => {
+                // Steam3e81a617..08600:71EE82 takes the incoming House;
+                // 71EF3F..71EF89 reads tracked+2F0, then its ordered+68 list.
+                // Only null/limbo entries are skipped: neither Health nor
+                // Alive gates this leaf. Factory is the raw nonzero RTTI,
+                // independent of Event.value, actor, raised kind and init.
+                // No persistence, Event+54, timer, RNG or detach write.
+                // Executed controls: tag_lifecycle --no-factories-events.
+                let Some(owner) = incoming_house else {
+                    return true;
+                };
+                let Some(house) = self.houses.get(&owner) else {
+                    return false;
+                };
+                if house.tracking.buildings() <= 0 {
+                    return true;
+                }
+                let Some(rules) = rules else {
+                    return false;
+                };
+                !house.base_projection.buildings().iter().any(|&id| {
+                    self.substrate.entities.get(id).is_some_and(|building| {
+                        !building.lifecycle.in_limbo()
+                            && self
+                                .object_type(building.type_ref(), rules)
+                                .is_some_and(|ty| ty.has_factory())
+                    })
+                })
+            }
+            19..=22 => {
+                // Steam3e81a617: HasOccurred71EFEB..71F03D reads incoming
+                // House+26C/+274/+270/+278, not a Country or built count.
+                // Match sets persistence; mismatch leaves it alone. The null
+                // House takes the generic true tail without that write.
+                // Original execution: tag_lifecycle --build-type-events.
+                let Some(owner) = incoming_house else {
+                    return true;
+                };
+                use crate::rules::object_type::ObjectCategory;
+                let category = match condition.kind {
+                    19 => ObjectCategory::Building,
+                    20 => ObjectCategory::Vehicle,
+                    21 => ObjectCategory::Infantry,
+                    22 => ObjectCategory::Aircraft,
+                    _ => unreachable!(),
+                };
+                let matched = self
+                    .houses
+                    .get(&owner)
+                    .is_some_and(|house| house.last_built_type_index(category) == condition.value);
+                if matched {
+                    *persistence = true;
+                }
+                matched
+            }
+            12 | 52 => {
+                // Steam3e81a617..08600: HasOccurred71EF01/71EF20 calls
+                // IHouse::AvailableMoney4F6990 on Register7264C0's incoming
+                // House, then compares the literal signed threshold inclusively.
+                // No raised-kind gate, persistence, retained-House or timer write.
+                // Executed: tag_lifecycle --funds-events. The shared Economy
+                // getter retains its documented empty-silo coverage boundary.
+                let Some(owner) = incoming_house else {
+                    return true;
+                };
+                let funds = crate::sim::credit_income::available_money(self, owner);
+                if condition.kind == 12 {
+                    funds >= condition.value
+                } else {
+                    funds <= condition.value
+                }
+            }
             1 | 24 | 25 | 26 | 59 => {
                 //71ECAF ->71F1BD compares actor6F9DB0's House ArrayIndex
                 //with Country502D30's first matching House+30, then retains
@@ -1694,13 +1828,49 @@ impl Simulation {
                 }
                 result
             }
-            9 | 11 => {
+            15 | 16 => {
+                // HasOccurred71EE82 takes the Trigger's incoming House,
+                // not Event.value's Country. 71F03F/71F058 compare signed
+                // House+5488/+5434 loss counters with Event+34 using >=.
+                // The null-House tail is true; neither arm latches, writes
+                // the timer/retained House, draws RNG or detaches anything.
+                // Steam3e81a617..08600; tag_lifecycle --loss-threshold-events.
+                let Some(owner) = incoming_house else {
+                    return true;
+                };
+                let Some(house) = self.houses.get(&owner) else {
+                    return false;
+                };
+                let losses = if condition.kind == 15 {
+                    house.stats.buildings_lost()
+                } else {
+                    house.stats.units_lost()
+                };
+                (losses as i32) >= condition.value
+            }
+            3 | 5 | 9 | 10 | 11 | 55 | 56 => {
+                // Steam3e81a617..08600,71EC9A/71F0E1/71F0FB:3 requires
+                // its own raised kind and clear A8ED6B before reading244;
+                // 5 skips that gate and reads1F4. Both use the existing
+                // House notifications. In particular, do not invent a3
+                // raise from Engineer capture or translate a House event8.
+                if condition.kind == 3 && (input.kind != 3 || self.buildup_bypass_active()) {
+                    return false;
+                }
                 //71F069 ->502D30: Event.value selects a Country's first
-                //registered House, independently of the incoming House or
-                //raised event. No matching House reaches the AL1 tail; this
+                //registered House independently of the incoming House. After
+                //the above gate, no matching House reaches the AL1 tail; this
                 //does not write persistence or the Type-owned Event+54.
                 //The private HouseTracking owner preserves separate signed
-                //Unit/Infantry totals and11's tracked Building scalar.
+                //Unit/Infantry totals and the tracked Building scalar.
+                //10's71F115..71F12E tests tracked buildings <=0, including
+                //constructor-complete Limbo until actual destruction. Steam
+                //3e81a617..08600; tag_lifecycle --building-loss-events.
+                //55/56: Steam3e81a617..08600, 71F159 /71F16F..71F187;
+                //tools/spatial_oracle/tag_lifecycle.py --naval-land-events.
+                //56's TEST after SUB observes wrapping subtraction, not a
+                //signed comparison of the two source counts. These events
+                //read tracked scalars, unlike9's on-map CounterClass totals.
                 let owner = rules.and_then(|rules| {
                     u16::try_from(condition.value).ok().and_then(|country| {
                         self.house_by_country_index(
@@ -1710,13 +1880,25 @@ impl Simulation {
                     })
                 });
                 owner.is_none_or(|owner| {
-                    self.houses.get(&owner).is_none_or(|house| {
-                        if condition.kind == 9 {
-                            house.tracking.units_destroyed()
-                        } else {
-                            house.tracking.all_destroyed()
-                        }
-                    })
+                    self.houses
+                        .get(&owner)
+                        .is_none_or(|house| match condition.kind {
+                            3 => house.building_capture_notified(),
+                            5 => house.discovered_by_current_house(),
+                            9 => house.tracking.units_destroyed(),
+                            10 => house.tracking.buildings() <= 0,
+                            11 => house.tracking.all_destroyed(),
+                            55 => house.tracking.navy() <= 0,
+                            56 => {
+                                house
+                                    .tracking
+                                    .vehicles()
+                                    .wrapping_sub(house.tracking.navy())
+                                    <= 0
+                                    && house.tracking.infantry() <= 0
+                            }
+                            _ => unreachable!(),
+                        })
                 })
             }
             30 | 58 => {
@@ -1763,7 +1945,16 @@ impl Simulation {
             //All secondary switch entries are the generic true tail; no
             //House-retention or persistence write. Original Steam identity:
             //3e81a617..08600; RecordKill702D40 publishes4/6/7/48/29 here.
-            2 | 4 | 6 | 7 | 29 | 48 => {
+            //Object5F55EA..5F573F raises38..43 through this same gate. The
+            //original bodies ignore value/incoming House/actor/source here;
+            //tag_lifecycle.py --damage-events / trigger_damage_events.json
+            //execute30 controls, including prior persistence and NULL House.
+            //49/50 use the same gate. Steam3e81a617,71EC9A/71F1B1;
+            //trigger_action_values --crate records their original predicates.
+            //31: bridge575EE0 raises it on each tagged span cell. After this
+            //gate,71EE91 routes it to71F069, whose Country502D30 lookup
+            //selects only the71F1B1 true tail either way.
+            2 | 4 | 6 | 7 | 29 | 31 | 33 | 38 | 39 | 40 | 41 | 42 | 43 | 48 | 49 | 50 => {
                 input.kind == condition.kind && !self.buildup_bypass_active()
             }
             //71F28B selects the generic true tail71F1B4, no persistence write.
@@ -1930,9 +2121,46 @@ impl Simulation {
         self.publish_trigger_effects(effects);
     }
 
+    /// Recalc6EA49F..6EA4D2 walks the current Tag array backwards before
+    /// destroying an empty, previously-full leaving Team. No own RNG draws,
+    /// timers or detach: ordinary Register/Reset/actions own those effects.
+    pub(crate) fn raise_team_left_map_tags(
+        &mut self,
+        rules: &crate::rules::ruleset::RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let count = self.trigger_runtime.tag_order.len();
+        let mut effects = Vec::new();
+        for ordinal in (0..count).rev() {
+            // As with House tag traversal, shrinking callbacks can leave a
+            // stale native slot beyond the new count; Rust skips that slot.
+            let Some(&tag) = self.trigger_runtime.tag_order.get(ordinal) else {
+                continue;
+            };
+            if self.dispatch_live_tag_event(
+                tag,
+                TagEventInput {
+                    kind: 23,
+                    ..Default::default()
+                },
+                &mut effects,
+                Some(rules),
+                registry,
+                frame_effects,
+            ) && self.trigger_runtime.tag_order.is_empty()
+            {
+                break;
+            }
+        }
+        self.publish_trigger_effects(effects);
+    }
+
     /// Original Tag6E53A0 attached-object ingress. `subject` chooses the
     /// attachment; `actor` and `source` keep the caller's distinct objects.
     /// Discovery6F4A18, Infantry519B53/519F44/51A025 use this same funnel.
+    /// Returns whether the caller had a nonnull Tag, independently of whether
+    /// an action fired. Pickup481A7F skips its Alive reread without a Tag.
     pub(crate) fn dispatch_object_tag_event(
         &mut self,
         subject: u64,
@@ -1940,13 +2168,13 @@ impl Simulation {
         actor: Option<u64>,
         source: Option<u64>,
         context: crate::sim::world::UninitContext<'_>,
-    ) {
+    ) -> bool {
         let Some(&tag) = self
             .trigger_runtime
             .attachments
             .get(&TagAttachment::Object(subject))
         else {
-            return;
+            return false;
         };
         let mut effects = Vec::new();
         self.dispatch_live_tag_event(
@@ -1964,6 +2192,70 @@ impl Simulation {
             context.effects(),
         );
         self.publish_trigger_effects(effects);
+        true
+    }
+
+    /// Bridge575EE0's per-cell ingress: each visited CellClass whose +3C Tag
+    /// is nonnull calls Tag6E53A0(31, null actor, Cell ABD480, unforced,
+    /// null source). ABD480 is the zero Cell (startup5618B0). The raise is
+    /// synchronous inside the collapse traversal; HasOccurred71E940 admits
+    /// it through71EC9A/71F069 (raised31, clear A8ED6B) without latching.
+    pub(crate) fn dispatch_bridge_cell_tag_event(
+        &mut self,
+        cell: crate::map::cell_index::NativeCellIdentity,
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(&tag) = self.trigger_runtime.cell_tags.get(&cell) else {
+            return;
+        };
+        let mut effects = Vec::new();
+        self.dispatch_live_tag_event(
+            tag,
+            TagEventInput {
+                kind: EVENT_BRIDGE_COLLAPSED,
+                actor: None,
+                source: None,
+                cell: (0, 0),
+                force: false,
+            },
+            &mut effects,
+            Some(rules),
+            overlay_registry,
+            frame_effects,
+        );
+        self.publish_trigger_effects(effects);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn tag_dispatch_trace_for_test(&self) -> &[(usize, i32)] {
+        &self.trigger_runtime.dispatch_trace
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn clear_tag_dispatch_trace_for_test(&mut self) {
+        self.trigger_runtime.dispatch_trace.clear();
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn trigger_local_is_set_for_test(&self, index: u32) -> bool {
+        self.trigger_runtime.locals_set.contains(&index)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn cell_trigger_tag_for_test(
+        &self,
+        cell: crate::map::cell_index::NativeCellIdentity,
+    ) -> Option<usize> {
+        self.trigger_runtime.cell_tags.get(&cell).copied()
+    }
+
+    /// Pickup481AC1 writes Scenario+34BE only after its optional Tag callback
+    /// survives. Logic55AFB0 consumes and clears this existing serialized flag.
+    /// Steam3e81a617; tools/spatial_oracle/trigger_crate.json.
+    pub(crate) fn mark_crate_pickup_event(&mut self) {
+        self.trigger_runtime.dirty[3] = true;
     }
 
     /// Foot4D8978..4D8A14, reached from the unique Arrival per-cell owner.
@@ -2181,7 +2473,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trigger_runtime
             .dispatch_trace
             .push((index, input.kind));
@@ -2248,6 +2540,13 @@ impl Simulation {
                 }
                 _ => {}
             }
+            // Action70 (6DF094 ->6E58B0) can immediately destroy this Tag,
+            // including through a nested Force22. Native retains a stale
+            // pointer here; safe storage must stop this dispatch rather than
+            // reading the freed Tag or executing another linked Trigger.
+            if self.trigger_runtime.tag(index).is_none() {
+                return result;
+            }
         }
         self.trigger_runtime.tags[index]
             .as_mut()
@@ -2277,8 +2576,17 @@ impl Simulation {
         result
     }
 
-    pub(crate) fn set_trigger_variable(&mut self, global: bool, index: i32, set: bool) -> bool {
-        if !(0..if global { 50 } else { 100 }).contains(&index) {
+    /// The 50 Scenario global values, read as the campaign carry-over record
+    /// copies their bytes (`0x004C6187..0x004C61A1`).
+    pub fn global_variables(&self) -> [bool; SCENARIO_GLOBAL_COUNT] {
+        std::array::from_fn(|index| self.trigger_runtime.globals_set.contains(&(index as u32)))
+    }
+
+    /// Shared Scenario SetGlobal689670/SetLocal689910 mutation, including
+    /// Tag timer resets. Trigger and Team scripts use this same owner.
+    pub fn set_trigger_variable(&mut self, global: bool, index: i32, set: bool) -> bool {
+        let count = if global { SCENARIO_GLOBAL_COUNT } else { 100 };
+        if !(0..count as i32).contains(&index) {
             return false;
         }
         let values = if global {
@@ -2321,13 +2629,13 @@ impl Simulation {
     /// Logic55AFB0 reads the mutable list length and dirty bytes afresh for
     /// every Tag. A removed current Tag shifts the next entry, which is skipped
     /// until the next visit; an enabled later Tag can fire during this pass.
-    pub(crate) fn advance_triggers(
+    pub fn advance_triggers(
         &mut self,
         inputs: TriggerInputs<'_>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Vec<TriggerEffect> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.install_pending_trigger_fixture(inputs);
         let mut effects = Vec::new();
         self.trigger_runtime.logic_cursor = 0;
@@ -2435,22 +2743,63 @@ impl Simulation {
         effects
     }
 
-    /// Shared country selection in6E0B40/6E3120/6E3180..6E32A0.
-    ///9001 invokes original726910's retained live+2C getter, not Spring's
+    /// Shared country selection in6E0AA0/6E0B60/6E3120/6E3180..6E32A0.
+    ///0x2325 (8997) invokes original726910's retained live+2C getter, not Spring's
     ///incoming authored House. The special/Country lookup has one world owner.
+    /// Executed controls: trigger_all_change_house.json (Steam3e81a617..08600).
     fn live_action_house(
         &self,
         live: usize,
         value: i32,
         rules: &crate::rules::ruleset::RuleSet,
     ) -> Option<crate::sim::intern::InternedId> {
-        if value == 9001 {
+        if value == 0x2325 {
             self.trigger_runtime.trigger(live)?.retained_house
         } else if value == -1 {
             None
         } else {
             self.house_by_trigger_selector(value, rules)
         }
+    }
+
+    /// Action36/6E0B60..6E0C91, Steam3e81a617..08600. Two forward mutable
+    /// Techno-array passes put Powered/PoweredSpecial Buildings last, then
+    /// run their original4549B0 dispatcher even for a same-owner callback.
+    /// No own RNG, timer or detach; ChangeOwner and operational consumers
+    /// retain their lifecycle/side effects. No extra Alive/limbo filter here.
+    fn trigger_change_all_house_objects(
+        &mut self,
+        owner: crate::sim::intern::InternedId,
+        target: crate::sim::intern::InternedId,
+        rules: &crate::rules::ruleset::RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let mut found = false;
+        for powered_pass in [false, true] {
+            let mut ordinal = 0;
+            while ordinal < self.substrate.entities.techno_registry_len() {
+                let id = self.substrate.entities.techno_registry_at(ordinal).unwrap();
+                let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
+                    let powered = entity.category()
+                        == crate::map::entities::EntityCategory::Structure
+                        && self
+                            .interner
+                            .object_type(entity.type_ref(), rules)
+                            .is_some_and(|object| object.powered || object.powered_special);
+                    entity.owner() == owner && powered == powered_pass
+                });
+                if eligible {
+                    self.change_owner_with_rules(id, target, rules, registry, effects);
+                    if powered_pass {
+                        self.dispatch_building_operational(id, rules, registry, effects);
+                    }
+                    found = true;
+                }
+                ordinal += 1;
+            }
+        }
+        found
     }
 
     ///Tag6E5380: identity membership of a live Trigger in the Tag's chain.
@@ -2548,11 +2897,11 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if self.trigger_runtime.stop_before_action == Some(action.entry.kind) {
             std::panic::panic_any(action.entry.kind);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trigger_runtime
             .action_trace
             .push((action.entry.kind, action.value.unwrap_or(0)));
@@ -2561,13 +2910,150 @@ impl Simulation {
         let sound = action.sound.as_deref();
         let action = &action.entry;
         match action.kind {
+            6 => {
+                // Steam3e81a617..08600, Execute6DEBF9..6DEC3B:
+                // shared6E45E0 selects the House, then IHouse vt+38 is
+                // AllToHunt501400. A NULL Trigger/House is rejected.
+                // Native evidence: trigger_action_values --all-to-hunt.
+                let (Some(live), Some(value), Some(rules)) = (context.live_index, value, rules)
+                else {
+                    return false;
+                };
+                let Some(owner) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                crate::sim::house_strategy::all_to_hunt(
+                    self,
+                    rules,
+                    owner,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            74 | 75 => {
+                // Steam3e81a617:6DF2D1/6DF310 -> existing6E45E0 selector,
+                // then only House+1F2=1/0 at6DF2FA/6DF339. No immediate
+                // timer, Team, sibling-latch or RNG change belongs here.
+                // Native actions/consumer streams: --ai-activation corpus.
+                let (Some(live), Some(value), Some(rules)) = (context.live_index, value, rules)
+                else {
+                    return false;
+                };
+                let Some(house) = self
+                    .live_action_house(live, value, rules)
+                    .and_then(|owner| self.houses.get_mut(&owner))
+                else {
+                    return false;
+                };
+                house.set_ai_triggers_active(action.kind == 74);
+            }
+            9 => {
+                // Execute6DEAD6 -> shared House selector6E45E0;6DEAFF
+                // writes only House+250=4. No immediate FireSale/Hunt and
+                // no strategy timer reset. Those remain with house_strategy.
+                // The shared6E45E0 selector rejects a null Trigger.
+                // Steam3e81a617..08600, --no-factories-events Action9 controls.
+                let (Some(live), Some(value), Some(rules)) = (context.live_index, value, rules)
+                else {
+                    return false;
+                };
+                let Some(house) = self
+                    .live_action_house(live, value, rules)
+                    .and_then(|owner| self.houses.get_mut(&owner))
+                else {
+                    return false;
+                };
+                house.strategy_emergency.set_state_four();
+            }
+            12 => {
+                // Steam3e81a617..08600, Execute6DF051..6DF08F: reverse
+                // live Trigger array, then726720's deferred marker. No
+                // immediate detach, RNG or timer write belongs to this action.
+                if let Some(DefinitionReference::Trigger(target)) = reference {
+                    for ordinal in (0..self.trigger_runtime.trigger_order.len()).rev() {
+                        let live = self.trigger_runtime.trigger_order[ordinal];
+                        if self
+                            .trigger_runtime
+                            .trigger(live)
+                            .is_some_and(|trigger| trigger.type_index == target)
+                        {
+                            self.mark_live_trigger_for_delete(live);
+                        }
+                    }
+                }
+            }
+            70 => {
+                // Execute6DF094 -> Tag vt20=6E58B0 ->6E4F60 destroys each
+                // matching Tag immediately; linked Triggers remain deferred.
+                // Revisit the shifted entry after every destructor. Native
+                // captures the old count and can read stale slots past its
+                // contracted array; safe storage stops at the live end.
+                if let Some(DefinitionReference::Tag(target)) = reference {
+                    let mut ordinal = 0;
+                    while ordinal < self.trigger_runtime.tag_order.len() {
+                        let live = self.trigger_runtime.tag_order[ordinal];
+                        if self
+                            .trigger_runtime
+                            .tag(live)
+                            .is_some_and(|tag| tag.type_index == target)
+                        {
+                            self.delete_live_tag(live, rules, 1, self.session.started());
+                        } else {
+                            ordinal += 1;
+                        }
+                    }
+                }
+            }
+            38 => {
+                // Execute6DE189..6DE1C8 resolves6E45E0 once, then calls
+                // House4F9F90(source,target,0), followed by the reverse call.
+                // The diplomacy owner retains anger, fog and threat updates.
+                let (Some(live), Some(source), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(target) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                self.make_enemy(source, target, rules);
+                self.make_enemy(target, source, rules);
+            }
+            23..=27 => {
+                use crate::sim::scenario_session::ScenarioTimerAction;
+                let seconds = value.unwrap_or(0);
+                self.session.change_scenario_timer(match action.kind {
+                    23 => ScenarioTimerAction::Start,
+                    24 => ScenarioTimerAction::Stop,
+                    25 => ScenarioTimerAction::Extend(seconds),
+                    26 => ScenarioTimerAction::Shorten(seconds),
+                    27 => ScenarioTimerAction::Set(seconds),
+                    _ => unreachable!(),
+                });
+            }
+            103 => self.session.set_scenario_timer_caption(action.csf_label()),
+            20 => {
+                // Steam3e81a617..08600: Execute6DE8E4..6DE903 passes +90
+                // to Theme720B20 and returns AL1, even when audio is gated.
+                // Type8 is an untrimmed section key, not Sound= or an ordinal.
+                // The process catalog is immutable, so its existing owner can
+                // resolve the retained name at delivery; numeric sentinels
+                // pass through unchanged. No scenario RNG/timer/detach here.
+                let request = if action.params.first().map_or(0, |v| crt_atoi(v)) == 8 {
+                    ThemeRequest::Name(action.params.get(1).cloned().unwrap_or_default())
+                } else {
+                    ThemeRequest::Index(value.unwrap_or(-1))
+                };
+                effects.push(TriggerEffect::MusicTheme { request });
+            }
             0 => {
                 //Unsigned kind-1 falls through6DFDDD with the Execute
                 //entry's AL1. ALL01 has nine authored no-op tail records.
             }
-            3 => {
-                //6DEA97 ->6E45E0 writes only selected House+1EE. The
-                //retained live selector owns9001 and Country/Player lookup.
+            3 | 13 => {
+                //3:6DEA97 ->6E45E0 writes only selected House+1EE;
+                //13:6DEB18 ->same selector writes only +1EF at6DEB41.
+                //The retained live selector owns8997 and Country/Player lookup.
                 let (Some(live), Some(rules), Some(value)) = (context.live_index, rules, value)
                 else {
                     return false;
@@ -2576,7 +3062,11 @@ impl Simulation {
                     return false;
                 };
                 if let Some(house) = self.houses.get_mut(&owner) {
-                    house.enable_scripted_production();
+                    if action.kind == 13 {
+                        house.enable_scripted_autocreate();
+                    } else {
+                        house.enable_scripted_production();
+                    }
                 }
             }
             10 => {
@@ -2606,28 +3096,7 @@ impl Simulation {
                 let Some(owner) = self.live_action_house(live, value, rules) else {
                     return false;
                 };
-                let count = self.substrate.entities.techno_registry_len();
-                for ordinal in 0..count {
-                    let Some(id) = self.substrate.entities.techno_registry_at(ordinal) else {
-                        continue;
-                    };
-                    if self
-                        .substrate
-                        .entities
-                        .get(id)
-                        .is_some_and(|entity| entity.owner() == owner)
-                    {
-                        self.infantry_cheer(id, false, rules, frame_effects);
-                    }
-                }
-                //50C905..50C90B uses the registered Rules+1C8 cue, center
-                //pan2000, volume1, no handle, after all member callbacks.
-                if let Some(sound_id) = rules.general.cheer_sound() {
-                    self.sound_events.push(SimSoundEvent::VocCentered {
-                        sound_id: sound_id.to_owned(),
-                    });
-                    frame_effects.flush_sound(self, Some(rules));
-                }
+                self.house_cheer(owner, rules, frame_effects);
             }
             60 => {
                 //6DDEF5 scans the live Building registry forward and calls
@@ -2638,8 +3107,12 @@ impl Simulation {
                 };
                 let mut matched = false;
                 let mut ordinal = 0;
-                while ordinal < self.substrate.entities.techno_registry_len() {
-                    let id = self.substrate.entities.techno_registry_at(ordinal).unwrap();
+                while ordinal < self.substrate.entities.building_registry_len() {
+                    let id = self
+                        .substrate
+                        .entities
+                        .building_registry_at(ordinal)
+                        .unwrap();
                     let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                         entity.category() == crate::map::entities::EntityCategory::Structure
                             && entity.lifecycle.object_alive()
@@ -2660,6 +3133,98 @@ impl Simulation {
                     ordinal += 1;
                 }
                 return matched;
+            }
+            61 | 62 => {
+                // Execute6DDF65/6DDFD9: live BuildingClass array order,
+                // ObjectAlive+90, Marked+74, !Limbo81 and TagContains6E5380.
+                // Receipt is true once the callee is invoked, even a no-op.
+                let (Some(live), Some(rules)) = (context.live_index, rules) else {
+                    return false;
+                };
+                let online = action.kind == 62;
+                let mut matched = false;
+                let mut ordinal = 0;
+                while ordinal < self.substrate.entities.building_registry_len() {
+                    let id = self
+                        .substrate
+                        .entities
+                        .building_registry_at(ordinal)
+                        .unwrap();
+                    let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
+                        entity.lifecycle.object_alive()
+                            && entity.lifecycle.cell_marked()
+                            && !entity.lifecycle.in_limbo()
+                            && entity.building_online() != online
+                    });
+                    if eligible && self.tag_contains_live_trigger(TagAttachment::Object(id), live) {
+                        if online {
+                            self.go_building_online(id, rules, frame_effects);
+                        } else {
+                            self.go_building_offline(id, rules, frame_effects);
+                        }
+                        matched = true;
+                    }
+                    ordinal += 1;
+                }
+                return matched;
+            }
+            81..=83 => {
+                use crate::map::entities::EntityCategory;
+                use crate::sim::mission::{MissionId, MissionType};
+
+                // Steam3e81a617..08600: Execute6DDB67 ->6E01C0 (81),
+                //6DDBF6 (82),6DDC71 (83). Original execution, including
+                //Tag6E5380/GetMission5B3040/Queue5B35E0/41BA90:
+                //tools/spatial_oracle/trigger_action_values.py --wakeup.
+                //81 walks Techno by live Trigger identity and deliberately
+                //does NOT test Health or Limbo. 82/83 walk Foot and compare
+                //the incoming House, not the scalar or retained House.
+                let mut ordinal = 0;
+                while let Some(id) = if action.kind == 81 {
+                    self.substrate.entities.techno_registry_at(ordinal)
+                } else {
+                    self.substrate.entities.foot_registry_at(ordinal)
+                } {
+                    let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
+                        let mission = entity.mission.effective().known();
+                        entity.lifecycle.object_alive()
+                            && entity.lifecycle.cell_marked()
+                            && if action.kind == 81 {
+                                entity.category() != EntityCategory::Structure
+                                    && matches!(
+                                        mission,
+                                        Some(MissionType::Sleep | MissionType::Harmless)
+                                    )
+                                    && context.live_index.is_some_and(|live| {
+                                        self.tag_contains_live_trigger(
+                                            TagAttachment::Object(id),
+                                            live,
+                                        )
+                                    })
+                            } else {
+                                entity.health.current() > 0
+                                    && !entity.lifecycle.in_limbo()
+                                    && if action.kind == 82 {
+                                        mission == Some(MissionType::Sleep)
+                                            && Some(entity.owner()) != context.incoming_house
+                                    } else {
+                                        mission == Some(MissionType::Harmless)
+                                            && Some(entity.owner()) == context.incoming_house
+                                    }
+                            }
+                    });
+                    if eligible && let Some(entity) = self.substrate.entities.get_mut(id) {
+                        //Every admitted call is Queue(Guard,0): no readiness,
+                        //Commence, timer write, RNG draw or detach. The normal
+                        //AI promotion remains with Mission's existing owner.
+                        crate::sim::mission::authority::queue_entity_mission_deferred(
+                            entity,
+                            MissionId::from_known(MissionType::Guard),
+                        );
+                    }
+                    ordinal += 1;
+                }
+                //Original AL=1 even for an empty registry or no matches.
             }
             32 => {
                 //6DEC3B ->6E2050 uses live Tag membership, not owner/name.
@@ -2799,6 +3364,7 @@ impl Simulation {
                             rules,
                             overlay_registry,
                             id,
+                            crate::sim::passenger::garrison_eject::GarrisonEjectMode::Release,
                             frame_effects,
                         );
                         return true;
@@ -2822,7 +3388,7 @@ impl Simulation {
             }
             119..=122 => {
                 //6E3180/31E0/3240/32A0 require a live Trigger context.
-                //9001 resolves its retained House via726910; other values
+                //8997 resolves its retained House via726910; other values
                 //use the existing510F60/510ED0/502D30 selector owner.
                 let (Some(live), Some(rules), Some(value)) = (context.live_index, rules, value)
                 else {
@@ -2842,8 +3408,62 @@ impl Simulation {
                 };
                 self.house_blowup(owner, subset, rules, overlay_registry, frame_effects);
             }
+            37 => {
+                // Active Execute37 6DE136..6DE17A: resolve the selected
+                // House through the same live6E45E0 owner, then MakeAlly
+                // incoming->selected and selected->incoming, in that order.
+                // Both calls ignore CanAlly's refusal; Execute still AL1.
+                let (Some(live), Some(owner), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(selected) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                self.make_ally(owner, selected, rules, overlay_registry, frame_effects);
+                self.make_ally(selected, owner, rules, overlay_registry, frame_effects);
+            }
+            123 | 124 => {
+                // Actual active table entries6DFA0B/6DFA38 dispatch
+                // 6E0CA0/6E0D00 ->House50D290/50D2D0. A live Trigger is
+                // required even for a literal Country;8997 uses retained House.
+                let (Some(live), Some(owner), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(selected) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                self.control_house_buildings(
+                    owner,
+                    selected,
+                    action.kind == 124,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            36 => {
+                let (Some(live), Some(owner), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(target) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                return self.trigger_change_all_house_objects(
+                    owner,
+                    target,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
             14 => {
-                //6E0AA0 ->6E0B40 dynamic Techno array;9001 is only726910's
+                //6E0AA0 ->6E0B40 dynamic Techno array;8997 is only726910's
                 //live+2C. Never substitute the authored incoming House.
                 let (Some(live_index), Some(rules), Some(value)) =
                     (context.live_index, rules, value)
@@ -2911,7 +3531,7 @@ impl Simulation {
                     self.flash_teams_of_type(team_id, value.unwrap_or(0));
                 }
             }
-            4 | 7 | 80 => {
+            4 | 7 | 80 | 107 => {
                 let Some(DefinitionReference::Team(team)) = reference else {
                     return false;
                 };
@@ -2929,7 +3549,7 @@ impl Simulation {
                 // Reinforcement6E2DC0 uses the TeamType waypoint. Action80
                 //6DEBD0 passes its+44 override to the same65D8E0 owner;
                 //null Team or waypoint-1 is rejected before that call.
-                let waypoint = if action.kind == 80 {
+                let waypoint = if matches!(action.kind, 80 | 107) {
                     let Some(waypoint) = action.waypoint_index else {
                         return false;
                     };
@@ -2937,16 +3557,29 @@ impl Simulation {
                 } else {
                     -1
                 };
-                if action.kind == 80 && waypoint == -1 {
+                if matches!(action.kind, 80 | 107) && waypoint == -1 {
                     return false;
                 }
-                let (result, recent_event) = self.spawn_team_reinforcements(
-                    team_id,
-                    waypoint,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
+                //1076DF672..6DF698 shares the same resolved Team/+44 gate,
+                //then calls chrono65EC30 instead of ordinary65D8E0. Only -1
+                //is rejected, not every signed negative (original execution).
+                let (result, recent_event) = if action.kind == 107 {
+                    self.spawn_chrono_team_reinforcements(
+                        team_id,
+                        waypoint,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    )
+                } else {
+                    self.spawn_team_reinforcements(
+                        team_id,
+                        waypoint,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    )
+                };
                 if let Some(cell) = recent_event {
                     effects.push(TriggerEffect::RecentEventCell { cell });
                 }
@@ -2967,6 +3600,38 @@ impl Simulation {
                     return false;
                 };
                 return self.trigger_reveal_at_waypoint(
+                    waypoint,
+                    crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
+                        .with_effects(frame_effects),
+                );
+            }
+            108 => {
+                //Steam3e81a617: active Execute6DF69B..6DF6CD ->68BCC0
+                //->56BEC0. Unset valid waypoints supply(0,0) to FNPC; the
+                //Place AL is returned. Compare the full scalar with20 before
+                //the fixed choice's low-byte store, including276 -> byte20.
+                //Original execution: trigger_action_values.py --crate.
+                let (Some(rules), Some(registry), Some(value), Some(waypoint)) =
+                    (rules, overlay_registry, value, action.waypoint_index)
+                else {
+                    return false;
+                };
+                let Some(cell) = self.session.waypoint_cell(waypoint as i32) else {
+                    return false;
+                };
+                return crate::sim::crates::place_crate(
+                    self,
+                    rules,
+                    registry,
+                    cell,
+                    (value != 20).then_some(value as u8),
+                );
+            }
+            101 => {
+                let (Some(rules), Some(waypoint)) = (rules, value) else {
+                    return false;
+                };
+                return self.trigger_conceal_at_waypoint(
                     waypoint,
                     crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
                         .with_effects(frame_effects),
@@ -3022,6 +3687,38 @@ impl Simulation {
                     pause_simulation: action.kind == 117,
                 });
             }
+            114 => {
+                let index = value.unwrap_or(0);
+                if !(0..4).contains(&index) {
+                    return false;
+                }
+                effects.push(TriggerEffect::SelectSidebarTab { index });
+                //6E4100 ->6ABAC0/6A7590: presentation checks retained strip
+                //membership. Native's empty-strip AL0 is only a client
+                //receipt: all three Tag callers6E5439/6E5450/6E546D ignore
+                //Spring's AL, as does ForceTrigger. Keep that client result
+                //out of deterministic simulation; the UI owns actual admission.
+            }
+            115 => {
+                let Some(rules) = rules else { return false };
+                //6E4150 scans the common TechnoType array A8EB04 in reverse,
+                //with byte-exact names, then6AC5F0 dispatches its own class.
+                //Retail SOV01 uses the unique SAPC identity; duplicate names
+                //across type classes retain the rules owner's existing order.
+                let Some(object) = rules
+                    .all_objects()
+                    .filter(|object| object.id == action.inline_type_name())
+                    .last()
+                else {
+                    return false;
+                };
+                let type_id = self.interner.intern(&object.id);
+                effects.push(TriggerEffect::FlashSidebarCameo {
+                    type_id,
+                    duration: value.unwrap_or(0),
+                    frame: self.session.binary_frame as i32,
+                });
+            }
             139 => {
                 // Execute6DFCE3 -> TAction6E3B40 uses the incoming House,
                 // not Action.value as a selector. House50BCD0 owns the raw
@@ -3035,6 +3732,27 @@ impl Simulation {
                     .entry(owner)
                     .or_default()
                     .start_radar_outage(self.session.binary_frame, value.unwrap_or(0));
+            }
+            128 => {
+                //Execute6DFAD9 ->6E1A40 ->House50D6D0. Only +44 waypoint
+                //and incoming House are read: the numeric +90 is ignored.
+                let (Some(owner), Some(waypoint), Some(rules)) =
+                    (context.incoming_house, action.waypoint_index, rules)
+                else {
+                    return false;
+                };
+                let Some(cell) = self.session.waypoint_cell(waypoint as i32) else {
+                    return false;
+                };
+                return self
+                    .chronoshift_house_to(owner, cell, rules, overlay_registry, frame_effects)
+                    .map_or_else(
+                        |error| {
+                            log::debug!("Action128: {error}");
+                            false
+                        },
+                        |_| true,
+                    );
             }
             127 => {
                 // Execute6DFABF -> ChronoScreen53B460. A nonpositive duration
@@ -3077,6 +3795,96 @@ impl Simulation {
                 self.sound_events.push(SimSoundEvent::TriggerEva { index });
                 frame_effects.flush_sound(self, rules);
             }
+            59 => {
+                let (Some(rules), Some(registry), Some(waypoint)) =
+                    (rules, overlay_registry, value)
+                else {
+                    return false;
+                };
+                return self.trigger_reduce_tiberium_at_waypoint(waypoint, rules, registry);
+            }
+            86 => {
+                let Some(value) = value else {
+                    return false;
+                };
+                self.production
+                    .ore_growth_config
+                    .set_enabled_from_trigger(value);
+            }
+            88 => {
+                let (Some(rules), Some(index), Some(waypoint)) =
+                    (rules, value, action.waypoint_index)
+                else {
+                    return false;
+                };
+                return self.trigger_create_particle_system_at_waypoint(
+                    index,
+                    waypoint as i32,
+                    rules,
+                );
+            }
+            89 => {
+                let Some(waypoint) = action.waypoint_index else {
+                    return false;
+                };
+                return self.trigger_mark_particle_systems_done_at_waypoint(waypoint as i32);
+            }
+            30 => {
+                let (Some(owner), Some(value), Some(rules)) =
+                    (context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                return self.trigger_auto_base_building(
+                    owner,
+                    value,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            35 => {
+                // Execute35 6DE1DC..6DE203 uses the incoming House, not
+                // the live selector. A null House succeeds without writes;
+                // only its existing superweapon-target owner changes.
+                let Some(owner) = context.incoming_house else {
+                    return true;
+                };
+                let Some(value) = value else { return false };
+                let Some(house) = self.houses.get_mut(&owner) else {
+                    return false;
+                };
+                house.set_preferred_super_weapon_target_kind(value);
+            }
+            76..=79 => {
+                // Active76..79 at6DF34F/379/3A3/3CD: a null incoming House
+                // succeeds without reading +90. Each stores that signed dword
+                // in its existing House owner: +565C/5660/5664/5668 respectively.
+                // No immediate selection, timer reset, RNG draw or detach.
+                let Some(owner) = context.incoming_house else {
+                    return true;
+                };
+                let Some(value) = value else { return false };
+                let Some(house) = self.houses.get_mut(&owner) else {
+                    return false;
+                };
+                match action.kind {
+                    76 => house.team_creation.set_trigger_ratio(value),
+                    77 => house.set_aircraft_team_ratio(value),
+                    78 => house.set_infantry_team_ratio(value),
+                    79 => house.set_unit_team_ratio(value),
+                    _ => unreachable!(),
+                }
+            }
+            8 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return self.trigger_drop_zone_flare(rules, waypoint as i32);
+            }
+            98 => {
+                return self.trigger_play_sound_at_random_waypoint(sound, rules, frame_effects);
+            }
             41 => {
                 let (Some(rules), Some(index), Some(waypoint)) =
                     (rules, value, action.waypoint_index)
@@ -3084,6 +3892,49 @@ impl Simulation {
                     return false;
                 };
                 return self.trigger_play_anim_at_waypoint(rules, index, waypoint as i32);
+            }
+            42 => {
+                let (Some(rules), Some(index), Some(waypoint)) =
+                    (rules, value, action.waypoint_index)
+                else {
+                    return false;
+                };
+                let Some(changed) = self.trigger_explosion_at_waypoint(
+                    rules,
+                    index,
+                    waypoint as i32,
+                    overlay_registry,
+                    frame_effects,
+                ) else {
+                    return false;
+                };
+                if changed {
+                    effects.push(TriggerEffect::BridgeStateChanged);
+                }
+            }
+            95 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return self.trigger_nuke_strike(rules, waypoint as i32);
+            }
+            96 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return self.trigger_chemical_strike(rules, waypoint as i32);
+            }
+            109 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return crate::sim::superweapon::iron_curtain::at_waypoint(
+                    self,
+                    rules,
+                    waypoint as i32,
+                    overlay_registry,
+                    frame_effects,
+                );
             }
             46 | 47 => {
                 let locked = action.kind == 46;
@@ -3147,6 +3998,64 @@ impl Simulation {
                     );
                 }
             }
+            142..=144 => {
+                let Some(value) = value else {
+                    return false;
+                };
+                // Original Execute6DFD4F/7C/A9 ->6E2E60/6E2EB0/6E2F00:
+                // no House/actor gate;53AD00 uses normal-cache flag0, then
+                // the raw normal component is stored. The published snapshot
+                // includes that store: Cell refresh reads ambient/Ground/Level,
+                // not RGB, and the explicit palette operation preserves order.
+                let rgb = self
+                    .session
+                    .lighting
+                    .retint_normal_component((action.kind - 142) as usize, value);
+                self.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::Normal(rgb));
+            }
+            73 => {
+                let Some(value) = value else {
+                    return false;
+                };
+                let storm = crate::sim::superweapon::lightning_storm::raging(self);
+                self.session.lighting.set_ambient_light(value, storm);
+            }
+            64..=66 => {
+                let (Some(rules), Some(waypoint)) = (rules, value) else {
+                    return false;
+                };
+                // Execute64/65/66 at6DDDF6/6DDE4B/6DDEA0 uses +90,
+                // not the +44 tail waypoint, with damage50/100/300.
+                // The same C4 reference/coordinate/Flash owners serve ordinary
+                // impacts; stock C4=Super is not Bright, so materializes no
+                // light. Do not force a screen/nuke flash from the action name.
+                // Native: trigger_map_lighting.json flash_controls (+meta).
+                let Some([x, y, z]) = self.trigger_waypoint_location(waypoint) else {
+                    return false;
+                };
+                let warhead_ref = self.interner.intern(&rules.bridge_warheads.c4_name);
+                self.combat_light_requests
+                    .push(crate::sim::combat::CombatLightRequest::Impact {
+                        target_id: None,
+                        damage: match action.kind {
+                            64 => 50,
+                            65 => 100,
+                            _ => 300,
+                        },
+                        warhead_ref,
+                        coord: crate::sim::projectile::ProjectileCoord::new(x, y, z),
+                        force_create: false,
+                        flags: 0,
+                    });
+            }
+            71 | 72 => {
+                let Some(bits) = value else {
+                    return false;
+                };
+                self.session
+                    .lighting
+                    .set_ambient_change_input(action.kind == 72, bits);
+            }
             ACTION_DAMAGE_AT_WAYPOINT => {
                 let (Some(rules), Some(waypoint)) = (rules, value) else {
                     return false;
@@ -3172,6 +4081,19 @@ impl Simulation {
                 if let Some(raw_local_size) = parse_visible_map_area(&action.params) {
                     let _ = self.change_visible_map_area(raw_local_size, rules);
                 }
+            }
+            145 => {
+                // Execute6DFDD6 calls Home7315A0 for PlayerPtr, independent
+                // of the incoming House/value. Resolve coordinates before
+                // the frame hash, including House50DF30's Dummy effects.
+                let coord = rules.and_then(|rules| {
+                    let cells = self
+                        .resolved_terrain
+                        .as_ref()
+                        .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+                    self.home_camera_coordinate(rules, cells.as_ref())
+                });
+                effects.push(TriggerEffect::HomeCamera { coord });
             }
             ACTION_CENTER_CAMERA | ACTION_JUMP_CAMERA => {
                 // Execute6DD8B0 resolves GetWaypoint68BCC0 and native Cell
@@ -3200,12 +4122,25 @@ impl Simulation {
                     frame_effects,
                 );
             }
-            ACTION_SET_SUPER_CHARGE_PERCENTAGE => {
-                // Execute129 -> 6E42D0 selects the owning House's stock
-                // Super-array ordinal (+90), then SetPercentage6CC1E0 uses
-                // +48. Its granted/range gates belong to the Super owner.
+            106 => {
+                // Active inline Execute6DF5D1, not the similarly annotated
+                // separate helper6E37F0. Type9's string is+54; raw value is+90.
+                let (Some(rules), Some(value)) = (rules, value) else {
+                    return false;
+                };
+                self.set_object_type_tech_level(action.inline_type_name(), value, rules);
+            }
+            33 | 34 | ACTION_SET_SUPER_CHARGE_PERCENTAGE | 132..=134 => {
+                // Execute33/34 (6DE925/6DE98E),1296E42D0,1326E4320,
+                //1336E4360 and1346E43A0 select
+                // the incoming House's Super-array ordinal (+90). Only129
+                // has grant/percentage gates.132 writes +48 as the override;
+                //133 clears it without restarting the current countdown;
+                //134 calls the same Reset owner as spy infiltration.
                 // Original Steam identity and executed admissions/numerics:
-                // tools/spatial_oracle/trigger_super_charge_percent.meta.json.
+                // tools/spatial_oracle/trigger_super_charge_percent.meta.json
+                // trigger_superweapon_state.meta.json and
+                // trigger_superweapon_reset.meta.json.
                 let Some(rules) = rules else {
                     return false;
                 };
@@ -3220,8 +4155,7 @@ impl Simulation {
                 let Some(name) = rules.super_weapon_order.get(index) else {
                     return false;
                 };
-                let Some((type_id, sw)) = self.interner.get(name).zip(rules.super_weapon(name))
-                else {
+                let Some(type_id) = self.interner.get(name) else {
                     return false;
                 };
                 let Some(instance) = self
@@ -3231,10 +4165,134 @@ impl Simulation {
                 else {
                     return false;
                 };
-                return instance.set_charge_percentage(
-                    action.auxiliary_value(),
-                    sw,
-                    self.session.binary_frame,
+                match action.kind {
+                    33 | 34 => {
+                        return crate::sim::superweapon::trigger_grant_super(
+                            self,
+                            rules,
+                            owner,
+                            type_id,
+                            action.kind == 33,
+                        );
+                    }
+                    132 => instance.set_recharge_time(action.auxiliary_value()),
+                    133 => instance.reset_recharge_time(),
+                    134 => crate::sim::superweapon::reset_super(self, rules, owner, name),
+                    _ => {
+                        let Some(sw) = rules.super_weapon(name) else {
+                            return false;
+                        };
+                        return instance.set_charge_percentage(
+                            action.auxiliary_value(),
+                            sw,
+                            self.session.binary_frame,
+                        );
+                    }
+                }
+            }
+            135 | 136 | 140 | 141 => {
+                // Execute1356E43E0/1366E4440 and1406E4460/1416E44C0 use
+                // Spring's incoming House, ignoring scalar+90. Setters135/140
+                // read waypoint+44 and reject the empty cell; clears ignore it.
+                // 140 calls House50DA20: cell+54F4 and current frame+54FC.
+                // 141 calls50DA50: clear cell and restore frame-100.
+                // 135/136 controls: trigger_superweapon_state.meta.json.
+                // 140/141: original Steam gamemd3e81a617..08600 instructions.
+                let Some(owner) = context.incoming_house else {
+                    return false;
+                };
+                let target = if matches!(action.kind, 135 | 140) {
+                    let Some(cell) = action
+                        .waypoint_index
+                        .and_then(|index| self.session.waypoint_cell(index as i32))
+                        .filter(|&cell| cell != (0, 0))
+                    else {
+                        return false;
+                    };
+                    Some((cell.0 as u16, cell.1 as u16))
+                } else {
+                    None
+                };
+                let Some(house) = self.houses.get_mut(&owner) else {
+                    return false;
+                };
+                if let Some(cell) = target {
+                    if action.kind == 135 {
+                        house.set_preferred_super_weapon_target(cell);
+                    } else {
+                        house.alert_super_weapon_defense(cell, self.session.binary_frame as i32);
+                    }
+                } else if action.kind == 136 {
+                    house.clear_preferred_super_weapon_target();
+                } else {
+                    house.clear_super_weapon_defense();
+                }
+            }
+            90 => {
+                // Steam3e81a617, Execute6DF51B..6DF537: GetWaypoint68BCC0's
+                // packed cell (an unset slot is (0,0)) goes straight to
+                // LightningStorm::CreateCloudBolt53A140; the action succeeds.
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                let Some(cell) = self.session.waypoint_cell(waypoint as i32) else {
+                    return false;
+                };
+                crate::sim::superweapon::lightning_storm::create_cloud_bolt(self, rules, cell);
+            }
+            44 => {
+                // Active YR Execute6DED1C..6DED52 calls LightningStorm,
+                // despite the legacy IonStorm name. IsActive53A100 tests
+                // only the active byte; a countdown still admits this call.
+                // Start539EB0 gets +90 duration, Rules+1794 deferment, the
+                // zero EmptyCell (initializer6DCF10), and NULL House.
+                if crate::sim::superweapon::lightning_storm::raging(self) {
+                    return false;
+                }
+                let (Some(rules), Some(duration)) = (rules, value) else {
+                    return false;
+                };
+                crate::sim::superweapon::lightning_storm::start(
+                    self,
+                    rules,
+                    duration,
+                    rules.general.lightning_deferment,
+                    (0, 0),
+                    None,
+                );
+            }
+            45 => {
+                // Execute6DED61..6DED7C refuses an inactive/counting-down
+                // storm; Stop53A090 merely requests its eventual end. No
+                // immediate cloud deletion, timer write, RNG draw or detach.
+                if !crate::sim::superweapon::lightning_storm::raging(self) {
+                    return false;
+                }
+                crate::sim::superweapon::lightning_storm::request_end(self);
+            }
+            102 => {
+                // 6DD9EC..6DDAB8: the waypoint's signed centre/Ground/bridge
+                // coordinate is truncated back to a cell (413A30). A raging
+                // storm (IsActive53A100) fails at 6DDA98 without restarting;
+                // otherwise Start539EB0 takes the same LightningStormDuration
+                // (+179C) / LightningDeferment (+1794) as the Super launch,
+                // the incoming House, and no charge gate.
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                if crate::sim::superweapon::lightning_storm::raging(self) {
+                    return false;
+                }
+                let Some([x, y, _]) = self.trigger_waypoint_coord(waypoint as i32) else {
+                    return false;
+                };
+                crate::sim::superweapon::lightning_storm::start(
+                    self,
+                    rules,
+                    rules.general.lightning_storm_duration,
+                    rules.general.lightning_deferment,
+                    ((x / 256) as i16, (y / 256) as i16),
+                    context.incoming_house,
                 );
             }
             ACTION_SET_ALTERNATE_BASE => {
@@ -3354,5 +4412,109 @@ mod tests;
 mod native_tests;
 
 #[cfg(test)]
+#[path = "trigger_runtime_superweapon_state_tests.rs"]
+mod superweapon_state_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_superweapon_grant_tests.rs"]
+mod superweapon_grant_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_defense_target_tests.rs"]
+mod defense_target_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_type_tech_level_tests.rs"]
+mod type_tech_level_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_all_to_hunt_tests.rs"]
+mod all_to_hunt_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_no_factories_tests.rs"]
+mod no_factories_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_damage_event_tests.rs"]
+mod damage_event_tests;
+
+#[cfg(test)]
 #[path = "trigger_runtime_reveal_zone_tests.rs"]
 mod reveal_zone_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_ai_activation_tests.rs"]
+mod ai_activation_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_crate_tests.rs"]
+mod crate_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_build_type_tests.rs"]
+mod build_type_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_house_notification_tests.rs"]
+mod house_notification_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_wakeup_tests.rs"]
+mod wakeup_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_chrono_reinforcement_tests.rs"]
+mod chrono_reinforcement_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_lightning_tests.rs"]
+mod lightning_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_building_power_tests.rs"]
+mod building_power_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_house_directive_tests.rs"]
+mod house_directive_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_home_camera_tests.rs"]
+mod home_camera_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_explosion_tests.rs"]
+mod explosion_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_movement_event_tests.rs"]
+mod movement_event_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_ore_tests.rs"]
+mod ore_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_particle_tests.rs"]
+mod particle_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_map_lighting_tests.rs"]
+mod map_lighting_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_tint_tests.rs"]
+mod tint_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_ambient_event_tests.rs"]
+mod ambient_event_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_nuke_tests.rs"]
+mod nuke_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_direct_strike_tests.rs"]
+mod direct_strike_tests;

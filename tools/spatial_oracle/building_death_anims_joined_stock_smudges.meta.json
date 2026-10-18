@@ -7,7 +7,7 @@
     1,
     33621247
   ],
-  "scope": "Three coherent stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR chains through footprint, E1 crew and full deferred drain",
+  "scope": "Stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR through footprint, crew and drain, plus seed1 fresh successful normal PUT cleanup",
   "assumptions": [
     "Exact lexical selected sections enter existing original signed-CRC caches. Complete original selected BuildingType/InfantryType/UnitType/weapon/projectile/warhead/AnimType/country/Sides/General/ElevationModel/Radiation readers and stated surviving key blocks execute in RULESMD, optional LANGRULE, Battle mode, Hills scenario order; whole Rules::Process and physical INI cache construction are excluded. The actual Hills.map MIX entry is read; every selected inherited Construction/Engineer scenario section is compared with their Hills.mmx lexical source and is identical.",
     "Layer physical_input_sections and physical_art_input_sections retain the exact selected physical reader maps, including General/CombatDamage/AudioVisual and GI/Sequence. Separate declared_e1_weapon_sections retain physically authored E1 referenced weapons and their projectile/warhead inputs only for the Rust fixture production readers; these weapon readers/firing paths were not executed by this native comparison and are not admission or parity evidence.",
@@ -25,7 +25,8 @@
     "Original SmudgeType registry CRT4E7260, active Rules::Process668DD2..668E23 and Rules::ReadTypeData679BE2..679C06 execute over physical RULESMD, optional LANGRULE, Battle mode and inner Hills.map caches. Whole ctor6B5260/ReadINI6B56D0 and ObjectType5F92D0 execute; Image comes from rules and Theater from physical ARTMD. Native requested-file IO returns exact extracted retail image bytes; old unflagged CR/BURN names legitimately have no images.",
     "The additional stock ClearTile0 prior executes real IsoTileType registry CRT4E76E0, ctor5447C0 and original TEMPERATMD TileSet0000 Morphable Boolean block546124..54614C plus its original54644C result store. The admitted flat interior cells carry TileIndex0, no overlay, slope0 and initial SmudgeIndex-1. Actual full theater/TMP/map loading is excluded; class/height, connectivity and all gameplay owners retain the shared joined fixture.",
     "Original SmudgeClass registry CRT4E69E0 and sentinel6B5210 execute. Actual selected Burn/Crater placers, CanPlace, full Smudge6B4A50, Mark6B4BE0, Place6B6080, UnInit5F65F0, repeated expiry7258D0, deferred scalar6B4FA0 and Object5F3B80 execute, with IDs/flags, generic/Smudge/Logic registries, ordered queue members, cell writes and full three RNG states recorded. Physical SmudgeTypes key/value pairs retain declaration order as an array. Every registry/queue object and expiry boundary retains signed Health and raw Location. No selected type, mark, lifecycle result or RNG draw is supplied.",
-    "The transient Smudge consumes original Scenario uniqueID14, queues after dead Anim7/8, never joins Logic, retires before Building1/Bullet4 and leaves its persistent2x2 cells marked after drain. This is native executed state/lifecycle evidence, not native pixel/audio or full map-loader parity."
+    "The transient Smudge consumes original Scenario uniqueID14, queues after dead Anim7/8, never joins Logic, retires before Building1/Bullet4 and leaves its persistent2x2 cells marked after drain. This is native executed state/lifecycle evidence, not native pixel/audio or full map-loader parity.",
+    "Only stock seed1 adds a post_drain_put continuation after preserving every old prefix field. The same Runtime executes shared original Discovery geometry initialization, fresh GAPOWR43B740, Cell GetCoords486840 and full440580 with successful AL1. Native43F8A6 clears type48 across the existing2x2 footprint while preserving raw data11F. Existing supplied House/map/registry bounds remain; no paid production/input or full native world load is claimed. Native newID23 is active GAPOWR_A in slot3 with actual ctor/Start events, not GAPOWRMK buildup. Sparse ART inputs exclude GAPOWRMK; later whole construction/animation AI is not certified. Measured client priors retain original GameMode1, PlayerPtr/current-owner and House1EC/1ED, plus known Cell12C18/counter0 inputs. Original early CellPUT47E9E2 discovery opens before Techno idle; no manual opening or expected flag write is supplied."
   ],
   "substitutions": [
     "Existing Engineer/Construction reader-cache, physical requested-file byte IO, bump allocator/delete, COM/CRT TLS, original audioIDX/qsort/BAG/backend device transport boundaries are reused. Native Drive/Bullet/Walk COM factories execute rather than fabricated locomotor/projectile responses.",
@@ -125,7 +126,13 @@
     "smudge_runtime_scalar": "0x006B4FA0",
     "tile_type_ctor": "0x005447C0",
     "tile_morphable_reader": "0x00546124",
-    "tile_morphable_store": "0x0054644C"
+    "tile_morphable_store": "0x0054644C",
+    "post_put_cell_coordinates": "0x00486840",
+    "post_put_unlimbo": "0x00440580",
+    "post_put_clear_type": "0x0043F8A6",
+    "post_put_redraw": "0x004852D0",
+    "post_put_dirty_ring": "0x00486E70"
   },
-  "payload_sha256": "8c32628c8f3d63fee6a46fba9be3e427faad425b35f597d65433461279084f75"
+  "replay_command": "python -m tools.spatial_oracle.building_death_anims --joined-stock-smudges",
+  "payload_sha256": "602cfbd02b8377121233bd6e5c9739975d0dbaa698f353ed3b77945e319f841d"
 }

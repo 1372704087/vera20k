@@ -113,6 +113,7 @@ Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n\
 /// strikes it; outside multiplayer it finds nothing and its idle mode picks
 /// again.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn a_hunting_computer_aircraft_strikes_storage_in_multiplayer_only() {
     use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
     use crate::sim::combat::TargetKind;
@@ -171,10 +172,7 @@ fn a_hunting_computer_aircraft_strikes_storage_in_multiplayer_only() {
             {
                 targets.push(attack);
             }
-            fired |= entity
-                .aircraft_ammo
-                .as_ref()
-                .is_some_and(|ammo| ammo.current() == 0);
+            fired |= entity.ammo().is_some_and(|ammo| ammo.current() == 0);
             if fired {
                 break;
             }

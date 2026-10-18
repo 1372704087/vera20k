@@ -3,11 +3,8 @@
 // docs/research/PHASE3_MAP_SPATIAL_NATIVE_COMPARISON_20260910.md.
 // Included within cell_rect::tests to share its plain terrain fixture.
 
-fn spatial_native_vectors() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/map_queries.json",
-    ))
-    .unwrap()
+fn spatial_native_vectors() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/map_queries.json")
 }
 
 #[test]
@@ -28,11 +25,12 @@ fn retained_playfield_query_does_not_relookup_a_dummy_alias() {
     // unit_entry_boundary's original578540 calls admit level0 and refuse4
     // here. Retaining the dummy must read its own level, even though a fresh
     // coordinate lookup would select the allocated real Cell instead.
-    assert!(retained_cell_is_in_playfield(real, bounds, &terrain));
+    let query = crate::map::resolved_terrain::NativeCellQuery::canonical(&terrain);
+    assert!(retained_cell_is_in_playfield(real, bounds, &query));
     assert!(!retained_cell_is_in_playfield(
         NativeCellIdentity::Dummy,
         bounds,
-        &terrain
+        &query
     ));
     assert_eq!(terrain.shared_cell_dummy().snapshot(), before);
 }

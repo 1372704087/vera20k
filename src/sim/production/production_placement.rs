@@ -31,11 +31,27 @@ pub fn placement_preview_for_owner_with_overlays(
 ) -> Option<BuildingPlacementPreview> {
     let obj = rules.object(type_id)?;
     let (width, height) = foundation_dimensions(&obj.foundation);
-    let reason =
-        evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry).err();
-    let in_build_area = reason
+    // One fork covers admission, ground/shroud reads and wall filler queries;
+    // none of the cursor's nested lookups may stamp simulation's live Dummy.
+    let native_cells = sim
+        .resolved_terrain
         .as_ref()
-        .is_none_or(|r| !matches!(r, BuildingPlacementError::OutOfBuildArea));
+        .map(crate::map::resolved_terrain::NativeCellQuery::isolated);
+    let evaluation = evaluate_building_placement(
+        sim,
+        rules,
+        owner,
+        type_id,
+        rx,
+        ry,
+        overlay_registry,
+        native_cells.as_ref(),
+    );
+    let mut reason = evaluation.reason;
+    // UpdateFoundationCenter4A9480/4A9485 stores proximity independently;
+    // Cell47EE6C/47EE73 rejects every active cell before IsClearToBuild when
+    // it is false. A terrain-refusal label cannot stand in for this result.
+    let in_build_area = evaluation.in_build_area;
     let owner_id = sim.interner.get(owner);
     let wall_overlay_id = overlay_registry.and_then(|registry| {
         obj.wall
@@ -44,17 +60,56 @@ pub fn placement_preview_for_owner_with_overlays(
     });
     // The cursor paints each cell with `CellClass::Is_Clear_To_Build`
     // (`BuildingPlacement_per_cell_draw`, `0x0047EE93`) for the placing house.
-    let mut cell_valid: Vec<bool> = Vec::with_capacity((width as usize) * (height as usize));
-    for dy in 0..height {
-        for dx in 0..width {
-            let cx: u16 = rx.saturating_add(dx);
-            let cy: u16 = ry.saturating_add(dy);
-            let ok = (!obj.wall || wall_overlay_id.is_some())
-                && placement_cell_clear(sim, rules, overlay_registry, obj, owner_id, cx, cy);
-            cell_valid.push(in_build_area && ok);
+    let mut cells = Vec::with_capacity(usize::from(width) * usize::from(height));
+    let mut all_unshrouded = true;
+    if let Some(query) = native_cells.as_ref() {
+        for dy in 0..height {
+            for dx in 0..width {
+                let cx = rx.saturating_add(dx);
+                let cy = ry.saturating_add(dy);
+                let (level, slope) = query.ground_fields(query.lookup((cx as i16, cy as i16)));
+                // Cell47ED33..47ED79 queries the current player's mapped
+                // ground via its actual height-corrected centre. The shared
+                // vision owner handles odd levels and the retained Dummy.
+                // A headless evaluation with no current viewer enrolls no
+                // client visibility; active local gameplay always has one.
+                let unshrouded = sim.session.current_house.is_none_or(|viewer| {
+                    !crate::sim::vision::cell_is_shrouded(&sim.fog, query, viewer, (cx, cy))
+                });
+                all_unshrouded &= unshrouded;
+                let clear = (!obj.wall || wall_overlay_id.is_some())
+                    && crate::sim::build_site::is_clear_to_build(
+                        sim,
+                        rules,
+                        overlay_registry,
+                        query.lookup((cx as i16, cy as i16)),
+                        crate::sim::build_site::building_speed_type(obj),
+                        Some(obj),
+                        owner_id,
+                        Some(query),
+                    );
+                cells.push(BuildingPlacementCell {
+                    coord: (cx, cy),
+                    valid: in_build_area && unshrouded && clear,
+                    level: level as i8,
+                    slope,
+                });
+            }
         }
     }
-    let wall_autofill_cells = match (owner_id, wall_overlay_id, overlay_registry) {
+    // Display4A9070/4A94DA publishes visibility independently of proximity;
+    // local LeftUp4ABAB2 refuses a shrouded ordinary foundation. ToTile's
+    // resolved pointer (+E58) alone bypasses that visibility refusal.
+    let local_owner = sim.session.current_house.is_some() && sim.session.current_house == owner_id;
+    let replaces_tile = sim
+        .resolved_terrain
+        .as_ref()
+        .is_some_and(|terrain| crate::sim::build_site::resolved_to_tile(terrain, obj));
+    let foundation_visible = !local_owner || all_unshrouded || replaces_tile;
+    if !foundation_visible && reason.is_none() {
+        reason = Some(BuildingPlacementError::BlockedTerrain);
+    }
+    let wall_coords = match (owner_id, wall_overlay_id, overlay_registry) {
         (Some(owner_id), Some(overlay_id), Some(registry)) if obj.wall => {
             wall_placement::autofill_cells(
                 sim,
@@ -64,18 +119,38 @@ pub fn placement_preview_for_owner_with_overlays(
                 (rx, ry),
                 owner_id,
                 overlay_id,
+                native_cells.as_ref(),
             )
         }
         _ => Vec::new(),
     };
+    // Wall filler is derived by the same production/terrain owners, refreshed
+    // with the active preview. Rendering needs no cross-owner raw Cell access.
+    let wall_autofill_cells = native_cells.as_ref().map_or_else(Vec::new, |query| {
+        wall_coords
+            .into_iter()
+            .map(|coord| {
+                let (level, slope) =
+                    query.ground_fields(query.lookup((coord.0 as i16, coord.1 as i16)));
+                BuildingPlacementCell {
+                    coord,
+                    valid: reason.is_none(),
+                    level: level as i8,
+                    slope,
+                }
+            })
+            .collect()
+    });
     Some(BuildingPlacementPreview {
         rx,
         ry,
         width,
         height,
         valid: reason.is_none(),
+        in_build_area,
+        foundation_visible,
         reason,
-        cell_valid,
+        cells,
         wall_autofill_cells,
     })
 }
@@ -94,27 +169,7 @@ pub fn active_producer_for_owner_category(
         true,
         &sim.interner,
     );
-    let owner_id = sim.interner.get(owner);
-    let active_sid = owner_id.and_then(|id| sim.production.primary_factory(id, category));
-    let selected = active_sid
-        .and_then(|sid| {
-            candidates
-                .iter()
-                .find(|candidate| candidate.0 == sid)
-                .cloned()
-        })
-        .or_else(|| candidates.into_iter().next())?;
-    let display_name = rules
-        .object(&selected.3)
-        .and_then(|obj| obj.name.clone())
-        .unwrap_or_else(|| selected.3.clone());
-    Some(ProducerFocusView {
-        stable_id: selected.0,
-        display_name,
-        category,
-        rx: selected.1,
-        ry: selected.2,
-    })
+    (!candidates.is_empty()).then_some(ProducerFocusView { category })
 }
 
 pub fn cycle_active_producer_for_owner_category(
@@ -135,16 +190,17 @@ pub fn cycle_active_producer_for_owner_category(
         return false;
     }
 
-    let owner_id = sim.interner.intern(owner);
-    let current = sim.production.primary_factory(owner_id, category);
-    let next_sid =
-        match current.and_then(|sid| candidates.iter().position(|candidate| candidate.0 == sid)) {
-            Some(index) => candidates[(index + 1) % candidates.len()].0,
-            None => candidates[0].0,
-        };
-    sim.production
-        .set_primary_factory(owner_id, category, next_sid);
-    true
+    let next_sid = match candidates
+        .iter()
+        .position(|candidate| sim.production.is_primary_factory(candidate.0))
+    {
+        Some(index) => candidates[(index + 1) % candidates.len()].0,
+        None => candidates[0].0,
+    };
+    // Choosing the already-primary sole candidate keeps the VERA-only cycle
+    // a no-op. Every actual change goes through the native manual owner.
+    sim.production.is_primary_factory(next_sid)
+        || super::can_build::toggle_factory_primary(sim, rules, next_sid)
 }
 
 /// One HouseClass::Place_Production4FB0E0 owner. A building PLACE uses
@@ -307,8 +363,9 @@ pub(crate) fn place_production_with_overlays(
         effects,
     );
     if obj.wall {
-        if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry)
-            .is_err()
+        if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry, None)
+            .reason
+            .is_some()
         {
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
@@ -317,15 +374,31 @@ pub(crate) fn place_production_with_overlays(
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         };
-        if !wall_placement::stamp_wall_with_autofill(sim, rules, registry, obj, (rx, ry), owner_id)
+        //4FB1F7..4FB22E forms centered XY and literal Z0 for +D8. The
+        //shared Building wall arm owns sale/Overlay/radio/sight/UnInit.
+        if sim
+            .reveal_constructed_object_at_coord_with_overlay_context(
+                held.entity_id(),
+                crate::sim::components::DriveCoord {
+                    x: i32::from(rx) * 256 + 128,
+                    y: i32::from(ry) * 256 + 128,
+                    z: 0,
+                },
+                0,
+                crate::sim::world::PlacementEvidence::EvaluateMark,
+                rules,
+                Some(registry),
+                effects,
+            )
+            .is_none()
         {
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         }
-        // Wall placement consumes the factory-created BuildingClass into
-        // overlay state; the constructor identity is destroyed, never
-        // reconstructed at placement.
-        held.consume_after_wall_stamp(sim, rules, effects);
+        wall_placement::autofill_walls(sim, rules, registry, obj, (rx, ry), owner_id, effects);
+        // UnInit already expired Factory's pointer; keep the admission token
+        // captured before entry. Physical deletion belongs to725C70.
+        let object = held.release_consumed_wall(sim, rules, effects);
         sim.sound_events
             .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
         sim.lifecycle_outputs.push(
@@ -338,6 +411,9 @@ pub(crate) fn place_production_with_overlays(
             Some(rules),
             effects,
         );
+        // A consumed wall skips selection, but still reaches BuildingSlam
+        // (4FB2E6 ->4FB2FD..4FB314) and BREAK before Record4FB4B7.
+        super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
         return true;
     }
     let foundation_str: String = rules
@@ -356,7 +432,10 @@ pub(crate) fn place_production_with_overlays(
     // Event::Execute4C70E1..4C710B passes an admitted PLACE straight to
     // House4FB0E0. Its placement refusal occurs after HELLO4FB1F1, and
     // still reaches the yard's FirstContact BREAK4FB4A6.
-    if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry).is_err() {
+    if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry, None)
+        .reason
+        .is_some()
+    {
         failed_building_unlimbo(sim, rules, owner_id, yard, effects);
         return false;
     }
@@ -434,7 +513,8 @@ pub(crate) fn place_production_with_overlays(
     );
     // Original4FB4B7 records the successful build after FirstContact BREAK,
     // not during CompletedProduction4FB2A1 or its C message4FB2AD.
-    super::factory_lifecycle::record_last_built(sim, rules, owner_id, type_interned);
+    let object = super::factory_lifecycle::BuiltObject::capture(sim, new_sid);
+    super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
     true
 }
 
@@ -462,6 +542,13 @@ fn failed_building_unlimbo(
     );
 }
 
+/// The admission result and the independent Display+1180 proximity gate,
+/// derived together by the production owner for preview and PLACE consumers.
+struct BuildingPlacementEvaluation {
+    reason: Option<BuildingPlacementError>,
+    in_build_area: bool,
+}
+
 fn evaluate_building_placement(
     sim: &Simulation,
     rules: &RuleSet,
@@ -470,135 +557,123 @@ fn evaluate_building_placement(
     rx: u16,
     ry: u16,
     overlay_registry: Option<&OverlayTypeRegistry>,
-) -> Result<(), BuildingPlacementError> {
-    let Some(obj) = rules.object(type_id) else {
-        return Err(BuildingPlacementError::NotBuilding);
-    };
-    let (width, height) = foundation_dimensions(&obj.foundation);
-    if obj.category != ObjectCategory::Building {
-        return Err(BuildingPlacementError::NotBuilding);
-    }
-    let owner_id = sim.interner.get(owner);
-    let ready = owner_id
-        .zip(sim.interner.get(type_id))
-        .is_some_and(|(owner_id, type_id)| {
-            let category = production_category_for_object(obj);
-            super::factory_lifecycle::ready_object(sim, owner_id, category, type_id).is_some()
-        });
-    if !ready {
-        return Err(BuildingPlacementError::NotReady);
-    }
-    if obj.wall
-        && overlay_registry
-            .and_then(|registry| wall_placement::linked_overlay_id(obj, registry))
-            .is_none()
-    {
-        return Err(BuildingPlacementError::BlockedTerrain);
-    }
-    // The PLACE event's Unlimbo admits the building through its own
-    // Can_Enter_Cell (`0x00449440`): BuildingTypeClass::CanPlaceAt at the
-    // clicked cell for the owning house.
-    if !crate::sim::build_site::can_place_building_at(
-        sim,
-        rules,
-        overlay_registry,
-        obj,
-        (rx as i16, ry as i16),
-        owner_id,
-    ) {
-        // The error variant only labels the refusal for presentation.
-        let overlaps_structure = crate::rules::foundation::foundation_cell_offsets(&obj.foundation)
-            .into_iter()
-            .any(|(dx, dy)| {
-                sim.cell_objects(
-                    (rx.wrapping_add(dx as u16), ry.wrapping_add(dy as u16)),
-                    MovementLayer::Ground,
-                )
-                .any(|member| {
-                    matches!(member, crate::sim::occupancy::CellObjectMember::Entity(id)
-                    if sim.substrate.entities.get(id).is_some_and(|e| {
-                        e.category() == EntityCategory::Structure
-                    }))
-                })
+    native_cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
+) -> BuildingPlacementEvaluation {
+    let obj = rules.object(type_id);
+    let in_build_area = obj.is_some_and(|obj| is_within_build_area(sim, rules, owner, obj, rx, ry));
+    let reason = (|| {
+        let Some(obj) = obj else {
+            return Err(BuildingPlacementError::NotBuilding);
+        };
+        let (width, height) = foundation_dimensions(&obj.foundation);
+        if obj.category != ObjectCategory::Building {
+            return Err(BuildingPlacementError::NotBuilding);
+        }
+        let owner_id = sim.interner.get(owner);
+        let ready = owner_id
+            .zip(sim.interner.get(type_id))
+            .is_some_and(|(owner_id, type_id)| {
+                let category = production_category_for_object(obj);
+                super::factory_lifecycle::ready_object(sim, owner_id, category, type_id).is_some()
             });
-        return Err(if overlaps_structure {
-            BuildingPlacementError::OverlapsStructure
+        if !ready {
+            return Err(BuildingPlacementError::NotReady);
+        }
+        if obj.wall
+            && overlay_registry
+                .and_then(|registry| wall_placement::linked_overlay_id(obj, registry))
+                .is_none()
+        {
+            return Err(BuildingPlacementError::BlockedTerrain);
+        }
+        // The PLACE event's Unlimbo admits the building through its own
+        // Can_Enter_Cell (`0x00449440`): BuildingTypeClass::CanPlaceAt at the
+        // clicked cell for the owning house.
+        if !crate::sim::build_site::can_place_building_at(
+            sim,
+            rules,
+            overlay_registry,
+            obj,
+            (rx as i16, ry as i16),
+            owner_id,
+            native_cells,
+        ) {
+            // The error variant only labels the refusal for presentation.
+            let overlaps_structure =
+                crate::rules::foundation::foundation_cell_offsets(&obj.foundation)
+                    .into_iter()
+                    .any(|(dx, dy)| {
+                        sim.cell_objects(
+                            (rx.wrapping_add(dx as u16), ry.wrapping_add(dy as u16)),
+                            MovementLayer::Ground,
+                        )
+                        .any(|member| {
+                            matches!(member, crate::sim::occupancy::CellObjectMember::Entity(id)
+                            if sim.substrate.entities.get(id).is_some_and(|e| {
+                                e.category() == EntityCategory::Structure
+                            }))
+                        })
+                    });
+            return Err(if overlaps_structure {
+                BuildingPlacementError::OverlapsStructure
+            } else {
+                BuildingPlacementError::BlockedTerrain
+            });
+        }
+        if in_build_area {
+            Ok(())
         } else {
-            BuildingPlacementError::BlockedTerrain
-        });
-    }
-    if is_within_build_area(sim, rules, owner, obj, rx, ry, width, height) {
-        Ok(())
-    } else {
-        let providers: Vec<String> = sim
-            .substrate
-            .entities
-            .values()
-            .filter(|e| {
-                e.category() == EntityCategory::Structure
-                    && sim.interner.resolve(e.owner()).eq_ignore_ascii_case(owner)
-            })
-            .map(|e| {
-                let type_str = sim.interner.resolve(e.type_ref());
-                let bn = rules.object(type_str).is_some_and(|o| o.base_normal);
-                format!(
-                    "{}@({},{}) bn={}",
-                    type_str,
-                    e.position.rx(),
-                    e.position.ry(),
-                    bn
-                )
-            })
-            .collect();
-        log::warn!(
-            "Placement rejected: ({},{}) {}x{} outside build area for {} adj={} providers=[{}]",
-            rx,
-            ry,
-            width,
-            height,
-            owner,
-            obj.adjacent,
-            providers.join(", "),
-        );
-        Err(BuildingPlacementError::OutOfBuildArea)
+            let providers: Vec<String> = sim
+                .substrate
+                .entities
+                .values()
+                .filter(|e| {
+                    e.category() == EntityCategory::Structure
+                        && sim.interner.resolve(e.owner()).eq_ignore_ascii_case(owner)
+                })
+                .map(|e| {
+                    let type_str = sim.interner.resolve(e.type_ref());
+                    let bn = rules.object(type_str).is_some_and(|o| o.base_normal);
+                    format!(
+                        "{}@({},{}) bn={}",
+                        type_str,
+                        e.position.rx(),
+                        e.position.ry(),
+                        bn
+                    )
+                })
+                .collect();
+            log::warn!(
+                "Placement rejected: ({},{}) {}x{} outside build area for {} adj={} providers=[{}]",
+                rx,
+                ry,
+                width,
+                height,
+                owner,
+                obj.adjacent,
+                providers.join(", "),
+            );
+            Err(BuildingPlacementError::OutOfBuildArea)
+        }
+    })()
+    .err();
+    BuildingPlacementEvaluation {
+        reason,
+        in_build_area,
     }
 }
 
-/// One cell of the placement cursor: `CellClass::Is_Clear_To_Build` with the
-/// type's own SpeedType and the placing house (`sim::build_site`).
-fn placement_cell_clear(
-    sim: &Simulation,
-    rules: &RuleSet,
-    registry: Option<&OverlayTypeRegistry>,
-    obj: &ObjectType,
-    owner: Option<InternedId>,
-    cx: u16,
-    cy: u16,
-) -> bool {
-    let Some(terrain) = sim.resolved_terrain.as_ref() else {
-        return false;
-    };
-    crate::sim::build_site::is_clear_to_build(
-        sim,
-        rules,
-        registry,
-        terrain.native_cell_identity((cx as i16, cy as i16)),
-        crate::sim::build_site::building_speed_type(obj),
-        Some(obj),
-        owner,
-    )
-}
-
-fn is_within_build_area(
+/// Read-only Display4A8EB0 proximity query, shared by preview and the fresh
+/// LeftUp event gate. Production owns provider lifecycle and adjacency policy.
+pub fn is_within_build_area(
     sim: &Simulation,
     rules: &RuleSet,
     owner: &str,
-    obj: &crate::rules::object_type::ObjectType,
+    obj: &ObjectType,
     rx: u16,
     ry: u16,
-    width: u16,
-    height: u16,
 ) -> bool {
+    let (width, height) = foundation_dimensions(&obj.foundation);
     let placed_adjacent = obj.adjacent;
     if placed_adjacent < 0 {
         return false;

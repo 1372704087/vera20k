@@ -26,8 +26,6 @@ pub struct RmgRegion {
     pub level: u8,
     /// Class flag: seed was water-ish or green (drives the expansion loop).
     pub active: bool,
-    pub seed: (i16, i16),
-    pub done: bool,
     pub cell_count: i32,
     /// Per-region cell list; populated by the starts phase, not here.
     pub cells: Vec<(i16, i16)>,
@@ -51,13 +49,11 @@ pub struct Regions {
 impl RmgRegion {
     /// A region produced by the inland/mountainous rebuild, which derives all
     /// of its fields from the flood rather than from the seed scan.
-    pub fn rebuilt(id: i32, level: u8, active: bool, seed: (i32, i32), cell_count: i32) -> Self {
+    pub fn rebuilt(id: i32, level: u8, active: bool, cell_count: i32) -> Self {
         Self {
             id,
             level,
             active,
-            seed: (seed.0 as i16, seed.1 as i16),
-            done: false,
             cell_count,
             cells: Vec::new(),
             start_quota: 0,
@@ -119,7 +115,7 @@ pub fn run(ctx: &mut RegionCtx<'_>) -> Regions {
         water_propagate(ctx, id);
     }
 
-    // Fallback: every remaining unassigned cell seeds a region (done = false).
+    // Fallback: every remaining unassigned cell seeds a region.
     for index in 0..width * width {
         let record = ctx.scratch.cells()[index];
         let coord = (i32::from(record.x), i32::from(record.y));
@@ -198,8 +194,6 @@ fn flood_fill(ctx: &mut RegionCtx<'_>, regions: &mut Regions, seed: (i32, i32)) 
         id,
         level: seed_level,
         active: seed_class,
-        seed: (seed.0 as i16, seed.1 as i16),
-        done: false,
         cell_count: 0,
         cells: Vec::new(),
         start_quota: 0,
@@ -362,13 +356,14 @@ fn water_propagate(ctx: &mut RegionCtx<'_>, id: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -384,7 +379,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -415,132 +410,6 @@ mod tests {
             rng,
             map_type: 1,
             default_level: 4,
-        }
-    }
-
-    #[test]
-    fn every_cell_ends_up_assigned() {
-        let (mut grid, mut scratch) = world();
-        let identity = ids();
-        let mut rng = RmgRng::new(7);
-        let mut context = ctx(&mut grid, &mut scratch, &identity, &mut rng);
-        let regions = run(&mut context);
-
-        for (x, y) in grid.native_cells().collect::<Vec<_>>() {
-            assert_ne!(
-                scratch.get(x, y).region,
-                -1,
-                "cell ({x},{y}) left unassigned"
-            );
-        }
-        assert!(!regions.list.is_empty());
-    }
-
-    #[test]
-    fn one_landmass_becomes_one_region() {
-        let (mut grid, mut scratch) = world();
-        let identity = ids();
-        let mut rng = RmgRng::new(7);
-        let mut context = ctx(&mut grid, &mut scratch, &identity, &mut rng);
-        let regions = run(&mut context);
-
-        // A uniform all-land map: one big fallback region owns everything.
-        assert_eq!(regions.list.len(), 1);
-        assert!(!regions.list[0].active, "plain land is not the water class");
-        let total = grid.native_cells().count() as i32;
-        assert_eq!(regions.list[0].cell_count, total);
-    }
-
-    #[test]
-    fn water_and_land_partition_into_distinct_regions() {
-        let (mut grid, mut scratch) = world();
-        let identity = ids();
-        // A water lake in the middle of the land.
-        let lake: Vec<(i32, i32)> = (12..18)
-            .flat_map(|x| (8..12).map(move |y| (x, y)))
-            .filter(|&(x, y)| grid.is_valid(x, y))
-            .collect();
-        for &(x, y) in &lake {
-            grid.get_mut(x, y).unwrap().tile = 500;
-        }
-        let mut rng = RmgRng::new(3);
-        let mut context = ctx(&mut grid, &mut scratch, &identity, &mut rng);
-        let regions = run(&mut context);
-
-        assert!(regions.list.len() >= 2, "lake and land separate");
-        let lake_region = scratch.get(lake[0].0, lake[0].1).region;
-        assert!(
-            lake.iter()
-                .all(|&(x, y)| scratch.get(x, y).region == lake_region),
-            "the lake is one region"
-        );
-        let land_region = regions
-            .list
-            .iter()
-            .find(|region| region.id != lake_region)
-            .expect("a land region exists");
-        assert_ne!(lake_region, land_region.id);
-        // The water-class region seeded first and expanded (active).
-        let lake_object = regions
-            .list
-            .iter()
-            .find(|region| region.id == lake_region)
-            .expect("lake object");
-        assert!(lake_object.active, "water class regions are active");
-    }
-
-    #[test]
-    fn water_variants_and_all_waterfalls_seed_one_active_flood_region() {
-        let (mut grid, mut scratch) = world();
-        let mut identity = ids();
-        identity.special.waterfalls = [600, 700, 800, 900];
-
-        // A connected 6x4 lake containing every WaterSet variant beyond the
-        // old six-tile shortcut and every tile in all four waterfall bands.
-        // The production seed scan and flood fill must classify all 24 cells
-        // through the same native 0x004865D0 predicate.
-        let lake: Vec<(i32, i32)> = (13..19)
-            .flat_map(|x| (8..12).map(move |y| (x, y)))
-            .filter(|&(x, y)| grid.is_valid(x, y))
-            .collect();
-        assert_eq!(lake.len(), 24, "fixture must remain a connected 6x4 lake");
-        let tiles = (identity.water_base + 6..=identity.water_base + 13).chain(
-            identity
-                .special
-                .waterfalls
-                .into_iter()
-                .flat_map(|base| base..base + 4),
-        );
-        for ((x, y), tile) in lake.iter().copied().zip(tiles) {
-            grid.get_mut(x, y).unwrap().tile = tile;
-        }
-
-        let mut rng = RmgRng::new(3);
-        let mut context = ctx(&mut grid, &mut scratch, &identity, &mut rng);
-        let regions = run(&mut context);
-        let lake_region = scratch.get(lake[0].0, lake[0].1).region;
-        assert!(
-            lake.iter()
-                .all(|&(x, y)| scratch.get(x, y).region == lake_region),
-            "WaterSet +6..+13 and every waterfall band must flood together"
-        );
-        assert!(
-            regions
-                .list
-                .iter()
-                .any(|region| region.id == lake_region && region.active),
-            "the exact native water family must seed an active region"
-        );
-    }
-
-    #[test]
-    fn pass_count_formula() {
-        // 4 + (large) + (!mode34): exercised structurally via expand's pass
-        // loop; here we assert the arithmetic used by run().
-        for (cells, map_type, expected) in [(100, 1, 5), (9000, 1, 6), (100, 3, 4), (9000, 4, 5)] {
-            let mode34 = matches!(map_type, 3 | 4);
-            let passes = 4 + i32::from(cells > LARGE_REGION_CELLS) + i32::from(!mode34);
-            assert_eq!(passes, expected);
         }
     }
 

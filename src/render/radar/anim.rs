@@ -42,6 +42,15 @@ pub enum RadarMovieCommand {
     StartPlayback,
 }
 
+/// An admitted ordinary656BE0 direction change. The app resolves the
+/// corresponding Rules Voc ID; this owner has no audio dependency.
+/// Source: tools/input_oracle/radar_availability_audio.md and its consumed corpus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadarAvailabilityCue {
+    On,
+    Off,
+}
+
 /// Ordinary tactical-radar housing state (movie/jammed modes are separate).
 #[derive(Debug, Clone)]
 struct RadarAnimation {
@@ -63,19 +72,19 @@ impl Default for RadarAnimation {
 }
 
 impl RadarAnimation {
-    pub fn set_has_radar(&mut self, available: bool) {
+    fn set_has_radar(&mut self, available: bool) -> Option<RadarAvailabilityCue> {
         match (available, self.phase) {
             (true, RadarAnimPhase::Offline | RadarAnimPhase::Closing) => {
-                self.phase = RadarAnimPhase::Opening
+                self.phase = RadarAnimPhase::Opening;
+                Some(RadarAvailabilityCue::On)
             }
-            (
-                false,
-                RadarAnimPhase::Online
-                | RadarAnimPhase::Opening
-                | RadarAnimPhase::MovieOpening
-                | RadarAnimPhase::MovieRestoring,
-            ) => self.phase = RadarAnimPhase::Closing,
-            _ => {}
+            //656C48 has no opening-style phase gate. Equality belongs to
+            //656DF0 above this direction helper, not to the phase itself.
+            (false, _) => {
+                self.phase = RadarAnimPhase::Closing;
+                Some(RadarAvailabilityCue::Off)
+            }
+            _ => None,
         }
     }
 
@@ -179,16 +188,24 @@ impl RadarPresentation {
         self.needs_upload = true;
         true
     }
-    pub(in crate::render) fn set_has_radar(&mut self, has_radar: bool) {
+    pub(in crate::render) fn set_has_radar(
+        &mut self,
+        has_radar: bool,
+    ) -> Option<RadarAvailabilityCue> {
+        //656DF8..656E02 compares/stores the availability byte before any
+        //direction or mode request. Idle renders cannot replay a cue.
+        if self.pending_radar == has_radar {
+            return None;
+        }
         self.pending_radar = has_radar;
         // SetMode656CB0 defers ordinary changes into +14B4 during modes3/4.
         if self.movie.is_some() {
-            return;
+            return None;
         }
         // 656DF0/656BE0 do not clear/dirty the native surface. A loss before
         // the next due draw must expose the last displayed map, not frame32.
         self.needs_upload |= !has_radar && self.animation.phase == RadarAnimPhase::Online;
-        self.animation.set_has_radar(has_radar);
+        self.animation.set_has_radar(has_radar)
     }
     pub(in crate::render) fn advance_draw(&mut self, wall_ms: u64) -> bool {
         let old_phase = self.animation.phase;
@@ -306,8 +323,13 @@ impl RadarAnimState {
         height: u32,
     ) -> Option<Self> {
         let presentation = RadarPresentation::new(frames_rgba, width, height)?;
-        let (texture_raw, texture) =
-            batch.create_updatable_texture(gpu, &presentation.surface.rgba, width, height);
+        let (texture_raw, texture) = batch.create_updatable_texture(
+            &gpu.device,
+            &gpu.queue,
+            &presentation.surface.rgba,
+            width,
+            height,
+        );
         Some(Self {
             presentation,
             texture,
@@ -328,8 +350,13 @@ impl RadarAnimState {
             return false;
         }
         if [width, height] != [self.width, self.height] {
-            let (raw, texture) =
-                batch.create_updatable_texture(gpu, &self.presentation.surface.rgba, width, height);
+            let (raw, texture) = batch.create_updatable_texture(
+                &gpu.device,
+                &gpu.queue,
+                &self.presentation.surface.rgba,
+                width,
+                height,
+            );
             self.texture_raw = raw;
             self.texture = texture;
             self.width = width;
@@ -337,8 +364,8 @@ impl RadarAnimState {
         }
         true
     }
-    pub fn set_has_radar(&mut self, has_radar: bool) {
-        self.presentation.set_has_radar(has_radar);
+    pub fn set_has_radar(&mut self, has_radar: bool) -> Option<RadarAvailabilityCue> {
+        self.presentation.set_has_radar(has_radar)
     }
     /// Native 653100 samples wall time once per draw, independent of game speed.
     pub fn tick(&mut self, gpu: &GpuContext, wall_ms: u64) {
@@ -464,7 +491,7 @@ mod tests {
             assert_eq!((a.frame, a.phase), (32, RadarAnimPhase::Online));
         }
         let mut radar = RadarPresentation::new(housing(), 2, 1).unwrap();
-        radar.set_has_radar(true);
+        let _ = radar.set_has_radar(true);
         radar.animation.phase = RadarAnimPhase::Online;
         radar.animation.frame = 32;
         assert!(radar.admit_movie());
@@ -480,7 +507,7 @@ mod tests {
             radar.movie_step(true, true),
             RadarMovieCommand::StartPlayback
         );
-        radar.set_has_radar(false);
+        let _ = radar.set_has_radar(false);
         assert_eq!(radar.movie, Some(MovieStage::Playback));
         radar.movie_pause_latch = true;
         radar.finish_movie(true);
@@ -496,6 +523,95 @@ mod tests {
         assert!(!radar.movie_pause_latch);
         assert_eq!(radar.animation.phase, RadarAnimPhase::Closing);
     }
+    /// Native656DF0 suppresses equal availability before direction admission;
+    ///656BE0 preserves the housing timer during both reversal arms.
+    #[test]
+    fn ordinary_availability_emits_only_admitted_direction_cues() {
+        use RadarAvailabilityCue::{Off, On};
+        let mut radar = RadarPresentation::new(housing(), 2, 1).unwrap();
+        assert_eq!(radar.set_has_radar(false), None);
+        assert_eq!(radar.set_has_radar(true), Some(On));
+        assert_eq!(radar.set_has_radar(true), None);
+        assert!(radar.advance_draw(1600));
+        let timer = (radar.animation.last_bucket, radar.animation.duration);
+        let frame = radar.animation.frame;
+        assert_eq!(radar.set_has_radar(false), Some(Off));
+        assert_eq!(radar.set_has_radar(false), None);
+        assert_eq!(radar.set_has_radar(true), Some(On));
+        assert_eq!(radar.animation.phase, RadarAnimPhase::Opening);
+        assert_eq!(radar.animation.frame, frame);
+        assert_eq!(
+            (radar.animation.last_bucket, radar.animation.duration),
+            timer
+        );
+
+        assert!(radar.admit_movie());
+        assert_eq!(radar.set_has_radar(false), None, "mode3/4 defers silently");
+        radar.finish_movie(false);
+        assert_eq!(radar.set_has_radar(false), None);
+        assert_eq!(radar.animation.phase, RadarAnimPhase::Closing);
+    }
+
+    /// Original House508DF0 reaches the sole setters on these native local
+    /// edges. House provider admission is covered by its existing core oracle;
+    /// this comparison consumes native setter inputs, including BL-only bools.
+    #[test]
+    fn original_house_radar_edges_match_admitted_cues_and_retained_timer() {
+        let native = crate::test_fixture::json("tools/input_oracle/radar_availability_audio.json");
+        let mut compared = 0;
+        for row in native["rows"].as_array().unwrap() {
+            let initial = &row["initial"]["radar"];
+            let mut radar = RadarPresentation::new(housing(), 2, 1).unwrap();
+            radar.pending_radar = initial["available"].as_bool().unwrap();
+            radar.animation.phase = phase(initial["phase"].as_i64().unwrap());
+            radar.animation.frame = initial["frame"].as_u64().unwrap() as usize;
+            radar.animation.last_bucket = initial["timer"][0].as_i64().unwrap() as i32;
+            radar.animation.duration = initial["timer"][2].as_i64().unwrap() as i32;
+            for boundary in row["phases"].as_array().unwrap() {
+                let calls = boundary["calls"].as_array().unwrap();
+                let actual: Vec<_> = calls
+                    .iter()
+                    .filter(|call| call["pc"] == 0x656df0_u64)
+                    .filter_map(|call| {
+                        // Native656DF8 reads BL; the caller's high bits are
+                        // retained register contents even for a false byte.
+                        radar.set_has_radar(call["args"][0].as_u64().unwrap() & 0xff != 0)
+                    })
+                    .collect();
+                let expected: Vec<_> = calls
+                    .iter()
+                    .filter(|call| call["pc"] == 0x750920_u64)
+                    .map(|call| match call["return_pc"].as_u64().unwrap() {
+                        0x656c37 => RadarAvailabilityCue::On,
+                        0x656c82 => RadarAvailabilityCue::Off,
+                        pc => panic!("unexpected original radar request return {pc:x}"),
+                    })
+                    .collect();
+                assert_eq!(actual, expected, "{} {}", row["name"], boundary["label"]);
+                let after = &boundary["after"]["radar"];
+                assert_eq!(radar.pending_radar, after["available"].as_bool().unwrap());
+                assert_eq!(
+                    radar.animation.phase,
+                    phase(after["phase"].as_i64().unwrap())
+                );
+                assert_eq!(
+                    radar.animation.frame,
+                    after["frame"].as_u64().unwrap() as usize
+                );
+                assert_eq!(
+                    radar.animation.last_bucket,
+                    after["timer"][0].as_i64().unwrap() as i32
+                );
+                assert_eq!(
+                    radar.animation.duration,
+                    after["timer"][2].as_i64().unwrap() as i32
+                );
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 20);
+    }
+
     fn online_snapshot(radar: &mut RadarPresentation, rgb: [u8; 3]) {
         let q = SpriteInstance {
             position: [0.; 2],
@@ -517,7 +633,7 @@ mod tests {
     fn production_radar_owner_keeps_predue_map_and_rebuilds_online_base() {
         let frames = housing();
         let mut radar = RadarPresentation::new(frames.clone(), 2, 1).unwrap();
-        radar.set_has_radar(true);
+        let _ = radar.set_has_radar(true);
         for frame in 1..=32 {
             assert!(radar.advance_draw((frame - 1) * 64));
             assert_eq!(radar.surface.rgba, frames[frame as usize]);
@@ -525,7 +641,7 @@ mod tests {
         assert_eq!(radar.phase(), RadarAnimPhase::Online);
         online_snapshot(&mut radar, [20, 40, 60]);
         let displayed = radar.surface.rgba.clone();
-        radar.set_has_radar(false);
+        let _ = radar.set_has_radar(false);
         assert!(
             radar.advance_draw(2032),
             "upload the retained map before timer is due"
@@ -536,7 +652,7 @@ mod tests {
             radar.surface.rgba, displayed,
             "internal map changes cannot overwrite closing backing"
         );
-        radar.set_has_radar(true);
+        let _ = radar.set_has_radar(true);
         assert!(!radar.advance_draw(2032));
         assert!(
             radar.advance_draw(2048),
@@ -548,7 +664,7 @@ mod tests {
             "old viewport lines cannot survive behind a new online draw"
         );
         online_snapshot(&mut radar, [100, 120, 140]);
-        radar.set_has_radar(false);
+        let _ = radar.set_has_radar(false);
         assert!(radar.advance_draw(2112));
         assert_eq!(radar.surface.rgba, frames[31]);
         assert_eq!(radar.phase(), RadarAnimPhase::Closing);
@@ -564,7 +680,7 @@ mod tests {
         // The development owner switch forces a source redraw; this regression
         // exercises that VERA interaction, not an invented native owner switch.
         let mut radar = RadarPresentation::new(housing(), 2, 1).unwrap();
-        radar.set_has_radar(true);
+        let _ = radar.set_has_radar(true);
         assert!(radar.advance_draw(1000));
         assert_eq!(radar.animation.frame, 1);
         let previous = radar.surface.rgba.clone();
@@ -591,80 +707,12 @@ mod tests {
         assert!(!radar.replace_frames(vec![vec![0; 8]; 32], 2, 1));
         assert_eq!(radar.surface.rgba, before_invalid);
         assert_eq!(radar.animation.frame, 2);
-        radar.set_has_radar(false);
+        let _ = radar.set_has_radar(false);
         assert!(!radar.advance_draw(1072));
         assert!(radar.advance_draw(1120));
         assert_eq!(
             (radar.phase(), radar.animation.frame),
             (RadarAnimPhase::Closing, 1)
-        );
-    }
-
-    #[test]
-    #[ignore = "timing probe; one fixed-size UI copy, independent of entity count"]
-    fn retained_radar_online_copy_timing() {
-        use std::{hint::black_box, time::Instant};
-        let width = 168;
-        let height = 110;
-        let mut radar = RadarPresentation::new(
-            vec![vec![255; width * height * 4]; 33],
-            width as u32,
-            height as u32,
-        )
-        .unwrap();
-        radar.set_has_radar(true);
-        for i in 0..32 {
-            radar.advance_draw(i * 64);
-        }
-        let source = [192, 168, 144, 255].repeat(140 * 108);
-        let mut map = SpriteInstance {
-            position: [648.25, 49.75],
-            size: [140., 108.],
-            uv_size: [1.; 2],
-            tint: [1.; 3],
-            alpha: 1.,
-            ..Default::default()
-        };
-        let line = SpriteInstance {
-            position: [650.25, 54.75],
-            size: [120., 1.],
-            tint: crate::render::sidebar_text::native_radar_outline_color(
-                crate::render::sidebar_chrome::SidebarTheme::Allied,
-            ),
-            uv_size: [1.; 2],
-            alpha: 1.,
-            ..Default::default()
-        };
-        for _ in 0..100 {
-            radar.retain_online_content(
-                &source,
-                [140, 108],
-                &[map],
-                [line].into_iter(),
-                [632.25, 48.75],
-            );
-        }
-        let mut samples = Vec::with_capacity(2000);
-        for i in 0..2000 {
-            map.position[0] = 648.25 + (i % 3) as f32;
-            let start = Instant::now();
-            radar.retain_online_content(
-                black_box(&source),
-                [140, 108],
-                &[map],
-                [line].into_iter(),
-                [632.25, 48.75],
-            );
-            black_box(&radar.surface.rgba);
-            samples.push(start.elapsed().as_secs_f64() * 1e6);
-        }
-        samples.sort_by(f64::total_cmp);
-        eprintln!(
-            "Radar online retained copy: 2000 calls, mean {:.3}us, p50 {:.3}us, p95 {:.3}us, max {:.3}us; fixed168x110 once per UI frame, no per-unit calls",
-            samples.iter().sum::<f64>() / samples.len() as f64,
-            samples[1000],
-            samples[1900],
-            samples[1999]
         );
     }
 
@@ -717,14 +765,14 @@ mod tests {
     #[test]
     fn availability_reversal_keeps_draw_timer_and_stalls_do_not_catch_up() {
         let mut a = RadarAnimation::default();
-        a.set_has_radar(true);
+        let _ = a.set_has_radar(true);
         assert!(a.advance_draw(1000));
         assert_eq!(a.frame, 1);
-        a.set_has_radar(false);
+        let _ = a.set_has_radar(false);
         assert!(!a.advance_draw(1016));
         assert!(a.advance_draw(1056));
         assert_eq!((a.frame, a.phase), (0, RadarAnimPhase::Offline));
-        a.set_has_radar(true);
+        let _ = a.set_has_radar(true);
         assert!(!a.advance_draw(1072));
         assert!(a.advance_draw(1_000_000));
         assert_eq!(a.frame, 1);

@@ -6,7 +6,7 @@
 //!   `threat_posed` (acquisition), `in_range` and `line_of_fire` (the range
 //!   gate), `combat_weapon` (weapon choice), and
 //!   `fire_error` and `fire_error_world` (legality).
-//! - Firing: `world_fire` (FireAt and the combat tick), `projectile_delivery`
+//! - Firing: `world_fire` (each class's FireAt visit and its commit), `projectile_delivery`
 //!   (the shot's BulletType facts and the Bullet's admission), `aim_coord`,
 //!   `fire_coord`, `burst`, `rof`, `gattling`, `inviso_scatter`, `laser`,
 //!   `electric_bolt` and `parasite`.
@@ -24,31 +24,32 @@
 //! - Part of sim/ — depends on sim/components and rules/ (RuleSet).
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-pub(crate) mod aim_coord;
+pub mod aim_coord;
 mod attack_target;
 pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
 pub(crate) mod combat_targeting;
-pub(crate) mod combat_weapon;
+pub mod combat_weapon;
 pub(crate) mod damage;
 pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;
 mod effects;
-pub(crate) mod electric_bolt;
-pub(crate) mod fire_coord;
-pub(crate) mod fire_error;
+pub mod electric_bolt;
+pub mod fire_coord;
+pub mod fire_error;
 pub(crate) mod fire_error_world;
-pub(crate) mod gattling;
+pub mod gattling;
 pub(crate) mod greatest_threat;
-pub(crate) mod in_range;
+pub mod in_range;
 pub(crate) mod inviso_scatter;
-pub(crate) mod laser;
-pub(crate) mod line_of_fire;
+pub mod laser;
+pub mod line_of_fire;
 mod object_health;
 pub(crate) mod parasite;
 mod projectile_delivery;
+pub mod radiation_beam;
 mod receiver_call;
 mod receiver_health;
 mod record_kill;
@@ -57,16 +58,19 @@ mod shrapnel;
 pub mod smudge_dispatch;
 mod techno_death;
 mod threat_mask;
+pub(crate) use threat_mask::quarry_mask;
 mod threat_posed;
 pub(crate) mod threat_range;
 mod unit_damage_response;
-pub(crate) mod veterancy;
-pub(crate) mod world_fire;
+pub mod veterancy;
+pub mod world_fire;
 pub(crate) mod world_receiver;
 
 #[cfg(test)]
 pub(crate) mod receiver_fixture;
 
+#[cfg(test)]
+mod aegis_launch_tests;
 #[cfg(test)]
 mod bridge_cluster_tests;
 #[cfg(test)]
@@ -78,21 +82,17 @@ mod combat_cloak_damage_tests;
 #[cfg(test)]
 mod combat_cloak_fire_tests;
 #[cfg(test)]
-mod combat_cloak_legality_tests;
-#[cfg(test)]
-mod combat_force_fire_cell_tests;
-#[cfg(test)]
 mod combat_tests;
 #[cfg(test)]
 mod combat_turret_facing_tests;
-#[cfg(test)]
-mod delayed_building_fire_tests;
 #[cfg(test)]
 mod electric_bolt_tests;
 #[cfg(test)]
 mod fireat_launch_tests;
 #[cfg(test)]
 mod garrison_oracle_tests;
+#[cfg(test)]
+mod homing_shipyard_tests;
 #[cfg(test)]
 mod ifv_fireat_tests;
 /// Ordinary launch-height, resolved impact presentation and damage-effect
@@ -109,6 +109,10 @@ mod open_topped_fire_tests;
 #[cfg(test)]
 mod prone_damage_tests;
 #[cfg(test)]
+mod radiation_beam_tests;
+#[cfg(test)]
+mod shrapnel_chain_tests;
+#[cfg(test)]
 mod unit_damage_response_tests;
 #[cfg(test)]
 mod walk_attack_tests;
@@ -122,11 +126,9 @@ pub use effects::{
     CombatLightRequest, ExplosionEffect, SmudgeSpawnRequest, TiberiumReductionRequest,
     UnderAttackEvent, UnitLostEvent,
 };
-pub(crate) use in_range::{
-    can_fire_at_target, can_fire_at_target_in_query, is_within_range_leptons,
-    lepton_distance_sq_raw,
-};
-pub use object_health::Health;
+pub use in_range::can_fire_at_target;
+pub use in_range::{can_fire_at_target_in_query, is_within_range_leptons, lepton_distance_sq_raw};
+pub use object_health::{Health, health_category};
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
 pub use receiver_call::TerrainDamageEvent;
 pub(crate) use receiver_call::{
@@ -135,8 +137,9 @@ pub(crate) use receiver_call::{
 };
 pub(crate) use receiver_health::BerserkState;
 pub(crate) use record_kill::{KillCallback, KillRecord, KillSource};
+pub use techno_death::FatalLifecycleStage;
 pub(crate) use techno_death::{
-    FatalLifecycleStage, death_announcement_event, death_arm_explodes, death_weapon_detonation,
+    death_announcement_event, death_arm_explodes, death_weapon_detonation, select_death_sound,
 };
 pub(crate) use threat_posed::live_threat_posed;
 /// The threat mask an acquisition callsite pushes into
@@ -159,19 +162,19 @@ use receiver_call::{
 use shrapnel::emit_projectile_shrapnel;
 use techno_death::{ConcreteDeathSmudgePlan, append_selected_death_sounds, throw_debris_for_death};
 
-#[cfg(test)]
-pub(crate) use attack_target::{
+#[cfg(any(test, feature = "test-support"))]
+pub use attack_target::{
     install_cell_attack_target_for_test, install_entity_attack_target_for_test,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use destruction_effects::building_center_smudge_request;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use detonation_anim::impact_z_byte;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) use effects::ReceiverStageTrace;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use effects::tiberium_reduction_amount;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use receiver_call::infantry_prone_raw_damage;
 #[cfg(test)]
 pub(crate) use receiver_fixture::{
@@ -179,7 +182,7 @@ pub(crate) use receiver_fixture::{
     commit_damage_events, emit_projectile_detonations, handle_entity_deaths, resolve_attacker_fire,
     tick_combat, tick_combat_with_fog, tick_combat_with_fog_and_main_rng,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use techno_death::fire_death_weapon_payload;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -197,7 +200,7 @@ use crate::rules::ruleset::{HouseCostFactors, RuleSet};
 use crate::rules::warhead_type::WarheadType;
 use crate::rules::weapon_type::WeaponType;
 use crate::sim::bridge_state::BridgeDamageEvent;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::house_state::HouseState;
@@ -208,10 +211,11 @@ use crate::sim::mission::authority::queue_entity_mission_deferred;
 use crate::sim::mission::concrete_effects::represented_assign_target;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::object_world_z_leptons;
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::overlay_grid::OverlayGrid;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::overlay_grid::WallMutation;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::power_system::PowerState;
 use crate::sim::projectile::{
     ProjectileCollisionPolicy, ProjectileCoord, ProjectileDetonation, ProjectileGuidance,
@@ -223,15 +227,19 @@ use crate::sim::projectile::{
 };
 use crate::sim::rng::SimRng;
 use crate::sim::terrain_object::TerrainAreaReceiveResult;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::terrain_object::TerrainAreaState;
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::vision::FogState;
-use crate::sim::world::{FireOriginSnapshot, SimFireEvent, SimSoundEvent, Simulation};
+#[cfg(any(test, feature = "test-support"))]
+use crate::sim::world::FireOriginSnapshot;
+use crate::sim::world::{SimFireEvent, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53};
 
 use super::game_entity::GameEntity;
+#[cfg(any(test, feature = "test-support"))]
 use super::occupancy::OccupancyGrid;
 
 /// One Unit's post-Foot Facing slot output for this tick — the write half of
@@ -245,6 +253,9 @@ pub struct UnitFacingUpdate {
     /// turret this frame — the difference between holding an aim and swinging
     /// back to the hull.
     pub turret_destination: Option<u16>,
+    /// Apply the native `TurretSpins` arm after the optional arm-A aim Set.
+    /// The writer samples the barrel's Current and performs this second Set.
+    pub turret_spins: bool,
     /// Hull (`+0x388`) destination. Set by `Fire_At_Target` case 2 when a
     /// TURRETLESS vehicle is refused for facing while stationary, and by the
     /// `Facing_Update` arm-A mid-arc pin.
@@ -264,6 +275,7 @@ impl UnitFacingUpdate {
         Self {
             entity_id,
             turret_destination: update.turret_destination,
+            turret_spins: update.turret_spins,
             hull_destination: update.hull_destination,
             turret_destination_is_idle_return: update.turret_destination_is_idle_return,
         }
@@ -299,17 +311,10 @@ pub fn armor_index(armor: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Aircraft retain their existing phased Mission_Attack delivery. Other
-/// class FireAt callers enter the live receiver inside their own Logic visit.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct FireRequests {
-    pub aircraft: std::collections::BTreeSet<u64>,
-}
-
 /// Call-local arguments of Building Update's two native FireAt sites.
 /// This value is delivered immediately; no future-shot queue retains it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuildingShot {
+pub enum BuildingShot {
     /// Mission_Attack44B6D0, before its Gattling charge44B6EF.
     Mission { weapon: i32, target: TargetKind },
     /// ProcessDelayedFire450492 uses the slot saved at admission. A
@@ -328,26 +333,20 @@ impl BuildingShot {
     }
 }
 
-/// Ordinary fire prelude plus one consuming deferred-consequence packet.
-/// The frame admits bullets and applies facing before committing the packet at
-/// its existing post-SpawnManager boundary.
+/// What the receiver fixture's combat pass (`world_fire::tick_combat`) did:
+/// its observations plus one consuming deferred-consequence packet.
+#[cfg(test)]
 pub struct CombatTickResult {
     /// Test adapter observations of actual inline AnimStore construction.
-    #[cfg(test)]
     pub(crate) fixture_anims: Vec<receiver_fixture::ConstructedAnimObservation>,
-    /// Shrapnel bullets from detonations the combat pass committed; the frame
-    /// admits them before its Logic tail visits the new objects. FireAt admits
-    /// its own bullets directly.
+    /// Test observations of bullets already admitted through production owners.
     pub projectile_spawns: Vec<ProjectileSpawn>,
-    /// Facing observations for component combat fixtures. Production Unit
-    /// facing commits within that Unit's live Logic slot.
-    pub unit_facing: Vec<UnitFacingUpdate>,
     pub(crate) consequences: crate::sim::world::damage_consequences::DamageConsequences,
 }
 
-/// Transient outputs shared by live object fire and the remaining class hosts.
-/// The fire body and inline receiver boundary collect through one handle;
-/// each host consumes its deliveries after committing per-firer effects.
+/// Transient outputs of one firer's fire visit. The fire body and inline
+/// receiver boundary collect through one handle; each host consumes its
+/// deliveries after committing per-firer effects.
 /// Never stored on `Simulation`, serialized or hashed. Hosts destructure all
 /// fields so adding an output requires an explicit delivery decision.
 #[derive(Default)]
@@ -355,9 +354,6 @@ pub(crate) struct CombatEmit {
     /// One receiver-ordered consequence accumulator shared by weapon emission
     /// and fatal damage. Radiation is drained at its earlier ordinary phase.
     pub(crate) effects: DeathEffects,
-    /// Recursive/shrapnel bullet emissions awaiting the caller's admission.
-    /// FireAt admits its own ordinary Bullet directly into the live Logic walk.
-    pub(crate) projectile_spawns: Vec<ProjectileSpawn>,
     /// Native-order ReceiveDamage calls, including raw area records.
     pub(crate) damage_events: Vec<combat_aoe::AreaDamageReceiver>,
     pub(crate) remove_attack: Vec<u64>,
@@ -380,7 +376,6 @@ pub(crate) struct CombatEmit {
 /// Outputs produced by one Bullet Logic slot after its detonation receivers
 /// have committed, but before the world retires the Bullet object itself.
 pub(crate) struct LogicProjectileCommit {
-    pub(crate) projectile_spawns: Vec<ProjectileSpawn>,
     pub(crate) effects: DeathEffects,
     pub(crate) under_attack_events: Vec<UnderAttackEvent>,
 }

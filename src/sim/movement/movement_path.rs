@@ -15,17 +15,17 @@ use crate::sim::pathfinding::{
 
 use super::PathfindingContext;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn reset_path_search_used_zone_grid_marker() {
     PATH_SEARCH_USED_ZONE_GRID.with(|used| used.set(false));
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn path_search_used_zone_grid_marker() -> bool {
     PATH_SEARCH_USED_ZONE_GRID.with(|used| used.get())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     static PATH_SEARCH_USED_ZONE_GRID: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -174,7 +174,7 @@ pub(super) fn find_move_path(
     };
     let grid = ctx.path_grid.ok_or(MovePathFailure::MissingGrid)?;
     let zone_grid = ctx.zone_grid;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if zone_grid.is_some() {
         PATH_SEARCH_USED_ZONE_GRID.with(|used| used.set(true));
     }
@@ -245,144 +245,8 @@ pub(super) fn find_move_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::resolved_terrain::{
-        ResolvedTerrainCell, ResolvedTerrainGrid, YR_CELL_LAND_TUNNEL,
-    };
-    use crate::map::tube_facts::{TubeFact, TubeId};
-    use crate::sim::pathfinding::zone_map::ZoneGrid;
-    use crate::sim::pathfinding::{SearchEntryQuery, SearchFootEntry, WalkableEntry};
 
-    fn make_resolved_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
-        ResolvedTerrainCell {
-            ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
-        }
-    }
-
-    #[test]
-    fn path_failure_detail_distinguishes_missing_grid_from_executed_search() {
-        use crate::sim::pathfinding::zone_search::PathSearchFailure;
-        fn search(grid: Option<&PathGrid>) -> Result<LayeredPath, MovePathFailure> {
-            let fallback = PathGrid::new(1, 1);
-            find_move_path(
-                PathfindingContext {
-                    path_grid: grid,
-                    zone_grid: None,
-                    resolved_terrain: None,
-                    playfield_bounds: None,
-                    blocker_neighbor_counts: None,
-                },
-                false,
-                (0, 1),
-                MovementLayer::Ground,
-                (4, 1),
-                MovementZone::Normal,
-                Some(MovementZone::Normal),
-                None,
-                0,
-                false,
-                &WalkableEntry::new(grid.unwrap_or(&fallback)),
-            )
-        }
-        assert_eq!(search(None), Err(MovePathFailure::MissingGrid));
-        let mut grid = PathGrid::test_all_passable(5, 3);
-        let (path, layers) = search(Some(&grid)).expect("open cell search");
-        assert_eq!(path.first(), Some(&(0, 1)));
-        assert_eq!(path.last(), Some(&(4, 1)));
-        assert_eq!(layers, vec![MovementLayer::Ground; path.len()]);
-        for y in 0..3 {
-            grid.set_blocked(2, y, true);
-        }
-        assert_eq!(
-            search(Some(&grid)),
-            Err(MovePathFailure::Search(
-                PathSearchFailure::CellSearchExhausted
-            ))
-        );
-    }
-
-    #[test]
-    fn explicit_tube_path_survives_zone_precheck_and_smoothing() {
-        let mut cells: Vec<_> = (0..5).map(|x| make_resolved_cell(x, 0)).collect();
-        cells[0].yr_cell_land_type = YR_CELL_LAND_TUNNEL;
-        cells[0].tube_index = Some(TubeId(0));
-        for cell in &mut cells[1..4] {
-            cell.ground_walk_blocked = true;
-            cell.base_ground_walk_blocked = true;
-        }
-        let terrain = ResolvedTerrainGrid::from_cells_with_tubes(
-            5,
-            1,
-            cells,
-            vec![TubeFact::explicit((0, 0), (4, 0), 2, vec![2, 2, 2, 2])],
-        );
-        let grid = PathGrid::from_resolved_terrain(&terrain);
-        let zone_grid = ZoneGrid::build_with_terrain(&grid, &terrain, &[], 5, 1);
-
-        let (path, layers) = find_move_path(
-            PathfindingContext {
-                path_grid: Some(&grid),
-                zone_grid: Some(&zone_grid),
-                resolved_terrain: Some(&terrain),
-                playfield_bounds: None,
-                blocker_neighbor_counts: None,
-            },
-            false,
-            (0, 0),
-            MovementLayer::Ground,
-            (4, 0),
-            MovementZone::Normal,
-            Some(MovementZone::Normal),
-            None,
-            0,
-            true,
-            &WalkableEntry::with_cells(&grid, &terrain),
-        )
-        .expect("movement path should use explicit tube despite disconnected zones");
-
-        assert_eq!(path, vec![(0, 0), (4, 0)]);
-        assert_eq!(layers, vec![MovementLayer::Ground, MovementLayer::Ground]);
-    }
-
-    #[test]
-    fn move_path_marker_overlay_survives_path_smoothing() {
-        let grid = PathGrid::test_all_passable(5, 3);
-        let mut marker_overlay = SearchMarkerOverlay::new();
-        marker_overlay.toggle((1, 1));
-        marker_overlay.toggle((2, 1));
-        marker_overlay.toggle((3, 1));
-
-        let (path, layers) = find_move_path(
-            PathfindingContext {
-                path_grid: Some(&grid),
-                zone_grid: None,
-                resolved_terrain: None,
-                playfield_bounds: None,
-                blocker_neighbor_counts: None,
-            },
-            false,
-            (0, 1),
-            MovementLayer::Ground,
-            (4, 1),
-            MovementZone::Normal,
-            Some(MovementZone::Normal),
-            Some(&marker_overlay),
-            0,
-            true,
-            &WalkableEntry::new(&grid),
-        )
-        .expect("marker overlay should still allow a path");
-
-        assert_eq!(path.first().copied(), Some((0, 1)));
-        assert_eq!(path.last().copied(), Some((4, 1)));
-        assert!(
-            !path
-                .iter()
-                .any(|cell| matches!(cell, (1, 1) | (2, 1) | (3, 1))),
-            "path smoothing must not collapse the marker-avoiding route back through {:?}",
-            path
-        );
-        assert_eq!(path.len(), layers.len());
-    }
+    use crate::sim::pathfinding::{SearchEntryQuery, SearchFootEntry};
 
     #[test]
     fn gsi_04_12_layered_failure_does_not_retry_flat_ground_path() {
@@ -456,87 +320,6 @@ mod tests {
         assert!(
             layered.is_err(),
             "a failed layered search must remain failed instead of launching a second flat A*"
-        );
-    }
-
-    /// A wall line that **disconnects** the map is refused before the live
-    /// Foot `+0x1AC` receiver classifies any cell, even when it would price the
-    /// wall for a mover that can shoot it.
-    ///
-    /// `zone_search` compares the start and goal base zone labels and returns
-    /// `Err` without calling `astar_search`; a non-crushable `Wall=yes` reduces
-    /// to `zone_class::WALL`, which the zone flood fill treats as impassable, so
-    /// a line across the only route puts the endpoints in different zones.
-    /// Native rejects on the same comparison and under the same condition:
-    /// `0x0042CB2A CMP EAX,EDX` / `0x0042CB30 JZ` (labels equal, continue) /
-    /// `0x0042CB34 JZ 0x0042CB8B` (hierarchy unusable, fall through) /
-    /// `0x0042CB39 XOR EAX,EAX; RET`. VERA guards its own rejection on
-    /// `hierarchy_counts_available` and a live level-0 hierarchy, which is the
-    /// same shape. Pricing (`astar_entry_tests`) only matters for a wall line
-    /// the zone map can route around.
-    #[test]
-    fn a_wall_line_that_disconnects_the_map_is_refused_before_the_cost_class_runs() {
-        use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-        use crate::sim::pathfinding::SearchEntryCandidate;
-
-        let mut cells = Vec::with_capacity(15);
-        for ry in 0..3u16 {
-            for rx in 0..5u16 {
-                let mut cell = ResolvedTerrainCell::clear_for_test(rx, ry);
-                cell.speed_costs.track = Some(100);
-                if rx == 2 {
-                    cell.zone_type = zone_class::WALL;
-                    cell.overlay_zone_type = Some(zone_class::WALL);
-                    cell.overlay_blocks = true;
-                }
-                cells.push(cell);
-            }
-        }
-        let terrain = ResolvedTerrainGrid::from_cells(5, 3, cells);
-        let grid = PathGrid::from_resolved_terrain(&terrain);
-        let zone_grid = ZoneGrid::build_with_terrain(&grid, &terrain, &[], 5, 3);
-        let counts = crate::sim::pathfinding::BlockerNeighborCounts::new(5, 3);
-
-        // The receiver of an armed mover whose warhead has `Wall=`: 5 for the
-        // unowned wall line, clear elsewhere. It counts every question.
-        struct WallLine(std::cell::Cell<usize>);
-        impl SearchFootEntry for WallLine {
-            fn classify(&self, query: SearchEntryQuery) -> Result<u8, String> {
-                self.0.set(self.0.get() + 1);
-                Ok(match query.candidate {
-                    SearchEntryCandidate::CopiedCoord((2, _)) => 5,
-                    _ => 0,
-                })
-            }
-        }
-        let entry = WallLine(std::cell::Cell::new(0));
-        let path = find_move_path(
-            PathfindingContext {
-                path_grid: Some(&grid),
-                zone_grid: Some(&zone_grid),
-                resolved_terrain: Some(&terrain),
-                playfield_bounds: None,
-                blocker_neighbor_counts: Some(&counts),
-            },
-            false,
-            (0, 1),
-            MovementLayer::Ground,
-            (4, 1),
-            MovementZone::Normal,
-            Some(MovementZone::Normal),
-            None,
-            0,
-            true,
-            &entry,
-        );
-        assert!(
-            path.is_err(),
-            "a wall line that splits the map is refused by the zone comparison: {path:?}"
-        );
-        assert_eq!(
-            entry.0.get(),
-            0,
-            "the zone comparison refuses before any cell is classified"
         );
     }
 }

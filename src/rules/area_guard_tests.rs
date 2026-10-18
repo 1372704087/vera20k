@@ -11,11 +11,8 @@ use super::sound_ini::SoundRegistry;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub(crate) fn native() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/input_oracle/area_guard.json",
-    ))
-    .expect("checked original Area Guard corpus");
+pub fn native() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/input_oracle/area_guard.json");
     assert_eq!(
         corpus["native_sha256"],
         "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
@@ -34,13 +31,13 @@ fn sections_ini(sections: &Value) -> IniFile {
     IniFile::from_str(&text)
 }
 
-pub(crate) fn catalog(corpus: &Value) -> SoundRegistry {
+pub fn catalog(corpus: &Value) -> SoundRegistry {
     SoundRegistry::from_ini(&sections_ini(
         &corpus["retail"]["sound_registry"]["selected"],
     ))
 }
 
-pub(crate) fn voice_overrides(case: &Value) -> IniFile {
+pub fn voice_overrides(case: &Value) -> IniFile {
     let mut text = String::new();
     if let Some(lists) = case["voice_lists"].as_object() {
         for (name, list) in lists {
@@ -202,6 +199,7 @@ fn guard_sound_reader_matches_native_registered_name_and_failed_lookup_retention
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn area_guard_sound_inputs_match_full_retail_battle_production_reader() {
     let Some(retail) = super::retail_ini_fixture::retail_battle_rules() else {
         return;

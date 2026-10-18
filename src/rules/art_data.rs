@@ -171,8 +171,8 @@ pub struct ArtEntry {
     /// Parsed from DamageFireOffset0=X,Y .. DamageFireOffset7=X,Y in art.ini. Max 8.
     pub damage_fire_offsets: Vec<DamageFireOffset>,
     /// Building height in cell-height units (from `Height=` in art.ini).
-    /// Used for health bar vertical positioning: Dimension2.Z = (fh + Height) * 256
-    /// leptons, projected via CoordsToScreen as z_screen = (fh + Height) * 7.5 px.
+    /// BuildingType Dimension2 (464AF0) uses Height * 104 world leptons for Z;
+    /// its X/Y dimensions independently use the foundation's 256-lepton cells.
     pub height: i32,
     /// Fire port pixel offsets for garrison muzzle flashes.
     /// Parsed from `MuzzleFlash0=X,Y` through `MuzzleFlash9=X,Y` in art.ini.
@@ -799,7 +799,7 @@ pub const fn anim_translucency_source_alpha(draw_bits: u32) -> f32 {
 /// frame, then convert them to the source weight the native blend applies. An
 /// animation with neither `Translucent=` nor a recognised `Translucency=` returns
 /// `1.0`, so wiring this in cannot change an opaque animation.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn anim_frame_source_alpha(
     config: &AnimTypeRuntimeConfig,
     current_frame: i32,
@@ -982,8 +982,9 @@ pub struct ResolvedObjectArt<'a> {
     /// Final image id after art.ini `Image=` override.
     pub image_id: String,
     /// Section id whose metadata should be used for overlays/bibs/anims.
+    #[cfg(test)]
     pub metadata_section_id: String,
-    /// Parsed art entry for `metadata_section_id`, if present.
+    /// Parsed art entry for the metadata section, if present.
     pub entry: Option<&'a ArtEntry>,
 }
 
@@ -999,11 +1000,6 @@ pub struct ArtRegistry {
     can_hide_things: HashMap<String, bool>,
     /// section ID (uppercase) -> `OccupyHeight=`, defaulting to art `Height=`.
     occupy_heights: HashMap<String, i32>,
-    /// section ID (uppercase) -> generic AnimType frame delay from `Rate=`.
-    /// Missing `Rate=` keeps the gamemd constructor default of one logic frame.
-    rates_ms: HashMap<String, u16>,
-    /// section ID (uppercase) -> native AnimType frame delay in logic frames.
-    rates_logic_frames: HashMap<String, u16>,
     /// section ID (uppercase) -> generic AnimType runtime metadata.
     anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig>,
     /// Full deterministic Next/Trailer closure reachable from scheduler-owned roots.
@@ -1108,8 +1104,6 @@ impl ArtRegistry {
         let mut entry_names: HashMap<String, String> = HashMap::new();
         let mut can_hide_things: HashMap<String, bool> = HashMap::new();
         let mut occupy_heights: HashMap<String, i32> = HashMap::new();
-        let mut rates_ms: HashMap<String, u16> = HashMap::new();
-        let mut rates_logic_frames: HashMap<String, u16> = HashMap::new();
         let mut anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig> = HashMap::new();
         let mut damage_fire_offsets_valid = true;
 
@@ -1230,12 +1224,6 @@ impl ArtRegistry {
             let [fire_up, fire_prone, secondary_fire, secondary_prone] = discharge_frames;
             let report = section.read_name("Report", 0x80).map(str::to_owned);
             let start_sound = section.read_name("StartSound", 0x80).map(str::to_owned);
-            let rate = read_anim_rate(section);
-            let rate_ms: u16 = rate.map_or(DEFAULT_ART_RATE_MS, |rate| {
-                art_rate_to_delay_ms(rate) as u16
-            });
-            let rate_logic_frames: u16 =
-                rate.map_or(DEFAULT_ART_RATE_LOGIC_FRAMES, art_rate_to_logic_frames);
             let anim_runtime_config = parse_anim_runtime_config(section);
             let extra_light: i32 = section.read_int("ExtraLight", 0);
             let queueing_cell = section.read_minmax("QueueingCell", [0, 0]);
@@ -1312,8 +1300,6 @@ impl ArtRegistry {
             let section_key = section_name.to_uppercase();
             can_hide_things.insert(section_key.clone(), can_hide);
             occupy_heights.insert(section_key.clone(), occupy_height);
-            rates_ms.insert(section_key.clone(), rate_ms);
-            rates_logic_frames.insert(section_key.clone(), rate_logic_frames);
             anim_runtime_configs.insert(section_key.clone(), anim_runtime_config);
             entry_names.insert(section_key, section_name.to_owned());
             entries.insert(
@@ -1398,8 +1384,6 @@ impl ArtRegistry {
             entry_names,
             can_hide_things,
             occupy_heights,
-            rates_ms,
-            rates_logic_frames,
             anim_runtime_configs,
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid,
@@ -1413,8 +1397,6 @@ impl ArtRegistry {
             entry_names: HashMap::new(),
             can_hide_things: HashMap::new(),
             occupy_heights: HashMap::new(),
-            rates_ms: HashMap::new(),
-            rates_logic_frames: HashMap::new(),
             anim_runtime_configs: HashMap::new(),
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid: true,
@@ -1431,24 +1413,12 @@ impl ArtRegistry {
     /// Native Foundation474DA0 uses exact section/key identity. The cached
     /// present value came from that shared reader during construction; missing
     /// retains its supplied current index. No visual case folding participates.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn read_foundation(&self, section: &str, current: u8) -> u8 {
         self.entries
             .get(section)
             .and_then(|entry| entry.foundation)
             .unwrap_or(current)
-    }
-
-    /// Generic AnimType frame delay for an art section, from `Rate=`.
-    pub fn rate_ms(&self, image_id: &str) -> Option<u16> {
-        self.rates_ms.get(&image_id.to_uppercase()).copied()
-    }
-
-    /// Generic AnimType frame delay in native logic frames for an art section.
-    pub fn rate_logic_frames(&self, image_id: &str) -> Option<u16> {
-        self.rates_logic_frames
-            .get(&image_id.to_uppercase())
-            .copied()
     }
 
     /// Generic native-like AnimType runtime metadata for an art section.
@@ -1480,8 +1450,8 @@ impl ArtRegistry {
         &self.scheduler_anim_types
     }
 
-    #[cfg(test)]
-    pub(crate) fn bind_anim_frame_count_for_test(&mut self, name: &str, raw_count: i32) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn bind_anim_frame_count_for_test(&mut self, name: &str, raw_count: i32) {
         let key = name.to_ascii_uppercase();
         let config = self
             .anim_runtime_configs
@@ -1502,7 +1472,7 @@ impl ArtRegistry {
     }
 
     /// The SHP header height `+4` asset binding would read for `name`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn bind_anim_shp_height_for_test(&mut self, name: &str, raw_height: i32) {
         self.anim_runtime_configs
             .get_mut(&name.to_ascii_uppercase())
@@ -1746,6 +1716,7 @@ impl ArtRegistry {
         ResolvedObjectArt {
             base_art_id,
             image_id,
+            #[cfg(test)]
             metadata_section_id,
             entry,
         }
@@ -2176,7 +2147,7 @@ pub fn overlay_shp_candidates(
 /// deliberately broader compatibility list, while the native object-type
 /// loader constructs exactly one name and only retries after forcing its
 /// second character to `G`.
-pub(crate) fn native_overlay_shp_names(
+pub fn native_overlay_shp_names(
     art: &ArtRegistry,
     image_id: &str,
     theater_ext: &str,
@@ -2362,7 +2333,7 @@ fn apply_theater_letter(name: &str, theater_name: &str) -> String {
 /// The two names gamemd's theater lookup tries for an SHP (uppercase, without
 /// extension): `FUN_005F96B0` puts the theater's letter second in a
 /// `[GNCY][AT]` name, then `FUN_005F9710` puts `G` second on the same buffer.
-pub(crate) fn theater_shp_names(upper_name: &str, theater_name: &str) -> [String; 2] {
+pub fn theater_shp_names(upper_name: &str, theater_name: &str) -> [String; 2] {
     let first = if takes_theater_letter(upper_name) {
         apply_theater_letter(upper_name, theater_name)
     } else {

@@ -20,11 +20,8 @@ use crate::sim::world::bridge_test_evidence;
 use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
 
-fn packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/engineer_bridge_cursor_caller.json",
-    ))
-    .unwrap()
+fn packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/engineer_bridge_cursor_caller.json")
 }
 
 /// Supplied target identity, classified by the same loaded friendship owner

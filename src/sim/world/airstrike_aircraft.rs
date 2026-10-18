@@ -12,6 +12,7 @@ use super::{FrameEffects, PlacementEvidence, Simulation};
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose;
 
@@ -82,12 +83,17 @@ impl Simulation {
             //65E91C..65E94F: Winged, zone -1, Normal, bridge-zone false,
             //1x1, no height/occupation/overlay gate, bridges allowed.
             let cell = self
-                .find_plain_passable_cell(
+                .nearby_passable_cell(
                     (i32::from(seed.0 as i16), i32::from(seed.1 as i16)),
-                    SpeedType::Winged,
-                    None,
-                    MovementZone::Normal,
-                    (1, 1),
+                    NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type: SpeedType::Winged,
+                            required_zone_id: None,
+                            movement_zone: MovementZone::Normal,
+                            bridge_aware_zone: false,
+                        },
+                        NearbyFootprint::SINGLE,
+                    ),
                 )
                 .unwrap_or((0, 0));
             crate::sim::mission::authority::queue_entity_mission_deferred(
@@ -132,8 +138,7 @@ mod tests {
     use crate::sim::world::edge_cell::Edge;
 
     fn world() -> Option<(RuleSet, Simulation, u64, u64)> {
-        let (rules_ini, art_ini) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
-        let rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
+        let rules = crate::rules::retail_ini_fixture::retail_unlayered_rules()?;
         let (rules, mut sim, _) =
             crate::sim::superweapon::chronosphere_tests::world_with(rules, 64, &[]);
         sim.playfield_bounds = Some(PlayfieldBounds::from_raw_local_size(32, 32, [2, 4, 28, 22]));
@@ -236,11 +241,7 @@ mod tests {
                 plane
                     .mission
                     .set_current_for_test(MissionId::from_known(MissionType::Attack), 5);
-                plane
-                    .aircraft_ammo
-                    .as_mut()
-                    .unwrap()
-                    .set_current_for_test(2);
+                plane.ammo_mut().unwrap().set_current_for_test(2);
                 sim.assign_target_represented(
                     id,
                     target,
@@ -252,7 +253,7 @@ mod tests {
                 let plane = sim.substrate.entities.get(id).unwrap();
                 let should_clear = matches!(name, "BPLN" | "HORNET");
                 assert_eq!(
-                    plane.aircraft_ammo.as_ref().unwrap().current(),
+                    plane.ammo().unwrap().current(),
                     if should_clear { 0 } else { 2 },
                     "{name}, {target:?}"
                 );

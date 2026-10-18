@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::shp_file::ShpFile;
 use crate::rules::art_data;
+use crate::rules::ini_parser::IniFile;
+use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 
 /// Raw and consumer-visible frame counts for one authoritative effect asset.
@@ -17,18 +19,6 @@ use crate::rules::ruleset::RuleSet;
 pub struct EffectAssetFrameCounts {
     raw: u16,
     available: u16,
-}
-
-impl EffectAssetFrameCounts {
-    /// Literal unsigned frame count declared at SHP header offset `+6`.
-    pub fn raw(self) -> u16 {
-        self.raw
-    }
-
-    /// Existing effect-visible count after the AnimType body/shadow split.
-    pub fn available(self) -> u16 {
-        self.available
-    }
 }
 
 /// Deterministic match input derived from particle image SHPs.
@@ -98,7 +88,8 @@ impl EffectAssetCatalog {
     }
 
     /// Consumer-visible frame count (particle image timing).
-    pub fn effect_frame_count(&self, name: &str) -> Option<u16> {
+    #[cfg(test)]
+    fn effect_frame_count(&self, name: &str) -> Option<u16> {
         self.entry(name).map(|counts| counts.available)
     }
 
@@ -108,27 +99,20 @@ impl EffectAssetCatalog {
     /// AnimType body/shadow split. Native behavior for a modded particle image
     /// carrying `Shadow=yes` remains UNCHECKED; retaining both values prevents
     /// the catalog from baking that policy decision into asset binding.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn raw_frame_count(&self, name: &str) -> Option<u16> {
         self.entry(name).map(|counts| counts.raw)
     }
 
     /// Entries in canonical asset-name order.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn iter(&self) -> impl Iterator<Item = (&str, EffectAssetFrameCounts)> {
         self.entries
             .iter()
             .map(|(name, counts)| (name.as_str(), *counts))
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
+    #[cfg(any(test, feature = "test-support"))]
     fn entry(&self, name: &str) -> Option<&EffectAssetFrameCounts> {
         canonical_asset_id(name).and_then(|name| self.entries.get(&name))
     }
@@ -141,7 +125,7 @@ impl EffectAssetCatalog {
             .insert(name, EffectAssetFrameCounts { raw, available });
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, name: &str, raw: u16, available: u16) {
         self.insert(name.to_string(), raw, available);
     }
@@ -189,6 +173,14 @@ pub(crate) const ROCKET_TRAIL_ANIM: &str = "V3TRAIL";
 /// it by `AnimTypeClass::FindIndex @ 0x00427CB0` on the literal
 /// `0x0081AF8C` (`0x00467EB1`); no rules key names it.
 pub(crate) const NUKE_BALL_ANIM: &str = "NUKEBALL";
+
+/// Nuclear warning literal81907C: one-time Launch6CDB86 ->43B5E0 and
+/// Building Mission_Missile44C9DC. Both construct an ordinary AnimClass.
+pub(crate) const PSI_WARNING_ANIM: &str = "PSIWARN";
+
+/// ParasiteClass::UpdateSquidGrapple6298CC looks up this executable literal
+/// (83665C), independently of weapon AnimList and other authored roots.
+pub(crate) const SQUID_GRAPPLE_ANIM: &str = "SQDG";
 
 /// Every animation name the simulation can turn into an `AnimClass` instance,
 /// which the loader must bind before the match starts.
@@ -249,9 +241,16 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
             .chain(&object.destroy_anims)
             .chain(&object.debris_anims)
             .chain(&object.deploying_anim)
+            .chain(&object.dead_bodies)
         {
             insert(name);
         }
+    }
+    // Infantry520BC6..520CA4 constructs its type's DeadBodies, else the
+    // General list. The completion owner must find bound physical shapes
+    // even when no warhead or other producer names these corpse animations.
+    for name in &rules.general.dead_bodies {
+        insert(name);
     }
     for name in &rules.general.metallic_debris {
         insert(name);
@@ -349,7 +348,31 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     // The nuke's buildup (`sim::superweapon::nuke`): without this root the
     // falling missile waited on no anim and struck one frame after landing.
     insert(NUKE_BALL_ANIM);
+    insert(PSI_WARNING_ANIM);
+    insert(SQUID_GRAPPLE_ANIM);
     roots.into_iter().collect()
+}
+
+/// AnimClass asset roots bound tolerantly: a type whose SHP is missing draws
+/// nothing, as natively, instead of failing the load.
+///
+/// Building animations belong here, not in the strict scheduler closure. Art
+/// defines building sections no rules list names and whose sprites retail never
+/// shipped (`[CAARAY]` with `ActiveAnim=CAARAY_A`), and a few real buildings
+/// name animations no archive holds (`GAGAP_A`, `GAREFNL4`), so requiring every
+/// art building animation made every retail map fail to load. (Most of the
+/// names that first failed were a separate resolver fault, since fixed in
+/// `art_data::anim_shp_candidates`.)
+pub fn tolerant_anim_class_roots(rules: &RuleSet) -> Vec<String> {
+    let mut roots = anim_class_roots(rules);
+    roots.extend(
+        rules
+            .art()
+            .building_anim_roots()
+            .into_iter()
+            .filter(|name| rules.anim_type_names.contains(name)),
+    );
+    roots
 }
 
 /// Report how many `anim_class_roots` the tolerant binder could not bind.
@@ -364,6 +387,37 @@ pub fn log_unbound_combat_explosion_roots(unbound: usize) {
         return;
     }
     log::info!("{unbound} AnimClass animation root(s) did not bind and will draw nothing");
+}
+
+/// Overlay type IDs whose native SHP candidates load as an SHP from the active
+/// theater's archives. Authored-overlay finalization (`map::authored_overlay`)
+/// reads it on graphical and headless loads alike.
+pub fn resolved_overlay_shp_ids(
+    registry: &OverlayTypeRegistry,
+    rules_ini: &IniFile,
+    art: &art_data::ArtRegistry,
+    asset_manager: &AssetManager,
+    theater_ext: &str,
+    theater_name: &str,
+) -> BTreeSet<u8> {
+    let mut available = BTreeSet::new();
+    for raw_id in 0..registry.len().min(usize::from(u8::MAX) + 1) {
+        let overlay_id = raw_id as u8;
+        let Some(name) = registry.name(overlay_id) else {
+            continue;
+        };
+        let image_id = art.resolve_overlay_image_id(name, rules_ini);
+        let native_names =
+            art_data::native_overlay_shp_names(art, &image_id, theater_ext, theater_name);
+        if native_names
+            .iter()
+            .filter_map(|candidate| asset_manager.load_file_from_mix(candidate))
+            .any(|loaded| ShpFile::from_bytes(&loaded.bytes).is_ok())
+        {
+            available.insert(overlay_id);
+        }
+    }
+    available
 }
 
 fn authoritative_effect_roots(rules: &RuleSet) -> BTreeSet<String> {

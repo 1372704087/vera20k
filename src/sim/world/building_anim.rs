@@ -27,7 +27,7 @@ pub(crate) fn start_refinery_unload(sim: &mut Simulation, rules: &RuleSet, build
     let Some(building) = sim.entities().get(building_id) else {
         return;
     };
-    let Some(object) = rules.object(sim.interner.resolve(building.type_ref())) else {
+    let Some(object) = sim.interner.object_type(building.type_ref(), rules) else {
         return;
     };
     let damaged = at_or_below_condition_yellow(
@@ -45,7 +45,7 @@ pub(crate) fn begin_refinery_unload_gate(sim: &mut Simulation, rules: &RuleSet, 
     let Some(building) = sim.entities().get(building_id) else {
         return;
     };
-    let Some(object) = rules.object(sim.interner.resolve(building.type_ref())) else {
+    let Some(object) = sim.interner.object_type(building.type_ref(), rules) else {
         return;
     };
     let damaged = at_or_below_condition_yellow(
@@ -71,7 +71,7 @@ pub(crate) fn emit_refinery_smoke(sim: &mut Simulation, rules: &RuleSet, buildin
     let Some(building) = sim.entities().get(building_id) else {
         return;
     };
-    let Some(object) = rules.object(sim.interner.resolve(building.type_ref())) else {
+    let Some(object) = sim.interner.object_type(building.type_ref(), rules) else {
         return;
     };
     let raw = crate::sim::movement::ground_pose::position_world_coord(&building.position);
@@ -123,7 +123,7 @@ pub(crate) fn end_refinery_unload_empty(sim: &mut Simulation, rules: &RuleSet, b
     let Some(building) = sim.entities().get(building_id) else {
         return;
     };
-    let Some(object) = rules.object(sim.interner.resolve(building.type_ref())) else {
+    let Some(object) = sim.interner.object_type(building.type_ref(), rules) else {
         return;
     };
     let damaged = at_or_below_condition_yellow(
@@ -248,7 +248,7 @@ mod tests {
                 assert_eq!(system.target_coords, vector(&call["target"]));
                 assert_eq!(system.lifetime, call["lifetime"].as_i64().unwrap() as i32);
                 assert_eq!(system.owner_entity, Some(id));
-                assert_eq!(system.attached_entity, None);
+                assert_eq!(system.target_ref, None);
                 assert_eq!(system.owner_house, None);
             }
             represented += 1;
@@ -379,6 +379,8 @@ mod tests {
         let rules = refinery_rules_and_art();
         let mut app_sim = refinery_sim_with_bale();
         let mut headless_sim = refinery_sim_with_bale();
+        app_sim.hash_state_every(std::num::NonZeroU64::MIN);
+        headless_sim.hash_state_every(std::num::NonZeroU64::MIN);
         begin_refinery_unload_gate(&mut app_sim, &rules, 41);
         begin_refinery_unload_gate(&mut headless_sim, &rules, 41);
 
@@ -390,7 +392,8 @@ mod tests {
                 67,
                 crate::sim::world::TickLane::Ordinary,
                 None,
-             crate::sim::world::FrameEffects::default(),)
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         let headless_tick = headless_sim.advance_tick(&[], Some(&rules), None, None, 67);
 
@@ -406,6 +409,7 @@ mod tests {
     fn app_frame_hash_includes_synchronous_bale_slot_and_particle_state() {
         let rules = refinery_rules_and_art();
         let mut sim = Simulation::new();
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         insert_building(&mut sim, 41, "GAREFN", 7, 9);
         sim.bale_events.push(BaleDepositEvent {
             building_id: 41,
@@ -423,7 +427,8 @@ mod tests {
                 67,
                 crate::sim::world::TickLane::Ordinary,
                 None,
-             crate::sim::world::FrameEffects::default(),)
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
 
         assert!(output.tick.frame_committed);

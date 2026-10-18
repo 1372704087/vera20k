@@ -174,12 +174,12 @@ pub(super) fn radar_colors_for_tmp_metadata(
     // and `Math__ftol` truncates. `CellClass::GetRadarColor @ 0x0047C060`
     // then reads only TMP +0x2B..0x2D (RadarLeft), unsigned-shifts each byte,
     // and copies the same triple to both raw footprint pixels.
-    let color = radar_left.map(|channel| {
-        ((f32::from(channel) * terrain_brightness)
-            .clamp(0.0, 255.0)
-            .trunc() as u8)
-            >> 1
-    });
+    let color = crate::util::native_color::scale_rgb8(
+        radar_left,
+        crate::util::native_x87::NativeF32Bits::from_bits(terrain_brightness.to_bits()),
+    )
+    .expect("radar theater brightness is finite")
+    .map(|channel| channel >> 1);
     (color, color)
 }
 
@@ -397,12 +397,16 @@ pub(super) fn parse_foundation_size(foundation: &str) -> (u32, u32) {
 pub(super) fn minimap_entity_visible(
     local_owner: InternedId,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     pos: &crate::sim::components::Position,
     owner: InternedId,
 ) -> bool {
     let interner = crate::sim::intern::test_interner();
-    fog.is_friendly_id(local_owner, owner, &interner)
-        || fog.is_cell_revealed(local_owner, pos.rx(), pos.ry())
+    crate::map::houses::are_houses_friendly(
+        alliances,
+        interner.resolve(local_owner),
+        interner.resolve(owner),
+    ) || fog.is_cell_revealed(local_owner, pos.rx(), pos.ry())
 }
 
 /// Default minimap screen rectangle (bottom-left corner with margin).
@@ -443,12 +447,10 @@ mod radar_color_tests {
             z: 0,
             rx: 1,
             ry: 1,
-            is_water: false,
             variant: 0,
             tint: [1.0; 3],
             radar_left: left,
             radar_right: right,
-            has_damaged_data: false,
         }
     }
 

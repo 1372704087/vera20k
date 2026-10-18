@@ -22,11 +22,44 @@ from tools.native_oracle import (
 )
 from tools.spatial_oracle.building_body_rules import SP, RULES, dwords
 from . import foot_missions
-from .navigation_inputs import extract_tiles
+from .navigation_inputs import bind_primary_tiles
 from .mission import HERE, Mission, base
 
 REPO = Path(__file__).resolve().parents[3]
 GEOMETRY_CALLS = (0x735180, 0x735210, 0x735230, 0x735250, 0x7352F0)
+
+
+def initialize_unit_geometry(q, *, foot=False):
+    """Original Unit geometry; selected Foot callers also need their own CRT copies."""
+    m,u=q.m,q.u
+    fields=(0xB1CFD0,0xB1CFD8,0xB1CFA0,0xB1D0B8,0xB1D0AC)
+    entries=list(GEOMETRY_CALLS);tables=[]
+    if foot:
+        from tools.spatial_oracle.infantry_entry_raw import STARTUP
+        additional=[]
+        for address,count in ((0x813490,10),(0x8150B8,14)):
+            calls=list(struct.unpack(f'<{count}I',u.mem_read(address,count*4)))
+            if address==0x813490:assert calls==STARTUP
+            tables.append(dict(address=hex(address),entries=[hex(pc) for pc in calls]))
+            additional.extend(calls)
+        entries=additional+entries
+        fields+=(0xA8F240,0xA8F234,0xB0EBC0,0xB0EBE8,0xB0EBE0,0xB0EC38)
+    def rng():return {k:bytes(u.mem_read(p,1012)) for k,p in q.resident.rngs.items()}
+    before_rng=rng()
+    result=dict(before={hex(p):bytes(u.mem_read(p,8)).hex() for p in fields},original_calls=[])
+    for pc in entries:
+        m.invoke(pc,0);result['original_calls'].append(hex(pc))
+    assert m.read32(0xB1D0B8)==m.read32(0x89E7C0)
+    assert m.read32(0xB1D0AC)>0
+    if foot:
+        assert m.read32(0xA8F240)==m.read32(0xB1D0B8)==m.read32(0xB0EC38)
+        assert m.read32(0xA8F234)==m.read32(0xB1D0AC)
+        result['tables']=tables
+    assert rng()==before_rng
+    result.update(after={hex(p):bytes(u.mem_read(p,8)).hex() for p in fields},rng_unchanged=True)
+    return result
+
+
 DIRECT_PCS = (
     0x737BA0, 0x4D7170, 0x6F6CA0, 0x5F4EC0, 0x73F0A0, 0x4D9C10,
     0x55ABF0, 0x4D9C60, 0x4DB810, 0x4D3780, 0x747EB0, 0x5F4F42, 0x5F4FB4,
@@ -86,24 +119,7 @@ class UnitUnlimboControls(Mission):
             small_visceroid=self.u.mem_read(self.typ + 0xE18, 1)[0],
             large_visceroid=self.u.mem_read(self.typ + 0xE19, 1)[0],
         )
-        # These are the original geometry static initializers, in the dependency
-        # order already used by astar_hills_route, rather than fitted scalars.
-        fields = (0xB1CFD0, 0xB1CFD8, 0xB1CFA0, 0xB1D0B8, 0xB1D0AC)
-        before_rng = self.rng_bytes()
-        self.unit_geometry_startup = dict(
-            before={hex(p): bytes(self.u.mem_read(p, 8)).hex() for p in fields},
-            original_calls=[],
-        )
-        for pc in GEOMETRY_CALLS:
-            self.m.invoke(pc, 0)
-            self.unit_geometry_startup['original_calls'].append(hex(pc))
-        assert self.m.read32(0xB1D0B8) == self.m.read32(0x89E7C0)
-        assert self.m.read32(0xB1D0AC) > 0
-        assert self.rng_bytes() == before_rng
-        self.unit_geometry_startup.update(
-            after={hex(p): bytes(self.u.mem_read(p, 8)).hex() for p in fields},
-            rng_unchanged=True,
-        )
+        self.unit_geometry_startup = initialize_unit_geometry(self)
 
     def rng_bytes(self):
         return {k: bytes(self.u.mem_read(p, 1012)) for k, p in self.resident.rngs.items()}
@@ -795,46 +811,10 @@ class UnitUnlimboControls(Mission):
         m, u = self.m, self.u
         before_rng = self.rng_bytes()
         theater = base.identity.theater()
-        physical, receipt = extract_tiles(theater)
-        table, count = m.read32(0xA8ED2C), m.read32(0xA8ED38)
-        retained_header = bytes(u.mem_read(0xA8ED28, 24))
-        u.mem_write(0xA8ED28, dwords(0x7EB6D4, table, count, 1, count, 10))
-        # Original constructor also retains every primary/secondary tile type.
-        # The existing Reader remains the sole allocator in this composed VM.
-        u.mem_write(0xB0F670, dwords(0x7EB6D4, m.alloc(4096 * 4), 4096, 1, 0, 10))
-        rows = []
-        for tile in sorted({r['tile'] for r in self.resident.case['supplied_cells']}):
-            if tile >= count or m.read32(table + tile * 4):
-                continue
-            raw = physical.get(tile)
-            assert raw is not None, (tile, theater['tiles'][tile])
-            head, data = m.alloc(0x400), m.alloc(len(raw))
-            name = theater['tiles'][tile]
-            # Supply the sparse original primary-array loop index as caller state;
-            # the constructor itself installs its vtable/defaults and this entry.
-            u.mem_write(0xA8ED38, dwords(tile))
-            args = (tile, -65, 0, m.cstring(name[:-4]), 0)
-            returned = m.invoke(0x5447C0, head, args)
-            assert returned == head and m.read32(table + tile * 4) == head
-            tmp = bytearray(raw)
-            width, height = struct.unpack_from('<II', tmp)
-            for sub in range(width * height):
-                offset = struct.unpack_from('<I', tmp, 16 + sub * 4)[0]
-                if offset:
-                    struct.pack_into('<I', tmp, 16 + sub * 4, data + offset)
-            u.mem_write(data, bytes(tmp))
-            u.mem_write(head + 0xA4, dwords(data))
-            u.mem_write(head + 0x2E4, dwords(width & 255, height & 255))
-            rows.append(dict(tile=tile, file=name, raw_sha256=hashlib.sha256(raw).hexdigest(),
-                             raw_bytes=len(raw), original_ctor='0x005447C0', ctor_args=list(args),
-                             head=hex(head), vtable=hex(m.read32(head)), data=hex(data),
-                             original_defaults_hex=bytes(u.mem_read(head + 0x2C0, 0x3C)).hex(),
-                             relocated_sha256=hashlib.sha256(bytes(tmp)).hexdigest()))
-        u.mem_write(0xA8ED28, retained_header)
-        assert m.read32(0xA8ED38) == count
+        result = bind_primary_tiles(m, theater,
+            [row['tile'] for row in self.resident.case['supplied_cells']])
         assert before_rng == self.rng_bytes()
-        return dict(archive_inputs=receipt, added_rows=rows, rng=self.rng_pair(before_rng, self.rng_bytes()),
-                    boundary='Physical primary TMP cache supplied with original constructor heads and native default animation/shadow fields. The original archive loader, all tile INI properties and rendering variants are excluded. Existing crop Cell inputs are unchanged; later original Recalc owns land/slope/zone updates.')
+        return dict(result, rng=self.rng_pair(before_rng, self.rng_bytes()))
 
     def door_progress(self):
         # Observe this pure query through the existing original-function call owner.

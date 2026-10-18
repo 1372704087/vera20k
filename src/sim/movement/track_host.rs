@@ -225,7 +225,7 @@ impl Simulation {
             .substrate
             .entities
             .get(invocation.entity_id)
-            .and_then(|e| rules?.object(self.interner.resolve(e.type_ref())));
+            .and_then(|e| self.interner.object_type(e.type_ref(), rules?));
         let Some(entity) = self.substrate.entities.get_mut(invocation.entity_id) else {
             return Ok(TrackPass::default());
         };
@@ -267,7 +267,7 @@ impl Simulation {
 
     /// Geometry/receiver fixtures explicitly supply the paid budget; they do
     /// not certify the native entry or scalar prefix. Production enters above.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn run_track_points(
         &mut self,
         invocation: TrackInvocation,
@@ -303,7 +303,7 @@ impl Simulation {
 
     /// Shared paid-loop body. The observer tests synchronous receiver effects;
     /// the caller has already completed admission and the scalar prefix.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn run_track_points_observed(
         &mut self,
         invocation: TrackInvocation,
@@ -380,6 +380,7 @@ impl Simulation {
                     stored_head,
                     cell(current),
                     true,
+                    false,
                     rules,
                     registry,
                     observe,
@@ -500,6 +501,7 @@ impl Simulation {
                 },
                 previous,
                 false,
+                family == TrackFamily::Drive,
                 rules,
                 registry,
                 observe,
@@ -612,6 +614,7 @@ impl Simulation {
                 chosen,
                 cell(current),
                 false,
+                false,
                 rules,
                 registry,
                 observe,
@@ -687,6 +690,7 @@ impl Simulation {
         coord: DriveCoord,
         previous_track_cell: (u16, u16),
         terminal: bool,
+        paid_drive_point: bool,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
         observe: &mut impl FnMut(&mut Simulation, u64, TrackWorldEvent),
@@ -717,6 +721,18 @@ impl Simulation {
             &self.interner,
         );
         observe(self, id, TrackWorldEvent::SetCoords);
+        // Drive4B17DC SetLocation precedes the selected Cell lookup4B1800.
+        // Keep that identity across Mark(DOWN), which may stamp the shared
+        // Dummy again. Only a crossing paid Drive point reaches4B1999;
+        // terminal/residual placements and same-cell points skip this arm.
+        let pre_entry_cell = if crossing && paid_drive_point {
+            self.resolved_terrain.as_ref().map(|terrain| {
+                crate::map::resolved_terrain::NativeCellQuery::canonical(terrain)
+                    .lookup((selected_cell.0 as i16, selected_cell.1 as i16))
+            })
+        } else {
+            None
+        };
         let grid = self.path_grid.as_deref();
         if crossing && let Some(entity) = self.substrate.entities.get_mut(id) {
             if !terminal {
@@ -766,6 +782,43 @@ impl Simulation {
                 &mut |sim, id| observe(sim, id, TrackWorldEvent::MarkPut),
                 effects,
             );
+        }
+        if let Some(target) = pre_entry_cell {
+            // Drive4B1999..4B19FA, after Mark(DOWN)4B1993 and before
+            // SetHeight/track continuation. Type+D2B is TiltsWhenCrushes;
+            // target+44/+2A8 is the live overlay/Wall, not a navigation head.
+            let wall = self
+                .cell_overlay(target)
+                .overlay_id
+                .and_then(|overlay| registry?.flags(overlay))
+                .is_some_and(|flags| flags.wall);
+            let tilt = wall
+                && self.substrate.entities.get(id).is_some_and(|entity| {
+                    entity
+                        .locomotor
+                        .as_ref()
+                        .and_then(|loco| loco.drive_straight())
+                        == Some(true)
+                        && rules
+                            .and_then(|rules| self.interner.object_type(entity.type_ref(), rules))
+                            .is_some_and(|object| {
+                                object.tilts_when_crushes
+                                    && (object.crusher
+                                        || crate::sim::combat::veterancy::has_weapon_ability(
+                                            entity.veterancy.rank_kind(),
+                                            object,
+                                            crate::rules::object_type::Ability::Crusher,
+                                        ))
+                            })
+                });
+            if tilt && let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity
+                    .rocking
+                    .get_or_insert_with(Default::default)
+                    .set_vel_forwards_native(crate::util::native_x87::NativeF32Bits::from_bits(
+                        0xbd4c_cccd,
+                    ));
+            }
         }
     }
 
@@ -935,7 +988,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .and_then(|entity| rules.object(self.interner.resolve(entity.type_ref())))
+            .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
             .is_some_and(|object| object.passive)
         {
             return Ok(false);
@@ -1022,7 +1075,7 @@ impl Simulation {
         let coord = super::navcom::nav_target_coordinate(
             target,
             Some(id),
-            &self.substrate.entities,
+            self,
             self.resolved_terrain.as_ref(),
             rules.map(|rules| (rules, &self.interner)),
         )?;
@@ -1048,7 +1101,7 @@ impl Simulation {
     /// Executed native latch/END/NavQueue controls: foot_enter_idle.json.
     /// Actual-GI Archive consumer: basic-factory-output-prerequisites packet.
     /// The class tail runs even when this base returns false for the latch.
-    /// Scatter+687, legacy planning+520 and non-cell NavQueue remain named
+    /// Scatter+687, Formation+520 and non-cell NavQueue remain named
     /// sibling residuals; fresh factory E1 has their constructor-empty state.
     pub(crate) fn foot_enter_idle_base(
         &mut self,
@@ -1066,10 +1119,12 @@ impl Simulation {
         entity.mission_leaf.set_foot_idle_entry_latch(1);
         // Foot4D82D9 -> Techno709A54 lets a held Temporal target go first,
         // then asks RefreshMegaMission (vt+0x4D0, Techno709A5D) whether an
-        // attack-move resumes. Its false answer would ask the planning path
-        // (vt+0x430), which VERA does not represent.
+        // attack-move resumes. Its false answer asks the active PlanMgr
+        // path (Techno+0x430=705D50 ->6385C0).
         self.temporal_release_if_warping(id);
-        self.foot_refresh_mega_mission(id, rules, registry, effects);
+        if !self.foot_refresh_mega_mission(id, rules, registry, effects) {
+            self.planning_enter_idle(id);
+        }
         // Foot4D831A..8376 asks the active IPiggyback, whatever its class,
         // and ends it before NavQueue when its Is_Ok_To_End allows.
         // Unit saves the base return but still executes its own receiver tail.
@@ -1126,7 +1181,7 @@ impl Simulation {
                 super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref());
             let there = super::ground_pose::target_get_coords(
                 target,
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain
                     .as_ref()
                     .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
@@ -1177,7 +1232,7 @@ impl Simulation {
     /// placement, and locomotor/radio callers. The first argument skips the
     /// human harvester land check when nonzero. Native executable controls:
     /// tools/spatial_oracle/harvest_attack_return.json, track_destination.json
-    /// and foot_enter_idle.json. The Foot planning path remains a separate
+    /// and foot_enter_idle.json. The Foot Formation path remains a separate
     /// residual.
     pub(crate) fn unit_enter_idle_mode(
         &mut self,
@@ -1232,8 +1287,7 @@ impl Simulation {
         let current = entity.mission.current().known();
         let effective = entity.mission.effective().known();
         let category = entity.category();
-        let unit_type =
-            rules.and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
+        let unit_type = rules.and_then(|rules| self.interner.object_type(entity.type_ref(), rules));
         let miner = unit_type.is_some_and(|object| object.harvester || object.weeder);
         // Unit738A6E calls the existing IsArmed701120 owner only after the
         // Harvester/Weeder gates. Armed idle keeps TarCom and burst; the

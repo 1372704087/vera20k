@@ -24,19 +24,35 @@ ska gå.
 
 1. Bevara spelmekaniken, utseendet och stämningen i originalversionen av Red Alert 2: Yuri's Revenge.
 2. Stödja större slag: upp till **30 spelare** och **20 000 enheter** på 500×500-kartor.
-3. Integrera kända RTS-funktioner, gamla som nya, och några som aldrig setts förut.
+3. Integrera kända RTS-funktioner och några som aldrig setts förut.
 4. Integrerad flerspelarklient
 
 ## Aktuellt läge
 
-**Mitt i utvecklingen.** Lokala skirmishmatcher går att spela på Windows mot en enkel AI.
-Kartor från originalspelet och slumpgenererade kartor, menyer, basbygge, resursinsamling,
-strider samt möjligheten att spara och ladda spel finns på plats, men mycket återstår
-att fixa och färdigställa.
+**Under aktiv utveckling.**
 
-Flerspelarläge, kampanjer och originalets AI saknas fortfarande. Flygplan, sinneskontroll,
-broar och flera vapen och effekter behöver mer arbete. Vi har ännu inte demonstrerat slag
-med 30 spelare och 20 000 enheter.
+- **Skirmish:** Går att spela på Windows, Linux och macOS, med kartor från originalspelet
+  och slumpgenererade kartor, basbygge, resursinsamling, strider samt möjlighet att spara och ladda spel.
+- **Kampanjer:** Uppdrag går att starta; stödet är fortfarande ofullständigt.
+- **AI:** Delar av originalets AI sköter basbygge och skriptstyrda anfall.
+- **Pågående arbete:** Spelbeteende, grafik och prestanda.
+- **Flerspelarläge:** Nätverksspel är ännu inte tillgängligt.
+- **Skala:** Slag med 30 spelare och 20 000 enheter har ännu inte demonstrerats.
+
+## Arkitektur
+
+Motorn har tre huvuddelar:
+
+- **Simulering:** Ansvarar för speltillstånd och spellogik.
+- **Rendering:** En helt ny GPU-renderingspipeline som använder originalets spelresurser,
+  byggd för att bevara originalets utseende.
+- **Applikation:** Hanterar inmatning, menyer, ljud och plattformsintegration och kopplar ihop systemen.
+
+Denna uppdelning stöder deterministiskt spel.
+
+Pilarna visar dataflödet:
+
+![Applikationen skickar kommandon till simuleringen, som returnerar världstillståndet; applikationen skickar renderingsdata till renderingen.](docs/images/architecture.sv.png)
 
 ## Bygg och kör
 
@@ -60,9 +76,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Skriv `ra2_dir` med vanliga snedstreck, till exempel `C:/Games/RA2`. Använd `--release` när du
-spelar; debugbyggen är för långsamma. Loggen hamnar i `logs/ra2.log`.
-
 ## Så arbetar vi
 
 Större delen av koden skrivs av AI-agenter. De använder Ghidra för att studera originalmotorn,
@@ -70,16 +83,26 @@ portar sedan dess beteende till Rust och kontrollerar det med
 [jämförelseverktyg](tools/native_oracle.md) och speltester. Agenterna följer
 [AGENTS.md](AGENTS.md).
 
+## Anpassning
+
+Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
+att slå på och av dem i klienten där det är lämpligt.
+
 ## Bidra
 
 All hjälp är välkommen. Du kan skriva kod, refaktorera motorn, testa spelet, dela idéer eller
 spela det sida vid sida med originalet och berätta vad som känns fel. Öppna en PR så tar vi det
 därifrån. Diskussionen sker på [Discord](https://discord.gg/kmjRUn5m5F) och i QQ-gruppen (1097193563).
 
-Spelmekaniken finns i `src/sim/`, renderingen i `src/render/` och menyer och inmatning i
-`src/app/` och `src/ui/`; Python-verktygen i `tools/` behöver du inte.
+## Stöd projektet
 
-Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20k via PayPal" height="40"></a>
+
+Alla mottagna donationer fördelas till
+medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
+
+Utbetalningar till medverkande görs via PayPal, UnionPay (Kina), Alipay, Vipps,
+SEPA-banköverföring eller Bitcoin.
 
 ## Tack och juridisk information
 

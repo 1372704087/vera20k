@@ -55,7 +55,7 @@ pub struct Position {
 
 impl Position {
     /// Cell (`rx`, `ry`) at level `z`, with the exact Z and the sub-cell offset.
-    pub(crate) const fn new(
+    pub const fn new(
         rx: u16,
         ry: u16,
         z: u8,
@@ -74,37 +74,37 @@ impl Position {
     }
 
     /// Isometric cell X coordinate.
-    pub(crate) const fn rx(&self) -> u16 {
+    pub const fn rx(&self) -> u16 {
         self.rx
     }
 
     /// Isometric cell Y coordinate.
-    pub(crate) const fn ry(&self) -> u16 {
+    pub const fn ry(&self) -> u16 {
         self.ry
     }
 
     /// Elevation level (0 = ground).
-    pub(crate) const fn z(&self) -> u8 {
+    pub const fn z(&self) -> u8 {
         self.z
     }
 
     /// Exact native ObjectClass coordinate Z, in signed leptons; see the field.
-    pub(crate) const fn exact_z_leptons(&self) -> Option<i32> {
+    pub const fn exact_z_leptons(&self) -> Option<i32> {
         self.exact_z_leptons
     }
 
     /// Sub-cell lepton offset X (0..256).
-    pub(crate) const fn sub_x(&self) -> SimFixed {
+    pub const fn sub_x(&self) -> SimFixed {
         self.sub_x
     }
 
     /// Sub-cell lepton offset Y (0..256).
-    pub(crate) const fn sub_y(&self) -> SimFixed {
+    pub const fn sub_y(&self) -> SimFixed {
         self.sub_y
     }
 
     /// `ObjectClass::SetLocation @ 0x005F6940`: the Location becomes `coord`.
-    pub(crate) fn put_location(&mut self, coord: DriveCoord) {
+    pub fn put_location(&mut self, coord: DriveCoord) {
         self.put_world_xy([coord.x, coord.y]);
         self.put_z(coord.z);
     }
@@ -214,38 +214,38 @@ impl Position {
     }
 
     /// A fixture's cell X.
-    #[cfg(test)]
-    pub(crate) fn set_rx_for_test(&mut self, rx: u16) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_rx_for_test(&mut self, rx: u16) {
         self.rx = rx;
     }
 
     /// A fixture's cell Y.
-    #[cfg(test)]
-    pub(crate) fn set_ry_for_test(&mut self, ry: u16) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_ry_for_test(&mut self, ry: u16) {
         self.ry = ry;
     }
 
     /// A fixture's level.
-    #[cfg(test)]
-    pub(crate) fn set_z_for_test(&mut self, z: u8) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_z_for_test(&mut self, z: u8) {
         self.z = z;
     }
 
     /// A fixture's exact Z.
-    #[cfg(test)]
-    pub(crate) fn set_exact_z_leptons_for_test(&mut self, exact_z_leptons: Option<i32>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_exact_z_leptons_for_test(&mut self, exact_z_leptons: Option<i32>) {
         self.exact_z_leptons = exact_z_leptons;
     }
 
     /// A fixture's sub-cell offset X.
-    #[cfg(test)]
-    pub(crate) fn set_sub_x_for_test(&mut self, sub_x: SimFixed) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_sub_x_for_test(&mut self, sub_x: SimFixed) {
         self.sub_x = sub_x;
     }
 
     /// A fixture's sub-cell offset Y.
-    #[cfg(test)]
-    pub(crate) fn set_sub_y_for_test(&mut self, sub_y: SimFixed) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_sub_y_for_test(&mut self, sub_y: SimFixed) {
         self.sub_y = sub_y;
     }
 }
@@ -261,12 +261,10 @@ impl Simulation {
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
     ) -> Result<(i16, i16), String> {
-        let coordinate = super::navcom::nav_target_coordinate(
+        let coordinate = self.navigation_target_coordinate(
             crate::sim::components::NavTargetRef::Entity { id },
             None,
-            &self.substrate.entities,
-            self.resolved_terrain.as_ref(),
-            Some((rules, &self.interner)),
+            rules,
         )?;
         let terrain = self
             .resolved_terrain
@@ -313,10 +311,7 @@ impl Simulation {
 
 /// Map578080 through the caller's query identity. Input queries isolate Dummy;
 /// simulation callbacks use the canonical retained Dummy and its lookup order.
-pub(crate) fn query_ground_height(
-    cells: &NativeCellQuery<'_>,
-    point: DriveCoord,
-) -> Result<i32, String> {
+pub fn query_ground_height(cells: &NativeCellQuery<'_>, point: DriveCoord) -> Result<i32, String> {
     let cell = cells.lookup_world(point.x, point.y);
     let (level, slope) = cells.ground_fields(cell);
     ground_height_leptons(level, slope, point.x, point.y)
@@ -326,10 +321,7 @@ pub(crate) fn query_ground_height(
 /// Object+1BC receiver5F6960 performs two Map565730 lookups from physical
 /// Object+9C. The first lookup is observable when it stamps the shared Dummy;
 /// the second returns the identity retained by the caller.
-pub(crate) fn query_object_cell(
-    cells: &NativeCellQuery<'_>,
-    physical: DriveCoord,
-) -> NativeCellIdentity {
+pub fn query_object_cell(cells: &NativeCellQuery<'_>, physical: DriveCoord) -> NativeCellIdentity {
     let _ = cells.lookup_world(physical.x, physical.y);
     cells.lookup_world(physical.x, physical.y)
 }
@@ -387,7 +379,7 @@ pub(crate) fn navigation_should_be_on_bridge(
 
 /// The world XY of an object's Location (`ObjectClass+0x9C`, `+0xA0`) from
 /// the cell and sub-cell [`Position::put_world_xy`] stores.
-pub(crate) fn position_world_xy(position: &Position) -> [i32; 2] {
+pub fn position_world_xy(position: &Position) -> [i32; 2] {
     [
         i32::from(position.rx())
             .wrapping_mul(256)
@@ -456,7 +448,7 @@ pub(crate) fn foot_set_location(
 /// real coordinate writer supplies raw leptons. That level omits the slope, a
 /// Hover or Air height and a parachute's height, so a reader of an object's
 /// Z asks [`object_location`] or [`object_get_coords`] instead.
-pub(crate) fn position_world_coord(position: &Position) -> DriveCoord {
+pub fn position_world_coord(position: &Position) -> DriveCoord {
     let [x, y] = position_world_xy(position);
     DriveCoord {
         x,
@@ -475,7 +467,7 @@ pub(crate) fn position_world_coord(position: &Position) -> DriveCoord {
 /// first step, so only objects never revealed, and headless fixtures, read
 /// this ground. InRange's low-flying snap is its caller's rule, not part of
 /// this read.
-pub(crate) fn object_world_z_leptons(
+pub fn object_world_z_leptons(
     entity: &crate::sim::game_entity::GameEntity,
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> i32 {
@@ -510,7 +502,7 @@ pub(crate) fn object_ground_z_leptons(
 /// One459EF0 port for ART, damage fires, destruction, muzzle coordinates,
 /// Temporal sparkles, display registration and presentation. YSort stays
 /// separate from the coordinate; neither uses foundation-center coords.
-pub(crate) fn building_render_order_parts(
+pub fn building_render_order_parts(
     mut location: DriveCoord,
     turret_anim_is_voxel: bool,
     gate: bool,
@@ -539,7 +531,7 @@ fn foundation_center_xy(location: [i32; 2], foundation: &str) -> [i32; 2] {
 /// Aircraft returns its Location (`ObjectClass::GetCoords @ 0x005F65A0`). A
 /// building returns its foundation centre ([`foundation_center_xy`]), read
 /// from the foundation its type stamped on it at construction.
-pub(crate) fn object_center_xy(entity: &crate::sim::game_entity::GameEntity) -> [i32; 2] {
+pub fn object_center_xy(entity: &crate::sim::game_entity::GameEntity) -> [i32; 2] {
     let location = position_world_xy(&entity.position);
     if entity.category() == crate::map::entities::EntityCategory::Structure {
         foundation_center_xy(location, entity.type_facts.foundation())
@@ -550,7 +542,7 @@ pub(crate) fn object_center_xy(entity: &crate::sim::game_entity::GameEntity) -> 
 
 /// An object's Location (`ObjectClass+0x9C..+0xA4`) at its world Z
 /// ([`object_world_z_leptons`]).
-pub(crate) fn object_location(
+pub fn object_location(
     entity: &crate::sim::game_entity::GameEntity,
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> DriveCoord {
@@ -569,7 +561,7 @@ pub(crate) fn object_location(
 /// replaces the Z with `0x00578080`'s ground height at that XY.
 ///
 /// This is not a building's +0x4C approach coordinate for docks and bunkers.
-pub(crate) fn object_get_coords(
+pub fn object_get_coords(
     entity: &crate::sim::game_entity::GameEntity,
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> DriveCoord {
@@ -606,9 +598,9 @@ pub(crate) fn object_target_coords(
 /// Object5F65A0/Building447AC0 and Cell486840 remain the coordinate owners;
 /// navigation+4C and Cell+58 (deck target coordinates) are different queries.
 /// Rescue4DE04E/4DE073 and AreaGuard4D6F00 pass this XYZ to their scanner.
-pub(crate) fn target_get_coords(
+pub fn target_get_coords(
     target: crate::sim::combat::TargetKind,
-    entities: &crate::sim::entity_store::EntityStore,
+    world: &Simulation,
     cells: Option<&NativeCellQuery<'_>>,
 ) -> Option<DriveCoord> {
     match target {
@@ -616,13 +608,74 @@ pub(crate) fn target_get_coords(
             Some(super::navcom::target_cell_coord(rx, ry, cells))
         }
         crate::sim::combat::TargetKind::Entity(id) => {
-            let entity = entities.get(id)?;
-            Some(object_get_coords(
-                entity,
-                cells.map(NativeCellQuery::terrain),
-            ))
+            if let Some(entity) = world.substrate.entities.get(id) {
+                Some(object_get_coords(
+                    entity,
+                    cells.map(NativeCellQuery::terrain),
+                ))
+            } else {
+                // Terrain7F522C+48 inherits Object5F65A0: its constructor's
+                // retained Location survives ground changes and expiry.
+                let coord = world.production.terrain_objects.get(&id)?.world_coord();
+                Some(DriveCoord {
+                    x: coord.x,
+                    y: coord.y,
+                    z: coord.z,
+                })
+            }
         }
     }
+}
+
+/// Target virtual+58: Object410540 forwards virtual+48; Cell486900 uses
+/// structural bridge height. FireAt70BCB0 and planning Foot4D8560 share it.
+pub(crate) fn target_get_target_coords(
+    target: crate::sim::combat::TargetKind,
+    world: &Simulation,
+    terrain: Option<&ResolvedTerrainGrid>,
+) -> Option<DriveCoord> {
+    match target {
+        crate::sim::combat::TargetKind::Cell(rx, ry) => {
+            let coord = crate::sim::projectile::cell_target_coord(terrain, rx, ry);
+            Some(DriveCoord {
+                x: coord.x,
+                y: coord.y,
+                z: coord.z,
+            })
+        }
+        crate::sim::combat::TargetKind::Entity(_) => target_get_coords(
+            target,
+            world,
+            terrain.map(NativeCellQuery::canonical).as_ref(),
+        ),
+    }
+}
+
+/// Foot4D8560/Techno705CA0, virtual+42C. An attacking object uses TarCom;
+/// another Foot prefers auxiliary NavCom, then NavCom. Without a retained
+/// target the raw Object+9C Location is returned, not its foundation center.
+pub(crate) fn current_destination_coords(
+    entity: &crate::sim::game_entity::GameEntity,
+    world: &Simulation,
+    terrain: Option<&ResolvedTerrainGrid>,
+) -> Option<DriveCoord> {
+    use crate::sim::{combat::TargetKind, mission::MissionType};
+    let attacking = entity.mission.effective().known() == Some(MissionType::Attack);
+    let target = if attacking {
+        entity.attack_target.target()
+    } else if entity.category() != crate::map::entities::EntityCategory::Structure {
+        entity
+            .navigation
+            .nav_com_aux()
+            .or(entity.navigation.nav_com())
+            .map(TargetKind::from)
+    } else {
+        None
+    };
+    target.map_or_else(
+        || Some(position_world_coord(&entity.position)),
+        |target| target_get_target_coords(target, world, terrain),
+    )
 }
 
 impl Simulation {
@@ -640,7 +693,7 @@ impl Simulation {
             .resolved_terrain
             .as_ref()
             .map(NativeCellQuery::canonical);
-        let coords = |target| target_get_coords(target, &self.substrate.entities, cells.as_ref());
+        let coords = |target| target_get_coords(target, self, cells.as_ref());
         let from = coords(crate::sim::combat::TargetKind::Entity(id))?;
         let to = coords(target)?;
         let foundation = match target {
@@ -730,7 +783,7 @@ pub(crate) fn z_at_height(ground: i32, height: i32, on_bridge: bool) -> i32 {
 
 /// `ObjectClass::GetHeight @ 0x005F5F40` for a sampled ground: the Z less the
 /// ground and, OnBridge, the deck. The inverse of [`z_at_height`].
-pub(crate) fn height_at_z(z: i32, ground: i32, on_bridge: bool) -> i32 {
+pub fn height_at_z(z: i32, ground: i32, on_bridge: bool) -> i32 {
     z.wrapping_sub(ground).wrapping_sub(if on_bridge {
         BRIDGE_DECK_HEIGHT_LEPTONS
     } else {
@@ -743,7 +796,7 @@ impl Simulation {
     /// cell through Mark(UP) and rejoins it through Mark(DOWN) around the
     /// write (`0x004DB83F..0x004DB866`); either way [`foot_set_location`]
     /// does the write and the OpenTopped riders.
-    pub(crate) fn foot_set_location_marked(
+    pub fn foot_set_location_marked(
         &mut self,
         id: u64,
         coord: DriveCoord,

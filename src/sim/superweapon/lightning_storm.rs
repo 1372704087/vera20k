@@ -123,12 +123,12 @@ const DEBRIS_COUNT: (i32, i32) = (2, 4);
 /// The storm's globals. Owned here; the world hash folds the fields in
 /// declaration order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct LightningStorm {
+pub struct LightningStorm {
     /// `0x00A9FAB4` (`LightningStorm::IsActive @ 0x0053A100`): the storm
     /// rages.
     active: bool,
-    /// `0x00A9FAD0`: the duration is over; the storm ends once no cloud is
-    /// present.
+    /// `0x00A9FAD0`: duration expiry or Stop53A090 requests an end. The
+    /// storm ends once no cloud is present, through the existing Process.
     time_to_end: bool,
     /// `0x00A9FAB8`: frames until a deferred storm starts.
     deferment: i32,
@@ -181,8 +181,17 @@ pub(crate) fn has_deferment(sim: &Simulation) -> bool {
 
 /// `LightningStorm::IsActive @ 0x0053A100`: a storm rages, through the
 /// clouds that outlive its duration.
-pub(crate) fn raging(sim: &Simulation) -> bool {
+pub fn raging(sim: &Simulation) -> bool {
     sim.lightning_storm.active
+}
+
+/// `LightningStorm::Stop @ 0x0053A090` (Steam gamemd3e81a617..08600):
+/// only a raging storm sets TimeToEnd. Countdown, clouds, timers, owner and
+/// lighting stay untouched until Process53A6C0 consumes the request.
+pub(crate) fn request_end(sim: &mut Simulation) {
+    if sim.lightning_storm.active {
+        sim.lightning_storm.time_to_end = true;
+    }
 }
 
 /// Launch case 2 for `owner`'s Super of `sw_type` at `cell`: a charged Super
@@ -507,7 +516,7 @@ impl StormCell {
 /// `0x0053A1F5`), which is constructed there with the row `(0, 1, 0x600, 0,
 /// 0)` and listed as manifesting and present. (The coordinate is compared with
 /// the zero coordinate `0x00A9FA30` first, which a cell centre never is.)
-pub(super) fn create_cloud_bolt(sim: &mut Simulation, rules: &RuleSet, cell: (i16, i16)) {
+pub(crate) fn create_cloud_bolt(sim: &mut Simulation, rules: &RuleSet, cell: (i16, i16)) {
     let target = StormCell::of(&get_cellclass_fallback(
         sim.resolved_terrain.as_ref(),
         i32::from(cell.0),
@@ -763,10 +772,10 @@ pub(super) fn debris_due(before: &StrikeCell, after: &StrikeCell) -> bool {
             && DEBRIS_LANDS.contains(&before.land))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl LightningStorm {
     /// A storm raging over `cell` for `owner` with no end.
-    pub(crate) fn raging_for_test(owner: InternedId, cell: (i16, i16)) -> Self {
+    pub fn raging_for_test(owner: InternedId, cell: (i16, i16)) -> Self {
         Self {
             active: true,
             owner: Some(owner),

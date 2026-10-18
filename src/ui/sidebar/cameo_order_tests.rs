@@ -8,20 +8,368 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::SidebarTab;
-use super::cameo_order::{Cameo, CameoId, CameoKey, CameoStrips};
+use super::cameo_order::{
+    Cameo, CameoId, CameoKey, CameoRequestState, CameoStrips, pending_production_affordability,
+    pending_production_prediction_rate, pending_production_smoothed_stage,
+};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::{HouseCostFactors, RuleSet};
 use crate::sim::intern::StringInterner;
 use crate::util::native_x87::NativeF32Bits;
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/sidebar_oracle/cameo_order.json",
-    ))
-    .unwrap();
+impl CameoStrips {
+    /// These older strip-only fixtures supply admitted object identities;
+    /// they deliberately do not exercise Building/House admission.
+    pub(crate) fn reconcile_fixture(
+        &mut self,
+        candidates: &[Cameo],
+        rows: usize,
+        recheck: bool,
+    ) -> super::cameo_order::CameoReconcile {
+        let additions: Vec<_> = candidates
+            .iter()
+            .filter_map(|item| match item.id {
+                CameoId::Object(id) if item.available => Some(id),
+                _ => None,
+            })
+            .collect();
+        self.reconcile(candidates, rows, recheck, &additions)
+    }
+}
+
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/sidebar_oracle/cameo_order.json");
     assert_eq!(corpus["schema"], 1);
     corpus
+}
+
+fn trigger_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/sidebar_oracle/trigger_cameos.json")
+}
+
+fn pending_corpus() -> &'static Value {
+    let native = crate::test_fixture::json("tools/sidebar_oracle/pending_production.json");
+    assert_eq!(native["schema"], 1);
+    native
+}
+
+fn pending_e2(state: &Value) -> &Value {
+    state["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "E2")
+        .unwrap()
+}
+
+#[test]
+fn pending_prediction_numeric_boundaries_match_original_select() {
+    for control in pending_corpus()["numeric_controls"].as_array().unwrap() {
+        let phase = &control["phase"];
+        let reads = phase["numeric_reads"].as_array().unwrap();
+        let read = |field: &str| {
+            reads
+                .iter()
+                .find_map(|row| row[field].as_i64())
+                .map(|value| value as i32)
+        };
+        if let Some(ahead) = control["inputs"]["max_ahead"].as_i64()
+            && control["inputs"]["cost"].is_number()
+        {
+            // Cost_Of is an original call observation, independently of the
+            // raw Type Cost supplied to the separate711EE0 duration call.
+            let cost = phase["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|call| call["name"] == "type_cost")
+                .unwrap()["return_i32"]
+                .as_i64()
+                .unwrap() as i32;
+            assert_eq!(
+                pending_production_affordability(cost, ahead as i32),
+                read("minimum_step_credits_i32").unwrap(),
+                "{}",
+                control["name"]
+            );
+            if let Some(rate) = read("initial_rate_i32") {
+                assert_eq!(
+                    pending_production_prediction_rate(
+                        control["base_duration_i32"].as_i64().unwrap() as i32,
+                        ahead as i32
+                    ),
+                    rate,
+                    "{}",
+                    control["name"]
+                );
+            } else {
+                assert_eq!(
+                    pending_e2(&phase["after"])["predicted_rate"],
+                    0,
+                    "native affordability refusal leaves the clock uninitialized"
+                );
+            }
+        }
+        if let Some(predicted) = control["inputs"]["prepared_predicted_stage"].as_i64() {
+            let actual = control["inputs"]["actual_stage_before"].as_i64().unwrap() as i32;
+            assert_eq!(
+                pending_production_smoothed_stage(actual, predicted as i32),
+                read("smoothed_stage_i32").unwrap(),
+                "{}",
+                control["name"]
+            );
+        }
+    }
+}
+
+fn pending_clock_strip() -> (CameoStrips, CameoId) {
+    let mut interner = StringInterner::new();
+    let id = CameoId::Object(interner.intern("E2"));
+    let mut strips = CameoStrips::default();
+    strips.insert(&Cameo {
+        id,
+        tab: SidebarTab::Infantry,
+        available: true,
+        key: CameoKey::Techno {
+            own_side: true,
+            considered_aircraft: false,
+            naval: false,
+            tech_level: 1,
+            cost: 100,
+            name: "E2".into(),
+        },
+    });
+    (strips, id)
+}
+
+fn assert_pending_clock(strips: &CameoStrips, id: CameoId, native: &Value, context: &Value) {
+    let state = match native["request_state"].as_u64().unwrap() {
+        0 => None,
+        1 => Some(CameoRequestState::Started),
+        2 => Some(CameoRequestState::Held),
+        _ => panic!("selected original request domain: {context}"),
+    };
+    assert_eq!(strips.request_state(id), state, "{context}");
+    if state.is_some() {
+        let clock = strips.request_clock(id).unwrap();
+        assert_eq!(
+            clock.value(),
+            native["predicted_stage"].as_i64().unwrap() as i32,
+            "{context}"
+        );
+        assert_eq!(
+            clock.rate(),
+            native["predicted_rate"].as_i64().unwrap() as i32,
+            "{context}"
+        );
+        assert_eq!(
+            clock.timer().start_frame(),
+            native["prediction_timer"]["start"].as_i64().unwrap() as i32,
+            "{context}"
+        );
+        assert_eq!(
+            clock.timer().duration(),
+            native["prediction_timer"]["duration"].as_i64().unwrap() as i32,
+            "{context}"
+        );
+    }
+}
+
+#[test]
+fn pending_strip_clock_hold_no_init_and_limit_match_original_histories() {
+    let native = pending_corpus();
+    for history in native["histories"].as_array().unwrap() {
+        let (mut strips, id) = pending_clock_strip();
+        for phase in history["phases"].as_array().unwrap() {
+            let frame = phase["after"]["frame"].as_u64().unwrap() as i32;
+            match phase["name"].as_str().unwrap() {
+                "left_idle" => {
+                    let rate = pending_e2(&phase["after"])["predicted_rate"]
+                        .as_i64()
+                        .unwrap() as i32;
+                    strips.start_request(id, frame, Some((0, rate)));
+                }
+                "right_pending" => strips.hold_request(id),
+                "left_held_resume" => {
+                    let before = pending_e2(&phase["before"]);
+                    let stage = pending_production_smoothed_stage(
+                        phase["before"]["factory"]["stage"].as_i64().unwrap() as i32,
+                        before["predicted_stage"].as_i64().unwrap() as i32,
+                    );
+                    let rate = pending_e2(&phase["after"])["predicted_rate"]
+                        .as_i64()
+                        .unwrap() as i32;
+                    strips.start_request(id, frame, Some((stage, rate)));
+                }
+                "first_predicted_due" | "held_prediction_frozen" | "resumed_prediction_due" => {
+                    let factory = &phase["before"]["factory"];
+                    let stopped = !factory.is_null()
+                        && (factory["rate"] == 0
+                            || factory["suspended"] == true
+                            || factory["on_hold"] == true);
+                    strips.advance_request(id, frame, stopped);
+                }
+                "strip_no_init" | "held_no_init" | "unlinked_held_no_init" => {
+                    strips.restore_requests(strips.saved_requests(), frame);
+                }
+                "strip_clear" => strips.retain(0, |_| false),
+                _ => {} // Factory/event operations do not own this clock.
+            }
+            if phase["after"]["total_entries"] == 0 {
+                assert!(strips.request_state(id).is_none());
+            } else {
+                assert_pending_clock(&strips, id, pending_e2(&phase["after"]), &phase["name"]);
+            }
+        }
+    }
+    let control = native["numeric_controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|control| control["name"] == "prediction_stops_at_53")
+        .unwrap();
+    let (mut strips, id) = pending_clock_strip();
+    let before = pending_e2(&control["phase"]["before"]);
+    strips.start_request(
+        id,
+        before["prediction_timer"]["start"].as_i64().unwrap() as i32,
+        Some((
+            before["predicted_stage"].as_i64().unwrap() as i32,
+            before["predicted_rate"].as_i64().unwrap() as i32,
+        )),
+    );
+    for phase in [&control["phase"], &control["stopped_phase"]] {
+        strips.advance_request(id, phase["after"]["frame"].as_u64().unwrap() as i32, false);
+        assert_pending_clock(&strips, id, pending_e2(&phase["after"]), &control["name"]);
+    }
+}
+
+#[test]
+fn original_trigger_tabs_and_cameo_flash_deadlines() {
+    let native = trigger_corpus();
+    let fixture = Fixture::new(&serde_json::json!({
+        "current_side": 0, "types": native["catalog"]
+    }));
+    let candidates: Vec<_> = fixture
+        .candidates()
+        .into_iter()
+        .filter(|item| fixture.name(item.id) != "UNLISTED")
+        .collect();
+    let mut initial = CameoStrips::default();
+    initial.reconcile_fixture(&candidates, 3, true);
+    fixture.assert_order(&initial, &native["order"], "114/115 initial order");
+    for control in native["tab_controls"].as_array().unwrap() {
+        let mut strips = initial.clone();
+        let counts = control["counts"].as_array().unwrap();
+        strips.retain(3, |id| {
+            let item = candidates.iter().find(|item| item.id == id).unwrap();
+            counts[item.tab.tab_index()].as_u64().unwrap() != 0
+        });
+        assert_eq!(
+            strips
+                .selectable_tab(control["index"].as_i64().unwrap() as i32)
+                .map(|tab| tab.tab_index()),
+            control["selected"]
+                .as_array()
+                .unwrap()
+                .first()
+                .map(|value| value.as_u64().unwrap() as usize),
+            "114 native count admission: {control}"
+        );
+    }
+    let index_of = |id| match id {
+        CameoId::Object(id) => {
+            let name = fixture.interner.resolve(id);
+            let object = fixture.rules.object(name).unwrap();
+            fixture.rules.type_array_index(object.category, name)
+        }
+        CameoId::SuperWeapon(_) => None,
+    };
+    for control in native["flash_controls"].as_array().unwrap() {
+        let mut strips = initial.clone();
+        if control["result"] == 1 {
+            let name = control["type_name"].as_str().unwrap();
+            let id = fixture.interner.get(name).unwrap();
+            let object = fixture.rules.object(name).unwrap();
+            strips.flash_type_index(
+                SidebarTab::for_category(crate::sim::production::category_for_object(object)),
+                index_of(CameoId::Object(id)).unwrap(),
+                control["duration"].as_i64().unwrap() as i32,
+                control["frame"].as_i64().unwrap() as i32,
+                index_of,
+            );
+        }
+        let (deadlines, redraw_until) = strips.saved_flash();
+        let actual: serde_json::Map<String, Value> = SidebarTab::all()
+            .into_iter()
+            .flat_map(|tab| {
+                strips
+                    .items(tab)
+                    .iter()
+                    .zip(&deadlines[tab.tab_index()])
+                    .map(|(item, deadline)| {
+                        (fixture.name(item.id).to_owned(), Value::from(*deadline))
+                    })
+            })
+            .collect();
+        assert_eq!(
+            Value::Object(actual),
+            control["deadlines"],
+            "{}",
+            control["name"]
+        );
+        assert_eq!(
+            redraw_until,
+            control["redraw_until"].as_i64().unwrap() as i32
+        );
+        assert_eq!(control["rng_before"], control["rng_after"]);
+    }
+    let mut strips = initial;
+    for control in native["overwrite"].as_array().unwrap() {
+        strips.flash_type_index(
+            SidebarTab::Infantry,
+            0,
+            control["duration"].as_i64().unwrap() as i32,
+            control["frame"].as_i64().unwrap() as i32,
+            index_of,
+        );
+        let (deadlines, redraw_until) = strips.saved_flash();
+        assert_eq!(
+            deadlines[2][0],
+            control["deadline"].as_i64().unwrap() as i32
+        );
+        assert_eq!(
+            redraw_until,
+            control["redraw_until"].as_i64().unwrap() as i32
+        );
+    }
+    assert!(native["rng_calls"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn original_flash_signed_frame_phase() {
+    let native = trigger_corpus();
+    let fixture = Fixture::new(&serde_json::json!({
+        "current_side": 0, "types": native["catalog"]
+    }));
+    let infantry = fixture
+        .candidates()
+        .into_iter()
+        .find(|item| fixture.name(item.id) == "E2")
+        .unwrap();
+    let mut strips = CameoStrips::default();
+    strips.insert(&infantry);
+    for control in native["draw_controls"].as_array().unwrap() {
+        let deadline = control[0].as_i64().unwrap() as i32;
+        strips.restore_flash([vec![], vec![], vec![deadline], vec![]], 0);
+        strips.set_frame(control[1].as_i64().unwrap() as i32);
+        assert_eq!(
+            strips.flash_darkened(infantry.id),
+            control[2].as_bool().unwrap(),
+            "original6A9B59 deadline/frame: {control}"
+        );
+    }
 }
 
 #[derive(Deserialize)]
@@ -328,7 +676,11 @@ fn reconciliation_adds_before_pruning_and_retries_on_the_next_recheck() {
         item.available = initial.contains(fixture.name(item.id));
     }
     let mut strips = CameoStrips::default();
-    assert!(strips.reconcile(&candidates, 3));
+    assert!(
+        strips
+            .reconcile_fixture(&candidates, 3, true)
+            .build_inserted()
+    );
     fixture.assert_order(&strips, &context["initial_order"], "initial reconciliation");
 
     let steps = context["steps"].as_array().unwrap();
@@ -336,12 +688,106 @@ fn reconciliation_adds_before_pruning_and_retries_on_the_next_recheck() {
         item.available = fixture.name(item.id) != steps[0]["id"].as_str().unwrap();
     }
     assert!(
-        !strips.reconcile(&candidates, 3),
+        !strips
+            .reconcile_fixture(&candidates, 3, true)
+            .build_inserted(),
         "full strip rejects the new item before removing the old one"
     );
     fixture.assert_order(&strips, &steps[2]["order"], "first reconciliation");
-    assert!(strips.reconcile(&candidates, 3));
+    assert!(
+        strips
+            .reconcile_fixture(&candidates, 3, true)
+            .build_inserted()
+    );
     fixture.assert_order(&strips, &steps[3]["order"], "second reconciliation");
+}
+
+/// Native flips the tab buttons and moves the active tab only on the two
+/// AddCameo/Recalculate transitions, never from a strip's current contents.
+///
+/// AddCameo 6A6472 enables the added strip's button and, when no strip held an
+/// entry before the insertion, hands ActiveTab to the first populated strip.
+/// Recalculate 6AAAE7 disables the button of the strip it just emptied and
+/// re-checks ActiveTab the same way. A strip that is empty without such a
+/// transition keeps its enabled button, so the executable controls
+/// (tools/sidebar_oracle/cameo_order.json) and the four command gates
+/// (`StripClass::HasEntries` 6ABAC0) agree.
+#[test]
+fn native_tab_transitions_follow_add_cameo_and_recalculate() {
+    let mut interner = StringInterner::new();
+    let unit = interner.intern("TABVEHICLE");
+    let building = interner.intern("TABSTRUCTURE");
+    let cameo = |id, tab| Cameo {
+        id: CameoId::Object(id),
+        tab,
+        available: true,
+        key: CameoKey::Techno {
+            own_side: true,
+            considered_aircraft: false,
+            naval: false,
+            tech_level: 1,
+            cost: 100,
+            name: "Test Type".to_string(),
+        },
+    };
+
+    // The first entry of an empty sidebar selects its own strip.
+    let mut strips = CameoStrips::default();
+    let first = strips.reconcile_fixture(&[cameo(unit, SidebarTab::Vehicle)], 3, true);
+    assert_eq!(
+        first.transitions().tab_button_disabled(SidebarTab::Vehicle),
+        Some(false)
+    );
+    assert_eq!(
+        first.transitions().active_tab_destination(),
+        Some(SidebarTab::Vehicle)
+    );
+
+    // A later addition into a populated sidebar moves nothing.
+    let populated = [
+        cameo(unit, SidebarTab::Vehicle),
+        cameo(building, SidebarTab::Building),
+    ];
+    let second = strips.reconcile_fixture(&populated, 3, true);
+    assert_eq!(
+        second
+            .transitions()
+            .tab_button_disabled(SidebarTab::Building),
+        Some(false)
+    );
+    assert_eq!(second.transitions().active_tab_destination(), None);
+
+    // Recalculate dropping the last vehicle entry disables that strip's own
+    // button and re-checks the active tab against the first populated strip.
+    let mut pruned = populated;
+    pruned[0].available = false;
+    let third = strips.reconcile_fixture(&pruned, 3, true);
+    assert_eq!(
+        third.transitions().tab_button_disabled(SidebarTab::Vehicle),
+        Some(true)
+    );
+    assert_eq!(
+        third
+            .transitions()
+            .tab_button_disabled(SidebarTab::Building),
+        None
+    );
+    assert_eq!(
+        third.transitions().active_tab_destination(),
+        Some(SidebarTab::Building)
+    );
+    assert_eq!(strips.first_populated_tab(), Some(SidebarTab::Building));
+
+    // Re-reconciling the now empty vehicle strip reports no transition: it was
+    // already empty, so native never disabled its button on this pass.
+    let fourth = strips.reconcile_fixture(&[cameo(building, SidebarTab::Building)], 3, true);
+    assert_eq!(
+        fourth
+            .transitions()
+            .tab_button_disabled(SidebarTab::Vehicle),
+        None
+    );
+    assert_eq!(fourth.transitions().active_tab_destination(), None);
 }
 
 #[test]

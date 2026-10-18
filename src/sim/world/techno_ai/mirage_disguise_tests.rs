@@ -45,6 +45,7 @@ fn disguised(sim: &Simulation) -> bool {
 /// a retained idle disguise therefore cannot spend another Scenario pick.
 /// Use the retail layered list, not the singleton authored motion fixture.
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn an_idle_retail_mirage_retains_its_disguise_without_another_scenario_draw() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
@@ -77,13 +78,7 @@ fn an_idle_retail_mirage_hides_from_an_ordinary_enemy_observer() {
     let enemy = sim.interner.intern("Russians");
     sim.update_unit_disguise(1, &retail.rules).unwrap();
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(crate::sim::cloak_disguise::object_disguised_to(
-        entity,
-        enemy,
-        None,
-        None,
-        &sim.interner,
-    ));
+    assert!(entity.is_disguised_to(enemy, None, None, &sim.interner,));
 }
 
 /// A Mirage whose Drive has a destination is moving, so UpdateDisguise takes

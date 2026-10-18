@@ -20,8 +20,9 @@ pub(super) fn projectile_arm_delay(
 }
 
 /// The BulletType facts FireAt and `BulletClass::Fire` read for one shot.
-/// Every shot is a bullet; an `Inviso=` one is placed at its target and
-/// detonates on its first AI visit (`Projectile` `fire_inviso`).
+/// Every shot is a bullet; `Inviso=` places it at its target. Detonation
+/// still follows the common AI admission, including its Arm-gated proximity
+/// fuse (SQDJUMP has Arm=2); `fire_inviso` does not bypass that timer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ProjectileDelivery {
     arm_frames: i32,
@@ -119,7 +120,14 @@ pub(super) fn classify_projectile_delivery(
     weapon: &crate::rules::weapon_type::WeaponType,
     rules: &RuleSet,
 ) -> ProjectileDelivery {
-    let projectile = bullet_type(weapon, rules);
+    classify_projectile_type(bullet_type(weapon, rules), weapon.speed, rules)
+}
+
+fn classify_projectile_type(
+    projectile: &crate::rules::projectile_type::ProjectileType,
+    max_speed: i32,
+    rules: &RuleSet,
+) -> ProjectileDelivery {
     // `BulletClass::AI @ 0x004666E0` selects an arm exactly twice: `ROT < 1` at
     // `0x004668D1`, then `Vertical` (`+0x2C0`) at `0x004671D0`. Nothing else
     // participates.
@@ -161,7 +169,7 @@ pub(super) fn classify_projectile_delivery(
             course_frames: 0,
             course_locked: true,
             very_high: projectile.very_high,
-            max_speed: weapon.speed,
+            max_speed,
             acceleration: projectile.acceleration,
             closing_frames: 0,
             closing_accumulator_bits: 0,
@@ -208,6 +216,7 @@ impl FiredBullet {
     /// [`cell_target_coord`]: crate::sim::projectile::cell_target_coord
     pub(crate) fn launched(
         world: &Simulation,
+        rules: &RuleSet,
         native_unique_id: i32,
         source_id: u64,
         target: ProjectileTarget,
@@ -231,7 +240,23 @@ impl FiredBullet {
                 );
                 ProjectileCoord::new(coords.x, coords.y, coords.z)
             }
+            // Terrain+58 (410540) forwards Object+48 (5F65A0).
+            ProjectileTarget::Terrain(id) => {
+                world.production.terrain_objects.get(&id)?.world_coord()
+            }
             ProjectileTarget::None => return None,
+        };
+        // Direct callers hand Fire a pre-Fire vector; FireAt's own launch
+        // path already passes through the same numeric owner. Nuclear stock
+        // types have ROT=0; Execute96's ChemMissile has ROT=4 and requires it.
+        let velocity = if payload
+            .projectile_type()
+            .and_then(|id| rules.projectile(world.interner.resolve(id)))
+            .is_some_and(|projectile| projectile.rot > 0)
+        {
+            crate::sim::projectile::launch::bullet_fire_homing_velocity(velocity)
+        } else {
+            velocity
         };
         Some(Self {
             native_unique_id,
@@ -323,11 +348,15 @@ pub(crate) fn admit_fired_bullet(
     bullet_id: u64,
     bullet: FiredBullet,
 ) {
-    let projectile_type = weapon
-        .projectile
-        .as_deref()
-        .and_then(|projectile_id| rules.projectile(projectile_id));
-    let delivery = classify_projectile_delivery(weapon, rules);
+    let projectile_type = bullet
+        .payload
+        .projectile_type()
+        .and_then(|id| rules.projectile(world.interner.resolve(id)));
+    let delivery = classify_projectile_type(
+        projectile_type.unwrap_or_else(|| missing_projectile_fallback()),
+        bullet.max_speed,
+        rules,
+    );
     let spawn = delivery.spawn(&world.substrate.entities, rules, projectile_type, bullet);
     world.admit_projectile(bullet_id, spawn);
     world.construct_bullet_scheme(bullet_id, rules);
@@ -387,137 +416,4 @@ fn inviso_fire_placement(
         weapon.range_leptons,
         &mut world.scenario_rng,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::rules::ini_parser::IniFile;
-
-    /// `BulletClass::AI @ 0x004666E0` branches only on `ROT < 1` and, on the
-    /// non-homing arm, on `Vertical`. `Proximity`, `SubjectToCliffs` and
-    /// `SubjectToElevation` are never read there, so none of them may push a
-    /// shot off authoritative flight.
-    #[test]
-    fn gsi_08_07_proximity_and_cliff_keys_keep_authoritative_flight() {
-        let ini = IniFile::from_str(
-            "[VehicleTypes]\n0=PROXER\n1=CLIFFER\n[PROXER]\nStrength=100\nArmor=heavy\nPrimary=ProxGun\n[CLIFFER]\nStrength=100\nArmor=heavy\nPrimary=CliffGun\n[ProxGun]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=Prox\nWarhead=WH\n[CliffGun]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=Cliffy\nWarhead=WH\n[Prox]\nProximity=yes\nROT=8\n[Cliffy]\nSubjectToCliffs=yes\nSubjectToElevation=yes\nROT=0\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("projectile fixture parses");
-
-        // Only ROT picks the homing arm; Proximity= and SubjectToCliffs= pick
-        // no flight arm at all.
-        for (weapon_name, homing) in [("ProxGun", true), ("CliffGun", false)] {
-            let weapon = rules.weapon(weapon_name).expect("weapon");
-            let delivery = classify_projectile_delivery(weapon, &rules);
-            assert_eq!(delivery.tracks_target, homing, "{weapon_name}");
-            assert_eq!(delivery.vertical, None, "{weapon_name}");
-            assert!(!delivery.inviso, "{weapon_name}");
-        }
-    }
-
-    #[test]
-    fn wall_projectile_uses_the_authoritative_collision_path() {
-        let ini = IniFile::from_str(
-            "[VehicleTypes]\n0=TEST\n\n[TEST]\nStrength=100\nArmor=heavy\nPrimary=GUN\n\n[GUN]\nDamage=20\nROF=10\nRange=5\nSpeed=30\nProjectile=SHELL\nWarhead=WH\n\n[SHELL]\nSubjectToWalls=yes\n\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("projectile rules");
-        let weapon = rules.weapon("GUN").expect("weapon");
-
-        assert_eq!(
-            classify_projectile_delivery(weapon, &rules),
-            ProjectileDelivery {
-                inviso: false,
-                arm_frames: 0,
-                tracks_target: false,
-                collision: ProjectileCollisionPolicy {
-                    level: false,
-                    subject_to_walls: true,
-                    native_cell_collision: true,
-                    ..ProjectileCollisionPolicy::NONE
-                },
-                ballistic: false,
-                vertical: None,
-                acceleration: 3,
-                launch_scatter_is_flak: None,
-                guidance: None,
-            }
-        );
-    }
-
-    /// `Bouncy=` (`+0x2A7`), `Proximity=` (`+0x29F`) and `Degenerates=`
-    /// (`+0x2A6`) never divert a shot: the first two have no consumer anywhere
-    /// in `gamemd.exe`, and the third is a damage decay inside
-    /// `BulletClass::AI 0x00467C86`, not a trajectory selector. `Inaccurate=`
-    /// and `FlakScatter=` are launch-time target offsets at
-    /// `TechnoClass::FireAt 0x006FE67D`, and `Dropping=` (`+0x29C`) only
-    /// suppresses the proximity fuse at `0x00467C78`.
-    #[test]
-    fn gsi_08_08_dead_and_launch_time_keys_keep_authoritative_flight() {
-        let ini = IniFile::from_str(
-            "[VehicleTypes]\n0=TA\n1=TB\n\
-             [TA]\nStrength=100\nArmor=heavy\nPrimary=W0\nSecondary=W1\n\
-             [TB]\nStrength=100\nArmor=heavy\nPrimary=W2\nSecondary=W3\n\
-             [W0]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=P0\nWarhead=WH\n\
-             [W1]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=P1\nWarhead=WH\n\
-             [W2]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=P2\nWarhead=WH\n\
-             [W3]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=P3\nWarhead=WH\n\
-             [P0]\nBouncy=yes\nArcing=yes\n[P1]\nDegenerates=yes\n\
-             [P2]\nInaccurate=yes\nFlakScatter=yes\nArcing=true\n[P3]\nDropping=yes\nROT=4\n\
-             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("projectile fixture parses");
-        // Bouncy=, Degenerates=, Inaccurate=/FlakScatter= and Dropping= select
-        // no flight arm: ROT alone does.
-        for (weapon_name, homing) in [("W0", false), ("W1", false), ("W2", false), ("W3", true)] {
-            let weapon = rules.weapon(weapon_name).expect("weapon");
-            let delivery = classify_projectile_delivery(weapon, &rules);
-            assert_eq!(delivery.tracks_target, homing, "{weapon_name}");
-            assert_eq!(delivery.vertical, None, "{weapon_name}");
-        }
-        // The flak arm is only selected when `FlakScatter && !Inviso`.
-        let flak = rules.weapon("W2").expect("weapon");
-        assert!(matches!(
-            classify_projectile_delivery(flak, &rules),
-            ProjectileDelivery {
-                launch_scatter_is_flak: Some(true),
-                ..
-            }
-        ));
-        // `Bouncy` + `Arcing` is an ordinary ballistic shell, with no scatter.
-        let bouncy = rules.weapon("W0").expect("weapon");
-        assert!(matches!(
-            classify_projectile_delivery(bouncy, &rules),
-            ProjectileDelivery {
-                ballistic: true,
-                launch_scatter_is_flak: None,
-                ..
-            }
-        ));
-    }
-
-    /// `Vertical=` selects the third `BulletClass::AI` arm and carries
-    /// `DetonationAltitude=` (`+0x2BC`) and `Acceleration=` (`+0x2D0`).
-    #[test]
-    fn gsi_08_08_vertical_projectile_takes_the_vertical_arm() {
-        let ini = IniFile::from_str(
-            "[VehicleTypes]\n0=T\n[T]\nStrength=100\nArmor=heavy\nPrimary=NUKE\n\
-             [NUKE]\nDamage=10\nROF=20\nRange=5\nSpeed=40\nProjectile=GiantNukeUp\nWarhead=WH\n\
-             [GiantNukeUp]\nArm=2\nAcceleration=1\nVertical=yes\nDetonationAltitude=20000\n\
-             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("projectile fixture parses");
-        let weapon = rules.weapon("NUKE").expect("weapon");
-        assert!(matches!(
-            classify_projectile_delivery(weapon, &rules),
-            ProjectileDelivery {
-                vertical: Some(20000),
-                acceleration: 1,
-                arm_frames: 2,
-                guidance: None,
-                ballistic: false,
-                ..
-            }
-        ));
-    }
 }

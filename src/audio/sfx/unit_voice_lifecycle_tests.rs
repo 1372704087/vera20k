@@ -82,8 +82,9 @@ fn with_playback(name: &str, run: impl FnOnce(&mut Playback<'_>)) {
         return;
     };
     player.set_volume(0.0);
-    let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-    let selected_index = assets.load_audio_index().unwrap();
+    let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+        .expect("retail audio definitions");
+    let selected_index = crate::rules::retail_ini_fixture::retail_audio_index();
     let history = history(name);
     let main: MainRng = SimRng::from_native_state_hex_for_test(main_hex(
         history,
@@ -96,7 +97,7 @@ fn with_playback(name: &str, run: impl FnOnce(&mut Playback<'_>)) {
         history,
         registry: definitions.sounds(),
         assets: &assets,
-        index: selected_index.as_ref().map(|selected| &selected.index),
+        index: selected_index.map(|selected| &selected.index),
     };
     // Native constructed an empty pool and admitted its 1000ms service before
     // G. This empty service has no draw; do not substitute a new RNG seed.

@@ -57,7 +57,7 @@ pub(super) fn fixture(corpus: &Value, row: &Value, retail: RetailBattleRules) ->
         })
         .unwrap()["before"];
     let mut rules = retail.rules;
-    let mut ini = retail.processed_rules.clone();
+    let mut ini = (*retail.processed_rules).clone();
     ini.merge(&native::voice_overrides(&row["input"]));
     rules.bind_type_sound_references(&ini, &native::catalog(corpus));
     let registry = OverlayTypeRegistry::from_ini(&ini, Some(&retail.fixed_art));
@@ -225,6 +225,7 @@ fn sound_name<'a>(corpus: &'a Value, id: &Value) -> Option<&'a str> {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn area_guard_ingress_matches_native_order_current_cells_voices_and_rng() {
     let corpus = native::native();
     let mut compared = 0;

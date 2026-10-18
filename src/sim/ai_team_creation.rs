@@ -37,9 +37,7 @@
 //!   (`0x00509610`'s scan of `0x008B3DC4` with `0x006F1E20`). VERA skips the
 //!   difficulty gate and refuses such a trigger. Trigger: campaign AI trigger
 //!   selection after startup; effects include missing recruitment and a
-//!   different eligible/weighted trigger set. Required live chain: issue1308.
-//! - The trigger actions that write RatioAITriggerTeam (`0x006DF364`,
-//!   `0x006E330E`) are not ported; the map reader now initializes this owner.
+//!   different eligible/weighted trigger set. Required live chain: campaign AI eligibility under issue1508.
 //! - Conditions 5 and 6 compare a super weapon's charge against its type's
 //!   `RechargeTime=` ([`super_nearly_ready`]'s residual).
 
@@ -89,6 +87,12 @@ impl Default for HouseTeamCreation {
 }
 
 impl HouseTeamCreation {
+    /// Active Execute76 at 0x006DF364 stores the signed +0x90 dword unchanged.
+    /// The selector 0x006F0AB0 consumes it on its next due pass; no timer reset.
+    pub(crate) fn set_trigger_ratio(&mut self, value: i32) {
+        self.ratio = value;
+    }
+
     /// House ReadScenarioINI500D0D..500D25 uses the existing ratio as default;
     /// its temporary team timer is then overwritten by outer SetDifficulty.
     pub(crate) fn read_scenario_ratio(&mut self, section: &crate::rules::ini_parser::IniSection) {
@@ -115,11 +119,11 @@ impl HouseTeamCreation {
         }
     }
 
-    pub(crate) const fn timer(&self) -> CdTimer {
+    pub const fn timer(&self) -> CdTimer {
         self.timer
     }
 
-    pub(crate) const fn ratio(&self) -> i32 {
+    pub const fn ratio(&self) -> i32 {
         self.ratio
     }
 }
@@ -208,7 +212,7 @@ pub(crate) fn select_team_types_with(
     };
     let enemy = house.enemy_house;
     let ratio = house.team_creation.ratio;
-    let triggers_active = house.ai_activation.ai_triggers_active;
+    let triggers_active = house.ai_activation().ai_triggers_active;
     let team_cap = house.difficulty_value(&rules.general.total_ai_team_cap);
     let max_defensive = house.difficulty_value(&rules.general.maximum_ai_defensive_teams);
     let mut picked = Vec::new();

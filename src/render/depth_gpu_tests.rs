@@ -914,12 +914,10 @@ fn stock_cliff_decoder_and_terrain_instances_occlude_shp_and_indexed_voxels() {
             z: 0,
             rx: 1,
             ry: 1,
-            is_water: false,
             variant: 0,
             tint: [1.0; 3],
             radar_left: [0; 3],
             radar_right: [0; 3],
-            has_damaged_data: false,
         }],
         world_width: 60.0,
         world_height: 256.0,
@@ -1018,16 +1016,6 @@ fn terrain_and_building_depth_hide_only_behind_pixels_and_preserve_holes() {
         pixels[(3 * SIDE + 5) as usize],
         BLUE,
         "TMP per-pixel depth byte was ignored"
-    );
-
-    // The high-bridge atlas stores row bytes with the opposite sign from TMP.
-    let mut bridge = Layer::solid(Shader::Terrain, RED, 0.0);
-    bridge.z_bytes.fill(8);
-    bridge.instance.draw_state.fx_params[3] = -1.0;
-    let pixels = gpu.render(&[bridge, Layer::solid(Shader::SpriteRead, BLUE, 0.0)]);
-    assert!(
-        pixels.iter().all(|pixel| *pixel == RED),
-        "bridge row atlas sign failed to occlude the behind sprite"
     );
 
     // A nearer read-only sprite may change color, but must not prevent a

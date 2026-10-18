@@ -134,31 +134,31 @@ pub struct JumpjetFlightParams {
 
 impl JumpjetFlightParams {
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn turn_rate(&self) -> i32 {
         self.turn_rate
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn speed(&self) -> i32 {
         self.speed
     }
 
     /// A fixture's value.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_speed_for_test(&mut self, speed: i32) {
         self.speed = speed;
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn climb_bits(&self) -> u32 {
         self.climb_bits
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn crash_bits(&self) -> u32 {
         self.crash_bits
     }
@@ -169,13 +169,13 @@ impl JumpjetFlightParams {
     }
 
     /// A fixture's value.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_height_for_test(&mut self, height: i32) {
         self.height = height;
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn accel_bits(&self) -> u32 {
         self.accel_bits
     }
@@ -232,37 +232,37 @@ pub struct JumpjetFlight {
 
 impl JumpjetFlight {
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn facing(&self) -> &FacingClass {
         &self.facing
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn facing_mut(&mut self) -> &mut FacingClass {
         &mut self.facing
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn current_speed_bits(&self) -> u64 {
         self.current_speed_bits
     }
 
     /// A fixture's value.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_current_speed_bits_for_test(&mut self, current_speed_bits: u64) {
         self.current_speed_bits = current_speed_bits;
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn target_speed_bits(&self) -> u64 {
         self.target_speed_bits
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn target_height(&self) -> i32 {
         self.target_height
     }
@@ -273,7 +273,7 @@ impl JumpjetFlight {
     }
 
     /// See the field.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn bob_phase_bits(&self) -> u64 {
         self.bob_phase_bits
     }
@@ -290,11 +290,7 @@ impl JumpjetFlight {
         }
     }
 
-    pub fn current_speed(&self) -> f64 {
-        f64::from_bits(self.current_speed_bits)
-    }
-
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn target_speed(&self) -> f64 {
         f64::from_bits(self.target_speed_bits)
     }
@@ -442,15 +438,15 @@ pub(crate) trait JumpjetFlightHost {
     /// `RulesClass+0x48` as a facing, the heading a simple deployer turns to
     /// before it settles (`0x0054C767..C7A2`).
     fn deploy_facing(&self) -> Option<u16>;
-    /// Touchdown's owner bookkeeping at `0x0054C8CB..0x0054CA7B`: the
-    /// destination becomes NullCoord, the moving byte clears,
-    /// `Set_Destination(0, 1)` runs, the air slot and bucket are released, the
-    /// crate at the cell is picked up and the landing latches are cleared.
-    fn touchdown(&mut self, runtime: &mut JumpjetRuntime);
-    /// Owner cleanup after the phase0 write54C9E4: every touchdown lets a
+    /// PerCell(2), class NULL destination and the owner gate54C905..54C92C.
+    /// False aborts the remaining landing, retaining the callback's runtime.
+    /// True also releases the owned air slot and tracker, before phase0.
+    fn touchdown(&mut self, runtime: &mut JumpjetRuntime) -> bool;
+    /// Crate pickup54C9F6 and owner cleanup after the phase0 write54C9E4:
+    /// an admitted touchdown lets a
     /// lift end (`+0x6AE = 1`, `0x0054C9FE`) and clears the dropped and crash
     /// bytes (`+0x427`, `+0x425`, `0x0054CA08`, `0x0054CA12`).
-    fn finish_touchdown(&mut self);
+    fn finish_touchdown(&mut self, runtime: &mut JumpjetRuntime);
 
     // Seams the crash adds.
     /// Owner `+0x425`, the latch `FootClass::Crash @ 0x004DEBB0` raises.
@@ -1269,11 +1265,13 @@ pub(crate) fn state4_descend(
     host.mark(true);
     runtime.destination = JumpjetRuntime::NULL;
     runtime.moving = false;
-    host.touchdown(runtime);
+    if !host.touchdown(runtime) {
+        return runtime.phase;
+    }
     runtime.phase = STATE_GROUND;
+    host.finish_touchdown(runtime);
     runtime.landing_latched = false;
-    host.finish_touchdown();
-    STATE_GROUND
+    runtime.phase
 }
 
 /// `State5_Crash @ 0x0054CA90`. Returns the new state.
@@ -1475,7 +1473,7 @@ mod tests {
         }
         fn tracker_add(&mut self) {}
         fn tracker_update(&mut self, _cell: (i16, i16)) {}
-        fn finish_touchdown(&mut self) {}
+        fn finish_touchdown(&mut self, _runtime: &mut JumpjetRuntime) {}
         fn binary_frame(&self) -> u32 {
             self.frame
         }
@@ -1617,9 +1615,10 @@ mod tests {
         fn deploy_facing(&self) -> Option<u16> {
             None
         }
-        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) {
+        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) -> bool {
             self.events.push("touchdown");
             self.held_slot = None;
+            true
         }
         fn crashing(&self) -> bool {
             false
@@ -1947,7 +1946,7 @@ mod tests {
         }
         fn tracker_add(&mut self) {}
         fn tracker_update(&mut self, _cell: (i16, i16)) {}
-        fn finish_touchdown(&mut self) {}
+        fn finish_touchdown(&mut self, _runtime: &mut JumpjetRuntime) {}
         fn binary_frame(&self) -> u32 {
             self.frame
         }
@@ -2095,7 +2094,7 @@ mod tests {
         fn deploy_facing(&self) -> Option<u16> {
             None
         }
-        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) {
+        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) -> bool {
             self.touched_down = true;
             // 0x0054C9B2..0x0054C9CE: the touchdown release is conditional —
             // `CMP [cell+0xE0], owner` skips it unless the owner still holds
@@ -2105,6 +2104,7 @@ mod tests {
                 self.release_air_slot_at(here);
             }
             self.landing_latched = false;
+            true
         }
         fn crashing(&self) -> bool {
             self.crashing

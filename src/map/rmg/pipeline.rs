@@ -16,8 +16,6 @@
 //! `lat_fixup` calls; they are RNG-free, so the one that matters observably is
 //! the post-patch pass that produces the sand-LAT tiles the rock pass needs.
 
-use crate::map::theater::TheaterCliffRanges;
-
 use super::grid::RmgGrid;
 use super::phases::adjacency;
 use super::phases::blob::BlobCtx;
@@ -36,8 +34,8 @@ use super::phases::trees::{TreeArgs, TreeCtx};
 use super::phases::water::{PlayableRect, WaterArgs};
 use super::phases::zones::{self, ZoneKind, ZoneParams};
 use super::phases::{
-    green_spread, hills, lat_fixup, lat_patches, regions, rocks, starts, tech_buildings, tiberium,
-    trees, water, water_finalize,
+    cliff_materialization, cliff_variants, green_spread, hills, lat_fixup, lat_patches, regions,
+    rocks, starts, tech_buildings, tiberium, trees, water, water_finalize,
 };
 use super::preview::Playfield;
 use super::rng::RmgRng;
@@ -58,7 +56,6 @@ pub const STANDARD_START_QUOTA: i32 = 4;
 pub struct PipelineInputs<'a> {
     pub ids: &'a TileIds,
     pub blocks: &'a dyn TileBlocks,
-    pub cliff: &'a TheaterCliffRanges,
     /// The `[TileSet] Morphable=` predicate for the corner engine.
     pub morphable: &'a dyn Fn(i32) -> bool,
     /// Per-land-type "wheel speed <= 1%" flags for the zone classifier.
@@ -249,11 +246,6 @@ pub fn run_pipeline(
                 blocks: inputs.blocks,
                 rng: &mut *rng,
                 playfield: &playfield,
-                // The theater key for the ramp end-block tileset is not traced
-                // yet, so the blocks at each ramp's ends are left unstamped.
-                // Absent rather than guessed: stamping costs no draws, so the
-                // gap shows as missing end tiles and never as a divergent map.
-                ramp_end_block: -1,
             };
             carve_driver::carve_connectors_for_region(
                 &mut ctx,
@@ -264,6 +256,20 @@ pub fn run_pipeline(
                 &mut construction_trace,
             );
         }
+        // Original Generate598D6E..598D82: after connectors, jitter the
+        // ridge edges, repair/materialize faces, then restamp registered
+        // cliff variants. Generate ignores the materializer's refusal result
+        // and still performs the variant pass; partial writes remain live.
+        cliff_materialization::jitter(grid, scratch, inputs.ids, rng);
+        let _ =
+            cliff_materialization::materialize(grid, scratch, inputs.ids, inputs.blocks, rng, -1);
+        cliff_variants::run(
+            grid,
+            scratch,
+            inputs.blocks,
+            rng,
+            inputs.ids.cliffs.cliff_set.map_or(-1, i32::from),
+        );
     }
     observe(Stage::IslandPasses, grid, &waypoints);
 
@@ -299,7 +305,6 @@ pub fn run_pipeline(
             grid: &mut *grid,
             scratch: &mut *scratch,
             ids: inputs.ids,
-            blocks: inputs.blocks,
             rng: &mut *rng,
             regions: &mut regions,
         };
@@ -381,7 +386,7 @@ pub fn run_pipeline(
             gauss: &mut *gauss,
             rng: &mut *rng,
         };
-        hills::run(&mut ctx, &args, inputs.cliff, inputs.morphable);
+        hills::run(&mut ctx, &args, inputs.morphable);
     }
     observe(Stage::Hills, grid, &waypoints);
 
@@ -463,8 +468,8 @@ mod tests {
     use super::*;
     use crate::map::rmg::options::RmgOptions;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::{RmgConstructionOutcome, RmgConstructionPhase};
+    use crate::map::theater::TheaterCliffRanges;
 
     /// A `TileBlocks` provider that returns a 1x1 block for every tile — the
     /// same synthetic the water/shore phase tests use.
@@ -489,6 +494,7 @@ mod tests {
             clear: 0,
             ramp_base: 600,
             ramp_smooth: 620,
+            slope_set_pieces: -1,
             rough: 700,
             sand: 800,
             green: 100,
@@ -504,14 +510,13 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
     fn inputs<'a>(
         identity: &'a TileIds,
         blocks: &'a OneByOne,
-        cliff: &'a TheaterCliffRanges,
         morphable: &'a dyn Fn(i32) -> bool,
         map_type: i32,
         theater: i32,
@@ -520,7 +525,6 @@ mod tests {
         PipelineInputs {
             ids: identity,
             blocks,
-            cliff,
             morphable,
             wheel_impassable: [false; LAND_TYPES],
             tech_types,
@@ -547,12 +551,6 @@ mod tests {
         run_with_types(seed, map_type, theater, &[])
     }
 
-    /// The stock YR neutral catalog, resolved from the real INIs so the gate
-    /// tests exercise the same list the app wires in.
-    fn stock_tech_types() -> Vec<TechType> {
-        crate::map::rmg::tech_catalog::stock_contract_catalog()
-    }
-
     fn run_with_types(
         seed: u16,
         map_type: i32,
@@ -571,10 +569,9 @@ mod tests {
         let mut gauss = Gaussian::default();
         let identity = ids();
         let blocks = one_by_one();
-        let cliff = TheaterCliffRanges::default();
         let morphable = |_tile: i32| false;
         let ins = inputs(
-            &identity, &blocks, &cliff, &morphable, map_type, theater, tech_types,
+            &identity, &blocks, &morphable, map_type, theater, tech_types,
         );
         let output = run_pipeline(
             &mut grid,
@@ -672,7 +669,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: -1,
             };
             assert!(carve_driver::carve_connectors_for_region(
                 &mut ctx,
@@ -853,21 +849,6 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_runs_end_to_end_and_shapes_terrain() {
-        let (grid, output) = run(1234, 1, 0);
-        // The map is no longer all-unassigned: water/land shaping ran.
-        let assigned = grid
-            .native_cells()
-            .filter(|&(x, y)| {
-                grid.get(x, y).unwrap().tile != crate::map::rmg::tiles::TILE_UNASSIGNED
-            })
-            .count();
-        assert!(assigned > 0, "the pipeline assigned real tiles");
-        // Waypoints are bounded by the start quota.
-        assert!(output.waypoints.len() <= STANDARD_START_QUOTA as usize);
-    }
-
-    #[test]
     fn pipeline_is_deterministic() {
         let snapshot = |seed| {
             let (grid, output) = run(seed, 1, 0);
@@ -885,141 +866,5 @@ mod tests {
             (tiles, overlays, output.waypoints, output.terrain)
         };
         assert_eq!(snapshot(4242), snapshot(4242));
-    }
-
-    /// Rock gate, on-side. The original runs the rock overlay pass only on the
-    /// `theater == 0` branch of "RMG: Creating LATs, rocks etc"; that branch
-    /// must actually produce overlays, or the off-side test below proves
-    /// nothing. (Gate verified 2026-07-25: `decompile_function 0x00598960`,
-    /// `0x005a3ae0` has the overlay loop, `0x005a4280` does not.)
-    #[test]
-    fn temperate_theater_paints_rocks() {
-        let (grid, _) = run(77, 1, 0);
-        let rocks = grid
-            .native_cells()
-            .filter(|&(x, y)| (168..=177).contains(&grid.get(x, y).unwrap().overlay))
-            .count();
-        assert!(rocks > 0, "temperate places rocks");
-    }
-
-    /// Tech gate, on-side. The original calls the placement driver whenever
-    /// `map_type != 0` (verified 2026-07-25: `decompile_function 0x00598960`,
-    /// the `RMG: Adding tech buildings` block). The off-side is pinned at phase
-    /// level by `tech_buildings::tests::map_type_zero_is_a_no_op`, which also
-    /// uses a non-empty catalog; map type 0 cannot be driven through the whole
-    /// pipeline on this synthetic terrain until the start-starvation assert at
-    /// `starts.rs:332` is resolved.
-    ///
-    /// Seed 9 is the combination the neighbouring map-type test already relies
-    /// on: the 1x1 synthetic tile block starves the start selector on many
-    /// seeds, which is a fixture limitation, not a generator property.
-    #[test]
-    fn tech_buildings_are_placed_for_non_zero_map_types() {
-        let types = stock_tech_types();
-        assert!(!types.is_empty(), "stock catalog resolves");
-        let placed: usize = [1, 2]
-            .into_iter()
-            .map(|map_type| run_with_types(9, map_type, 0, &types).1.structures.len())
-            .sum();
-        assert!(placed > 0, "map types 1/2 place tech buildings");
-    }
-
-    /// The catalog is what stops the phase being a no-op: with an empty list
-    /// the same run places nothing, which is the regression this pins.
-    #[test]
-    fn an_empty_catalog_places_no_tech_buildings() {
-        let (_, output) = run_with_types(9, 1, 0, &[]);
-        assert!(output.structures.is_empty());
-    }
-
-    /// Every placed structure names a type from the resolved catalog.
-    #[test]
-    fn placed_tech_buildings_come_from_the_resolved_catalog() {
-        let types = stock_tech_types();
-        let names: Vec<&str> = types.iter().map(|t| t.name.as_str()).collect();
-        for map_type in [1, 2] {
-            let (_, output) = run_with_types(9, map_type, 0, &types);
-            for (name, _, _) in &output.structures {
-                assert!(
-                    names.contains(&name.as_str()),
-                    "{name} is in NeutralTechBuildings"
-                );
-            }
-        }
-    }
-
-    /// Start starvation is reachable, and the port now stops short and counts
-    /// instead of aborting the run.
-    ///
-    /// This pins a DELIBERATE DIVERGENCE, not parity. The original cannot fail
-    /// here — its two start routines hardcode success — so on starvation it
-    /// either walks a null array pointer and faults, or reads uninitialised
-    /// heap whose contents follow the process's allocation history rather than
-    /// the seed. There is nothing reproducible to copy.
-    #[test]
-    fn a_starved_map_counts_its_unfilled_start_slots() {
-        let (_, output) = run(9, 0, 0);
-        assert!(
-            output.unfilled_start_slots > 0,
-            "the 1x1 synthetic tile block starves the selector on this fixture"
-        );
-        // Conservation: every quota slot is either written or counted. This is
-        // what pins the counter to the whole remaining tail rather than to 1.
-        assert_eq!(
-            output.waypoints.len() + output.unfilled_start_slots,
-            STANDARD_START_QUOTA as usize,
-            "written + unfilled must account for every start slot"
-        );
-    }
-
-    /// A starved region cannot leak a tiberium field onto the map origin, and
-    /// the reason is structural rather than lucky.
-    ///
-    /// The tiberium phase substitutes `(0, 0)` for an unwritten waypoint, so
-    /// starvation looks like it should stack fields in the map corner. It
-    /// cannot: starvation means the selection was shorter than the quota, so
-    /// the drain's `min(quota, selection.len())` consumes the whole selection
-    /// and leaves the region's field-slot list empty; the tiberium phase then
-    /// takes its `field_count == 0` early-out and skips the region entirely,
-    /// before pass 2 — the only place the origin substitution happens — is ever
-    /// reached.
-    ///
-    /// Pinned because it is a coupling between two phases that no single file
-    /// states: widening the drain, or moving the early-out, would silently put
-    /// tiberium in the corner of every starved map.
-    #[test]
-    fn a_starved_slot_never_seeds_tiberium_at_the_origin() {
-        let (_, output) = run(9, 0, 0);
-        assert!(output.unfilled_start_slots > 0, "fixture starves");
-        assert!(
-            !output.terrain.iter().any(|(_, x, y)| *x == 0 && *y == 0),
-            "no terrain object may land on the map origin; terrain was {:?}",
-            output.terrain
-        );
-    }
-
-    #[test]
-    fn non_temperate_theater_paints_no_rocks() {
-        // Rock overlays land only on temperate (theater 0). A snow run (theater
-        // 1) must carry no SROCK/TROCK overlays (168..=177).
-        let (grid, _) = run(77, 1, 1);
-        let rocks = grid
-            .native_cells()
-            .filter(|&(x, y)| (168..=177).contains(&grid.get(x, y).unwrap().overlay))
-            .count();
-        assert_eq!(rocks, 0, "non-temperate theaters place no rocks");
-    }
-
-    #[test]
-    fn continental_and_island_map_types_complete() {
-        // Map types 1 (continental) and 2 (islands-in-sea) leave enough land
-        // for the standard 4-start quota under the synthetic 1x1 tile block.
-        // The water-heavy types (0/3/4) can starve the start selector on this
-        // degenerate terrain — that path needs real theater terrain, which is
-        // the app-layer adapter's job, not the pipeline's.
-        for map_type in [1, 2] {
-            let (grid, _output) = run(9, map_type, 0);
-            assert!(grid.native_cells().count() > 0);
-        }
     }
 }

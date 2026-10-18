@@ -5,11 +5,11 @@
 //! Vec<u8> grid per owner for O(1) lookup.
 //!
 //! A source's sight moves only at native reveal events
-//! ([`force_refresh_entity_vision`], [`refresh_entity_vision_for_viewer`]):
+//! (`Simulation::refresh_object_sight`):
 //! `ReReveal @ 0x0070B1D0` then `UpdateReveal @ 0x0070AF50`, from Unit and
 //! Infantry cell arrivals, the Jumpjet descent, Fly's phase transition, the
 //! high-flyer refresh and the Spy Plane. Between events its footprint stays
-//! where the last one put it ([`recompute_owner_visibility_in_place`]).
+//! where the last one put it (the Simulation sight-frame projection).
 //!
 //! ## Performance
 //! Direct source-aware writes publish viewer knowledge. Queries use a cached
@@ -24,7 +24,8 @@ pub use cell_reveal::SHROUD_EDGE_LUT;
 pub(crate) use cell_reveal::tests::{
     assert_native_cell_history, discovery_corpus, native_map_cell_fixture,
 };
-use cell_reveal::{DummyVisibility, MapCellEdgeCache};
+use cell_reveal::{DummyVisibility, EdgeCells, MapCellEdgeCache};
+pub(crate) use cell_reveal::{ListedEdgeCells, MapCellNotification, MapRevealProjection};
 use shroud_knowledge::ShroudKnowledge;
 pub(crate) use shroud_knowledge::SightAdmission;
 pub(crate) use shroud_knowledge::{SightFacts, SightRefreshTimers};
@@ -64,8 +65,8 @@ const FLAG_EFFECTIVE_GAP_SIGHT: u8 = 0x80;
 /// CellClass `+0x12C` ground bits as VERA's sight cache and the cell writers
 /// keep them: ground visible (`0x08`) and ground open (`0x10`). Sight sets
 /// both; `0x004A9CA0` sets or clears both with `ShroudKnowledge::open`;
-/// `0x004AA050` sets `0x08`, and `0x10` where its frame is open. The gap,
-/// sweep and whole-map writers move `ShroudKnowledge::open` alone (#1117),
+/// `0x004AA050` sets `0x08`, and `0x10` where its frame is open. The gap
+/// and some whole-map writers move `ShroudKnowledge::open` alone (#1117),
 /// so `MapClass::IsShrouded` reads that copy ([`cell_ground_mapped`]); the
 /// edge frames and the aircraft fire-location query
 /// ([`FogState::is_ground_open`]) read this one.
@@ -113,8 +114,8 @@ fn published_flags(knowledge: ShroudKnowledge) -> u8 {
     flags
 }
 
-/// RA2 hard-caps effective sight at 10 cells. Going past 10 was a crash
-/// in the original engine — we clamp to this limit for compatibility.
+/// Map5678E0 clamps its visited disc to10. Native source cached260 retains
+/// the raw effective radius; the independent border traversal clamps to11.
 pub const MAX_SIGHT_RANGE: u16 = 10;
 
 /// World height of one terrain level, in leptons. Same retail value the
@@ -155,6 +156,33 @@ fn iso_height_shift_cells(height_leptons: i32) -> i32 {
     height_lift_px(height_leptons) / CELL_HEIGHT_PX
 }
 
+/// Original567F70 conceal geometry, distinct from RevealArea's spiral and
+/// sight-height geometry. AdjustForZ6D20E0 is divided by-30 with signed
+/// truncation, then applied in leptons before signed /256 and WORD storage.
+/// DX is the outer loop and the strict signed squared-radius test wraps32.
+/// Executed geometry/counter controls: trigger_conceal_area.json (Steam
+/// 3e81a617); no RNG, timer or detach in this traversal.
+pub(crate) fn conceal_area_cells(coord: [i32; 3], radius: i32) -> Vec<(u16, u16)> {
+    let shift = crate::util::native_x87::adjust_for_z_standard(coord[2]) / -30;
+    let x = (coord[0].wrapping_add(shift.wrapping_shl(8)) / 256) as i16;
+    let y = (coord[1].wrapping_add(shift.wrapping_shl(8)) / 256) as i16;
+    let lower = (-2i32).wrapping_sub(radius);
+    let upper = radius.wrapping_add(2);
+    let squared_radius = radius.wrapping_add(1).wrapping_mul(radius.wrapping_add(1));
+    let mut cells = Vec::new();
+    for dx in lower..upper {
+        for dy in lower..upper {
+            if dx.wrapping_mul(dx).wrapping_add(dy.wrapping_mul(dy)) < squared_radius {
+                cells.push((
+                    x.wrapping_add(dx as i16) as u16,
+                    y.wrapping_add(dy as i16) as u16,
+                ));
+            }
+        }
+    }
+    cells
+}
+
 /// Per-owner visibility stored as a flat grid of flag bytes.
 ///
 /// Indexed by `ry * width + rx`. Each byte holds public visibility plus
@@ -173,9 +201,13 @@ pub struct OwnerVisibility {
     /// The cells the per-frame passes must visit; never saved or hashed.
     #[serde(skip)]
     tracked: TrackedCells,
+    /// The cells the next shroud-edge update must visit; never saved or
+    /// hashed.
+    #[serde(skip)]
+    edge_cells: EdgeCells,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 thread_local! {
     /// Tests turn this on to run the frame passes over every cell and every
     /// footprint, the reference the tracked passes must match. It is
@@ -185,10 +217,10 @@ thread_local! {
 }
 
 /// Whether the frame passes skip [`TrackedCells`] (tests only).
-fn visit_every_cell() -> bool {
-    #[cfg(test)]
+pub(crate) fn visit_every_cell() -> bool {
+    #[cfg(any(test, feature = "test-support"))]
     return VISIT_EVERY_CELL.get();
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     false
 }
 
@@ -208,6 +240,12 @@ struct TrackedCells {
     /// Cells published visible while their ground bits lacked
     /// `GROUND_VISIBLE | GROUND_OPEN`.
     unground: Vec<u32>,
+    /// Cells whose ground bits a cell writer took off since the last frame
+    /// pass (a conceal, a shroud-edge sweep or a reveal that leaves the cell
+    /// closed). A pass that marks every retained footprint gives them back
+    /// under the footprints that cover them; a tracked pass does that for
+    /// these cells alone ([`FogState::mark_cleared_cells`]).
+    cleared: Vec<u32>,
 }
 
 impl OwnerVisibility {
@@ -227,6 +265,7 @@ impl OwnerVisibility {
                 complete: true,
                 ..TrackedCells::default()
             },
+            edge_cells: EdgeCells::complete(),
         }
     }
 
@@ -264,7 +303,7 @@ impl OwnerVisibility {
     }
 
     /// Mark a cell as both visible and revealed.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn mark_visible(&mut self, rx: u16, ry: u16) {
         self.mark_sight(rx, ry);
         if let Some(index) = self.index(rx, ry) {
@@ -311,14 +350,14 @@ impl OwnerVisibility {
     /// so there is nothing to clean; a fogged-object port needs that call here.
     fn mark_sight(&mut self, rx: u16, ry: u16) {
         if let Some(i) = self.index(rx, ry) {
-            self.ground_flags[i] |= GROUND_VISIBLE | GROUND_OPEN;
+            self.set_ground_bits(i, self.ground_flags[i] | GROUND_VISIBLE | GROUND_OPEN);
             self.cells[i] |= FLAG_VISIBLE | FLAG_REVEALED;
         }
     }
 
     /// Clear this frame's sight as the sight pass does, visiting every cell.
     /// The grid stays untracked, so the next pass marks every footprint again.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn clear_all_visible(&mut self) {
         self.clear_every_cell();
         self.tracked.complete = false;
@@ -335,10 +374,13 @@ impl OwnerVisibility {
             self.clear_every_cell();
             return false;
         }
-        for &index in &self.tracked.unground {
-            let index = index as usize;
+        for unground in 0..self.tracked.unground.len() {
+            let index = self.tracked.unground[unground] as usize;
             if self.cells[index] & FLAG_VISIBLE != 0 {
-                self.ground_flags[index] |= GROUND_VISIBLE | GROUND_OPEN;
+                self.set_ground_bits(
+                    index,
+                    self.ground_flags[index] | GROUND_VISIBLE | GROUND_OPEN,
+                );
             }
         }
         self.tracked.unground.clear();
@@ -364,11 +406,14 @@ impl OwnerVisibility {
         for knowledge in &mut self.shroud_knowledge {
             knowledge.transient_visible = false;
         }
-        for (cell, ground) in self.cells.iter_mut().zip(&mut self.ground_flags) {
-            if *cell & FLAG_VISIBLE != 0 {
-                *ground |= GROUND_VISIBLE | GROUND_OPEN;
+        for index in 0..self.cells.len() {
+            if self.cells[index] & FLAG_VISIBLE != 0 {
+                self.set_ground_bits(
+                    index,
+                    self.ground_flags[index] | GROUND_VISIBLE | GROUND_OPEN,
+                );
             }
-            *cell &= !(FLAG_VISIBLE
+            self.cells[index] &= !(FLAG_VISIBLE
                 | FLAG_GAP_COVERED
                 | FLAG_GAP_FOG
                 | FLAG_SUSTAINED_SIGHT
@@ -377,6 +422,8 @@ impl OwnerVisibility {
         self.tracked.transient.clear();
         self.tracked.gap_fog.clear();
         self.tracked.unground.clear();
+        // This pass marks every retained footprint.
+        self.tracked.cleared.clear();
         self.tracked.complete = true;
         for index in 0..self.cells.len() {
             self.publish_knowledge(index);
@@ -387,7 +434,12 @@ impl OwnerVisibility {
     /// is visible without its ground bits ([`TrackedCells::unground`]).
     fn publish_knowledge(&mut self, index: usize) {
         let cell = &mut self.cells[index];
+        let was_pending = *cell & FLAG_PENDING_GAP_CONCEAL != 0;
         *cell = *cell & !PUBLISHED_FLAGS | published_flags(self.shroud_knowledge[index]);
+        // Every pending writer publishes, so the bit's rise lists the cell.
+        if *cell & FLAG_PENDING_GAP_CONCEAL != 0 && !was_pending {
+            self.edge_cells.pending.push(index as u32);
+        }
         if *cell & FLAG_VISIBLE != 0
             && self.ground_flags[index] & (GROUND_VISIBLE | GROUND_OPEN)
                 != GROUND_VISIBLE | GROUND_OPEN
@@ -397,7 +449,7 @@ impl OwnerVisibility {
     }
 
     /// Panics unless a tracked grid holds what [`TrackedCells`] promises.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn assert_tracked(&self) {
         if !self.tracked.complete {
             return;
@@ -437,28 +489,18 @@ impl OwnerVisibility {
         }
     }
 
-    /// Clear only transient Gap Generator flags while preserving line of sight
-    /// and persisted map knowledge.
-    fn clear_gap_flags(&mut self) {
-        for cell in &mut self.cells {
-            *cell &= !(FLAG_GAP_COVERED | FLAG_GAP_FOG);
-        }
-        // The cleared cover is a published bit.
-        self.tracked.complete = false;
-    }
-
     /// The raw cell flags in row-major order.
     pub fn cells_raw(&self) -> &[u8] {
         &self.cells
     }
 
     /// The ground bits in the same row-major order as `cells`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn ground_flags_raw(&self) -> &[u8] {
         &self.ground_flags
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn shroud_knowledge_raw(&self) -> &[ShroudKnowledge] {
         &self.shroud_knowledge
     }
@@ -478,7 +520,7 @@ impl OwnerVisibility {
         self.hash_map_cell_edge_cache(hasher);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn resized_preserving_state(&self, width: u16, height: u16) -> Self {
         let mut expanded = Self::new(width, height);
         expanded.dummy_visibility = self.dummy_visibility;
@@ -495,6 +537,7 @@ impl OwnerVisibility {
         }
         // The copied transient and gap-fog cells are not listed.
         expanded.tracked.complete = false;
+        expanded.edge_cells = EdgeCells::default();
         expanded
     }
 
@@ -508,7 +551,7 @@ impl OwnerVisibility {
 
     /// Merge revealed bits from a previous tick's grid into this one.
     /// Cells that were revealed before stay revealed even if no unit sees them now.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn merge_revealed_from(&mut self, other: &OwnerVisibility) {
         // A published bit written without its knowledge.
         self.tracked.complete = false;
@@ -562,6 +605,52 @@ pub(crate) struct GapGeneratorSource {
     pub radius: i32,
 }
 
+/// What a fire check (GetFireError and its range and line-of-fire questions)
+/// reads of the houses and their fog: the ally graph
+/// (`Simulation::house_alliances`) and the sensor counts, borrowed live
+/// ([`FogState::fire_view`]).
+#[derive(Clone, Copy)]
+pub(crate) struct FireFog<'a> {
+    pub(crate) alliances: &'a HouseAllianceMap,
+    sensors_by_house: &'a BTreeMap<InternedId, Vec<i16>>,
+    width: u16,
+    height: u16,
+}
+
+impl FireFog<'_> {
+    /// Whether `house` holds a sensor count on cell (`rx`, `ry`)
+    /// ([`FogState::has_sensor_for_house`]).
+    pub(crate) fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
+        sensor_counted(
+            self.sensors_by_house,
+            self.width,
+            self.height,
+            house,
+            rx,
+            ry,
+        )
+    }
+}
+
+/// Whether `house`'s sensor count on cell (`rx`, `ry`) is positive.
+fn sensor_counted(
+    sensors_by_house: &BTreeMap<InternedId, Vec<i16>>,
+    width: u16,
+    height: u16,
+    house: InternedId,
+    rx: u16,
+    ry: u16,
+) -> bool {
+    if rx >= width || ry >= height {
+        return false;
+    }
+    let index = usize::from(ry) * usize::from(width) + usize::from(rx);
+    sensors_by_house
+        .get(&house)
+        .and_then(|counters| counters.get(index))
+        .is_some_and(|count| *count > 0)
+}
+
 /// Global fog/shroud state keyed by owner name.
 ///
 /// Stores per-viewer knowledge grids. Direct alliance admission happens at
@@ -572,7 +661,8 @@ pub struct FogState {
     pub width: u16,
     pub height: u16,
     pub by_owner: BTreeMap<InternedId, OwnerVisibility>,
-    pub alliances: HouseAllianceMap,
+    /// One native source cache per logical viewer. Inactive entries retain
+    /// cached254/260 after250 is cleared, until actual object teardown.
     pub(crate) sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
     /// Admissions `TechnoClass::UpdateReveal @ 0x0070AF50` makes for an
     /// alternate house (`RevealToAll=`;
@@ -581,7 +671,7 @@ pub struct FogState {
     /// never releases them, and a viewer that also shares the source's
     /// ordinary sight holds both contributions, as native does.
     /// Native keeps no record: each call reveals and each release
-    /// ([`FogState::withdraw_alternate_sight`]) leaves the counters. VERA
+    /// (the Simulation source release) leaves the counters. VERA
     /// retains the first per viewer, which holds its source count until a
     /// release takes it.
     pub(crate) alternate_sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
@@ -628,6 +718,7 @@ pub struct FogState {
 impl FogState {
     /// An empty viewer domain with the allocated map dimensions. Reveal and
     /// gap admission always initialize their own private House+240 state.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(width: u16, height: u16) -> Self {
         Self {
             width,
@@ -636,180 +727,220 @@ impl FogState {
         }
     }
 
-    /// Techno6F6AC0's ordinary release precedes its gap removal and Object
-    /// Conceal. Only actual retained admissions emit the native leave event.
-    pub(crate) fn release_entity_sight(&mut self, stable_id: u64) {
-        let keys: Vec<_> = self
-            .sight_admissions
-            .range(source_keys(stable_id))
-            .map(|(&key, _)| key)
-            .collect();
-        for key in keys {
-            self.release_sight_for_viewer(key);
-        }
-    }
-
-    /// Mark each footprint source `stable_id` retains as current sight on
-    /// its viewer's map, where it stands.
-    fn mark_retained_sight(&mut self, stable_id: u64) {
-        let retained: Vec<_> = self
-            .sight_admissions
-            .range(source_keys(stable_id))
-            .map(|(&(_, viewer), admission)| (viewer, admission.clone()))
-            .collect();
-        for (viewer, admission) in retained {
-            self.apply_sight(viewer, &admission, SightApply::Mark);
-        }
-    }
-
-    /// The latch clear of `TechnoClass::ReReveal @ 0x0070B1D0`
-    /// (`0x0070B202`) when it releases for an alternate house: the source's
-    /// ordinary admission leaves the record on every map without its leave,
-    /// so the native counters keep counting it while VERA's source counts
-    /// drop it. Returns the footprint the latch held (`+0x254`/`+0x260`).
-    pub(crate) fn clear_sight_latch(&mut self, stable_id: u64) -> Option<SightAdmission> {
-        let keys: Vec<_> = self
-            .sight_admissions
-            .range(source_keys(stable_id))
-            .map(|(&key, _)| key)
-            .collect();
-        let mut footprint = None;
-        for key in keys {
-            let admission = self.sight_admissions.remove(&key).unwrap();
-            self.release_sight(key.1, &admission, SightRelease::Forget);
-            footprint = Some(admission);
-        }
-        footprint
-    }
-
-    /// One `TechnoClass::UpdateReveal @ 0x0070AF50` for an alternate house
-    /// on `viewer`'s map (`0x0070B17E..0x0070B1C2`): the counters reveal the
-    /// footprint. The first is retained and counts as a source; a retained
-    /// one is revealed again.
-    pub(crate) fn admit_alternate_sight(
+    /// Source metadata is published before Map5678E0 can call a receiver.
+    /// These counts are a derived sight index, not native Cell counters or
+    /// ground knowledge. Only the subsequent per-cell writer publishes them.
+    pub(crate) fn retain_sight_admission(
         &mut self,
-        stable_id: u64,
+        id: u64,
         viewer: InternedId,
-        admission: SightAdmission,
+        mut admission: SightAdmission,
+        alternate: bool,
     ) {
-        let key = (stable_id, viewer);
-        if let Some(retained) = self.alternate_sight_admissions.get(&key).cloned() {
-            self.apply_sight(viewer, &retained, SightApply::Rereveal);
+        admission.latched = true;
+        let map = if alternate {
+            &mut self.alternate_sight_admissions
         } else {
-            self.apply_sight(viewer, &admission, SightApply::Admit);
-            self.alternate_sight_admissions.insert(key, admission);
-        }
+            &mut self.sight_admissions
+        };
+        let old = map.insert((id, viewer), admission.clone());
+        assert!(
+            old.is_none_or(|old| !old.latched),
+            "source already retained"
+        );
+        self.adjust_sight_sources(viewer, &admission, true);
     }
 
-    /// `TechnoClass::ReReveal @ 0x0070B1D0`'s release for an alternate house
-    /// (`0x0070B24E..0x0070B26C`): `footprint` leaves each of `viewers`'
-    /// maps. A viewer's retained alternate admission goes with its source
-    /// count; a viewer without one (a second release) takes the leave alone.
-    pub(crate) fn withdraw_alternate_sight(
+    /// Clear the latch before any release receiver. Clearing every retained
+    /// contribution first makes a nested Limbo idempotent;254/260 persist.
+    pub(crate) fn take_sight_admission(
         &mut self,
-        stable_id: u64,
-        footprint: &SightAdmission,
-        viewers: &[InternedId],
-    ) {
-        for &viewer in viewers {
-            match self.alternate_sight_admissions.remove(&(stable_id, viewer)) {
-                Some(admission) => self.release_sight(viewer, &admission, SightRelease::Withdraw),
-                None => self.release_sight(viewer, footprint, SightRelease::Leave),
-            }
-        }
-    }
-
-    fn release_sight_for_viewer(&mut self, key: (u64, InternedId)) {
-        if let Some(admission) = self.sight_admissions.remove(&key) {
-            self.release_sight(key.1, &admission, SightRelease::Withdraw);
-        }
-    }
-
-    /// Take one footprint off `viewer`'s map as `release` says.
-    fn release_sight(
-        &mut self,
+        id: u64,
         viewer: InternedId,
-        admission: &SightAdmission,
-        release: SightRelease,
-    ) {
-        if let Some(vis) = self.by_owner.get_mut(&viewer) {
-            for &(x, y) in &admission.cells {
-                let Some(index) = vis.index(x, y) else {
-                    continue;
-                };
-                let state = &mut vis.shroud_knowledge[index];
-                if release != SightRelease::Forget {
-                    state.leave();
-                }
-                if release != SightRelease::Leave {
-                    let count = if viewer == admission.owner {
-                        &mut state.local_sources
-                    } else {
-                        &mut state.allied_sources
-                    };
-                    *count = count
-                        .checked_sub(1)
-                        .expect("retained sight admission is balanced");
-                }
-                vis.publish_knowledge(index);
-            }
-        }
+        alternate: bool,
+    ) -> Option<SightAdmission> {
+        let map = if alternate {
+            &mut self.alternate_sight_admissions
+        } else {
+            &mut self.sight_admissions
+        };
+        let admission = if alternate {
+            map.remove(&(id, viewer))?
+        } else {
+            let retained = map.get_mut(&(id, viewer)).filter(|source| source.latched)?;
+            retained.latched = false;
+            let admission = retained.clone();
+            //Only254/260 survive; the derived active-footprint index does not.
+            retained.cells.clear();
+            admission
+        };
+        self.adjust_sight_sources(viewer, &admission, false);
+        Some(admission)
     }
 
-    /// Mark one admission's footprint as current sight on `viewer`'s map,
-    /// revealing and counting it as `apply` says.
-    fn apply_sight(&mut self, viewer: InternedId, admission: &SightAdmission, apply: SightApply) {
+    fn adjust_sight_sources(&mut self, viewer: InternedId, admission: &SightAdmission, add: bool) {
         let vis = self
             .by_owner
             .entry(viewer)
             .or_insert_with(|| OwnerVisibility::new(self.width, self.height));
         for &(x, y) in &admission.cells {
-            let index = vis.index(x, y).expect("admitted source cell");
-            // The sight cache is not a source of knowledge events.
-            vis.mark_sight(x, y);
-            if apply != SightApply::Mark {
-                let state = &mut vis.shroud_knowledge[index];
-                state.reveal();
-                if apply == SightApply::Admit {
-                    let count = if viewer == admission.owner {
-                        &mut state.local_sources
-                    } else {
-                        &mut state.allied_sources
-                    };
-                    *count = count.wrapping_add(1);
-                }
+            let Some(index) = vis.index(x, y) else {
+                continue;
+            };
+            let state = &mut vis.shroud_knowledge[index];
+            let count = if viewer == admission.owner {
+                &mut state.local_sources
+            } else {
+                &mut state.allied_sources
+            };
+            *count = if add {
+                count.wrapping_add(1)
+            } else {
+                count
+                    .checked_sub(1)
+                    .expect("retained sight admission is balanced")
+            };
+        }
+    }
+
+    pub(crate) fn source_sight_viewers(&self, id: u64) -> Vec<InternedId> {
+        self.sight_admissions
+            .range(source_keys(id))
+            .filter(|(_, source)| source.latched)
+            .map(|(&(_, viewer), _)| viewer)
+            .collect()
+    }
+
+    pub(crate) fn sight_is_latched(&self, id: u64, viewer: InternedId) -> bool {
+        self.sight_admissions
+            .get(&(id, viewer))
+            .is_some_and(|source| source.latched)
+    }
+
+    /// Source `id`'s admissions into `into`, which the fog pass reuses.
+    pub(crate) fn read_source_admissions(&self, id: u64, into: &mut SourceAdmissions) {
+        into.0.clear();
+        into.0.extend(
+            self.sight_admissions
+                .range(source_keys(id))
+                .map(|(&(_, viewer), source)| (viewer, source.owner, source.latched)),
+        );
+    }
+
+    /// Destructor cleanup of cached254/260 and alternate derived indexes.
+    /// Native UnInit/Limbo must have released their live contributions first.
+    pub(crate) fn forget_sight_source(&mut self, id: u64) {
+        for admissions in [
+            &mut self.sight_admissions,
+            &mut self.alternate_sight_admissions,
+        ] {
+            while let Some((&key, _)) = admissions.range(source_keys(id)).next() {
+                admissions.remove(&key);
             }
+        }
+    }
+
+    /// Rebuild the derived current-sight projection without emitting another
+    /// native reveal or changing Cell cache bytes.
+    pub(crate) fn mark_sight_admission(&mut self, viewer: InternedId, admission: &SightAdmission) {
+        let vis = self
+            .by_owner
+            .entry(viewer)
+            .or_insert_with(|| OwnerVisibility::new(self.width, self.height));
+        for &(x, y) in &admission.cells {
+            let Some(index) = vis.index(x, y) else {
+                continue;
+            };
+            vis.mark_sight(x, y);
             vis.publish_knowledge(index);
         }
     }
 
-    fn reconcile_sight_admission(
+    /// Mark each footprint source `stable_id` retains as current sight on
+    /// its viewer's map, where it stands.
+    pub(crate) fn mark_retained_sight(&mut self, stable_id: u64) {
+        let retained: Vec<_> = self
+            .sight_admissions
+            .range(source_keys(stable_id))
+            .filter(|(_, source)| source.latched)
+            .map(|(&(_, viewer), admission)| (viewer, admission.clone()))
+            .collect();
+        for (viewer, admission) in retained {
+            self.mark_sight_admission(viewer, &admission);
+        }
+    }
+
+    /// Mark each tracked map's cleared cells ([`TrackedCells::cleared`]) that
+    /// a retained footprint covers, after the frame pass's sources, as the
+    /// pass's marks of every retained footprint would on an untracked map.
+    /// A cell's source counts count its retained footprints, alternate ones
+    /// too (the alternate source registry), which the pass does not mark.
+    pub(crate) fn mark_cleared_cells(&mut self) {
+        for (&viewer, vis) in &mut self.by_owner {
+            if vis.tracked.cleared.is_empty() {
+                continue;
+            }
+            let mut alternate: Vec<usize> = self
+                .alternate_sight_admissions
+                .iter()
+                .filter(|&(&(_, alternate_viewer), _)| alternate_viewer == viewer)
+                .flat_map(|(_, admission)| &admission.cells)
+                .filter_map(|&(x, y)| vis.index(x, y))
+                .collect();
+            alternate.sort_unstable();
+            let mut cleared = std::mem::take(&mut vis.tracked.cleared);
+            for &index in &cleared {
+                let index = index as usize;
+                let knowledge = vis.shroud_knowledge[index];
+                let sources =
+                    u64::from(knowledge.local_sources) + u64::from(knowledge.allied_sources);
+                let alternates = alternate.partition_point(|&cell| cell <= index)
+                    - alternate.partition_point(|&cell| cell < index);
+                if sources > alternates as u64 {
+                    let width = usize::from(vis.width);
+                    vis.mark_sight((index % width) as u16, (index / width) as u16);
+                    vis.publish_knowledge(index);
+                }
+            }
+            cleared.clear();
+            vis.tracked.cleared = cleared;
+        }
+    }
+
+    /// Alternate ReReveal drops the ordinary source index without a native
+    /// leave on those planes. Its native counters deliberately remain held.
+    pub(crate) fn clear_sight_latch(
         &mut self,
         stable_id: u64,
-        viewer: InternedId,
-        admission: SightAdmission,
-        force_refresh: bool,
-    ) {
-        let key = (stable_id, viewer);
-        let changed = force_refresh || self.sight_admissions.get(&key) != Some(&admission);
-        if changed {
-            self.release_sight_for_viewer(key);
+        preferred_viewer: InternedId,
+    ) -> Option<SightAdmission> {
+        let footprint = self
+            .sight_admissions
+            .get(&(stable_id, preferred_viewer))
+            .cloned()
+            .or_else(|| {
+                self.sight_admissions
+                    .range(source_keys(stable_id))
+                    .next()
+                    .map(|(_, source)| source.clone())
+            });
+        for viewer in self.source_sight_viewers(stable_id) {
+            let admission = self.take_sight_admission(stable_id, viewer, false).unwrap();
+            if let Some(vis) = self.by_owner.get_mut(&viewer) {
+                for &(x, y) in &admission.cells {
+                    if let Some(index) = vis.index(x, y) {
+                        vis.publish_knowledge(index);
+                    }
+                }
+            }
         }
-        let apply = if changed {
-            SightApply::Admit
-        } else {
-            SightApply::Mark
-        };
-        self.apply_sight(viewer, &admission, apply);
-        if changed {
-            self.sight_admissions.insert(key, admission);
-        }
+        footprint
     }
 
     /// Insert one shared frozen-building footprint record. Named location:
     /// `BuildingClass::FreezeInFog` installs the same FoggedObjectClass pointer
     /// into every occupy-list cell, not one allocation per cell.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn insert_fogged_object_footprint(
         &mut self,
         viewer: InternedId,
@@ -847,7 +978,7 @@ impl FogState {
     /// `ClearFoggedObjects` is not a symbol in this program. The address stays
     /// unbound rather than swapped for a positive match against an unrelated
     /// function.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn clear_fogged_objects_at(
         &mut self,
         viewer: InternedId,
@@ -888,6 +1019,7 @@ impl FogState {
 
     /// Recreate the serialized CellClass cloak-owner words for current map
     /// bounds without inventing a cloak-generator mask producer.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn reset_cloaked_by_houses(&mut self) {
         self.cloaked_by_houses.clear();
         self.cloaked_by_houses
@@ -895,7 +1027,7 @@ impl FogState {
     }
 
     /// Native `FUN_00487110 (unlabelled; name not a symbol)`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_cloaked_by_house(&mut self, house_index: u8, rx: u16, ry: u16) -> bool {
         let Some(word) = self.cloak_word_mut(rx, ry) else {
             return false;
@@ -907,7 +1039,7 @@ impl FogState {
     }
 
     /// Native `FUN_00487130 (unlabelled; name not a symbol)`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn clear_cloaked_by_house(&mut self, house_index: u8, rx: u16, ry: u16) -> bool {
         let Some(word) = self.cloak_word_mut(rx, ry) else {
             return false;
@@ -956,7 +1088,7 @@ impl FogState {
         self.cloaked_by_houses.get(index).copied()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn cloak_word_mut(&mut self, rx: u16, ry: u16) -> Option<&mut u32> {
         if rx >= self.width || ry >= self.height {
             return None;
@@ -993,7 +1125,7 @@ impl FogState {
     /// - Frequency: continuous around stock submarines and detector units.
     /// - Downstream risk: sensor-driven resident-object `+0x420` reevaluation
     ///   and cloak-generator ownership remain separate mechanisms.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn sensors_add_at(
         &mut self,
         house: InternedId,
@@ -1008,7 +1140,7 @@ impl FogState {
     }
 
     /// Paired `FootClass::RemoveSensorsAt` @ `0x004DE940` decrement walk.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn sensors_remove_at(
         &mut self,
         house: InternedId,
@@ -1067,7 +1199,7 @@ impl FogState {
         &mut counters[index]
     }
 
-    pub(crate) fn increment_sensor_at(&mut self, house: InternedId, rx: u16, ry: u16) {
+    pub fn increment_sensor_at(&mut self, house: InternedId, rx: u16, ry: u16) {
         let counter = self.sensor_counter_mut(house, rx, ry);
         *counter = counter.wrapping_add(1);
     }
@@ -1102,14 +1234,24 @@ impl FogState {
     }
 
     pub fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
-        if rx >= self.width || ry >= self.height {
-            return false;
+        sensor_counted(
+            &self.sensors_by_house,
+            self.width,
+            self.height,
+            house,
+            rx,
+            ry,
+        )
+    }
+
+    /// What a fire check reads of this fog and the houses' ally graph.
+    pub(crate) fn fire_view<'a>(&'a self, alliances: &'a HouseAllianceMap) -> FireFog<'a> {
+        FireFog {
+            alliances,
+            sensors_by_house: &self.sensors_by_house,
+            width: self.width,
+            height: self.height,
         }
-        let index = usize::from(ry) * usize::from(self.width) + usize::from(rx);
-        self.sensors_by_house
-            .get(&house)
-            .and_then(|counters| counters.get(index))
-            .is_some_and(|count| *count > 0)
     }
 
     fn disguise_detect_counter_mut(&mut self, house: InternedId, rx: u16, ry: u16) -> &mut i16 {
@@ -1176,7 +1318,7 @@ impl FogState {
     }
 
     /// Native `CellClass::DrawObjectsCloaked`: no observer-mode bypass.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn draw_objects_cloaked(
         &self,
         current_player: Option<InternedId>,
@@ -1210,21 +1352,15 @@ impl FogState {
     /// Store a recorded native `Cell+0x12C` ground byte for `owner`: its
     /// `0x08`/`0x10` in [`GROUND_VISIBLE`]/[`GROUND_OPEN`], and its `0x08` as
     /// the mapped knowledge that [`cell_ground_mapped`] reads.
-    #[cfg(test)]
-    pub(crate) fn set_ground_bits_for_test(
-        &mut self,
-        owner: InternedId,
-        rx: u16,
-        ry: u16,
-        bits: u8,
-    ) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_ground_bits_for_test(&mut self, owner: InternedId, rx: u16, ry: u16, bits: u8) {
         let (width, height) = (self.width, self.height);
         let vis = self
             .by_owner
             .entry(owner)
             .or_insert_with(|| OwnerVisibility::new(width, height));
         let index = vis.index(rx, ry).expect("ground byte cell in bounds");
-        vis.ground_flags[index] = bits & (GROUND_VISIBLE | GROUND_OPEN);
+        vis.set_ground_bits(index, bits & (GROUND_VISIBLE | GROUND_OPEN));
         vis.shroud_knowledge[index].open = bits & GROUND_VISIBLE != 0;
         // Cleared ground bits are restored by the sight that covers them.
         vis.tracked.complete = false;
@@ -1233,7 +1369,7 @@ impl FogState {
 
     /// The ground-visible bit (`Cell+0x12C & 0x08`) as [`GROUND_VISIBLE`]
     /// holds it, for checking what the cell writers stored.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn is_ground_unshrouded(&self, owner: InternedId, rx: u16, ry: u16) -> bool {
         self.by_owner.get(&owner).is_some_and(|view| {
             view.index(rx, ry)
@@ -1280,43 +1416,32 @@ impl FogState {
             .is_some_and(|s| s.is_gap_fog(rx, ry))
     }
 
-    /// Returns true if two owners should be treated as friendly.
-    pub fn is_friendly(&self, a: &str, b: &str) -> bool {
-        are_houses_friendly(&self.alliances, a, b)
-    }
-
-    /// Returns true if two interned owners should be treated as friendly.
-    pub fn is_friendly_id(&self, a: InternedId, b: InternedId, interner: &StringInterner) -> bool {
-        a == b || are_houses_friendly(&self.alliances, interner.resolve(a), interner.resolve(b))
-    }
-
     /// Shroud `owner`'s whole buffer again for fog-only fixtures, re-admitting
     /// only its own admitted sight: no live callbacks, gap pass or map-clear
     /// byte. The game resets a map through `Simulation::reset_shroud_for_owner`
     /// (`MapClass::Reset_Shroud @ 0x00577AB0`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn reset_explored_for_owner(&mut self, owner: InternedId) {
         let cells = self.rectangular_cells();
         self.transition_whole_map_for_owner(owner, cells, true, false);
     }
 
-    /// Clear the transient enemy/friendly Gap result on every viewer plane.
-    pub fn clear_gap_flags(&mut self) {
-        for visibility in self.by_owner.values_mut() {
-            visibility.clear_gap_flags();
-        }
-    }
-
-    /// Original Logic55B29A/55B2AD ->578100: signed native frame modulo120.
-    /// Pending survives removal; a fresh reveal cancels it only if already open.
-    pub(crate) fn flush_pending_gap_conceal(&mut self, native_frame: i32) {
+    /// Fog-only test adapter for Logic55B29A's signed modulo120. Production
+    /// uses Simulation's shared578100 traversal so occupied callbacks and
+    /// the actual allocated cursor execute between individual cell writes.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn flush_pending_gap_conceal(&mut self, native_frame: i32) {
         if native_frame % 120 != 0 {
             return;
         }
-        for vis in self.by_owner.values_mut() {
-            for index in 0..vis.cells.len() {
-                vis.shroud_knowledge[index].sweep();
-                vis.publish_knowledge(index);
+        let viewers: Vec<_> = self.by_owner.keys().copied().collect();
+        let cells = self.rectangular_cells();
+        for viewer in viewers {
+            for &cell in &cells {
+                self.sweep_pending_map_cell(viewer, cell, None);
+            }
+            for &cell in &cells {
+                self.refresh_map_cell_ground_frame(viewer, cell, None);
             }
         }
     }
@@ -1326,7 +1451,7 @@ impl FogState {
     /// `Simulation::reveal_map_for_owner` (`MapClass::Reveal @ 0x00577D90`) or
     /// `Simulation::reveal_entire_map` (`MapClass::RevealEntireMap @
     /// 0x00577F30`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn reveal_all_for_owner(&mut self, owner: InternedId) {
         let cells = self.rectangular_cells();
         self.transition_whole_map_for_owner(owner, cells, false, false);
@@ -1334,7 +1459,7 @@ impl FogState {
 
     /// [`Self::reveal_all_for_owner`] over the given cells only. Repeated
     /// materialization is suppressed by the native House240 counterpart.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn reveal_cells_for_owner<I>(&mut self, owner: InternedId, cells: I)
     where
         I: IntoIterator<Item = (u16, u16)>,
@@ -1360,7 +1485,7 @@ impl FogState {
     /// Bit 3 = NW (rx-1, ry).
     ///
     /// Out-of-bounds neighbors are treated as shrouded (bit set).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn shroud_edge_mask(&self, owner: InternedId, rx: u16, ry: u16) -> u8 {
         let mut mask: u8 = 0;
         if ry == 0 || !self.is_cell_revealed(owner, rx, ry - 1) {
@@ -1434,7 +1559,7 @@ impl FogState {
     /// Test helper: mark a cell visible for the given owner.
     /// Auto-expands the grid dimensions if needed so tests don't need to
     /// pre-set width/height.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn mark_visible_for_owner(&mut self, owner: InternedId, rx: u16, ry: u16) {
         let needed_w: u16 = rx.saturating_add(1);
         let needed_h: u16 = ry.saturating_add(1);
@@ -1488,7 +1613,7 @@ pub struct VisionConfig {
     passive_owners: Vec<InternedId>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Default for VisionConfig {
     fn default() -> Self {
         Self {
@@ -1552,8 +1677,13 @@ impl VisionConfig {
         self.reveal_by_height
     }
 
-    /// Ordered geometry for the ordinary MapClass area route, with this
-    /// configuration's map admission. The world owns synchronous receivers.
+    pub(crate) fn require_playfield_membership(&self) -> bool {
+        self.require_playfield_membership
+    }
+
+    /// Ordered geometry and the admitted local XYZ for the MapClass area
+    /// route. Rejected zero/Size calls differ from an admitted empty LOS walk.
+    /// The world owns synchronous receivers and current-player admission.
     pub(crate) fn collect_area_cells(
         &self,
         cell: (u16, u16),
@@ -1561,8 +1691,10 @@ impl VisionConfig {
         z: i32,
         line_of_sight: Option<&[u8]>,
         dimensions: (u16, u16),
-    ) -> Vec<(u16, u16)> {
-        collect_reveal_cells(
+    ) -> (Vec<(u16, u16)>, Option<(u16, u16, i32)>) {
+        let origin = reveal_area_origin((cell.0, cell.1, z), radius, self.map_size)
+            .map(|(x, y)| (x as u16, y as u16, z));
+        let cells = collect_reveal_cells(
             cell.0,
             cell.1,
             radius,
@@ -1571,40 +1703,9 @@ impl VisionConfig {
             line_of_sight,
             dimensions,
             self.map_size,
-        )
+        );
+        (cells, origin)
     }
-}
-
-/// Recompute deterministic fog/shroud state for all owners (allocating variant).
-///
-/// Creates a fresh `FogState` and populates it. Used by tests; production code
-/// calls `recompute_owner_visibility_in_place` to avoid per-tick allocation.
-#[cfg(test)]
-pub fn recompute_owner_visibility(
-    entities: &EntityStore,
-    path_grid: Option<&PathGrid>,
-    alliances: &HouseAllianceMap,
-    config: &VisionConfig,
-    interner: &crate::sim::intern::StringInterner,
-) -> FogState {
-    recompute_owner_visibility_with_rules(entities, path_grid, alliances, config, interner, None)
-}
-
-/// [`recompute_owner_visibility`] with the rules the `SIGHT` ability gate
-/// needs; the rules-less form reads every object as having no ability list.
-pub fn recompute_owner_visibility_with_rules(
-    entities: &EntityStore,
-    path_grid: Option<&PathGrid>,
-    alliances: &HouseAllianceMap,
-    config: &VisionConfig,
-    interner: &crate::sim::intern::StringInterner,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-) -> FogState {
-    let mut fog = FogState::default();
-    recompute_owner_visibility_in_place(
-        &mut fog, entities, path_grid, alliances, config, None, None, interner, rules,
-    );
-    fog
 }
 
 /// The `SIGHT`-ability half of `TechnoClass::UpdateReveal @ 0x0070AF50`'s
@@ -1617,7 +1718,7 @@ fn entity_has_sight_ability(
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> bool {
     rules
-        .and_then(|rules| rules.object(interner.resolve(entity.type_ref())))
+        .and_then(|rules| interner.object_type(entity.type_ref(), rules))
         .is_some_and(|object| {
             crate::sim::combat::veterancy::has_weapon_ability(
                 entity.veterancy.rank_kind(),
@@ -1627,151 +1728,60 @@ fn entity_has_sight_ability(
         })
 }
 
-/// Recompute deterministic fog/shroud visibility in-place, reusing existing grids.
-///
-/// Ends last frame's sight on every owner grid (preserving `FLAG_REVEALED`),
-/// visiting only the cells it tracked ([`TrackedCells`]), then reconciles the
-/// sources' admissions: a source no longer admitted (dying, in limbo, out of
-/// the playfield, carried) leaves; a source without its own house's
-/// admission, or whose owner or viewers changed, takes its sight where it
-/// stands; every other source keeps its footprints where its last reveal
-/// event put them. New owners get a fresh grid; dead owners keep their
-/// revealed state with no visible cells.
-pub fn recompute_owner_visibility_in_place(
-    fog: &mut FogState,
-    entities: &EntityStore,
-    path_grid: Option<&PathGrid>,
-    alliances: &HouseAllianceMap,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    interner: &crate::sim::intern::StringInterner,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-) {
-    // Construction-seeded session bounds are authoritative; the lazy
-    // derivation stays only as the fallback for fixture sims built without a
-    // descriptor (zero-dim fog).
-    let (width, height) = if fog.width > 0 && fog.height > 0 {
-        (fog.width, fog.height)
-    } else {
-        resolve_bounds(entities, path_grid)
-    };
-    if width == 0 || height == 0 {
-        *fog = FogState::default();
-        return;
-    }
+impl FogState {
+    /// Begin the projection frame without manufacturing a source event.
+    /// Source reconciliation and synchronous receivers belong to Simulation.
+    pub(crate) fn begin_sight_frame(
+        &mut self,
+        entities: &EntityStore,
+        path_grid: Option<&PathGrid>,
+    ) -> std::collections::BTreeSet<InternedId> {
+        // Construction-seeded session bounds are authoritative; the lazy
+        // derivation stays only as the fallback for fixture sims built without a
+        // descriptor (zero-dim fog).
+        let (width, height) = if self.width > 0 && self.height > 0 {
+            (self.width, self.height)
+        } else {
+            resolve_bounds(entities, path_grid)
+        };
+        if width == 0 || height == 0 {
+            *self = FogState::default();
+            return std::collections::BTreeSet::new();
+        }
 
-    // First tick or dimension change: recreate all grids (cold path). A grid
-    // whose clear visited every cell re-marks every footprint this frame.
-    let mut untracked = std::collections::BTreeSet::new();
-    if fog.width != width || fog.height != height {
-        fog.by_owner.clear();
-        fog.gap_sources.clear();
-        fog.sight_admissions.clear();
-        fog.alternate_sight_admissions.clear();
-        fog.whole_map_revealed_owners.clear();
-        fog.fogged_object_cells.clear();
-        fog.fogged_objects.clear();
-        fog.next_fogged_object_id = 0;
-        fog.reset_sensor_counts();
-        fog.width = width;
-        fog.height = height;
-    } else {
-        // Hot path: clear visible flags, preserve revealed.
-        for (&viewer, vis) in &mut fog.by_owner {
-            if !vis.clear_frame_sight() {
-                untracked.insert(viewer);
+        // First tick or dimension change: recreate all grids (cold path). A grid
+        // whose clear visited every cell re-marks every footprint this frame.
+        let mut untracked = std::collections::BTreeSet::new();
+        if self.width != width || self.height != height {
+            self.by_owner.clear();
+            self.gap_sources.clear();
+            self.sight_admissions.clear();
+            self.alternate_sight_admissions.clear();
+            self.whole_map_revealed_owners.clear();
+            self.fogged_object_cells.clear();
+            self.fogged_objects.clear();
+            self.next_fogged_object_id = 0;
+            self.reset_sensor_counts();
+            self.width = width;
+            self.height = height;
+        } else {
+            // Hot path: clear visible flags, preserve revealed.
+            for (&viewer, vis) in &mut self.by_owner {
+                if !vis.clear_frame_sight() {
+                    untracked.insert(viewer);
+                }
             }
         }
-    }
 
-    fog.alliances = alliances.clone();
-
-    let admitted: Vec<_> = entities
-        .values()
-        .filter(|entity| holds_sight(entity, config))
-        .collect();
-    // Release the admissions of sources no longer admitted, in key order;
-    // both run in stable-id order.
-    debug_assert!(
-        admitted
-            .windows(2)
-            .all(|pair| pair[0].stable_id() < pair[1].stable_id()),
-        "the store yields sources in stable-id order"
-    );
-    let removed: Vec<_> = {
-        let mut ids = admitted.iter().map(|entity| entity.stable_id()).peekable();
-        fog.sight_admissions
-            .keys()
-            .copied()
-            .filter(|key| {
-                while ids.next_if(|&id| id < key.0).is_some() {}
-                ids.peek() != Some(&key.0)
-            })
-            .collect()
-    };
-    for key in removed {
-        fog.release_sight_for_viewer(key);
-    }
-    // Each owner's viewers, asked again when a map is added: a reveal's
-    // candidates include every map.
-    let mut viewers_by_owner: BTreeMap<InternedId, (usize, Vec<InternedId>)> = BTreeMap::new();
-    for entity in admitted {
-        let owner = entity.owner();
-        let (maps, viewers) = viewers_by_owner
-            .entry(owner)
-            .or_insert((usize::MAX, Vec::new()));
-        if *maps != fog.by_owner.len() {
-            *maps = fog.by_owner.len();
-            *viewers = direct_reveal_viewers(fog, owner, config, interner);
-        }
-        // A source keeps the footprint its last reveal stored (`+0x254`,
-        // `+0x260`) until a reveal event moves it ([`force_refresh_entity_vision`]):
-        // `UpdateReveal @ 0x0070AF50` runs from cell arrivals and its other
-        // callers, never from a frame pass. On tracked maps its cells kept
-        // their bits; a map whose clear visited every cell (after a load,
-        // or a writer that bypassed publishing) has them marked again.
-        if retained_sight_covers(fog, entity.stable_id(), owner, viewers) {
-            if viewers.iter().any(|viewer| untracked.contains(viewer)) {
-                fog.mark_retained_sight(entity.stable_id());
-            }
-            #[cfg(test)]
-            assert_retained_sight_marked(fog, entity.stable_id());
-            continue;
-        }
-        // A source without its own house's admission, or whose owner or
-        // viewers changed, takes its sight as it stands now. RESIDUAL: this
-        // frame pass stands in for the reveals of Unlimbo (`0x006F6D27`),
-        // ChangeOwner (`0x0070187B`, `0x00448D83`), construction completion
-        // (`0x00446829`), the parasite exits (`0x0062A40B`, `0x0062A7A8`)
-        // and reinforcement placement (`0x0065E28D`), and for the alliance
-        // re-admission (`0x004ADCD0`), all of which native runs inside their
-        // callers. Trigger: a new, captured, placed or newly allied source.
-        // Effect: its sight opens at this pass, later in the same frame,
-        // and an owner or alliance change also moves a retained footprint
-        // for the viewers that keep it. It also gives sight to an object
-        // that has just entered the playfield, which native promotes
-        // (`0x006F511A`) without a reveal until its next reveal event (its
-        // next cell arrival): a unit driving in from the map edge sees a
-        // cell sooner.
-        let sight_ability = config.sight_ability(entity, interner, rules);
-        let geometry = entity_sight_geometry(entity, owner, config, terrain, sight_ability, None);
-        if let Some(admission) = sight_admission(fog, geometry, config, height_grid) {
-            reconcile_source_sight(fog, entity.stable_id(), admission, viewers, false, true);
-        }
-    }
-    #[cfg(test)]
-    for vis in fog.by_owner.values() {
-        vis.assert_tracked();
+        untracked
     }
 }
 
-/// Whether `entity` holds its own house's sight: alive, out of limbo, not
-/// carried, and past the gates `UpdateReveal @ 0x0070AF50` and `ReReveal @
-/// 0x0070B1D0` test first: under live map authority the stored playfield
+/// Caller/projection eligibility: alive, out of limbo and not carried,
+/// plus the native entry gates shared by UpdateReveal70AF50/ReReveal70B1D0: under live map authority the stored playfield
 /// byte `+0x3D5`, and an owner that is not `MultiplayPassive=`
-/// (`0x0070AF66..0x0070AF77`, `0x0070B1DF..0x0070B1F0`). Every reveal of
-/// an object's own sight and the frame pass admit through it.
+/// (`0x0070AF66..0x0070AF77`, `0x0070B1DF..0x0070B1F0`). Lifetime filters
+/// belong to callers; they are not extra gates inside either native function.
 pub(crate) fn holds_sight(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
@@ -1783,168 +1793,10 @@ pub(crate) fn holds_sight(
         && !config.passive_owner(entity.owner())
 }
 
-/// Run the same effective-sight writer used by the ordinary Techno
-/// reveal/update pass for one already-admitted entity.
-///
-/// This is also the exact Rust-owned callback boundary for the false->true
-/// TechnoClass+0x3D5 transition in `MapClass::Set_Clipped_LocalSize`: action 40
-/// must not fall back to the raw `Sight=` radius and thereby lose elevation,
-/// veterancy, shifted-center, or height-LOS semantics.
-pub(crate) fn reveal_entity_vision(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sight_ability: bool,
-    interner: &StringInterner,
-) {
-    update_entity_sight_admission(
-        fog,
-        entity,
-        config,
-        height_grid,
-        terrain,
-        sight_ability,
-        interner,
-        false,
-        None,
-        None,
-    );
-}
-
-/// `TechnoClass::ReReveal @ 0x0070B1D0` then `TechnoClass::UpdateReveal @
-/// 0x0070AF50` with its radius argument (`param_5`), for every viewer of
-/// the object's house: its last footprint leaves and its sight opens where
-/// it stands. A nonzero radius replaces the object's elevation- and
-/// veterancy-scaled sight (`0x0070B0A6..0x0070B0AF`), so even an object
-/// with no `Sight=` reveals; zero keeps that sight. The Spy Plane's camera
-/// passes its weapon's `Damage=` (`aircraft::spyplane_mission`). A negative
-/// radius (no retail weapon) reveals nothing here; native hands it to
-/// `0x005678E0` unverified. The caller owns both functions' gates
-/// ([`holds_sight`]).
-pub(crate) fn force_refresh_entity_vision(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sight_ability: bool,
-    interner: &StringInterner,
-    radius: i32,
-) {
-    let radius_override = (radius != 0).then(|| radius.clamp(0, i32::from(u16::MAX)) as u16);
-    update_entity_sight_admission(
-        fog,
-        entity,
-        config,
-        height_grid,
-        terrain,
-        sight_ability,
-        interner,
-        true,
-        None,
-        radius_override,
-    );
-}
-
-pub(crate) fn refresh_entity_vision_for_viewer(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sight_ability: bool,
-    interner: &StringInterner,
-    viewer: InternedId,
-) {
-    update_entity_sight_admission(
-        fog,
-        entity,
-        config,
-        height_grid,
-        terrain,
-        sight_ability,
-        interner,
-        true,
-        Some(viewer),
-        None,
-    );
-}
-
-fn update_entity_sight_admission(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sight_ability: bool,
-    interner: &StringInterner,
-    force_refresh: bool,
-    only_viewer: Option<InternedId>,
-    radius_override: Option<u16>,
-) {
-    let Some(admission) = entity_sight_admission(
-        fog,
-        entity,
-        entity.owner(),
-        config,
-        height_grid,
-        terrain,
-        sight_ability,
-        radius_override,
-    ) else {
-        return;
-    };
-    let viewers = match only_viewer {
-        // A viewer the caller picked still passes the reveal's house gate.
-        Some(viewer) => reveal_admits(fog, entity.owner(), viewer, config, interner)
-            .then_some(viewer)
-            .into_iter()
-            .collect(),
-        None => direct_reveal_viewers(fog, entity.owner(), config, interner),
-    };
-    reconcile_source_sight(
-        fog,
-        entity.stable_id(),
-        admission,
-        &viewers,
-        force_refresh,
-        only_viewer.is_none(),
-    );
-}
-
-/// Reconcile source `id`'s sight `admission` with each of `viewers`' maps,
-/// first releasing, when `release_others`, its admissions for other viewers.
-fn reconcile_source_sight(
-    fog: &mut FogState,
-    id: u64,
-    admission: SightAdmission,
-    viewers: &[InternedId],
-    force_refresh: bool,
-    release_others: bool,
-) {
-    if release_others {
-        let removed: Vec<_> = fog
-            .sight_admissions
-            // Source-prefix range: never rescan all S*V admissions per entity.
-            .range(source_keys(id))
-            .map(|(&key, _)| key)
-            .filter(|key| !viewers.contains(&key.1))
-            .collect();
-        for key in removed {
-            fog.release_sight_for_viewer(key);
-        }
-    }
-    for &viewer in viewers {
-        fog.reconcile_sight_admission(id, viewer, admission.clone(), force_refresh);
-    }
-}
-
-/// The footprint `TechnoClass::UpdateReveal(0, 0, 0, 0, 0)` (`0x0070AF50`)
-/// reveals for `entity`'s own house where it stands, a zero radius
-/// included; `None` without a fog plane. The caller owns the gates
-/// ([`holds_sight`]).
+/// The ordinary `TechnoClass::UpdateReveal @ 0x0070AF50` footprint for
+/// the entity's own House. Exact zero type Sight is rejected at `0x0070AF87`;
+/// an admitted zero effective radius can still retain an empty footprint.
+/// Returns `None` without a fog plane. Callers own [`holds_sight`] eligibility.
 pub(crate) fn entity_own_sight(
     fog: &FogState,
     entity: &crate::sim::game_entity::GameEntity,
@@ -1992,7 +1844,7 @@ pub(crate) fn entity_sight_footprint(
 
 /// The footprint `TechnoClass::UpdateReveal @ 0x0070AF50` reveals for
 /// `entity`, recorded as a reveal by `revealer`; `None` without a fog plane.
-fn entity_sight_admission(
+pub(crate) fn entity_sight_admission(
     fog: &FogState,
     entity: &crate::sim::game_entity::GameEntity,
     revealer: InternedId,
@@ -2000,8 +1852,11 @@ fn entity_sight_admission(
     height_grid: Option<&[u8]>,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
-    radius_override: Option<u16>,
+    radius_override: Option<i32>,
 ) -> Option<SightAdmission> {
+    if entity.sight.is_zero() && radius_override.is_none() {
+        return None;
+    }
     let geometry = entity_sight_geometry(
         entity,
         revealer,
@@ -2010,7 +1865,7 @@ fn entity_sight_admission(
         sight_ability,
         radius_override,
     );
-    sight_admission(fog, geometry, config, height_grid)
+    sight_admission(fog, geometry, config, height_grid, terrain)
 }
 
 /// The sight admission of a source with `geometry`: its footprint under
@@ -2021,6 +1876,7 @@ fn sight_admission(
     geometry: SightGeometry,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> Option<SightAdmission> {
     let width = fog.width;
     let height = fog.height;
@@ -2031,14 +1887,38 @@ fn sight_admission(
     let cells = collect_reveal_cells(
         rx,
         ry,
-        geometry.radius,
+        geometry.radius.clamp(0, i32::from(MAX_SIGHT_RANGE)) as u16,
         height_leptons,
         config.reveal_by_height,
         height_grid,
         (width, height),
         config.map_size,
     );
+    // This vector indexes derived real-cell sight counts, not native receiver
+    // calls. Map5678E0 still visits every geometry target (including the shared
+    // Dummy) through reveal_map_cell. Missing native slots must not fabricate
+    // source counts in unrelated rectangular storage; aliases use the actual
+    // Cell's coordinates. An isolated lookup preserves the live Dummy here.
+    let cells = if let Some(terrain) = terrain {
+        let query = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+        cells
+            .into_iter()
+            .filter_map(|(x, y)| {
+                let identity = query.lookup((x as i16, y as i16));
+                match identity {
+                    crate::map::cell_index::NativeCellIdentity::Real(_) => {
+                        let (x, y) = query.coord(identity);
+                        Some((x as u16, y as u16))
+                    }
+                    crate::map::cell_index::NativeCellIdentity::Dummy => None,
+                }
+            })
+            .collect()
+    } else {
+        cells
+    };
     Some(SightAdmission {
+        latched: true,
         owner: geometry.owner,
         origin: geometry.origin,
         radius: geometry.radius,
@@ -2048,20 +1928,20 @@ fn sight_admission(
 
 /// A sight admission's revealer, origin and radius.
 #[derive(Clone, Copy)]
-struct SightGeometry {
-    owner: InternedId,
-    origin: (u16, u16, i32),
-    radius: u16,
+pub(crate) struct SightGeometry {
+    pub(crate) owner: InternedId,
+    pub(crate) origin: (u16, u16, i32),
+    pub(crate) radius: i32,
 }
 
 /// [`entity_sight_admission`] without its footprint.
-fn entity_sight_geometry(
+pub(crate) fn entity_sight_geometry(
     entity: &crate::sim::game_entity::GameEntity,
     revealer: InternedId,
     config: &VisionConfig,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
-    radius_override: Option<u16>,
+    radius_override: Option<i32>,
 ) -> SightGeometry {
     // `0x0070AF9D..0x0070AFB8` copies the object's Location (`+0x9C..+0xA4`):
     // its world Z, a Hover's lift, a slope, a deck and a flight altitude
@@ -2071,14 +1951,20 @@ fn entity_sight_geometry(
     // Elevation raises sight MULTIPLICATIVELY, off the object's world Z in
     // leptons, not additively off its terrain level:
     //   sight = trunc(Sight * (1 + 0.10 * trunc(Z_leptons / LeptonsPerSightIncrease)))
-    let base_range: i32 = entity.sight.range() as i32;
+    let base_range: i32 = entity.sight.range();
     let elev_steps: i32 = if config.leptons_per_sight_increase > 0 {
         height_leptons / config.leptons_per_sight_increase
     } else {
         0
     };
-    let with_elevation: i32 =
-        (base_range * (100 + ELEVATION_SIGHT_PERCENT_PER_STEP * elev_steps)) / 100;
+    //Widen the existing deterministic hundredths scaling before truncation;
+    //raw Type Sight no longer silently truncates to WORD/clamps10. An i128
+    //intermediate covers every i32 Sight/Z product before division, including
+    //LeptonsPerSightIncrease=1; narrowing consumes the existing EAX model.
+    //RESIDUAL: x87 threshold rounding outside the consumed sight controls is
+    //not certified by this rational form; no x87 emulation is introduced.
+    let scale = 100_i128 + i128::from(ELEVATION_SIGHT_PERCENT_PER_STEP) * i128::from(elev_steps);
+    let with_elevation = ((i128::from(base_range) * scale) / 100) as i32;
     // `TechnoClass::UpdateReveal @ 0x0070AF50`: the elevation-scaled integer
     // is then `ftol(sight * Rules.VeteranSight)` for a `SIGHT` holder, gated
     // on the double not being exactly 0.0 (`0x0070B082..0x0070B0A4`).
@@ -2087,9 +1973,9 @@ fn entity_sight_geometry(
         sight_ability,
         config.veteran_sight,
     );
-    let effective: u16 = radius_override
-        .unwrap_or(with_veterancy.max(0) as u16)
-        .min(MAX_SIGHT_RANGE);
+    //70B0D8 stores the raw effective260. Map5678E0 clamps only its walk,
+    //and border567DA0 independently clamps cached260+3 to3..11.
+    let effective = radius_override.unwrap_or(with_veterancy);
     SightGeometry {
         owner: revealer,
         origin: (entity.position.rx(), entity.position.ry(), height_leptons),
@@ -2097,69 +1983,34 @@ fn entity_sight_geometry(
     }
 }
 
-/// Whether source `id`'s retained admissions are exactly one per viewer of
-/// `viewers` (in key order), each revealed for `owner`. Then its footprints
-/// stand until a reveal event moves them.
-fn retained_sight_covers(
-    fog: &FogState,
-    id: u64,
-    owner: InternedId,
-    viewers: &[InternedId],
-) -> bool {
-    let mut retained = fog.sight_admissions.range(source_keys(id));
-    viewers.iter().all(|&viewer| {
-        retained
-            .next()
-            .is_some_and(|(&(_, retained_viewer), admission)| {
-                retained_viewer == viewer && admission.owner == owner
-            })
-    }) && retained.next().is_none()
-}
+/// One source's admissions as the fog pass reads them, in viewer order:
+/// (viewer, owner revealed for, latched) ([`FogState::read_source_admissions`]).
+#[derive(Debug, Default)]
+pub(crate) struct SourceAdmissions(Vec<(InternedId, InternedId, bool)>);
 
-/// Panics unless every footprint cell source `id` retains has its ground
-/// bits on its viewer's map, as marking it would leave them.
-#[cfg(test)]
-fn assert_retained_sight_marked(fog: &FogState, id: u64) {
-    for (&(_, viewer), admission) in fog.sight_admissions.range(source_keys(id)) {
-        let vis = &fog.by_owner[&viewer];
-        for &(x, y) in &admission.cells {
-            let index = vis.index(x, y).expect("admitted source cell");
-            assert_eq!(
-                vis.ground_flags[index] & (GROUND_VISIBLE | GROUND_OPEN),
-                GROUND_VISIBLE | GROUND_OPEN,
-                "source {id}: footprint cell ({x}, {y}) lost its ground bits"
-            );
-        }
+impl SourceAdmissions {
+    /// An inactive source cache belongs to this owner until an explicit
+    /// native reveal event updates it. A frame must never relatch it.
+    pub(crate) fn cache_is_inactive(&self, owner: InternedId) -> bool {
+        let mut owned = self.0.iter().filter(|&&(_, by, _)| by == owner).peekable();
+        owned.peek().is_some() && owned.all(|&(_, _, latched)| !latched)
+    }
+
+    /// Whether the retained admissions are exactly one per viewer of
+    /// `viewers` (in key order), each revealed for `owner`. Then the source's
+    /// footprints stand until a reveal event moves them.
+    pub(crate) fn retained_cover(&self, owner: InternedId, viewers: &[InternedId]) -> bool {
+        self.0
+            .iter()
+            .filter(|&&(_, _, latched)| latched)
+            .map(|&(viewer, by, _)| (viewer, by))
+            .eq(viewers.iter().map(|&viewer| (viewer, owner)))
     }
 }
 
 /// Every admission key of one source, by its stable id.
 fn source_keys(stable_id: u64) -> std::ops::RangeInclusive<(u64, InternedId)> {
     (stable_id, InternedId::default())..=(stable_id, InternedId::from_index(u32::MAX))
-}
-
-/// What [`FogState::apply_sight`] does with an admission's footprint.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SightApply {
-    /// An unchanged retained admission: current sight only.
-    Mark,
-    /// A retained admission revealed again (after a bulk store overwrote its
-    /// cells' counters, or by a further alternate UpdateReveal): the counters
-    /// reveal, and the source counts already hold it.
-    Rereveal,
-    /// A new admission: the counters reveal and it counts as a source.
-    Admit,
-}
-
-/// What [`FogState::release_sight`] does with a footprint.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SightRelease {
-    /// A retained admission leaves: the counters' leave and its source count.
-    Withdraw,
-    /// A release without a retained admission: the counters' leave alone.
-    Leave,
-    /// A retained admission dropped without a release: its source count alone.
-    Forget,
 }
 
 /// VERA-only: fog bounds for fixture sims built without a map descriptor; the
@@ -2189,7 +2040,7 @@ fn resolve_bounds(entities: &EntityStore, path_grid: Option<&PathGrid>) -> (u16,
 
 // Geometry-only adapter for existing kernel fixtures; production owns mapping
 // events in the source/fire/Psychic writers above, never in this test adapter.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn reveal_radius_into(
     vis: &mut OwnerVisibility,
     rx: u16,
@@ -2213,6 +2064,38 @@ fn reveal_radius_into(
     ) {
         vis.mark_sight(x, y);
     }
+}
+
+/// The local XY after Map5673A0/5678E0's first height translation.
+/// Border567DA0 applies this same numeric owner to its own supplied XYZ;
+/// the uncached5673A0 tail supplies its already-translated local XYZ.
+fn height_shifted_cell_origin(origin: (u16, u16, i32)) -> (i32, i32) {
+    let shift = iso_height_shift_cells(origin.2);
+    (i32::from(origin.0) - shift, i32::from(origin.1) - shift)
+}
+
+/// Map5673A0 validates the lifted Size center5674AC..E4 and zero radius
+///5674F0 before its walk. Return admission separately from LOS membership:
+/// an admitted walk with every receiver blocked still calls border5678CA.
+fn reveal_area_origin(
+    origin: (u16, u16, i32),
+    radius: u16,
+    map_size: Option<(i32, i32)>,
+) -> Option<(i32, i32)> {
+    if radius == 0 {
+        return None;
+    }
+    let center = height_shifted_cell_origin(origin);
+    if map_size.is_some_and(|(width, height)| {
+        !crate::map::playfield::size_diamond_contains(
+            width,
+            height,
+            (center.0 as i16, center.1 as i16),
+        )
+    }) {
+        return None;
+    }
+    Some(center)
 }
 
 /// The cells `MapClass::RevealArea @ 0x005678E0` hands its leaf, in its
@@ -2266,15 +2149,17 @@ pub(crate) fn collect_reveal_cells(
     (width, height): (u16, u16),
     map_size: Option<(i32, i32)>,
 ) -> Vec<(u16, u16)> {
-    if range == 0 {
+    let Some((cx, cy)) = reveal_area_origin(
+        (center_rx, center_ry, viewer_height_leptons),
+        range,
+        map_size,
+    ) else {
         return Vec::new();
-    }
+    };
 
     let mut cells = Vec::new();
     let viewer_level = viewer_height_leptons / LEPTONS_PER_HEIGHT_LEVEL;
     let z_shift = iso_height_shift_cells(viewer_height_leptons);
-    let cx = i32::from(center_rx) - z_shift;
-    let cy = i32::from(center_ry) - z_shift;
     let w = i32::from(width);
     let h = i32::from(height);
     let on_map = |x: i32, y: i32| {
@@ -2282,10 +2167,6 @@ pub(crate) fn collect_reveal_cells(
             crate::map::playfield::size_diamond_contains(size_w, size_h, (x as i16, y as i16))
         })
     };
-    if !on_map(cx, cy) {
-        return Vec::new();
-    }
-
     // Clamp range to MAX_SIGHT_RANGE (the original also clamps to 10).
     let clamped = (range as usize).min(MAX_SIGHT_RANGE as usize);
     let spiral_end = REVEAL_RING_SIZES[clamped];
@@ -2321,6 +2202,36 @@ pub(crate) fn collect_reveal_cells(
     cells
 }
 
+/// Original Map567DA0 ground-frame refresh geometry. Unlike RevealArea,
+/// height zero takes the whole clamped3..11 disc, without LOS. The selected
+/// frontier path uses finalarg0; nonzero skips the traversal. Executed table:
+/// original561910, tools' consumed reveal spiral corpus (Steam3e81a617).
+/// Its independent inner-height argument selects an inner ring; the ordinary
+/// Unlimbo caller passes0 even when source XYZ.Z is nonzero.
+pub(crate) fn sight_border_cells(
+    origin: (u16, u16, i32),
+    radius: i32,
+    inner_height: i32,
+) -> Vec<(u16, u16)> {
+    let center = height_shifted_cell_origin(origin);
+    let center = (center.0 as i16, center.1 as i16);
+    let end = REVEAL_RING_SIZES[radius.clamp(3, 11) as usize];
+    let start = if inner_height <= 0 {
+        0
+    } else {
+        REVEAL_RING_SIZES[inner_height.min(8) as usize - 1]
+    };
+    REVEAL_SPIRAL[start..end]
+        .iter()
+        .map(|&(x, y)| {
+            (
+                center.0.wrapping_add(i16::from(x)) as u16,
+                center.1.wrapping_add(i16::from(y)) as u16,
+            )
+        })
+        .collect()
+}
+
 /// Reveal spiral table extracted from the original engine.
 /// Each (dx, dy) is a cell offset from the revealing unit's position.
 /// Entries are ordered in expanding rings by sight radius.
@@ -2328,12 +2239,13 @@ pub(crate) fn collect_reveal_cells(
 /// Recovered whole from the engine's table initialiser, which writes every
 /// entry as a literal `(dy << 16) | dx` store or a two-argument coordinate
 /// call — the table itself lives in zero-initialised data, so reading the
-/// image gives nothing. Ring membership is exactly
-/// `max(|dx|,|dy|) + min(|dx|,|dy|)/2 == r` (truncating division), which
-/// independently reproduces all twelve cumulative counts in
-/// [`REVEAL_RING_SIZES`].
+/// image gives nothing. Ordinary radius0..10 membership follows
+/// `max(|dx|,|dy|) + min(|dx|,|dy|)/2 == r` (truncating division).
+/// Radius11 is the original border-only tail, including its irregular entries
+/// and duplicate. Executed561910 in shroud_frontier.json checks all369 pairs
+/// and cumulative counts; the ordinary prefix also has independent metric tests.
 #[rustfmt::skip]
-const REVEAL_SPIRAL: [(i8, i8); 309] = [
+const REVEAL_SPIRAL: [(i8, i8); 369] = [
     // Sight 0: 1 entry
     (0, 0),
     // Sight 1: entries 1..9 (8 new)
@@ -2388,15 +2300,24 @@ const REVEAL_SPIRAL: [(i8, i8); 309] = [
     (10, 0), (-10, 1), (10, 1), (-9, 2), (9, 2), (-9, 3), (9, 3), (-8, 4), (8, 4), (-8, 5),
     (8, 5), (-7, 6), (7, 6), (-7, 7), (-6, 7), (6, 7), (7, 7), (-5, 8), (-4, 8), (4, 8), (5, 8),
     (-3, 9), (-2, 9), (2, 9), (3, 9), (-1, 10), (0, 10), (1, 10),
+    // Border567DA0 radius11, original561910 execution (shared spiral owner).
+    (0, 11), (0, -11), (-1, 11), (1, 11), (-1, -11), (1, -11), (-2, 11), (2, 11),
+    (-2, -11), (2, -11), (-3, 11), (3, 11), (-3, -11), (-3, 11), (-4, 9), (4, 9),
+    (-4, -9), (4, -9), (-5, 9), (5, 9), (-5, -9), (5, -9), (-6, 8), (6, 8),
+    (-6, -8), (6, -8), (-7, 8), (7, 8), (-7, -8), (7, -8), (-8, 7), (8, 7),
+    (-8, -7), (8, -7), (-8, 6), (8, 6), (-8, -6), (8, -6), (-9, 5), (9, 5),
+    (-9, -5), (9, -5), (-9, 4), (9, 4), (-9, -4), (9, -4), (-10, 3), (10, 3),
+    (-10, -3), (10, -3), (-10, 2), (10, 2), (-10, -2), (10, -2), (-11, 1), (11, 1),
+    (-11, -1), (11, -1), (11, 0), (-11, 0),
+
 ];
 
-/// Cumulative entry count for each sight radius 0–10, read from the engine's
+/// Cumulative entry count for each sight radius 0–11, read from the engine's
 /// read-only data. To reveal cells for sight N, iterate
 /// `REVEAL_SPIRAL[0..REVEAL_RING_SIZES[N]]`.
 ///
-/// The table continues past this with 369 for sight 11, which the kernel's
-/// clamp to 10 makes unreachable for object reveals.
-const REVEAL_RING_SIZES: [usize; 11] = [1, 9, 21, 37, 61, 89, 121, 161, 205, 253, 309];
+/// RevealArea clamps at10; the shared Border567DA0 traversal reaches11.
+const REVEAL_RING_SIZES: [usize; 12] = [1, 9, 21, 37, 61, 89, 121, 161, 205, 253, 309, 369];
 
 /// Mirror/direction table for height-based LOS checks (RevealByHeight).
 ///
@@ -2491,7 +2412,7 @@ pub(crate) fn coordinate_is_shrouded(
 /// canonical Dummy knowledge after a mapping of an absent allocated slot.
 /// A query error counts as unshrouded. Callers that test a Cell's own
 /// coordinate (CellClass vt+0x48) against `MapClass::IsShrouded` ask the same.
-pub(crate) fn cell_is_shrouded(
+pub fn cell_is_shrouded(
     fog: &FogState,
     cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
     viewer: InternedId,
@@ -2503,7 +2424,7 @@ pub(crate) fn cell_is_shrouded(
 
 /// `viewer`'s map shrouds `point`: [`coordinate_is_shrouded`] with
 /// [`cell_ground_mapped`] as its `open`. A query error counts as unshrouded.
-pub(crate) fn point_is_shrouded(
+pub fn point_is_shrouded(
     fog: &FogState,
     cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
     viewer: InternedId,
@@ -2517,12 +2438,15 @@ pub(crate) fn point_is_shrouded(
 /// `viewer` has mapped `cell`'s ground, the `Cell+0x12C & 0x08` that
 /// `MapClass::IsShrouded @ 0x00586360` tests: [`ShroudKnowledge::open`] as
 /// published to [`FogState::is_cell_revealed`], the copy every native writer
-/// of that bit reaches (the gap `0x006FB170`/`0x006FB470`, sweep
-/// `0x00578100` and whole-map `0x00577D90`/`0x00577AB0` writers move it
-/// alone). The canonical Dummy answers its retained record, which only the
+/// of that bit reaches (the gap `0x006FB170`/`0x006FB470` and some
+/// whole-map writers still move it alone). The canonical Dummy answers its
+/// retained record, which only the
 /// cell writers touch. [`point_is_shrouded`] and the Foot click queries use
-/// it; the Fire_At reveal (`world_fire.rs`) still answers its own (#1117).
-pub(crate) fn cell_ground_mapped(
+/// it; Display4AE5D0 reads this same bit on its unprojected plane receiver.
+/// This read-only decision is public so app consumers use the same authority,
+/// rather than the legacy edge-frame ground cache. Gap6FB3B8 clears bit8;
+/// every such writer reaches the published knowledge this owner reads.
+pub fn cell_ground_mapped(
     fog: &FogState,
     terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
     viewer: InternedId,
@@ -2539,7 +2463,7 @@ pub(crate) fn cell_ground_mapped(
 
 /// A flat fire-leaf reveal of `range` cells around a cell, with no height
 /// shift, height line of sight or map diamond (fixtures).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn reveal_radius(
     fog: &mut FogState,
     owner: InternedId,
@@ -2560,11 +2484,10 @@ pub fn reveal_radius(
     fire_reveal_cells(fog, owner, cells);
 }
 
-/// `MapClass::RevealShroud @ 0x005673A0` as FireAt's RevealOnFire calls it
-/// (`0x006FF6F2`): radius 3 around the firer's coordinate, centred on its
-/// height-shifted cell, with `RevealByHeight=`'s line of sight (arg 7 = 1),
-/// for `house`'s map, bounded by `config`'s map `Size=` diamond as
-/// [`collect_reveal_cells`]. Each cell takes the fire leaf `0x004876F0`.
+/// Test adapter for the fire receiver's radius3 geometry. Production FireAt
+/// uses Simulation::reveal_area(Fire) and both shared border calls; this
+/// adapter alone does not reproduce the enclosing Map/cache sequence.
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn reveal_shroud_on_fire(
     fog: &mut FogState,
     house: InternedId,
@@ -2588,63 +2511,57 @@ pub(crate) fn reveal_shroud_on_fire(
     fire_reveal_cells(fog, house, cells);
 }
 
-/// FireAt's reveal radius (`PUSH 0x3` at `0x006FF6E0`).
+/// FireAt's literal radius3 for Map5673A0 at6FDF30/6FF71B.
+#[cfg(any(test, feature = "test-support"))]
 const REVEAL_ON_FIRE_RADIUS: u16 = 3;
 
 /// The fire leaf `0x004876F0` over collected cells: unlike Psychic's
 /// reduce/increase pair, it never changes the shroud counter and tests
 /// counter > 0 for pending.
+#[cfg(any(test, feature = "test-support"))]
 fn fire_reveal_cells(fog: &mut FogState, owner: InternedId, cells: Vec<(u16, u16)>) {
     let width = fog.width;
     let height = fog.height;
     if width == 0 || height == 0 {
         return;
     }
-    let vis = fog
-        .by_owner
-        .entry(owner)
-        .or_insert_with(|| OwnerVisibility::new(width, height));
-    for (rx, ry) in cells {
-        vis.mark_sight(rx, ry);
-        let index = vis.index(rx, ry).expect("collected cell is in bounds");
-        vis.shroud_knowledge[index].fire_unshroud();
-        vis.set_transient_visible(index);
-        vis.publish_knowledge(index);
+    for cell in cells {
+        fog.reveal_map_cell(owner, cell, false, None, MapRevealProjection::Fire);
     }
 }
 
-/// Every house with a map or an alliance entry, and `owner`: the houses a
-/// reveal by `owner` can reach.
+/// The houses a reveal by `owner` can reach (every house with a map or an
+/// alliance entry, and `owner`) that are `owner` itself, when `with_owner`,
+/// or whose name `admits` passes; ascending, without repeats.
 fn reveal_candidates(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     interner: &StringInterner,
-) -> std::collections::BTreeSet<InternedId> {
-    let mut candidates: std::collections::BTreeSet<_> = fog.by_owner.keys().copied().collect();
-    candidates.insert(owner);
-    for (house, allies) in &fog.alliances {
+    with_owner: bool,
+    admits: impl Fn(&str) -> bool,
+) -> Vec<InternedId> {
+    let mut viewers: Vec<InternedId> = fog
+        .by_owner
+        .keys()
+        .copied()
+        .chain(std::iter::once(owner))
+        .filter(|&viewer| (with_owner && viewer == owner) || admits(interner.resolve(viewer)))
+        .collect();
+    // An alliance entry's house is the interned name itself; `owner` is
+    // already in when `with_owner` keeps it.
+    for (house, allies) in alliances {
         for name in std::iter::once(house).chain(allies) {
-            if let Some(id) = interner.get(name) {
-                candidates.insert(id);
+            if admits(name)
+                && let Some(id) = interner.get(name)
+            {
+                viewers.push(id);
             }
         }
     }
-    candidates
-}
-
-/// `HouseClass::IsAlliedWith @ 0x004F9A50` asked of `owner` about `viewer`:
-/// `owner`'s own ally bits (`+0x5788`), one-way; a house is its own ally.
-fn owner_allied_with(
-    fog: &FogState,
-    owner: InternedId,
-    viewer: InternedId,
-    interner: &StringInterner,
-) -> bool {
-    crate::map::houses::is_allied_with(
-        &fog.alliances,
-        interner.resolve(owner),
-        interner.resolve(viewer),
-    )
+    viewers.sort_unstable();
+    viewers.dedup();
+    viewers
 }
 
 /// The house gate of `MapClass::RevealArea @ 0x005678E0`
@@ -2655,40 +2572,58 @@ fn owner_allied_with(
 /// RESIDUAL: a house that infiltrated `owner`'s radar (the `+0x54E4` bit
 /// of its index, `0x00567AC1..0x00567ADB`) is mapped too, allied or not;
 /// VERA keeps no radar-spy bits.
-fn reveal_admits(
-    fog: &FogState,
+pub(crate) fn reveal_admits(
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     viewer: InternedId,
     config: &VisionConfig,
     interner: &StringInterner,
 ) -> bool {
-    viewer == owner || (config.ally_reveal && owner_allied_with(fog, owner, viewer, interner))
+    viewer == owner
+        || ally_reveal_test(alliances, owner, config, interner)(interner.resolve(viewer))
+}
+
+/// [`reveal_admits`]'s allied arm for one `owner`, to ask of many viewers by
+/// name: `AllyReveal=` and `owner`'s IsAlliedWith ([`allied_viewers`]).
+fn ally_reveal_test<'a>(
+    alliances: &'a HouseAllianceMap,
+    owner: InternedId,
+    config: &'a VisionConfig,
+    interner: &'a StringInterner,
+) -> impl Fn(&str) -> bool + 'a {
+    let allied = crate::map::houses::ally_test(alliances, interner.resolve(owner));
+    move |viewer| config.ally_reveal && allied(viewer)
 }
 
 /// The maps a reveal by `owner` writes ([`reveal_admits`]).
 pub(crate) fn direct_reveal_viewers(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     config: &VisionConfig,
     interner: &StringInterner,
 ) -> Vec<InternedId> {
-    reveal_candidates(fog, owner, interner)
-        .into_iter()
-        .filter(|&viewer| reveal_admits(fog, owner, viewer, config, interner))
-        .collect()
+    reveal_candidates(
+        fog,
+        alliances,
+        owner,
+        interner,
+        true,
+        ally_reveal_test(alliances, owner, config, interner),
+    )
 }
 
-/// `owner` and every house `owner`'s IsAlliedWith names ([`owner_allied_with`]),
-/// whatever `AllyReveal=` says.
+/// `owner` and every house `owner`'s IsAlliedWith names, whatever `AllyReveal=`
+/// says. `HouseClass::IsAlliedWith @ 0x004F9A50` reads `owner`'s own ally bits
+/// (`+0x5788`), one-way; a house is its own ally.
 pub(crate) fn allied_viewers(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     interner: &StringInterner,
 ) -> Vec<InternedId> {
-    reveal_candidates(fog, owner, interner)
-        .into_iter()
-        .filter(|&viewer| owner_allied_with(fog, owner, viewer, interner))
-        .collect()
+    let allied = crate::map::houses::ally_test(alliances, interner.resolve(owner));
+    reveal_candidates(fog, alliances, owner, interner, false, allied)
 }
 
 /// Materialize active SpySat house latches by marking every synthetic-grid cell
@@ -2707,7 +2642,7 @@ pub(crate) fn allied_viewers(
 /// active owners and never infers a transition from an absent list entry.
 ///
 /// Takes the owner names whose persisted SpySat latch is active.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn apply_spy_sat(
     fog: &mut FogState,
     spy_sat_owners: &[InternedId],
@@ -2728,9 +2663,10 @@ pub fn apply_spy_sat(
 /// Radius/power/owner admission is supplied by the existing production collector;
 /// this does not certify its entire Building4555D0 operational policy. Friendly
 /// gap fog remains the existing separate projection of native Cell+13C.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn apply_gap_generators(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[(InternedId, u16, u16, i32)],
     interner: &StringInterner,
 ) {
@@ -2745,26 +2681,29 @@ pub fn apply_gap_generators(
             radius,
         })
         .collect();
-    apply_gap_generator_sources(fog, &sources, interner);
+    apply_gap_generator_sources(fog, alliances, &sources, interner);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn apply_gap_generator_sources(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[GapGeneratorSource],
     interner: &StringInterner,
 ) {
     apply_gap_generator_sources_with_spy_sat(
         fog,
+        alliances,
         gap_generators,
         interner,
         &std::collections::BTreeSet::new(),
     );
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn apply_gap_generator_sources_with_spy_sat(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[GapGeneratorSource],
     interner: &StringInterner,
     spy_sat_active_owners: &std::collections::BTreeSet<InternedId>,
@@ -2783,7 +2722,7 @@ pub(crate) fn apply_gap_generator_sources_with_spy_sat(
                 continue;
             }
             if !are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(generator.owner),
                 interner.resolve(viewer),
             ) {
@@ -2838,6 +2777,7 @@ fn gap_footprint(generator: GapGeneratorSource, width: usize, height: usize) -> 
 /// this ledger owns which viewer cell writes that deposit contributed.
 pub(crate) fn publish_gap_generator_event(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     viewer: InternedId,
     source: GapGeneratorSource,
     active: bool,
@@ -2853,7 +2793,7 @@ pub(crate) fn publish_gap_generator_event(
         let receipts = fog.gap_sources.entry(viewer).or_default();
         if active {
             if !are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(source.owner),
                 interner.resolve(viewer),
             ) && receipts.insert(source)
@@ -2895,6 +2835,7 @@ pub(crate) fn publish_gap_generator_event(
 /// Friendly Cell13C remains the existing boolean fog projection.
 pub(crate) fn materialize_gap_generator_sources(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     sources: &BTreeMap<InternedId, Vec<GapGeneratorSource>>,
     interner: &StringInterner,
 ) {
@@ -2910,7 +2851,7 @@ pub(crate) fn materialize_gap_generator_sources(
         vis.clear_gap_fog();
         for &source in sources.get(&viewer).into_iter().flatten() {
             if are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(source.owner),
                 interner.resolve(viewer),
             ) {

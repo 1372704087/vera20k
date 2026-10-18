@@ -24,11 +24,8 @@ use crate::sim::world::SimSoundEvent;
 /// each stage fires faster than the last).
 const ROF: [i32; 6] = [16, 16, 16, 8, 16, 4];
 
-fn golden() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_gattling.json",
-    ))
-    .unwrap()
+fn golden() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_gattling.json")
 }
 
 fn rows<'a>(golden: &'a Value, set: &str) -> &'a [Value] {
@@ -570,6 +567,8 @@ fn gattling_idle_decay_matches_the_original() {
             .set_for_test(i64::from(FRAME) - since);
         if input["dead"] == true {
             entity.health.set_for_test(0);
+            // The native oracle clears Object+90, not just Health+6C.
+            entity.lifecycle.set_object_alive_for_test(false);
         }
         let dead = row["ended"].as_u64().unwrap() == 0x0044_0573;
         assert_eq!(dead, input["dead"] == true, "{name}");

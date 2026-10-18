@@ -99,6 +99,7 @@ pub fn parse_color_schemes(ini: &IniFile) -> Vec<ColorSchemeEntry> {
 /// the schemes "are all doubled"), so runtime scheme index `N` addresses
 /// `[Colors]` list entry `N / 2`; both halves of a pair share the same source
 /// H,S,V. The priority table selects the odd (`2*entry + 1`) half.
+#[cfg(any(test, feature = "test-support"))]
 pub fn scheme_for_priority(
     schemes: &[ColorSchemeEntry],
     priority: i32,
@@ -138,7 +139,7 @@ pub fn hsv_to_rgb(hsv: [u8; 3]) -> [u8; 3] {
 /// Resolve a player color priority to the loading-bar backing color in RGB,
 /// applying the priority table, the scheme-doubling, and HSV→RGB. Returns `None`
 /// when the `[Colors]` list is empty or the index is out of range.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn backing_rgb_for_priority(schemes: &[ColorSchemeEntry], priority: i32) -> Option<[u8; 3]> {
     scheme_for_priority(schemes, priority).map(|scheme| hsv_to_rgb(scheme.hsv))
 }

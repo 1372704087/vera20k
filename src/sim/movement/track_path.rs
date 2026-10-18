@@ -138,6 +138,13 @@ pub(super) fn track_destination(entity: &GameEntity) -> Option<DriveCoord> {
     )?)
 }
 
+/// [`track_destination`] as the reads without a null test take it: the
+/// null coordinate (0,0,0) when there is none, which Stop_Moving writes
+/// (Drive `0x004AFEA7..0x004AFEC0`).
+pub(super) fn track_destination_or_null(entity: &GameEntity) -> DriveCoord {
+    track_destination(entity).unwrap_or(super::foot_coordinate::NULL_COORD)
+}
+
 /// `if (head != Null) { head = Null; +63 = 0; }` as every arm here writes it.
 /// Raw occupation marks are untouched, as in native.
 pub(super) fn clear_track_head(entity: &mut GameEntity) {
@@ -174,7 +181,7 @@ impl SetterForceReassign {
     }
 
     /// Install a fixture's latch.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, raised: bool) {
         self.raised = raised;
     }
@@ -292,7 +299,7 @@ impl Simulation {
         let destination = self.substrate.entities.get(id).and_then(track_destination);
         //4B28CD / 6A1F1D: the zone precheck on the LIVE destination, which the
         //Unit receiver may already have cleared (Cell(0,0) refuses).
-        let probe = destination.unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        let probe = destination.unwrap_or(super::foot_coordinate::NULL_COORD);
         if !self.foot_path_zone_precheck(id, probe, rules)? {
             self.set_unit_null_destination(id, Some(rules), None, frame_effects);
             return Ok(FootPathOutcome::Returned);
@@ -552,7 +559,7 @@ impl Simulation {
         if !allied {
             return Ok(false);
         }
-        let destination = track_destination(actor).unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        let destination = track_destination_or_null(actor);
         //4B2C14..4B2C62: Distance3D (0x41C380) below CloseEnough, then no
         //radio contact (0x65AE30) and the shared stop band.
         let close = distance_3d_leptons(
@@ -865,22 +872,23 @@ impl Simulation {
         //
         // The Enter arm docks with a `DockUnload=` refinery the same way: a
         // miner's refinery order (`Command::MinerReturn`). Its other arms are
-        // not ported — a Unit destination (`0x00741C80..0x00741CCC`),
-        // `UnitAbsorb=` (`0x00741CE5..0x00741D0D`), a busy `Bunker=`
+        // not ported — `UnitAbsorb=` (`0x00741CE5..0x00741D0D`), a busy `Bunker=`
         // (`0x00741D49..0x00741D68`) and a non-building Techno
         // (`0x00741E35..0x00741E86`); Units reach those through the Boarding
         // and bunker adapters.
-        let original_building = match requested {
+        let requested_object = match requested {
             NavTargetRef::Building { id }
             | NavTargetRef::Entity { id }
             | NavTargetRef::Object { id } => self
                 .substrate
                 .entities
                 .get(id)
-                .filter(|building| building.category() == EntityCategory::Structure)
-                .map(|_| id),
+                .map(|target| (id, target.category())),
             _ => None,
         };
+        let original_building = requested_object
+            .filter(|(_, category)| *category == EntityCategory::Structure)
+            .map(|(id, _)| id);
         let enter_building = original_building.and_then(|building| {
             let object =
                 self.object_type(self.substrate.entities.get(building)?.type_ref(), rules)?;
@@ -892,6 +900,26 @@ impl Simulation {
         });
         let mut destination = Some(requested);
         let mut depot_fast_return = false;
+        // Steam gamemd3e81a617,741C4F..741CCC: an Enter Unit target
+        // without a radio contact goes into Foot+500, not straight into
+        // NavCom. Foot70D7E0 owns HELLO/CanEnter on the next object turn.
+        // Reuse that pending-entry owner for vehicles as well as depots.
+        let mobile_target = requested_object
+            .filter(|(_, category)| *category == EntityCategory::Unit)
+            .map(|(id, _)| id);
+        if let Some(target) = mobile_target
+            && self.substrate.entities.get(id).is_some_and(|unit| {
+                (unit.mission.effective().known() == Some(MissionType::Enter)
+                    || unit.mission.queued().known() == Some(MissionType::Enter))
+                    && unit.radio_contacts.is_empty()
+            })
+        {
+            if let Some(unit) = self.substrate.entities.get_mut(id) {
+                unit.pending_entry.install(target);
+                unit.set_archive_target(None);
+            }
+            destination = None;
+        }
         if let Some((building, unit_repair, dock_unload)) = enter_building {
             let enter_without_contact = self.substrate.entities.get(id).is_some_and(|unit| {
                 (unit.mission.effective().known() == Some(MissionType::Enter)
@@ -1090,7 +1118,7 @@ impl Simulation {
             super::navcom::nav_target_coordinate(
                 requested,
                 Some(id),
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain.as_ref(),
                 Some((rules, &self.interner)),
             )
@@ -1589,20 +1617,6 @@ impl Simulation {
         true
     }
 
-    /// Whether `id` is a Building (vt+0x2C == 6) whose type has
-    /// `WeaponsFactory=` (BuildingType `+0x16BD`). It is the war factory test
-    /// on a radio contact in the Unit setter's WeaponsFactory arm, in
-    /// Queue_Navigation_List's idle tail (`0x004DA15A..0x004DA1A6`) and in
-    /// Unit Per_Cell_Process's factory clearance.
-    pub(super) fn is_weapons_factory(&self, id: u64, rules: &RuleSet) -> bool {
-        self.substrate.entities.get(id).is_some_and(|building| {
-            building.category() == EntityCategory::Structure
-                && self
-                    .object_type(building.type_ref(), rules)
-                    .is_some_and(|object| object.weapons_factory)
-        })
-    }
-
     /// Unit 0x741970's BalloonHover arm (0x741983..0x741A7D), the first test
     /// of a NULL destination. A `BalloonHover=` type (+0xD6A) holding a
     /// NavCom (+0x5A4) and a Target (+0x2B4) keeps the NavCom when it:
@@ -1654,11 +1668,10 @@ impl Simulation {
             }
         };
         let keeps = leads_to_target
-            || super::turret::facing_toward_target(actor, &target, &self.substrate.entities)
-                .is_some_and(|direction| {
-                    let turn = direction.wrapping_sub(actor.body_facing_current(frame)) as i16;
-                    i32::from(turn).abs() <= 0x4000
-                });
+            || super::turret::facing_toward_target(actor, &target, self).is_some_and(|direction| {
+                let turn = direction.wrapping_sub(actor.body_facing_current(frame)) as i16;
+                i32::from(turn).abs() <= 0x4000
+            });
         if !keeps {
             return false;
         }

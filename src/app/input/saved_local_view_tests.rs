@@ -193,24 +193,24 @@ fn malformed_local_view_is_rejected_before_the_outgoing_input_changes() {
         ),
         (
             "modes",
-            serde_json::json!({"repair": false, "sell": false,
+            serde_json::json!({"repair": false, "sell": false, "planning": false,
                 "targeting": {"SuperWeapon": "MissingSuper"}}),
         ),
         (
             "modes",
-            serde_json::json!({"repair": false, "sell": false,
+            serde_json::json!({"repair": false, "sell": false, "planning": false,
                 "targeting": {"BuildingPlacement":
                     {"type_id": "UNIT", "product_id": 99, "owner": "local"}}}),
         ),
         (
             "modes",
-            serde_json::json!({"repair": false, "sell": false,
+            serde_json::json!({"repair": false, "sell": false, "planning": false,
                 "targeting": {"BuildingPlacement":
                     {"type_id": "MissingType", "product_id": 1, "owner": "local"}}}),
         ),
         (
             "modes",
-            serde_json::json!({"repair": false, "sell": false,
+            serde_json::json!({"repair": false, "sell": false, "planning": false,
                 "targeting": {"BuildingPlacement":
                     {"type_id": "UNIT", "product_id": 1, "owner": "nobody"}}}),
         ),
@@ -283,8 +283,15 @@ fn idle_saved_view_replaces_outgoing_building_placement_and_preview() {
         width: 1,
         height: 1,
         valid: true,
+        in_build_area: true,
+        foundation_visible: true,
         reason: None,
-        cell_valid: vec![true],
+        cells: vec![crate::sim::production::BuildingPlacementCell {
+            coord: (10, 20),
+            valid: true,
+            level: 0,
+            slope: 0,
+        }],
         wall_autofill_cells: vec![],
     });
     outgoing.submit_building_placement();

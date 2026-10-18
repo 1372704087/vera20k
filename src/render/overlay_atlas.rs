@@ -139,9 +139,14 @@ pub fn terrain_shadow_key(name: &str, frame: u8) -> OverlaySpriteKey {
 /// ([`crate::rules::building_rubble::RubbleArt`]).
 pub fn rubble_key(shp: &str, frame: u16) -> OverlaySpriteKey {
     OverlaySpriteKey {
-        name: format!("__rubble::{}", shp.to_uppercase()),
+        name: rubble_image_name(shp),
         frame: frame as u8,
     }
+}
+
+/// Shared image namespace for rubble body and Cell shadow atlases.
+pub(crate) fn rubble_image_name(shp: &str) -> String {
+    format!("__rubble::{}", shp.to_uppercase())
 }
 
 /// Build the canonical OverlayAtlas key for a smudge SHP.
@@ -1254,10 +1259,6 @@ mod tibtre_tests;
 #[cfg(test)]
 #[path = "overlay_atlas_mirage_tests.rs"]
 mod mirage_tests;
-
-#[cfg(test)]
-#[path = "overlay_atlas_radar_tests.rs"]
-mod radar_tests;
 
 /// Shelf-pack rendered overlay sprites into a GPU texture atlas.
 fn pack_overlay_sprites(

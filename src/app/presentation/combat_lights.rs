@@ -35,6 +35,66 @@ pub(crate) struct CombatLight {
     pub flags: u32,
 }
 
+impl CombatLight {
+    /// Spotlight5FF850's shared admission and stage selection. Both temporary
+    /// System62E280 lights and the later5FFFA0 vector call this owner.
+    pub(crate) fn draw_record(self, detail: &mut DetailState) -> Option<CombatLightDrawRecord> {
+        if self.flags & 0xE == 0 && detail.frame_rate() < detail.minimum_frame_rate() {
+            return None;
+        }
+        Some(CombatLightDrawRecord {
+            coord: self.coord,
+            surface_index: scaled_surface_index(self.base_size, self.stage),
+            flags: self.flags,
+        })
+    }
+}
+
+/// ParticleSystemDraw62E280 constructs/draws/destroys one temporary Spotlight.
+/// F4 is the current stage, independent of persistent light ageing. The body
+/// continues drawing after F0 ends while its children remain registered.
+pub(crate) fn particle_system_light(
+    system: &crate::sim::particles::ParticleSystem,
+    kind: &crate::rules::particle_system_type::ParticleSystemType,
+    detail: &mut DetailState,
+) -> Option<CombatLightDrawRecord> {
+    if !kind.one_frame_light || kind.light_size <= 0 || system.particles.is_empty() {
+        return None;
+    }
+    let count =
+        i32::try_from(system.particles.len()).expect("native particle vector count fits i32");
+    let base_size =
+        system_light_base_size(count, kind.particle_cap as i32, kind.light_size).ok()?;
+    CombatLight {
+        coord: ProjectileCoord::new(system.coords.x, system.coords.y, system.coords.z),
+        stage: system.facing,
+        base_size,
+        flags: 0,
+    }
+    .draw_record(detail)
+}
+
+fn system_light_base_size(
+    count: i32,
+    cap: i32,
+    light_size: i32,
+) -> Result<i32, crate::util::native_x87::NativeX87Error> {
+    use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53 as X, X87Ordering};
+    // Original62E280: division, binary64 lower clamp7E3550,
+    // binary32 upper clamp7E2AC8, multiplication then Math::ftol.
+    // Consumed original controls: procedural_drawing_oracle/welding.json.
+    let mut ratio = X::div(X::load_i32(count), X::load_i32(cap))?;
+    let minimum = X::load_f64(NativeF64Bits::from_bits(0x3fd9_9999_9999_999a))?;
+    let maximum = X::load_f32(NativeF32Bits::from_bits(0x3f80_0000))?;
+    if X::compare(ratio, minimum) == X87Ordering::Less {
+        ratio = minimum;
+    }
+    if X::compare(ratio, maximum) == X87Ordering::Greater {
+        ratio = maximum;
+    }
+    Ok(X::ftol_i64(X::mul(ratio, X::load_i32(light_size)))? as i32)
+}
+
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct CombatLightObservation {
     coord: [i32; 3],
@@ -88,14 +148,7 @@ impl CombatLightRuntime {
         self.entries
             .iter()
             .rev()
-            .filter(|entry| {
-                entry.flags & 0xE != 0 || detail.frame_rate() >= detail.minimum_frame_rate()
-            })
-            .map(|entry| CombatLightDrawRecord {
-                coord: entry.coord,
-                surface_index: scaled_surface_index(entry.base_size, entry.stage),
-                flags: entry.flags,
-            })
+            .filter_map(|entry| entry.draw_record(detail))
             .collect()
     }
 }
@@ -108,6 +161,7 @@ pub(crate) fn materialize_combat_lights(
     rules: Option<&RuleSet>,
     interner: &StringInterner,
     detail_level: u32,
+    detail: &mut DetailState,
 ) -> Vec<CombatLight> {
     impacts
         .into_iter()
@@ -128,6 +182,17 @@ pub(crate) fn materialize_combat_lights(
                 flags,
                 ..
             } => {
+                // Flash48A620..48A65A queries mutable55AF60 before Bright,
+                // including calls that produce no light. Force bypasses only
+                // Bright; creation's low-nibble bypass differs from Draw's E.
+                // Native controls: trigger_map_lighting flash_controls.
+                let fps_admitted = detail_level != 0 && {
+                    let minimum = detail.minimum_frame_rate();
+                    detail.frame_rate() >= minimum
+                };
+                if !fps_admitted && flags & 0xF == 0 {
+                    return None;
+                }
                 let warhead = rules.and_then(|rules| rules.warhead(interner.resolve(warhead_ref)));
                 if !force_create && !warhead.is_some_and(|warhead| warhead.bright) {
                     return None;
@@ -167,6 +232,94 @@ mod tests {
     use crate::rules::ruleset::DetailRules;
     use crate::sim::world::Simulation;
 
+    #[test]
+    fn welding_immediate_light_size_stage_and_admission_match_original_system_draw() {
+        let native = crate::render::tactical_compat::welding_tests::native();
+        let stage_bytes =
+            crate::render::tactical_compat::welding_tests::decode_hex(&native["stage_table_hex"]);
+        assert_eq!(STAGE_SCALE.as_slice(), stage_bytes);
+        let rows = native["system_draw_cases"].as_array().unwrap();
+        assert!(!rows.is_empty());
+        for row in rows {
+            let input = &row["input"];
+            let light = &row["light"];
+            if light.is_null() {
+                continue;
+            }
+            let int = crate::render::tactical_compat::welding_tests::int;
+            let size = system_light_base_size(
+                int(&input["particle_count"]),
+                int(&input["particle_cap"]),
+                int(&input["light_size"]),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::json!(size),
+                light["base_size"],
+                "{}",
+                input["name"]
+            );
+            let mut detail = creation_detail(input);
+            let position =
+                crate::render::tactical_compat::welding_tests::array::<3>(&input["position"]);
+            let actual = CombatLight {
+                coord: ProjectileCoord::new(position[0], position[1], position[2]),
+                stage: u8::try_from(int(&input["stage"])).unwrap(),
+                base_size: size,
+                flags: 0,
+            }
+            .draw_record(&mut detail);
+            if let Some(performance_passed) = light["performance_passed"].as_bool() {
+                assert_eq!(
+                    actual.is_some(),
+                    performance_passed,
+                    "{} FPS admission",
+                    input["name"]
+                );
+            }
+            if let Some(actual) = actual {
+                if !light["surface_index"].is_null() {
+                    assert_eq!(
+                        serde_json::json!(actual.surface_index),
+                        light["surface_index"],
+                        "{}",
+                        input["name"]
+                    );
+                }
+                assert_eq!(serde_json::json!(actual.flags), light["flags"]);
+            }
+        }
+    }
+
+    #[test]
+    fn welding_points_keep_original_shared_unsigned_detail_query_history() {
+        let native = crate::render::tactical_compat::welding_tests::native();
+        for row in native["spark_draw_cases"].as_array().unwrap() {
+            let mut detail = creation_detail(&row["input"]);
+            for (index, draw) in row["draws"].as_array().unwrap().iter().enumerate() {
+                let threshold = detail.minimum_frame_rate();
+                assert_eq!(
+                    serde_json::json!(threshold),
+                    draw["threshold"],
+                    "{} point{index}",
+                    row["input"]["name"]
+                );
+                assert_eq!(
+                    serde_json::json!(detail.frame_rate() >= threshold),
+                    draw["performance_passed"],
+                    "{} point{index}",
+                    row["input"]["name"]
+                );
+                assert_eq!(
+                    serde_json::to_value(detail.observation()).unwrap()["reduced"],
+                    draw["reduced_after"],
+                    "{} point{index}",
+                    row["input"]["name"]
+                );
+            }
+        }
+    }
+
     fn original_light_corpus() -> serde_json::Value {
         serde_json::from_str(crate::test_fixture::text(
             "tools/procedural_drawing_oracle/electric_bolt.json",
@@ -186,6 +339,23 @@ mod tests {
     fn detail_with_frame_rate(frame_rate: u32) -> DetailState {
         let mut detail = DetailState::new();
         for _ in 0..frame_rate {
+            detail.record_logic_visit();
+        }
+        detail.throttle_tail(0);
+        detail
+    }
+
+    fn creation_detail(input: &serde_json::Value) -> DetailState {
+        let mut detail = DetailState::new();
+        if input["reduced"] == 1 || input["reduced"] == true {
+            detail.minimum_frame_rate();
+        }
+        detail.configure_normal(&DetailRules {
+            min_frame_rate_normal: input["minimum"].as_i64().unwrap() as i32,
+            buffer_zone_width: input["buffer"].as_i64().unwrap() as i32,
+            ..DetailRules::default()
+        });
+        for _ in 0..input["fps"].as_u64().unwrap() {
             detail.record_logic_visit();
         }
         detail.throttle_tail(0);
@@ -299,6 +469,7 @@ mod tests {
                 None,
                 &interner,
                 detail,
+                &mut detail_with_frame_rate(60),
             );
             let expected = &case["first_logic_visit"]["state"]["lights"];
             assert_eq!(
@@ -393,8 +564,13 @@ mod tests {
         let first = effect(&mut sim, 256, 1, 400);
         let second = effect(&mut sim, 768, 6, 400);
         let mut runtime = CombatLightRuntime::default();
-        let new_entries =
-            materialize_combat_lights(vec![first, second], Some(&rules), &sim.interner, 2);
+        let new_entries = materialize_combat_lights(
+            vec![first, second],
+            Some(&rules),
+            &sim.interner,
+            2,
+            &mut detail_with_frame_rate(60),
+        );
         assert_eq!(
             new_entries.iter().map(|e| e.base_size).collect::<Vec<_>>(),
             vec![25, 25]
@@ -411,7 +587,16 @@ mod tests {
             draw.iter().map(|r| r.surface_index).collect::<Vec<_>>(),
             vec![1, 1]
         );
-        assert!(materialize_combat_lights(Vec::new(), Some(&rules), &sim.interner, 2).is_empty());
+        assert!(
+            materialize_combat_lights(
+                Vec::new(),
+                Some(&rules),
+                &sim.interner,
+                2,
+                &mut detail_with_frame_rate(60),
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -459,5 +644,157 @@ mod tests {
         assert_eq!(materialize_base_size(i32::MAX, 0.0), 21);
         assert_eq!(materialize_base_size(1, 0.4_f32 as f64), 25);
         assert_eq!(materialize_base_size(1, 2.0), 63);
+    }
+
+    #[test]
+    fn map_lighting_transylv_large_flash_keeps_original_non_bright_c4_no_light_result() {
+        let Some(fixture) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("Transylv.yro")
+        else {
+            return;
+        };
+        let rules = fixture.rules;
+        let corpus = crate::test_fixture::json("tools/spatial_oracle/trigger_map_lighting.json");
+        let producer = &corpus["flash_controls"];
+        let wh = rules.warhead(&rules.bridge_warheads.c4_name).unwrap();
+        assert_eq!(wh.id, producer["warhead_inputs"]["c4"].as_str().unwrap());
+        assert_eq!(
+            wh.bright,
+            producer["warhead_inputs"]["after"]["bright"] == 1
+        );
+        let size_hex = (wh.combat_light_size_f64 as f32)
+            .to_le_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            size_hex,
+            producer["warhead_inputs"]["after"]["size_f32_le_hex"]
+                .as_str()
+                .unwrap()
+        );
+        for row in producer["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["definition"]["kind"] == 66)
+        {
+            let call = &row["calls"][0];
+            let mut sim = Simulation::with_seed(0);
+            let impact = CombatLightRequest::Impact {
+                target_id: None,
+                damage: call["damage"].as_i64().unwrap() as i32,
+                warhead_ref: sim.interner.intern(call["warhead"].as_str().unwrap()),
+                coord: ProjectileCoord::new(
+                    call["arguments"][0].as_i64().unwrap() as i32,
+                    call["arguments"][1].as_i64().unwrap() as i32,
+                    call["arguments"][2].as_i64().unwrap() as i32,
+                ),
+                force_create: call["arguments"][3] != 0,
+                flags: call["arguments"][4].as_u64().unwrap() as u32,
+            };
+            assert_eq!(
+                materialize_combat_lights(
+                    vec![impact],
+                    Some(&rules),
+                    &sim.interner,
+                    2,
+                    &mut detail_with_frame_rate(60),
+                )
+                .len(),
+                row["light_constructor_calls"].as_u64().unwrap() as usize
+            );
+        }
+    }
+
+    #[test]
+    fn map_lighting_flash_creation_preserves_original_admission_and_shared_hysteresis() {
+        let corpus = crate::test_fixture::json("tools/spatial_oracle/trigger_map_lighting.json");
+        let controls = &corpus["flash_controls"];
+        for row in controls["creation_admission"].as_array().unwrap() {
+            let input = &row["input"];
+            let bright = if input["bright"] == 1 { "yes" } else { "no" };
+            let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Warheads]\n0=WH\n[WH]\nBright={bright}\n",
+            )))
+            .unwrap();
+            let mut sim = Simulation::new();
+            let mut detail = creation_detail(input);
+            let request = CombatLightRequest::Impact {
+                target_id: None,
+                damage: input["damage"].as_i64().unwrap() as i32,
+                warhead_ref: sim.interner.intern("WH"),
+                coord: ProjectileCoord::new(0, 0, 0),
+                force_create: input["force"] != 0,
+                flags: input["flags"].as_u64().unwrap() as u32,
+            };
+            let lights = materialize_combat_lights(
+                vec![request],
+                Some(&rules),
+                &sim.interner,
+                input["detail"].as_u64().unwrap() as u32,
+                &mut detail,
+            );
+            assert_eq!(
+                serde_json::json!(
+                    lights
+                        .iter()
+                        .map(|light| light.base_size)
+                        .collect::<Vec<_>>()
+                ),
+                row["constructor_sizes"],
+                "{}",
+                input["name"]
+            );
+            assert_eq!(
+                serde_json::to_value(detail.observation()).unwrap()["reduced"],
+                row["reduced_after"] == 1,
+                "{}",
+                input["name"]
+            );
+        }
+
+        let history = &controls["hysteresis_history"];
+        let input = &history["input"]["first_flash"];
+        let rules = RuleSet::from_ini(&IniFile::from_str("[Warheads]\n0=WH\n[WH]\n")).unwrap();
+        let mut sim = Simulation::new();
+        let mut detail = creation_detail(input);
+        let request = CombatLightRequest::Impact {
+            target_id: None,
+            damage: input["damage"].as_i64().unwrap() as i32,
+            warhead_ref: sim.interner.intern("WH"),
+            coord: ProjectileCoord::new(0, 0, 0),
+            force_create: input["force"] != 0,
+            flags: input["flags"].as_u64().unwrap() as u32,
+        };
+        assert!(
+            materialize_combat_lights(
+                vec![request],
+                Some(&rules),
+                &sim.interner,
+                input["detail"].as_u64().unwrap() as u32,
+                &mut detail,
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            serde_json::to_value(detail.observation()).unwrap()["reduced"],
+            history["after_flash_reduced"] == 1
+        );
+        let mut omitted_flash = creation_detail(input);
+        for state in [&mut detail, &mut omitted_flash] {
+            for _ in 0..history["input"]["next_fps"].as_u64().unwrap() {
+                state.record_logic_visit();
+            }
+            state.throttle_tail(60 * 16);
+        }
+        assert_eq!(
+            serde_json::json!(detail.minimum_frame_rate()),
+            history["with_flash_next_threshold"]
+        );
+        assert_eq!(
+            serde_json::json!(omitted_flash.minimum_frame_rate()),
+            history["without_flash_next_threshold"]
+        );
     }
 }

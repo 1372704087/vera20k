@@ -254,12 +254,13 @@ JOINED_EXTRA_ASSETS = tuple(name + '.SHP' for name in JOINED_ANIMS) + ('GI.SHP',
 JOINED_DAMAGE_FIRES = ('FIRE01', 'FIRE02', 'FIRE03')
 # These are existing Mission platform/presentation arms, never a replacement
 # FireAt, Bullet, entry, damage, Scatter, graph, path, animation or House answer.
-JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C,
+JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C, 0x413DE2, 0x413DF1,
     0x46B072, 0x655560, 0x655740, 0x5F8110, 0x5F8CE0, 0x46AFE5, 0x46B007,
     0x55A965, 0x55A987, 0x7CAA5E))
 
 
-def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound=False):
+def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound=False,
+                  typed_debris=False, layers=None, wall_autofill=False):
     import hashlib
     from collections import deque
     from types import SimpleNamespace
@@ -275,9 +276,14 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
     extra_assets = JOINED_EXTRA_ASSETS + tuple(name + '.SHP' for name in
                                              (JOINED_DAMAGE_FIRES if damage_fires else ()))
     building_names = (*bc.JOINED_NAMES, 'CAMISC03') if damage_sound else bc.JOINED_NAMES
+    if wall_autofill:
+        building_names = (*building_names, 'GAWALL')
+        extra_assets += ('GTWALL.SHP',)
     if damage_sound:
         extra_assets += ('CTMISC03.SHP',)
-    m = er.prepare_joined_inputs(root)
+    m = er.prepare_joined_inputs(root, layers=layers)
+    m.input_rule_layers = tuple(layers if layers is not None else
+        ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'))
     u, read = m.u, m.read32
     original_ret = m.ret
     m.ret = lambda eax=0, cleanup=0: original_ret(eax, cleanup)
@@ -336,7 +342,7 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
         pointer = m.alloc(0x1900)
         m.invoke(0x5236A0, pointer, (m.cstring(name),))
         m.types[name] = pointer
-    for registry in (0xA83CE0, 0xA8EB00):
+    for registry in ((0xA83CE0, 0xA8EB00) if layers is None else (0xA83CE0,)):
         u.mem_write(registry, dwords(0x7EB6D4, m.alloc(4096), 1024, 1, 0, 10))
     # Existing BulletReader unused Color registry prior. The Cannon Color key is
     # absent; no represented color decision or native Color body is replaced.
@@ -352,11 +358,37 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
         pointer = m.alloc(0x2000)
         m.invoke(0x45DD90, pointer, (m.cstring('CAMISC03'),))
         m.types['CAMISC03'] = pointer
+    if wall_autofill:
+        pointer = m.alloc(0x2000)
+        m.invoke(0x45DD90, pointer, (m.cstring('GAWALL'),))
+        m.types['GAWALL'] = pointer
+        # The ToOverlay reader must see the real physical registry ordinal,
+        # not a one-item replacement catalog. Original constructors own it.
+        m.invoke(0x4E71E0, 0)
+        m.wall_overlay_names = list(physical_rules['OverlayTypes'].values())
+        m.wall_overlay_types = {}
+        for name in m.wall_overlay_names:
+            typ = m.alloc(0x300)
+            m.invoke(0x5FE250, typ, (m.cstring(name),))
+            m.wall_overlay_types[name] = typ
+        for path in sorted(root.glob('*WALL*.SHP')):
+            m.assets[path.name.upper()] = path.read_bytes()
     wanted = {'Dummy', 'BuildingRepaired', 'PowerPlantDie', 'GrizzlyTankAttack'}
+    if typed_debris:
+        # The fatal source is MTNK here. Bind its actual death sounds before
+        # full747620 reads the vectors; unknown registry names are dropped by
+        # the native sound-list reader. Historical building controls omit this
+        # source-death prerequisite and retain their selected registry exactly.
+        for filename in m.input_rule_layers:
+            path = root / filename
+            if path.exists():
+                layer = sections(path.read_bytes()).get('MTNK', {})
+                for key in ('VoiceDie', 'DieSound'):
+                    wanted.update(name.strip() for name in layer.get(key, '').split(','))
     if damage_sound:
         # Select the actual authored per-type and fallback names in layer
         # order; original7510D0/45FE50/6691E0 still own their binding.
-        for filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'):
+        for filename in m.input_rule_layers:
             path = root / filename
             if path.exists():
                 layer = sections(path.read_bytes())
@@ -376,7 +408,8 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
     selected_art = {name: art[name] for name in (*bc.JOINED_ART_NAMES, *anim_names,
                     'MTNK', 'GTNK', 'Cannon', '120MM', 'GI', 'GISequence',
                     'ENGINEER', 'EngineerSequence', 'CIV3', 'CivilianSequence',
-                    *(('CAMISC03',) if damage_sound else ())) if name in art}
+                    *(('CAMISC03',) if damage_sound else ()),
+                    *(('GAWALL',) if wall_autofill else ())) if name in art}
     m.death_art_input_sections = dict(selected_art,
         **{name: art.get(name) for name in ('E1', 'GI', 'GISequence', 'GAPOWR', 'gtpowexp')})
     m.make_ini(selected_art)
@@ -399,7 +432,7 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
         native.run_checked(u, begin, end, count=2_000_000)
 
     m.death_layers = []
-    for filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'):
+    for filename in m.input_rule_layers:
         path = root / filename
         if not path.exists():
             assert filename == 'LANGRULE.INI'
@@ -427,6 +460,12 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
             rule_block(begin, end, rules_ini)
         building_reads = {name: m.invoke(0x45FE50, m.types[name], (rules_ini,)) & 255
                           for name in building_names}
+        if wall_autofill:
+            m.wall_overlay_reads = getattr(m, 'wall_overlay_reads', [])
+            m.wall_overlay_reads.append(dict(file=filename,
+                result=m.invoke(0x5FE770, m.wall_overlay_types['GAWALL'], (rules_ini,)) & 255,
+                physical_keys=physical.get('GAWALL'),
+                building_to_overlay=read(m.types['GAWALL'] + 0xE54)))
         e1_result = m.invoke(0x5240A0, m.types['E1'], (rules_ini,)) & 255
         tank_result = m.invoke(0x747620, tank, (rules_ini,)) & 255
         assert read(tank + 0x898) == weapon
@@ -437,7 +476,8 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
         m.invoke(0x7729F0, weapon)
         m.invoke(0x511850, m.country, (rules_ini,))
         for entry in (0x66D530, 0x66D150, 0x66CF70):
-            m.invoke(entry, m.rules, (rules_ini,))
+            m.invoke(entry, m.rules, (rules_ini,),
+                     timeout_us=60_000_000 if layers is not None else 10_000_000)
         if m.invoke(0x526810, rules_ini, (m.cstring('AudioVisual'),)):
             if damage_sound:
                 m.invoke(0x6691E0, m.rules, (rules_ini,))
@@ -488,6 +528,35 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound
     u.hook_del(hook)
     if stock_smudges:
         joined_stock_inputs(m, root, root)
+    if wall_autofill:
+        # Reuse the existing clear-tile setup and original theater Boolean
+        # reader. This declared component map is not a physical Hills load.
+        from tools.spatial_oracle.tmp_clear_render import theater_tile_files
+        from tools.spatial_oracle.terrain_recalc import LAT_GLOBALS
+        raw = (root / 'TEMPERATMD.INI').read_bytes()
+        m.make_ini({'TileSet0000': sections(raw)['TileSet0000']})
+        pointer = m.alloc(0x40)
+        u.mem_write(pointer, bytes(u.mem_read(INI, 0x40)))
+        m.stock_theater_inputs = dict(file='TEMPERATMD.INI',
+            sha256=hashlib.sha256(raw).hexdigest(), ini=pointer)
+        # Whole545535..545C3F also initializes the role globals to native
+        # sentinels; cold zero makes ClearTile0 alias LAT/cliff ranges during
+        # Recalc. Reuse the existing original General/ordinal projection
+        # owner, not supplied -1 writes or a tile-result callback.
+        tiles, mapping = theater_tile_files(m, raw, 0, 'tem')
+        m.wall_theater_inputs = dict(mapping=mapping, registered_tile_count=len(tiles),
+            physical_general=sections(raw).get('General'),
+            roles={f'0x{address:08X}': read(address)
+                for address in (*LAT_GLOBALS, 0xAA10B0)},
+            boundary='Original theater General/default stores and ordinal projection; imported native role globals. Only the declared ClearTile0 head is constructed in the joined map; no full theater/TMP world load.')
+        assert read(0xAA10B0) == 0
+        u.mem_write(INI, art_cache)
+        # Full existing Overlay theater owner takes the enum in ECX, not an
+        # individual type receiver. Only selected GAWALL has been read here;
+        # all other physical registry members retain constructor defaults.
+        m.invoke(0x5FE620, 0)
+        assert read(m.wall_overlay_types['GAWALL'] + 0xA4)
+        m.wall_image_assets = [row for row in m.asset_loaded if 'WALL' in str(row)]
     image = native.image_bytes()
     for rva, source, length, _, flags in native._sections(image):
         if length and flags & 0x20000000:
@@ -818,7 +887,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
                 return
             super().hook(u, pc, size, data)
 
-        def building(self, name, pointer, radio_items, coord=(6, 9), health=None):
+        def building(self, name, pointer, radio_items, coord=(6, 9), health=None, *, constructor_only=False):
             u = self.u
             u.mem_write(pointer, bytes(0x800))
             self.phase = 'setup_full_building_constructor'
@@ -832,7 +901,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
                 self.building_constructor['logic_member_98'] = u.mem_read(pointer + 0x98, 1)[0]
                 assert self.building_constructor['logic_member_98'] == 0
                 self.building_constructor['abstract_flags'] = self.read32(pointer + 0x14)
-            if damage_sound:
+            if damage_sound or constructor_only:
                 # Original43B740/6F2B40 own +6C and43B78F owns +544=0.
                 # No post-constructor Strength/health/UID/marked prior.
                 self.building_constructor.update(type=name,
@@ -1053,7 +1122,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
     return f
 
 
-def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sound=False):
+def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sound=False, post_drain_put=False):
     from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
     from unicorn.x86_const import UC_X86_REG_EDI, UC_X86_REG_EAX, UC_X86_REG_EIP
     from tools import native_oracle as native
@@ -1425,7 +1494,143 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sou
         result['cell_spread_startup'] = f.cell_spread_startup
         result['coordinate_audio_lifecycle'] = audio.natural_coordinate_end()
         result['damage_sound_audio'] = audio.project()
+    if post_drain_put:
+        import copy
+        assert stock is not None and projectile and building_ai and seed == 1
+        # Observers retain mutable lists. Preserve every existing fatal/drain
+        # field before continuing this same native world with another object.
+        result = copy.deepcopy(result)
+        result['post_drain_put'] = post_drain_smudge_put(f, stock)
     return result
+
+
+def post_drain_smudge_put(f, stock):
+    """Fresh original GAPOWR admission after the real stock Smudge drain.
+
+    This optional continuation shares the existing Runtime/ctor/House/map; it
+    never revives the destroyed target or overwrites fresh constructor fields.
+    """
+    import copy
+    from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP, UC_X86_REG_ESI
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.refinery_dock import cell
+    from tools.spatial_oracle.unit_source_scatter import SCENARIO
+    from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry, DiscoveryFixture
+    from types import SimpleNamespace
+    u, read = f.u, f.read32
+    before = stock['snapshot']()
+    player = read(0xA83D4C)
+    proxy = SimpleNamespace(uc=u, read32=read)
+    client_priors = dict(player_ptr=player,game_mode=read(0xA8B238),
+        scenario_init=read(0xA8E7AC),active_game=u.mem_read(0xA8E9A0,1)[0],
+        player_flags_1ec_1ed=list(u.mem_read(player+0x1EC,2)),
+        cells=[DiscoveryFixture.pointer_state(proxy,cell(x,y),include_dirty=True)
+               for x,y in ((10,10),(11,10),(10,11),(11,11))])
+    assert before['pending_count'] == before['smudge_object_count'] == 0
+    assert [(r['cell'],r['type_index'],r['data']) for r in before['smudge_cells']] == [
+        ([10,10],44,0),([11,10],44,1),([10,11],44,2),([11,11],44,3)]
+    calls, writes, timer_writes, discovery_calls = [], [], [], []
+    request_start, advance_start = len(f.draws), len(f.advances)
+    event_start = len(f.events)
+    fresh = f.allocate(0x800)
+    position = f.allocate(12)
+    selected_cells = {cell(x,y):(x,y) for y in range(9,13) for x in range(9,13)}
+    entries = {0x43B740:'building_ctor',0x440580:'building_unlimbo',
+        0x43F180:'building_mark',0x43F8A6:'clear_smudge_type',
+        0x4852D0:'cell_redraw_rect',0x486E70:'cell_dirty_ring',0x6DA7D0:'tactical_dirty',
+        0x5F65F0:'uninit',0x7258D0:'expiry',0x725C70:'deferred_drain'}
+    def actor():
+        return dict(pointer=fresh,id=read(fresh+0x10),health=read(fresh+0x6C),
+            sampled_health=read(fresh+0x544),alive=u.mem_read(fresh+0x90,1)[0],
+            limbo=u.mem_read(fresh+0x81,1)[0],marked=u.mem_read(fresh+0x74,1)[0],
+            logic=u.mem_read(fresh+0x98,1)[0],placed=u.mem_read(fresh+0x6E4,1)[0],
+            anim_slots=[read(fresh+0x55C+i*4) for i in range(21)],abstract_flags=read(fresh+0x14),
+            owner=read(fresh+0x21C),discovery_41a_41b_41c=list(u.mem_read(fresh+0x41A,3)),
+            location=list(struct.unpack('<3i',u.mem_read(fresh+0x9C,12))),
+            mission=list(struct.unpack('<4i',u.mem_read(fresh+0xAC,16))),
+            mission_timer=list(struct.unpack('<3i',u.mem_read(fresh+0xC8,12))),
+            stage_timer=list(struct.unpack('<5i',u.mem_read(fresh+0xFC,20))))
+    def state():
+        # Existing shared snapshot owns AnimType identity and native runtime fields.
+        presentation = f.snapshot(fresh)
+        return dict(stock=stock['snapshot'](),building=actor(),anims=presentation['anims'],
+            unique_id_cursor=read(SCENARIO+0x214),
+            attacker_passive_scan_timer=list(struct.unpack('<3i',u.mem_read(f.source+0x180,12))))
+    discovery_entries = {0x44D5D0:'building_discovered',0x445F80:'grand_opening',
+        0x70AF50:'update_reveal',0x5B35E0:'queue_mission',0x5B3570:'commence'}
+    discovery_sites = {0x6F6E2A:'before_idle',0x6F6E4F:'after_idle_commence',
+        0x440D61:'unlimbo_explicit_discovery'}
+    def code(_u,pc,_size,_data):
+        sp=u.reg_read(UC_X86_REG_ESP);this=u.reg_read(UC_X86_REG_ECX)
+        if pc in discovery_entries and this==fresh:
+            row=dict(entry=f'{pc:08X}',kind=discovery_entries[pc],
+                caller=f'{read(sp):08X}',building_before=actor())
+            if pc in (0x44D5D0,0x5B35E0):row['arg0']=read(sp+4)
+            discovery_calls.append(row)
+        elif pc in discovery_sites and u.reg_read(UC_X86_REG_ESI)==fresh:
+            discovery_calls.append(dict(site=f'{pc:08X}',kind=discovery_sites[pc],building_before=actor()))
+        if pc not in entries:return
+        row=dict(entry=f'{pc:08X}',kind=entries[pc],phase=f.phase)
+        if pc != 0x43F8A6:
+            row.update(this=this,caller=f'{read(sp):08X}')
+        if pc==0x43F180:row['mode']=read(sp+4)
+        if pc in (0x4852D0,0x486E70) and this in selected_cells:row['cell']=list(selected_cells[this])
+        if pc==0x43F8A6:
+            pointer=u.reg_read(UC_X86_REG_EAX)
+            row.update(cell=list(struct.unpack('<hh',u.mem_read(pointer+0x24,4))),
+                before_type=struct.unpack('<i',u.mem_read(pointer+0x48,4))[0],
+                before_data=u.mem_read(pointer+0x11F,1)[0])
+        if pc in (0x440580,0x7258D0):row['arguments']=list(struct.unpack('<2I',u.mem_read(sp+4,8)))
+        calls.append(row)
+    def memory(_u,_access,address,size,value,_data):
+        row=dict(pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',phase=f.phase,address=address,
+                 size=size,value=value,before=bytes(u.mem_read(address,size)).hex())
+        for pointer,xy in selected_cells.items():
+            if pointer+0x48<=address<pointer+0x4C or address==pointer+0x11F:
+                row.update(cell=list(xy),offset=address-pointer);writes.append(row);return
+        if (fresh+0xC8<=address<fresh+0xD4 or fresh+0xFC<=address<fresh+0x110
+                or f.source+0x180<=address<f.source+0x18C):
+            timer_writes.append(row)
+    hooks=[u.hook_add(UC_HOOK_CODE,code),u.hook_add(UC_HOOK_MEM_WRITE,memory)]
+    try:
+        f.phase='post_drain_put_original_geometry_startup'
+        geometry=initialize_discovery_geometry(lambda a,obj,args:bc.invoke(u,a,obj,*args),read,u)
+        f.building('GAPOWR',fresh,f.allocate(4),constructor_only=True)
+        constructor=copy.deepcopy(f.building_constructor)
+        after_constructor=state()
+        f.phase='post_drain_put_original_cell_coordinates'
+        # Actual Cell GetCoords486840, also used by original waypoint68BD00.
+        result=bc.invoke(u,0x486840,cell(10,10),position)
+        coordinates=dict(entry='00486840',receiver=cell(10,10),result=result,
+                         xyz=list(struct.unpack('<3i',u.mem_read(position,12))))
+        f.phase='post_drain_put_original_building_unlimbo'
+        result=bc.invoke(u,0x440580,fresh,position,0)
+        after_unlimbo=state()
+        assert result&255==1,after_unlimbo
+        assert any(r['kind']=='clear_smudge_type' for r in calls)
+        assert not after_unlimbo['stock']['smudge_cells']
+        assert all(u.mem_read(cell(x,y)+0x11F,1)[0]==data
+                   for x,y,data in ((10,10,0),(11,10,1),(10,11,2),(11,11,3)))
+        assert f.code_unchanged()
+    finally:
+        for hook in hooks:u.hook_del(hook)
+    owner = after_constructor['building']['owner']
+    house_type = read(owner+0x34)
+    return dict(input=dict(type_name='GAPOWR',coords=[10,10],facing=0,
+            owner=dict(pointer=owner,house_type_pointer=house_type,house_type_name=f.string(house_type+0x24)),
+            boundary='Existing supplied Runtime House; fresh original constructor receives this owner. XYZ comes from original Cell GetCoords, not a supplied height.'),
+        before=before,client_priors=client_priors,discovery_calls=discovery_calls,
+        geometry_startup=geometry,source_coordinates=coordinates,
+        constructor=constructor,after_constructor=after_constructor,
+        unlimbo=dict(entry='00440580',receiver=fresh,facing=0,result=result),
+        after_unlimbo=after_unlimbo,calls=calls,cell_writes=writes,timer_writes=timer_writes,
+        construction_events=copy.deepcopy([e for e in f.events[event_start:] if e['event'] in
+            ('grand_opening','slot_allocate','anim_ctor','anim_start','unlimbo','logic_add','layer_submit','mark')]),
+        rng_requests=copy.deepcopy(f.draws[request_start:]),raw_advances=copy.deepcopy(f.advances[advance_start:]),
+        persistent_data_after=[dict(cell=[x,y],data=u.mem_read(cell(x,y)+0x11F,1)[0])
+                               for x,y in ((10,10),(11,10),(10,11),(11,11))],
+        limits='Same declared already-loaded flat Runtime/House/map after actual drain. Fresh constructor and whole Unlimbo run unchanged, with original Cell coordinates and successful native AL1. No paid production/input or full native world bootstrap. Existing downstream presentation/platform transport boundaries remain.')
 
 
 def joined_generate(*, stock_smudges=False):
@@ -1459,7 +1664,7 @@ def joined_generate(*, stock_smudges=False):
             native_country_sides=direct.death_country_sides,
             death_layers=direct.death_layers, native_input_execution=direct.death_input_execution,
             native_code_sections=direct.code_identity),
-        routes=([joined_execute(m, projectile=True, seed=seed, building_ai=True)
+        routes=([joined_execute(m, projectile=True, seed=seed, building_ai=True, post_drain_put=seed == 1)
                  for seed in (2,1,31)] if stock_smudges else
                 [joined_execute(m, projectile=True, seed=2, building_ai=True),
                  joined_execute(direct, projectile=False),
@@ -1883,15 +2088,19 @@ def stock_joined_metadata():
         'The additional stock ClearTile0 prior executes real IsoTileType registry CRT4E76E0, ctor5447C0 and original TEMPERATMD TileSet0000 Morphable Boolean block546124..54614C plus its original54644C result store. The admitted flat interior cells carry TileIndex0, no overlay, slope0 and initial SmudgeIndex-1. Actual full theater/TMP/map loading is excluded; class/height, connectivity and all gameplay owners retain the shared joined fixture.',
         'Original SmudgeClass registry CRT4E69E0 and sentinel6B5210 execute. Actual selected Burn/Crater placers, CanPlace, full Smudge6B4A50, Mark6B4BE0, Place6B6080, UnInit5F65F0, repeated expiry7258D0, deferred scalar6B4FA0 and Object5F3B80 execute, with IDs/flags, generic/Smudge/Logic registries, ordered queue members, cell writes and full three RNG states recorded. Physical SmudgeTypes key/value pairs retain declaration order as an array. Every registry/queue object and expiry boundary retains signed Health and raw Location. No selected type, mark, lifecycle result or RNG draw is supplied.',
         'The transient Smudge consumes original Scenario uniqueID14, queues after dead Anim7/8, never joins Logic, retires before Building1/Bullet4 and leaves its persistent2x2 cells marked after drain. This is native executed state/lifecycle evidence, not native pixel/audio or full map-loader parity.',
+        'Only stock seed1 adds a post_drain_put continuation after preserving every old prefix field. The same Runtime executes shared original Discovery geometry initialization, fresh GAPOWR43B740, Cell GetCoords486840 and full440580 with successful AL1. Native43F8A6 clears type48 across the existing2x2 footprint while preserving raw data11F. Existing supplied House/map/registry bounds remain; no paid production/input or full native world load is claimed. Native newID23 is active GAPOWR_A in slot3 with actual ctor/Start events, not GAPOWRMK buildup. Sparse ART inputs exclude GAPOWRMK; later whole construction/animation AI is not certified. Measured client priors retain original GameMode1, PlayerPtr/current-owner and House1EC/1ED, plus known Cell12C18/counter0 inputs. Original early CellPUT47E9E2 discovery opens before Techno idle; no manual opening or expected flag write is supplied.',
     ])
-    base['scope'] = 'Three coherent stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR chains through footprint, E1 crew and full deferred drain'
+    base['scope'] = 'Stock SmudgeTypes/clear-Morphable ready-MTNK fatal GAPOWR through footprint, crew and drain, plus seed1 fresh successful normal PUT cleanup'
     base['assumptions'] = assumptions
     base['entry_points'].update(smudge_registry_startup='0x004E7260',
         smudge_list_process='0x00668DD2', smudge_type_ctor='0x006B5260',
         smudge_type_reader='0x006B56D0', smudge_runtime_ctor='0x006B4A50',
         smudge_mark='0x006B4BE0', smudge_place='0x006B6080',
         smudge_runtime_scalar='0x006B4FA0', tile_type_ctor='0x005447C0',
-        tile_morphable_reader='0x00546124', tile_morphable_store='0x0054644C')
+        tile_morphable_reader='0x00546124', tile_morphable_store='0x0054644C',
+        post_put_cell_coordinates='0x00486840', post_put_unlimbo='0x00440580',
+        post_put_clear_type='0x0043F8A6', post_put_redraw='0x004852D0',
+        post_put_dirty_ring='0x00486E70')
     return base
 
 
@@ -2075,8 +2284,1349 @@ def constructed_cancellation_main(argv):
         source_paths=joined_source_paths())
 
 
+def wall_autofill_execute(inputs, control):
+    """Whole588750 in the existing joined VM; all hooks below only observe.
+
+    Endpoints are original BuildingType::CreateOne -> Building::Unlimbo
+    results. The one custom-land control is a declared pre-entry input, read
+    by674000, never a post-scan answer or a hook mutation.
+    """
+    from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+    from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX,
+        UC_X86_REG_EIP, UC_X86_REG_ESP)
+    from tools.spatial_oracle import building_construction as bc, engineer_repair_admission as er
+    from tools.spatial_oracle.building_body_rules import INI
+    from tools.spatial_oracle.refinery_dock import cell
+    from tools.spatial_oracle.unit_source_scatter import SCENARIO
+    from tools.spatial_oracle.trigger_action_values import initialize_discovery_geometry
+
+    origin = (20, 14)
+    endpoints = {'no_gap': [(20, 13)], 'two_empty': [(20, 11)],
+        'middle_refusal': [(20, 10), (22, 14)]}[control]
+    f = joined_fixture(inputs, 750, seed=31, building_ai=True)
+    u, read = f.u, f.read32
+    owner, typ = er.HOUSE, f.types['GAWALL']
+    f.phase = 'setup_wall_autofill'
+    u.mem_write(0xA83D80, bytes(inputs.u.mem_read(0xA83D80, 24)))
+    joined_stock_flat_map(f, inputs)
+    # These are actual original-reader outputs, including native sentinels,
+    # copied with the same input-Reader -> joined-runtime transport as types.
+    # Never make a clear tile appear valid by bypassing native LAT/Recalc.
+    for address, value in inputs.wall_theater_inputs['roles'].items():
+        u.mem_write(int(address, 16), dwords(value))
+    assert read(0xAA10B0) == 0 and read(0xA8ED38) == 1
+    clear_head = read(read(0xA8ED2C))
+    assert read(clear_head + 0x294) == 0
+    assert read(read(clear_head) + 0x9C) == 0x544CB0
+    assert read(clear_head + 0xA4) == 0  # explicitly nonresident component prior
+    # Original Overlay registry and translation-unit startup. In particular
+    # EmptyCell must agree with the constructor's own sentinel; don't assign
+    # a special coordinate or rewrite a constructor branch to bypass Mark.
+    for entry in (0x4E68E0, 0x5FC310, 0x5FC320, 0x5FC340, 0x5FC360):
+        bc.invoke(u, entry, 0)
+    assert bytes(u.mem_read(0xAC1608, 4)) == bytes(u.mem_read(0xAC1528, 4))
+    before_geometry = f.rng()
+    geometry = initialize_discovery_geometry(
+        lambda entry, receiver, args: bc.invoke(u, entry, receiver, *args), read, u)
+    assert before_geometry == f.rng()
+    overlay = read(typ + 0xE54)
+    assert overlay == inputs.wall_overlay_types['GAWALL']
+    assert u.mem_read(overlay + 0x2A8, 1) == b'\1'
+    assert read(read(typ) + 0x8C) == 0x45E880
+    assert read(read(overlay) + 0x8C) == 0x5FE570
+
+    def signed(address):
+        return struct.unpack('<i', u.mem_read(address, 4))[0]
+
+    rng_states, rng_indexes = [], {}
+    def rng_index():
+        state = f.rng()
+        key = tuple(state.items())
+        if key not in rng_indexes:
+            rng_indexes[key] = len(rng_states)
+            rng_states.append(state)
+        return rng_indexes[key]
+
+    def members(base):
+        pointer, count = read(base + 4), read(base + 16)
+        assert count <= 4096, (hex(base), count)
+        return [] if not count else [dict(pointer=read(pointer + i * 4),
+            id=read(read(pointer + i * 4) + 0x10)) for i in range(count)]
+
+    objects, calls, active, boundaries, dirty_writes = {}, [], [], [], []
+    phase = 'setup_endpoints'
+    draw_start, advance_start = len(f.draws), len(f.advances)
+    # Full RNG states are interned, not dropped or reconstructed. Native draw
+    # requests retain their own complete before/after buffers via the owner.
+    registries = dict(building=0xA8EB40, overlay=0xA8EC50,
+        generic_object=0xB0F720, abstract=0xB0F670, logic=0x87F778,
+        pending=0xB0F698, house_live=owner + 0x68)
+
+    def object_state(pointer):
+        kind = objects[pointer]
+        return dict(pointer=pointer, kind=kind, id=read(pointer + 0x10),
+            vtable=read(pointer), abstract_flags=read(pointer + 0x14),
+            location=list(struct.unpack('<3i', u.mem_read(pointer + 0x9C, 12))),
+            health=signed(pointer + 0x6C), alive=u.mem_read(pointer + 0x90, 1)[0],
+            limbo=u.mem_read(pointer + 0x81, 1)[0], marked=u.mem_read(pointer + 0x74, 1)[0],
+            logic=u.mem_read(pointer + 0x98, 1)[0],
+            **(dict(type=read(pointer + 0x520), owner=read(pointer + 0x21C),
+                sampled_health=signed(pointer + 0x544),
+                constructor_ax=struct.unpack('<H', u.mem_read(pointer + 0x3C8, 2))[0],
+                raw_words_c0_cc=list(struct.unpack('<3i', u.mem_read(pointer + 0xC0, 12))),
+                passive_scan_timer=list(struct.unpack('<3i', u.mem_read(pointer + 0x180, 12))),
+                radio_capacity=read(pointer + 0xE8),
+                radio_contacts=list(struct.unpack('<' + 'I' * read(pointer + 0xE8),
+                    u.mem_read(read(pointer + 0xE4), read(pointer + 0xE8) * 4)))
+                    if read(pointer + 0xE8) else []) if kind == 'building'
+              else dict(type=read(pointer + 0xAC))))
+
+    def cell_state(x, y):
+        p = cell(x, y)
+        return dict(coord=[x, y], tile=signed(p + 0x38), land=signed(p + 0xEC),
+            level=u.mem_read(p + 0x11B, 1)[0], slope=u.mem_read(p + 0x11C, 1)[0],
+            overlay=signed(p + 0x44), data=u.mem_read(p + 0x11E, 1)[0], owner=signed(p + 0x50),
+            ground_head=read(p + 0xE4), ground_raw=read(p + 0x124), deck_raw=read(p + 0x128),
+            retained_neighbor=u.mem_read(p + 0x122, 1)[0], flags=read(p + 0x12C),
+            ground_frame=struct.unpack('<b', u.mem_read(p + 0x120, 1))[0])
+
+    def state():
+        return dict(rng_state=rng_index(), frame=read(bc.FRAME),
+            unique_id_cursor=read(SCENARIO + 0x214),
+            scenario_init_priority=read(0xA8E7AC),
+            wall_owner_globals={f'0x{address:08X}': read(address)
+                for address in (0x8333BC, 0x880994)},
+            house=dict(pointer=owner, index=read(owner + 0x30),
+                human=u.mem_read(owner + 0x1EC, 1)[0],
+                dirty=list(u.mem_read(owner + 0x5778, 2)),
+                building_count=signed(owner + 0x2F0), credits=signed(owner + 0x30C),
+                tracked=counts(owner + 0x5500), owned=counts(owner + 0x5550)),
+            registries={name: members(base) for name, base in registries.items()},
+            objects=[object_state(pointer) for pointer in objects],
+            cells=[cell_state(x, y) for y in range(9, 17) for x in range(18, 24)])
+
+    # Scalar count vectors store integers, not pointers. Do not dereference
+    # them through the pointer-vector observer used by registries/radio.
+    def counts(base):
+        count = read(base + 16)
+        assert count <= 4096
+        return [] if not count else list(struct.unpack('<' + 'i' * count,
+            u.mem_read(read(base + 4), count * 4)))
+
+    def snapshot():
+        # Keep the same state shape at all boundaries without serializing a
+        # full 32x32 object image, instruction trace or repeated RNG buffers.
+        return state()
+
+    entries = {0x588750: 'autofill', 0x45E880: 'building_create',
+        0x43B740: 'building_constructor', 0x440580: 'building_unlimbo',
+        0x5FE570: 'overlay_create', 0x5FC380: 'overlay_constructor',
+        0x5FD270: 'overlay_unlimbo', 0x5FC570: 'overlay_mark',
+        0x47D2B0: 'cell_recalc', 0x47CA80: 'cell_lat_recalc',
+        0x5471B0: 'tile_slope', 0x544CB0: 'tile_image_getter',
+        0x47C620: 'cell_clearance', 0x5678E0: 'map_reveal_area',
+        0x65ACB0: 'radio_first_contact', 0x65A970: 'radio_transmit',
+        0x5F65F0: 'object_uninit', 0x7258D0: 'pointer_expiry',
+        0x725C70: 'deferred_drain', 0x459F20: 'building_scalar',
+        0x43BCF0: 'building_destructor', 0x5FDF70: 'overlay_scalar',
+        0x4FF700: 'house_add_tracking', 0x4FF550: 'house_remove_tracking',
+        0x4FFA50: 'house_add_owned', 0x4FF980: 'house_remove_owned',
+        0x502A80: 'house_add_live', 0x5025F0: 'house_remove_live'}
+    executed, measured, recalc_dispatches = set(), set(), []
+
+    def diagnostic():
+        from unicorn.x86_const import (UC_X86_REG_EBX, UC_X86_REG_EDX,
+            UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EBP)
+        def safe(address, size=4):
+            try:
+                return bytes(u.mem_read(address & 0xFFFFFFFF, size)).hex()
+            except Exception as exc:
+                return dict(unreadable=f'0x{address & 0xFFFFFFFF:08X}', error=str(exc))
+        regs = {name: u.reg_read(register) for name, register in (
+            ('eax', UC_X86_REG_EAX), ('ebx', UC_X86_REG_EBX), ('ecx', UC_X86_REG_ECX),
+            ('edx', UC_X86_REG_EDX), ('esi', UC_X86_REG_ESI), ('edi', UC_X86_REG_EDI),
+            ('ebp', UC_X86_REG_EBP), ('esp', UC_X86_REG_ESP), ('eip', UC_X86_REG_EIP))}
+        table, count = read(0xA8ED2C), read(0xA8ED38)
+        return dict(phase=phase, registers=regs,
+            cell_at_esi_24=safe(regs['esi'] + 0x24), cell_at_esi_38=safe(regs['esi'] + 0x38),
+            tile_registry=dict(table=table, count=count, header=safe(0xA8ED28, 24),
+                eax_slot=safe(table + regs['eax'] * 4),
+                clear_slot=safe(table + read(0xAA10B0) * 4)),
+            edi_head=safe(regs['edi'], 16), edx_vtable_9c=safe(regs['edx'] + 0x9C),
+            roles={address: read(int(address, 16))
+                for address in inputs.wall_theater_inputs['roles']},
+            recent_recalc_dispatches=recalc_dispatches[-8:])
+    def complete_returns(pc):
+        sp = u.reg_read(UC_X86_REG_ESP)
+        for pending in active[:]:
+            if pending['return_pc'] == pc and sp > pending['sp']:
+                row = pending['row']
+                row['result'] = u.reg_read(UC_X86_REG_EAX)
+                if row['kind'] in ('building_constructor', 'building_unlimbo',
+                        'overlay_constructor', 'overlay_unlimbo', 'object_uninit',
+                        'deferred_drain'):
+                    row['after'] = snapshot()
+                if row['kind'] in ('building_constructor', 'overlay_constructor'):
+                    row['constructed_body_hex'] = bytes(u.mem_read(row['this'],
+                        0x720 if row['kind'] == 'building_constructor' else 0xB0)).hex()
+                active.remove(pending)
+
+    def observe(_u, pc, size, _data):
+        executed.add(pc)
+        if pc in (0x5471B8, 0x5471DC):
+            for pending in reversed(active):
+                if pending['row']['kind'] == 'tile_slope':
+                    if pc == 0x5471B8:
+                        pending['row']['native_image_result'] = u.reg_read(UC_X86_REG_EAX)
+                    else:
+                        pending['row']['zero_branch_pc'] = '0x005471DC'
+                    break
+        if pc == 0x47D1E7:
+            # Observe the actual dispatch before it executes. No change to
+            # EAX/tile, head/vtable, callback address or return is allowed.
+            row = diagnostic()
+            row.pop('recent_recalc_dispatches')
+            recalc_dispatches.append(row)
+        if phase == 'whole_autofill_588750':
+            measured.add(pc)
+        complete_returns(pc)
+        sp, receiver = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        if pc in (0x43B740, 0x5FC380):
+            objects[receiver] = 'building' if pc == 0x43B740 else 'overlay'
+        if pc not in entries:
+            return
+        row = dict(pc=f'0x{pc:08X}', kind=entries[pc], phase=phase,
+            this=receiver, return_pc=f'0x{read(sp):08X}')
+        if pc == 0x440580:
+            row.update(coord=list(struct.unpack('<3i', u.mem_read(read(sp + 4), 12))),
+                facing=read(sp + 8))
+        elif pc == 0x5678E0:
+            row.update(coord=list(struct.unpack('<3i', u.mem_read(read(sp + 4), 12))),
+                args=[read(sp + 4 + i * 4) for i in range(8)])
+        elif pc == 0x47C620:
+            row.update(coord=list(struct.unpack('<hh', u.mem_read(receiver + 0x24, 4))),
+                args=[read(sp + 4 + i * 4) for i in range(3)])
+        elif pc == 0x5471B0:
+            row.update(subtile=read(sp + 4), head_vtable=read(receiver),
+                resident_image=read(receiver + 0xA4))
+        elif pc in (0x47D2B0, 0x47CA80):
+            row.update(coord=list(struct.unpack('<hh', u.mem_read(receiver + 0x24, 4))),
+                tile_before=signed(receiver + 0x38))
+        elif pc in (0x65ACB0, 0x65A970, 0x7258D0):
+            row['args'] = [read(sp + 4 + i * 4) for i in range(3 if pc == 0x65A970 else 2 if pc == 0x7258D0 else 1)]
+        calls.append(row)
+        active.append(dict(return_pc=read(sp), sp=sp, row=row))
+
+    def watch_dirty(_u, _access, address, size, value, _data):
+        pc = u.reg_read(UC_X86_REG_EIP)
+        # Keep original constructor field writes, including timer starts and
+        # the AX store, as compact raw observations. No guessed timer layout
+        # is required to recover a field which the Rust consumer needs.
+        for pending in reversed(active):
+            row = pending['row']
+            if row['kind'] in ('building_constructor', 'overlay_constructor'):
+                length = 0x720 if row['kind'] == 'building_constructor' else 0xB0
+                if row['this'] <= address and address + size <= row['this'] + length:
+                    row.setdefault('field_writes', []).append(
+                        [pc, address - row['this'], size, value])
+                    break
+        if address < owner + 0x577A and owner + 0x5778 < address + size:
+            dirty_writes.append(dict(phase=phase, pc=f'0x{pc:08X}',
+                address=address, size=size, value=value,
+                before=list(u.mem_read(owner + 0x5778, 2))))
+
+    hooks = [u.hook_add(UC_HOOK_CODE, observe), u.hook_add(UC_HOOK_MEM_WRITE, watch_dirty)]
+    def invoke(label, entry, receiver, *args):
+        nonlocal phase
+        phase = label
+        f.phase = label
+        before = snapshot()
+        mark = len(f.draws)
+        try:
+            result = bc.invoke(u, entry, receiver, *args)
+        except Exception as exc:
+            import json
+            print('WALL_AUTOFILL_NATIVE_FAULT ' + json.dumps(diagnostic(), sort_keys=True), flush=True)
+            raise RuntimeError(f'{label}: original native entry0x{entry:08X} failed') from exc
+        # A top-level return stops before RET_MAGIC's code hook. Resolve only
+        # that real completed call using the actual returned ESP/EAX.
+        complete_returns(native_ret)
+        boundaries.append(dict(label=label, entry=f'0x{entry:08X}', this=receiver,
+            args=list(args), result=result, before=before, after=snapshot(),
+            rng_request_range=[mark - draw_start, len(f.draws) - draw_start]))
+        return result
+
+    from tools.native_oracle import RET_MAGIC as native_ret
+    prior_land = None
+    try:
+        # Reuse full native wall entry for imported endpoint/origin material.
+        # They are separate Building products, not factory-paid objects.
+        for index, xy in enumerate((*endpoints, origin)):
+            p = invoke(f'setup_wall_{index}_create', 0x45E880, typ, owner)
+            coord = f.allocate(12)
+            u.mem_write(coord, dwords(xy[0] * 256 + 128, xy[1] * 256 + 128, 0))
+            assert invoke(f'setup_wall_{index}_unlimbo', 0x440580, p, coord, 0) & 255 == 1
+            if index + 1 == len(endpoints):
+                invoke('setup_endpoint_deferred_drain', 0x725C70, 0)
+                assert read(0xB0F6A8) == 0
+        # HousePlace calls588750 after origin Unlimbo and before its drain.
+        # Keep that origin's actual transient queue entries alive here.
+        assert read(0xB0F6A8) > 0
+        assert all(signed(cell(*xy) + 0x44) == signed(overlay + 0x294)
+            and read(cell(*xy) + 0x50) == read(owner + 0x30) for xy in (*endpoints, origin))
+        if control == 'middle_refusal':
+            # Supported custom land input: GAWALL's native SpeedType=-1
+            # reads Buildable while Overlay Mark uses Track1. Keep every
+            # other cell's physical land table row unchanged.
+            assert signed(typ + 0x67C) == -1
+            land_names = [inputs.string(inputs.read32(0x839D68 + i * 4)) for i in range(12)]
+            land_index = land_names.index('Rough')
+            inputs.make_ini({'Rough': {'Buildable': 'yes', 'Track': '0%'}})
+            inputs.invoke(0x674000, 0, (INI,))
+            table = 0x89EA40 + land_index * 36
+            old = bytes(u.mem_read(table, 36))
+            raw = bytes(inputs.u.mem_read(table, 36))
+            u.mem_write(table, raw)
+            u.mem_write(cell(20, 12) + 0xEC, dwords(land_index))
+            prior_land = dict(coord=[20, 12], land=land_index,
+                source='Declared custom INI/map prior before whole588750; not stock-map admission',
+                ini={'Rough': {'Buildable': 'yes', 'Track': '0%'}},
+                reader='0x00674000', physical_row_before=old.hex(), supplied_native_row=raw.hex())
+        coord = f.allocate(4)
+        u.mem_write(coord, struct.pack('<hh', *origin))
+        measurement_call_start = len(calls)
+        measurement_draw_start = len(f.draws) - draw_start
+        invoke('whole_autofill_588750', 0x588750, 0x87F7E8, coord, owner, typ)
+        invoke('autofill_deferred_drain', 0x725C70, 0)
+        assert not active, active
+        assert f.code_unchanged()
+        assert 0x588750 in measured
+        if control != 'no_gap':
+            assert {0x43B740, 0x440580, 0x5FC380, 0x5FD270, 0x5678E0} <= measured
+        # These assert the intended branch was actually admitted, not a
+        # manually supplied expected body/RNG/identity result.
+        attempts = [r for r in calls[measurement_call_start:] if r['kind'] == 'building_unlimbo']
+        if control == 'no_gap':
+            assert not attempts
+        elif control == 'two_empty':
+            assert len(attempts) == 2 and all(r['result'] & 255 for r in attempts)
+        else:
+            results = [bool(r['result'] & 255) for r in attempts]
+            assert results == [True, False, True, True], results
+        return dict(input=dict(control=control, seed=31, origin=list(origin),
+            endpoints=[list(xy) for xy in endpoints], owner=owner,
+            type='GAWALL', custom_middle_land=prior_land,
+            map=f.flat_map, geometry_startup=geometry,
+            theater_roles=inputs.wall_theater_inputs,
+            selected_tile=dict(clear_base=read(0xAA10B0), registry_count=read(0xA8ED38),
+                head=read(read(0xA8ED2C)),
+                vtable=read(read(read(0xA8ED2C))),
+                resident_image=read(read(read(0xA8ED2C)) + 0xA4),
+                boundary='Declared original ClearTile0 head; no resident TMP supplied. Original image/slope getters execute and their null-image branch is observed if entered.'),
+            current_viewer=read(0xA83D4C), game_mode=read(0xA8B238),
+            active_game=u.mem_read(0xA8E9A0, 1)[0], scenario_init_priority=read(0xA8E7AC),
+            wall_owner_globals={f'0x{address:08X}': read(address)
+                for address in (0x8333BC, 0x880994)},
+            scenario_flags=read(SCENARIO),
+            reveal_by_height=u.mem_read(f.rules + 0x17EE, 1)[0],
+            boundary='Declared joined32x32 flat clear map and House/target/MTNK priors; full native endpoint wall entry/drain, origin wall entry remains pending, then whole588750 and drain. No Factory payment, HousePlace caller or physical Hills bootstrap.'),
+            rng_states=rng_states, boundaries=boundaries, ordered_calls=calls,
+            measurement_call_start=measurement_call_start,
+            measurement_rng_request_start=measurement_draw_start,
+            rng_requests=f.draws[draw_start:], ranged_raw_advances=f.advances[advance_start:],
+            house_dirty_writes=dirty_writes, final=snapshot(),
+            recalc_tile_dispatches=recalc_dispatches,
+            measured_body_entries=[f'0x{pc:08X}' for pc in entries if pc in measured],
+            original_executable_sections_unchanged=True)
+    finally:
+        for hook in hooks:
+            u.hook_del(hook)
+
+
+def wall_autofill_project(raw):
+    """Pure selection/interning of original observations; no engine answers.
+
+    Pointer identities become typed references, unknown values remain raw.
+    Patch membership is the observed changed-cell union at retained states,
+    plus declared origin/endpoints. Full buffers and patch rows are interned.
+    """
+    import json
+    streams, stream_index, patch_values, patch_index = [], {}, [], {}
+    object_states, object_indexes = [], {}
+    call_kinds, call_kind_indexes, phases, phase_indexes = [], {}, [], {}
+    patch_fields = ('tile', 'land', 'level', 'slope', 'overlay', 'data', 'owner',
+        'retained_neighbor', 'flags', 'ground_frame', 'ground_raw', 'deck_raw', 'ground_head')
+    def intern(value, values, indexes):
+        key = tuple(value) if isinstance(value, list) else value
+        if key not in indexes:
+            indexes[key] = len(values)
+            values.append(value)
+        return indexes[key]
+    controls = []
+    for control in raw['controls']:
+        incoming = control['input']
+        bounds = control['boundaries']
+        origin_label = 'setup_wall_' + str(len(incoming['endpoints'])) + '_unlimbo'
+        origin = next(b for b in bounds if b['label'] == origin_label)
+        selected = {'origin_unlimbo': origin,
+            'autofill': next(b for b in bounds if b['label'] == 'whole_autofill_588750'),
+            'drain': next(b for b in bounds if b['label'] == 'autofill_deferred_drain')}
+        constructors = [c for c in control['ordered_calls']
+            if c['kind'] in ('building_constructor', 'overlay_constructor')]
+        refs, ids, counters = {}, {}, {'building_constructor': 0, 'overlay_constructor': 0}
+        for call in constructors:
+            kind = call['kind']
+            ref = ('B' if kind == 'building_constructor' else 'O') + str(counters[kind])
+            counters[kind] += 1
+            refs[call['this']] = ref
+            obj = next(o for o in call['after']['objects'] if o['pointer'] == call['this'])
+            ids[ref] = obj['id']
+        known = dict(refs)
+        known.update({incoming['owner']: 'House:owner', 0x87F7E8: 'Map',
+            raw['type']['pointer']: 'BuildingType:GAWALL',
+            raw['type']['to_overlay']: 'OverlayType:GAWALL'})
+        def reference(value):
+            return known.get(value, value)
+        def obj_state(obj):
+            keep = ('kind', 'id', 'abstract_flags', 'location', 'health', 'alive',
+                'limbo', 'marked', 'logic', 'sampled_health', 'constructor_ax',
+                'raw_words_c0_cc', 'passive_scan_timer', 'radio_capacity')
+            result = {k: obj[k] for k in keep if k in obj}
+            result['ref'] = refs[obj['pointer']]
+            result['type'] = reference(obj['type'])
+            if 'owner' in obj:
+                result['owner'] = reference(obj['owner'])
+                result['radio_contacts'] = [reference(p) for p in obj['radio_contacts']]
+            key = json.dumps(result, sort_keys=True, separators=(',', ':'))
+            if key not in object_indexes:
+                object_indexes[key] = len(object_states)
+                object_states.append(result)
+            return object_indexes[key]
+        stages = [s for transition in selected.values() for s in
+            (transition['before'], transition['after'])]
+        baseline = {tuple(c['coord']): c for c in stages[0]['cells']}
+        coords = {tuple(incoming['origin']), *(tuple(c) for c in incoming['endpoints'])}
+        for stage in stages:
+            for cell_row in stage['cells']:
+                if cell_row != baseline[tuple(cell_row['coord'])]:
+                    coords.add(tuple(cell_row['coord']))
+        coords = sorted(coords, key=lambda c: (c[1], c[0]))
+        def state(stage):
+            rng = control['rng_states'][stage['rng_state']]
+            cells = {tuple(c['coord']): c for c in stage['cells']}
+            result = dict(cursor=stage['unique_id_cursor'], frame=stage['frame'],
+                rng={name: intern(rng[name], streams, stream_index)
+                    for name in ('main', 'scenario', 'mapgen')},
+                objects=[obj_state(o) for o in stage['objects']],
+                registries={name: [refs.get(p['pointer'], 'prior:' + str(p['id']))
+                    for p in members] for name, members in stage['registries'].items()
+                    if name != 'abstract'},
+                house={k: v for k, v in stage['house'].items() if k != 'pointer'},
+                patch=[intern([reference(cells[xy][field]) if field == 'ground_head'
+                    else cells[xy][field] for field in patch_fields], patch_values,
+                    patch_index) for xy in coords])
+            for key in ('scenario_init_priority', 'wall_owner_globals'):
+                if key in stage:
+                    result[key] = stage[key]
+            return result
+        retained = []
+        omit = {'cell_clearance', 'cell_recalc', 'cell_lat_recalc', 'tile_slope', 'tile_image_getter'}
+        for call in control['ordered_calls']:
+            if call['kind'] in omit or call['phase'] not in (
+                    origin_label, 'whole_autofill_588750', 'autofill_deferred_drain'):
+                continue
+            kind = (call['kind'], call['pc'])
+            if kind not in call_kind_indexes:
+                call_kind_indexes[kind] = len(call_kinds)
+                call_kinds.append(dict(kind=call['kind'], pc=call['pc']))
+            item = [call_kind_indexes[kind], intern(call['phase'], phases, phase_indexes),
+                reference(call['this']), call['return_pc'], call['result']]
+            extra = {}
+            if 'coord' in call:
+                extra['coord'] = call['coord']
+            if 'args' in call:
+                extra['args'] = [reference(a) for a in call['args']]
+                if call['kind'] == 'map_reveal_area':
+                    extra['args'][0] = {'coord': call['coord']}
+            if 'facing' in call:
+                extra['facing'] = call['facing']
+            if call.get('result') in refs:
+                extra['result_ref'] = refs[call['result']]
+            if extra:
+                item.append(extra)
+            retained.append(item)
+        ctor_rows, unlimbo_rows = [], []
+        for call in control['ordered_calls']:
+            if call['kind'] in ('building_constructor', 'overlay_constructor',
+                    'building_unlimbo', 'overlay_unlimbo'):
+                obj = next(o for o in call['after']['objects'] if o['pointer'] == call['this'])
+                row = dict(ref=refs[call['this']], phase=call['phase'],
+                    result=call['result'], state=obj_state(obj))
+                if 'coord' in call:
+                    row['coord'] = call['coord']
+                if call['kind'] == 'building_constructor':
+                    body = bytes.fromhex(call['constructed_body_hex'])
+                    row['mission_timer_raw_c8'] = list(struct.unpack_from('<3i', body, 0xC8))
+                (ctor_rows if call['kind'].endswith('constructor') else unlimbo_rows).append(row)
+        projected_input = {k: v for k, v in incoming.items()
+            if k not in ('owner', 'current_viewer', 'theater_roles')}
+        projected_input.update(owner=reference(incoming['owner']),
+            current_viewer=reference(incoming['current_viewer']))
+        requests = [{k: r[k] for k in ('entry', 'site', 'this', 'frame', 'args', 'result')}
+            for r in control['rng_requests']]
+        controls.append(dict(input=projected_input, native_ids=ids,
+            origin_ref=refs[origin['this']], patch_coordinates=[list(xy) for xy in coords],
+            transitions={name: dict(before=state(b['before']), after=state(b['after']),
+                result=b['result']) for name, b in selected.items()},
+            constructors=ctor_rows, unlimbo=unlimbo_rows,
+            semantic_calls=retained, rng_requests=requests,
+            origin_unlimbo_rng_request_range=origin['rng_request_range'],
+            autofill_rng_request_range=selected['autofill']['rng_request_range'],
+            house_dirty_writes=[dict(phase=w['phase'], pc=w['pc'],
+                offset=w['address'] - incoming['owner'], size=w['size'],
+                value=w['value'], before=w['before']) for w in control['house_dirty_writes']],
+            original_executable_sections_unchanged=control['original_executable_sections_unchanged'],
+            observation_gaps=[] if 'wall_owner_globals' in incoming else ['wall_owner_globals']))
+    return dict(schema_version=2, native_sha256=raw['native_sha256'], source=raw['source'],
+        retail_files=raw['retail_files'], type=raw['type'], physical_art=raw['physical_art'],
+        native_theater_inputs=raw['native_theater_inputs'],
+        native_wall_image_assets=raw['native_wall_image_assets'],
+        native_overlay_layers=raw['native_overlay_layers'],
+        overlay_registry_names=raw['overlay_registry_names'],
+        input_layers=[{k: layer[k] for k in ('file', 'sha256', 'absent') if k in layer}
+            | (dict(physical_GAWALL=layer['physical_input_sections'].get('GAWALL'),
+                admitted_GAWALL=layer['admitted']['buildings']['GAWALL'])
+                if 'physical_input_sections' in layer else {}) for layer in raw['input_layers']],
+        rng_streams=streams, object_states=object_states,
+        semantic_call_kinds=call_kinds, phases=phases,
+        semantic_call_fields=['kind_index', 'phase_index', 'this', 'return_pc', 'result', 'optional_fields'],
+        patch_fields=list(patch_fields), patch_values=patch_values,
+        controls=controls)
+
+
+def wall_autofill_generate(*, detail=False):
+    import hashlib, os
+    from tools.native_oracle import NATIVE_SHA256
+    root = Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS'])
+    inputs = joined_inputs(root, wall_autofill=True)
+    p, u = inputs.types['GAWALL'], inputs.u
+    signed = lambda offset: struct.unpack('<i', u.mem_read(p + offset, 4))[0]
+    overlay = inputs.read32(p + 0xE54)
+    raw = dict(schema_version=1, source='unicorn/gamemd.exe', native_sha256=NATIVE_SHA256,
+        retail_files=[dict(name=path.name, bytes=path.stat().st_size,
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            for path in sorted(root.iterdir()) if path.is_file() and path.suffix.lower() != '.json'],
+        input_layers=inputs.death_layers, native_overlay_layers=inputs.wall_overlay_reads,
+        overlay_registry_names=inputs.wall_overlay_names,
+        physical_art=inputs.death_art_input_sections.get('GAWALL'),
+        native_theater_inputs=inputs.wall_theater_inputs,
+        native_wall_image_assets=inputs.wall_image_assets,
+        type=dict(name='GAWALL', pointer=p, strength=signed(0xA0),
+            to_overlay=overlay, overlay_index=inputs.read32(overlay + 0x294),
+            guard_range=signed(0x5B8), sight=signed(0x5E8), speed=signed(0x67C),
+            insignificant=u.mem_read(p + 0x232, 1)[0],
+            reveal_by_height=u.mem_read(inputs.rules + 0x17EE, 1)[0]),
+        controls=[wall_autofill_execute(inputs, control) for control in
+            ('no_gap', 'two_empty', 'middle_refusal')])
+    return raw if detail else wall_autofill_project(raw)
+
+
+def wall_autofill_metadata():
+    return provenance(scope='Whole original588750 GAWALL autofill: native temporary Building/Overlay construction, ignored failure and deferred cleanup in existing joined component world',
+        entry_points=dict(autofill=0x588750, building_create=0x45E880,
+            building_ctor=0x43B740, constructor_rng=0x6F3254, building_unlimbo=0x440580,
+            overlay_create=0x5FE570, overlay_ctor=0x5FC380, overlay_unlimbo=0x5FD270,
+            cell_clearance=0x47C620, land_reader=0x674000, sight=0x5678E0,
+            radio=0x65ACB0, uninit=0x5F65F0, expiry=0x7258D0, drain=0x725C70),
+        assumptions=[
+            'Existing physical layered Building/Overlay/Rules readers, joined House and flat clear map, native graph/pathfinder and target/MTNK setup are reused. This is not a paid Factory/HousePlace or full Hills execution.',
+            'Original BuildingType45E880 and Building440580 create endpoint marks and drain them. A fresh origin wall enters Unlimbo and remains pending before whole588750, matching its immediate HousePlace seam; the final drain includes origin and successful fillers. No body result, ID, RNG draw, pending item, sight answer or Unlimbo result is supplied.',
+            'The middle refusal is an explicit pre-entry custom Rough Buildable=yes/Track=0% original674000 output and one supplied Cell land value. It is a native branch control, not a stock map occurrence; original588750 must continue the later attempts.',
+            'All three full RNG streams are interned and referenced at boundaries, with original draw requests/raw advances retained. Final freed-arena readbacks are historical bytes, not live entities. Failure survivors remain constructor-complete in limbo; no eventual shutdown claim.',
+            'Default schema2 is a pure observed-data selection/interning/typed-identity projection; original producer/control execution is unchanged. Optional --autofill-detail retains the full trace only in external scratch. No expected Rust state, RNG continuation or callback answer is calculated.'
+        ], substitutions=[
+            'Only existing joined reader cache, physical-file/allocator/CRT/COM/audio and documented presentation transports. No new VM, instruction patch, native gameplay result substitution, fake iterator or constructor RNG stub.'
+        ])
+
+
+def wall_autofill_main(argv):
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--autofill-output-dir', type=Path, required=True)
+    parser.add_argument('--autofill-detail', action='store_true')
+    args, remaining = parser.parse_known_args(argv)
+    repository = Path(__file__).resolve().parents[2]
+    output = args.autofill_output_dir.expanduser().resolve()
+    if output.is_relative_to(repository) or any(
+            arg == '--output' or arg.startswith('--output=') for arg in remaining):
+        raise SystemExit('Wall autofill generation requires an external scratch --autofill-output-dir; --output is not accepted')
+    sources = joined_source_paths()
+    sources['tools/spatial_oracle/trigger_action_values.py'] = repository / 'tools/spatial_oracle/trigger_action_values.py'
+    for name in ('tools/spatial_oracle/tmp_clear_render.py',
+                 'tools/rules_oracle/theater_general_reader.py',
+                 'tools/spatial_oracle/terrain_recalc.py'):
+        sources[name] = repository / name
+    name = 'building_death_anims_wall_autofill' + ('_detail' if args.autofill_detail else '')
+    finish_vectors(lambda: wall_autofill_generate(detail=args.autofill_detail), output / (name + '.json'),
+        provenance=wall_autofill_metadata, argv=remaining, source_paths=sources)
+
+
+def typed_debris_generate():
+    """Actual admitted MTNK fatal receiver and adjacent death-Anim allocation."""
+    import os, hashlib
+    from collections import deque
+    from types import SimpleNamespace
+    from tools import native_oracle as native
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.spatial_oracle.building_body_rules import SP, INI, dwords
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.projectile_oracle.ifv_isolated_tail import impact
+    from tools.spatial_oracle.anim_bouncer_launch import body_fields, constructor_state
+    from tools.procedural_drawing_oracle.electric_bolt import RngTrace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP, UC_X86_REG_ECX, UC_X86_REG_ESI
+    root = Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS'])
+    m = joined_inputs(root, typed_debris=True); u = m.u
+    proxy = SimpleNamespace(m=m, trace=deque(maxlen=40), events=[], pending={}, frame=0, phase='setup')
+    def platform(_u, pc, size, data):
+        if pc in JOINED_TRANSPORT - {0x527AF9, 0x527B0C}:
+            Mission.observe(proxy, _u, pc, size, data)
+        elif pc == 0x7C978A:
+            m.ret(0)
+    hook = u.hook_add(UC_HOOK_CODE, platform)
+    m.invoke(0x4E7660, 0); art = bytes(u.mem_read(INI, 0x40))
+    patch = {'DebrisTypes':'TIRE', 'DebrisMaximums':'4', 'MinDebris':'1', 'MaxDebris':'3'}
+    m.make_ini({'MTNK':patch}); rules=m.alloc(0x40)
+    u.mem_write(rules, bytes(u.mem_read(INI, 0x40)));u.mem_write(INI, art)
+    m.invoke(0x747620, m.types['MTNK'], (rules,))
+    tire=m.read32(m.read32(m.types['MTNK']+0x318))
+    sections,_=lexical((root/'RULESMD.INI').read_bytes(), {'TIRE'})
+    m.make_ini(sections);rules=m.alloc(0x40)
+    u.mem_write(rules, bytes(u.mem_read(INI, 0x40)));u.mem_write(INI, art)
+    u.mem_write(SP,dwords(native.RET_MAGIC,rules));u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_ECX,tire)
+    native.run_checked(u,0x74B050,0x74B56C);u.mem_write(INI,art);u.hook_del(hook)
+    f=joined_fixture(m,38,seed=1,unit_startup=True);u=f.u;read=f.read32
+    bc.invoke(u,0x40EE40,0)
+    scenario=read(0xA8B230)
+    # Attach the existing trace observer without reseeding the admitted world.
+    rng=RngTrace.__new__(RngTrace);rng.u=u
+    rng.streams={'main':0x886B88,'scenario':scenario+0x218,'mapgen':0xABE890}
+    rng.requests=[];rng.pending=[];u.hook_add(UC_HOOK_CODE,rng.observe)
+    before=rng.states();cursor=read(scenario+0x214)
+    def xyz(p):return list(struct.unpack('<3i',u.mem_read(p,12)))
+    def member(p,base):return p in [read(read(base+4)+4*i) for i in range(read(base+16))]
+    owner=read(f.source+0x21C)
+    old_rng=f.rng();owner_human=bool(bc.invoke(u,0x50B6F0,owner)&255)
+    assert old_rng==f.rng()
+    def sound_name(index):
+        if index < 0:return None
+        assert index < read(0xB1D388)
+        return f.string(read(read(read(0xB1D37C)+index*4))+0x6C)
+    sound_vectors={}
+    for key,offset in [('voice_die',0x4BC),('die_sound',0x510)]:
+        t=f.types['MTNK'];indices=[read(read(t+offset+4)+i*4) for i in range(read(t+offset+16))]
+        sound_vectors[key]=dict(count=len(indices),entries=[dict(index=i,name=sound_name(i)) for i in indices])
+    prior=dict(type='MTNK',native_id=read(f.source+0x10),health=read(f.source+0x6C),location=xyz(f.source+0x9C),
+        owner_native_id=read(owner+0x10),owner_human=owner_human,house_human_flags=list(u.mem_read(owner+0x1EC,2)),
+        session_mode=read(0xA8B238),sound_vectors=sound_vectors,logic_registered=member(f.source,0x87F778),
+        alive=u.mem_read(f.source+0x90,1)[0],limbo=u.mem_read(f.source+0x81,1)[0],marked=u.mem_read(f.source+0x74,1)[0])
+    events=[];pending=[];voxels=[];anims=[]
+    def event(kind,**kw):events.append(dict(event=kind,rng_request_count=len(rng.requests),native_cursor=read(scenario+0x214),**kw))
+    def observe(_u,pc,size,data):
+        sp=u.reg_read(UC_X86_REG_ESP);this=u.reg_read(UC_X86_REG_ECX)
+        if pending and (pc,sp)==pending[-1][:2]:
+            _,_,kind,p=pending.pop()
+            if kind=='VoxelCtor':
+                raw=bytes(u.mem_read(p+0xB0,0x50))
+                row=dict(type=f.string(read(p+0x104)+0x24),native_id=read(p+0x10),owner_is_null=read(p+0x10C)==0,
+                    owner_native_id=read(read(p+0x10C)+0x10) if read(p+0x10C) else None,
+                    duration=read(p+0x140),location=xyz(p+0x9C),bounce_hex=raw.hex(),bounce=body_fields(raw),
+                    logic_registered=member(p,0x87F778),registry_registered=member(p,0x887388),
+                    display_layers=[i for i in range(5) if member(p,0x8A0360+24*i)],marked_for_deletion=bool(u.mem_read(p+0x110,1)[0]))
+                voxels.append(row);event('VoxelCtor_return',native_id=row['native_id'],rng_scenario=rng.states()['scenario'])
+            else:
+                row=dict(pointer=p,type=f.string(read(p+0xC8)+0x24),**constructor_state(u,p));anims.append(row)
+                event('AnimCtor_return',native_id=row['native_id'],rng_scenario=rng.states()['scenario'])
+        kinds={0x737C90:'UnitReceiveDamage',0x701900:'TechnoReceiveDamage',0x7493B0:'VoxelCtor',
+            0x749453:'VoxelIdentity',0x410230:'CreateId',0x68BCB0:'NextNativeId',0x421EA0:'AnimCtor',
+            0x70D690:'DeathWeapon',0x466380:'BulletCtor',0x4397E0:'BounceInit',0x7509E0:'Sound',0x517A50:'InfantryCtor',0x707D20:'CrewType'}
+        if pc not in kinds:return
+        kind=kinds[pc];kw=dict(pc=f'{pc:08X}',caller=f'{read(sp):08X}')
+        if kind in ('VoxelCtor','AnimCtor'):
+            kw.update(type=f.string(read(sp+4)+0x24),position=xyz(read(sp+8)),rng_scenario=rng.states()['scenario'])
+            pending.append((read(sp),sp+(16 if kind=='VoxelCtor' else 32),kind,this))
+        if kind=='VoxelIdentity':kw['native_id']=read(u.reg_read(UC_X86_REG_ESI)+0x10)
+        if kind=='Sound':
+            index=struct.unpack('<i',dwords(this))[0];kw.update(index=index,name=sound_name(index))
+        event(kind,**kw)
+    u.hook_add(UC_HOOK_CODE,observe)
+    damage=f.allocate(4);u.mem_write(damage,dwords(1000))
+    result=bc.invoke(u,0x737C90,f.source,damage,0,m.warhead,0,1,0,0)
+    assert not pending and not rng.pending
+    for row in anims:
+        p=row.pop('pointer');row.update(constructor_state(u,p),logic_registered=member(p,0x87F778),
+            display_layers=[i for i in range(5) if member(p,0x8A0360+24*i)],observation='receiver_return')
+    assert [v['native_id'] for v in voxels]==[cursor+1,cursor+2]
+    assert [a['type'] for a in anims]==['S_BRNL58'] and anims[0]['native_id']==cursor+3
+    return dict(native_sha256=native.NATIVE_SHA256,sound_sha256=hashlib.sha256((root/'SOUNDMD.INI').read_bytes()).hexdigest(),rows=[dict(
+        input=dict(name='fatal_mtnk_typed_then_death_anim',seed=1,damage=1000,distance=0,warhead=f.string(m.warhead+0x24),
+            ignore_defenses=True,prevent_passenger_escape=False,attacker_is_null=True,source_house_is_null=True,
+            binary_frame=read(bc.FRAME),debris_types=['TIRE'],debris_maximums=[4],minimum=1,maximum=3),
+        source_before=prior,result=result,damage_after=read(damage),events=events,voxels=voxels,anims=anims,
+        rng_before=before,rng_after=rng.states(),rng_requests=rng.requests,native_cursor_before=cursor,native_cursor_after=read(scenario+0x214),
+        source_after=dict(health=read(f.source+0x6C),alive=u.mem_read(f.source+0x90,1)[0],limbo=u.mem_read(f.source+0x81,1)[0]))])
+
+
+def typed_debris_metadata():
+    return provenance(scope='One whole native MTNK fatal737C90→701900 typed TIRE construction and adjacent S_BRNL58 identity/RNG control',
+        assumptions=[
+            'Existing physical joined_inputs/joined_fixture own all reader/VM/asset/House/map/registry transport. Actual UnitType reader747620 reads authored MTNK DebrisTypes=TIRE/Maximums4/Min1/Max3. Original TIRE scalar reader74B050 stops at74B56C before VXL I/O, with no completed reader return supplied and no model-binding claim.',
+            'Full source MTNK7353C0/Unlimbo737BA0 run in the supplied admitted flat-map/House world. Actual recorded prior is health300, nativeID3, ownerID0, coordinate2944,2176,0, frame0. Direct damage1000/AP/distance0/ignoreDefenses1/null attacker/null sourceHouse enters whole737C90. This is a receiver control, not a full launch or earlier-world identity-prefix claim.',
+            'Actual full fatal body emits TIRE4/TIRE5 before ordinary S_BRNL58 Anim6. CreateID precedes seven Voxel constructor draws. Full three-stream before/after state, ordered original requests/raw words and Bounce bodies are retained. Voxel state is constructor-return; Anim state/membership is receiver-return. No stock MTNK DeathWeapon is reached. Observation ends at receiver return; later Logic/deferred deletion is excluded.',
+            'The typed-only physical selected SoundList includes the actual MTNK VoiceDie/DieSound references before full UnitType read. Retail VoiceDie is empty and DieSound resolves GenVehicleDie; original7021E4 consumes Main2025287381 before the17 Scenario requests. Original7509E0 executes without a supplied playback result; actual sound vectors, owner IsHuman50B6F0 and sound entries are retained.',
+            'All allocations succeed. Null-model TIRE numeric/admission fields are bounded here; actual Rust physical loading and GPU output are independent checks. No Voxel/Anim/ID/RNG/GetCoords/Unlimbo/registry success is supplied.',
+        ], substitutions=joined_metadata()['substitutions'], entry_points={
+            'unit_type_reader':0x747620,'tire_scalar_reader':0x74B050,'model_boundary':0x74B56C,
+            'unit_ctor':0x7353C0,'unit_unlimbo':0x737BA0,'unit_damage':0x737C90,'techno_damage':0x701900,
+            'typed_selector':0x70232B,'voxel_ctor':0x7493B0,'create_id':0x410230,'bounce':0x4397E0,'death_anim_ctor':0x421EA0})
+
+
+def typed_debris_main(argv):
+    finish_vectors(typed_debris_generate,Path(__file__).with_name('building_death_anims_typed_debris.json'),
+                   provenance=typed_debris_metadata,argv=argv)
+
+
+
+def grapple_inputs(root, *, drone=False):
+    """Extend the existing physical reader for the selected stock SQD/DEST route."""
+    from collections import deque
+    from types import SimpleNamespace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP,UC_X86_REG_ESI,UC_X86_REG_EDI
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.rules_oracle.bridge_child_sound import sections
+    from tools.spatial_oracle.building_body_rules import INI,SP,dwords
+    import hashlib
+    m=joined_inputs(root);u=m.u;read=m.read32
+    m.grapple_layers=[]
+    proxy=SimpleNamespace(m=m,trace=deque(maxlen=64),events=[],pending={},frame=0,phase='setup')
+    def transport(u,pc,n,d):
+     if pc in JOINED_TRANSPORT-{0x527af9,0x527b0c}:Mission.observe(proxy,u,pc,n,d)
+     elif pc==0x7c978a:m.ret(0)
+    h=u.hook_add(UC_HOOK_CODE,transport)
+    m.invoke(0x4e73e0,0)
+    actors=['DRON','MTNK'] if drone else ['SQD','DEST']
+    weapon,projectile,warhead=('DroneJump','JUMP','Parasite') if drone else ('SquidGrab','SQDJUMP','ParasitePlus')
+    artall=sections((root/'ARTMD.INI').read_bytes());animnames=[] if drone else ['SQDG','WAKE1','H2O_EXP1','H2O_EXP2','H2O_EXP3']
+    artnames=['DRON','GTNK'] if drone else ['SQD','DEST','ASW']
+    art={k:v for k,v in m.death_art_input_sections.items() if v};art.update({k:artall[k] for k in artnames+animnames if k in artall})
+    for n in animnames:m.assets[n+'.SHP']=(root/(n+'.SHP')).read_bytes()
+    sound=sections((root/'SOUNDMD.INI').read_bytes());wanted=set()
+    for n in animnames:
+     for k in ['Report','StartSound']:wanted.update(art.get(n,{}).get(k,'').split(','))
+    if drone:
+     for filename in ['RULESMD.INI','LANGRULE.INI','MPBattleMD.ini','Hills.map']:
+      path=root/filename
+      if not path.exists():continue
+      physical=sections(path.read_bytes())
+      for name in actors:
+       for key,value in physical.get(name,{}).items():
+        if key.startswith('Voice') or key.endswith('Sound'):wanted.update(value.split(','))
+    wanted.discard('');selected={k:v for k,v in sound.items() if k in wanted|{'Defaults'}};selected['SoundList']={k:v for k,v in sound['SoundList'].items() if v in wanted};m.make_ini(selected);m.invoke(0x7510d0,INI)
+    m.make_ini(art);artcache=bytes(u.mem_read(INI,0x40))
+    for name in actors:
+     t=m.alloc(0xf00);m.invoke(0x7470d0,t,(m.cstring(name),));m.types[name]=t
+    w=m.invoke(0x772fa0,m.cstring(weapon))
+    for fn in ['RULESMD.INI','LANGRULE.INI','MPBattleMD.ini','Hills.map']:
+     p=root/fn
+     if not p.exists():
+      assert fn=='LANGRULE.INI';m.grapple_layers.append(dict(file=fn,absent=True));continue
+     m.grapple_layers.append(dict(file=fn,sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
+     all=sections(p.read_bytes());sel={k:v for k,v in all.items() if k in {*actors,weapon,projectile,warhead,'ASW','General','CombatDamage'}}
+     m.make_ini(sel);rules=m.alloc(0x40);u.mem_write(rules,bytes(u.mem_read(INI,0x40)));u.mem_write(INI,artcache)
+     for name in actors:m.invoke(0x747620,m.types[name],(rules,))
+     if not drone:
+      asw=read(m.types['DEST']+0xd58);m.types['ASW']=asw;m.invoke(0x41cc20,asw,(rules,))
+     m.invoke(0x772080,w,(rules,));m.invoke(0x46bee0,read(w+0xa0),(rules,));m.invoke(0x75d3a0,read(w+0xac),(rules,));m.invoke(0x7729f0,w)
+     for a,b in [(0x66d847,0x66d894),(0x66c184,0x66c287)]:
+      u.mem_write(SP-4,dwords(0));u.reg_write(UC_X86_REG_ESP,SP-4 if a==0x66d847 else SP);u.reg_write(UC_X86_REG_ESI,m.rules);u.reg_write(UC_X86_REG_EDI,rules);run_checked(u,a,b)
+    u.mem_write(INI,artcache)
+    anim_rows=[]
+    for name in animnames:
+     t=m.invoke(0x428b80,m.cstring(name));result=m.invoke(0x427d00,t,(INI,));anim_rows.append(dict(pointer=t,**m.result(name,t,result)))
+    u.hook_del(h)
+    if drone:
+     from tools.procedural_drawing_oracle.electric_bolt import read_spark_types,prepare_spark_capacity
+     prepare_spark_capacity(m,(0xA83C98,0xA83D98,0xA83D68,0x8874C0))
+     layers=[(fn,None,(root/fn).read_bytes() if (root/fn).exists() else None)
+         for fn in ['RULESMD.INI','LANGRULE.INI','MPBattleMD.ini','Hills.map']]
+     h=u.hook_add(UC_HOOK_CODE,transport)
+     read_spark_types(m,layers,cache=m.make_ini,ini_pointer=INI)
+     u.hook_del(h)
+    m.grapple_weapon=w;m.grapple_anims=anim_rows
+    return m
+
+
+def grapple_fixture(inputs, root, *, seed=1, drone=False):
+    """Fresh stock actors on the shared runtime's declared water projection.
+
+    This calls Object::Limbo directly before AttachTo; native FireAt and the
+    Bullet producer are excluded. Every selected actor remains genuinely alive.
+    """
+    from types import SimpleNamespace
+    import hashlib
+    from tools.spatial_oracle import building_construction as bc
+    from tools.spatial_oracle.refinery_dock import cell
+    from tools.spatial_oracle.anytown_damage import next_family_native as identity
+    from tools.spatial_oracle.anytown_damage.navigation_inputs import bind_primary_tiles
+    from tools.rules_oracle.bridge_anim_inputs import Reader
+    previous=identity.ri.ASSETS;identity.ri.ASSETS=root
+    try:theater=identity.theater()
+    finally:identity.ri.ASSETS=previous
+    f=joined_fixture(inputs,38,seed=seed,unit_startup=True);u=f.u;read=f.read32
+    u.mem_write(bc.FRAME,dwords(0))
+    u.mem_write(0xA8B218,bytes(inputs.u.mem_read(0xA8B218,24)))
+    for entry in (0x69EBF0,0x4E6BE0,0x629190,0x6B6C10):bc.invoke(u,entry,0)
+    for house in f.owner_houses:
+        for offset in (0x553C,0x558C):bc.invoke(u,0x49F9B0,house+offset)
+        bc.invoke(u,0x748FD0,house+0x328)
+    # Adapt only transport API names to the same VM and allocator. No native
+    # object constructor, map query, numeric kernel or gameplay answer is supplied.
+    view=SimpleNamespace(u=u,alloc=f.allocate,read32=read)
+    view.invoke=lambda address,obj,args=():bc.invoke(u,address,obj,*args)
+    view.cstring=lambda name:Reader.cstring(view,name)
+    u.mem_write(0xA8ED28,dwords(0x7EB6D4,0x44000000,theater['count'],1,theater['count'],10))
+    water=0 if drone else theater['globals'][0xAA0738]
+    tiles=bind_primary_tiles(view,theater,[water],preserve_abstract_registry=True)
+    for address,value in theater['globals'].items():u.mem_write(address,dwords(value))
+    for y in range(7,10):
+        for x in range(7,11):
+            p=cell(x,y);u.mem_write(p+0x38,dwords(water));u.mem_write(p+0x11A,b'\0')
+    # Derive LandType from physical TMP through the real owner before admission.
+    # Otherwise Ship Unlimbo correctly refuses the inherited clear-land prior.
+    for y in range(7,10):
+        for x in range(7,11):bc.invoke(u,0x47D2B0,cell(x,y),0xFFFFFFFF)
+    def actor_state(p):
+        owner=read(p+0x21C)
+        # FacingClass::Current4C93D0 returns the supplied DirStruct pointer;
+        # Parasite helper629736 passes output storage, then reads that DWORD.
+        current=f.allocate(4);u.mem_write(current,dwords(0))
+        assert bc.invoke(u,0x4C93D0,p+0x388,current)==current
+        result=dict(native_id=read(p+0x10),alive=u.mem_read(p+0x90,1)[0],
+            limbo=u.mem_read(p+0x81,1)[0],health=read(p+0x6C),
+            location=list(struct.unpack('<3i',u.mem_read(p+0x9C,12))),
+            owner_native_id=read(owner+0x10),owner_slot=read(owner+0x30),
+            owner_alliances=read(owner+0x5788),
+            primary_facing_hex=bytes(u.mem_read(p+0x388,20)).hex(),
+            primary_current_raw=read(current))
+        if drone:
+            assert bc.invoke(u,0x4C93D0,p+0x3A0,current)==current
+            result.update(secondary_current_raw=read(current),secondary_facing_hex=bytes(u.mem_read(p+0x3A0,20)).hex())
+        return result
+    def manager_timers(p):
+        return {name:dict(start=read(p+offset),opaque=read(p+offset+4),duration=read(p+offset+8))
+            for name,offset in [('timer_2c',0x2C),('timer_38',0x38)]}
+    actors=[];admissions=[]
+    names=['DRON','MTNK'] if drone else ['SQD','DEST']
+    for name,xy,house in [(names[0],(8,8),f.owner_houses[0]),(names[1],(9,8),f.owner_houses[1])]:
+        p=f.allocate(0x1000);bc.invoke(u,0x7353C0,p,f.types[name],house)
+        c=cell(*xy);before_tile=read(c+0x38);coord=f.allocate(12)
+        u.mem_write(coord,dwords(xy[0]*256+128,xy[1]*256+128,0))
+        answer=bc.invoke(u,0x737BA0,p,coord,128)&255
+        assert answer==1 and read(c+0x38)==water and read(c+0xEC)==(0 if drone else 2)
+        assert actor_state(p)['alive']==1 and actor_state(p)['limbo']==0
+        actors.append(p);admissions.append(dict(type=name,**actor_state(p),
+            unlimbo_al=answer,unlimbo_facing_input=128,tile_before=before_tile,tile_after=read(c+0x38),land_after=read(c+0xEC)))
+    source,victim=actors;manager=read(source+0x69C)
+    if drone:
+        from tools.voxel_oracle.raster import render_native
+        from tools.procedural_drawing_oracle.electric_bolt import prepare_spark_capacity
+        from tools.native_slope import initialize_slope_tables
+        from tools.native_oracle import RET_MAGIC
+        from tools.spatial_oracle.building_body_rules import SP
+        initialize_slope_tables(u,SP-0x1000,RET_MAGIC)
+        for address in (0xA83C98,0xA83D98):u.mem_write(address,bytes(inputs.u.mem_read(address,24)))
+        prepare_spark_capacity(SimpleNamespace(u=u,alloc=f.allocate),(0xA83D68,0x8874C0))
+        files={name:(root/name).read_bytes() for name in ['GTNK.VXL','GTNK.HVA','VOXELS.VPL']}
+        loaded=render_native(files['GTNK.VXL'],files['GTNK.HVA'],files['VOXELS.VPL'],drive_pose=dict(frame=0))['drive']
+        header=f.allocate(32);u.mem_write(header,bytes.fromhex(loaded['model_header_hex']))
+        u.mem_write(f.types['MTNK']+0xB0,dwords(header))
+        for offset,bits in zip((0x360,0x368),loaded['half_size_bits']):u.mem_write(f.types['MTNK']+offset,struct.pack('<Q',int(bits,16)))
+        admitted=bc.invoke(u,0x6F9E10,victim)&255;assert admitted==1
+        f.drone_model_input=dict(**{key:loaded[key] for key in ('model_header_hex','is_voxel','first_section_size','half_size_bits')},
+            joined_is_voxel_al=admitted,files={name:dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()) for name,raw in files.items()})
+    assert read(manager+0x10)==0xFFFFFFFF
+    limbo=bc.invoke(u,0x5F4D30,source)&255;assert limbo==1
+    attach_entry=[actor_state(p) for p in actors]
+    timers_before_attach=manager_timers(manager)
+    assert [(a['alive'],a['limbo']) for a in attach_entry]==[(1,1),(1,0)]
+    can_infect=bc.invoke(u,0x62A8E0,manager,victim)&255;assert can_infect==1
+    bc.invoke(u,0x62A980,manager,victim)
+    assert read(manager+0x28)==victim and read(victim+0x694)==source
+    grapple_entry=[actor_state(p) for p in actors]
+    assert [(a['alive'],a['limbo']) for a in grapple_entry]==[(1,1),(1,0)]
+    scenario=read(0xA8B230)
+    # This component does not run Scenario map lighting or a cell relight.
+    # Preserve that supplied lighting prior, rather than imply reset defaults.
+    lighting=dict(normal_profile={name:struct.unpack('<i',dwords(read(scenario+offset)))[0]
+        for name,offset in [('ambient_percent',0x352C),('red_percent',0x3534),
+            ('green_percent',0x3538),('blue_percent',0x353C),('ground_units',0x3540),('level_units',0x3544)]},
+        scenario_fields={f'{offset:04X}':read(scenario+offset)
+            for offset in range(0x3528,0x3548,4)},
+        effect_globals={f'{address:08X}':read(address) for address in (0xA9FAB4,0xA9FABC,0xA9FAC0)},
+        cells=[dict(cell=[x,8],level=u.mem_read(cell(x,8)+0x11B,1)[0],
+            fields_104=list(struct.unpack('<i4h',u.mem_read(cell(x,8)+0x104,12))),
+            ground_z_adjust=struct.unpack('<h',u.mem_read(cell(x,8)+0x10A,2))[0]) for x in (8,9)])
+    f.grapple_source,f.grapple_victim,f.grapple_manager=source,victim,manager
+    f.grapple_context=dict(seed=seed,frame=0,
+        game_speed=struct.unpack('<i',dwords(read(0xA8EB60)))[0],actor_admissions=admissions,
+        source_limbo_al=limbo,attach_entry=attach_entry,can_infect_al=can_infect,
+        grapple_entry=grapple_entry,manager_native_id=struct.unpack('<i',dwords(read(manager+0x10)))[0],
+        manager_timers_before_attach=timers_before_attach,manager_timers_grapple_entry=manager_timers(manager),
+        lighting=lighting,
+        water=dict(tile=water,theater_count=theater['count'],theater_sha256=theater['sha256'],
+            selected_tmp=tiles['added_rows'],projection_bounds=[7,7,10,9],
+            recalc_entry='0047D2B0'),native_cursor=read(read(0xA8B230)+0x214))
+    if drone:
+        w=inputs.grapple_weapon;wh=read(w+0xAC)
+        f.grapple_context.update(model_input=f.drone_model_input,
+            type_inputs=[dict(name=name,strength=read(f.types[name]+0xA0),
+                weight_bits=f'{struct.unpack("<Q",u.mem_read(f.types[name]+0x370,8))[0]:016x}',
+                primary_flh=list(struct.unpack('<3i',u.mem_read(f.types[name]+0x89C,12)))) for name in names],
+            weapon_input=dict(name=f.string(w+0x24),damage=read(w+0xA4),rof=read(w+0xB0),
+                warhead=f.string(wh+0x24),paralyzes=read(wh+0x170)),
+            spark_type_inputs=inputs.effective_types,sound_names=inputs.sound_names)
+    assert f.code_unchanged()
+    return f
+
+
+
+# Selected Suicide controls reuse this module's joined readers/runtime.
+
+
+def suicide_fire_inputs(root, scenario_map):
+    """Original stock TERROR readers on the existing joined input VM.
+
+    Native: InfantryType5236A0/5240A0, Weapon772080, C4 block66C304 and
+    fixed ART427D00. Existing IO/parser/registry owners remain authoritative.
+    """
+    import hashlib
+    from collections import deque
+    from types import SimpleNamespace
+    from unicorn import UC_HOOK_CODE
+    from unicorn.x86_const import UC_X86_REG_ESP, UC_X86_REG_ESI, UC_X86_REG_EDI
+    from tools import native_oracle as native
+    from tools.spatial_oracle.anytown_damage.mission import Mission
+    from tools.spatial_oracle.building_body_rules import INI, SP
+    from tools.rules_oracle.bridge_child_sound import sections
+    from tools.rules_oracle.weapon_speed_order import RetailRulesInputs
+    from tools.rules_oracle.weapon_laser import physical_layers
+
+    m = joined_inputs(root, damage_sound=True)
+    m.reserve_arena(0x1000000)
+    u, read = m.u, m.read32
+    rules = sections((root / 'RULESMD.INI').read_bytes())
+    art = sections((root / 'ARTMD.INI').read_bytes())
+    sound = sections((root / 'SOUNDMD.INI').read_bytes())
+    catalog = RetailRulesInputs(native.configured_gamemd().parent)
+    # The shared world still owns its historical Hills input projection. Check
+    # that replacing the scenario's selected rules with this map is identical
+    # for all shared fields; no map geometry/loading answer is supplied here.
+    shared_names = ('General', 'AudioVisual', 'CombatDamage', 'GAPOWR', 'E1',
+        'MTNK', '105mm', '105mmE', 'Cannon', 'AP', 'Americans', 'ElevationModel', 'Radiation')
+    base_map = sections((root / 'Hills.map').read_bytes())
+    selected_map = sections(scenario_map.read_bytes())
+    assert {n: base_map.get(n) for n in shared_names} == {
+        n: selected_map.get(n) for n in shared_names}
+    asset_rows = []
+    corpse_names = [m.string(read(read(m.rules + 0x124) + i * 4) + 0x24)
+                    for i in range(read(m.rules + 0x130))]
+    for name in ('TRST', 'MININUKE', *corpse_names):
+        filename = name + '.SHP'
+        raw = catalog.lookup(filename)
+        assert raw is not None, filename
+        m.assets[filename] = raw
+        source = catalog.requests[filename][0]
+        asset_rows.append(dict(file=filename, bytes=len(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+            sources=[v['source'] for v in source['candidates']]))
+    wanted = set()
+    for key, value in rules['TERROR'].items():
+        if key.startswith('Voice') or key in ('DieSound', 'CrushSound'):
+            wanted.update(v.strip() for v in value.split(','))
+    wanted.update(art['MININUKE'].get('Report', '').split(','))
+    wanted.discard('')
+    selected_sound = {n: sound[n] for n in ('Defaults', *sorted(wanted)) if n in sound}
+    selected_sound['SoundList'] = {k: v for k, v in sound['SoundList'].items() if v in wanted}
+    m.make_ini(selected_sound)
+    m.invoke(0x7510D0, INI)
+    selected_art = {n: art[n] for n in ('TRST', art['TRST']['Sequence'],
+                    'MININUKE', *corpse_names) if n in art}
+    m.make_ini(selected_art)
+    art_cache = bytes(u.mem_read(INI, 0x40))
+    actor_type = m.alloc(0x1900)
+    m.invoke(0x5236A0, actor_type, (m.cstring('TERROR'),))
+    m.types['TERROR'] = actor_type
+    weapon = m.invoke(0x772FA0, m.cstring('TerrorBomb'))
+    ctor = dict(strength=read(actor_type + 0xA0),
+                suicide=u.mem_read(weapon + 0x144, 1)[0])
+    country = next(v['pointer'] for v in m.death_country_sides['countries']
+                   if v['name'] == 'Confederation')
+    proxy = SimpleNamespace(m=m, trace=deque(maxlen=40), events=[], pending={}, frame=0, phase='setup')
+
+    def transport(_u, pc, size, data):
+        if pc in JOINED_TRANSPORT - {0x527AF9, 0x527B0C}:
+            Mission.observe(proxy, _u, pc, size, data)
+
+    hook = u.hook_add(UC_HOOK_CODE, transport)
+    layers = physical_layers()
+    layers[-1] = (scenario_map.name, 'declared_scenario_file', scenario_map.read_bytes())
+    rows = []
+    consumed_keys = dict(TERROR=('Image', 'Strength', 'Primary', 'DeathWeapon', 'Explodes',
+        'DeathWeaponDamageModifier', 'DieSound', 'VoiceFeedback', 'RequiredHouses'),
+        TerrorBomb=('Damage', 'ROF', 'Range', 'Projectile', 'Warhead', 'Suicide', 'Anim'),
+        TerrorBombWH=('CellSpread', 'PercentAtMax', 'InfDeath', 'Fire', 'Bright', 'AnimList', 'Verses'),
+        Super=('InfDeath', 'ProneDamage', 'Verses'), CombatDamage=('C4Warhead',))
+    try:
+        for filename, archive, raw in layers:
+            if raw is None:
+                assert not (root / filename).exists()
+                rows.append(dict(file=filename, absent=True))
+                continue
+            if filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini'):
+                assert (root / filename).read_bytes() == raw
+            physical = sections(raw)
+            selected = {n: physical[n] for n in ('TERROR', 'TerrorBomb', 'TerrorBombWH',
+                        'Super', 'Invisible', 'Confederation', 'CombatDamage') if n in physical}
+            m.make_ini(selected)
+            ini = m.alloc(0x40)
+            u.mem_write(ini, bytes(u.mem_read(INI, 0x40)))
+            u.mem_write(INI, art_cache)
+            admitted = dict(infantry=m.invoke(0x5240A0, actor_type, (ini,)) & 255,
+                            weapon=m.invoke(0x772080, weapon, (ini,)) & 255)
+            admitted['projectile'] = m.invoke(0x46BEE0, read(weapon + 0xA0), (ini,)) & 255
+            if 'CombatDamage' in selected:
+                u.mem_write(SP, bytes(0x300))
+                for reg, value in ((UC_X86_REG_ESP, SP), (UC_X86_REG_ESI, m.rules), (UC_X86_REG_EDI, ini)):
+                    u.reg_write(reg, value)
+                native.run_checked(u, 0x66C304, 0x66C34C)
+            for wh in sorted({read(m.rules + 0xFA8), read(weapon + 0xAC)}):
+                if wh:
+                    m.invoke(0x75D3A0, wh, (ini,))
+            m.invoke(0x7729F0, weapon)
+            m.invoke(0x511850, country, (ini,))
+            rows.append(dict(file=filename, archive=archive, bytes=len(raw),
+                sha256=hashlib.sha256(raw).hexdigest(), admitted=admitted,
+                physical={n: {k: physical[n][k] for k in keys if k in physical[n]}
+                          for n, keys in consumed_keys.items() if n in physical},
+                native_after=dict(strength=read(actor_type + 0xA0),
+                    suicide=u.mem_read(weapon + 0x144, 1)[0],
+                    death_weapon=m.string(read(actor_type + 0xD18) + 0x24))))
+        u.mem_write(INI, art_cache)
+        animation_rows = []
+        for name in ('MININUKE', *corpse_names):
+            pointer = m.invoke(0x428B80, m.cstring(name))
+            admitted = m.invoke(0x427D00, pointer, (INI,)) & 255
+            shape = read(pointer + 0xA4)
+            assert shape
+            animation_rows.append(dict(name=name, admitted=admitted,
+                frames=struct.unpack('<H', u.mem_read(shape + 6, 2))[0], art=art[name]))
+    finally:
+        u.hook_del(hook)
+    bank = read(actor_type + 0xE3C)
+    m.suicide_country, m.suicide_weapon = country, weapon
+    m.suicide_inputs = dict(layers=rows, constructor=ctor, assets=asset_rows,
+        shared_map_rules_projection_equal=True, shared_map_sections=list(shared_names),
+        native=dict(image=m.string(actor_type + 0x1F8), strength=read(actor_type + 0xA0),
+            primary=m.string(read(actor_type + 0x898) + 0x24),
+            death_weapon=m.string(read(actor_type + 0xD18) + 0x24),
+            explodes=u.mem_read(actor_type + 0xD15, 1)[0],
+            death_modifier_f32_bits=bytes(u.mem_read(actor_type + 0xD1C, 4)).hex(),
+            suicide=u.mem_read(weapon + 0x144, 1)[0], damage=read(weapon + 0xA4),
+            rof=read(weapon + 0xB0), range_leptons=read(weapon + 0xB4),
+            projectile=m.string(read(weapon + 0xA0) + 0x24),
+            warhead=m.string(read(weapon + 0xAC) + 0x24),
+            c4_warhead=m.string(read(m.rules + 0xFA8) + 0x24),
+            fire_up=read(actor_type + 0xE40),
+            die2=list(struct.unpack('<9i', u.mem_read(bank + 12 * 36, 36))),
+            corpse_names=corpse_names), fixed_art={name:{k:v for k,v in values.items()
+                if name not in ('TRST',art['TRST']['Sequence']) or k in
+                ('Sequence','FireUp','Crawls','Ready','Guard','Die2')}
+                for name,values in selected_art.items()},
+        fixed_inis=[dict(file=name,bytes=(root/name).stat().st_size,
+            sha256=hashlib.sha256((root/name).read_bytes()).hexdigest())
+            for name in ('ARTMD.INI','SOUNDMD.INI')],
+        sound_names=sorted(n for n in wanted if n in sound))
+    return m
+
+
+def suicide_fire_execute(inputs, *, ordinary=False, wounded=False, seed=31):
+    """Actual whole source receivers/FireAt/AI on the shared admitted world.
+
+    Native self-call6FDDFD uses Strength, not Health; the75/17 controls share
+    one original receiver. No gameplay result, RNG word or sequence is supplied.
+    """
+    from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+    from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_ESP, UC_X86_REG_EDI, UC_X86_REG_EIP
+    from tools import native_oracle as native
+    from tools.spatial_oracle import building_construction as bc, engineer_repair_admission as er
+    from tools.input_oracle.unit_voice_playback import VoiceHistory
+    from tools.procedural_drawing_oracle.electric_bolt import RngTrace
+
+    f = joined_fixture(inputs, 750, seed=seed, building_ai=True, unit_startup=True)
+    u, read = f.u, f.read32
+    bc.invoke(u, 0x561910, 0)  # Original369-pair CellSpread CRT prerequisite.
+    u.mem_write(er.HOUSE + 0x34, dwords(inputs.suicide_country))
+    actor = f.allocate(0x1000)
+    bc.invoke(u, 0x517A50, actor, f.types['TERROR'], er.HOUSE)
+    position = f.allocate(12)
+    u.mem_write(position, dwords(2496, 2752, 0))
+    admitted = bc.invoke(u, 0x51DFF0, actor, position, 128) & 255
+    assert admitted == 1 and list(struct.unpack('<3i', u.mem_read(actor + 0x9C, 12))) == [2496, 2752, 0]
+    audio = VoiceHistory(inputs, 'stock_suicide', fixture=f, actor_count=0, coordinate_profile=True)
+    audio.listener_input('declared_flat_suicide_listener', viewport=(640,480), backbuffer=(640,480), view=(0,0))
+    audio.actors.append(actor)
+    audio.actor = actor
+    rng = RngTrace.__new__(RngTrace)
+    rng.u, rng.streams = u, {'main':0x886B88, 'scenario':read(0xA8B230)+0x218, 'mapgen':0xABE890}
+    rng.requests, rng.pending = [], []
+    u.hook_add(UC_HOOK_CODE, rng.observe)
+    phase = 'preparation'
+    pending, packets, target_calls, calls, anims, lifecycle = [], [], [], [], [], []
+    timer_writes, fire_writes, target_writes = [], [], []
+    bullets, phases = [], []
+    normal = dict(get_rof=0, bullet_emission_tail=0, burst_increment=0, rearm_tail=0, last_fire_tail=0)
+    normal_sites = {0x6FCFA0:'get_rof',0x6FE562:'bullet_emission_tail',0x6FF274:'burst_increment',0x6FF2B2:'rearm_tail',0x6FF743:'last_fire_tail'}
+
+    def signed(at):
+        return struct.unpack('<i', u.mem_read(at,4))[0]
+
+    def coords(at):
+        return list(struct.unpack('<3i',u.mem_read(at,12)))
+
+    def role(pointer):
+        return 'null' if not pointer else 'source' if pointer==actor else 'target' if pointer==er.BLD else 'source_house' if pointer==er.HOUSE else 'other'
+
+    def member(pointer, base):
+        return pointer in [read(read(base+4)+i*4) for i in range(read(base+16))]
+
+    def state():
+        return dict(frame=read(bc.FRAME),health=signed(actor+0x6C),alive=u.mem_read(actor+0x90,1)[0],
+            limbo=u.mem_read(actor+0x81,1)[0],marked=u.mem_read(actor+0x74,1)[0],logic=member(actor,0x87F778),
+            location=coords(actor+0x9C),target=role(read(actor+0x2B4)),current_weapon=signed(actor+0x138),
+            mission=signed(actor+0xAC),pending=u.mem_read(actor+0x68D,1)[0],doing=signed(actor+0x6C4),stage=signed(actor+0xF8),
+            sequence=dict(start=signed(actor+0x100),duration=signed(actor+0x108),rate=signed(actor+0x10C)),
+            rearm=dict(start=signed(actor+0x2EC),duration=signed(actor+0x2F4),rof_copy=signed(actor+0x2F8)),
+            burst=signed(actor+0x3B8),last_fire=signed(actor+0x120),pending_deletes=read(0xB0F6A8),
+            target_health=signed(er.BLD+0x6C),target_alive=u.mem_read(er.BLD+0x90,1)[0])
+
+    def boundary(label):
+        row=dict(label=label,source=state(),rng=rng.states(),rng_request_count=len(rng.requests))
+        phases.append(row)
+        return row
+
+    observed = {0x51DF60:'infantry_fire_at',0x6FDD50:'techno_fire_at',0x5206B0:'fire_at_target',
+        0x51B1F0:'set_target',0x5218E0:'select_weapon',0x51C8B0:'get_fire_error',0x51D6F0:'do_action',
+        0x70D690:'death_weapon',0x46B050:'bullet_factory',0x466380:'bullet_ctor',0x4690B0:'bullet_detonate',
+        0x489280:'area_damage',0x421EA0:'anim_ctor',0x4DE5D0:'foot_uninit',0x5F65F0:'object_uninit',
+        0x7258D0:'announce_expired',0x725C70:'deferred_drain',0x517D90:'infantry_destructor',0x481670:'target_scatter',
+        0x517FA0:'source_receiver',0x442230:'target_receiver'}
+
+    def observe(_u, pc, size, data):
+        sp=u.reg_read(UC_X86_REG_ESP)
+        for item in pending[:]:
+            if pc==item['return_pc'] and sp==item['after_sp']:
+                row=item['row'];name=row['kind']
+                if name in ('source_receiver','target_receiver'):
+                    receiver=actor if name=='source_receiver' else er.BLD
+                    row.update(health_after=signed(receiver+0x6C),result=u.reg_read(UC_X86_REG_EAX))
+                elif name in ('infantry_fire_at','techno_fire_at','select_weapon','get_fire_error','death_weapon'):
+                    row['result']=u.reg_read(UC_X86_REG_EAX)
+                elif name=='do_action':row['result_al']=u.reg_read(UC_X86_REG_EAX)&255
+                if name=='foot_uninit':boundary('after_original_uninit')
+                pending.remove(item)
+        if pc in normal_sites:normal[normal_sites[pc]]+=1
+        if pc not in observed:return
+        this=u.reg_read(UC_X86_REG_ECX);name=observed[pc]
+        if name=='source_receiver' and this!=actor:return
+        if name=='target_receiver' and this!=er.BLD:return
+        row=dict(kind=name,phase=phase,frame=read(bc.FRAME))
+        cleanup=0
+        if name in ('source_receiver','target_receiver'):
+            args=list(struct.unpack('<7I',u.mem_read(sp+4,28)))
+            row.update(damage=signed(args[0]),distance=signed(sp+8),warhead=f.string(args[2]+0x24),
+                attacker=role(args[3]),ignore_defenses=bool(args[4]),arg6=bool(args[5]),attacking_house=role(args[6]),
+                aliases_health=args[0]==this+0x6C,health_before=signed(this+0x6C))
+            (packets if name=='source_receiver' else target_calls).append(row)
+            cleanup=28
+        elif name in ('infantry_fire_at','techno_fire_at'):
+            row.update(target=role(read(sp+4)),weapon_index=signed(sp+8));cleanup=8
+            calls.append(row)
+        elif name=='set_target':
+            row['target']=role(read(sp+4));cleanup=4;calls.append(row)
+        elif name=='select_weapon':cleanup=4;calls.append(row)
+        elif name=='get_fire_error':cleanup=12;calls.append(row)
+        elif name=='do_action':
+            row.update(action=signed(sp+4),force=bool(read(sp+8)));cleanup=12
+            if phase!='dying_ai':calls.append(row)
+        elif name=='death_weapon':row['extra_damage']=signed(sp+4);cleanup=4;calls.append(row)
+        elif name=='bullet_factory':
+            row['caller']=f'{read(sp):08X}';calls.append(row)
+        elif name=='bullet_ctor':bullets.append(this);calls.append(row)
+        elif name=='bullet_detonate':row['location']=coords(read(sp+4));calls.append(row)
+        elif name=='area_damage':
+            row.update(location=coords(this),damage=u.reg_read(UC_X86_REG_EDX),warhead=f.string(read(sp+8)+0x24));calls.append(row)
+        elif name=='anim_ctor':
+            row.update(type=f.string(read(sp+4)+0x24),location=coords(read(sp+8)));anims.append(row)
+        elif name=='announce_expired':
+            if this!=actor and this not in bullets:return
+            row.update(object='source' if this==actor else 'death_bullet',caller=f'{read(sp):08X}');lifecycle.append(row)
+        elif name in ('foot_uninit','object_uninit','infantry_destructor'):
+            if this!=actor:return
+            lifecycle.append(row)
+        elif name=='deferred_drain':lifecycle.append(row)
+        elif name=='target_scatter':calls.append(row)
+        elif name=='fire_at_target':
+            if phase!='dying_ai':calls.append(row)
+        if name in ('source_receiver','target_receiver','infantry_fire_at','techno_fire_at',
+                    'select_weapon','get_fire_error','do_action','death_weapon','foot_uninit') and read(sp)!=native.RET_MAGIC:
+            pending.append(dict(row=row,return_pc=read(sp),after_sp=sp+4+cleanup))
+
+    def written(_u, access, address, size, value, data):
+        if not actor<=address<actor+0x1000:return
+        off=address-actor
+        row=dict(phase=phase,frame=read(bc.FRAME),pc=f'{u.reg_read(UC_X86_REG_EIP):08X}',offset=off,value=value)
+        if off in (0xC8,0xD0,0xF8,0x100,0x108,0x10C,0x174,0x17C):timer_writes.append(row)
+        if off in (0x2EC,0x2F4,0x2F8,0x120,0x3B8):fire_writes.append(row)
+        if off==0x2B4:row['value']=role(value);target_writes.append(row)
+
+    hooks=[u.hook_add(UC_HOOK_CODE,observe),u.hook_add(UC_HOOK_MEM_WRITE,written)]
+    try:
+        playfield=f.allocate(12);u.mem_write(playfield,dwords(*coords(actor+0x9C)))
+        assert bc.invoke(u,0x568350,0x87F7E8,playfield)&255==1
+        boundary('before_preparation')
+        preparation=None
+        if wounded:
+            packet=f.allocate(4);u.mem_write(packet,dwords(58))
+            result=bc.invoke(u,0x517FA0,actor,packet,0,read(f.rules+0xFA8),0,1,0,0)
+            packets[-1].update(health_after=signed(actor+0x6C),result=result)
+            preparation=dict(damage=58,result=result,health=signed(actor+0x6C),strength=read(f.types['TERROR']+0xA0))
+            assert preparation['health']==17 and u.mem_read(actor+0x90,1)[0]==1
+        bc.invoke(u,0x51B1F0,actor,er.BLD)
+        if ordinary:
+            bc.invoke(u,0x5B35E0,actor,1,0);bc.invoke(u,0x5B3570,actor)
+        boundary('before_fire')
+        phase='ordinary_start' if ordinary else 'direct_fire';f.phase=phase
+        if ordinary:
+            bc.invoke(u,0x5206B0,actor,timeout_us=60_000_000)
+            boundary('after_schedule_start')
+            for visit in range(1,13):
+                if signed(actor+0x6C)==0:break
+                phase='ordinary_ai';f.phase=phase
+                u.mem_write(bc.SP,dwords(native.RET_MAGIC));u.reg_write(UC_X86_REG_ESP,bc.SP);u.reg_write(UC_X86_REG_EDI,0)
+                native.run_checked(u,0x55DE73,0x55DE87)
+                bc.invoke(u,0x51BAB0,actor,timeout_us=60_000_000)
+            assert signed(actor+0x6C)==0,'Ordinary schedule did not fire within12 visits'
+        else:
+            returned=bc.invoke(u,0x51DF60,actor,er.BLD,0,timeout_us=60_000_000)
+            next(v for v in calls if v['kind']=='infantry_fire_at')['result']=returned
+        boundary('after_fire')
+        phase='end_fire_deferred_drain';f.phase=phase
+        bc.invoke(u,0x725C70,0,timeout_us=60_000_000)
+        visits=[]
+        for visit in range(1,161):
+            phase='dying_ai';f.phase=phase
+            u.mem_write(bc.SP,dwords(native.RET_MAGIC));u.reg_write(UC_X86_REG_ESP,bc.SP);u.reg_write(UC_X86_REG_EDI,0)
+            native.run_checked(u,0x55DE73,0x55DE87)
+            bc.invoke(u,0x51BAB0,actor,timeout_us=60_000_000)
+            sample=state()
+            visits.append({k:sample[k] for k in ('frame','health','alive','logic','doing','stage','pending_deletes')})
+            if not sample['alive']:break
+        assert not state()['alive'],'Native dying sequence did not UnInit'
+        boundary('before_deferred_destruction')
+        phase='final_deferred_drain';f.phase=phase
+        bc.invoke(u,0x725C70,0,timeout_us=60_000_000)
+        boundary('after_deferred_destruction')
+        assert not pending and f.code_unchanged()
+        assert read(0xB0F6A8)==0
+        return dict(name='ordinary_5206b0' if ordinary else 'direct_wounded17' if wounded else 'direct_stock75',
+            input=dict(seed=seed,source_xyz=[2496,2752,0],target_xyz=coords(er.BLD+0x9C),
+                target_foundation=list(f.building_foundation_dimensions),source_country='Confederation',
+                distinct_target_house=read(er.BLD+0x21C)!=er.HOUSE,unlimbo_admitted=admitted,
+                guard_a8ed6b=u.mem_read(0xA8ED6B,1)[0],session_literal_a8b238=read(0xA8B238)),
+            preparation=preparation,phases=phases,source_packets=packets,target_receivers=target_calls,
+            calls=calls,anims=[v for v in anims if v['type']!='BEHIND'],
+            observed_excluded_anims=sorted({v['type'] for v in anims if v['type']=='BEHIND'}),
+            normal_fire_tail_visits=normal,fire_writes=fire_writes,target_writes=target_writes,
+            timer_writes=[v for v in timer_writes if v['phase']!='dying_ai'],
+            rng_requests=rng.requests,lifecycle=lifecycle,death_visits=visits,
+            original_code_unchanged=f.code_unchanged(),
+            reached_presentation_boundaries=sorted({f'{v["address"]:08X}' for v in f.events if v.get('event')=='presentation_boundary'}),
+            coordinate_sound_request_count=read(0xB1D3A8),
+            post_destructor_state_bound='retained arena bytes only; source is no longer a live object')
+    finally:
+        for h in hooks:u.hook_del(h)
+
+
+def suicide_fire_generate(root=None, scenario_map=None):
+    import os
+    root=Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS']) if root is None else Path(root)
+    scenario_map=root/'Hills.map' if scenario_map is None else Path(scenario_map)
+    inputs=suicide_fire_inputs(root,scenario_map)
+    return dict(schema_version=1,inputs=inputs.suicide_inputs,
+        rows=[suicide_fire_execute(inputs),suicide_fire_execute(inputs,wounded=True),
+              suicide_fire_execute(inputs,ordinary=True)])
+
+
+def suicide_fire_metadata():
+    return provenance(scope='Stock TERROR synchronous Suicide FireAt, explicit DeathWeapon/real2x2 GAPOWR area receivers and native Infantry sequence/UnInit/deferred cleanup; three prepared direct/ordinary controls.',
+        entry_points=dict(type_ctor=0x5236A0,type_reader=0x5240A0,weapon_reader=0x772080,
+            infantry_ctor=0x517A50,infantry_unlimbo=0x51DFF0,fire_at_target=0x5206B0,
+            infantry_ai=0x51BAB0,infantry_fire=0x51DF60,techno_fire=0x6FDD50,
+            infantry_receiver=0x517FA0,techno_receiver=0x701900,death_weapon=0x70D690,
+            area_damage=0x489280,corpse_completion=0x520AE0,deferred_drain=0x725C70),
+        assumptions=['Existing joined_inputs/joined_fixture owns the VM, original readers/registries/constructors, clear flat admitted map/House priors and original CellSpread/Infantry/subcell startup. Original full scenario/House/target production/Unlimbo and input/approach are excluded. The supplied target750HP/2x2 foundation is reinserted by original Mark0/3.',
+            'Fixed ART/SHP is physical TRST/TerroristSequence, MININUKE and six Rules DeadBodies assets. Raw guardA8ED6B=0 and sessionA8B238=1 retain literal identities, with no Editor/session enum claim. Wounded17 is reached by original58/Super/ignoreDefenses1/arg6false receiver before measured FireAt75.',
+            'Seed31; source placement[2496,2752,0] is independently admitted by original Infantry ctor/Unlimbo, with target[2688,2688,0]. Other objects, House/effect Anim AI, global Logic interleaving/audio service/PCM/render are excluded. Behind remains explicitly excluded; incidental constructor observations do not establish its reader/assets/render parity.',
+            'Full three RNG states at named boundaries and native request/raw draws are observed; timer middle words/void EAX/DoAction high bytes and freed-object interpretations are excluded. Post-destructor bytes are retained arena storage.'],
+        substitutions=['Existing source-order lexical/physical-file IO, successful arena allocation/no-op release, CRT/TLS/SEH/Windows COM/audio device/clock/listener boundaries. Actual original Walk/Drive/Bullet factories execute. Remap705D70/radar655560/655740 remain presentation sinks. No selected FireAt, receiver, fatal, Bullet/AoE, source AI, corpse or cleanup result is supplied.'])
+
+
+def suicide_fire_main(argv):
+    import argparse
+    from tools.native_oracle import finish_vectors
+    parser=argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--suicide-map',type=Path)
+    args,remaining=parser.parse_known_args(argv)
+    sources=joined_source_paths()
+    repo=Path(__file__).resolve().parents[2]
+    for name in ('tools/input_oracle/unit_voice_playback.py',
+                 'tools/procedural_drawing_oracle/electric_bolt.py',
+                 'tools/rules_oracle/weapon_laser.py','tools/rules_oracle/weapon_speed_order.py'):
+        sources[name]=repo/name
+    finish_vectors(lambda:suicide_fire_generate(scenario_map=args.suicide_map),
+        Path(__file__).with_name('suicide_fire.json'),provenance=suicide_fire_metadata,
+        argv=remaining,source_paths=sources)
+
+
 if __name__ == "__main__":
     import sys
+    if '--wall-autofill' in sys.argv[1:]:
+        if {'--suicide-fire', '--typed-debris', '--damage-sound-joined',
+                '--joined-stock-smudges', '--constructed-cancellation', '--joined'} & set(sys.argv[1:]):
+            raise SystemExit('Select one native corpus mode')
+        wall_autofill_main([arg for arg in sys.argv[1:] if arg != '--wall-autofill'])
+        raise SystemExit(0)
+    if '--suicide-fire' in sys.argv[1:]:
+        if {'--typed-debris','--damage-sound-joined','--joined-stock-smudges',
+                '--constructed-cancellation','--joined'} & set(sys.argv[1:]):
+            raise SystemExit('Select one native corpus mode')
+        suicide_fire_main([arg for arg in sys.argv[1:] if arg!='--suicide-fire'])
+        raise SystemExit(0)
+    if '--typed-debris' in sys.argv[1:]:
+        typed_debris_main([arg for arg in sys.argv[1:] if arg!='--typed-debris'])
+        raise SystemExit(0)
     if '--damage-sound-joined' in sys.argv[1:]:
         if {'--joined', '--joined-stock-smudges', '--constructed-cancellation'} & set(sys.argv[1:]):
             raise SystemExit('Select one native corpus mode')

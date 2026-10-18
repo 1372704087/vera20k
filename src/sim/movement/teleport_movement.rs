@@ -152,24 +152,24 @@ impl TeleportState {
         self.phase
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn chrono_delay_ticks(&self) -> u32 {
         self.delay_timer.duration().max(0) as u32
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn destination(&self) -> Option<DriveCoord> {
         self.destination
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn target_cell(&self) -> Option<(u16, u16)> {
         self.destination
             .map(|coord| ((coord.x / 256) as u16, (coord.y / 256) as u16))
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_test(phase: TeleportPhase, rx: u16, ry: u16, ticks: u32) -> Self {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(phase: TeleportPhase, rx: u16, ry: u16, ticks: u32) -> Self {
         Self {
             phase,
             destination: Some(DriveCoord::cell(rx, ry, 0)),
@@ -177,17 +177,12 @@ impl TeleportState {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_phase_for_test(&mut self, phase: TeleportPhase) {
-        self.phase = phase;
-    }
-
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_destination_for_test(&mut self, destination: DriveCoord) {
         self.destination = Some(destination);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_ticks_for_test(&mut self, ticks: u32) {
         self.delay_timer =
             crate::sim::timer::CdTimer::from_raw(self.delay_timer.start_frame(), ticks as i32);
@@ -202,7 +197,7 @@ impl TeleportState {
 
     /// The relocation frame is removed from normal targeting before its cell
     /// and occupancy mutation; it becomes targetable again while materializing.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn is_targetable(&self) -> bool {
         self.phase == TeleportPhase::ChronoDelay
     }
@@ -211,8 +206,8 @@ impl TeleportState {
 /// Techno `+0x284`, the frames the Chronosphere's warp-in waits
 /// (`0x00719B23`). The Techno constructor clears it (`0x006F2DDE`); a blocked
 /// landing stores `[General] ChronoDelay=` (state 3, `0x00719983`), which
-/// stays for every later warp of the object. Its other writer, the chrono
-/// reinforcement (`0x0065F212`, `ChronoReinfDelay=`), is not ported.
+/// stays for every later warp of the object. Chrono reinforcement65F212 also
+/// stores ChronoReinfDelay here before Process state3 overwrites it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub(crate) struct ChronoWarpDelay(i32);
@@ -223,8 +218,8 @@ impl ChronoWarpDelay {
         self.0
     }
 
-    /// State 3's store of `[General] ChronoDelay=` (`0x00719983`).
-    pub(crate) fn store_chrono_delay(&mut self, frames: i32) {
+    /// State3's ChronoDelay719983 and reinforcement's ChronoReinfDelay65F212.
+    pub(crate) fn store(&mut self, frames: i32) {
         self.0 = frames;
     }
 }
@@ -236,10 +231,13 @@ impl ChronoWarpDelay {
 /// write. Native keeps the bytes on the Techno; only the Teleport's states
 /// write them, and End_Piggyback waits until all are clear
 /// (`0x00719F30`), so they live and die with this Teleport.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ChronoWarp {
     /// Teleport `+0x38`.
     state: u8,
+    /// Techno `+0x280`: reinforcement65F29F requests state3. Process719338
+    /// transfers it into +38; it remains nonzero until state7 clears it.
+    pending_state: u8,
     /// Teleport `+0x3C..+0x44`.
     timer: crate::sim::timer::CdTimer,
     /// Techno `+0x288` ChronoDestCoords.
@@ -253,6 +251,23 @@ pub struct ChronoWarp {
     warping_in: bool,
 }
 
+impl std::hash::Hash for ChronoWarp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.state.hash(state);
+        self.timer.hash(state);
+        self.destination.hash(state);
+        self.latched.hash(state);
+        self.warped_out.hash(state);
+        self.warping_in.hash(state);
+        // Existing Chronosphere warps have native pending0. Its absence and
+        // zero have identical consumers; preserve their established hash fold.
+        if self.pending_state != 0 {
+            b"chrono-pending-v376".hash(state);
+            self.pending_state.hash(state);
+        }
+    }
+}
+
 impl ChronoWarp {
     /// Case 4's arming of a fresh Teleport, whose constructor starts its
     /// timer at the current frame with no duration (`0x0071804C..0x00718058`),
@@ -262,12 +277,33 @@ impl ChronoWarp {
     pub(crate) fn new(destination: DriveCoord, frame: u32) -> Self {
         Self {
             state: 0,
+            pending_state: 0,
             timer: crate::sim::timer::CdTimer::started(frame as i32, 0),
             destination,
             latched: true,
             warped_out: false,
             warping_in: false,
         }
+    }
+
+    /// Chrono reinforcement65F208: the newly placed member starts
+    /// warping in without the Chronosphere's warp-out latch or 60-frame wait.
+    /// The success-list pass publishes pending3 separately, after Mark0.
+    pub(crate) fn reinforcement(destination: DriveCoord, frame: u32) -> Self {
+        Self {
+            latched: false,
+            warping_in: true,
+            ..Self::new(destination, frame)
+        }
+    }
+
+    pub(crate) fn pending_state(&self) -> u8 {
+        self.pending_state
+    }
+
+    /// Reinforcement65F29F publishes Techno+280 after removing occupation.
+    pub(crate) fn set_pending_state(&mut self, state: u8) {
+        self.pending_state = state;
     }
 
     pub(crate) fn state(&self) -> u8 {
@@ -365,6 +401,9 @@ impl TeleportRuntime {
 
     /// Case 4's arming of a fresh Teleport (`0x006CCC3D..0x006CCC67`).
     pub(crate) fn arm_chrono(&mut self, warp: ChronoWarp) {
+        // Both adapters represent the same native Process state/timer. Once
+        // a chrono warp owns it, an ordinary Move_To adapter cannot outlive it.
+        self.warp = None;
         self.chrono = Some(warp);
     }
 
@@ -417,8 +456,8 @@ impl crate::sim::game_entity::GameEntity {
         self.locomotor.as_ref()?.teleport_effect_state()
     }
 
-    #[cfg(test)]
-    pub(crate) fn install_teleport_state_for_test(&mut self, state: Option<TeleportState>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn install_teleport_state_for_test(&mut self, state: Option<TeleportState>) {
         use super::locomotor::LocomotorState;
         if self
             .locomotor
@@ -453,7 +492,7 @@ impl crate::sim::game_entity::GameEntity {
         runtime.warp = state;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn teleport_state_for_test_mut(&mut self) -> Option<&mut TeleportState> {
         self.locomotor
             .as_mut()?

@@ -34,7 +34,7 @@ pub struct TrackProgress {
 
 impl TrackProgress {
     /// A fixture's progress.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn for_test(
         turn_index: i32,
         cursor: i32,
@@ -50,23 +50,23 @@ impl TrackProgress {
     }
 
     /// See the field.
-    pub(crate) const fn turn_index(&self) -> i32 {
+    pub const fn turn_index(&self) -> i32 {
         self.turn_index
     }
 
     /// A fixture's selector.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_turn_index(&mut self, turn_index: i32) {
         self.turn_index = turn_index;
     }
 
     /// See the field.
-    pub(crate) const fn cursor(&self) -> i32 {
+    pub const fn cursor(&self) -> i32 {
         self.cursor
     }
 
     /// A fixture's cursor.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_cursor(&mut self, cursor: i32) {
         self.cursor = cursor;
     }
@@ -77,7 +77,7 @@ impl TrackProgress {
     }
 
     /// A fixture's reversed.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_reversed(&mut self, reversed: bool) {
         self.reversed = reversed;
     }
@@ -88,7 +88,7 @@ impl TrackProgress {
     }
 
     /// A fixture's residual.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_residual(&mut self, residual: i32) {
         self.residual = residual;
     }
@@ -106,7 +106,7 @@ impl Default for TrackProgress {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TrackFamily {
+pub enum TrackFamily {
     Drive,
     Ship,
 }
@@ -147,7 +147,7 @@ impl TrackInvocation {
 }
 
 impl TrackFamily {
-    pub(crate) fn from_kind(kind: crate::rules::locomotor_type::LocomotorKind) -> Option<Self> {
+    pub fn from_kind(kind: crate::rules::locomotor_type::LocomotorKind) -> Option<Self> {
         match kind {
             crate::rules::locomotor_type::LocomotorKind::Drive => Some(Self::Drive),
             crate::rules::locomotor_type::LocomotorKind::Ship => Some(Self::Ship),
@@ -301,15 +301,7 @@ fn residual_delta(delta: [i32; 3], residual: i32) -> (NativeF32Bits, [i32; 3]) {
         X87Chop53::store_f32(X87Chop53::mul(X87Chop53::load_i32(residual), reciprocal))
             .expect("signed residual produces a finite f32 factor");
     let factor = X87Chop53::load_f32(factor_bits).expect("stored finite factor");
-    let other = X87Chop53::sub(X87Chop53::load_i32(1), factor);
-    let zero_term = X87Chop53::mul(X87Chop53::load_i32(0), other);
-    let scaled = delta.map(|component| {
-        X87Chop53::ftol_i64(X87Chop53::add(
-            X87Chop53::mul(X87Chop53::load_i32(component), factor),
-            zero_term,
-        ))
-        .expect("signed component and residual product fits i64") as i32
-    });
+    let scaled = crate::util::native_coord::interpolate([0; 3], delta, factor);
     (factor_bits, scaled)
 }
 
@@ -494,7 +486,7 @@ impl TrackProcess {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn budget(&self) -> i32 {
         self.budget
     }

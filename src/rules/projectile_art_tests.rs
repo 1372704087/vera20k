@@ -4,11 +4,150 @@ use crate::rules::projectile_type::ProjectileType;
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/bridge_render_art_state.json",
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/bridge_render_art_state.json")
+}
+
+#[test]
+fn projectile_color_matches_original_shared_reader_and_section_admission() {
+    // Bullet46BFA5 and House511C22 call the same ReadColor474A90, with the
+    // same ctor0 and missing-section guard. Reuse its consumed native controls.
+    let native: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/input_oracle/campaign_start_houses.json",
     ))
-    .unwrap()
+    .unwrap();
+    let controls = &native["color_controls"];
+    let mut prefix = String::from(
+        "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n[GUN]\nProjectile=Control\n[Colors]\n",
+    );
+    for scheme in controls["registry"].as_array().unwrap() {
+        if scheme["shade_count"] == 1 {
+            prefix.push_str(scheme["name"].as_str().unwrap());
+            prefix.push_str("=0,0,0\n");
+        }
+    }
+    let sections = |value: &Value| {
+        IniFile::from_sections_for_test(value.as_object().unwrap().iter().map(|(name, values)| {
+            let mut section = IniSection::new(name.clone());
+            for (key, value) in values.as_object().unwrap() {
+                section.set(key, value.as_str().unwrap());
+            }
+            section
+        }))
+    };
+    for row in controls["country_rows"].as_array().unwrap() {
+        let mut setup = IniFile::from_str(&prefix);
+        setup.merge(&sections(&row["setup_sections"]));
+        let mut layers = RulesLayerStack::new(setup);
+        let current = row["physical_ini"]
+            .as_str()
+            .map(IniFile::from_str)
+            .unwrap_or_else(|| sections(&row["sections"]));
+        layers.push(RulesLayerKind::Scenario, current);
+        let processed = layers.process_with_fixed_art(&IniFile::empty()).unwrap();
+        // Constructor-only absent sections need not project a gameplay type;
+        // query and project the real registry's retained owner in all cases.
+        let (_, state) = processed
+            .projectile_art_states()
+            .find(|(name, _)| *name == "Control")
+            .unwrap();
+        let mut projectile =
+            ProjectileType::from_ini_section("Control", &IniSection::new("Control".into()), None);
+        state.apply_to(&mut projectile);
+        assert_eq!(
+            i64::from(projectile.color_scheme()),
+            row["after"].as_i64().unwrap(),
+            "original474A90 {row}"
+        );
+    }
+}
+
+#[test]
+fn production_kirov_projectile_retains_default_lightgold_shade53() {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
+        return;
+    };
+    let kirov = rules.object("ZEP").unwrap();
+    // Both normal and elite production weapon references use this same type.
+    assert_eq!(kirov.primary(), Some("BlimpBomb"));
+    assert_eq!(kirov.elite_primary(), Some("BlimpBombE"));
+    for name in [kirov.primary().unwrap(), kirov.elite_primary().unwrap()] {
+        let projectile = rules.weapon(name).unwrap().projectile.as_deref().unwrap();
+        let kind = rules.projectile(projectile).unwrap();
+        assert_eq!(kind.id, "BlimpBombP");
+        assert_eq!(kind.voxel_image_load(), Some("ZBOMB"));
+        assert_eq!(
+            kind.color_scheme(),
+            1,
+            "{name}: ctor0 -> ReadColor missing -> shade53"
+        );
+        assert_eq!(
+            rules.color_schemes[kind.color_scheme() as usize / 2].name,
+            "LightGold"
+        );
+    }
+}
+
+#[test]
+fn projectile_color_uses_current_registry_and_survives_layer_handoff() {
+    let first = IniFile::from_str(
+        "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n[GUN]\nProjectile=SHOT\n[Colors]\nFirst=0,0,0\n[SHOT]\nColor=Later\n",
+    );
+    let first = RulesLayerStack::new(first).process().unwrap();
+    let (_, receipt) = first.into_ini_and_native_type_construction_trace();
+    let mut registry = receipt.into_registry_state_discarding_events();
+    for (body, expected) in [
+        ("[Colors]\nLater=1,2,3\n", 0),
+        ("[SHOT]\nName=present, Color absent\n", 1),
+        ("[SHOT]\nColor=Later\n", 3),
+        ("[Other]\nName=whole SHOT section absent\n", 3),
+        ("[SHOT]\nColor=unknown\n", 3),
+    ] {
+        let processed = RulesLayerStack::new(IniFile::from_str(body))
+            .process_with_fixed_art_and_registry_state(&IniFile::empty(), registry)
+            .unwrap();
+        let rules = RuleSet::from_processed_rules(&processed).unwrap();
+        assert_eq!(
+            rules.projectile("SHOT").unwrap().color_scheme(),
+            expected,
+            "{body}"
+        );
+        let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
+        // The existing serialized registry handoff must keep this new state.
+        registry = serde_json::from_value(
+            serde_json::to_value(receipt.into_registry_state_discarding_events()).unwrap(),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn projectile_voxel_load_retains_attempt_identity_independently_of_shp_and_inviso() {
+    // Original46C40B..46C417 runs after the independent SHP gate, on current
+    // Image even when empty. A false Voxel flag does not call LoadVoxelAssets.
+    let art = IniFile::from_str("[V]\nVoxel=yes\n[S]\nVoxel=no\n");
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n[GUN]\nProjectile=SHOT\n",
+    ));
+    for (body, expected, expected_shp) in [
+        ("[SHOT]\nImage=V\nInviso=yes\n", Some("V"), None),
+        ("[SHOT]\nName=missing Image, still Voxel\n", Some(""), None),
+        ("[SHOT]\nImage=S\n", Some(""), Some("S")),
+        ("[SHOT]\nImage=V\n", Some("V"), Some("S")),
+        ("[Other]\nName=absent SHOT\n", Some("V"), Some("S")),
+    ] {
+        layers.push(RulesLayerKind::Scenario, IniFile::from_str(body));
+        let processed = layers.process_with_fixed_art(&art).unwrap();
+        let rules = RuleSet::from_processed_rules(&processed).unwrap();
+        let kind = rules.projectile("SHOT").unwrap();
+        assert!(kind.inviso, "{body}");
+        assert_eq!(kind.voxel_image_load(), expected, "{body}");
+        assert_eq!(
+            kind.image_load.as_ref().map(|load| load.image.as_str()),
+            expected_shp,
+            "base non-Voxel SHP load precedes Bullet Inviso: {body}"
+        );
+    }
 }
 
 fn compare(actual: &ProjectileType, expected: &Value, context: &str) {
@@ -124,14 +263,9 @@ fn retained_projectile_art_matches_original_full_readers_across_layers_and_owner
 
 #[test]
 fn production_retail_projectile_art_matches_original_referenced_type_readers() {
-    use crate::rules::retail_ini_fixture::retail_ini;
-    let Some(rules_ini) = retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
         return;
     };
-    let Some(art_ini) = retail_ini("artmd.ini") else {
-        return;
-    };
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
     let corpus = native();
     let anim_roots = crate::rules::effect_asset_catalog::anim_class_roots(&rules);
     let mut compared = Vec::new();

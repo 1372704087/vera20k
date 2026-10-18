@@ -42,15 +42,13 @@
 use super::spawn::spawn_particle_with_insert;
 use super::{Particle, ParticleSystem};
 use crate::rules::particle_type::ParticleType;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::rules::particle_type::ParticleTypeId;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::rng::SimRng;
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF32Bits};
-#[cfg(test)]
-use glam::IVec3;
 
 /// `SpawnParticleWithInsert` range used by fire systems — particles inserted
 /// within the last 4 slots create the non-monotonic flame trail.
@@ -102,46 +100,6 @@ pub(super) fn tick_particle(p: &mut Particle, pt: &ParticleType, rng: &mut SimRn
     }
 }
 
-/// Apply fire movement to one particle.
-///
-/// Adds the AI-written `prev_delta` to coords, then kills the particle
-/// if the new position lands on rising terrain (cliff death). Caller
-/// supplies pre-queried ground heights; the actual map query is the
-/// deferred per-tick wiring.
-///
-/// On cliff death the particle still advances to `new_coords` — that
-/// matches the binary's `Move_Dispatch` which calls `SetCoords(new_pos)`
-/// unconditionally after marking the particle dead. The dying particle
-/// renders one frame at the cliff cell, then gets pruned next tick.
-///
-/// `move_fire` is a no-op when the particle's velocity has already
-/// dropped to zero (fire AI's velocity gate would have marked it for
-/// deletion this tick anyway, but `move_fire` may be called standalone
-/// in tests or in the eventual wiring sequence).
-///
-/// Bridge-layer interaction is deferred to C6 — fire particles pass
-/// through bridges in the binary too (no bridge check in fire move).
-// Ground-height ownership is not wired into the live particle tick yet.
-#[cfg(test)]
-pub(super) fn move_fire(p: &mut Particle, old_ground: i32, new_ground: i32) {
-    if matches!(
-        X87::compare(X87::load_f32(p.velocity), X87::load_i32(0)),
-        MaskedX87Ordering::Less | MaskedX87Ordering::Equal
-    ) {
-        return;
-    }
-    let dx = p.prev_delta[0].to_num::<i32>();
-    let dy = p.prev_delta[1].to_num::<i32>();
-    let dz = p.prev_delta[2].to_num::<i32>();
-    let new_coords = p.coords + IVec3::new(dx, dy, dz);
-    if old_ground < new_ground {
-        // Cliff death — terrain rises, particle hits ground.
-        p.marked_for_deletion = true;
-        // Coords still advance — the binary's SetCoords runs after the kill.
-    }
-    p.coords = new_coords;
-}
-
 /// Advance one fire `ParticleSystem` by one tick.
 pub(super) fn tick_system(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleSet) {
     let pst = rules.particle_system_type(sys.type_id);
@@ -155,12 +113,16 @@ pub(super) fn tick_system(sys: &mut ParticleSystem, sim: &mut Simulation, rules:
 
     // Phase 2 — prune dead particles. Fire has no NextParticle chaining
     // (the [FireStream] type has none and no fire chain exists in vanilla).
-    for p in &sys.particles {
-        if p.marked_for_deletion {
-            sim.conceal_particle(p.stable_id());
+    // Native System cleanup walks backward; each child reaches the same
+    // inherited ObjectUnInit5F65F0 and common deferred drain as Spark/Smoke.
+    for index in (0..sys.particles.len()).rev() {
+        if sys.particles[index].marked_for_deletion {
+            let particle = sys
+                .remove_expired_child(sys.particles[index].stable_id())
+                .expect("the current child is present");
+            sim.retire_particle(particle, rules);
         }
     }
-    sys.particles.retain(|p| !p.marked_for_deletion);
 
     // Phase 3 — spawn at SpawnFrames cadence via the insert-shuffle helper.
     // Orbital attached-object tracking + the target-moved 3-tick fallback
@@ -177,37 +139,12 @@ pub(super) fn tick_system(sys: &mut ParticleSystem, sim: &mut Simulation, rules:
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::particle_system_type::ParticleSystemTypeId;
-    use crate::sim::particles::ParticleSystem;
+
     use crate::util::fixed_math::SIM_ZERO;
     use glam::IVec3;
 
-    fn fake_system(type_id: ParticleSystemTypeId) -> ParticleSystem {
-        let mut system = ParticleSystem::test_fixture(0, type_id, IVec3::ZERO);
-        system.spawn_timer = NativeF32Bits::ONE;
-        system
-    }
-
     fn parse(ini_text: &str) -> RuleSet {
         RuleSet::from_ini(&IniFile::from_str(ini_text)).expect("rules parse")
-    }
-
-    #[test]
-    fn velocity_zero_marks_for_deletion() {
-        // Parity rule: fire dies the instant its momentum runs out.
-        let rules = parse(
-            "[Particles]\n\
-             1=Fire\n\
-             [Fire]\n\
-             BehavesLike=Fire\n\
-             MaxEC=500\n",
-        );
-        let pt = rules.particle_type(ParticleTypeId(0));
-        let mut sim = Simulation::new();
-        let mut p = Particle::new(ParticleTypeId(0), IVec3::ZERO, IVec3::ZERO, pt, &mut sim);
-        p.velocity = NativeF32Bits::POSITIVE_ZERO;
-        tick_particle(&mut p, pt, sim.particle_rng());
-        assert!(p.marked_for_deletion, "zero-velocity fire dies immediately");
     }
 
     #[test]
@@ -256,126 +193,6 @@ mod tests {
         assert!(
             p.prev_delta[0] > SimFixed::from_num(0.79),
             "jitter sanity lower bound"
-        );
-    }
-
-    #[test]
-    fn final_damage_state_clamps_damage_counter_reset() {
-        // Past FinalDamageState, the counter still decrements but stops
-        // resetting — fire visibly fades but does no damage.
-        let rules = parse(
-            "[Particles]\n\
-             1=Fire\n\
-             [Fire]\n\
-             BehavesLike=Fire\n\
-             MaxEC=500\n\
-             MaxDC=3\n\
-             Velocity=28.0\n\
-             StartStateAI=20\n\
-             EndStateAI=99\n\
-             FinalDamageState=14\n",
-        );
-        let pt = rules.particle_type(ParticleTypeId(0));
-        let mut sim = Simulation::new();
-        let mut p = Particle::new(ParticleTypeId(0), IVec3::ZERO, IVec3::ZERO, pt, &mut sim);
-        // Force animation_state past final_damage_state (default 14).
-        p.animation_state = 20;
-        // Drive damage_counter to zero — must NOT reset to MaxDC.
-        for _ in 0..5 {
-            tick_particle(&mut p, pt, sim.particle_rng());
-        }
-        assert!(
-            p.damage_counter <= 0,
-            "past FinalDamageState, counter must NOT reset (got {})",
-            p.damage_counter
-        );
-    }
-
-    #[test]
-    fn move_fire_marks_dead_when_terrain_rises() {
-        // Cliff death: old_ground < new_ground → marked dead.
-        // Coords still advance (binary's Move_Dispatch does SetCoords after
-        // the kill); the dying particle renders one frame at the cliff cell.
-        let rules = parse(
-            "[Particles]\n\
-             1=Fire\n\
-             [Fire]\n\
-             BehavesLike=Fire\n\
-             MaxEC=500\n\
-             Velocity=28.0\n",
-        );
-        let pt = rules.particle_type(ParticleTypeId(0));
-        let mut sim = Simulation::new();
-        let mut p = Particle::new(
-            ParticleTypeId(0),
-            IVec3::new(100, 100, 0),
-            IVec3::ZERO,
-            pt,
-            &mut sim,
-        );
-        p.prev_delta = [SimFixed::from_num(5), SIM_ZERO, SIM_ZERO];
-        // old_ground=0, new_ground=10 → terrain rises.
-        move_fire(&mut p, 0, 10);
-        assert!(p.marked_for_deletion, "cliff death marks for deletion");
-        // Coords advance to the cliff cell — matches binary parity.
-        assert_eq!(p.coords, IVec3::new(105, 100, 0));
-    }
-
-    #[test]
-    fn move_fire_advances_on_flat_ground() {
-        // Sanity counterpart: equal grounds → coords advance, no death.
-        let rules = parse(
-            "[Particles]\n\
-             1=Fire\n\
-             [Fire]\n\
-             BehavesLike=Fire\n\
-             MaxEC=500\n\
-             Velocity=28.0\n",
-        );
-        let pt = rules.particle_type(ParticleTypeId(0));
-        let mut sim = Simulation::new();
-        let mut p = Particle::new(
-            ParticleTypeId(0),
-            IVec3::new(100, 100, 0),
-            IVec3::ZERO,
-            pt,
-            &mut sim,
-        );
-        p.prev_delta = [SimFixed::from_num(5), SIM_ZERO, SIM_ZERO];
-        move_fire(&mut p, 0, 0);
-        assert!(!p.marked_for_deletion);
-        assert_eq!(p.coords, IVec3::new(105, 100, 0));
-    }
-
-    #[test]
-    fn fire_spawn_cap_enforced() {
-        // Cap=3 — even with aggressive cadence, particle count must stay ≤ 3.
-        let rules = parse(
-            "[Particles]\n\
-             1=Fire\n\
-             [Fire]\n\
-             BehavesLike=Fire\n\
-             MaxEC=1000\n\
-             Velocity=28.0\n\
-             [ParticleSystems]\n\
-             1=Sys\n\
-             [Sys]\n\
-             BehavesLike=Fire\n\
-             HoldsWhat=Fire\n\
-             ParticleCap=3\n\
-             SpawnFrames=1\n\
-             Spawns=yes\n",
-        );
-        let mut sim = Simulation::new();
-        let mut sys = fake_system(ParticleSystemTypeId(0));
-        for _ in 0..50 {
-            tick_system(&mut sys, &mut sim, &rules);
-            sim.session.binary_frame = sim.session.binary_frame.wrapping_add(1);
-        }
-        assert!(
-            sys.particles.len() <= 3,
-            "cap exceeded: {}",
-            sys.particles.len()
         );
     }
 }

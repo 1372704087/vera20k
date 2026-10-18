@@ -172,10 +172,7 @@ pub(crate) struct PreparedLoad {
     map_restore: SnapshotMapRestoreOutput,
     sinking_waterlines: Vec<(u64, i16)>,
     tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
-    sidebar_order: Option<(
-        crate::sim::intern::InternedId,
-        crate::ui::sidebar::cameo_order::CameoStrips,
-    )>,
+    sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
 
 /// Presentation changes released only after the validated world commits.
@@ -183,10 +180,7 @@ pub(crate) struct CommittedLoadPresentation {
     pub(crate) occupied_overlays: Vec<crate::map::overlay::OverlayEntry>,
     pub(crate) sinking_waterlines: Vec<(u64, i16)>,
     pub(crate) tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
-    pub(crate) sidebar_order: Option<(
-        crate::sim::intern::InternedId,
-        crate::ui::sidebar::cameo_order::CameoStrips,
-    )>,
+    pub(crate) sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
 
 /// Fixture adapter for snapshots without a production resource record.
@@ -1276,11 +1270,7 @@ mod tests {
             Some(&rules),
             Some(&roster_ini),
         );
-        crate::sim::scenario_bootstrap::initialize_campaign_current_house(
-            &mut saved,
-            &roster,
-            &roster_ini,
-        );
+        crate::sim::scenario_bootstrap::initialize_campaign_current_house(&mut saved, &roster_ini);
         let saved_owner = saved.interner.get("SavedPlayer").unwrap();
         let outgoing_owner = saved.interner.get("OutgoingPlayer").unwrap();
         let directory = isolated_directory("current-house-full-load");
@@ -1297,7 +1287,6 @@ mod tests {
         );
         crate::sim::scenario_bootstrap::initialize_campaign_current_house(
             &mut current,
-            &roster,
             &IniFile::from_str("[Basic]\nPlayer=OutgoingPlayer\n"),
         );
         assert_eq!(current.session.current_house, Some(outgoing_owner));

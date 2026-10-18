@@ -76,7 +76,6 @@ fn fixture(row: &Value, kind: &crate::rules::projectile_type::ProjectileType) ->
     terrain.test_set_native_allocated_cells(&[cell_xy]);
     *terrain.cell_mut(cell_xy.0, cell_xy.1).unwrap() = cell;
     sim.install_resolved_terrain_for_new_map(terrain);
-    let weapon = sim.interner.intern("FIXTURE_UNUSED_WEAPON");
     let warhead = sim.interner.intern("FIXTURE_UNUSED_WARHEAD");
     let id = sim.allocate_stable_id();
     sim.admit_projectile(
@@ -89,7 +88,7 @@ fn fixture(row: &Value, kind: &crate::rules::projectile_type::ProjectileType) ->
             origin: coord,
             target: ProjectileTarget::None,
             initial_target_position: coord,
-            payload: ProjectilePayload::new(0, warhead, weapon),
+            payload: ProjectilePayload::new(0, warhead, None, false),
             speed_leptons_per_frame: 0,
             velocity: input["velocity"].as_array().map_or_else(
                 || ProjectileVelocity::new(0, 0, 0),
@@ -276,12 +275,13 @@ fn compare_shape_corpus(
                 &kind,
                 type_id,
                 crate::rules::house_colors::HouseColorIndex(0),
-                atlas,
+                Some(atlas),
                 grid,
                 camera_pos,
                 viewport,
                 axis,
                 &order,
+                |_, _| None,
             );
             // Serialize the actual retained components, not a freshly sorted
             // list or new projectile constructor. Full savegame restoration is
@@ -297,12 +297,13 @@ fn compare_shape_corpus(
                 &kind,
                 type_id,
                 crate::rules::house_colors::HouseColorIndex(0),
-                atlas,
+                Some(atlas),
                 grid,
                 camera_pos,
                 viewport,
                 axis,
                 &restored_order,
+                |_, _| None,
             );
             let layers = lower_object_instances(object.into_iter().collect());
             let restored_layers = lower_object_instances(restored.into_iter().collect());
@@ -372,10 +373,11 @@ fn compare_shape_corpus(
                 None,
                 None,
                 None,
-                &VxlSlopeTransitionCache::default(),
                 Some(atlas),
                 None,
                 batch.default_zshape_bind_group(),
+                None,
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),
@@ -423,7 +425,7 @@ fn compare_shape_corpus(
             );
             // The late store entry survives retirement, but its Display slot
             // is already gone. No storage-order rendering is admissible.
-            assert!(sim.retire_non_entity_object(id));
+            assert!(sim.retire_non_entity_object(id, crate::sim::world::UninitContext::default()));
             assert!(sim.projectiles.get(id).is_some());
             let removed_order = NativeDisplayOrder::from_display(sim.display_layers());
             assert!(
@@ -432,12 +434,13 @@ fn compare_shape_corpus(
                     &kind,
                     type_id,
                     crate::rules::house_colors::HouseColorIndex(0),
-                    atlas,
+                    Some(atlas),
                     sim.resolved_terrain.as_ref().unwrap(),
                     camera_pos,
                     viewport,
                     axis,
-                    &removed_order
+                    &removed_order,
+                    |_, _| None,
                 )
                 .is_none()
             );

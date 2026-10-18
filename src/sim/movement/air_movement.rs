@@ -196,8 +196,8 @@ pub(crate) fn fly_speed_facts(
     )>,
 ) -> FlySpeedFacts {
     let aircraft = entity.category() == EntityCategory::Aircraft;
-    let object = rules_context
-        .and_then(|(rules, interner)| rules.object(interner.resolve(entity.type_ref())));
+    let object =
+        rules_context.and_then(|(rules, interner)| interner.object_type(entity.type_ref(), rules));
     let strafe_or_fighter = aircraft
         && rules_context
             .zip(object)
@@ -221,7 +221,7 @@ pub(crate) fn fly_speed_facts(
                 .is_some_and(|leaf| leaf.action_latch() != 0),
             fly_by: aircraft && object.is_some_and(|o| o.fly_by),
             strafe_or_fighter,
-            ammo: entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current()),
+            ammo: entity.ammo().map_or(-1, |a| a.current()),
         },
         hunter_seeker: object.is_some_and(|o| o.hunter_seeker),
         target: entity.attack_target.target().is_some(),
@@ -234,7 +234,7 @@ pub(crate) fn fly_speed_facts(
 /// replacing an existing live turn. The body's rate stands in for `ROT=`:
 /// the Aircraft constructor (`0x00413FD2..0x00414015`) gives both
 /// controllers that one value.
-pub(crate) fn ensure_fly_secondary_facing(entity: &mut crate::sim::game_entity::GameEntity) {
+pub fn ensure_fly_secondary_facing(entity: &mut crate::sim::game_entity::GameEntity) {
     let initial = entity.body_facing.destination();
     let body = &entity.body_facing;
     entity
@@ -275,9 +275,8 @@ pub struct AirMovementTickStats {
     /// A dead Fly's fall reached the ground this visit: Process ends in the
     /// impact (`Simulation::fly_crash_impact`), which its caller commits.
     pub impact: bool,
-    /// A Jumpjet touched down54C8F0. The native Unit host has already run
-    /// PerCell2 and class NULL synchronously; the Infantry caller continues
-    /// its still separate class path.
+    /// A Jumpjet reached touchdown54C8F0. Its host has already run PerCell2
+    /// and class NULL synchronously, even when their effects abort landing.
     pub touched_down: bool,
     /// A receiver Process ran synchronously (a dropped Jumpjet's impact)
     /// changed a bridge.
@@ -290,7 +289,7 @@ pub struct AirMovementTickStats {
 /// stands on its ground ([`object_world_z_leptons`]), so its height is 0.
 ///
 /// [`object_world_z_leptons`]: super::ground_pose::object_world_z_leptons
-pub(crate) fn current_fly_height(
+pub fn current_fly_height(
     entity: &crate::sim::game_entity::GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> i32 {
@@ -305,16 +304,27 @@ fn queried_flight_height(
     let Some(z) = entity.position.exact_z_leptons() else {
         return 0;
     };
+    object_height_in_query(
+        DriveCoord {
+            z,
+            ..super::ground_pose::position_world_coord(&entity.position)
+        },
+        entity.on_bridge(),
+        cells,
+    )
+}
+
+/// Object5F5F40: retained Location less the live ground and optional deck.
+/// Both Techno and Terrain queries use the same ground/height boundary.
+pub(crate) fn object_height_in_query(
+    coord: DriveCoord,
+    on_bridge: bool,
+    cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
+) -> i32 {
     let ground = cells
-        .and_then(|cells| {
-            super::ground_pose::query_ground_height(
-                cells,
-                super::ground_pose::position_world_coord(&entity.position),
-            )
-            .ok()
-        })
+        .and_then(|cells| super::ground_pose::query_ground_height(cells, coord).ok())
         .unwrap_or(0);
-    super::ground_pose::height_at_z(z, ground, entity.on_bridge())
+    super::ground_pose::height_at_z(coord.z, ground, on_bridge)
 }
 
 /// Object virtual+50 /5F6B60. A marked grounded object is low; an unmarked
@@ -382,10 +392,22 @@ fn query_flight_predicate(
         // Aircraft41B920 returns moving; Aircraft41B980 returns !moving.
         return moving == high;
     }
-    entity.lifecycle.cell_marked()
-        && (queried_flight_height(entity, cells)
-            >= crate::util::lepton::HIGH_FLIGHT_THRESHOLD_LEPTONS as i32)
-            == high
+    object_flight_predicate(
+        entity.lifecycle.cell_marked(),
+        || queried_flight_height(entity, cells),
+        high,
+    )
+}
+
+/// Shared Object virtual+50/+54 (5F6B60/5F6B90), after class overrides.
+pub(crate) fn object_flight_predicate(
+    marked: bool,
+    height: impl FnOnce() -> i32,
+    high: bool,
+) -> bool {
+    // The original short-circuits before GetHeight; a map query can stamp the
+    // shared fallback cell even when its numeric result would be discarded.
+    marked && (height() >= crate::util::lepton::HIGH_FLIGHT_THRESHOLD_LEPTONS as i32) == high
 }
 
 fn missile_flight_override(
@@ -427,8 +449,8 @@ pub(crate) fn type_flight_level(
     )>,
 ) -> i32 {
     rules_context.map_or(500, |(rules, interner)| {
-        rules
-            .object(interner.resolve(entity.type_ref()))
+        interner
+            .object_type(entity.type_ref(), rules)
             .map_or(rules.general.flight_level, |object| {
                 object.flight_level(rules.general.flight_level)
             })
@@ -453,8 +475,8 @@ pub(crate) fn update_fly_height(
         let cell = grid.native_cell_identity(((xy[0] / 256) as i16, (xy[1] / 256) as i16));
         grid.native_cell_flags(cell) & 0x100 != 0
     });
-    let object = rules_context
-        .and_then(|(rules, interner)| rules.object(interner.resolve(entity.type_ref())));
+    let object =
+        rules_context.and_then(|(rules, interner)| interner.object_type(entity.type_ref(), rules));
     let flight_level = type_flight_level(entity, rules_context);
     let has_passenger = entity.category() == crate::map::entities::EntityCategory::Aircraft
         && entity

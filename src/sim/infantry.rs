@@ -107,25 +107,25 @@ impl InfantryRuntime {
     }
 
     /// Install a fixture's fear.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_fear_level_for_test(&mut self, fear: u16) {
         self.fear_level = fear;
     }
 
     /// Install a fixture's stance.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_is_prone_for_test(&mut self, prone: bool) {
         self.is_prone = prone;
     }
 
     /// Install a fixture's idle timer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_idle_action_timer_for_test(&mut self, timer: MissionTimer) {
         self.idle_action_timer = timer;
     }
 
     /// Install a fixture's failed-path answer.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_cell_entry_blocked_for_test(&mut self, blocked: bool) {
         self.cell_entry_blocked = blocked;
     }
@@ -152,7 +152,7 @@ const FIRST_HIT_FEAR: u16 = 100;
 const FEAR_LATCH_CEILING: u16 = 99;
 const REPEATED_RED_ADD: u16 = 50;
 const REPEATED_YELLOW_ADD: u16 = 25;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 const REPEATED_GREEN_ADD: u16 = 12;
 const PRONE_THRESHOLD: u16 = 50;
 
@@ -281,11 +281,11 @@ impl crate::sim::world::Simulation {
             }
             // REQUIRED SEPARATE MECHANISM:5200E1..520105 reads live
             // Techno+2FC after fear reaches0, calls the shared IsArmed701120
-            // if Ammo0, and refills from Type+684. Shared ground TechnoAmmo
-            // lifecycle is absent; immutable TypeAmmo cannot stand in for
-            // the live count. Stock E1's unlimited native Ammo-1 bypasses
-            // this arm. Saved zero-ammo controls retain the exact native
-            // prerequisite for migration of the existing AircraftAmmo owner.
+            // if Ammo0, and refills from Type+684. The shared Ammo owner now
+            // retains the constructor/chrono count, but this fear refill and
+            // ordinary ground fire debit cycle remain separate. Stock E1's
+            // negative count bypasses this arm. Saved zero-ammo controls
+            // retain its native producer for that lifecycle migration.
             let actor = self
                 .substrate
                 .entities
@@ -598,7 +598,7 @@ impl crate::sim::world::Simulation {
 /// callers use the synchronous object receiver above. This adapter keeps only
 /// outer AI/logic-vector gates and delegates every idle decision to its owner;
 /// returned fidgets require the real Do_Action receiver to enact them.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn tick_idle_actions(
     entities: &mut crate::sim::entity_store::EntityStore,
     order: &[u64],
@@ -800,11 +800,8 @@ mod tests {
         );
     }
 
-    fn fear_corpus() -> serde_json::Value {
-        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/infantry_fear_action.json",
-        ))
-        .unwrap();
+    fn fear_corpus() -> &'static serde_json::Value {
+        let native = crate::test_fixture::json("tools/spatial_oracle/infantry_fear_action.json");
         assert_eq!(
             native["native_sha256"],
             "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"

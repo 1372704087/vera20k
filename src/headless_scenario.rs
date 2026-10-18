@@ -9,12 +9,16 @@
 //! (`sim::runtime::finalize_and_populate_staged_authored_scenario`, on a `Simulation`
 //! staged before terrain Fill): map-roster houses are created before objects,
 //! terrain objects before map entities, and map-placed units/structures spawn with
-//! terrain-attached animations. What a headless scenario still lacks versus an app
-//! launch is the launch *session* — skirmish player houses, start-position placement,
-//! and atlas-derived voxel animation frame counts (a GPU concern).
+//! terrain-attached animations. A Battle launch session ([`battle_session`]) creates
+//! the player houses, the local one and any computer opponents, and places them on
+//! their starts. What a headless scenario still lacks versus an app launch is
+//! atlas-derived voxel animation frame counts (a GPU concern).
 //!
 //! The seed contract mirrors the original engine: one 32-bit word seeds the scenario and
 //! main streams identically, fixed before any setup-phase draw.
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod radiation_test_evidence;
 
 use std::path::Path;
 
@@ -25,17 +29,22 @@ use crate::map::theater;
 use crate::map::tile_variant_selector::TileVariantSelectorCache;
 use crate::map::waypoints;
 use crate::rules::overlay_types::OverlayTypeRegistry;
+use crate::sim::intern::InternedId;
 use crate::sim::scenario_bootstrap::ScenarioBootstrapRng;
 use crate::sim::scenario_session::ScenarioDescriptor;
 use crate::sim::world::Simulation;
+use crate::skirmish_launch::{AiDifficulty, LaunchCountry, SkirmishLaunchSession};
 
-/// A Battle session on `selected_map_file` with the local player alone.
-pub(crate) fn battle_session(
+/// A Battle session on `selected_map_file`: the local player against one
+/// computer house for each of `opponents` (its country and difficulty), every
+/// house on a start the launch draws. The lobby allows seven opponents.
+pub fn battle_session(
     selected_map_file: &str,
-) -> crate::skirmish_launch::SkirmishLaunchSession {
+    opponents: &[(LaunchCountry, AiDifficulty)],
+) -> SkirmishLaunchSession {
     use crate::skirmish_launch::{
-        LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster, SkirmishLaunchMode,
-        SkirmishLaunchOptions, SkirmishLaunchSession, SkirmishLocalSlot,
+        LaunchStartPosition, LaunchTeam, PreFillHouseRoster, SkirmishAiSlot, SkirmishLaunchMode,
+        SkirmishLaunchOptions, SkirmishLocalSlot,
     };
 
     SkirmishLaunchSession {
@@ -59,19 +68,22 @@ pub(crate) fn battle_session(
             start_position: LaunchStartPosition::Auto,
             team: LaunchTeam::None,
         },
-        opponents: Vec::new(),
-        pre_fill_house_roster: PreFillHouseRoster::from_compact_skirmish(0),
+        opponents: opponents
+            .iter()
+            .enumerate()
+            .map(|(slot, &(country, difficulty))| SkirmishAiSlot {
+                country,
+                country_random: false,
+                color_index: slot as u8 + 1,
+                color_random: false,
+                start_position: LaunchStartPosition::Auto,
+                team: LaunchTeam::None,
+                difficulty,
+            })
+            .collect(),
+        pre_fill_house_roster: PreFillHouseRoster::from_compact_skirmish(opponents.len()),
         options: SkirmishLaunchOptions::default(),
     }
-}
-
-fn one_player_battle_launch(
-    selected_map_file: &str,
-) -> Result<crate::sim::scenario_bootstrap::MatchLaunchDescriptor, String> {
-    crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(battle_session(
-        selected_map_file,
-    ))
-    .map_err(|error| format!("resolve one-player Battle launch: {error}"))
 }
 
 /// A loaded scenario plus the per-tick inputs `advance_tick` needs.
@@ -87,6 +99,33 @@ impl HeadlessScenario {
     pub fn sim(&self) -> &Simulation {
         &self.runtime.simulation
     }
+
+    /// Add a human player's house of `country` after the load, built by the
+    /// launch's own house constructor with the session's credits and tech
+    /// level. The launch gave it no start, starting force or alliance, so it
+    /// is at war with every house.
+    pub fn add_human_house(&mut self, owner_name: &str, country: LaunchCountry) -> InternedId {
+        let slot = crate::sim::scenario_bootstrap::NormalizedSkirmishSlot {
+            owner_name: owner_name.to_string(),
+            country,
+            color_index: 0,
+            start_position: crate::skirmish_launch::LaunchStartPosition::Auto,
+            team: crate::skirmish_launch::LaunchTeam::None,
+            is_human: true,
+            difficulty: crate::sim::house_state::HouseDifficulty::Normal,
+        };
+        let runtime = &mut self.runtime;
+        crate::sim::scenario_bootstrap::populate_launch_houses(
+            &mut runtime.simulation,
+            std::slice::from_ref(&slot),
+            &runtime.resources.rules,
+        );
+        runtime
+            .simulation
+            .interner
+            .get(owner_name)
+            .expect("the house constructor interns its name")
+    }
 }
 
 /// Native logic-frame cadence (66 ms). NOTE: this does NOT match the
@@ -100,18 +139,30 @@ pub const SIM_TICK_MS: u32 = 1000 / crate::util::fixed_math::RA2_LOGIC_FRAMES_PE
 /// `map_file_name` uses the game's shared loose/MIX source resolver (e.g.
 /// `"Dustbowl.mmx"` or `"XMP03T4.MAP"`).
 pub fn load(retail_dir: &Path, map_file_name: &str, seed: u32) -> Result<HeadlessScenario, String> {
-    load_with_launch(
+    load_session(
         retail_dir,
         map_file_name,
         seed,
-        one_player_battle_launch(map_file_name)?,
+        battle_session(map_file_name, &[]),
     )
+}
+
+/// Load `map_file_name` as `session` launches it (see [`battle_session`]).
+pub fn load_session(
+    retail_dir: &Path,
+    map_file_name: &str,
+    seed: u32,
+    session: SkirmishLaunchSession,
+) -> Result<HeadlessScenario, String> {
+    let launch = crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(session)
+        .map_err(|error| format!("resolve Battle launch: {error}"))?;
+    load_with_launch(retail_dir, map_file_name, seed, launch)
 }
 
 /// Run the same construction and bound-resource handoff with an explicit
 /// resolved launch. The quickplay regression uses its real app descriptor here
 /// so house creation and starting forces cannot drift from the tested session.
-pub(crate) fn load_with_launch(
+pub fn load_with_launch(
     retail_dir: &Path,
     map_file_name: &str,
     seed: u32,
@@ -247,8 +298,8 @@ pub(crate) fn load_with_launch(
     // roots now and let the authored host bind each actually reached map Anim
     // synchronously before its native constructor spends an ID.
     let mut scheduler_roots =
-        crate::app::loading::init_helpers::scheduler_anim_roots(&rules, &overlay_registry, &[]);
-    scheduler_roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+        crate::map::resolved_terrain::scheduler_anim_roots(&rules, &overlay_registry, &[]);
+    scheduler_roots.extend(crate::map::actions::trigger_anim_class_roots(
         &rules,
         &map.actions,
     ));
@@ -262,7 +313,7 @@ pub(crate) fn load_with_launch(
         .map_err(|error| format!("bind authoritative animation assets: {error}"))?;
     // Every other AnimClass producer and the building animations: tolerant pass,
     // after the strict one, which rewrites the scheduler-owned set wholesale.
-    let tolerant_roots = crate::app::loading::init_helpers::tolerant_anim_class_roots(&rules);
+    let tolerant_roots = crate::rules::effect_asset_catalog::tolerant_anim_class_roots(&rules);
     let unbound_explosion_roots = rules.bind_anim_class_assets(
         &tolerant_roots,
         &assets,
@@ -282,7 +333,7 @@ pub(crate) fn load_with_launch(
     rules.bind_building_rubble_assets(&assets, theater.extension, &map.header.theater);
     rules.bind_terrain_spawner_assets(&rules_ini, &assets, theater.extension, &map.header.theater);
     rules.bind_animation_sequences(&infantry_sequences);
-    let overlay_shp_ids = crate::app::loading::init::resolved_overlay_shp_ids(
+    let overlay_shp_ids = crate::rules::effect_asset_catalog::resolved_overlay_shp_ids(
         &overlay_registry,
         &rules_ini,
         rules.art(),
@@ -548,7 +599,10 @@ mod retail_construction_tests {
 
     #[test]
     fn headless_battle_launch_is_the_exact_single_local_stock_session() {
-        let launch = one_player_battle_launch("TEST.MAP").expect("one-player Battle launch");
+        let launch = crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(
+            battle_session("TEST.MAP", &[]),
+        )
+        .expect("one-player Battle launch");
         let session = launch.session();
 
         assert_eq!(session.mode.id, 1);
@@ -802,9 +856,6 @@ mod retail_construction_tests {
         )],
     ) -> (HeadlessScenario, Vec<crate::sim::intern::InternedId>) {
         use crate::sim::intern::InternedId;
-        use crate::skirmish_launch::{
-            LaunchStartPosition, LaunchTeam, PreFillHouseRoster, SkirmishAiSlot,
-        };
 
         let ra2 = std::path::PathBuf::from(
             std::env::var("RA2_DIR").expect("set RA2_DIR to the retail RA2/YR install directory"),
@@ -812,23 +863,9 @@ mod retail_construction_tests {
         // A four-start map: fewer start waypoints than houses would seed the
         // extra starts at random, which the lobby never allows.
         let map = "XMP03T4.MAP";
-        let mut session = battle_session(map);
+        let mut session = battle_session(map, opponents);
         configure(&mut session);
-        for (slot, &(country, difficulty)) in opponents.iter().enumerate() {
-            session.opponents.push(SkirmishAiSlot {
-                country,
-                country_random: false,
-                color_index: slot as u8 + 1,
-                color_random: false,
-                start_position: LaunchStartPosition::Auto,
-                team: LaunchTeam::None,
-                difficulty,
-            });
-        }
-        session.pre_fill_house_roster = PreFillHouseRoster::from_compact_skirmish(opponents.len());
-        let launch =
-            crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(session).unwrap();
-        let scenario = load_with_launch(&ra2, map, 0x00C0_FFEE, launch).unwrap();
+        let scenario = load_session(&ra2, map, 0x00C0_FFEE, session).unwrap();
         let computers: Vec<InternedId> = scenario
             .sim()
             .houses
@@ -2035,11 +2072,11 @@ mod retail_construction_tests {
         let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
         let soviet = house_of(sim, "Russians");
         let standing = yards(sim, soviet);
-        sim.houses
-            .get_mut(&soviet)
-            .expect("the Soviet house")
-            .ai_activation
-            .auto_base_building = false;
+        let house = sim.houses.get_mut(&soviet).expect("the Soviet house");
+        house.set_ai_activation_for_test(crate::sim::house_state::HouseAiActivationLatches {
+            auto_base_building: false,
+            ..house.ai_activation()
+        });
         // The first cell near the base where a yard can stand from every
         // origin within a cell of it: the MCV's own cell (action 9's test),
         // Deploy's (-1, -1), and a cell of drift.
@@ -2065,6 +2102,7 @@ mod retail_construction_tests {
                             Some(&resources.overlay_registry),
                             yard,
                             (x, y),
+                            None,
                             None,
                         )
                     })

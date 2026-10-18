@@ -26,7 +26,7 @@ use crate::sim::components::NavTargetRef;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use super::concrete_effects::UnavailableConcreteMissionEffects;
 use super::concrete_effects::{
     AuthorityUnavailable, ConcreteMissionEffects, ConcreteSetterRequest,
@@ -54,13 +54,13 @@ mod ready_private {
 /// expiry drop it ([`Self::clear`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct SuspendedTarget {
+pub struct SuspendedTarget {
     target: Option<crate::sim::combat::TargetKind>,
 }
 
 impl SuspendedTarget {
     /// The archived target.
-    pub(crate) const fn target(self) -> Option<crate::sim::combat::TargetKind> {
+    pub const fn target(self) -> Option<crate::sim::combat::TargetKind> {
         self.target
     }
 
@@ -75,8 +75,8 @@ impl SuspendedTarget {
     }
 
     /// Install a fixture's archived target.
-    #[cfg(test)]
-    pub(crate) fn set_for_test(&mut self, target: Option<crate::sim::combat::TargetKind>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_for_test(&mut self, target: Option<crate::sim::combat::TargetKind>) {
         self.target = target;
     }
 }
@@ -153,7 +153,7 @@ struct OverridePacket {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MissionAuthorityError {
+pub enum MissionAuthorityError {
     #[error("Mission receiver {0} does not exist")]
     MissingReceiver(u64),
     #[error(transparent)]
@@ -197,14 +197,6 @@ struct LiveUnitWorld<'a> {
     entity: &'a crate::sim::game_entity::GameEntity,
 }
 
-impl LiveUnitWorld<'_> {
-    fn weapons_factory(&self, entity: &crate::sim::game_entity::GameEntity) -> bool {
-        self.rules
-            .object(self.sim.interner.resolve(entity.type_ref()))
-            .is_some_and(|obj| obj.weapons_factory)
-    }
-}
-
 impl UnitReadyWorld for LiveUnitWorld<'_> {
     /// `UnitClass::Is_Ready_To_Commence @ 0x00744270`'s contact read:
     /// `GetNthLink(0)` (`0x0065AD40` at `0x0074433C`) and a Building's WeaponsFactory.
@@ -222,7 +214,7 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
             return Ok(Some(UnitReadyContact::Other));
         }
         Ok(Some(UnitReadyContact::Building {
-            weapons_factory: self.weapons_factory(contact),
+            weapons_factory: self.sim.is_weapons_factory(contact_id, self.rules),
         }))
     }
 
@@ -233,38 +225,36 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
         _unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable> {
         let (rx, ry) = (self.entity.position.rx(), self.entity.position.ry());
-        let Some(cell) = self.sim.substrate.occupancy.get(rx, ry) else {
+        let Some(entity) = self
+            .sim
+            .substrate
+            .occupancy
+            .first_building_on_layer(
+                rx,
+                ry,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            )
+            .and_then(|sid| self.sim.substrate.entities.get(sid))
+        else {
             return Ok(None);
         };
-        // The per-cell occupant list already keeps the gamemd insertion order
-        // (non-buildings prepend, buildings append); take the first Building
-        // in that stored order — no sort, no rebuilt candidate list.
-        for occupant in cell.iter_layer(crate::sim::movement::locomotor::MovementLayer::Ground) {
-            let Some(entity) = self.sim.substrate.entities.get(occupant.entity_id) else {
-                continue;
-            };
-            if entity.category() != EntityCategory::Structure {
-                continue;
-            }
-            // Anchor: the Building's footprint-NW cell as a lepton point whose
-            // native lepton→cell conversion lands on that cell. UNCHECKED
-            // whether the native building coordinate is NW-cell-anchored for
-            // multi-cell foundations; the affected branch is the narrow
-            // no-contact factory-cell hold.
-            let anchor = ReadyLeptonPoint::new(
-                i32::from(entity.position.rx())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-                i32::from(entity.position.ry())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-            );
-            return Ok(Some(UnitReadyBuilding::new(
-                self.weapons_factory(entity),
-                anchor,
-            )));
-        }
-        Ok(None)
+        // Anchor: the Building's footprint-NW cell as a lepton point whose
+        // native lepton→cell conversion lands on that cell. UNCHECKED
+        // whether the native building coordinate is NW-cell-anchored for
+        // multi-cell foundations; the affected branch is the narrow
+        // no-contact factory-cell hold.
+        let anchor = ReadyLeptonPoint::new(
+            i32::from(entity.position.rx())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+            i32::from(entity.position.ry())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+        );
+        Ok(Some(UnitReadyBuilding::new(
+            self.sim.is_weapons_factory(entity.stable_id(), self.rules),
+            anchor,
+        )))
     }
 }
 
@@ -333,12 +323,7 @@ fn evaluate_ready(
         let locomotor = crate::sim::movement::ready_producer::ready_state_for(
             entity,
             rules.map(|rules| {
-                crate::sim::movement::SpeedRules::new(
-                    rules,
-                    &sim.interner,
-                    &sim.type_handles,
-                    &sim.houses,
-                )
+                crate::sim::movement::SpeedRules::new(rules, &sim.interner, &sim.houses)
             }),
             sim.session.binary_frame,
         )
@@ -704,7 +689,7 @@ impl Simulation {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn mission_override_exact(
         &mut self,
         receiver: u64,
@@ -714,7 +699,7 @@ impl Simulation {
         self.mission_override_exact_with_effects(receiver, packet, &mut effects)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn mission_restore_exact(
         &mut self,
         receiver: u64,
@@ -726,7 +711,7 @@ impl Simulation {
     /// The overlay registry and frame effects serve the Infantry setter's
     /// `Infiltrate=` arm, the one that sets a destination
     /// ([`Simulation::infiltrator_target_building`]).
-    pub(crate) fn assign_target_represented(
+    pub fn assign_target_represented(
         &mut self,
         receiver: u64,
         requested: Option<TargetKind>,
@@ -896,7 +881,7 @@ impl Simulation {
         .expect("present represented blocker receiver has concrete setters")
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn mission_refinery_completion_exact(
         &mut self,
         receiver: u64,

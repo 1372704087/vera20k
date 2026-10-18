@@ -14,7 +14,6 @@ use crate::map::houses::{HouseColorMap, HouseRoster};
 use crate::map::overlay::TerrainObject;
 use crate::map::terrain::TerrainGrid;
 use crate::render::bridge_atlas::BridgeAtlas;
-use crate::render::bridge_railing_atlas::BridgeRailingAtlas;
 use crate::render::overlay_atlas::OverlayAtlas;
 use crate::render::radar::minimap::MinimapRenderer;
 use crate::render::selection_overlay::SelectionOverlay;
@@ -41,7 +40,6 @@ pub(crate) struct MatchPresentationState {
     pub(crate) sprite_atlas: Option<SpriteAtlas>,
     pub(crate) overlay_atlas: Option<OverlayAtlas>,
     pub(crate) bridge_atlas: Option<BridgeAtlas>,
-    pub(crate) bridge_railing_atlas: Option<BridgeRailingAtlas>,
     pub(crate) sidebar_cameo_atlas: Option<SidebarCameoAtlas>,
     pub(crate) sidebar_chrome: Option<SidebarChromeSet>,
     pub(crate) software_cursor: Option<crate::app::presentation::render::SoftwareCursor>,
@@ -72,6 +70,8 @@ pub(crate) struct MatchPresentationState {
     pub(crate) line_trails: super::line_trails::LineTrails,
     pub(crate) lasers: super::lasers::Lasers,
     pub(crate) electric_bolts: super::electric_bolts::ElectricBolts,
+    /// Process registry B04A60; ordinary kind1 beams copy their endpoints.
+    pub(crate) radiation_beams: super::radiation_beams::RadiationBeams,
     /// Native process-lived FPS counter and detail hysteresis, never sim state.
     pub(crate) detail: std::cell::RefCell<super::detail::DetailState>,
     /// The client's AnimClass `+0x19D` for Supers' ChronoPlacement anims

@@ -1,15 +1,10 @@
 //! Per-tick particle-system AI dispatch.
 //!
-//! Drives each active `ParticleSystem` in shared LogicVector order: temporarily
-//! takes it from storage, runs per-`BehavesLike` AI, decrements lifetime, then
-//! reinserts it. Completed systems enter the common deferred-delete path.
-//! Ordinary Smoke and Spark are connected. Gas/Fire retain explicit
-//! movement/damage residuals; Railgun body is still absent.
-//!
-//! Pulling each system out before ticking lets the inner AI take `&mut Simulation`
-//! freely — needed for spawning child systems and applying damage to entities —
-//! without aliasing the store. `reinsert` puts the system back at its original
-//! `stable_id` so deterministic iteration order is preserved.
+//! Drives each active system at its shared LogicVector slot. Gas remains
+//! in storage because synchronous damage can append children to that same
+//! system; other behaviors temporarily take/reinsert their owned body.
+//! Ordinary Smoke, Spark and Gas are connected. Fire retains movement/damage
+//! residuals; Railgun body is still absent.
 
 use crate::rules::particle_system_type::ParticleSystemBehavesLike;
 use crate::rules::particle_type::ParticleBehavesLike;
@@ -90,7 +85,13 @@ where
         ParticleBehavesLike::Smoke => {
             super::smoke::tick_particle(p, pt, sim.session.binary_frame, sim.particle_rng())
         }
-        ParticleBehavesLike::Gas => super::gas::tick_particle(p, pt),
+        ParticleBehavesLike::Gas => super::gas::tick_particle(
+            p,
+            sim,
+            rules,
+            None,
+            crate::sim::world::UninitContext::with_rules(rules),
+        ),
         ParticleBehavesLike::Fire => super::fire::tick_particle(p, pt, sim.particle_rng()),
         ParticleBehavesLike::Spark => {
             let motion = begin_particle_tick(p, gravity_as_stored_f32(rules.general.gravity)?)?;
@@ -119,12 +120,27 @@ where
 /// The caller owns live-vector traversal. Keeping the per-object body here
 /// preserves same-pass append and compacting-removal behavior instead of
 /// snapshotting particle systems into a later global phase.
-pub(crate) fn tick_particle_system(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
-    let Some(mut sys) = sim.particle_systems_mut().take_for_tick(id) else {
+pub(crate) fn tick_particle_system(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    context: crate::sim::world::UninitContext<'_>,
+) -> bool {
+    let Some(sys) = sim.particle_systems().get(id) else {
         return false;
     };
-
-    tick_one_system(&mut sys, sim, rules);
+    if rules.particle_system_type(sys.type_id).behaves_like == ParticleSystemBehavesLike::Gas {
+        // Gas damage may synchronously kill another animal and append to this
+        // same system. Retain its body in storage through those callbacks.
+        super::gas::tick_system(sim, rules, id, context);
+    } else {
+        let mut sys = sim.particle_systems_mut().take_for_tick(id).unwrap();
+        tick_one_system(&mut sys, sim, rules);
+        sim.particle_systems_mut().reinsert_after_tick(sys);
+    }
+    let Some(sys) = sim.particle_systems_mut().get_mut(id) else {
+        return true;
+    };
 
     // `ParticleSystemClass::AI @ 0x0062FD60`: decrement `+0xEC`, and when the
     // decremented value is exactly zero call vtable `+0xF8` — an entry
@@ -133,23 +149,28 @@ pub(crate) fn tick_particle_system(sim: &mut Simulation, rules: &RuleSet, id: u6
     // past zero and never triggers it, exactly as here.
     sys.lifetime = sys.lifetime.wrapping_sub(1);
     if sys.lifetime == 0 {
-        sys.done_spawning = true;
+        sys.mark_done_spawning();
     }
 
     // `alive && this[+0xF8] && particle_count == 0`, from the same function.
     let retires = sys.done_spawning && sys.particles.is_empty();
-    sim.particle_systems_mut().reinsert_after_tick(sys);
     if retires {
-        sim.retire_particle_system(id, crate::sim::world::UninitContext::with_rules(rules));
+        sim.retire_particle_system(id, context);
     }
     true
 }
 
-/// Compatibility batch entry for focused particle tests and tools. Production
+/// Compatibility batch entry for focused particle tests. Production
 /// dispatch uses `tick_particle_system` from the shared live-object walk.
+#[cfg(test)]
 pub fn tick_particle_systems(sim: &mut Simulation, rules: &RuleSet) {
     for id in sim.live_object_order_snapshot() {
-        tick_particle_system(sim, rules, id);
+        tick_particle_system(
+            sim,
+            rules,
+            id,
+            crate::sim::world::UninitContext::with_rules(rules),
+        );
     }
 }
 
@@ -157,7 +178,7 @@ fn tick_one_system(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleS
     let behaves_like = rules.particle_system_type(sys.type_id).behaves_like;
     match behaves_like {
         ParticleSystemBehavesLike::Smoke => tick_smoke(sys, sim, rules),
-        ParticleSystemBehavesLike::Gas => tick_gas(sys, sim, rules),
+        ParticleSystemBehavesLike::Gas => unreachable!("Gas retains its body during callbacks"),
         ParticleSystemBehavesLike::Fire => tick_fire(sys, sim, rules),
         ParticleSystemBehavesLike::Spark => tick_spark(sys, sim, rules),
         ParticleSystemBehavesLike::Railgun => {
@@ -187,10 +208,6 @@ fn tick_spark(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleSet) {
 
 fn tick_smoke(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleSet) {
     super::smoke::tick_system(sys, sim, rules);
-}
-
-fn tick_gas(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleSet) {
-    super::gas::tick_system(sys, sim, rules);
 }
 
 fn tick_fire(sys: &mut ParticleSystem, sim: &mut Simulation, rules: &RuleSet) {
@@ -234,8 +251,10 @@ where
     // forward tick/RNG order of surviving particles.
     for index in (0..sys.particles.len()).rev() {
         if sys.particles[index].marked_for_deletion {
-            sim.conceal_particle(sys.particles[index].stable_id());
-            sys.particles.remove(index);
+            let particle = sys
+                .remove_expired_child(sys.particles[index].stable_id())
+                .expect("the current child is present");
+            sim.retire_particle(particle, rules);
         }
     }
     Ok(())
@@ -309,7 +328,7 @@ mod tests {
     fn flat_facts() -> SparkCollisionFacts {
         SparkCollisionFacts {
             ground_z: 0,
-            slope_matrix: Some(super::super::spark_world::slope_matrix(0).unwrap()),
+            slope_matrix: Some(crate::map::voxel_slope::slope_matrix(0).unwrap()),
             old_has_structural_bridge: false,
             candidate_has_structural_bridge: false,
             accepted_building: false,

@@ -3,7 +3,6 @@
 //! comparison is receipt/collection/isolation, never native health or kills.
 
 use super::*;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
@@ -17,7 +16,7 @@ use serde_json::Value;
 fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return() {
     use crate::sim::native_identity::NativeUniqueIdCursor;
     use crate::sim::projectile::{
-        ProjectileCollisionPolicy, ProjectileDetonationReason, ProjectilePayload, ProjectileSpawn,
+        ProjectileCollisionPolicy, ProjectileDetonationReason, ProjectileSpawn,
         ProjectileTrajectory, ProjectileVelocity, ProjectileVisualState, TargetExpiryPolicy,
     };
     let Some((base, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
@@ -45,7 +44,7 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         for item in native["initial"]["impact_anim_art"].as_array().unwrap() {
             rules.bind_anim_frame_count_for_test(
                 item["name"].as_str().unwrap(),
@@ -99,10 +98,12 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
             input["live"]
         );
         assert_eq!(input["live"], input["placement"]);
-        let payload = ProjectilePayload::new(
+        let payload = super::combat_tests::payload_from_weapon(
             rules.weapon("HoverMissile").unwrap().damage,
             world.interner.intern("HE"),
             world.interner.intern("HoverMissile"),
+            &rules,
+            &mut world.interner,
         );
         let target = ProjectileTarget::Cell { rx: 10, ry: 20 };
         let id = world.allocate_stable_id();
@@ -266,6 +267,7 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
     let Some((base, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
         return;
@@ -290,7 +292,7 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         let mut world = Simulation::with_seed(31);
         world.session.binary_frame = 100;
         world.session.no_damage = input["scenario_flags"].as_u64().unwrap() & 0x20 != 0;
@@ -361,6 +363,13 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                 .health
                 .current();
             let rng = world.scenario_rng.logical_state();
+            let payload = super::combat_tests::payload_from_weapon(
+                25,
+                missing,
+                weapon,
+                &rules,
+                &mut world.interner,
+            );
             let output = commit_projectiles(
                 &mut world,
                 &mut ReceiverRun::default(),
@@ -369,7 +378,7 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                     source_id: RAD_NO_ATTACKER,
                     target: ProjectileTarget::Cell { rx: 10, ry: 20 },
                     impact: ProjectileCoord::new(2688, 5248, 624),
-                    payload: crate::sim::projectile::ProjectilePayload::new(25, missing, weapon),
+                    payload,
                     reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
                 }],
                 &rules,

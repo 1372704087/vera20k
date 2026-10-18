@@ -107,6 +107,8 @@ fn a_computer_team_recruits_forms_and_succeeds_in_the_master_frame() {
 #[test]
 fn a_recruiting_team_survives_save_load() {
     let (mut original, rules, team_id, _) = recruiting_team_fixture();
+    // The loaded copy hashes every frame; the control compares each one.
+    original.hash_state_every(std::num::NonZeroU64::MIN);
     original.advance_tick(&[], Some(&rules), None, None, 67);
     assert_eq!(
         original

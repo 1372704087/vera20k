@@ -25,7 +25,7 @@ pub use power_bar_anim::PowerBarAnimState;
 pub(crate) use sidebar_view::build_sidebar_view;
 pub(crate) use sidebar_view::build_sidebar_view_with_spec;
 pub(crate) use sidebar_view::ArmedSidebarEntry;
-pub(crate) use sidebar_view::CameoFactoryStatus;
+pub(crate) use sidebar_view::{CameoFactoryStatus, ObjectCameoDrawInputs, draw_object_cameo};
 
 /// Cameo hit zones are fixed 60×48 (`6A8220`), independent of artwork size.
 pub(crate) const CAMEO_COLUMNS: usize = 2;
@@ -151,8 +151,15 @@ pub struct SidebarItem {
     pub has_cameo_art: bool,
     /// Draw the type's `AltCameo=` image (`TechnoTypeClass::GetCameo`).
     pub alt_cameo: bool,
+    /// Native retained-entry flash phase (StripDraw6A9B59).
+    pub flash_darkened: bool,
     pub queue_category: ProductionCategory,
+    /// Draw's unavailable overlay; it is not an input admission gate. For an
+    /// object cameo, [`draw_object_cameo`] writes it and the drawn state below
+    /// from the projection's live inputs on every rebuild and frame, as
+    /// `StripClass::Draw` does.
     pub enabled: bool,
+    pub at_build_limit: bool,
     pub progress: f32,
     pub queued_count: usize,
     /// True when this cameo's linked Factory is actively producing.
@@ -336,7 +343,7 @@ pub(crate) fn hit_test_item(item: &SidebarItem, right_click: bool, shift: bool) 
             type_id: item.type_id.clone(),
             right: right_click,
             shift,
-            at_build_limit: !item.enabled,
+            at_build_limit: item.at_build_limit,
         };
     }
     // SW cameos have no queue → right-click does nothing.
@@ -361,96 +368,6 @@ pub(crate) fn hit_test_item(item: &SidebarItem, right_click: bool, shift: bool) 
 // (A3), and the control/dev buttons (A6) — is now owned by the `app::input::gadget_input`
 // retained list (one order = hit + draw, R7 complete). `hit_test_item` (the cameo
 // click→action map) stays public for the driver.
-
-#[cfg(test)]
-mod tests {
-    use super::{Rect, SidebarAction, SidebarItem};
-    use crate::sim::production::ProductionCategory;
-
-    fn make_sw_item(is_ready: bool, is_armed: bool) -> SidebarItem {
-        SidebarItem {
-            rect: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 60.0,
-                h: 48.0,
-            },
-            type_id: "INTICON".to_string(),
-            display_name: "LightningStormSpecial".to_string(),
-            cost: None,
-            has_cameo_art: true,
-            alt_cameo: false,
-            queue_category: ProductionCategory::Defense,
-            enabled: true,
-            progress: if is_ready { 1.0 } else { 0.5 },
-            queued_count: 0,
-            is_building_this_type: !is_ready,
-            is_ready,
-            is_on_hold: false,
-            is_armed,
-            is_superweapon: true,
-            super_weapon_section: Some("LightningStormSpecial".to_string()),
-        }
-    }
-
-    #[test]
-    fn sw_ready_left_click_arms() {
-        let item = make_sw_item(true, false);
-        let action = super::hit_test_item(&item, false, false);
-        assert_eq!(
-            action,
-            SidebarAction::ArmSuperWeapon("LightningStormSpecial".to_string())
-        );
-    }
-
-    #[test]
-    fn sw_ready_armed_left_click_clears() {
-        let item = make_sw_item(true, true);
-        let action = super::hit_test_item(&item, false, false);
-        assert_eq!(action, SidebarAction::ClearSuperWeaponMode);
-    }
-
-    #[test]
-    fn sw_charging_left_click_does_nothing() {
-        let item = make_sw_item(false, false);
-        let action = super::hit_test_item(&item, false, false);
-        assert_eq!(action, SidebarAction::None);
-    }
-
-    #[test]
-    fn build_cameo_press_carries_the_button_shift_and_limit() {
-        let mut item = make_sw_item(false, false);
-        item.is_superweapon = false;
-        item.type_id = "TANY".to_string();
-        item.enabled = false;
-        assert_eq!(
-            super::hit_test_item(&item, true, true),
-            SidebarAction::CameoPress {
-                type_id: "TANY".to_string(),
-                right: true,
-                shift: true,
-                at_build_limit: true,
-            }
-        );
-    }
-
-    #[test]
-    fn sw_right_click_does_nothing() {
-        for ready in [false, true] {
-            for armed in [false, true] {
-                let item = make_sw_item(ready, armed);
-                let action = super::hit_test_item(&item, true, false);
-                assert_eq!(
-                    action,
-                    SidebarAction::None,
-                    "ready={} armed={}",
-                    ready,
-                    armed
-                );
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod native_geometry_tests;

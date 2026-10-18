@@ -549,7 +549,7 @@ impl Simulation {
     /// Synthetic incoming terrain/bridge records; movement, input, codec and
     /// scheduled-frame owners remain production. Native flood/path goldens
     /// are deliberately not inferred from this geometry regression.
-    pub(crate) fn walk_cell_input_test_scene(bridge: bool) -> (Self, RuleSet, u64) {
+    pub fn walk_cell_input_test_scene(bridge: bool) -> (Self, RuleSet, u64) {
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[InfantryTypes]\n0=E1\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
              [E1]\nStrength=100\nSpeed=4\nSight=8\nMovementZone=Infantry\nSpeedType=Foot\n\
@@ -563,10 +563,7 @@ impl Simulation {
 
     /// [`Self::walk_cell_input_test_scene`] with the given rules: their
     /// `[Clear]` and `[Water]` rows price the cells, and their E1 is spawned.
-    pub(crate) fn walk_cell_input_test_scene_with(
-        rules: RuleSet,
-        bridge: bool,
-    ) -> (Self, RuleSet, u64) {
+    pub fn walk_cell_input_test_scene_with(rules: RuleSet, bridge: bool) -> (Self, RuleSet, u64) {
         let mut sim = Self::with_seed(0x4de1d0);
         sim.intern_rule_type_ids(&rules);
         let owner = sim.interner.intern("Local");
@@ -582,6 +579,9 @@ impl Simulation {
         sim.session.game_options.short_game = false;
         sim.session.map_width = 16;
         sim.session.map_height = 16;
+        // Native Unlimbo now publishes sight synchronously. Allocate the map
+        // domain before either source can create a viewer plane/cache.
+        sim.fog = crate::sim::vision::FogState::new(16, 16);
         sim.playfield_bounds = Some(bounds());
         sim.playfield_size_height = Some(8);
         let clear = rules
@@ -661,14 +661,12 @@ impl Simulation {
         sim.session.house_order.push(enemy);
         sim.spawn_object("E1", "Enemy", 12, 11, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
-        sim.fog.width = 16;
-        sim.fog.height = 16;
         sim.fog.reveal_all_for_owner(owner);
         assert!(sim.entities().get(actor).unwrap().lifecycle.cell_marked());
         (sim, rules, actor)
     }
 
-    pub(crate) fn close_walk_input_test_bridge(&mut self, rules: &RuleSet) {
+    pub fn close_walk_input_test_bridge(&mut self, rules: &RuleSet) {
         let terrain = self.resolved_terrain.as_mut().unwrap();
         for x in 8..=10 {
             let cell = terrain

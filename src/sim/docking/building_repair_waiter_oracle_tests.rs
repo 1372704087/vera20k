@@ -10,11 +10,8 @@ use crate::sim::docking::building_dock::try_pending_entry;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 
-fn waiter_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_repair.depot_waiters.json",
-    ))
-    .unwrap()
+fn waiter_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_repair.depot_waiters.json")
 }
 
 fn waiter_scene(golden: &Value, case: &Value, control: &Value) -> Scene {

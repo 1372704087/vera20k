@@ -16,7 +16,8 @@
 //! 2. `0x00481A3F..0x00481A67`: outside game mode 0 a `MultiplayPassive=`
 //!    owner returns true.
 //! 3. `0x00481A6D..0x00481AC1`: a `CrateTrigger=` overlay springs the actor's
-//!    attached tag (event `0x31`) and latches `Scenario+0x34BE` (residual).
+//!    attached tag (event `0x31`), rereads Alive after a nonnull Tag callback,
+//!    and latches `Scenario+0x34BE` if it survived.
 //! 4. `0x00481AC8..0x00481B94`: [`select_pickup_outcome`].
 //! 5. `0x00481B99..0x00481D81`: outside mode 0, the MCV pre-empt, the
 //!    per-powerup eligibility switch and the over-water fallback, each falling
@@ -37,6 +38,7 @@
 use super::effects::{self, Multiplier, UnitCrateOutcome};
 use super::runtime::remove_pickup_crate;
 use super::{ForcedPostPrecheckFailure, place_one_random_crate, read_crate_mark_fields};
+use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -48,7 +50,6 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::sim::components::{DriveCoord, Position};
 use crate::sim::intern::InternedId;
-use crate::sim::movement::ground_pose;
 use crate::sim::rng::SimRng;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{SimSoundEvent, Simulation};
@@ -90,7 +91,7 @@ pub(super) fn select_pickup_outcome(
     rng: &mut SimRng,
     rules: &RuleSet,
     registry: &OverlayTypeRegistry,
-    overlay_id: u8,
+    overlay_id: Option<u8>,
     stored_selection: u8,
     multiplayer: bool,
 ) -> PickupSelection {
@@ -123,7 +124,9 @@ pub(super) fn select_pickup_outcome(
             (&crate_rules.wood_crate_img, crate_rules.wood_crate),
             (&crate_rules.water_crate_img, crate_rules.water_crate),
         ] {
-            if image.as_deref().and_then(|name| registry.id_for_name(name)) == Some(overlay_id) {
+            if overlay_id.is_some()
+                && image.as_deref().and_then(|name| registry.id_for_name(name)) == overlay_id
+            {
                 powerup = selection;
             }
         }
@@ -134,20 +137,40 @@ pub(super) fn select_pickup_outcome(
     }
 }
 
-/// The crate cell's centre coordinate on its ground (`0x0041C230` then
-/// `CellClass::ComputeGroundHeightAtCoord @ 0x0047B3A0` with the `(0x80,
-/// 0x80)` offset), as every arm and the anim tail build it.
-fn crate_center(sim: &Simulation, cell: (i16, i16)) -> DriveCoord {
-    let mut center = DriveCoord {
-        x: i32::from(cell.0).wrapping_mul(256).wrapping_add(128),
-        y: i32::from(cell.1).wrapping_mul(256).wrapping_add(128),
-        z: 0,
-    };
-    if let Some(terrain) = sim.resolved_terrain.as_ref() {
+/// Pickup directly centers the retained signed `Cell+0x24` words and calls
+/// `ComputeGroundHeightAtCoord @ 0x0047B3A0` with offset `(0x80, 0x80)`.
+/// The existing Cell486840/480A30 kernel owns that same arithmetic. This
+/// caller adapter preserves the receiver instead of doing another Map578080
+/// lookup from the original requested words.
+fn crate_center(
+    sim: &Simulation,
+    cell: (i16, i16),
+    receiver: Option<NativeCellIdentity>,
+) -> DriveCoord {
+    if let Some((terrain, receiver)) = sim.resolved_terrain.as_ref().zip(receiver) {
         let cells = NativeCellQuery::canonical(terrain);
-        center.z = ground_pose::query_ground_height(&cells, center).unwrap_or(0);
+        if let Some((x, y, z)) = crate::sim::cell_kernel::native_cell_own_coords(receiver, &cells) {
+            return DriveCoord {
+                x: x as i32,
+                y: y as i32,
+                z: z as i32,
+            };
+        }
     }
-    center
+    // Preserve the existing flat adapter for mapless/unsupported fixtures.
+    // Unsupported ground is not a native parity claim.
+    let center = crate::sim::cell_kernel::cell_center(
+        crate::sim::cell_kernel::CellCoordinate {
+            x: i32::from(cell.0),
+            y: i32::from(cell.1),
+        },
+        0,
+    );
+    DriveCoord {
+        x: center.x,
+        y: center.y,
+        z: center.z,
+    }
 }
 
 /// `CellClass+0xEC`, the land type the eligibility tests read
@@ -316,7 +339,13 @@ pub(crate) fn pickup_crate(
         return true;
     };
     let owner = actor.owner();
-    let (overlay_id, stored_selection) = read_crate_mark_fields(sim, cell);
+    // 481A00 retains its caller's ESI Cell through synchronous effects. Carry
+    // identity, not an early coordinate: nested map misses can restamp Dummy.
+    let receiver = sim
+        .resolved_terrain
+        .as_ref()
+        .map(|terrain| NativeCellQuery::canonical(terrain).lookup(cell));
+    let (overlay_id, _) = read_crate_mark_fields(sim, cell);
     let Some(overlay_id) = overlay_id else {
         return true;
     };
@@ -335,14 +364,40 @@ pub(crate) fn pickup_crate(
     {
         return true;
     }
-    // `0x00481A6D..0x00481AC1`: a `CrateTrigger=` overlay (both stock crate
-    // images) springs the actor's attached TagClass with event 0x31 and
-    // latches `Scenario+0x34BE`. RESIDUAL: VERA attaches no Tags to objects
-    // and keeps no owner for that latch. Trigger: a tagged object (map
-    // scripting) picking up a crate. Effect: the map trigger's "picks up
-    // crate" event never fires and a trigger that killed the actor cannot
-    // make this return false. Frequency: authored maps only. Risk: none in
-    // skirmish.
+    //Steam3e81a617:481A6D..481AC1, trigger_action_values --crate.
+    //The original EmptyCell89E748 is initialized to(0,0) by47B2F0.
+    //Only an actual nonnull Tag call gates on the actor's reread Alive byte;
+    //a null Tag still sets Scenario34BE, even for an already-dead input.
+    if flags.crate_trigger {
+        let had_tag = sim.dispatch_object_tag_event(
+            actor_id,
+            49,
+            Some(actor_id),
+            None,
+            crate::sim::world::UninitContext::new(Some(rules), Some(registry))
+                .with_effects(frame_effects),
+        );
+        if had_tag
+            && sim
+                .substrate
+                .entities
+                .get(actor_id)
+                .is_none_or(|actor| !actor.lifecycle.object_alive())
+        {
+            return false;
+        }
+        sim.mark_crate_pickup_event();
+    }
+    //481AC8/481B3D..481B90 reread Cell data/images;4824A7..4824CE
+    //reread the actor's House. A synchronous Tag can change all three.
+    let Some(actor) = sim.substrate.entities.get(actor_id) else {
+        return false;
+    };
+    let owner = actor.owner();
+    let (overlay_id, stored_selection) = read_crate_mark_fields(sim, cell);
+    //A callback leaving no OverlayType has no supported native lookup
+    //contract (solo's array[-1]); retain None as a nonmatching image rather
+    //than reusing the pre-callback type. No parity claim for that invalid case.
     let selection = select_pickup_outcome(
         &mut sim.scenario_rng,
         rules,
@@ -388,7 +443,7 @@ pub(crate) fn pickup_crate(
         return true;
     }
     let magnitude = rules.powerups.magnitudes[powerup];
-    let center = crate_center(sim, cell);
+    let center = crate_center(sim, cell, receiver);
     let radius = rules.crate_rules.radius;
     let general = &rules.general;
     // The slot whose anim the tail spawns: the Unit arm's failure rewrites it
@@ -400,7 +455,7 @@ pub(crate) fn pickup_crate(
             let chosen = effects::choose_unit_crate_type(sim, rules, owner, preempted)
                 .map(|object| object.id.clone());
             let Some(type_id) = chosen else {
-                return spawn_pickup_anim(sim, rules, anim_slot, cell, center);
+                return spawn_pickup_anim(sim, rules, anim_slot, cell, receiver);
             };
             match effects::place_unit_crate(
                 sim,
@@ -423,7 +478,7 @@ pub(crate) fn pickup_crate(
                     return false;
                 }
                 UnitCrateOutcome::NoObject => {
-                    return spawn_pickup_anim(sim, rules, anim_slot, cell, center);
+                    return spawn_pickup_anim(sim, rules, anim_slot, cell, receiver);
                 }
                 UnitCrateOutcome::FellBackToMoney => {
                     // `0x0048245D`: only the slot copy is rewritten; the
@@ -442,6 +497,9 @@ pub(crate) fn pickup_crate(
                 // pays the actor's owner. Identical whenever the controlled
                 // house is the player's own, the campaign norm.
                 crate::sim::credit_income::add_credits(sim, owner, amount);
+                // 4824EF..482529 samples retained ESI after amount/credits;
+                // the independent 483307..483334 animation query follows sound.
+                let center = crate_center(sim, cell, receiver);
                 play_crate_sound(
                     sim,
                     general.crate_money_sound.as_deref(),
@@ -555,7 +613,7 @@ pub(crate) fn pickup_crate(
             _ => {}
         }
     }
-    spawn_pickup_anim(sim, rules, anim_slot, cell, center)
+    spawn_pickup_anim(sim, rules, anim_slot, cell, receiver)
 }
 
 /// `0x004832F5..0x00483389`: the slot's `[Powerups]` anim 200 leptons above
@@ -566,7 +624,7 @@ fn spawn_pickup_anim(
     rules: &RuleSet,
     slot: usize,
     cell: (i16, i16),
-    center: DriveCoord,
+    receiver: Option<NativeCellIdentity>,
 ) -> bool {
     let Some(anim) = rules.powerups.anims.get(slot).and_then(Option::as_deref) else {
         return true;
@@ -574,6 +632,8 @@ fn spawn_pickup_anim(
     let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
         return true;
     };
+    // 483307..483334 rereads the retained Cell only for an admitted anim.
+    let center = crate_center(sim, cell, receiver);
     let type_name = sim.interner.intern(anim);
     let mut descriptor = crate::sim::components::AnimClassSpawnDescriptor::new(
         type_name,
@@ -666,7 +726,7 @@ mod tests {
                 &mut rng,
                 &rules,
                 &registry,
-                registry.id_for_name("WOOD").unwrap(),
+                registry.id_for_name("WOOD"),
                 input["selection"].as_u64().unwrap_or(10) as u8,
                 input["mode"].as_i64() != Some(0),
             );

@@ -84,6 +84,9 @@ pub(crate) fn native_map_cell_fixture(
         .max()
         .unwrap()
         + 1;
+    // A physical map can retain a dense projection wider than its final
+    // allocated Cell. Keep that stride when seeding native component priors.
+    let (width, height) = topology.get("dimensions").map_or((width, height), pair);
     let mut fog = FogState::new(width, height);
     let mut view = OwnerVisibility::new(width, height);
     for input in &inputs {
@@ -92,6 +95,8 @@ pub(crate) fn native_map_cell_fixture(
         seed_cell(&mut view, key, input);
     }
     seed_cell(&mut view, VisibilityCell::Dummy, dummy);
+    // A supplied native state bypasses the writers' lists.
+    view.edge_cells = EdgeCells::default();
     fog.by_owner.insert(viewer, view);
     (fog, terrain)
 }
@@ -336,7 +341,10 @@ fn native_reshroud_allocated_cursor_stops_on_null_and_calls_shared_receiver() {
             .collect();
         assert_eq!(json!(cells), row["visits"], "{name}");
         assert!(fog.admit_whole_map_reveal(viewer));
-        fog.transition_whole_map_with_gap_reentry(
+        let mut world = crate::sim::world::Simulation::default();
+        world.fog = fog;
+        world.resolved_terrain = Some(terrain.clone());
+        world.transition_whole_map_with_gap_reentry(
             viewer,
             cells,
             MapTransition::Reshroud,
@@ -344,7 +352,10 @@ fn native_reshroud_allocated_cursor_stops_on_null_and_calls_shared_receiver() {
             &std::collections::BTreeMap::new(),
             Some(&[]),
             &std::collections::BTreeMap::new(),
+            &crate::sim::vision::VisionConfig::default(),
+            crate::sim::world::UninitContext::default(),
         );
+        let fog = world.fog;
         assert_eq!(
             fog.whole_map_revealed_for_owner(viewer),
             row["houses"]["player"]["revealed"] == 1,
@@ -367,8 +378,22 @@ fn native_trigger_reveal_edge_channels_match_all_original_masks_and_center_gates
     let viewer = crate::sim::intern::test_intern("Player");
     let (mut fog, terrain) = native_map_cell_fixture(&controls["topology"], viewer);
     let cells = NativeCellQuery::canonical(&terrain);
+    // The same center on a copy whose cells are not all row-major, so it
+    // has no interior cells and every frame looks its neighbours up.
+    let looked_up = {
+        let mut cells = terrain.cells().to_vec();
+        cells.swap(0, 1);
+        ResolvedTerrainGrid::from_cells(terrain.width(), terrain.height(), cells)
+    };
+    assert!(terrain.interior_cells().is_some() && looked_up.interior_cells().is_none());
+    let looked_up = NativeCellQuery::canonical(&looked_up);
     let center = (9, 10);
-    for channel in 0..2usize {
+    for (channel, cells) in [
+        (0usize, &cells),
+        (1, &cells),
+        (0, &looked_up),
+        (1, &looked_up),
+    ] {
         for (mask, expected) in controls["channel_mask_outputs"][channel]
             .as_array()
             .unwrap()
@@ -394,7 +419,7 @@ fn native_trigger_reveal_edge_channels_match_all_original_masks_and_center_gates
                 }
             }
             assert_eq!(
-                i64::from(fog.map_cell_edge_frame(viewer, center, channel != 0, Some(&cells))),
+                i64::from(fog.map_cell_edge_frame(viewer, center, channel != 0, Some(cells))),
                 expected.as_i64().unwrap(),
                 "channel{channel} mask{mask}"
             );
@@ -431,6 +456,7 @@ fn native_trigger_reveal_retained_cache_admission_matches_original_histories() {
             pair(&history["cell"]),
             history["final"] == 1,
             Some(&cells),
+            crate::sim::vision::MapRevealProjection::Transient,
         );
         let expected = history["trace"]
             .as_array()

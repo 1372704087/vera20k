@@ -24,6 +24,7 @@ pub use crate::rules::terrain_rules::{LandType, tmp_terrain_to_land_type};
 /// Passability values from the matrix.
 pub const PASS_OK: u8 = 1;
 pub const PASS_BLOCKED: u8 = 2;
+#[cfg(any(test, feature = "test-support"))]
 pub const PASS_OUTSIDE_SENTINEL: u8 = 3;
 
 /// Number of zone layers (rows) in the matrix.
@@ -88,7 +89,7 @@ pub fn is_passable_for_zone(reduced_zone_type: u8, mz: MovementZone) -> bool {
 /// Get the raw passability value (1/2/3) for a row and reduced ZoneType.
 ///
 /// Returns `PASS_OUTSIDE_SENTINEL` for out-of-bounds inputs.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn passability_value(zone_layer: usize, reduced_zone_type: u8) -> u8 {
     if zone_layer >= ZONE_LAYER_COUNT || reduced_zone_type as usize >= TERRAIN_TYPE_COUNT {
         return PASS_OUTSIDE_SENTINEL;

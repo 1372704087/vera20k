@@ -49,11 +49,8 @@ const DELAY: i32 = 28;
 /// The oracle's FireAt rearm (the row's `rof`, retail PrismShot's 45).
 const ROF: i32 = 45;
 
-fn golden() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn golden() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 
 fn rows<'a>(golden: &'a Value, set: &str) -> &'a [Value] {
@@ -162,7 +159,7 @@ impl Fixture {
         );
         let mut sim = Simulation::new();
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(48));
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "prism flat ground 48");
         let owner = sim.interner.intern("Americans");
         sim.houses.insert(
             owner,
@@ -752,7 +749,8 @@ fn prism_bonus_damage_matches_the_original() {
         let payload = ProjectilePayload::new(
             input["damage"].as_i64().unwrap() as i32,
             interner.intern("PRISM"),
-            interner.intern("PRISMSHOT"),
+            None,
+            false,
         )
         .with_damage_multiplier(input["multiplier"].as_i64().unwrap() as i32);
         assert_eq!(

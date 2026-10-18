@@ -48,7 +48,7 @@
 //!   `Exit_Object` arms a human's placement takes. Its residuals: the
 //!   refinery arm and the Infantry arm's Cloning Vat copies.
 
-use crate::rules::object_type::{FactoryType, ObjectCategory};
+use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
@@ -58,17 +58,17 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
-use super::factory_lifecycle::{abandon_production, record_last_built, start_active_production};
+use super::factory_lifecycle::{
+    BuiltObject, abandon_production, record_last_built, start_active_production,
+};
 use super::production_queue::exit_produced_object;
 use super::production_tech::production_category_for_object;
 
-/// `BuildingClass::Factory_AI @ 0x004500F0` for building `building`, whose
-/// type makes `factory_type`.
+/// `BuildingClass::Factory_AI @ 0x004500F0` for building `building`.
 pub(crate) fn factory_ai(
     sim: &mut Simulation,
     rules: &RuleSet,
     building: u64,
-    factory_type: FactoryType,
     overlay_registry: Option<&OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
@@ -84,10 +84,22 @@ pub(crate) fn factory_ai(
     let production = sim
         .houses
         .get(&owner)
-        .is_some_and(|house| house.ai_activation.production);
+        .is_some_and(|house| house.ai_activation().production);
     if !production || entity.constructing_or_selling() {
         return;
     }
+    // The second raw gate (450286) precedes the existing-factory abandon
+    // branch (450292); finished-object exit above remains unconditional.
+    let Some(factory_rtti) = sim
+        .substrate
+        .entities
+        .get(building)
+        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .map(|ty| ty.factory_rtti())
+        .filter(|&factory| factory != 0)
+    else {
+        return;
+    };
     if sim
         .production
         .factories
@@ -97,7 +109,7 @@ pub(crate) fn factory_ai(
         abandon_stopped_factory(sim, rules, building, owner, effects);
         return;
     }
-    start_factory(sim, rules, building, owner, factory_type, effects);
+    start_factory(sim, rules, building, owner, factory_rtti, effects);
 }
 
 /// `0x004500FA..0x00450242`: the finished object's exit once the wait is
@@ -135,7 +147,10 @@ fn exit_finished_object(
     }
     match exit {
         BuildingExit::Placed => {
-            record_last_built(sim, rules, owner, object.type_id);
+            //4501A4 reads after exit. A consumed wall is still retained at
+            //its constructor Location until the frame's shared725C70 drain.
+            let object = BuiltObject::capture(sim, product);
+            record_last_built(sim, rules, owner, object);
             // CompletedProduction lets the placed object go; the delete
             // finds none to abandon.
             sim.production.factories.remove_building_factory(building);
@@ -183,9 +198,7 @@ fn abandon_stopped_factory(
         .production
         .factories
         .building_factory(building)
-        .is_some_and(|factory| {
-            factory.step_rate_frames == 0 || factory.suspended || factory.manual
-        });
+        .is_some_and(|factory| !factory.view().is_running());
     if stopped {
         abandon_production(
             sim,
@@ -204,13 +217,13 @@ fn start_factory(
     rules: &RuleSet,
     building: u64,
     owner: InternedId,
-    factory_type: FactoryType,
+    factory_rtti: i32,
     effects: FrameEffects<'_>,
 ) {
     if crate::sim::credit_income::available_money(sim, owner) <= 10 {
         return;
     }
-    let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_type) else {
+    let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
     let factory_naval = sim
@@ -243,6 +256,7 @@ fn start_factory(
         FactoryHolder::Building(building),
         type_id,
         effects,
+        false,
     )
     .is_none()
     {
@@ -312,14 +326,22 @@ pub(crate) fn detach_all(
             effects,
         ),
         None => {
+            let holder = FactoryHolder::Building(building);
             let object = sim
                 .production
                 .factories
-                .abandon_factory(FactoryHolder::Building(building))
+                .pending_abandonment(holder)
                 .and_then(|abandoned| abandoned.entity_id);
-            if let Some(object) = object {
-                let _ = sim.discard_constructed_limbo(object, rules, effects);
-            }
+            sim.production
+                .factories
+                .reset_for_abandon(holder, sim.session.binary_frame);
+            sim.with_object_placement_scope(|sim| {
+                if let Some(object) = object {
+                    let _ = sim.discard_constructed_limbo(object, rules, effects);
+                }
+                sim.production.factories.finish_abandon(holder);
+            });
+            sim.production.factories.remove_factory(holder);
         }
     }
 }

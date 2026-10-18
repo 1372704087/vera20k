@@ -1,5 +1,5 @@
 //! The nuclear missile's launch: `SuperClass::Launch @ 0x006CC390` case 0
-//! (`Type=MultiMissile`, `0x006CDA67`) for a Super that is not one-time.
+//! (`Type=MultiMissile`, `0x006CDA67`), including the one-time payload drop.
 //! The silo's flight (`BuildingClass::Mission_Missile @ 0x0044C980`) and
 //! the falling warhead (`NukeMaker=`, `0x0046B310`) belong to the building
 //! missions and the projectile detonation.
@@ -28,8 +28,6 @@
 //! the recharge restart is ClickFire's.
 //!
 //! RESIDUALS:
-//! - The one-time arm (`0x006CDA88..0x006CDCB3`: a NukePayload bullet
-//!   dropped straight on the cell): VERA grants no one-time Super.
 //! - A charged launch that finds no silo type (`0x006CDCFA`, `0x006CDD30`)
 //!   or no silo (`0x006CDD44`) still runs the player's common tail at
 //!   `0x006CDE06`; the sim retains its `+0x1FC` request (`0x006CDE2F`),
@@ -43,9 +41,6 @@
 //! - `DigSound=` plays at the cell (the launch event carries it); native's
 //!   coordinate has the cell's floor height (`0x00578080`). Presentation
 //!   only.
-//! - The impact's wait reads the anim's liveness (`begin_ai_visit`)
-//!   instead of the holder list `0x00B0F5B8` whose PointerExpired clears
-//!   `+0x154`; VERA reuses no anim id, so the two answer alike.
 //! - A `NUKEBALL` VERA cannot construct (a type without its SHP, as in lib
 //!   tests) holds no anim, and the bullet detonates at its next AI; retail
 //!   binds `NUKEBALL.SHP`.
@@ -96,7 +91,10 @@ pub(crate) fn impact(sim: &mut Simulation, rules: &RuleSet, impact: ProjectileNu
     sim.session
         .lighting
         .start_nuke_flash(sim.session.binary_frame as i32);
-    sim.publish_global_lighting();
+    // ScreenNukeFlash53AC39 calls RecalcLighting with alternate flag1.
+    sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+        &sim.session.lighting,
+    ));
     let cell = |leptons: i32| (leptons / 256) as i16 as u16;
     sim.sound_events.push(SimSoundEvent::RadarEvent {
         radar: RadarEventRequest::new(
@@ -155,6 +153,31 @@ pub(super) fn launch(
 ) -> bool {
     if !super::is_charged(sim, owner, sw_type_id) {
         return false;
+    }
+    if sim
+        .super_weapons
+        .get(&owner)
+        .and_then(|weapons| weapons.get(&sw_type_id))
+        .is_some_and(|instance| instance.is_active && instance.one_time)
+    {
+        //6CDA72..6CDCB3: skip silo selection/mission/NukeTarget. Speed comes
+        //from NukePayload; the common projectile owner also creates PSIWARN.
+        let launched = sim.launch_nuke_payload_at_cell(
+            rules,
+            (cell.0 as i16, cell.1 as i16),
+            None,
+            Some(owner),
+        );
+        if launched {
+            sim.sound_events.push(SimSoundEvent::SuperWeaponLaunched {
+                owner,
+                sw_type: sw_type_id,
+                rx: cell.0,
+                ry: cell.1,
+            });
+        }
+        sim.request_house_tech_tree_recheck(owner); //common6CDE2F tail
+        return launched;
     }
     let Some(index) = rules.super_weapon_index(&sw.id) else {
         return false;

@@ -20,7 +20,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::combat_targeting::AttackerSnapshot;
 use crate::sim::game_entity::GameEntity;
-use crate::sim::projectile::ProjectileCoord;
+use crate::sim::projectile::{ProjectileCoord, ProjectileTarget};
 use crate::sim::world::Simulation;
 use crate::util::direction_tables::{facing16_between, step32_from_facing16};
 use crate::util::lepton::LEPTONS_PER_LEVEL;
@@ -51,45 +51,77 @@ pub(crate) struct FireCoordinate {
 pub(crate) fn effect_target_coordinate(
     world: &Simulation,
     rules: &RuleSet,
-    target: TargetKind,
+    target: ProjectileTarget,
 ) -> Option<ProjectileCoord> {
     match target {
-        TargetKind::Entity(id) => {
+        ProjectileTarget::Entity(id) => {
             let target = world.substrate.entities.get(id)?;
             let point = crate::sim::movement::ground_pose::object_target_coords(
                 target,
                 world.resolved_terrain.as_ref(),
-                rules.object(world.interner.resolve(target.type_ref())),
+                world.interner.object_type(target.type_ref(), rules),
             );
             Some(ProjectileCoord::new(point.x, point.y, point.z))
         }
-        TargetKind::Cell(x, y) => Some(crate::sim::projectile::cell_target_coord(
+        // Terrain+A4 (41BDD0) delegates to its retained Object+48 (5F65A0).
+        ProjectileTarget::Terrain(id) => world
+            .production
+            .terrain_objects
+            .get(&id)
+            .map(crate::sim::terrain_object::TerrainObjectState::world_coord),
+        ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(
             world.resolved_terrain.as_ref(),
-            x,
-            y,
+            rx,
+            ry,
         )),
+        ProjectileTarget::DummyCell => Some(crate::sim::projectile::dummy_cell_target_coord(
+            &world.effective_shared_cell_dummy(),
+        )),
+        // Native dereferences a null target. Keep an unresolved caller inert;
+        // no stock beam creation call supplies a null Abstract pointer.
+        ProjectileTarget::None => None,
     }
 }
 
-/// Both beam constructors subtract the projected Building+AC origin from
-/// their projected FLH and clamp positive deltas to zero (6FD210/6FD460).
+/// Native policies sharing the effect source/anchor projection. RadBeam's
+/// raw-Y test and unclamped delta6FD696 differ from laser/bolt6FD210/6FD460.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffectDepthProjection {
+    ClampedBuilding,
+    ChangedY,
+}
+
+/// The laser's NullCoord arm and every bolt constructor subtract the projected
+/// Building+AC origin from their source and clamp positive deltas to zero
+/// (6FD210/6FD460). Explicit-source lasers bypass this calculation.
 /// Each projection stays with the existing native world-to-screen owner.
 pub(crate) fn effect_z_adjust(
     world: &Simulation,
     source: &GameEntity,
     from: ProjectileCoord,
+    projection: EffectDepthProjection,
 ) -> i32 {
-    if source.category() != EntityCategory::Structure {
+    if projection == EffectDepthProjection::ClampedBuilding
+        && source.category() != EntityCategory::Structure
+    {
         return 0;
     }
     let location =
         crate::sim::movement::ground_pose::object_location(source, world.resolved_terrain.as_ref());
-    let base =
-        crate::sim::movement::ground_pose::building_render_order_parts(location, false, false).0;
+    let base = if source.category() == EntityCategory::Structure {
+        crate::sim::movement::ground_pose::building_render_order_parts(location, false, false).0
+    } else {
+        location
+    };
+    if projection == EffectDepthProjection::ChangedY && from.y == base.y {
+        return 0;
+    }
     let project_y = |x, y, z| crate::util::lepton::absolute_leptons_to_screen(x, y, z).1 as i32;
-    project_y(from.x, from.y, from.z)
-        .wrapping_sub(project_y(base.x, base.y, base.z))
-        .min(0)
+    let delta = project_y(from.x, from.y, from.z).wrapping_sub(project_y(base.x, base.y, base.z));
+    match projection {
+        EffectDepthProjection::ClampedBuilding => delta.min(0),
+        EffectDepthProjection::ChangedY => delta,
+    }
 }
 
 /// The firer facts the fire coordinate reads.
@@ -171,25 +203,29 @@ impl From<&AttackerSnapshot> for FireSource {
 /// along world X. The result adds to the same virtual +AC base as GetFLH.
 /// Executed source/ART controls: tools/procedural_drawing_oracle/action_lines.
 ///
-/// The represented basis retains GetFLH's slope/rocking limitations. Stock
-/// MTNK's GTNK art has offset0, and stable Drive slope matrices have zero
-/// translation, so those slopes do not move this pivot. AP has Rocker0;
-/// the ordinary untouched 105mm/AP duel does not create a rocking pose.
-/// Ground rocking producers and their DrawMatrix translation remain a
-/// required separate mechanism for Rocker hits (for example V3WH/Parasite).
-pub(crate) fn turret_pivot_coordinate(
+/// Drive/Ship use the same physical-model and locomotor matrix inputs as
+/// GetFLH, including the translation of a rocking hull.
+pub fn turret_pivot_coordinate(
     world: &Simulation,
     rules: &RuleSet,
     entity: &GameEntity,
 ) -> Option<ProjectileCoord> {
-    let obj = rules.object(world.interner.resolve(entity.type_ref()))?;
+    let obj = world.interner.object_type(entity.type_ref(), rules)?;
     let source = FireSource::of_entity(entity);
     let base = fire_coordinate_base(world, rules, &source, obj);
     let offset = base.art.map_or(0, |art| art.turret_offset);
     let delta = if entity.locomotor.is_some() {
         // Retain the existing transform's representable-coordinate boundary;
         // authored TurretOffset is not clamped by the ART reader.
-        crate::util::flh_transform::native_flh_world_delta(0, 0, 0, offset, base.facings, 0)?
+        crate::util::flh_transform::native_flh_world_delta(
+            0,
+            0,
+            0,
+            offset,
+            base.facings,
+            0,
+            base.locomotor_basis,
+        )?
     } else {
         (offset, 0, 0)
     };
@@ -299,7 +335,7 @@ pub(crate) fn fire_coordinate(
                 lateral: flh.lateral.wrapping_add(base_coords.lateral),
                 height: flh.height.wrapping_add(base_coords.height),
             };
-            flh_world_delta(art, flh, base.facings, burst_index)
+            flh_world_delta(art, flh, base.facings, burst_index, base.locomotor_basis)
         })
         .unwrap_or((0, 0, 0));
     if snap.category == EntityCategory::Structure
@@ -365,6 +401,7 @@ struct FireBase<'r> {
     y: i32,
     z: i32,
     facings: crate::util::flh_transform::FlhFacings,
+    locomotor_basis: Option<glam::Mat4>,
     /// The aim facing, or a building's vt+0x308 ([`building_fire_facings`]).
     fire_facing: u16,
     art: Option<&'r ArtEntry>,
@@ -428,6 +465,56 @@ fn fire_coordinate_base<'r>(
     };
 
     let art = firer_art(rules, obj);
+    // GetFLH6F3B6C..6F3BA3 consumes the actual locomotor Draw_Matrix.
+    // The physical half sizes come from the immutable rules binding, never
+    // the renderer's model cache. Ground pose math has one shared owner.
+    let locomotor_basis = world
+        .substrate
+        .entities
+        .get(snap.stable_id)
+        .filter(|entity| {
+            entity.locomotor.as_ref().is_some_and(|loco| {
+                matches!(
+                    loco.active_kind(),
+                    crate::rules::locomotor_type::LocomotorKind::Drive
+                        | crate::rules::locomotor_type::LocomotorKind::Ship
+                )
+            })
+        })
+        .and_then(|entity| {
+            use crate::map::voxel_pose::{VxlSlopeBlend, ground_locomotor_matrix};
+            use crate::sim::movement::slope_transition::{SlopeRenderPhase, state_for_entity};
+            let half_sizes = rules.object_voxel_half_sizes(&obj.id)?;
+            let (slope, blend) =
+                match state_for_entity(entity).map(|state| state.render_phase(binary_frame)) {
+                    Some(SlopeRenderPhase::Stable(slope)) => (slope, None),
+                    Some(SlopeRenderPhase::Transition {
+                        from_slope,
+                        to_slope,
+                        phase_num,
+                        phase_den,
+                    }) => (
+                        to_slope,
+                        Some(VxlSlopeBlend {
+                            from_slope,
+                            to_slope,
+                            phase_num,
+                            phase_den,
+                        }),
+                    ),
+                    None => (0, None),
+                };
+            Some(ground_locomotor_matrix(
+                slope,
+                blend,
+                crate::util::direction_tables::step32_from_facing16(body_facing16),
+                entity
+                    .rocking
+                    .as_ref()
+                    .map_or([0.; 2], |state| state.angles_native()),
+                half_sizes,
+            ))
+        });
     let (flh_facing16, fire_facing) = if snap.category == EntityCategory::Structure {
         building_fire_facings(world, snap, obj, art, aim_facing16)
     } else {
@@ -443,13 +530,14 @@ fn fire_coordinate_base<'r>(
             body: body_facing16,
             matrix: matrix_facing16,
         },
+        locomotor_basis,
         fire_facing,
         art,
     }
 }
 
 /// The art section GetFLH reads a type's FLH from: its `Image=`, else its ID.
-pub(crate) fn firer_art<'r>(rules: &'r RuleSet, obj: &ObjectType) -> Option<&'r ArtEntry> {
+pub fn firer_art<'r>(rules: &'r RuleSet, obj: &ObjectType) -> Option<&'r ArtEntry> {
     rules
         .art()
         .get(&obj.image)
@@ -482,7 +570,7 @@ fn building_fire_facings(
         .map(|building| coords_xy(super::target_coords(building)));
     let target = snap
         .tar_com
-        .and_then(|target| super::resolve_target_coords(&target, entities));
+        .and_then(|target| super::resolve_target_coords(&target, world));
     let (Some(origin), Some(target)) = (origin, target.map(coords_xy)) else {
         // `0x0044D7F4..0x0044D7FF`: `((current >> 7) + 1) >> 1` as the high byte.
         let rounded = ((((u32::from(current) >> 7) + 1) >> 1) & 0xFF) << 8;
@@ -509,14 +597,14 @@ fn building_fire_facings(
 /// (`0x0044B162`, `0x0044B19B`, `0x0044B1F2`), its voxel-turret retry
 /// (`0x0044B056`), GetFireError's FACING test (`0x00447FF8`) and the fire
 /// facing aim through it. `None` for a target no longer stored.
-pub(crate) fn building_direction_to(
+pub fn building_direction_to(
     world: &Simulation,
     rules: &RuleSet,
     building: &GameEntity,
     target: TargetKind,
 ) -> Option<u16> {
     let obj = world.object_type(building.type_ref(), rules)?;
-    let target = super::resolve_target_coords(&target, &world.substrate.entities)?;
+    let target = super::resolve_target_coords(&target, world)?;
     let origin = coords_xy(super::target_coords(building));
     Some(facing16_between(
         aim_origin(origin, obj, firer_art(rules, obj)),
@@ -567,6 +655,7 @@ fn flh_world_delta(
     flh: crate::rules::flh::Flh,
     facings: crate::util::flh_transform::FlhFacings,
     burst_index: u8,
+    locomotor_basis: Option<glam::Mat4>,
 ) -> Option<(i32, i32, i32)> {
     crate::util::flh_transform::native_flh_world_delta(
         flh.forward,
@@ -575,6 +664,7 @@ fn flh_world_delta(
         art.turret_offset,
         facings,
         burst_index,
+        locomotor_basis,
     )
 }
 
@@ -603,7 +693,7 @@ fn open_topped_port_coordinate(
         .passengers()
         .iter()
         .position(|&id| id == snap.stable_id)?;
-    let transport_obj = rules.object(world.interner.resolve(transport.type_ref()))?;
+    let transport_obj = world.interner.object_type(transport.type_ref(), rules)?;
     let source = FireSource::of_entity(transport);
     let base = fire_coordinate_base(world, rules, &source, transport_obj);
     let flh = base.art.map_or_else(Default::default, |art| {
@@ -612,13 +702,13 @@ fn open_topped_port_coordinate(
     let burst_index = (transport.weapon_burst.index() & 1) as u8;
     let delta = base
         .art
-        .and_then(|art| flh_world_delta(art, flh, base.facings, burst_index))
+        .and_then(|art| flh_world_delta(art, flh, base.facings, burst_index, base.locomotor_basis))
         .unwrap_or((0, 0, 0));
     let rider_aim = fire_coordinate_base(
         world,
         rules,
         snap,
-        rules.object(world.interner.resolve(rider.type_ref()))?,
+        world.interner.object_type(rider.type_ref(), rules)?,
     )
     .facings
     .aim;
@@ -690,7 +780,7 @@ pub(crate) fn muzzle_anim_name(
 /// gamemd-derived, `0x006FF3D9..0x006FF427`: `-((fire.Y - coords.Y) / 4)` with
 /// the signed divide rounding toward zero, clamped to at most zero; an occupied
 /// building then overwrites it with `-200`.
-pub(crate) fn building_muzzle_z_adjust(offset_y: i32, occupied: bool) -> i32 {
+pub fn building_muzzle_z_adjust(offset_y: i32, occupied: bool) -> i32 {
     if occupied {
         return OCCUPIED_MUZZLE_Z_ADJUST;
     }
@@ -785,11 +875,10 @@ mod tests {
 
     #[test]
     fn retail_empty_fv_burst_flh_matches_original_flat_drive() {
-        let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+        else {
             return;
         };
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/ifv_fire_coord.json",
         ))
@@ -834,11 +923,10 @@ mod tests {
     /// `0x006F3C82`). The original read BSUB's offset with its own ART reader.
     #[test]
     fn retail_flh_base_matches_original_get_flh() {
-        let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+        else {
             return;
         };
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/ifv_fire_coord.json",
         ))
@@ -873,6 +961,117 @@ mod tests {
             );
             let [x, y, z] = triple(&row["coordinate"]);
             assert_eq!(shot.coord, ProjectileCoord::new(x, y, z), "{row}");
+        }
+    }
+
+    #[test]
+    fn retail_disk_muzzle_and_range_queries_match_actual_unit_jumpjet_dispatch() {
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let rules = &retail.rules;
+        let native = crate::test_fixture::json("tools/spatial_oracle/disk_laser.json");
+        let rows = native["muzzle"].as_array().unwrap();
+        assert_eq!(
+            rows.len(),
+            7,
+            "four headings and three high-flight controls"
+        );
+        let int = |v: &serde_json::Value| v.as_i64().unwrap() as i32;
+        let triple = |v: &serde_json::Value| [int(&v[0]), int(&v[1]), int(&v[2])];
+        for row in rows {
+            let input = &row["input"];
+            let mut world = Simulation::new();
+            crate::sim::arena_fixture::flat_arena(&mut world, rules);
+            let mut ids = Vec::new();
+            for (kind, key) in [("DISK", "source"), ("MTNK", "target")] {
+                let [x, y, z] = triple(&input[key]);
+                let id = world
+                    .spawn_object(
+                        kind,
+                        "Americans",
+                        (x / 256) as u16,
+                        (y / 256) as u16,
+                        0,
+                        rules,
+                    )
+                    .unwrap();
+                let actor = world.substrate.entities.get_mut(id).unwrap();
+                actor
+                    .position
+                    .set_sub_x_for_test(SimFixed::from_num(x % 256));
+                actor
+                    .position
+                    .set_sub_y_for_test(SimFixed::from_num(y % 256));
+                actor.position.set_exact_z_leptons_for_test(Some(z));
+                ids.push(id);
+            }
+            let frame = input["frame"].as_u64().unwrap() as u32;
+            world.session.binary_frame = frame;
+            let source = world.substrate.entities.get_mut(ids[0]).unwrap();
+            source.body_facing = crate::sim::movement::FacingClass::new(
+                input["primary_facing"].as_u64().unwrap() as u16,
+                100,
+            );
+            source.barrel_facing = Some(crate::sim::movement::FacingClass::new(
+                input["secondary_facing"].as_u64().unwrap() as u16,
+                100,
+            ));
+            source
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap());
+            let obj = rules.object("DISK").unwrap();
+            assert_eq!(obj.has_turret, input["has_turret"].as_bool().unwrap());
+            assert_eq!(
+                rules.art().get("DISK").unwrap().primary_fire_flh,
+                Flh::from(triple(&input["primary_flh"]))
+            );
+            let before = world.state_hash();
+            let source = world.substrate.entities.get(ids[0]).unwrap();
+            let source_coord = crate::sim::movement::ground_pose::object_get_coords(
+                source,
+                world.resolved_terrain.as_ref(),
+            );
+            assert_eq!(
+                [source_coord.x, source_coord.y, source_coord.z],
+                triple(&row["source_coords"])
+            );
+            let muzzle = fire_coordinate(
+                &world,
+                rules,
+                &FireSource::of_entity(source),
+                obj,
+                int(&input["weapon_index"]),
+                input["burst"].as_u64().unwrap() as u8,
+                Flh::from(triple(&input["base"])),
+            );
+            assert_eq!(
+                [muzzle.coord.x, muzzle.coord.y, muzzle.coord.z],
+                triple(&row["muzzle"]),
+                "{input}"
+            );
+            let target = effect_target_coordinate(
+                &world,
+                rules,
+                crate::sim::projectile::ProjectileTarget::Entity(ids[1]),
+            )
+            .unwrap();
+            assert_eq!(
+                [target.x, target.y, target.z],
+                triple(&row["target_effect_coords"])
+            );
+            assert_eq!(
+                crate::sim::movement::air_movement::is_high_flying(
+                    source,
+                    world.resolved_terrain.as_ref(),
+                    Some((rules, &world.interner))
+                ),
+                row["high_flying"].as_bool().unwrap(),
+                "{input}"
+            );
+            assert_eq!(world.state_hash(), before, "queries are read-only: {input}");
         }
     }
 

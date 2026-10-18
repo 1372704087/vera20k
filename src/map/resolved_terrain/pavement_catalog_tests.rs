@@ -1,10 +1,7 @@
 use super::*;
 
-fn native_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_pavement.json",
-    ))
-    .unwrap()
+fn native_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_pavement.json")
 }
 
 #[test]
@@ -54,12 +51,7 @@ fn pavement_resident_pristine_gate_matches_all_native_unsigned_subtiles() {
 fn retail_pavement_resident_gate_survives_normal_loader_asset_drop() {
     let retail = std::env::var("RA2_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            crate::util::config::GameConfig::load()
-                .unwrap()
-                .paths
-                .ra2_dir
-        });
+        .unwrap_or_else(|_| crate::test_fixture::game_config().unwrap().paths.ra2_dir);
     let map = std::env::var("VERA20K_XMP34U4_MAP").unwrap_or_else(|_| "xmp34u4.map".into());
     let scenario = crate::headless_scenario::load(&retail, &map, 0x0B21_D6E5).unwrap();
     let sim = scenario.sim();

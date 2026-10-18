@@ -25,18 +25,35 @@ oyuncular söylüyor.
 
 1. Orijinal Red Alert 2: Yuri's Revenge'in oynanışını, görsellerini ve atmosferini korumak.
 2. 500×500 haritalarda **30 oyuncuya** ve **20.000 birime** kadar daha büyük savaşları desteklemek.
-3. Eski ve yeni bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
+3. Bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
 4. Entegre çok oyunculu istemci
 
 ## Mevcut durum
 
-**Geliştirmenin orta aşamalarında.** Windows'ta basit bir yapay zekâya karşı yerel çatışmalar
-oynanabiliyor. Orijinal ve rastgele oluşturulan haritalar, menüler, üs kurma, kaynak toplama,
-çatışma ve kaydetme/yükleme mevcut, ancak hâlâ düzeltilecek ve tamamlanacak çok şey var.
+**Aktif geliştirme aşamasında.**
 
-Çok oyunculu mod, senaryolar ve orijinal yapay zekâ henüz yok. Uçaklar, zihin kontrolü, köprüler
-ve çeşitli silahlar ile efektler üzerinde daha fazla çalışmamız gerekiyor. Henüz 30 oyunculu,
-20.000 birimli savaşlar göstermedik.
+- **Çatışma:** Windows, Linux ve macOS'ta oynanabiliyor. Orijinal ve rastgele oluşturulan
+  haritalar, üs kurma, kaynak toplama, çatışma ve kaydetme/yükleme mevcut.
+- **Senaryolar:** Görevler başlatılabiliyor; destek henüz tamamlanmış değil.
+- **Yapay zekâ:** Orijinal yapay zekânın bazı bölümleri üs kurma ve betiklerle yönetilen saldırıları yürütüyor.
+- **Devam eden çalışmalar:** Oynanışın aslına uygunluğu, görseller ve performans.
+- **Çok oyunculu mod:** Ağ üzerinden oyun henüz mevcut değil.
+- **Ölçek:** 30 oyunculu, 20.000 birimli savaşlar henüz gösterilmiş değil.
+
+## Mimari
+
+Motorun üç ana bölümü vardır:
+
+- **Simülasyon:** Oyun durumunu ve mantığını yönetir.
+- **Görüntüleme:** Orijinal oyun kaynaklarını kullanan, orijinal görünümü korumak için
+  oluşturulmuş tamamen yeni bir GPU görüntüleme hattı.
+- **Uygulama:** Girdi, menüler, ses ve platform entegrasyonunu yönetir, sistemleri birbirine bağlar.
+
+Bu ayrım deterministik oynanışı destekler.
+
+Oklar veri akışını gösterir:
+
+![Uygulama simülasyona komut gönderir ve dünya durumunu alır; görüntülemeye çizim verilerini gönderir.](docs/images/architecture.tr.png)
 
 ## Derleme ve çalıştırma
 
@@ -60,14 +77,16 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-`ra2_dir` yolunu ters eğik çizgi yerine eğik çizgiyle yazın, örneğin `C:/Games/RA2`. Oynamak için
-`--release` kullanın; debug derlemeleri çok yavaş. Günlük dosyası `logs/ra2.log` konumundadır.
-
 ## Nasıl çalışıyoruz
 
 Kodun büyük bölümünü yapay zekâ kodlama ajanları yazıyor. Ajanlar özgün motoru Ghidra ile
 inceliyor, ardından davranışını Rust'a aktarıyor ve [karşılaştırma araçları](tools/native_oracle.md)
 ile oyun testleri kullanarak kontrol ediyor. Ajanlar [AGENTS.md](AGENTS.md) dosyasını izler.
+
+## Özelleştirme
+
+İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
+ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
 
 ## Katkıda bulunma
 
@@ -76,10 +95,16 @@ fikirlerinizi paylaşabilir veya orijinal oyunla yan yana oynayıp neyin yanlı�
 bize anlatabilirsiniz. Bir PR açın, gerisini biz hallederiz.
 Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda (1097193563) yürür.
 
-Oyun mantığı `src/sim/`, çizim `src/render/`, menüler ve girdi ise `src/app/` ve `src/ui/`
-içinde; `tools/` altındaki Python araçlarına ihtiyacınız yok.
+## Destek
 
-Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20k'yi PayPal üzerinden destekleyin" height="40"></a>
+
+Alınan tüm bağışlar,
+[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
+bulunanlara dağıtılır.
+
+Katkıda bulunanlara ödemeler PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
+Bitcoin üzerinden yapılır.
 
 ## Teşekkürler ve yasal bilgiler
 

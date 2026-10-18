@@ -50,13 +50,13 @@
 //!   Frequency: every Soviet Nuclear Reactor death. Risk: survivor count,
 //!   marks and the Scenario stream after them. Needs a breakpoint at
 //!   `0x004400D4` (kill a NANRCT) to confirm Update reaches that arm.
-//! - A sale's crew Unlimboes at the Z its request carries, 0
-//!   (`0x0044A6C6`); VERA's survivor request carries the cell's level.
-//!   Infantry51E01B compares that raw input before the shared type clamp
-//!   (`0x005247D0`) raises a below-floor coordinate. Trigger: selling a
-//!   crewed building on raised ground. Effect: the class placement arm and
-//!   its occupation result may differ; final below-floor Z is clamped in
-//!   both engines. Not executed (the sale oracle map is flat).
+//! - Sale44A6ED's CellPlace481180 overwrites the literal request Z0 with
+//!   ground height at the original within-cell(128,164), before44A72D
+//!   Unlimbo. VERA's caller uses the coarse cell floor. Flat foundations,
+//!   including raised ones, agree. On a sloped foundation where that request
+//!   floor exceeds the selected subcell floor, native can retain the higher
+//!   Z through the type clamp5247D0; VERA can drop it. No executed slope
+//!   control establishes that wider path.
 //! - A dying unit's passengers ([`Simulation::release_dying_unit_passengers`]):
 //!   - A computer passenger of a unit in a Team joins it (`TeamClass::
 //!     Add_Member @ 0x006EA500`) instead of Hunting, and KillPassengers
@@ -167,7 +167,7 @@ impl HasBeenCaptured {
     }
 
     /// Install a fixture's byte.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, set: bool) {
         self.set = set;
     }
@@ -287,7 +287,7 @@ impl Simulation {
         }
         let captured = entity.has_been_captured.is_set();
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
-        let yard = object.factory == Some(FactoryType::BuildingType);
+        let yard = object.factory_type() == Some(FactoryType::BuildingType);
         let side = self.houses.get(&entity.owner())?.side_index;
         if !captured && self.scenario_rng.next_range_u32_inclusive(0, 99) < 25 && yard {
             return rules.general.engineer_infantry.clone();
@@ -465,6 +465,7 @@ impl Simulation {
                 let target = Some(crate::sim::combat::TargetKind::Entity(planter));
                 let commits = crate::sim::mission::concrete_effects::assign_target_commits(
                     &sim.substrate.entities,
+                    &sim.production.terrain_objects,
                     target,
                 );
                 if let Some(survivor) = sim.substrate.entities.get_mut(id) {
@@ -500,7 +501,7 @@ impl Simulation {
             .entities
             .get(building_id)
             .and_then(|entity| self.object_type(entity.type_ref(), rules))
-            .is_some_and(|object| object.infantry_absorb || object.unit_absorb);
+            .is_some_and(|object| object.absorbs_passengers());
         let mut cursor = 0;
         if !absorbs {
             return cursor;

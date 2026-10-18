@@ -431,13 +431,13 @@ pub struct SkirmishLaunchSession {
 /// Staged shell assignment copy used by the app's native-order close
 /// transaction. Keeping the phases explicit lets snapshot Slot packing occur
 /// after local country but before local colour without mutating raw controls.
-pub(crate) struct ShellRandomAssignmentState {
+pub struct ShellRandomAssignmentState {
     resolved: SkirmishLaunchSession,
     used_colors: Vec<u8>,
 }
 
 impl ShellRandomAssignmentState {
-    pub(crate) fn new(session: &SkirmishLaunchSession) -> Self {
+    pub fn new(session: &SkirmishLaunchSession) -> Self {
         let mut used_colors = Vec::new();
         if !session.local.color_random {
             used_colors.push(session.local.color_index);
@@ -453,7 +453,7 @@ impl ShellRandomAssignmentState {
         }
     }
 
-    pub(crate) fn resolve_local_country<E>(
+    pub fn resolve_local_country<E>(
         &mut self,
         rng: &mut SimRng,
         draw_country: &mut impl FnMut(RandomCountryRole, &mut SimRng) -> Result<LaunchCountry, E>,
@@ -468,7 +468,7 @@ impl ShellRandomAssignmentState {
     /// Materialize the AI assignment arrays after the local-country phase.
     /// The app close transaction starts with an empty opponent list so this
     /// write occurs at the same native phase as the raw persisted Slot pack.
-    pub(crate) fn pack_ai_assignments(&mut self, opponents: &[SkirmishAiSlot]) {
+    pub fn pack_ai_assignments(&mut self, opponents: &[SkirmishAiSlot]) {
         debug_assert!(self.resolved.opponents.is_empty());
         self.resolved.opponents = opponents.to_vec();
         self.used_colors.extend(
@@ -479,7 +479,7 @@ impl ShellRandomAssignmentState {
         );
     }
 
-    pub(crate) fn resolve_local_color(&mut self, rng: &mut SimRng) {
+    pub fn resolve_local_color(&mut self, rng: &mut SimRng) {
         if self.resolved.local.color_random {
             let color = draw_collision_free_color(rng, &self.used_colors);
             self.resolved.local.color_index = color;
@@ -488,7 +488,7 @@ impl ShellRandomAssignmentState {
         }
     }
 
-    pub(crate) fn resolve_ai<E>(
+    pub fn resolve_ai<E>(
         &mut self,
         rng: &mut SimRng,
         draw_country: &mut impl FnMut(RandomCountryRole, &mut SimRng) -> Result<LaunchCountry, E>,
@@ -508,7 +508,7 @@ impl ShellRandomAssignmentState {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> SkirmishLaunchSession {
+    pub fn finish(self) -> SkirmishLaunchSession {
         self.resolved
     }
 }
@@ -525,6 +525,7 @@ impl SkirmishLaunchSession {
     ///
     /// The supplied RNG must be the app-owned frontend/process Scenario cursor,
     /// never the freshly seeded gameplay cursor.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn resolve_shell_random_assignments(&self, rng: &mut SimRng) -> Self {
         self.resolve_shell_random_assignments_with(rng, |_, rng| {
             LaunchCountry::from_country_index(rng.next_range_u32_inclusive(0, 9))
@@ -535,6 +536,7 @@ impl SkirmishLaunchSession {
     /// selected MPModes authority. Cooperative uses this hook for eligibility
     /// retries; colours remain here so every rejected country candidate shifts
     /// the following colour draw.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn resolve_shell_random_assignments_with(
         &self,
         rng: &mut SimRng,
@@ -552,6 +554,7 @@ impl SkirmishLaunchSession {
     /// authorities whose data can be malformed. An error stops the transaction
     /// immediately, retaining draws already consumed but making no later
     /// country or colour calls.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn try_resolve_shell_random_assignments_with<E>(
         &self,
         rng: &mut SimRng,

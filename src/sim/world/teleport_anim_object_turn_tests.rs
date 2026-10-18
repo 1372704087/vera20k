@@ -376,10 +376,13 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
     let payload = ProjectilePayload::new(
         weapon.damage,
         sim.intern(weapon.warhead.as_deref().unwrap()),
-        sim.intern("MissileLauncher"),
-    );
+        weapon.projectile.as_deref().map(|name| sim.intern(name)),
+        weapon.bright,
+    )
+    .with_installed_weapon(Some(sim.intern("MissileLauncher")));
     let bullet = FiredBullet::launched(
         &sim,
+        &rules,
         100,
         RAD_NO_ATTACKER,
         ProjectileTarget::Entity(1),
@@ -447,7 +450,6 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
             .map(|value| value.as_str().unwrap())
             .collect();
         assert_eq!(actual.as_slice(), expected.as_slice());
-        assert!(world.pending_projectile_detonations.is_empty());
     }
     assert_eq!(sim.state_hash(), restored.state_hash());
 }

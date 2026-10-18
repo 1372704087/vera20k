@@ -6,7 +6,6 @@
 use super::cmin_dock_oracle_tests::cmin_rules;
 use super::refinery_dock_oracle_tests::{Scene, scene_with};
 use crate::rules::locomotor_type::LocomotorKind;
-use crate::rules::ruleset::RuleSet;
 use crate::sim::miner::{CargoBale, MinerState, ResourceType};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::radio::{RadioMessage, RadioResponse, TransmitRecord};
@@ -182,8 +181,14 @@ fn fixture_scene(cell: (u16, u16)) -> Scene {
 /// Take the scene's second refinery (NW (20, 20)) offline, so CAN_LOAD
 /// refuses it and the scene has one dock.
 fn one_dock(s: &mut Scene) {
-    s.sim.substrate.entities.get_mut(s.other).unwrap().temporal =
-        crate::sim::temporal::TemporalState::warped_by_for_test(s.miner);
+    s.sim
+        .substrate
+        .entities
+        .get_mut(s.other)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            s.miner,
+        ));
 }
 
 /// A second full Chrono Miner in Mission_Harvest's FINDING_HOME state.
@@ -325,12 +330,12 @@ fn far_chrono_miner_drives_in_then_warps_onto_the_pad() {
 /// and `[General] ChronoHarvTooFarDistance=50`.
 #[test]
 fn chrono_miner_visit_on_retail_rules() {
-    let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-    else {
+    let Some(rules_ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
+        return;
+    };
     let cmin = rules.object("CMIN").unwrap();
     assert!(cmin.teleporter && cmin.harvester);
     assert_eq!(cmin.locomotor, LocomotorKind::Teleport);

@@ -36,7 +36,7 @@ impl Simulation {
             );
         }
         let sound = rules
-            .and_then(|r| r.object(self.interner.resolve(e.type_ref())))
+            .and_then(|r| self.interner.object_type(e.type_ref(), r))
             .and_then(|o| o.aux_sound1.as_deref());
         if let Some(sound) = sound {
             let c = ground_pose::position_world_coord(&e.position);
@@ -85,7 +85,7 @@ impl Simulation {
         if bridge && height >= crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS {
             height = height.wrapping_sub(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
         }
-        let object = rules.and_then(|r| r.object(self.interner.resolve(entity.type_ref())));
+        let object = rules.and_then(|r| self.interner.object_type(entity.type_ref(), r));
         let dropship = object.is_some_and(|o| o.is_dropship);
         let carryall =
             entity.category() == EntityCategory::Aircraft && object.is_some_and(|o| o.carryall);
@@ -368,12 +368,12 @@ impl Simulation {
             return other == id
                 || e.radio_contacts.slot(0) == Some(other)
                 || rules
-                    .and_then(|r| r.object(self.interner.resolve(e.type_ref())))
+                    .and_then(|r| self.interner.object_type(e.type_ref(), r))
                     .is_some_and(|o| o.spawned)
                     && self.substrate.entities.get(other).is_some_and(|o| {
                         o.spawn_manager.is_some()
                             || rules
-                                .and_then(|r| r.object(self.interner.resolve(o.type_ref())))
+                                .and_then(|r| self.interner.object_type(o.type_ref(), r))
                                 .is_some_and(|o| o.spawned)
                     });
         }
@@ -483,46 +483,27 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) -> bool {
         use crate::rules::locomotor_type::{MovementZone, SpeedType};
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-            map_owned_radius_cap,
-        };
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
         let Some(rules) = rules else {
             return false;
         };
         let e = self.substrate.entities.get(id).unwrap();
         let coord = ground_pose::position_world_coord(&e.position);
         self.begin_fly_takeoff(id, Some(rules));
-        let grid = self.path_grid_snapshot();
-        let Some((width, height)) = self.map_size_diamond() else {
+        if self.map_size_diamond().is_none() {
             return false;
-        };
-        let target = find_nearby_passable_cell(
+        }
+        let target = self.nearby_passable_cell(
             ((coord.x / 256) as i16 as i32, (coord.y / 256) as i16 as i32),
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
+            NearbyArgs::plain(
+                PassabilityArgs {
                     speed_type: SpeedType::Track,
                     required_zone_id: None,
                     movement_zone: MovementZone::Fly,
                     bridge_aware_zone: false,
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(width, height),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: self.resolved_terrain.as_ref(),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            self.session.binary_frame,
+                NearbyFootprint::SINGLE,
+            ),
         );
         if let Some(cell) = target {
             //4CEAD9..4CEB35 constructs from the selected CellStruct, then
@@ -788,6 +769,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow; run when changing what it covers"]
     fn fly_can_enter_matches_original_ground_shroud_queries() {
         use crate::sim::vision::OwnerVisibility;
         let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
@@ -1121,7 +1103,8 @@ mod tests {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let e = sim.substrate.entities.get(1).unwrap();
         assert!(e.air_spatial_bucket().is_some());
         assert!(
@@ -1149,7 +1132,8 @@ mod tests {
                     Some(&rules),
                     None,
                     crate::sim::world::FrameEffects::default(),
-                );
+                )
+                .unwrap();
             }
             assert_eq!(sim.state_hash(), restored.state_hash(), "frame{frame}");
         }

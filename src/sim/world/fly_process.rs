@@ -339,7 +339,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        let object = rules.and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
+        let object = rules.and_then(|rules| self.interner.object_type(entity.type_ref(), rules));
         let dropship = object.is_some_and(|object| object.is_dropship);
         let location = ground_pose::object_location(entity, self.resolved_terrain.as_ref());
         let speed = air_movement::current_fly_speed(
@@ -505,7 +505,7 @@ impl Simulation {
                 })
                 .filter(|building| building.category() == EntityCategory::Structure)
                 .and_then(|building| {
-                    rules.and_then(|rules| rules.object(self.interner.resolve(building.type_ref())))
+                    rules.and_then(|rules| self.interner.object_type(building.type_ref(), rules))
                 })
                 .is_some_and(|object| object.helipad);
         if entering_helipad {
@@ -554,11 +554,7 @@ impl Simulation {
             && coord_cell(state.destination()) == coord_cell(location)
             && state.target_speed() == SIM_ZERO
             && (entity.attack_target.target().is_none()
-                || entity
-                    .aircraft_ammo
-                    .as_ref()
-                    .map_or(-1, |ammo| ammo.current())
-                    == 0)
+                || entity.ammo().map_or(-1, |ammo| ammo.current()) == 0)
     }
 
     /// `FlyLocomotionClass::Horizontal_Step @ 0x004CEFB0` toward `coord` (the
@@ -606,7 +602,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return 0;
         };
-        let object = rules.and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
+        let object = rules.and_then(|rules| self.interner.object_type(entity.type_ref(), rules));
         let aircraft = entity.category() == EntityCategory::Aircraft;
         let strafe = aircraft
             && rules.zip(object).is_some_and(|(rules, object)| {
@@ -622,10 +618,7 @@ impl Simulation {
                 .as_aircraft()
                 .is_some_and(|leaf| leaf.action_latch() != 0);
         let target = entity.attack_target.target();
-        let ammo = entity
-            .aircraft_ammo
-            .as_ref()
-            .map_or(-1, |ammo| ammo.current());
+        let ammo = entity.ammo().map_or(-1, |ammo| ammo.current());
         let hunter_seeker = object.is_some_and(|object| object.hunter_seeker);
         let armed = target.is_some() && ammo != 0;
         let may_slow = may_slow
@@ -659,11 +652,7 @@ impl Simulation {
                             .resolved_terrain
                             .as_ref()
                             .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-                        ground_pose::target_get_coords(
-                            TargetKind::from(cell),
-                            &self.substrate.entities,
-                            cells.as_ref(),
-                        )
+                        ground_pose::target_get_coords(TargetKind::from(cell), self, cells.as_ref())
                     })
                     .unwrap_or(NULL_COORD);
             }
@@ -693,12 +682,8 @@ impl Simulation {
                 Some(target) => (!locked).then(|| {
                     let cells =
                         terrain.map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-                    let at = ground_pose::target_get_coords(
-                        target,
-                        &self.substrate.entities,
-                        cells.as_ref(),
-                    )
-                    .unwrap_or(owner);
+                    let at = ground_pose::target_get_coords(target, self, cells.as_ref())
+                        .unwrap_or(owner);
                     crate::util::direction_tables::facing16_between(
                         [owner.x, owner.y],
                         [at.x, at.y],

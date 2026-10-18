@@ -118,13 +118,18 @@ impl Simulation {
         let coord = super::navcom::nav_target_coordinate(
             target,
             Some(id),
-            entities,
+            self,
             self.resolved_terrain.as_ref(),
             rules.map(|rules| (rules, &self.interner)),
         )?;
         let terrain = self.resolved_terrain.as_ref();
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            super::navcom::refresh_drive_destination_coord(entity, coord, terrain);
+            super::navcom::refresh_drive_destination_coord(
+                entity,
+                coord,
+                terrain,
+                self.session.binary_frame,
+            );
         }
         Ok(())
     }

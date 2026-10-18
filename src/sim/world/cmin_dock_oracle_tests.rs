@@ -65,11 +65,8 @@ pub(super) const CMIN: &str = "[CMIN]\nStrength=400\nSpeed=4\nROT=5\nHarvester=y
     ChronoInSound=CminIn\nChronoOutSound=CminOut\n\
     Locomotor={4A582747-9839-11D1-B709-00A024DDAFD1}\n";
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/cmin_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/cmin_dock.json")
 }
 
 fn skipped(row: &Value) -> bool {
@@ -235,7 +232,9 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
             .set_paralysis_for_test(crate::sim::timer::CdTimer::started(frame as i32, 30));
     }
     if input["warp_out"] == true {
-        entity.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(s.other);
+        entity.set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            s.other,
+        ));
     }
     if input["latch_27c"] == true {
         // Techno+0x27C, which only the Chronosphere's warp writes in VERA:
@@ -677,8 +676,14 @@ fn mission_harvest_teleporter_arms_match_the_original_dispatch() {
             vec![s.other]
         };
         for id in offline {
-            s.sim.substrate.entities.get_mut(id).unwrap().temporal =
-                crate::sim::temporal::TemporalState::warped_by_for_test(s.miner);
+            s.sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+                    s.miner,
+                ));
         }
         let status = input["status"].as_u64().unwrap();
         fill(&mut s, status);

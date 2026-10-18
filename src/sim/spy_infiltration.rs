@@ -23,9 +23,11 @@
 //!    the spy's house's later vehicles or infantry start veteran.
 //!
 //! The tech and factory arms also set the house's RecheckTechTree byte
-//! (`+0x1FC`), which VERA does not keep: CanBuild is asked live. The factory
-//! arms' sidebar byte (`0x00884B8E`) and the closing `Mark(2)` (vt+0x124)
-//! only redraw. The local player's radar event and EVA lines are the app's
+//! (`+0x1FC`) through the same gain owner, including repeated gains. The
+//! ordinary House suffix consumes it and emits construction-option admissions
+//! before recalculating the retained sidebar. The factory arms' sidebar byte
+//! (`0x00884B8E`) and the closing `Mark(2)` (vt+0x124) only redraw. The local
+//! player's radar event and EVA lines are the app's
 //! ([`SimSoundEvent::BuildingInfiltrated`]).
 //!
 //! Native execution: `tools/spy_infiltration_oracle.py` runs `0x004571E0`
@@ -41,9 +43,13 @@ use crate::sim::radar::{RadarEventRequest, RadarEventType};
 use crate::sim::world::{SimSoundEvent, Simulation};
 use crate::util::native_x87::NativeF32Bits;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "spy_infiltration_tests.rs"]
-pub(crate) mod spy_infiltration_tests;
+pub mod spy_infiltration_tests;
+
+#[cfg(test)]
+#[path = "spy_infiltration_retail_tests.rs"]
+mod retail_tests;
 
 /// The arm `BuildingClass::Infiltrate` took, which picks its EVA lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,7 +141,7 @@ impl Simulation {
             credit_income::add_credits(self, infiltrator, amount);
             InfiltrationEffect::Cash
         } else if let Some(factory @ (FactoryType::UnitType | FactoryType::InfantryType)) =
-            object.factory
+            object.factory_type()
         {
             if let Some(house) = self.houses.get_mut(&infiltrator) {
                 if factory == FactoryType::UnitType {

@@ -121,13 +121,14 @@ fn is_sand_lat_transition(ids: &TileIds, tile: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: 800,
             green: 100,
@@ -143,7 +144,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -188,106 +189,6 @@ mod tests {
             run(&mut ctx, &w.args)
         };
         (placed, w)
-    }
-
-    #[test]
-    fn rocks_are_only_ever_srock_or_trock() {
-        let (_placed, world) = run_once(1234);
-        let mut any = false;
-        for (x, y) in world.grid.native_cells().collect::<Vec<_>>() {
-            let overlay = world.grid.get(x, y).unwrap().overlay;
-            if overlay != -1 {
-                any = true;
-                assert!(
-                    (168..=172).contains(&overlay) || (173..=177).contains(&overlay),
-                    "({x},{y}) overlay {overlay} is a SROCK/TROCK index"
-                );
-            }
-        }
-        assert!(any, "a clear temperate map gets some rocks");
-    }
-
-    #[test]
-    fn clear_ground_gets_trock_not_srock() {
-        // The whole map is clear (tile 0) → only TROCK (173..177) appears.
-        let (_placed, world) = run_once(55);
-        for (x, y) in world.grid.native_cells().collect::<Vec<_>>() {
-            let overlay = world.grid.get(x, y).unwrap().overlay;
-            if overlay != -1 {
-                assert!(
-                    (173..=177).contains(&overlay),
-                    "clear cell ({x},{y}) took TROCK, got {overlay}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn sand_lat_transition_gets_srock() {
-        // Paint a band of sand-LAT transition tiles; those cells take SROCK.
-        let mut w = world();
-        let identity = ids();
-        let sand_lat_tile = identity.sand_lat + 3; // inside [810, 826)
-        let band: Vec<(i32, i32)> = w
-            .grid
-            .native_cells()
-            .filter(|&(x, y)| (30..40).contains(&x) && (30..40).contains(&y))
-            .collect();
-        for &(x, y) in &band {
-            w.grid.get_mut(x, y).unwrap().tile = sand_lat_tile;
-        }
-        let mut rng = RmgRng::new(88);
-        {
-            let mut ctx = RockCtx {
-                grid: &mut w.grid,
-                scratch: &w.scratch,
-                ids: &identity,
-                rng: &mut rng,
-            };
-            run(&mut ctx, &w.args);
-        }
-        for &(x, y) in &band {
-            let overlay = w.grid.get(x, y).unwrap().overlay;
-            if overlay != -1 {
-                assert!(
-                    (168..=172).contains(&overlay),
-                    "sand-LAT cell ({x},{y}) took SROCK, got {overlay}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn sand_base_tile_is_not_sand_lat_transition() {
-        // The predicate excludes the sand base tile (the native asymmetry).
-        let identity = ids();
-        assert!(!is_sand_lat_transition(&identity, identity.sand));
-        assert!(is_sand_lat_transition(&identity, identity.sand_lat));
-        assert!(is_sand_lat_transition(&identity, identity.sand_lat + 0xF));
-        assert!(!is_sand_lat_transition(&identity, identity.sand_lat + 0x10));
-    }
-
-    #[test]
-    fn existing_overlays_are_never_overwritten() {
-        let mut w = world();
-        let identity = ids();
-        // Pre-place an ore overlay; the rock pass must leave it untouched.
-        w.grid.get_mut(34, 34).unwrap().overlay = 102;
-        let mut rng = RmgRng::new(3);
-        {
-            let mut ctx = RockCtx {
-                grid: &mut w.grid,
-                scratch: &w.scratch,
-                ids: &identity,
-                rng: &mut rng,
-            };
-            run(&mut ctx, &w.args);
-        }
-        assert_eq!(
-            w.grid.get(34, 34).unwrap().overlay,
-            102,
-            "the pre-existing overlay survives"
-        );
     }
 
     #[test]

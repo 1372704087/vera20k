@@ -20,6 +20,7 @@
 use crate::rules::particle_system_type::ParticleSystemTypeId;
 use crate::rules::particle_type::{ParticleBehavesLike, ParticleType, ParticleTypeId};
 use crate::sim::intern::InternedId;
+use crate::sim::touch_log::{TouchLogs, Touched};
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::{SIM_ZERO, SimFixed};
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
@@ -38,7 +39,13 @@ pub mod system_ai;
 pub mod wind;
 
 #[cfg(test)]
+mod gas_native_tests;
+#[cfg(test)]
+mod native_fixture;
+#[cfg(test)]
 mod native_identity_tests;
+#[cfg(test)]
+mod virus_tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParticleSystem {
@@ -53,6 +60,8 @@ pub struct ParticleSystem {
     pub type_id: ParticleSystemTypeId,
     #[serde(with = "ivec3_serde")]
     pub coords: IVec3,
+    /// Constructor62DE6D: Location minus owner GetCoords, in world leptons.
+    /// Smoke AI adds this unchanged displacement to moving owners' GetCoords.
     #[serde(with = "ivec3_serde")]
     pub offset: IVec3,
     pub particles: Vec<Particle>,
@@ -61,7 +70,9 @@ pub struct ParticleSystem {
     pub lifetime: i32,
     pub spark_spawn_frames: i32,
     pub facing: u8,
-    pub attached_entity: Option<u64>,
+    /// Constructor62DE35..62DE5A: the owner's TarCom when it is a Techno,
+    /// otherwise the supplied target only when no owner was supplied.
+    pub target_ref: Option<crate::sim::combat::TargetKind>,
     pub owner_entity: Option<u64>,
     #[serde(with = "ivec3_serde")]
     pub target_coords: IVec3,
@@ -109,7 +120,12 @@ pub struct Particle {
     pub coords: IVec3,
     #[serde(with = "ivec3_serde")]
     pub origin: IVec3,
+    /// Constructor's normalized target vector (+10C), retained at the existing
+    /// Fire fixed-point boundary. It is distinct from the Gas motion words.
     pub direction: [SimFixed; 3],
+    /// Particle+CC/D0/D4. Constructor62B634 initializes (0,0,-1); Gas AI
+    /// replaces these words before Move62D2A0 consumes them.
+    pub(super) motion: [NativeF32Bits; 3],
     // Native +E4. All class bodies mutate this one stored scalar.
     velocity: NativeF32Bits,
     pub lifetime_remaining: i16,
@@ -136,7 +152,7 @@ impl Particle {
     pub fn stable_id(&self) -> u64 {
         self.stable_id
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_velocity_for_test(&mut self, velocity: NativeF32Bits) {
         self.velocity = velocity;
     }
@@ -218,6 +234,11 @@ impl Particle {
             direction: direction.map(|component| {
                 SimFixed::from_bits((f32::from_bits(component.bits()) * 65536.0) as i32)
             }),
+            motion: [
+                NativeF32Bits::POSITIVE_ZERO,
+                NativeF32Bits::POSITIVE_ZERO,
+                NativeF32Bits::from_bits(0xbf80_0000),
+            ],
             velocity,
             lifetime_remaining,
             damage_counter: pt.max_dc as i16,
@@ -235,13 +256,52 @@ impl Particle {
 }
 
 impl ParticleSystem {
+    /// ParticleSystem virtual F8 ->6301E0: set the native completion byte.
+    /// Subtype AI controls emission; SystemAI62FD60 owns done-and-empty
+    /// retirement. Existing children, Alive and expiry broadcasts stay intact.
+    pub(crate) fn mark_done_spawning(&mut self) {
+        self.done_spawning = true;
+    }
+
+    /// The ids [`ParticleSystemStore::pointer_expired`] compares: the target
+    /// (`+0xE4`), owner (`+0xE0`) and child vector (`+0xBC`). Feeds the pointer-expiry
+    /// listener index (`ExpiryListeners`); a field that callback compares
+    /// must be named here too.
+    pub(crate) fn expiry_names(&self) -> impl Iterator<Item = Option<u64>> + '_ {
+        [
+            match self.target_ref {
+                Some(crate::sim::combat::TargetKind::Entity(id)) => Some(id),
+                _ => None,
+            },
+            self.owner_entity,
+        ]
+        .into_iter()
+        .chain(
+            self.particles
+                .iter()
+                .map(|particle| Some(particle.stable_id())),
+        )
+    }
+
+    /// SystemPointerExpired62FEA4..62FEE2 stable-removes the matching
+    /// child reference. Rust transfers the uniquely owned body to the
+    /// retained store rather than freeing it with that vector element.
+    /// Source/control: procedural_drawing_oracle/welding live cleanup.
+    pub(crate) fn remove_expired_child(&mut self, expired: u64) -> Option<Particle> {
+        let index = self
+            .particles
+            .iter()
+            .position(|particle| particle.stable_id() == expired)?;
+        Some(self.particles.remove(index))
+    }
+
     pub fn alive(&self) -> bool {
         self.alive
     }
     pub fn in_limbo(&self) -> bool {
         self.in_limbo
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_spawn_timer_for_test(&mut self, value: NativeF32Bits) {
         self.spawn_timer = value;
     }
@@ -256,7 +316,7 @@ impl ParticleSystem {
 
     /// Declared synthetic state for tests that exercise storage or AI directly.
     /// Runtime construction always goes through `Simulation::spawn_particle_system`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn test_fixture(
         stable_id: u64,
         type_id: ParticleSystemTypeId,
@@ -274,7 +334,7 @@ impl ParticleSystem {
             lifetime: -1,
             spark_spawn_frames: 0,
             facing: 0x1D,
-            attached_entity: None,
+            target_ref: None,
             owner_entity: None,
             target_coords: IVec3::ZERO,
             owner_house: None,
@@ -285,7 +345,7 @@ impl ParticleSystem {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Particle {
     /// Synthetic particle state without allocating a runtime identity or RNG draw.
     pub(crate) fn test_fixture(type_id: ParticleTypeId, coords: IVec3) -> Self {
@@ -296,6 +356,7 @@ impl Particle {
             coords,
             origin: coords,
             direction: [SIM_ZERO; 3],
+            motion: [NativeF32Bits::POSITIVE_ZERO; 3],
             velocity: NativeF32Bits::POSITIVE_ZERO,
             lifetime_remaining: 0,
             damage_counter: 0,
@@ -354,33 +415,72 @@ mod ivec3_serde {
 ///
 /// BTreeMap-backed so storage iteration is deterministic.
 /// Identity is assigned by `ObjectSubstrate`; this store deliberately has no
-/// allocator of its own.
+/// allocator of its own. Every `&mut ParticleSystem` goes through the store,
+/// which notes it in a touch log.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ParticleSystemStore {
     systems: BTreeMap<u64, ParticleSystem>,
+    /// Scenario setup's DAT_A8ED78. The system/children remain in the one
+    /// ordinary store; this is its saved singleton reference, not another body.
+    gas_cloud_system: Option<u64>,
+    /// Exclusive ownership after SystemPointerExpired removes a child
+    /// reference. Reference removal alone preserves Object+90 and Display;
+    /// ordinary UnInit then conceals it, clears Alive and queues destruction.
+    /// The shared DeferredDeleteQueue owns ordering until the725C70 drain.
+    detached_particles: BTreeMap<u64, DetachedParticle>,
+    /// Which systems may have changed since [`Self::take_touched`]. One
+    /// reader: the pointer-expiry listener index. Transient: never saved,
+    /// compared or hashed.
+    #[serde(skip)]
+    touched: TouchLogs<1>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DetachedParticle {
+    body: Particle,
+    object_alive: bool,
+    /// Object+81 is independent of Alive: common Limbo can precede UnInit.
+    in_limbo: bool,
 }
 
 impl ParticleSystemStore {
+    pub(crate) fn gas_cloud_system(&self) -> Option<u64> {
+        self.gas_cloud_system
+    }
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// SystemPointerExpired62FE90: target+E4 only clears; owner+E0
     /// clears and ends emission, independently of the broadcast control byte.
-    pub(crate) fn pointer_expired(&mut self, listener: u64, expired: u64) {
-        if let Some(sys) = self.systems.get_mut(&listener) {
-            if sys.attached_entity == Some(expired) {
-                sys.attached_entity = None;
-            }
-            if sys.owner_entity == Some(expired) {
-                sys.owner_entity = None;
-                sys.done_spawning = true;
-            }
+    /// Whether the system changed.
+    pub(crate) fn pointer_expired(&mut self, listener: u64, expired: u64) -> bool {
+        let Some(sys) = self.get_mut(listener) else {
+            return false;
+        };
+        let detached = sys.remove_expired_child(expired);
+        let mut changed = detached.is_some();
+        if sys.target_ref == Some(crate::sim::combat::TargetKind::Entity(expired)) {
+            sys.target_ref = None;
+            changed = true;
         }
+        if sys.owner_entity == Some(expired) {
+            sys.owner_entity = None;
+            sys.done_spawning = true;
+            changed = true;
+        }
+        if let Some(particle) = detached {
+            // Removing a native pointer from +BC does not run a destructor.
+            // Retain the uniquely owned body without inventing UnInit or
+            // queueing work; both broadcast controls use this same callback.
+            self.retain_detached_particle(particle);
+        }
+        changed
     }
 
     pub(crate) fn enter_limbo(&mut self, id: u64) {
-        if let Some(sys) = self.systems.get_mut(&id) {
+        if let Some(sys) = self.get_mut(id) {
             sys.alive = false;
             sys.in_limbo = true;
         }
@@ -391,7 +491,28 @@ impl ParticleSystemStore {
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&u64, &mut ParticleSystem)> + '_ {
+        self.touched.note_all();
         self.systems.iter_mut()
+    }
+
+    /// Bodies eligible for an existing AIR Display entry. A detached live
+    /// Particle remains allocated and drawable until its own Limbo/UnInit;
+    /// dead queued bodies retain identity but contribute no drawing body.
+    pub fn display_particles(&self) -> impl Iterator<Item = (Option<&ParticleSystem>, &Particle)> {
+        self.systems
+            .values()
+            .flat_map(|system| {
+                system
+                    .particles
+                    .iter()
+                    .map(move |particle| (Some(system), particle))
+            })
+            .chain(
+                self.detached_particles
+                    .values()
+                    .filter(|particle| particle.object_alive && !particle.in_limbo)
+                    .map(|particle| (None, &particle.body)),
+            )
     }
 
     pub fn get(&self, id: u64) -> Option<&ParticleSystem> {
@@ -399,32 +520,115 @@ impl ParticleSystemStore {
     }
 
     pub fn get_mut(&mut self, id: u64) -> Option<&mut ParticleSystem> {
-        self.systems.get_mut(&id)
+        let stored = self.systems.len();
+        let sys = self.systems.get_mut(&id)?;
+        self.touched.note(id, stored);
+        Some(sys)
+    }
+
+    pub(crate) fn retain_detached_particle(&mut self, particle: Particle) -> u64 {
+        let id = particle.stable_id();
+        assert!(
+            self.detached_particles
+                .insert(
+                    id,
+                    DetachedParticle {
+                        body: particle,
+                        object_alive: true,
+                        in_limbo: false,
+                    },
+                )
+                .is_none(),
+            "particle {id} detached twice"
+        );
+        id
+    }
+
+    pub(crate) fn finish_particle_retirement(&mut self, id: u64) {
+        self.detached_particles
+            .get_mut(&id)
+            .expect("UnInit retains the particle through its callbacks")
+            .object_alive = false;
+    }
+
+    /// Read Object+90 (Alive), then Object+81 (InLimbo) through this owner.
+    pub(crate) fn detached_particle_lifecycle(&self, id: u64) -> Option<(bool, bool)> {
+        self.detached_particles
+            .get(&id)
+            .map(|particle| (particle.object_alive, particle.in_limbo))
+    }
+
+    pub(crate) fn enter_particle_limbo(&mut self, id: u64) {
+        self.detached_particles
+            .get_mut(&id)
+            .expect("Particle Limbo retains its body")
+            .in_limbo = true;
+    }
+
+    pub(crate) fn detached_particle(&self, id: u64) -> Option<(&Particle, bool)> {
+        self.detached_particles
+            .get(&id)
+            .map(|retired| (&retired.body, retired.object_alive))
+    }
+
+    /// Read-only identity/body view for hashing, snapshot validation and the
+    /// common finalizer. The represented ordinary Particle has null base
+    /// pointer-expiry fields, so it names no ids in the derived listener index.
+    pub(crate) fn detached_particles(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (u64, &Particle, bool, bool)> {
+        self.detached_particles
+            .iter()
+            .map(|(&id, retired)| (id, &retired.body, retired.object_alive, retired.in_limbo))
+    }
+
+    pub(crate) fn finalize_particle(&mut self, id: u64) -> Option<Particle> {
+        self.detached_particles
+            .remove(&id)
+            .map(|retired| retired.body)
     }
 
     /// Insert a system whose identity was assigned by the object substrate.
     pub(crate) fn insert(&mut self, sys: ParticleSystem) -> u64 {
         let id = sys.stable_id;
         debug_assert_ne!(id, 0, "particle system requires an assigned stable id");
+        self.touched.note(id, self.systems.len());
         self.systems.insert(id, sys);
         id
     }
 
     /// Temporarily take a system while its AI owns `&mut Simulation`.
     pub(crate) fn take_for_tick(&mut self, id: u64) -> Option<ParticleSystem> {
-        self.systems.remove(&id)
+        self.remove(id)
     }
 
     /// Reinsert a system after the temporary tick ownership round-trip.
     pub(crate) fn reinsert_after_tick(&mut self, sys: ParticleSystem) {
         let id = sys.stable_id;
         debug_assert!(id > 0, "reinsert requires a previously-assigned stable_id");
+        self.touched.note(id, self.systems.len());
         self.systems.insert(id, sys);
     }
 
     /// Physical removal boundary used only by the shared pending-delete finalizer.
     pub(crate) fn finalize_remove(&mut self, id: u64) -> Option<ParticleSystem> {
-        self.systems.remove(&id)
+        if self.gas_cloud_system == Some(id) {
+            self.gas_cloud_system = None;
+        }
+        self.remove(id)
+    }
+
+    fn remove(&mut self, id: u64) -> Option<ParticleSystem> {
+        let removed = self.systems.remove(&id);
+        if removed.is_some() {
+            self.touched.note(id, self.systems.len());
+        }
+        removed
+    }
+
+    /// Take the touch log, leaving it empty.
+    pub(crate) fn take_touched(&mut self) -> Touched {
+        self.touched.take(0)
     }
 
     pub(crate) fn contains_key(&self, id: u64) -> bool {

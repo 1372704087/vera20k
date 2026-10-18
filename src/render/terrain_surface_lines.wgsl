@@ -1,8 +1,12 @@
-// Original4BEAC0/4BDF00/4BFD30: ordered RGB565 operations, strict u16 Z.
+// Original4BEAC0/4BDF00/4BFD30/760190: packed operations, strict u16 Z.
 // Signed shifts use WGSL arithmetic shift: https://www.w3.org/TR/WGSL/#bit-expr
 @group(0) @binding(0) var old_words: texture_2d<u32>;
 @group(0) @binding(1) var old_depth: texture_2d<f32>;
-struct Operation { z: u32, strength: i32, rgb: u32, alpha: u32, mode: u32 };
+struct Operation {
+    z: u32, strength: i32, rgb: u32, alpha: u32, mode: u32,
+    destination_weight: i32, gate_x: i32, gate_y: i32,
+    source_x: i32, source_y: i32,
+};
 @group(1) @binding(0) var<storage, read> operations: array<Operation>;
 struct Output {
     @builtin(position) position: vec4f,
@@ -27,7 +31,49 @@ fn fs_main(input: Output) -> @location(0) vec4f {
     var touched = false;
     for(var i = input.span.x; i < input.span.x + input.span.y; i += 1u) {
         let op = operations[i];
-        if op.z >= old_z || op.alpha == 0u { continue; }
+        //Wave3: native760190 reads a displaced packed word.7602E0 admits
+        //strictly unsigned candidate<stored, never queries A and never WriteZ.
+        //CPU preparation fences each Wave and includes its source footprint.
+        if op.mode == 7u {
+            if op.z < old_z {
+                let source = textureLoad(old_words,vec2i(op.source_x,op.source_y),0).r;
+                let red = i32((source >> 11u) & 31u) << 3u;
+                let green = (source >> 5u) & 63u;
+                let blue = i32(source & 31u) << 3u;
+                let r = min(255,red + (((op.strength / 2) * red) >> 8u));
+                let b = min(255,blue + (((op.strength * blue) << 2u) >> 8u));
+                word = u32((r >> 3u) << 11u) | (green << 5u) | u32(b >> 3u);
+                touched = true;
+            }
+            continue;
+        }
+        //Particle62D02C compares a signed candidate with an unsigned stored
+        //word. CPU preparation used the shared interpolation/A/pack owner;
+        //the current Z is available only at this retained Display slot.
+        if op.mode == 6u {
+            if op.alpha != 0u && bitcast<i32>(op.z) < i32(old_z) {
+                word = op.rgb;
+                touched = true;
+            }
+            continue;
+        }
+        //XSurface7BB350 writes opaque words, with no A/Z predicate.
+        if op.mode == 4u {
+            word = op.rgb;
+            touched = true;
+            continue;
+        }
+        var gate_z = old_z;
+        if op.mode == 3u || op.mode == 5u {
+            gate_z = u32(decoded_native_z(textureLoad(old_depth,vec2i(op.gate_x,op.gate_y),0).r));
+        }
+        if op.z >= gate_z || op.alpha == 0u { continue; }
+        if op.mode == 5u {
+            //The X-major arm reads the other OLD destination before either
+            //paired store. CPU dependency chunks guarantee this snapshot
+            //contains every preceding write and the pair remains atomic.
+            word = textureLoad(old_words,vec2i(op.source_x,op.source_y),0).r;
+        }
         let dst = vec3i(i32((word >> 11u) & 31u) << 3u,
             i32((word >> 5u) & 63u) << 2u, i32(word & 31u) << 3u);
         let src = vec3i(i32(op.rgb & 255u),i32((op.rgb >> 8u) & 255u),i32((op.rgb >> 16u) & 255u));
@@ -48,6 +94,11 @@ fn fs_main(input: Output) -> @location(0) vec4f {
                 lit += select(vec3i(excess), vec3i(0), full);
             }
             lit = min(lit,vec3i(255));
+        } else if op.mode == 3u || op.mode == 5u {
+            //4BC750: independently indexed native cubic weights. Both pixel
+            //stores were admitted by the primary sample above; no WriteZ.
+            lit = min(((dst * op.destination_weight + src * op.strength)
+                * i32(op.alpha)) >> vec3u(15),vec3i(255));
         } else {
             // DSurface4BFD30: alpha127 copies the packed source unchanged.
             if op.alpha == 127u {

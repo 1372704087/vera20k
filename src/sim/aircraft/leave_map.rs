@@ -47,7 +47,7 @@ impl Simulation {
         if entity.category() != EntityCategory::Aircraft {
             return false;
         }
-        let Some(object) = rules.object(self.interner.resolve(entity.type_ref())) else {
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
             return false;
         };
         // No MapClass authority (headless fixtures): no map to leave.
@@ -87,10 +87,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        let target = crate::sim::combat::target_present(
-            entity.attack_target.target(),
-            &self.substrate.entities,
-        );
+        let target = crate::sim::combat::target_present(entity.attack_target.target(), self);
         if target && entity.mission.current() != MissionId::from_known(MissionType::SpyplaneOverfly)
         {
             return false;

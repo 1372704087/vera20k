@@ -3,7 +3,7 @@
 //!
 //! The sine table is the repository's checked copy of the retail bytes
 //! ([`crate::util::native_trig::RETAIL_SINE_TABLE`], hashed whole against
-//! [`RETAIL_FNV1A64`] by this module's tests). Rounding a double-precision sine
+//! `RETAIL_FNV1A64` by this module's tests). Rounding a double-precision sine
 //! to nearest disagrees with it on 4997 of its first 10240 indexed entries.
 //! Truncating instead, gamemd's x87 rounding mode, reproduces every entry except
 //! 4096 and 8192, whose tiny residues of sin pi and sin 2pi differ from double
@@ -16,16 +16,19 @@
 //! Both trig functions share one table. Cosine is the same data read a quarter
 //! period further along, so there is a single array and two index derivations.
 
-use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Value};
+use crate::util::native_x87::{
+    MaskedX87Chop53, MaskedX87Value, NativeF32Bits, NativeF64Bits, X87Chop53, X87Value,
+};
 use std::sync::OnceLock;
 
 /// Virtual address of the sine table in the retail image.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 const TABLE_VA: u32 = 0x0084_F084;
 /// Entries. The extra quarter period past a full turn is what lets the cosine
 /// offset run past the end of the sine range without wrapping; the final exact
 /// `1.0` is part of the retail data extent even though the lookup ceilings stop
 /// one entry before it.
+#[cfg(test)]
 pub const TABLE_LEN: usize = 0x2801;
 /// Entries in one full turn.
 const PERIOD: i32 = 0x2000;
@@ -45,16 +48,18 @@ pub const UNITS_PER_TURN: f64 = (2 * PERIOD) as f64;
 /// FNV-1a (64-bit) over the table's raw little-endian bytes in the retail
 /// image, machine-derived by reading all 40964 bytes out of the binary. This is
 /// the whole-table check: it is a genuine exhaustive comparison, not a sample.
+#[cfg(test)]
 pub const RETAIL_FNV1A64: u64 = 0x74ac_b749_b33d_5aa7;
 
 /// Virtual address of `Acos_lookup @ 0x004CADB0`'s signed arcsine table.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 const ACOS_TABLE_VA: u32 = 0x0085_9094;
 /// Entries. `WaveClass` indexes the inclusive endpoints, hence 4097 rather than
 /// 4096.
 pub const ACOS_TABLE_LEN: usize = 0x1001;
 /// FNV-1a (64-bit) over the retail table's 16388 little-endian bytes, read out
 /// of the binary.
+#[cfg(test)]
 pub const ACOS_RETAIL_FNV1A64: u64 = 0x9251_751b_f328_3bc1;
 /// `[0x007E8978]`: binary32 -2048, `Acos_lookup`'s negative index scale.
 const ACOS_INDEX_SCALE: NativeF32Bits = NativeF32Bits::from_bits(0xc500_0000);
@@ -79,7 +84,7 @@ impl TrigTable {
     /// The retail table, from the repository's checked copy
     /// (`util::native_trig`, verified by `walk_direction_table.py --check`).
     /// It is the only sine source: no reader depends on an installed game.
-    pub(crate) fn embedded() -> &'static Self {
+    pub fn embedded() -> &'static Self {
         static TABLE: OnceLock<TrigTable> = OnceLock::new();
         TABLE.get_or_init(|| Self {
             entries: crate::util::native_trig::RETAIL_SINE_TABLE
@@ -130,12 +135,12 @@ impl TrigTable {
     /// process's x87 mode: the table unit is `Math::ftol` of the radians times
     /// the binary32 scale at `0x008223B0` (16384/2pi), and the entry comes back
     /// as the binary32 it is.
-    pub fn sin_from_table(&self, radians: X87Value) -> X87Value {
+    pub fn sin_from_table(&self, radians: impl Into<MaskedX87Value>) -> X87Value {
         table_value(self.sin(from_table_units(radians)))
     }
 
     /// `Math::CosFromTable @ 0x004CAD00`, as [`Self::sin_from_table`].
-    pub fn cos_from_table(&self, radians: X87Value) -> X87Value {
+    pub fn cos_from_table(&self, radians: impl Into<MaskedX87Value>) -> X87Value {
         table_value(self.cos(from_table_units(radians)))
     }
 }
@@ -145,7 +150,7 @@ impl AcosTable {
     ///
     /// Entry `i` is `asin(i / 2048 - 1)` in double precision, stored to binary32
     /// with truncation (`FSTP m32real` under gamemd's chop mode). That reproduces
-    /// all 4097 retail entries ([`ACOS_RETAIL_FNV1A64`]). The image's table is
+    /// all 4097 retail entries (`ACOS_RETAIL_FNV1A64`). The image's table is
     /// static data: the only code that writes it, `0x004CB200` (no caller),
     /// copies each entry onto itself. Every double result lies at least 37,325
     /// ulps from a truncation boundary, and none but entry 2048's zero is an
@@ -166,6 +171,7 @@ impl AcosTable {
         })
     }
 
+    #[cfg(test)]
     pub fn entry(&self, index: usize) -> f32 {
         self.entries[index]
     }
@@ -201,7 +207,7 @@ impl AcosTable {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn fnv1a64(&self) -> u64 {
         let mut hash = crate::util::fnv::FNV1A64_OFFSET_BASIS;
         for entry in &self.entries {
@@ -266,10 +272,13 @@ fn cos_index(angle_units: i32) -> i32 {
 /// `Math::SinFromTable` and `Math::CosFromTable`.
 const UNITS_PER_RADIAN_F32: u32 = 0x4522_F983;
 
-fn from_table_units(radians: X87Value) -> i32 {
-    let scale = X87Chop53::load_f32(NativeF32Bits::from_bits(UNITS_PER_RADIAN_F32))
-        .expect("the table scale is a finite binary32");
-    X87Chop53::ftol_i32_low_masked(X87Chop53::mul(radians, scale))
+fn from_table_units(radians: impl Into<MaskedX87Value>) -> i32 {
+    //4CACB0/4CAD00 call qword ftol even for a masked exceptional operand.
+    // Its low dword is0 for the integer indefinite. RadBeam659B14 can reach
+    // this on a short segment's zero divisor; finite callers keep the same
+    // arithmetic through the shared finite owner inside MaskedX87Chop53.
+    let scale = MaskedX87Chop53::load_f32(NativeF32Bits::from_bits(UNITS_PER_RADIAN_F32));
+    MaskedX87Chop53::ftol_i32_low_masked(MaskedX87Chop53::mul(radians.into(), scale))
 }
 
 fn table_value(entry: f32) -> X87Value {

@@ -23,6 +23,7 @@ pub struct CampaignLoadingMetadata {
 }
 
 impl CampaignLoadingMetadata {
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new() -> Self {
         Self::default()
     }
@@ -111,11 +112,8 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use serde_json::Value;
 
-    fn native() -> Value {
-        let fixture: Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/input_oracle/campaign_start.json",
-        ))
-        .expect("original campaign-start corpus");
+    fn native() -> &'static Value {
+        let fixture = crate::test_fixture::json("tools/input_oracle/campaign_start.json");
         assert_eq!(
             fixture["native_sha256"],
             "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"

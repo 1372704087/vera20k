@@ -86,8 +86,8 @@ impl GattlingStages {
     }
 
     /// The block from its field values, for fixtures and native payloads.
-    #[cfg(test)]
-    pub(crate) fn from_fields(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_fields(
         weapon_stages: i32,
         stage: [i32; 6],
         elite_stage: [i32; 6],
@@ -181,10 +181,9 @@ mod tests {
     /// Retail `[YTNK]` and `[YAGGUN]` through the production reader.
     #[test]
     fn retail_gattling_tables() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         for name in ["YTNK", "YAGGUN"] {
             let object = rules.object(name).unwrap();
             assert!(object.is_gattling, "{name}");

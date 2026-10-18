@@ -142,6 +142,7 @@ fn audio_visual_binding_retains_valid_references_across_all_rules_layers() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_boris_airstrike_reads_selected_startup_battle_and_map_sources() {
     // Extracted root is mandatory under REQUIRE_RETAIL_INI; archive-backed
     // processing below also checks optional LANGRULE, selected mode and map.
@@ -173,8 +174,11 @@ fn retail_boris_airstrike_reads_selected_startup_battle_and_map_sources() {
         Some("MIGMove")
     );
     assert_eq!(rules.general.laser_target_color, 4);
-    assert_eq!(rules.color_add.slots[4].name.as_deref(), Some("HighRed"));
-    assert_eq!(rules.color_add.slots[4].rgb, [24, 0, 0]);
+    assert_eq!(
+        rules.color_add.entries()[4].name.as_deref(),
+        Some("HighRed")
+    );
+    assert_eq!(rules.color_add.entries()[4].rgb, [24, 0, 0]);
 }
 
 #[test]

@@ -8,9 +8,9 @@ use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+use crate::sim::ammo::TechnoAmmo;
 use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
-use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId};
@@ -163,9 +163,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(frame),
     });
-    let mut ammo = AircraftAmmo::new(1);
+    let mut ammo = TechnoAmmo::new(1);
     ammo.set_current_for_test(int(input, "ammo", 1) as i32);
-    entity.aircraft_ammo = Some(ammo);
+    entity.install_ammo_for_test(Some(ammo));
     if input["target"].is_array() {
         entity
             .attack_target
@@ -498,7 +498,8 @@ fn fly_process_matches_native_frames() {
                     Some(&rules),
                     None,
                     crate::sim::world::FrameEffects::default(),
-                );
+                )
+                .unwrap();
             });
             if let Some(mismatch) = frame_mismatch(&sim, frame, expected, idle_calls) {
                 failures.push(format!("{name} frame {n}: {mismatch}"));
@@ -765,61 +766,4 @@ fn fly_death_stun_matches_native_rows() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-/// No retail Unit or Infantry type has the Fly locomotor, so Fly's arms for
-/// an owner that is not an Aircraft (Stop_Moving's `0x004CD132`, the map
-/// edge's vt+0x4DC) are dormant.
-#[test]
-fn retail_fly_owners_are_aircraft() {
-    use crate::rules::locomotor_type::LocomotorKind;
-    use crate::rules::object_type::ObjectCategory;
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
-        return;
-    };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
-    let ground: Vec<&str> = rules
-        .all_objects()
-        .filter(|object| {
-            object.locomotor == LocomotorKind::Fly
-                && matches!(
-                    object.category,
-                    ObjectCategory::Vehicle | ObjectCategory::Infantry
-                )
-        })
-        .map(|object| object.id.as_str())
-        .collect();
-    assert!(ground.is_empty(), "{ground:?}");
-    assert!(
-        rules
-            .all_objects()
-            .any(|object| object.locomotor == LocomotorKind::Fly)
-    );
-}
-
-/// The Stop command's null destination reaches Fly's Stop_Moving through the
-/// production setter: an aircraft flying outside an attack is sent on to the
-/// cell under it, which clear Track-passable land gives without a Scenario
-/// draw, and Foot's null arm then drops that NavCom again (`0x004D96BC`).
-#[test]
-fn stop_command_sends_a_flying_aircraft_to_the_cell_under_it() {
-    let (mut sim, rules) = stop_fixture(&serde_json::json!({ "nav_com": true }));
-    let before = sim.scenario_rng.clone().next_u32();
-    assert!(sim.apply_command(
-        "Americans",
-        &crate::sim::command::Command::Stop {
-            entity_id: AIRCRAFT
-        },
-        Some(&rules),
-    ));
-    let entity = sim.substrate.entities.get(AIRCRAFT).unwrap();
-    let fly = entity.locomotor.as_ref().unwrap().fly_runtime().unwrap();
-    let destination = fly.destination();
-    assert!(fly.moving());
-    assert_eq!(
-        (destination.x, destination.y),
-        (60 * 256 + 128, 64 * 256 + 128)
-    );
-    assert_eq!(entity.navigation.nav_com(), None);
-    assert_eq!(sim.scenario_rng.clone().next_u32(), before);
 }

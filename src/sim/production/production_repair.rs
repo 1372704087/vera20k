@@ -30,17 +30,8 @@
 //! - The wrench byte (`+0x6DE`: set when a repair starts below Strength,
 //!   flipped by every repair step) is read only by the Building CRC
 //!   (`0x00454260`); VERA does not keep it.
-//! - Presentation: ToggleRepair's flash for the owner's player (vt+0x148 =
-//!   `0x00456E00` -> `TechnoClass::Flash(7)`) and the repair step's redraw
-//!   byte (`+0x80`, from `BuildingClass::GetCurrentFrame 0x0043EF90`).
-//! - Combat order: native fire and its damage land inside each attacker's
-//!   own LogicVector visit, VERA's in the combat phase after the object
-//!   pass. Trigger: a repairing building under fire. Effect: a hit landing
-//!   before the building's visit natively lands after its repair step in
-//!   VERA, so within the frame the step reads the pre-hit health and a
-//!   building killed that frame has still paid for its step. Frequency: every
-//!   repair step of a building under fire. Risk: the owner's credits and the
-//!   frame a kill lands; the fire order is the combat pass's own mechanism.
+//! - Presentation: the repair step's redraw byte (`+0x80`, from
+//!   `BuildingClass::GetCurrentFrame 0x0043EF90`).
 //! - ToggleRepair's sounds and EVA play only for the owner's local player
 //!   (the app's `audible_to` gate), which is `IsHumanPlayer` outside
 //!   campaigns; in a campaign it reads `+0x1EC`/`+0x1ED` instead (dormant
@@ -75,13 +66,13 @@ use crate::rules::foundation::foundation_dimensions;
 /// `TechnoClass::DrawExtras` draws over a repairing building.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub(crate) struct RepairByte {
+pub struct RepairByte {
     on: bool,
 }
 
 impl RepairByte {
     /// The building is repairing.
-    pub(crate) const fn is_on(self) -> bool {
+    pub const fn is_on(self) -> bool {
         self.on
     }
 
@@ -91,7 +82,7 @@ impl RepairByte {
     }
 
     /// Install a fixture's byte.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_for_test(&mut self, on: bool) {
         self.on = on;
     }
@@ -162,19 +153,19 @@ impl AiSellRepair {
     }
 
     /// Install a fixture's `+0x3D1`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_was_attacked_by_enemy_for_test(&mut self, value: bool) {
         self.was_attacked_by_enemy = value;
     }
 
     /// Install a fixture's `+0x6DC`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_ai_sellable_for_test(&mut self, value: bool) {
         self.ai_sellable = value;
     }
 
     /// Install a fixture's `+0x6CB`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_ai_repairable_for_test(&mut self, value: bool) {
         self.ai_repairable = value;
     }
@@ -193,8 +184,9 @@ pub enum RepairControl {
 
 /// `BuildingClass::ToggleRepair @ 0x00446FF0`. After the control changes the
 /// repair byte: a repair switched on at exactly Strength (`CMP/JNZ`,
-/// `0x0044705B`) plays `[AudioVisual] ScoldSound=`; one switched on below it
-/// announces `EVA_Repairing` (`0x004470B7`) and, like a repair switched off,
+/// `0x0044705B`) plays `[AudioVisual] ScoldSound=`; one switched on at any
+/// other health flashes for the owner's player and announces `EVA_Repairing`
+/// (`0x004470B7`) and, like a repair switched off,
 /// plays `GenericClick=` — each at the building's Location (`VocClass::PlayAt
 /// 0x007509E0`) and only for the owner's player (`HouseClass::IsHumanPlayer
 /// @ 0x0050B6F0`; the app applies that gate). Returns whether the building
@@ -205,13 +197,10 @@ pub fn toggle_repair(
     id: u64,
     control: RepairControl,
 ) -> bool {
-    let Some(strength) = sim
-        .substrate
-        .entities
-        .get(id)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-        .map(|object| object.strength)
-    else {
+    let Some((strength, owner_is_player)) = sim.substrate.entities.get(id).and_then(|entity| {
+        sim.object_type(entity.type_ref(), rules)
+            .map(|object| (object.strength, sim.house_is_human_player(entity.owner())))
+    }) else {
         return false;
     };
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
@@ -233,6 +222,13 @@ pub fn toggle_repair(
         rules.general.scold_sound.clone()
     } else {
         if entity.repairing.on {
+            // ToggleRepair447082..447091: House50B6F0 admits Building
+            // vt+148 Flash(7), before EVA/GenericClick. Reuse the shared
+            // disguise/countdown owner, not a separate repair flash timer.
+            // Original call arguments: building_repair.json toggle events.
+            if owner_is_player {
+                entity.flash_building(7);
+            }
             sim.sound_events.push(SimSoundEvent::Repairing { owner });
         }
         rules.general.generic_click_sound.clone()
@@ -298,7 +294,7 @@ pub(crate) fn engineer_repair(sim: &mut Simulation, rules: &RuleSet, id: u64) ->
 /// `Repairable=` type (TechnoType `+0xCCC`) has it below Strength
 /// (`0x00701140`). Every building of a computer house asks each frame, so
 /// the undeploy test's type lookup runs last.
-pub(crate) fn can_repair_building(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
+pub fn can_repair_building(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
@@ -409,7 +405,7 @@ fn low_credit_sale(
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let yard = object.factory == Some(FactoryType::BuildingType);
+    let yard = object.factory_type() == Some(FactoryType::BuildingType);
     // 4507F7..450805 tests x87 C0: less and unordered both sell.
     let below_red = matches!(
         entity

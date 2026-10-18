@@ -4,6 +4,10 @@ Pins +90 materialization independently of ActionID and the four +34..40
 parameters. The first 61 numeric rows are retained unchanged. Additional rows
 identify their bounded reference, input or EVA observation with ``case_kind``.
 
+``--click-shroud`` executes the reachable ProcessClickCoords floor/shroud
+suffix and Tactical pick on declared flat/elevated Cell knowledge. Screen-to-Cell
+conversion and the registered screen list are explicit inputs.
+
 The separate ``--damage-waypoint`` mode records Action63 and the bounded
 ALL01 reactor damage consumer without regenerating the legacy corpus. Set
 ``VERA20K_TRIGGER_DAMAGE_INPUTS`` to extracted RULESMD.INI, ARTMD.INI,
@@ -36,15 +40,82 @@ this mode nor those scalar controls certify rendered campaign output.
 allocated iterator578290 on explicit sparse map/House priors. Sight/gap
 release/reentry and presentation calls are recorded sinks, not invented world
 callbacks. No earlier corpus is regenerated.
+
+``--scenario-timer`` executes original Actions23..27/103 and Event14 against
+the same small Scenario timer. The reader, timer arithmetic and predicate run
+unchanged; only the tactical redraw is a recorded sink. Earlier corpora are
+not regenerated.
+
+``--chrono-house`` bounds original Action128/House50D6D0 traversal with the
+original initialized CellSpread table. Virtual CanEnter/Warp and infantry
+subcell choices are explicit boundaries; original Foot refusal has a control.
+
+``--all-change-house`` bounds Action36's original target selection and mutable
+two-pass Techno traversal. ChangeOwner and powered-building refresh are
+recorded callback boundaries, with explicit list-mutation controls.
+
+``--conceal-area`` executes Action101, Map567F70 and the complete578100 sweep
+on a small allocated diamond. Native projection, radius read and Cell/cache
+effects run; only the existing no-dirty-screen world prior excludes rendering.
+
+``--all-to-hunt`` independently records Action6/House501400 and the shared
+garrison-release procedure on explicit world priors. Actual ALL06 records,
+source-aware Scatter/RNG and stated placement/Team/lifecycle seams remain
+separate from whole-campaign or general Hunt parity.
+
+``--music-theme`` executes Action20 Read/Execute and the shared Theme queue,
+with declared catalog/stream priors and recorded device transports.
+
+``--crate`` independently records108 placement, solo Money/49 callback
+boundaries,49/50 predicates and bounded Logic50 histories. World geometry,
+actor/House and callback seams are explicit; no full campaign is replayed.
+
+``--wakeup`` executes Actions81..83 and their real effective-Mission/Tag/
+deferred-Queue receivers on declared ordered object lists.
+
+``--ai-activation`` executes Actions74/75 and the ordinary House team-timer
+block with the real selector, eligibility and seeded RNG in the same image.
+Actual ALL05 records bind the stop route; Team creation remains an observed
+boundary, and the positive path has explicit minimal skirmish priors.
+
+``--chrono-reinforcement`` executes107 through the existing physical Foot
+constructor/placement owner and original Teleport COM factory. ALL07 records
+bind the selected Unit/MCV definitions; waypoint geometry is a declared crop.
+
+``--superweapon-state`` independently records132/135/136 and the bounded
+ALL03 NPC NukeSpecial sequence, real recharge/Reset and preferred-cell
+consumers. Physical MD bytes come from the configured original installation.
+Detailed ABI receipts may be retained externally with
+``VERA20K_TRIGGER_SUPER_STATE_RECEIPTS`` when writing the new corpus.
+
+``--superweapon-reset`` uses the same physical Type reader and Super VM for
+133/134 dispatch, current-timer preservation/restart and animation-notification
+release. Its optional ``VERA20K_TRIGGER_SUPER_RESET_RECEIPTS`` output remains
+external; canonical controls exclude ABI, heap addresses and clock padding.
+
+``--tech-level`` executes106's exact global type lookup, physical counted
+retail/scalar readers and the existing reset owner. A bounded ALL05 paid ORCA
+history follows both authored106 actions through House/Strip and local receive.
+It reuses the existing Factory fixture with explicit campaign layers; terrain,
+played-world and OS/service priors do not certify full campaign startup.
+
+``--nuke-strike`` reads selected physical inputs from VERA20K_TRIGGER_NUKE_INPUTS
+(or --inputs): six HighExpR records, isolated95 launch controls and a full native
+Bullet constructor/Fire/descent history to the NUKE impact entry.
+
+``--do-explosion`` always reads fresh physical retail inputs. Its two map
+branches share only an in-memory snapshot from that invocation; serialized
+native-state caches are unsupported.
 """
 from pathlib import Path
 import hashlib
+import tools.native_oracle as native
 import json
 import struct
 from functools import lru_cache
 from types import SimpleNamespace
 
-from unicorn import UC_HOOK_CODE
+from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX,
                                UC_X86_REG_EIP, UC_X86_REG_ESP,
                                UC_X86_REG_EDI, UC_X86_REG_ESI)
@@ -134,6 +205,9 @@ class ActionFixture(FlagsFixture):
         u.mem_write(0xA8B230,dwords(SCENARIO))
         u.mem_write(PTD,bytes(0x74))
         self.cursor = HEAP+0x40000
+        # Reader.alloc shares this VM through ordered_ini; VectorFixture maps
+        # exactly this arena. Keep its configurable bound on composed readers.
+        self.arena_size = 0x100000
         self.allocations, self.calls = [], []
         self.hook = u.hook_add(UC_HOOK_CODE,self.observe)
         self.ranges = [(0x6DD000,0x6DD17B),(0x6DD5B0,0x6DD87D),
@@ -197,25 +271,25 @@ class ActionFixture(FlagsFixture):
         elif pc == 0x7C8B3D:
             return_from_sink(u,0,0)
 
-    def read_action(self, raw, *, ini_capacity=None):
+    def read_action(self, raw, *, ini_capacity=None, address=ACTION, buffer=BUFFER):
         u = self.u
-        u.mem_write(ACTION,b'\xA5'*0x94)
-        self.call(0x6DD000,[],ecx=ACTION)
+        u.mem_write(address,b'\xA5'*0x94)
+        self.call(0x6DD000,[],ecx=address)
         counted = '1,'+raw
         if ini_capacity is None:
-            u.mem_write(BUFFER,counted.encode('ascii')+b'\0')
+            u.mem_write(buffer,counted.encode('ascii')+b'\0')
         else:
             # Same native ReadString512 contract as the TriggerType action
             # caller727516..72752E, with supplied cache rather than file IO.
             self.ini(HEAP+0x7000,counted)
-            self.call(0x528A10,[TYPE+0x1F8,HEAP+0x7000,0x889F64,BUFFER,ini_capacity],ecx=INI)
-        read = self.string(BUFFER)
-        self.call(0x7C9CC2,[BUFFER,0x817F70],cdecl=True)
-        self.call(0x6DD5B0,[],ecx=ACTION)
-        return dict(raw=raw,kind=self.integer(ACTION+0x2C),
-                    value=self.integer(ACTION+0x90),
-                    args=[self.integer(ACTION+n) for n in (0x34,0x38,0x3C,0x40)],
-                    waypoint=self.integer(ACTION+0x44),read=read)
+            self.call(0x528A10,[TYPE+0x1F8,HEAP+0x7000,0x889F64,buffer,ini_capacity],ecx=INI)
+        read = self.string(buffer)
+        self.call(0x7C9CC2,[buffer,0x817F70],cdecl=True)
+        self.call(0x6DD5B0,[],ecx=address)
+        return dict(raw=raw,kind=self.integer(address+0x2C),
+                    value=self.integer(address+0x90),
+                    args=[self.integer(address+n) for n in (0x34,0x38,0x3C,0x40)],
+                    waypoint=self.integer(address+0x44),read=read)
 
     def check_code(self):
         assert self.original == [bytes(self.u.mem_read(a,b-a)) for a,b in self.ranges]
@@ -760,17 +834,20 @@ def initialize_animation_catalog(f, physical, *, cold=True):
                 audio_visual_prefix=prefix,names=names())
 
 
-def initialize_animation_sounds(f):
+def initialize_animation_sounds(f, selected_names=('Explosion06', 'ExplosionShard'), *, sample_ids=None):
     local = mix(mix((configured_gamemd().parent/'ra2md.mix').read_bytes())[
         mix_hash('localmd.mix')])
     raw = local[mix_hash('SOUNDMD.INI')]
     physical = sections(raw)
-    selected = {name:physical[name] for name in ('Defaults','Explosion06','ExplosionShard')}
+    selected = {name:physical[name] for name in ('Defaults', *selected_names)}
     selected['SoundList'] = {k:v for k,v in physical['SoundList'].items()
-                             if v in ('Explosion06','ExplosionShard')}
+                             if v in selected_names}
     proxy = Sound.__new__(Sound)
     proxy.__dict__ = f.__dict__
     proxy.samples = []
+    # The proxy shares the fixture dictionary; every initialization resets
+    # this optional IO boundary, including custom-to-default reinitialization.
+    proxy.sample_ids = sample_ids
     f.u.mem_write(0x87E2A0,dwords(1))
     system = f.allocate(0x100)
     f.u.mem_write(system,bytes(0x100))
@@ -787,9 +864,16 @@ def initialize_animation_sounds(f):
 
 
 class AnimationFixture(ActionFixture):
-    """Compose original action/ART/Anim owners; only IO/OS/display are seams."""
-    def __init__(self):
+    """Compose original action/ART/Anim owners with explicit transport seams.
+
+    Historical animation controls supply Object::Mark admission. Joined
+    gameplay controls opt into its original body; IO/OS/display seams remain.
+    """
+    def __init__(self, *, original_object_mark=False):
         super().__init__()
+        # Historical animation-only controls retain their explicit Mark seam.
+        # Joined gameplay histories opt into the original admission/state body.
+        self.original_object_mark = original_object_mark
         self.rules_input,self.art_input,self.conquer,self.identity=physical_animation_inputs()
         self.catalog=initialize_animation_catalog(self,self.rules_input,cold=False)
         self.sound_identity=initialize_animation_sounds(self)
@@ -844,7 +928,7 @@ class AnimationFixture(ActionFixture):
             requested=self.string(receiver)
             self.assets[requested.upper()]=self.conquer.get(mix_hash(requested))
             Reader.hook(self.reader,u,pc,_size,_data)
-        elif pc==0x5F5850:
+        elif pc==0x5F5850 and not self.original_object_mark:
             return_from_sink(u,4,1)
         elif pc==0x4A9720:
             self.events.append(dict(call='display_submit'))
@@ -1403,6 +1487,133 @@ def reveal_cases():
         retail_definitions=definitions,controls=controls,los_controls=los)]
 
 
+def click_shroud_generate():
+    """Actual692419 suffix, including native floor, shroud and object pick.
+
+    The production caller69325E has already resolved a click Cell when this
+    block starts. Supply that frame, not a synthetic replacement for IsShrouded.
+    Original692419..692605 balances its own saved-register frame and returns.
+    """
+    cases = [
+        dict(name='flat_open', level=0, mapped=[[20,20]]),
+        dict(name='flat_closed', level=0, mapped=[]),
+        dict(name='even_projected_only', level=4, mapped=[[18,18]]),
+        dict(name='even_raw_only', level=4, mapped=[[20,20]]),
+        dict(name='even_both', level=4, mapped=[[18,18],[20,20]]),
+        dict(name='even_closed', level=4, mapped=[]),
+        dict(name='odd_first_only', level=3, mapped=[[18,18]]),
+        dict(name='odd_second_only', level=3, mapped=[[19,19]]),
+        dict(name='odd_raw_only', level=3, mapped=[[20,20]]),
+        dict(name='odd_closed', level=3, mapped=[]),
+        dict(name='bridge100_flat_open', level=0, flags=0x100, mapped=[[20,20]]),
+        dict(name='bridge100_even_projected_only', level=4, flags=0x100, mapped=[[18,18]]),
+    ]
+    rows=[]
+    for case in cases:
+        f=DiscoveryFixture();u=f.uc;f.capture=False
+        click=(20,20)
+        for y in range(17,22):
+            for x in range(17,22):
+                pointer=f.add_cell((x,y),level=case['level'] if (x,y)==click else 0)
+                if [x,y] in case['mapped']:
+                    u.mem_write(pointer+0x12C,dwords(f.read32(pointer+0x12C)|8))
+        u.mem_write(f.cells[click]+0x140,dwords(case.get('flags',0)))
+        tactical,screen,cell_ptr,object_out,shroud_out,fog_out=(
+            SCRATCH+offset for offset in (0x72000,0x74000,0x74020,0x74030,0x74040,0x74050))
+        # An ordinary foreign, alive, non-limbo/non-cloaked Infantry shell.
+        # Discovery remains constructor-produced zero; it is not set by hand
+        # to admit the object. No concrete allocation/Unlimbo is represented.
+        actor=DISCOVERY_OBJECT
+        assert list(u.mem_read(actor+0x41A,3))==[0,0,0]
+        u.mem_write(actor+0x90,b'\1');u.mem_write(actor+0x81,b'\0')
+        u.mem_write(actor+0x220,dwords(0))
+        u.mem_write(actor+0x9C,dwords(click[0]*256+128,click[1]*256+128,
+            case['level']*f.constants['level_leptons']))
+        u.mem_write(DISCOVERY_TYPE+0xC9A,b'\0')
+        u.mem_write(tactical,bytes(0x1000));u.mem_write(tactical+0xDB0,dwords(1))
+        u.mem_write(0x887324,dwords(tactical))
+        u.mem_write(0xB0CEC8,dwords(actor,100,100))
+        u.mem_write(screen,dwords(100,100));u.mem_write(cell_ptr,packed(*click))
+        u.mem_write(object_out,dwords(0));u.mem_write(shroud_out,b'\0');u.mem_write(fog_out,b'\0')
+        u.mem_write(0xB73550,dwords(1))
+        # Original ProcessClickCoords fog branch is disabled for ordinary YR.
+        u.mem_write(0xA8B230,dwords(DISCOVERY_SCENARIO))
+        u.mem_write(DISCOVERY_SCENARIO,dwords(0))
+        sp=STACK_BASE+STACK_SIZE-0x2000
+        u.mem_write(sp,bytes(0x100))
+        # 0x18-byte locals and four saved registers precede the return address.
+        u.mem_write(sp+0x28,dwords(RET_MAGIC))
+        u.mem_write(sp+0x38,dwords(object_out))
+        u.mem_write(sp+0x3C,dwords(fog_out));u.mem_write(sp+0x40,dwords(shroud_out))
+        for register,value in ((UC_X86_REG_ESP,sp),(UC_X86_REG_ESI,cell_ptr),
+                               (UC_X86_REG_EDI,fog_out),(UC_X86_REG_EBP,screen)):
+            u.reg_write(register,value)
+        ranges=((0x692419,0x692606),(0x6DA380,0x6DA553),
+                (0x586360,0x586495),(0x578080,0x5780D8))
+        original=[bytes(u.mem_read(a,b-a)) for a,b in ranges]
+        trace=[];query=[];pick_calls=[]
+        def observe(_u,pc,size,data):
+            if pc in (0x578080,0x586360):
+                current_sp=u.reg_read(UC_X86_REG_ESP)
+                point=list(struct.unpack('<iii',u.mem_read(f.read32(current_sp+4),12)))
+                query.append(dict(pc=f'{pc:08X}',point=point))
+            if pc==0x6DA380:pick_calls.append(f'{pc:08X}')
+            if pc in (0x69244C,0x692480,0x6924FC,0x692515,0x692522,0x6925F0):
+                trace.append(f'{pc:08X}')
+        hook=u.hook_add(UC_HOOK_CODE,observe)
+        before=f.rng_hashes();discovery_before=list(u.mem_read(actor+0x41A,3))
+        run_checked(u,0x692419,RET_MAGIC,count=10000,
+                    required_addresses=(0x578080,0x586360,0x6924FC))
+        u.hook_del(hook)
+        assert u.reg_read(UC_X86_REG_ESP)==sp+0x44
+        assert original==[bytes(u.mem_read(a,b-a)) for a,b in ranges]
+        f.check_code()
+        rows.append(dict(name=case['name'],input=dict(click_cell=list(click),
+            level=case['level'],flags=case.get('flags',0),mapped_cells=case['mapped'],
+            target_cell=list(click),target_screen=[100,100],cursor_screen=[100,100],
+            discovered_by_current_house=False),
+            constants=f.constants,query=query,trace=trace,
+            floor_z=next(q['point'][2] for q in query if q['pc']=='00586360'),
+            target_raw_mapped=bool(f.read32(f.cells[click]+0x12C)&8),
+            returned_al=u.reg_read(UC_X86_REG_EAX)&255,
+            shrouded=bool(u.mem_read(shroud_out,1)[0]),
+            fogged=bool(u.mem_read(fog_out,1)[0]),pick_calls=len(pick_calls),
+            picked_target=f.read32(object_out)==actor,
+            discovery_before=discovery_before,
+            discovery_after=list(u.mem_read(actor+0x41A,3)),
+            rng_before=before,rng_after=f.rng_hashes(),rng_calls=f.rng_calls))
+    return dict(controls=rows)
+
+
+def click_shroud_metadata():
+    return provenance(
+        scope='Original Display692419..692605 click Cell floor/shroud suffix and Tactical6DA380 pick; supplied screen-to-Cell and registration priors, no whole UI/attack mission parity.',
+        assumptions=[
+            'Reuse DiscoveryFixture native Cell47BBF0/sparse512-stride table, original projection/Cell startup and constructor discovery prefixes. Click Cell20,20, explicit signed level0/3/4, optional structural bridge flag100 and mapped-ground bit8 inputs on a flat25-cell neighborhood; ordinary YR fog-mode off, shroud enabled. These are controlled knowledge histories, not a retail scenario load.',
+            'Scroll69325E calls full ProcessClickCoords692300; its known reachable suffix692419 constructs click Cell center XY, obtains actual Map578080 floor height at69244C, writes that Z at692461, and calls unchanged586360 at692480. Starting at that suffix supplies the upstream Cell conversion and saved-register frame, without skipping any shroud/pick branch.',
+            'Native586360 projects level/2 in both axes; odd levels test the native481810 neighbor when the first mapped test fails. Original floor arithmetic, packed map lookup, shroud tests and high-level rejection branches execute. ProcessClickCoords does not add structural bridge height after Map578080; flag100 controls retain actual queryZ. No Python calculation supplies the query or boolean golden.',
+            'One declared Tactical registration at screen100,100 references the existing foreign Infantry shell, supplied alive/non-limbo/non-cloaked and ordinary type Invisible=false. Constructor-produced+41A/+41B/+41C are all zero before/after. Actual Pick6DA380, its casts and post-pick ProcessClickCoords cloak/type checks execute. This demonstrates manual pick admission independent of discovered+41B; object allocation/Unlimbo, screen registration production, rendered pixels and later DetermineAction/Attack are excluded.',
+            'The active left-release route69325E->692300,693271->692610 and69328B->4AB9B0 passes the same object to action and release. That ordering is established by static instructions, not a whole mouse-message execution here.',
+            'Three seeded native RNG states and draw observations remain unchanged. This suffix has no timer write, detach or allocation producer.'],
+        substitutions=[
+            'Only inherited DiscoveryFixture constructor/platform transport boundaries. No Display suffix, floor height, native shroud, TacticalPick or post-pick gameplay instruction is substituted.'],
+        entry_points=dict(click_process=0x692300,suffix=0x692419,floor_call=0x69244C,
+            shroud_call=0x692480,shroud=0x586360,pick_call=0x692515,pick=0x6DA380,
+            mouse_process_call=0x69325E,mouse_action_call=0x693271,mouse_release_call=0x69328B))
+
+
+def initialize_discovery_geometry(call, read32, u):
+    """Shared original startup group; caller supplies its existing VM transport."""
+    entries = [0x6D1830,0x6D18C0,0x6D1BB0,0x49F2F0,
+               0x561710,0x5617A0,0x5617C0,0x5617E0,0x561910,0x5638D0]
+    for start in (0x8129FC,0x814EA8):
+        entries.extend(read32(start+i*4) for i in range(14))
+    for entry in entries:call(entry,0,[])
+    raw = bytes(u.mem_read(0xB0CD48,8))
+    assert struct.unpack('<Q',raw)[0]==STANDARD_Z_MULTIPLIER_BITS
+    return dict(entries=[f'{entry:08X}' for entry in entries],b0cd48=raw.hex())
+
+
 class DiscoveryFixture(DiscoveryEntry):
     """Reuse Entry's constructor prefixes, original Infantry vtable and transport.
 
@@ -1420,15 +1631,7 @@ class DiscoveryFixture(DiscoveryEntry):
         u=self.uc
         u.mem_map(SCRATCH+0x60000,0x20000)
         self.cell_cursor=SCRATCH+0x68000;self.actor_cursor=SCRATCH+0x60000
-        for entry in (0x6D1830,0x6D18C0,0x6D1BB0,0x49F2F0,
-                      0x561710,0x5617A0,0x5617C0,0x5617E0,0x561910,0x5638D0):
-            self.call(entry,0,[])
-        # Execute the same original Cell/TAction startup constant groups used
-        # by initialize_waypoint_map. The TAction height fields are independent
-        # of Cell's initialized level conversion and cannot use image zeros.
-        for start in (0x8129FC,0x814EA8):
-            for i in range(14):self.call(self.read32(start+i*4),0,[])
-        assert struct.unpack('<Q',u.mem_read(0xB0CD48,8))[0]==STANDARD_Z_MULTIPLIER_BITS
+        initialize_discovery_geometry(self.call,self.read32,u)
         self.constants=dict(adjust_for_z_multiplier_hex=bytes(u.mem_read(0xB0CD48,8)).hex(),
             cell_diagonal_hex=bytes(u.mem_read(0xB0CD78,8)).hex(),
             rad60_hex=bytes(u.mem_read(0xB0CD88,8)).hex(),
@@ -1567,13 +1770,15 @@ class DiscoveryFixture(DiscoveryEntry):
     def cell_state(self, cell):
         return self.pointer_state(self.cells[cell])
 
-    def pointer_state(self, p):
-        return dict(cell=list(struct.unpack('<hh',self.uc.mem_read(p+0x24,4))),
+    def pointer_state(self, p, *, include_dirty=False):
+        result = dict(cell=list(struct.unpack('<hh',self.uc.mem_read(p+0x24,4))),
             level=struct.unpack('<b',self.uc.mem_read(p+0x11B,1))[0],
             counter=struct.unpack('<i',self.uc.mem_read(p+0x130,4))[0],
             gap=struct.unpack('<i',self.uc.mem_read(p+0x134,4))[0],
             flags=self.read32(p+0x140),alt=self.read32(p+0x12C),
             cache=list(struct.unpack('<bb',self.uc.mem_read(p+0x120,2))))
+        if include_dirty:result['dirty'] = self.read32(p+0x138)
+        return result
 
     def topology_input(self):
         return dict(allocated_cells=[self.cell_state(c) for c in sorted(self.cells)],
@@ -2821,16 +3026,16 @@ def super_charge_native_inputs(root):
 class SuperChargeFixture(ActionFixture):
     """One native image/state for Action129, Super arithmetic and histories."""
 
-    def __init__(self, inputs):
+    def __init__(self, inputs, *, house_size=0x6000):
         from tools.native_oracle import NATIVE_FPCW, NativeCallTrace
         from unicorn.x86_const import UC_X86_REG_FPCW
         super().__init__()
         u = self.u
         self.native_fpcw, self.fpcw_register = NATIVE_FPCW, UC_X86_REG_FPCW
         self.house, self.super, self.super_type = (self.allocate(n)
-            for n in (0x6000, 0x100, 0x200))
+            for n in (house_size, 0x100, 0x200))
         self.items, self.house_type = self.allocate(64), self.allocate(0x400)
-        for pointer, size in ((self.house, 0x6000), (self.super, 0x100),
+        for pointer, size in ((self.house, house_size), (self.super, 0x100),
                               (self.super_type, 0x200), (self.items, 64),
                               (self.house_type, 0x400)):
             u.mem_write(pointer, bytes(size))
@@ -3139,6 +3344,858 @@ def super_charge_metadata():
             rng_constructor=0x65C6D0))
 
 
+@lru_cache(maxsize=1)
+def superweapon_state_native_inputs():
+    """Physical MD layers and original readers for the selected ALL03 path."""
+    from tools.input_oracle.campaign_start import prepare_house_rules
+    from tools.native_oracle import image_sha256
+    directory = configured_gamemd().parent
+    names = ('RULESMD.INI', 'LANGRULE.INI', 'ALL03UMD.INI', 'ALL03UMD.MAP')
+    payloads, sources = {}, []
+    for name in names:
+        path = directory / name
+        if path.is_file():
+            payloads[name] = path.read_bytes()
+            sources.append(dict(file=name, source='loose', sha256=hashlib.sha256(payloads[name]).hexdigest()))
+    # The existing stock MIX decoder supplies bytes only. These explicit
+    # supported-install probes do not replace the production AssetManager.
+    for archive in ('langmd.mix', 'language.mix', 'expandmd01.mix', 'mapsmd03.mix'):
+        raw = (directory / archive).read_bytes()
+        members = mix(raw)
+        for name in names:
+            data = members.get(mix_hash(name))
+            if data is not None and name not in payloads:
+                payloads[name] = data
+                sources.append(dict(file=name, source=archive,
+                    archive_sha256=hashlib.sha256(raw).hexdigest(), sha256=hashlib.sha256(data).hexdigest()))
+    if 'RULESMD.INI' not in payloads or 'ALL03UMD.MAP' not in payloads:
+        raise ValueError('The selected retail install must provide patched RULESMD.INI and ALL03UMD.MAP')
+    master = (directory / 'ra2md.mix').read_bytes()
+    local = mix(master)[mix_hash('localmd.mix')]
+    raw_art = mix(local)[mix_hash('ARTMD.INI')]
+    sources.append(dict(file='ARTMD.INI', source='ra2md.mix -> localmd.mix',
+        archive_sha256=hashlib.sha256(master).hexdigest(),
+        member_archive_sha256=hashlib.sha256(local).hexdigest(),
+        sha256=hashlib.sha256(raw_art).hexdigest()))
+    rules, values = sections(payloads['RULESMD.INI']), sections(payloads['ALL03UMD.MAP'])
+    # Reader's optional asset root preserves its existing transport owner.
+    # Only the MD section dictionaries below enter the native INI reader.
+    reader = CampaignReader(Path(__file__).parents[2] / 'ini')
+    reader.invoke(0x6832C0, reader.scenario)
+    rules_pointer = prepare_house_rules(reader, rules)
+    reader.ordered_ini({'SuperWeaponTypes': rules['SuperWeaponTypes']})
+    reader.invoke(0x6725F0, rules_pointer, (INI,))
+    types = [reader.read32(reader.read32(0xA8E334) + index * 4)
+             for index in range(reader.read32(0xA8E340))]
+    registry = [reader.string(pointer + 0x24) for pointer in types]
+    super_pointer = types[registry.index('NukeSpecial')]
+    reader.u.mem_write(0xA83C68, dwords(0x7EB6D4, reader.alloc(4096), 1024, 1, 0, 10))
+    provider_type = reader.alloc(0x2000)
+    reader.invoke(0x45DD90, provider_type, (reader.cstring('NAMISL'),))
+    art = sections(raw_art)
+    reader.ordered_ini({key: body for key, body in art.items()
+        if key == 'NAMISL' or key.startswith('NAMISL_')})
+    art_cache = bytes(reader.u.mem_read(INI, 0x40))
+
+    def super_state():
+        return dict(registry_index=reader.read32(super_pointer + 0x98),
+            kind=reader.read32(super_pointer + 0xB4),
+            recharge_frames=reader.read32(super_pointer + 0xB0),
+            powered=bool(reader.u.mem_read(super_pointer + 0xE6, 1)[0]),
+            show_timer=bool(reader.u.mem_read(super_pointer + 0xF4, 1)[0]),
+            manual_control=bool(reader.u.mem_read(super_pointer + 0xF5, 1)[0]),
+            charge_drain=bool(reader.u.mem_read(super_pointer + 0xE5, 1)[0]))
+
+    def provider_state():
+        return dict(registry_index=reader.read32(provider_type + 0x98),
+            nuke_silo=bool(reader.u.mem_read(provider_type + 0x16BA, 1)[0]),
+            super_weapon_index=struct.unpack('<i', reader.u.mem_read(provider_type + 0x16F0, 4))[0],
+            secondary_super_weapon_index=struct.unpack('<i', reader.u.mem_read(provider_type + 0x16F4, 4))[0],
+            power_output=reader.read32(provider_type + 0xEE0), power_drain=reader.read32(provider_type + 0xEE4))
+
+    layers = [dict(file='constructor', super_state=super_state(), provider_state=provider_state())]
+    for name in names:
+        if name not in payloads:
+            layers.append(dict(file=name, absent=True))
+            continue
+        layer = sections(payloads[name])
+        reader.ordered_ini({key: layer[key] for key in ('NukeSpecial', 'NAMISL') if key in layer})
+        rules_ini = reader.alloc(0x40)
+        reader.u.mem_write(rules_ini, bytes(reader.u.mem_read(INI, 0x40)))
+        reader.u.mem_write(INI, art_cache)
+        provider_returned = reader.invoke(0x45FE50, provider_type, (rules_ini,)) & 255
+        returned = reader.invoke(0x6CEA20, super_pointer, (rules_ini,)) & 255
+        layers.append(dict(file=name, returned=returned, super_state=super_state(),
+            provider_returned=provider_returned, provider_state=provider_state()))
+    registrations = []
+    for name in names:
+        if name not in payloads:
+            continue
+        layer = sections(payloads[name])
+        reader.ordered_ini({'Countries': layer.get('Countries', {})})
+        reader.u.reg_write(UC_X86_REG_ESI, INI)
+        reader.u.reg_write(UC_X86_REG_EDI, rules_pointer)
+        reader.region(0x668C8B, 0x668CDB)
+        registrations.append(dict(file=name, names=[reader.string(
+            reader.read32(reader.read32(0xA83C9C) + index * 4) + 0x24)
+            for index in range(reader.read32(0xA83CA8))]))
+    houses = []
+    for name in ('Americans', 'YuriCountry'):
+        reader.ordered_ini({name: values[name]})
+        label = reader.cstring(name)
+        country = reader.invoke(0x475540, INI, (label, reader.cstring('Country'), 0xFFFFFFFF))
+        iq = reader.invoke(0x5276D0, INI, (label, reader.cstring('IQ'), 0))
+        control = reader.invoke(0x5295F0, INI, (label, reader.cstring('PlayerControl'), 0)) & 255
+        houses.append(dict(name=name, country_index=country, iq=iq, player_control=bool(control), raw=values[name]))
+    f = ActionFixture()
+    identities = ('0AFF8D8C', '094F5C2C', '094DE72C')
+    routes = []
+    for identity in identities:
+        raw = values['Actions'][identity]
+        # The counted loop, not Python's token positions, owns both the
+        # materialized fields and physical action order.
+        f.ordered_ini({'Actions': {identity: raw}})
+        key = f.allocate(len(identity) + 1)
+        f.u.mem_write(key, identity.encode('ascii') + b'\0')
+        section = f.allocate(8)
+        f.u.mem_write(section, b'Actions\0')
+        f.call(0x528A10, (section, key, 0x889F64, BUFFER, 512), ecx=INI)
+        token = f.call(0x7C9CC2, (BUFFER, 0x817F70), cdecl=True)
+        count = f.call(0x7C9BFD, (token,), cdecl=True)
+        definition = f.allocate(0xB8)
+        f.u.mem_write(definition, bytes(0xB8))
+        f.u.reg_write(UC_X86_REG_EAX, count)
+        f.u.reg_write(UC_X86_REG_EBX, 0)
+        f.u.reg_write(UC_X86_REG_EBP, definition)
+        f.u.reg_write(UC_X86_REG_ESP, SP)
+        run_checked(f.u, 0x727558, 0x7275A5)
+        actions, pointer = [], f.read32(definition + 0xB0)
+        while pointer:
+            actions.append(dict(kind=f.integer(pointer + 0x2C), value=f.integer(pointer + 0x90),
+                waypoint=f.integer(pointer + 0x44), auxiliary=f.integer(pointer + 0x48)))
+            pointer = f.read32(pointer + 0x28)
+            assert len(actions) <= count
+        assert len(actions) == count
+        routes.append(dict(id=identity, trigger=values['Triggers'][identity], events=values['Events'][identity],
+            actions=raw, native_actions=actions,
+            tags={key: body for key, body in values['Tags'].items() if body.endswith(',' + identity)}))
+    waypoint_indices = sorted({action['waypoint'] for route in routes
+        for action in route['native_actions'] if action['kind'] == 135})
+    reader.ordered_ini({'Waypoints': values['Waypoints']})
+    waypoints = []
+    for index in waypoint_indices:
+        # The Windows decimal-key formatter is outside this scalar-reader
+        # region. ReadInt and both signed unpacking operations run unchanged.
+        reader.u.mem_write(SP + 0x10, str(index).encode('ascii') + b'\0')
+        reader.u.reg_write(UC_X86_REG_EBX, INI)
+        reader.u.reg_write(UC_X86_REG_ESI, index)
+        reader.u.reg_write(UC_X86_REG_EDI, reader.scenario + 0x632 + index * 4)
+        reader.region(0x68BDE7, 0x68BE35, required=(0x5276D0,))
+        waypoints.append(dict(index=index, raw=values['Waypoints'].get(str(index)),
+            cell=list(struct.unpack('<2h', reader.u.mem_read(reader.scenario + 0x632 + index * 4, 4)))))
+    # Reuse the original scenario Building reader through its actual first
+    # allocation boundary. Its House/type lookups, ReadString128, strtok and
+    # atoi own the selected authored provider's identity/strength/cell/tag.
+    # Full Building construction, placement and country admission are outside
+    # this input extraction; the following plain-name House identities are
+    # declared lookup priors for the already separately read map Houses.
+    house_items = reader.alloc(8)
+    house_pointers = []
+    for slot, name in enumerate(('Americans', 'YuriCountry')):
+        pointer = reader.alloc(0x16100)
+        reader.u.mem_write(pointer, bytes(0x16100))
+        reader.u.mem_write(pointer + 0x15FF4, name.encode('ascii') + b'\0')
+        reader.u.mem_write(house_items + slot * 4, dwords(pointer))
+        house_pointers.append(pointer)
+    reader.u.mem_write(0xA8022C, dwords(house_items))
+    reader.u.mem_write(0xA80238, dwords(2))
+    reader.u.mem_write(0xA8B238, dwords(0))
+    reader.ordered_ini({'Basic': values['Basic'],
+        'Structures': {'1033236': values['Structures']['1033236']}})
+    reader.u.reg_write(UC_X86_REG_ESI, reader.scenario)
+    reader.u.reg_write(UC_X86_REG_EDI, INI)
+    reader.u.reg_write(UC_X86_REG_EAX, reader.read32(reader.scenario + 0x1C70))
+    reader.region(0x68A13D, 0x68A15B, required=(0x5276D0,))
+    new_ini_format = reader.read32(0xA8ED7C)
+    reader.u.reg_write(UC_X86_REG_ECX, INI)
+    reader.region(0x44F820, 0x44FAF8, required=(0x528A10, 0x50C170, 0x45E7B0, 0x7C9BFD))
+    sp = reader.u.reg_read(UC_X86_REG_ESP)
+    provider_read = dict(new_ini_format=new_ini_format,
+        house_index=house_pointers.index(reader.read32(sp + 0x24)),
+        type_index=reader.read32(sp + 0x20), authored_strength=reader.read32(sp + 0x18),
+        cell=list(struct.unpack('<2h', reader.u.mem_read(sp + 0x14, 4))),
+        tag=reader.string(reader.u.reg_read(UC_X86_REG_EBP)),
+        read_string_capacity=128, boundary='0044FAF8 before Building allocation')
+    reader.check_code(); f.check_code()
+    receipt = dict(native_sha256=image_sha256(), sources=sources,
+        registry=registry, layers=layers, house_inputs=houses, country_registration=registrations,
+        routes=routes, waypoints=waypoints,
+        provider=values['Structures']['1033236'], provider_read=provider_read,
+        map_provider_overrides=values['NAMISL'])
+    return SimpleNamespace(type_bytes=bytes(reader.u.mem_read(super_pointer, 0x120)),
+        provider_type_bytes=bytes(reader.u.mem_read(provider_type, 0x2000)),
+        state=super_state(), count=len(registry), receipt=receipt,
+        waypoints={row['index']: row['cell'] for row in waypoints}, raw_actions=routes[0]['actions'])
+
+
+def superweapon_state_dispatch_case(inputs, name, raw, *, owner_present=True,
+                                    preferred=(17, 18), waypoint_cell=(31, 32),
+                                    count=None, null_super=False, mapped_waypoint_spare=False, **state):
+    """Original132/135/136 dispatch; malformed native memory stays an edge."""
+    from tools.native_oracle import NativeExecutionError
+    f = SuperChargeFixture(inputs)
+    f.set_state(recharge=inputs.state['recharge_frames'], **state)
+    f.u.mem_write(f.house + 0x54F0, struct.pack('<2h', *preferred))
+    other_house, other_super = f.allocate(0x6000), f.allocate(0x100)
+    f.u.mem_write(other_house, bytes(0x6000))
+    f.u.mem_write(other_super, bytes(0x100))
+    f.u.mem_write(other_house + 0x54F0, struct.pack('<2h', 45, 46))
+    f.u.mem_write(other_super + 0x24, dwords(73, f.super_type, other_house))
+    actual_count = inputs.count if count is None else count
+    f.u.mem_write(f.house + 0x264, dwords(actual_count))
+    read = f.read_action(raw, ini_capacity=512)
+    read['auxiliary'] = f.integer(ACTION + 0x48)
+    if 0 <= read['waypoint'] < 702 or mapped_waypoint_spare:
+        f.u.mem_write(SCENARIO + 0x632 + read['waypoint'] * 4, struct.pack('<2h', *waypoint_cell))
+    if null_super:
+        f.u.mem_write(f.items + read['value'] * 4, dwords(0))
+    before, incoming = f.rng_hashes(), f.state()
+    f.stage = f"execute{read['kind']}"
+    for start, end in ((0x6CC280, 0x6CC288), (0x50DA00, 0x50DA20), (0x68BCC0, 0x68BCE0)):
+        f.ranges.append((start, end))
+        f.original.append(bytes(f.u.mem_read(start, end-start)))
+    try:
+        returned = f.invoke(0x6DD8B0, ACTION, (f.house if owner_present else 0, 0, 0, 0)) & 255
+        answer = dict(returned=returned)
+    except NativeExecutionError:
+        if not null_super or f.u.reg_read(UC_X86_REG_EIP) != 0x6CC284:
+            raise
+        answer = dict(fault=dict(pc='006CC284', address='00000024', access='write_unmapped'))
+    output = dict(f.state(), preferred=list(struct.unpack('<2h', f.u.mem_read(f.house + 0x54F0, 4))))
+    output.update(other_preferred=list(struct.unpack('<2h', f.u.mem_read(other_house + 0x54F0, 4))),
+        other_custom_recharge=f.invoke(0x6CC260, other_super))
+    return dict(name=name, read=read, input=dict(incoming, preferred=list(preferred),
+        waypoint_cell=list(waypoint_cell), owner_present=owner_present, count=actual_count,
+        frame=f.integer(0xA8ED84), mapped_waypoint_spare=mapped_waypoint_spare,
+        other_preferred=[45, 46], other_custom_recharge=73),
+        output=output, rng_before=before, **answer, **f.evidence())
+
+
+def superweapon_state_fixture(inputs, *, fire_boundary=False):
+    """Admitted small House/map world; every selected gameplay callee is real."""
+    from unicorn.x86_const import UC_X86_REG_FPCW
+    f = SuperChargeFixture(inputs, house_size=0x16100)
+    u = f.u
+    f.state_events, f.fire_boundary = [], fire_boundary
+    f.other_house, f.other_house_type = f.allocate(0x16100), f.allocate(0x400)
+    u.mem_write(f.other_house, bytes(0x16100))
+    u.mem_write(f.other_house_type, bytes(0x400))
+    u.mem_write(f.other_house + 0x34, dwords(f.other_house_type))
+    for index, house in enumerate((f.other_house, f.house)):
+        u.mem_write(house + 0x30, dwords(index))
+        u.mem_write(house + 0x54EC, dwords(1))
+        u.mem_write(house + 0x5788, dwords(3))
+    u.mem_write(f.other_house + 0x54F0, struct.pack('<2h', 45, 46))
+    country = {row['name']: row['country_index'] for row in inputs.receipt['house_inputs']}
+    u.mem_write(f.house_type + 0xB4, dwords(country['YuriCountry']))
+    u.mem_write(f.other_house_type + 0xB4, dwords(country['Americans']))
+    u.mem_write(f.house + 0x5600, dwords(0))
+    u.mem_write(f.house + 0x184, dwords(1))
+    u.mem_write(f.house + 0x254, dwords(0x7EA4E4))
+    f.houses = f.allocate(8)
+    u.mem_write(f.houses, dwords(f.other_house, f.house))
+    u.mem_write(0xA8022C, dwords(f.houses))
+    u.mem_write(0xA80238, dwords(2))
+    u.mem_write(0xA83D4C, dwords(f.other_house))
+    # Scenario campaign mode, nonhuman NPC, no running storm or Dominator.
+    u.mem_write(0xA8B238, dwords(0))
+    u.mem_write(0xA8E9A0, b'\1')
+    f.trigger = f.allocate(0x80)
+    u.mem_write(f.trigger, bytes(0x80))
+    f.rules = f.allocate(0x2000)
+    u.mem_write(f.rules, bytes(0x2000))
+    u.mem_write(0x8871E0, dwords(f.rules))
+    f.startup = initialize_waypoint_map(f)
+    f.call(0x47BBF0, [], ecx=0xABDC50)
+    # ObjectClass owns another copy of these header constants. Execute its
+    # original ordered thirteen-pointer CRT table; zero-filled LevelHeight
+    # would incorrectly make grounded actors high-flying.
+    u.reg_write(UC_X86_REG_FPCW, 0x027F)
+    for index in range(13):
+        f.call(f.read32(0x8141D8 + index * 4), [])
+    f.startup['object_level_leptons'] = f.integer(0xAC13C8)
+    u.reg_write(UC_X86_REG_FPCW, f.native_fpcw)
+    for offset, value in ((0xF4, 40), (0xFC, 2), (0x100, 4), (0x104, 36), (0x108, 36)):
+        u.mem_write(0x87F7E8 + offset, dwords(value))
+    u.mem_write(0x87F7E8 + 0x124, bytes(16))
+    u.mem_write(0x89EA40, bytes(12 * 36))
+    u.mem_write(0xB0F5B8, dwords(0x7EB6D4, f.allocate(64), 16, 1, 0, 10))
+    f.provider, f.provider_type = f.allocate(0x800), f.allocate(0x2000)
+    u.mem_write(f.provider, bytes(0x800))
+    u.mem_write(f.provider_type, inputs.provider_type_bytes)
+    u.mem_write(f.provider, dwords(0x7E3EBC))
+    px, py = inputs.receipt['provider_read']['cell']
+    u.mem_write(f.provider + 0x74, b'\1')
+    u.mem_write(f.provider + 0x90, b'\1')
+    u.mem_write(f.provider + 0x9C, dwords(px * 256 + 128, py * 256 + 128, 0))
+    u.mem_write(f.provider + 0x21C, dwords(f.house))
+    u.mem_write(f.provider + 0x520, dwords(f.provider_type))
+    u.mem_write(f.provider + 0xAC, dwords(5, 0, -1))
+    u.mem_write(f.provider + 0x5F8, dwords(-1))
+    provider_items = f.allocate(4)
+    u.mem_write(provider_items, dwords(f.provider_type))
+    u.mem_write(0xA83C6C, dwords(provider_items))
+    u.mem_write(0xA83C78, dwords(1))
+    buildings, counts = f.allocate(4), f.allocate(4)
+    u.mem_write(buildings, dwords(f.provider))
+    u.mem_write(counts, dwords(1))
+    u.mem_write(f.house + 0x6C, dwords(buildings))
+    u.mem_write(f.house + 0x78, dwords(1))
+    u.mem_write(f.house + 0x5500, dwords(0x7EB6D4, counts, 1))
+    for index, cell in inputs.waypoints.items():
+        u.mem_write(SCENARIO + 0x632 + index * 4, struct.pack('<2h', *cell))
+        tile = f.allocate(0x200)
+        f.call(0x47BBF0, [], ecx=tile)
+        u.mem_write(tile + 0x24, struct.pack('<2h', *cell))
+        u.mem_write(f.table + (cell[1] * 512 + cell[0]) * 4, dwords(tile))
+    added = [(0x4FAE50, 0x4FB0D6), (0x4FD060, 0x4FD104),
+        (0x5098F0, 0x50A346), (0x50CBF0, 0x50D3D0),
+        (0x6CB920, 0x6CBCA0), (0x6CC260, 0x6CC28A), (0x6CC390, 0x6CE1F0),
+        (0x5F36F0, 0x5F38DF), (0x5B3570, 0x5B364B), (0x49FAE0, 0x49FB32)]
+    f.ranges.extend(added)
+    f.original.extend(bytes(u.mem_read(a, b-a)) for a, b in added)
+    calls = {0x4FAE50: 'fire', 0x6CB920: 'click_fire', 0x6CC390: 'launch',
+        0x6CE0B0: 'reset', 0x50CBF0: 'best_rally', 0x50D170: 'team_rally',
+        0x56DC20: 'nearby_passable', 0x509E00: 'storm_rally',
+        0x509CD0: 'ground_rally', 0x509F60: 'genetic_rally', 0x50A150: 'dominator_rally'}
+
+    pending_cells = {}
+    def observe(vm, pc, _size, _data):
+        sp = vm.reg_read(UC_X86_REG_ESP)
+        if pc in pending_cells:
+            event = pending_cells.pop(pc)
+            event['returned_cell'] = list(struct.unpack('<2h',
+                vm.mem_read(vm.reg_read(UC_X86_REG_EAX), 4)))
+        if pc in calls:
+            row = dict(stage=f.stage, call=calls[pc])
+            if pc == 0x4FAE50:
+                row.update(index=f.integer(sp + 4), cell=list(struct.unpack('<2h',
+                    vm.mem_read(f.read32(sp + 8), 4))))
+            elif pc in (0x50CBF0, 0x56DC20):
+                pending_cells[f.read32(sp)] = row
+                if pc == 0x56DC20:
+                    args = [f.integer(sp + 4 + index * 4) for index in range(15)]
+                    row.update(input_cell=list(struct.unpack('<2h', vm.mem_read(args[1], 4))),
+                        speed_type=args[2], movement_zone=args[3],
+                        scalar_arguments=args[2:12] + args[13:],
+                        footprint=list(struct.unpack('<2h', vm.mem_read(args[12], 4))))
+            f.state_events.append(row)
+            if pc == 0x4FAE50 and f.fire_boundary:
+                return_from_sink(vm, 8, 1)
+        elif pc == 0x65C7E0:
+            f.rng_calls[-1]['bounds'] = [f.integer(sp + 4), f.integer(sp + 8)]
+        elif pc in (0x750E20, 0x752700):
+            # Audio/EVA device transports are outside the selected simulation.
+            f.state_events.append(dict(stage=f.stage, call='audio' if pc == 0x750E20 else 'eva'))
+            return_from_sink(vm, 4, 0)
+    u.hook_add(UC_HOOK_CODE, observe)
+    return f
+
+
+def superweapon_state_sequence(inputs):
+    f = superweapon_state_fixture(inputs)
+    u = f.u
+    f.initialize_concrete_super(0)
+    initial = f.state()
+    before, rows = f.rng_hashes(), []
+
+    def record(stage, *, raw_action=None, returned=None):
+        assert f.read32(f.super + 0x28) == f.super_type, (stage, hex(f.super),
+            hex(f.read32(f.super + 0x28)), hex(f.super_type))
+        row = dict(stage=stage, frame=f.integer(0xA8ED84), state=f.state(),
+            preferred=list(struct.unpack('<2h', u.mem_read(f.house + 0x54F0, 4))),
+            other_preferred=list(struct.unpack('<2h', u.mem_read(f.other_house + 0x54F0, 4))),
+            enemy_index=f.integer(f.house + 0x5600),
+            effective_recharge=f.integer_reg(UC_X86_REG_EAX))
+        row['effective_recharge'] = f.invoke(0x6CC260, f.super)
+        if row['effective_recharge'] >= 0x80000000:
+            row['effective_recharge'] -= 0x100000000
+        if raw_action is not None:
+            row['raw_action'] = raw_action
+        if returned is not None:
+            row['returned'] = returned
+        if stage == 'npc_ai_fire':
+            row.update(fire=[event for event in f.state_events if event['stage'] == stage and event['call'] == 'fire'],
+                nuke_target=list(struct.unpack('<2h', u.mem_read(f.house + 0x5784, 4))),
+                firing_type=f.integer(f.provider + 0x5F8),
+                provider_mission=f.integer(f.provider + 0xAC),
+                provider_queued_mission=f.integer(f.provider + 0xB4))
+        rows.append(row)
+
+    f.stage = 'grant'
+    record(f.stage, returned=f.invoke(0x6CB560, f.super, (0, 0, 0)) & 255)
+    u.mem_write(0xA8ED84, dwords(15))
+    tokens = inputs.raw_actions.split(',')[1:]
+    for offset in range(0, len(tokens), 8):
+        raw = ','.join(tokens[offset:offset + 8])
+        read = f.read_action(raw, ini_capacity=512)
+        f.stage = f"execute{read['kind']}"
+        returned = f.invoke(0x6DD8B0, ACTION, (f.house, 0, f.trigger, 0)) & 255
+        record(f.stage, raw_action=raw, returned=returned)
+    for frame in (2715, 2716):
+        f.stage = 'before_elapsed_ai' if frame == 2715 else 'elapsed_ai'
+        u.mem_write(0xA8ED84, dwords(frame))
+        f.invoke(0x6CBCA0, f.super, (0,))
+        record(f.stage)
+    # MakeEnemy's real threat-map rebuild invalidates the selected enemy.
+    # Whole House target acquisition/cadence is outside this small world;
+    # declare the next ready NPC visit's already selected enemy explicitly.
+    f.stage = 'enemy_selection_prior'
+    u.mem_write(f.house + 0x5600, dwords(0))
+    record(f.stage)
+    f.stage = 'npc_ai_fire'
+    f.invoke(0x5098F0, f.house)
+    record(f.stage)
+    u.mem_write(0xA8ED84, dwords(3000))
+    f.stage = 'reset_running'
+    f.invoke(0x6CE0B0, f.super)
+    record(f.stage)
+    return dict(name='all03_authored_nuke', initial_state=initial, initial_frame=0,
+        initial_preferred=[0, 0], initial_other_preferred=[45, 46], startup=f.startup, rows=rows,
+        events=f.state_events, rng_before=before, **f.evidence())
+
+
+def superweapon_state_consumers(inputs, kind):
+    """Set -> native consumer -> clear -> same native consumer/history."""
+    from tools.spatial_oracle.map_queries import TABLE
+    f = superweapon_state_fixture(inputs, fire_boundary=True)
+    u = f.u
+    # AI selection tests only ready. The intentionally ungranted boundary
+    # lets Rust call its ordinary Fire_SW and reject at real ClickFire without
+    # launching unrelated SW effects beyond this control's observation seam.
+    f.set_state(recharge=inputs.state['recharge_frames'], granted=False, ready=True)
+    u.mem_write(f.super_type + 0xB4, dwords(kind))
+    u.mem_write(f.house + 0x5788, dwords(2))
+    u.mem_write(f.other_house + 0x5788, dwords(1))
+    u.mem_write(f.other_house + 0x5490, struct.pack('<2h', 0, 0))
+    u.mem_write(0xA9FAB4, dwords(0))
+    u.mem_write(0xA9FAC0, dwords(0))
+    f.invoke(0x561910, 0)
+    f.call(0x47BBF0, [], ecx=0xABDC50)
+    objects = []
+    # Plain, equally valued enemy buildings exercise a real tie without
+    # handwritten WhatAmI, Layer, GetCoords or selector answers. NAMISL's
+    # actual layered type has no special Ion-target value classification.
+    for cell in ((31, 32), (40, 25)):
+        actor, tile = f.allocate(0x800), f.allocate(0x200)
+        u.mem_write(actor, bytes(0x800))
+        f.call(0x47BBF0, [], ecx=tile)
+        u.mem_write(tile + 0x24, struct.pack('<2h', *cell))
+        u.mem_write(TABLE + (cell[1] * 512 + cell[0]) * 4, dwords(tile))
+        u.mem_write(actor, dwords(0x7E3EBC))
+        u.mem_write(actor + 0x74, b'\1')
+        u.mem_write(actor + 0x90, b'\1')
+        u.mem_write(actor + 0x9C, dwords(cell[0] * 256 + 128, cell[1] * 256 + 128, 0))
+        u.mem_write(actor + 0x21C, dwords(f.other_house))
+        u.mem_write(actor + 0x520, dwords(f.provider_type))
+        objects.append(actor)
+    array = f.allocate(8)
+    u.mem_write(array, dwords(*objects))
+    u.mem_write(0xA8EC7C, dwords(array))
+    u.mem_write(0xA8EC88, dwords(len(objects)))
+    actor, actor_type, tile = f.allocate(0x800), f.allocate(0x2000), f.allocate(0x200)
+    u.mem_write(actor, bytes(0x800))
+    u.mem_write(actor_type, bytes(0x2000))
+    f.call(0x47BBF0, [], ecx=tile)
+    u.mem_write(tile + 0x24, struct.pack('<2h', 31, 32))
+    u.mem_write(tile + 0xE4, dwords(actor))
+    u.mem_write(TABLE + (32 * 512 + 31) * 4, dwords(tile))
+    u.mem_write(actor, dwords(0x7EB058))
+    u.mem_write(actor + 0x14, dwords(7))
+    u.mem_write(actor + 0x74, b'\1')
+    u.mem_write(actor + 0x90, b'\1')
+    u.mem_write(actor + 0x9C, dwords(31 * 256 + 128, 32 * 256 + 128, 0))
+    u.mem_write(actor + 0x21C, dwords(f.other_house))
+    u.mem_write(actor + 0x6C0, dwords(actor_type))
+    infantry_items = f.allocate(4)
+    u.mem_write(infantry_items, dwords(actor))
+    # Preserve real constructor membership for the selected actors. No
+    # infantry is registered in the rally/ground fixtures; in the other two
+    # fixtures that infantry is present in Techno, Infantry and Foot arrays.
+    use_infantry = kind in (9, 7)
+    if use_infantry:
+        u.mem_write(0xA8EC7C, dwords(infantry_items))
+        u.mem_write(0xA8EC88, dwords(1))
+    for items, count in ((0xA83DEC, 0xA83DF8), (0x8B3DC4, 0x8B3DD0)):
+        u.mem_write(items, dwords(infantry_items))
+        u.mem_write(count, dwords(int(use_infantry)))
+    initial = f.state()
+    before, rows = f.rng_hashes(), []
+
+    def record(stage, returned=None, raw_action=None):
+        row = dict(stage=stage, state=f.state(), preferred=list(struct.unpack('<2h',
+            u.mem_read(f.house + 0x54F0, 4))),
+            other_preferred=list(struct.unpack('<2h', u.mem_read(f.other_house + 0x54F0, 4))),
+            events=[event for event in f.state_events if event['stage'] == stage],
+            rng_calls=[event for event in f.rng_calls if event['stage'] == stage],
+            rng_after=f.rng_hashes())
+        if returned is not None:
+            row['returned'] = returned
+        if raw_action is not None:
+            row['raw_action'] = raw_action
+        rows.append(row)
+
+    for stage, raw in (('set_preferred', '135,0,364,0,0,0,0,NA'),
+                       ('clear_preferred', '136,0,999,0,0,0,0,ZZ')):
+        f.stage = stage
+        f.read_action(raw, ini_capacity=512)
+        record(stage, f.invoke(0x6DD8B0, ACTION, (f.house, 0, f.trigger, 0)) & 255, raw)
+        f.stage = 'preferred_consumer' if stage == 'set_preferred' else 'cleared_consumer'
+        f.invoke(0x5098F0, f.house)
+        record(f.stage)
+    return dict(name={0: 'multimissile', 2: 'lightning_storm', 5: 'ground',
+                     9: 'genetic_mutator', 7: 'psychic_dominator'}[kind],
+        kind=kind, initial_state=initial, frame=500, startup=f.startup,
+        input=dict(preferred_type=1, enemy_index=0, difficulty=1,
+            buildings=[dict(owner='enemy', type='NAMISL', cell=[31, 32]),
+                       dict(owner='enemy', type='NAMISL', cell=[40, 25])] if not use_infantry else [],
+            infantry=[dict(owner='enemy', cell=[31, 32], immune_to_psionics=False,
+                           balloon=False, iron_curtained=False)] if use_infantry else [],
+            enemy_base=[0, 0], initial_other_preferred=[45, 46],
+            sparse_flat_cells=[[31, 32], [40, 25], *inputs.waypoints.values()],
+            map_word_f8=f.integer(0x87F7E8 + 0xF8),
+            map_bounds=[f.integer(0x87F7E8 + offset) for offset in (0x124, 0x128, 0x12C, 0x130)],
+            ground_land0_foot_bits=bytes(u.mem_read(0x89EA40, 4)).hex()),
+        rows=rows, rng_before=before, **f.evidence())
+
+
+def superweapon_state_reset(inputs, *, paused=False):
+    f = superweapon_state_fixture(inputs)
+    u = f.u
+    f.set_state(recharge=inputs.state['recharge_frames'], custom_recharge=4500,
+        start=-1 if paused else 123, duration=7000, ready=True, held=paused)
+    u.mem_write(f.house + 0x54F0, struct.pack('<2h', 31, 32))
+    animation = f.allocate(0x200)
+    u.mem_write(animation, bytes(0x200))
+    u.mem_write(animation + 0x195, b'\3')
+    u.mem_write(f.super + 0x68, dwords(animation))
+    u.mem_write(f.super + 0x6C, b'\1')
+    u.mem_write(f.super + 0x74, dwords(77, 12, 5))
+    notification_items = f.read32(0xB0F5BC)
+    u.mem_write(notification_items, dwords(f.super))
+    u.mem_write(0xB0F5C8, dwords(1))
+
+    def state():
+        return dict(f.state(), charge_stage=f.integer(f.super + 0x78),
+            ready_tick=f.integer(f.super + 0x74), charge_drain_state=f.integer(f.super + 0x7C),
+            one_time=bool(u.mem_read(f.super + 0x6E, 1)[0]),
+            animation_present=bool(f.read32(f.super + 0x68)),
+            animation_invalid=bool(u.mem_read(f.super + 0x6C, 1)[0]),
+            animation_loops=u.mem_read(animation + 0x195, 1)[0],
+            notification_count=f.integer(0xB0F5C8),
+            preferred=list(struct.unpack('<2h', u.mem_read(f.house + 0x54F0, 4))))
+    incoming, before = state(), f.rng_hashes()
+    f.stage = 'reset'
+    f.invoke(0x6CE0B0, f.super)
+    return dict(name='paused' if paused else 'running', frame=500,
+        input=incoming, output=state(), rng_before=before, **f.evidence())
+
+
+def superweapon_state_generate(*, receipt_path=None):
+    inputs = superweapon_state_native_inputs()
+    controls = [('132_retail_4500', '132,11,0,0,0,0,0,4500', {}),
+        ('132_null_owner', '132,11,0,0,0,0,0,4500', dict(owner_present=False)),
+        ('132_negative_index', '132,11,-1,0,0,0,0,4500', {}),
+        ('132_above_count', f'132,11,{inputs.count + 1},0,0,0,0,4500', {}),
+        ('132_ungranted_ready_held', '132,11,0,0,0,0,0,4500', dict(granted=False, ready=True, held=True)),
+        ('135_waypoint_independent_of_scalar', '135,0,999,0,0,0,0,NA', {}),
+        ('135_null_owner', '135,0,364,0,0,0,0,NA', dict(owner_present=False)),
+        ('135_empty_waypoint', '135,0,364,0,0,0,0,NA', dict(waypoint_cell=(0, 0))),
+        ('135_one_zero_component', '135,0,364,0,0,0,0,NA', dict(waypoint_cell=(0, 9))),
+        ('135_signed_cell', '135,0,364,0,0,0,0,NA', dict(waypoint_cell=(-3, 32767))),
+        ('136_clear', '136,0,999,0,0,0,0,ZZ', {}),
+        ('136_already_empty', '136,0,999,0,0,0,0,ZZ', dict(preferred=(0, 0))),
+        ('136_null_owner', '136,0,999,0,0,0,0,ZZ', dict(owner_present=False))]
+    for value in (-1, -2, 0, 2147483647, -2147483648):
+        controls.append((f'132_signed_{value}', f'132,11,0,0,0,0,0,{value}', {}))
+    f = SuperChargeFixture(inputs)
+    data = dict(schema_version=1, retail_inputs=inputs.receipt,
+        rng_seed_states=CampaignReader.rng_state(SimpleNamespace(u=f.u, scenario=SCENARIO)),
+        dispatch_controls=[superweapon_state_dispatch_case(inputs, name, raw, **options)
+            for name, raw, options in controls],
+        native_edge_controls=[
+            superweapon_state_dispatch_case(inputs, '132_equal_count_mapped_spare',
+                '132,11,0,0,0,0,0,4500', count=0),
+            superweapon_state_dispatch_case(inputs, '132_null_super_slot',
+                '132,11,0,0,0,0,0,4500', null_super=True),
+            superweapon_state_dispatch_case(inputs, '135_outside_array_mapped_spare',
+                '135,0,364,0,0,0,0,AAA', mapped_waypoint_spare=True)],
+        sequence_controls=[superweapon_state_sequence(inputs)],
+        reset_controls=[superweapon_state_reset(inputs, paused=paused) for paused in (False, True)],
+        consumer_controls=[superweapon_state_consumers(inputs, kind) for kind in (0, 2, 5, 9, 7)])
+    if receipt_path is not None:
+        path = Path(receipt_path).resolve()
+        if path.is_relative_to(Path(__file__).parents[2].resolve()):
+            raise ValueError('Detailed native receipts must remain outside the repository')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+    for category in ('dispatch_controls', 'native_edge_controls', 'sequence_controls',
+                     'reset_controls', 'consumer_controls'):
+        for case in data[category]:
+            del case['native_call_receipts']
+    return data
+
+
+def superweapon_state_metadata():
+    return dict(provenance(
+        scope='Selected ALL03 NPC NukeSpecial Action129->135->132->38 state, effective recharge and shared preferred-cell consumers.',
+        assumptions=[
+            'Physical patched RULESMD from expandmd01, optional LANGRULE/ALL03 campaign INI, and ALL03 map use existing source-order caches and original native readers. Fixed ARTMD comes from ra2md/localmd and is not layered. Native Rules6725F0 registers the twelve actual SuperWeaponTypes; NukeSpecial6CEA20 and NAMISL45DD90/45FE50 execute. Physical file/member/archive SHA256 identities are retained below and in retail_inputs. Full AssetManager/Rules Process, archive IO and the whole campaign are outside this bounded corpus.',
+            'Original Action ctor/read, counted TriggerType action loop727558..7275A5 and Execute6DD8B0 own materialization and order. The unique dispatch table base is6DFDEC;132/135/136 reach6E4320/6E43E0/6E4440 and real6CC280/50DA00/50DA10. Action135 uses+44 and ignores scalar+90; empty(0,0) refuses while one zero component and signed cells remain valid. Action136 clears only its House target.132 writes signed custom+24 independently of grant/readiness/hold/current timer. Equal-count/null Super and a declared mapped one-past-waypoint spare are isolated native memory edges, not safe Rust collection semantics.',
+            'The original44F820..44FAF8 Structures reader prefix consumes the actual NAMISL record through ReadString128, real House/type-name lookups, strtok and atoi, stopping before allocation/placement. Native68A13D..68A15B reads Basic.NewINIFormat. Two declared plain-name House identities provide its lookup prior; separately executed Country/IQ/PlayerControl readers establish the selected physical House values. Provider cell, strength and Tag, raw Trigger/Event/Tag binding and native counted actions are recorded. Whole Building/House construction and admission are excluded.',
+            'The ALL03 sequence declares a previously admitted NPC Yuri House, Americans enemy, one available native-read NAMISL and one concrete Super/Grant at frame0. It executes real129(70),135(wp364),132(4500),38 in file order at frame15, then explicit Super AI visits2715/2716, NPC AI/Fire_SW/ClickFire/Launch and Reset3000. MakeEnemy executes its real threat-map rebuild and invalidates EnemyHouseIndex; enemy_selection_prior explicitly supplies enemy0 for the next ready NPC visit. The current percentage timer and future effective charge both come from original execution; no hand remaining-time golden is used. Whole House power/AI cadence, target acquisition, Building admission and the eventual missile mission/Bullet/damage are excluded; actual Silo QueueMission/Commence, House NukeTarget, ClickFire recharge and far-away defense-alert calls are reached.',
+            'Five set/consumer/clear/consumer histories execute real MultiMissile5098F0, Storm509E00, Ground509CD0, Genetic509F60 and Dominator50A150. Preferred nonzero bypasses rally/nearby selection for the first three and suppresses the last two. Clearing restores each actual path; two equally valued native-vtable enemy buildings witness the original rally tie and Scenario RandomRanged in separate rally worlds. Genetic/Dominator instead have one native-vtable infantry consistently registered in Techno, Infantry and Foot, with no overlapping Building. Its immunity/balloon/iron fields are declared false. All consumer Supers are supplied ungranted but ready: original AI checks ready alone; their Fire_SW observation seam therefore can be compared to an ordinary Rust ClickFire refusal without unrelated launches. No WhatAmI, Layer, GetCoords, GetCell, picker, eligibility or RNG answer is replaced.',
+            'The sparse map has actual Cell constructors and explicit flat coordinates; missing cells use the original constructed Dummy. Ground fallback supplies empty enemy Base/ComputedBase centers, zero Map+F8 and zero rectangle+124..130, original playfield fields40/2/4/36/36, and the explicitly zero-initialized global Ground speed table. The real56DC20 input/scalars/return and Land0 Foot bits are recorded; its empty-cell return then the caller signed-short+2 execute, rather than an assumed passable flat terrain answer. This is an empty-center boundary control, not ordinary nonempty-base navigation parity. The sequence has zero Rules scalar priors and far-away bases, so reached defense alerts draw no RNG; retail defense-distance scheduling is outside scope.',
+            'Reset6CE0B0 controls execute actual animation-loop clearing, notification vector removal, ready/cameo reset and running/paused timer calculation while retaining custom/hold/ready-tick/drain/preferred values. The opaque animation supplies only the written loops byte; full Anim creation/expiration is excluded. No native detach call is reached. Arithmetic runs with native0E7F; Object header constants execute their original ordered8141D8 startup table with CRT027F before gameplay. Three RNG streams are initialized by original65C6D0, with raw incoming layouts, before/after hashes and actual Random/RandomRanged entries/bounds.'],
+        substitutions=[
+            'Reuse ActionFixture/SuperChargeFixture, CampaignReader optional explicit asset root, existing ordered INI, heap, CRT TLS and sparse map transports. No original gameplay instruction or retail vtable is modified. Only audio/EVA device calls are recorded sinks in the real Nuke route. Consumer-only controls stop at recorded Fire_SW arguments, separately from the real Nuke firing route.',
+            'Native-read type scalar layouts are copied into each isolated admitted world; unrelated heap pointers in those layouts are never consumed. Registry/list capacities and already admitted House/Super/Building/Infantry state are declared fixture priors, not constructor or full-world admission parity. Raw optional ABI receipts stay external; code hashes and local validation results are not repository provenance.'],
+        entry_points=dict(action_ctor=0x6DD000, action_read=0x6DD5B0, counted_actions=0x727558,
+            execute=0x6DD8B0, action132=0x6E4320, action135=0x6E43E0, action136=0x6E4440,
+            set_custom=0x6CC280, get_recharge=0x6CC260, set_preferred=0x50DA00,
+            clear_preferred=0x50DA10, super_type_read=0x6CEA20, provider_type_read=0x45FE50,
+            grant=0x6CB560, set_percentage=0x6CC1E0, super_ai=0x6CBCA0,
+            npc_ai=0x5098F0, fire=0x4FAE50, click_fire=0x6CB920, launch=0x6CC390,
+            reset=0x6CE0B0, best_rally=0x50CBF0, storm=0x509E00, ground=0x509CD0,
+            genetic=0x509F60, dominator=0x50A150, provider_record=0x44F820,
+            new_ini_format=0x68A13D, rng_seed=0x65C6D0)),
+        retail_sources=superweapon_state_native_inputs().receipt['sources'])
+
+
+class SuperResetFixture(SuperChargeFixture):
+    """Explicit played-state priors; existing image/allocator/reader own execution.
+
+    Execute6DD8B0's133/134 arms call6E4360/6E43A0, then clear6CC290 or
+    the shared Reset6CE0B0. No Python implementation of either leaf is used.
+    Notification Find525400/Remove45ADD0 execute on a small native vector;
+    the animation prior exposes only the Reset-written loops byte+195.
+    """
+
+    def __init__(self, inputs, **options):
+        super().__init__(inputs)
+        u = self.u
+        self.notification_items = self.allocate(64)
+        u.mem_write(0xB0F5B8, dwords(0x7EB6D4, self.notification_items, 16, 1, 0, 10))
+        self.initialize_concrete_super(0)
+        self.constructor_state = self.state()
+        state = dict(frame=500, recharge=inputs.state['recharge_frames'],
+            custom_recharge=4500, granted=True, ready=True, held=False,
+            start=123, duration=7000)
+        state.update({key: value for key, value in options.items() if key in state})
+        self.set_state(**state)
+        u.mem_write(self.house + 0x54F0, struct.pack('<2h', 31, 32))
+        u.mem_write(self.super + 0x6E, b'\1')
+        u.mem_write(self.super + 0x74, dwords(77, 12, 5))
+        self.animation = self.allocate(0x200)
+        u.mem_write(self.animation, bytes(0x200))
+        u.mem_write(self.animation + 0x195, b'\3')
+        animation, invalid = options.get('animation', True), options.get('animation_invalid', True)
+        u.mem_write(self.super + 0x68, dwords(self.animation if animation else 0))
+        u.mem_write(self.super + 0x6C, bytes((invalid,)))
+        self.other_house, self.other_super = self.allocate(0x6000), self.allocate(0x100)
+        u.mem_write(self.other_house, bytes(0x6000))
+        u.mem_write(self.other_super, bytes(0x100))
+        u.mem_write(self.other_house + 0x54F0, struct.pack('<2h', 45, 46))
+        u.mem_write(self.other_super + 0x24, dwords(73, self.super_type, self.other_house))
+        entries = [self.super, self.other_super] if animation or invalid else [self.other_super]
+        if options.get('duplicate_notification'):
+            entries.insert(0, self.super)
+        u.mem_write(self.notification_items, dwords(*entries))
+        u.mem_write(0xB0F5C8, dwords(len(entries)))
+        for begin, end in ((0x6CC260, 0x6CC2A0), (0x6CE0B0, 0x6CE1A0), (0x45ADD0, 0x45AE01)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(u.mem_read(begin, end - begin)))
+        self.capture = False
+        self.reset_calls, self.reset_writes = [], []
+        self.opaque_writes = []
+        find = self.read32(self.read32(0xB0F5B8) + 0x10)
+        entries = {0x6DD8B0: ('execute', 4),
+            0x6E4320: ('action132', 4), 0x6CC280: ('set_override', 1),
+            0x6E4360: ('action133', 4), 0x6CC290: ('clear_override', 0),
+            0x6E43A0: ('action134', 4), 0x6CE0B0: ('reset', 0),
+            0x45ADD0: ('notification_remove', 1), find: ('notification_find', 1)}
+
+        def observe(vm, pc, _size, _data):
+            if not self.capture or pc not in entries:
+                return
+            name, count = entries[pc]
+            sp = vm.reg_read(UC_X86_REG_ESP)
+            self.call_receipts.entered(pc, sp, (name, count, count * 4))
+            caller = self.read32(sp)
+            self.reset_calls.append(dict(stage=self.stage, call=name, callee=f'{pc:08X}',
+                caller='fixture' if caller == RET_MAGIC else f'{caller:08X}'))
+
+        def wrote(vm, _access, address, size, value, _data):
+            if not self.capture:
+                return
+            if self.super <= address < self.super + 0x100:
+                owner, offset = 'selected_super', address - self.super
+            elif self.animation <= address < self.animation + 0x200:
+                owner, offset = 'animation', address - self.animation
+            elif 0xB0F5B8 <= address < 0xB0F5D0:
+                owner, offset = 'notification_vector', address - 0xB0F5B8
+            elif self.notification_items <= address < self.notification_items + 64:
+                owner, offset = 'notification_items', address - self.notification_items
+            else:
+                return
+            raw = (value & ((1 << (8 * size)) - 1)).to_bytes(size, 'little')
+            row = dict(pc=f'{vm.reg_read(UC_X86_REG_EIP):08X}', owner=owner,
+                offset=f'{offset:02X}', size=size,
+                value=self.reference(value) if owner == 'notification_items' else int.from_bytes(raw, 'little', signed=size == 4))
+            if owner == 'selected_super' and offset == 0x34:
+                self.opaque_writes.append(row)  # Stack padding has no gameplay golden.
+            else:
+                self.reset_writes.append(row)
+        u.hook_add(UC_HOOK_CODE, observe)
+        u.hook_add(UC_HOOK_MEM_WRITE, wrote)
+
+    def reference(self, pointer):
+        if pointer == self.super:
+            return 'selected_super'
+        if pointer == self.other_super:
+            return 'other_super'
+        raise ValueError(f'Unexpected notification identity {pointer:08X}')
+
+    def reset_state(self):
+        u, s = self.u, self.super
+        effective = self.invoke(0x6CC260, s)
+        count = self.integer(0xB0F5C8)
+        return dict(self.state(), effective_recharge=struct.unpack('<i', dwords(effective))[0],
+            charge_stage=self.integer(s + 0x78), ready_tick=self.integer(s + 0x74),
+            charge_drain_state=self.integer(s + 0x7C),
+            one_time=bool(u.mem_read(s + 0x6E, 1)[0]),
+            animation_present=bool(self.read32(s + 0x68)),
+            animation_invalid=bool(u.mem_read(s + 0x6C, 1)[0]),
+            animation_loops=u.mem_read(self.animation + 0x195, 1)[0],
+            notification_count=count,
+            notifications=[self.reference(self.read32(self.notification_items + index * 4)) for index in range(count)],
+            preferred=list(struct.unpack('<2h', u.mem_read(self.house + 0x54F0, 4))))
+
+    def dispatch(self, inputs, name, raw, *, owner_present=True):
+        read = self.read_action(raw, ini_capacity=512)
+        read['auxiliary'] = self.integer(ACTION + 0x48)
+        # Native accepts index==Count then dereferences a spare/null pointer.
+        # That UB remains a declared residual, never an admitted control.
+        assert read['value'] != inputs.count
+        incoming, before = self.reset_state(), self.rng_hashes()
+        other = bytes(self.u.mem_read(self.other_super, 0x100))
+        self.reset_calls, self.reset_writes, self.opaque_writes = [], [], []
+        call_start, rng_start = len(self.call_receipts.calls), len(self.rng_calls)
+        self.stage, self.capture = name, True
+        try:
+            returned = self.invoke(0x6DD8B0, ACTION, (self.house if owner_present else 0, 0, 0, 0)) & 255
+        finally:
+            self.capture = False
+        output = self.reset_state()
+        self.check_code()
+        return dict(name=name, read=read, returned=returned,
+            input=dict(incoming, owner_present=owner_present, count=inputs.count,
+                frame=self.integer(0xA8ED84), other_preferred=[45, 46], other_custom_recharge=73),
+            output=dict(output,
+                other_preferred=list(struct.unpack('<2h', self.u.mem_read(self.other_house + 0x54F0, 4))),
+                other_custom_recharge=struct.unpack('<i', dwords(self.invoke(0x6CC260, self.other_super)))[0],
+                other_super_unchanged=other == bytes(self.u.mem_read(self.other_super, 0x100))),
+            calls=self.reset_calls, writes=self.reset_writes,
+            rng_before=before, rng_after=self.rng_hashes(), rng_calls=self.rng_calls[rng_start:],
+            native_call_receipts=self.call_receipts.calls[call_start:], opaque_timer_writes=self.opaque_writes)
+
+
+def superweapon_reset_generate(*, receipt_path=None):
+    """Fresh physical Type input, then actual133/134 dispatch on declared states."""
+    from itertools import product
+    inputs = superweapon_state_native_inputs()
+    index = inputs.state['registry_index']
+    raw = lambda kind: f'{kind},11,{index},0,0,0,0,NA'
+    controls = []
+
+    def record(name, kind, **options):
+        owner_present = options.pop('owner_present', True)
+        action = options.pop('raw_action', raw(kind))
+        controls.append(SuperResetFixture(inputs, **options).dispatch(inputs, name, action,
+            owner_present=owner_present))
+
+    for kind in (133, 134):
+        for granted, ready, held, stopped in product((False, True), repeat=4):
+            record(f'{kind}_g{int(granted)}_r{int(ready)}_h{int(held)}_stopped{int(stopped)}', kind,
+                granted=granted, ready=ready, held=held, start=-1 if stopped else 123)
+    for custom in (-1, 0, -2, 2147483647, -2147483648):
+        for stopped in (False, True):
+            record(f'134_custom_{custom}_stopped{int(stopped)}', 134,
+                custom_recharge=custom, start=-1 if stopped else 123)
+        record(f'133_custom_{custom}_preserves_negative_timer', 133,
+            custom_recharge=custom, duration=-79, start=-1)
+    for frame in (0, -1, 2147483647, -2147483648):
+        for stopped in (False, True):
+            record(f'134_frame_{frame}_stopped{int(stopped)}', 134,
+                frame=frame, custom_recharge=-2, start=-1 if stopped else 123)
+    for animation, invalid in ((False, False), (False, True), (True, False)):
+        record(f'134_animation{int(animation)}_invalid{int(invalid)}', 134,
+            animation=animation, animation_invalid=invalid)
+    record('134_duplicate_notifications_declared_prior', 134, duplicate_notification=True)
+    for kind in (133, 134):
+        record(f'{kind}_null_owner', kind, owner_present=False)
+        record(f'{kind}_negative_index', kind, raw_action=f'{kind},11,-1,0,0,0,0,NA')
+        record(f'{kind}_above_count', kind, raw_action=f'{kind},11,{inputs.count + 1},0,0,0,0,NA')
+
+    sequences = []
+    for stopped in (False, True):
+        f = SuperResetFixture(inputs, custom_recharge=-1, start=-1 if stopped else 123, held=not stopped)
+        sequence = dict(name='stopped' if stopped else 'running', initial_frame=f.integer(0xA8ED84),
+            constructor_state=f.constructor_state, initial_state=f.reset_state(), rng_before=f.rng_hashes(), rows=[])
+        for name, action in (('set132', f'132,11,{index},0,0,0,0,4500'),
+                ('reset134_custom', raw(134)), ('clear133', raw(133)), ('reset134_type_fallback', raw(134))):
+            sequence['rows'].append(f.dispatch(inputs, name, action))
+        sequence['rng_after'] = f.rng_hashes()
+        sequences.append(sequence)
+    f = SuperChargeFixture(inputs)
+    data = dict(schema_version=1, retail_inputs=inputs.receipt,
+        rng_seed_states=CampaignReader.rng_state(SimpleNamespace(u=f.u, scenario=SCENARIO)),
+        dispatch_controls=controls, sequence_controls=sequences)
+    cases = controls + [case for sequence in sequences for case in sequence['rows']]
+    if receipt_path is not None:
+        path = Path(receipt_path).resolve()
+        if path.is_relative_to(Path(__file__).parents[2].resolve()):
+            raise ValueError('Detailed native receipts must remain outside the repository')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+    for case in cases:
+        del case['native_call_receipts']
+        del case['opaque_timer_writes']
+    return data
+
+
+def superweapon_reset_metadata():
+    return dict(provenance(
+        scope='Original133/134 Read/Execute, Super clear6CC290 and shared Reset6CE0B0 on declared selected-House/Super priors; two132->134->133->134 histories.',
+        assumptions=[
+            'Each fresh process calls existing superweapon_state_native_inputs: original SuperWeaponTypes6725F0, NukeSpecial6CEA20 and provider readers run on physical RULESMD, optional LANGRULE/ALL03 campaign INI and ALL03 map; fixed ARTMD is not layered. No serialized machine-local native cache is required. Physical source identities, registry and reader-layer states are retained in retail_inputs. Full Rules/Scenario startup is outside scope.',
+            'Original action constructor6DD000, ReadString512/tokenizer/read6DD5B0 and Execute6DD8B0 run. Execute1336DFBD5->6E4360->6CC290 clears custom+24 only;1346DFC02->6E43A0->6CE0B0 reaches the same Reset as spy infiltration. The outer Trigger.Spring7265C0 incoming-House resolver remains an instruction-established caller, not an executed full Trigger/Tag world here.',
+            'SuperChargeFixture executes original concrete constructor suffix6CAF99..6CB011 after excluded Abstract/House allocation. The selected native Type layout supplies recharge9000; supplied current timer7000/custom4500 distinguish the owners. One-time, ready-tick77, drain5, charge-stage12, preferred cells and grant/ready/held/timer combinations are explicit played-state priors, not certified whole-world construction or ordinary retail reachability for every combination.',
+            'All73 dispatch observations execute original instructions, including signed custom0/-1/-2/i32 limits, independent grant/ready/held/running/stopped combinations and current-frame0/-1/i32 limits. Only custom==-1 falls back to Type. Reset preserves override and the old stopped/running condition; held is independent. Numeric values are native outputs, not a Python timer implementation.',
+            'Animation prior supplies loops+195 and a small native notification vector containing the selected and another Super. Original Find525400/Remove45ADD0 and Reset writes execute; the duplicate-notification control is a declared boundary prior. There is no full registered Anim constructor, future Anim.AI expiration, destructor/detach or rendered-disappearance claim. No detach call or RNG draw is reached by these admitted dispatches.',
+            'Original65C6D0 initializes three complete RNG streams; raw incoming states, per-case hashes and observed native Random entries bound the comparison. Opaque timer clock-padding+34 and detailed ABI receipts are excluded from canonical gameplay data. Unknown notification identities fail instead of being silently aliased.',
+            'Null incoming House, negative index and index>Count execute real false returns. Native133/134 reject only index>Count; index==Count and a null selected pointer can access invalid memory and are deliberately not executed. Safe Rust collection refusal does not claim parity for those unsafe native inputs. No authored133/134 retail campaign occurrence or full Super/House AI/fire chronology is certified.'],
+        substitutions=[
+            'Reuse the existing ActionFixture/SuperChargeFixture image, allocator, physical Type input reader, ordered lexical INI caches, CRT TLS and OS imports. No selected action, clear, Reset, timer or vector instruction is patched or replaced. State/animation/vector capacity priors are supplied as declared inputs.',
+            'Selected native Type scalar bytes cross into isolated VMs; unrelated heap pointers in that layout are not dereferenced. The other Super/House are unchanged sentinels. Canonical controls retain semantic state, native callee order and owner writes; raw ABI/opaque-padding receipts are optional external output only.'],
+        entry_points=dict(action_ctor=0x6DD000, action_read=0x6DD5B0, execute=0x6DD8B0,
+            action132=0x6E4320, set_override=0x6CC280, action133=0x6E4360, clear_override=0x6CC290,
+            action134=0x6E43A0, reset=0x6CE0B0, effective_recharge=0x6CC260,
+            notification_find=0x525400, notification_remove=0x45ADD0,
+            registry_read=0x6725F0, super_type_read=0x6CEA20, rng_seed=0x65C6D0)),
+        retail_sources=superweapon_state_native_inputs().receipt['sources'])
+
+
 def inline_type_generate():
     """Original constructor/read, independent of the older action corpora."""
     rows = []
@@ -3412,21 +4469,3586 @@ def reshroud_metadata():
             iterator_next=0x578290, release=0x4ADEE0, reentry=0x4ADCD0))
 
 
+class ScenarioTimerFixture(ActionFixture):
+    """Original Scenario timer actions/predicate; UI redraw is excluded."""
+
+    def __init__(self):
+        super().__init__()
+        u = self.u
+        self.events, self.rng_calls = [], []
+        self.timer = SCENARIO + 0x11E8
+        # Pin irrelevant native temporary/unused timer storage without giving
+        # it a gameplay interpretation. Frame, duration and label are native.
+        u.mem_write(SP - 0x400, bytes(0x800))
+        u.mem_write(SCENARIO, b'\xA5' * 0x5000)
+        u.mem_write(0xA8ED84, dwords(123))
+        u.reg_write(UC_X86_REG_EBP, SCENARIO)
+        u.reg_write(UC_X86_REG_EBX, 0)
+        run_checked(u, 0x683302, 0x683319)
+        self.constructor_prefix = dict(
+            frame=123, start=self.integer(self.timer),
+            unused_word=self.integer(self.timer + 4),
+            duration=self.integer(self.timer + 8),
+            label_first_byte=u.mem_read(SCENARIO + 0x11F8, 1)[0])
+        # Execute the Reset683610 timer/label block after declaring the
+        # incoming registers and the unrelated+4 local to be zero.
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_ESI, 0xFFFFFFFF)
+        run_checked(u, 0x6836CC, 0x68375F)
+        for stream in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [31], ecx=stream)
+        for i, base in enumerate((0xB0F1A0, 0xB0F658, 0xB0F670)):
+            u.mem_write(base + 4, dwords(HEAP + 0x8000 + i * 0x400, 128, 0, 0, 128))
+        self.event, self.persist, self.other_timer = (
+            self.allocate(size) for size in (0x58, 1, 12))
+        self.call(0x71E6A0, [], ecx=self.event)
+        u.mem_write(BUFFER, b'1,14,0,0\0')
+        self.call(0x7C9CC2, [BUFFER, 0x817F70], cdecl=True)
+        self.call(0x71F4E0, [], ecx=self.event)
+        self.event_read = dict(raw='1,14,0,0', kind=self.integer(self.event + 0x2C),
+                               value=self.integer(self.event + 0x34))
+        u.mem_write(self.other_timer, dwords(-1, 0, 999))
+        self.csf = install_csf(SimpleNamespace(u=u, alloc=self.allocate), ['DESC:SOV1'])
+        for begin, end in ((0x426630, 0x42664C), (0x46B640, 0x46B654),
+                           (0x71E6A0, 0x71E7FA), (0x71E940, 0x71F216),
+                           (0x71F4E0, 0x71F5B0), (0x6E4790, 0x6E47E7),
+                           (0x683302, 0x683319), (0x6836CC, 0x68375F)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(u.mem_read(begin, end - begin)))
+        self.timer_hook = u.hook_add(UC_HOOK_CODE, self.observe_timer)
+
+    def key(self):
+        return bytes(self.u.mem_read(SCENARIO + 0x11F8, 32)).split(b'\0', 1)[0].decode('ascii')
+
+    def reset(self):
+        # Reuse one loaded image: native Reset owns the state transition;
+        # allocating a separate VM for each scalar history is unnecessary.
+        u = self.u
+        u.mem_write(SP - 0x400, bytes(0x800))
+        u.mem_write(0xA8ED84, dwords(123))
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_EBP, SCENARIO)
+        u.reg_write(UC_X86_REG_EBX, 0)
+        u.reg_write(UC_X86_REG_ESI, 0xFFFFFFFF)
+        run_checked(u, 0x6836CC, 0x68375F)
+        self.events, self.rng_calls = [], []
+
+    def title(self):
+        pointer = self.read32(SCENARIO + 0x11F4)
+        if pointer == 0x887734:
+            # This is the original default sentinel pointer, not an asserted
+            # file-backed empty-string literal. The VM maps its BSS as zero.
+            return dict(kind='default_sentinel', pointer=pointer)
+        words = []
+        while (word := bytes(self.u.mem_read(pointer + len(words) * 2, 2))) != b'\0\0':
+            words.append(word)
+            assert len(words) < 2048
+        return dict(kind='csf', pointer=pointer, text=b''.join(words).decode('utf-16-le'))
+
+    def observe_timer(self, u, pc, _size, _data):
+        if pc in (0x65C780, 0x65C7E0):
+            self.rng_calls.append(f'{pc:08X}')
+        if pc == 0x734E60:
+            self.events.append(dict(call='csf_lookup', key=self.string(u.reg_read(UC_X86_REG_ECX))))
+        elif pc == 0x6E47C0 and u.reg_read(UC_X86_REG_ECX) == SCENARIO + 0x11F8:
+            source = self.read32(u.reg_read(UC_X86_REG_ESP) + 8)
+            self.events.append(dict(call='assign_key', title=self.title(),
+                key=bytes(u.mem_read(source, 32)).split(b'\0', 1)[0].decode('ascii')))
+        elif pc == 0x6D0F00:
+            self.events.append(dict(call='redraw_sink', start=self.integer(self.timer),
+                duration=self.integer(self.timer + 8), title=self.title(), key=self.key()))
+            return_from_sink(u, 0, 0)
+
+    def snapshot(self):
+        remaining = self.call(0x426630, [], ecx=self.timer)
+        self.u.mem_write(self.persist, b'\0')
+        occurred = self.call(0x71E940, [8, 0, 0, self.other_timer, self.persist, 0],
+                             ecx=self.event) & 255
+        return dict(frame=self.integer(0xA8ED84), start=self.integer(self.timer),
+            unused_word=self.integer(self.timer + 4), duration=self.integer(self.timer + 8),
+            remaining=struct.unpack('<i', dwords(remaining))[0],
+            event14=occurred, event_persistence=self.u.mem_read(self.persist, 1)[0],
+            title=self.title(), key=self.key())
+
+    def step(self, name, frame, action=None, value=0):
+        self.u.mem_write(0xA8ED84, dwords(frame))
+        self.events = []
+        row = dict(name=name, frame=frame)
+        if action is not None:
+            raw = (f'103,4,{value},0,0,0,0,A' if action == 103 and isinstance(value, str)
+                   else f'{action},0,{value},0,0,0,0,A')
+            row['read'] = self.read_action(raw)
+            row['label_read'] = bytes(self.u.mem_read(ACTION + 0x6D, 32)).split(b'\0', 1)[0].decode('ascii')
+            row['action_result'] = self.call(0x6DD8B0, [0, 0, 0, 0], ecx=ACTION) & 255
+        row.update(state=self.snapshot(), calls=list(self.events))
+        return row
+
+
+def scenario_timer_generate():
+    histories = [
+        ('ordinary_expiry', [('start', 123, 27, 120), ('one_frame_left', 1922),
+                             ('expired', 1923), ('later', 2000)]),
+        ('pause_resume', [('start', 123, 27, 120), ('pause', 423, 24),
+                          ('pause_again', 500, 24), ('still_paused', 5000),
+                          ('resume', 5000, 23), ('resume_again', 5001, 23),
+                          ('one_frame_left', 6499), ('expired', 6500)]),
+        ('restart_and_labels', [('title', 123, 103, 'DESC:SOV1'), ('start', 123, 27, 120),
+                                ('title_again', 200, 103, 'DESC:SOV1'),
+                                ('restart', 423, 27, 2), ('expired', 453),
+                                ('clear_title', 453, 103, 0)]),
+        ('paused_extend', [('start', 123, 27, 10), ('pause', 153, 24),
+                            ('extend', 999, 25, 2), ('expired', 1149)]),
+        ('paused_shorten', [('start', 123, 27, 10), ('pause', 153, 24),
+                             ('shorten', 999, 26, 2), ('expired', 1089)]),
+        ('shorten_to_zero', [('start', 123, 27, 2), ('equal', 123, 26, 2),
+                             ('pause_zero', 123, 24), ('resume_zero', 124, 23),
+                             ('larger', 124, 26, 3)]),
+        ('zero_start', [('start', 123, 27, 0), ('pause', 124, 24)]),
+        ('negative_start', [('start', 123, 27, -1)]),
+        ('negative_adjustments', [('start', 123, 27, 2), ('shorten_negative', 123, 26, -1),
+                                  ('extend_negative', 123, 25, -4)]),
+        ('positive_product_limit', [('start', 123, 27, 143165576), ('extend_wrap', 123, 25, 1)]),
+        ('product_wrap_negative', [('start', 123, 27, 143165577)]),
+        ('i32_max_parameter', [('start', 123, 27, 2147483647)]),
+        ('i32_min_parameter', [('start', 123, 27, -2147483648)]),
+        ('signed_frame_wrap', [('start', 0x7FFFFFF0, 27, 4), ('wrapped', 0x80000000),
+                              ('expired', 0x8000002C)]),
+        ('full_frame_wrap', [('start', 0xFFFFFFFA, 27, 2), ('wrapped', 4), ('expired', 24)]),
+        ('sentinel_frame', [('start', 0xFFFFFFFF, 27, 1), ('resume', 0, 23)]),
+        ('signed_elapsed_boundary', [('start', 0, 27, 1), ('half_cycle', 0x80000000)]),
+    ]
+    rows = []
+    f = ScenarioTimerFixture()
+    for name, steps in histories:
+        f.reset()
+        before = f.rng_hashes()
+        initial = f.snapshot()
+        rows.append(dict(name=name, initial=initial,
+            steps=[f.step(*step) for step in steps],
+            rng_before=before, rng_after=f.rng_hashes(), rng_calls=f.rng_calls))
+        f.check_code()
+    label_read_controls = []
+    for raw in ('103,4,DESC:SOV1,0,0,0,0,A',
+                '103,4,DESC:' + 'A' * 40 + ',0,0,0,0,A',
+                '103,0,0,0,0,0,0,A'):
+        label_read_controls.append(dict(read=f.read_action(raw),
+            key=bytes(f.u.mem_read(ACTION + 0x6D, 32)).split(b'\0', 1)[0].decode('ascii')))
+    f.check_code()
+    return dict(schema_version=1, constructor_prefix=f.constructor_prefix,
+                event_read=f.event_read, csf=f.csf, histories=rows,
+                label_read_controls=label_read_controls)
+
+
+def scenario_timer_metadata():
+    return provenance(
+        scope='Original TAction23/24/25/26/27/103 reader/dispatch, Scenario timer arithmetic and Event14 predicate; no UI rendering or mission-level timer scheduler claim.',
+        assumptions=[
+            'Every action executes its original constructor6DD000, counted read6DD5B0/strtok/atoi, and full dispatch6DD8B0. Event14 executes original constructor71E6A0 and reader71F4E0 once per fixture, then original HasOccurred71E940 with raised8, null House/Object/source, a separate unrelated paused timer and zero persistence byte.',
+            'Constructor block683302..683319 executes with EBP=Scenario, EBX=0 and frame123 on A5-poisoned storage. It initializes duration0/start123/label-key first byte0; the unused+4 word remains poison and the title pointer is not initialized by that block. This is selected native body execution, not a full Scenario constructor claim.',
+            'Fresh state executes original Reset6836CC..68375F with EBP=Scenario, EBX=0, ESI=-1 and zeroed incoming stack. It pauses zero duration, sets title pointer887734 and copies an empty key. Other ScenarioReset state/lifecycle is excluded. The unused timer+4 word and unused copied label suffixes are not semantic state.',
+            'Frame priors, action strings and observation frames are declared inputs. All remaining values, i32 multiplication/addition/subtraction wrapping, signed comparisons, pause/restart and Event14 results come from original instructions, not Python formulas.',
+            'Action103 uses the existing physical stock-CSF transport for DESC:SOV1; source SHA/text are pinned. Three reader-only controls include a long key truncated to31 bytes; the deliberately absent long key is not dispatched or assigned an invented translation. Numeric parameter mode supplies its original constructor-empty key for the clear control. Empty comma fields would be skipped by native strtok and are not an empty-key input.',
+            'Default title pointer887734 is recorded as a sentinel identity, not a file-backed empty-string assertion: its mapped BSS zero contents are not retail bytes. Native key/string copy and CSF lookup execute. Setter-call observations establish that title assignment precedes key assignment, then redraw.',
+            'Three existing RNG streams are initialized with original seed31 transport before histories; unchanged state hashes and observed65C780/65C7E0 entries bound absence of draws. No detach calls occur in the selected bodies.'],
+        substitutions=[
+            'Reuse ActionFixture VM/PE/heap/CRT and existing install_csf physical translation-record transport. Scenario, UI and CSF startup constructors are not executed; only the explicitly described Scenario constructor/reset blocks and Event/Action constructors are executed.',
+            'Tactical redraw6D0F00 is a recorded RET0 sink. Actual sidebar layout, countdown text rendering, window/device updates and scheduling of trigger polls are excluded. No reader, timer arithmetic, dispatch branch or predicate instruction is replaced.'],
+        entry_points=dict(action_constructor=0x6DD000, action_read=0x6DD5B0,
+            dispatch=0x6DD8B0, resume=0x6DE418, pause=0x6DE457,
+            extend=0x6DE4A0, shorten=0x6DE501, start=0x6DE5C9,
+            set_label=0x6DE66A, timer_start=0x46B640, timer_remaining=0x426630,
+            event_constructor=0x71E6A0, event_reader=0x71F4E0,
+            event_predicate=0x71E940, event14=0x71EBE9,
+            scenario_ctor_prefix=0x683302, scenario_reset_timer=0x6836CC,
+            redraw_sink=0x6D0F00))
+
+
+class ChronoHouseFixture(ActionFixture):
+    """Original128 caller with explicitly admitted virtual leaf inputs."""
+
+    def __init__(self):
+        super().__init__()
+        from tools.spatial_oracle.reveal_area import CELL_OFFSETS_INIT
+        u = self.u
+        self.constants = initialize_waypoint_map(self)
+        self.call(CELL_OFFSETS_INIT, [], cdecl=True)
+        self.offsets = list(struct.iter_unpack('<hh', u.mem_read(0xABD490, 351 * 4)))
+        self.house, self.other_house = self.allocate(4), self.allocate(4)
+        self.vtable = self.allocate(0x600)
+        self.what_sink, self.enter_sink, self.false_sink = (self.allocate(4) for _ in range(3))
+        u.mem_write(self.vtable, bytes(0x600))
+        for slot, pointer in ((0x2C, self.what_sink), (0x1AC, self.enter_sink),
+                              (0x508, 0x4DF7F0), (0x54, self.false_sink),
+                              (0x160, self.false_sink), (0x1D4, self.false_sink),
+                              (0x1D8, self.false_sink)):
+            u.mem_write(self.vtable + slot, dwords(pointer))
+        self.pool = [self.allocate(0x300) for _ in range(12)]
+        self.foot_array = self.allocate(12 * 4)
+        u.mem_write(0x8B3DC4, dwords(self.foot_array))
+        # Deliberately poison, then run the real static initializer instead
+        # of assigning a guessed invalid Cell prior to this shared global.
+        u.mem_write(0xA8EF98, packed(-1, -1))
+        self.call(0x4F50A0, [], cdecl=True)
+        self.empty_cell = list(struct.unpack('<hh', u.mem_read(0xA8EF98, 4)))
+        self.cells, self.cell_indices = {}, {}
+        for index, (dx, dy) in enumerate(self.offsets):
+            cell = self.allocate(0x200)
+            self.call(0x47BBF0, [], ecx=cell)
+            xy = 75 + dx, 50 + dy
+            u.mem_write(cell + 0x24, packed(*xy))
+            u.mem_write(cell + 0x11B, b'\0\0')
+            u.mem_write(self.table + (xy[1] * 512 + xy[0]) * 4, dwords(cell))
+            self.cells[tuple(xy)], self.cell_indices[cell] = cell, index
+        for stream in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [31], ecx=stream)
+        for begin, end in ((0x6E1A40, 0x6E1A67), (0x50D6D0, 0x50D9B1),
+                           (0x4DF7F0, 0x4DFA49), (0x68BCC0, 0x68BCD4),
+                           (0x5657A0, 0x5657D8), (0x486840, 0x486887),
+                           (0x4F50A0, 0x4F50AF)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(u.mem_read(begin, end - begin)))
+        self.chrono_hook = u.hook_add(UC_HOOK_CODE, self.observe_chrono)
+
+    def observe_chrono(self, u, pc, _size, _data):
+        sp, actor = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        if pc in (0x65C780, 0x65C7E0):
+            self.rng_calls.append(f'{pc:08X}')
+        if pc == 0x50D72C:
+            self.visits.append([self.actor_index[u.reg_read(UC_X86_REG_ESI)],
+                                u.reg_read(UC_X86_REG_EAX)])
+        elif pc in (0x50D850, 0x50D984):
+            # Observe the actual callee return in the original caller,
+            # including the refusal whose Foot body was not substituted.
+            self.warp_calls[-1]['accepted'] = bool(u.reg_read(UC_X86_REG_EAX) & 255)
+        elif pc == self.what_sink:
+            return_from_sink(u, 0, self.actors[self.actor_index[actor]]['class'])
+        elif pc == self.false_sink:
+            return_from_sink(u, 0, 0)
+        elif pc == self.enter_sink:
+            index = self.actor_index[actor]
+            cell = self.read32(sp + 4)
+            offset = self.cell_indices[cell]
+            self.last_cell[index] = offset
+            args = [self.integer(sp + n) for n in (8, 12, 16, 20)]
+            assert args == [-1, -1, 0, 1]
+            result = self.case.get('blocked_result', 1) if offset in self.blocked else 0
+            self.enter_calls.append([index, offset, result])
+            return_from_sink(u, 20, result)
+        elif pc == 0x481180:
+            # A declared identity subcell boundary: the original caller and
+            # native Cell486840 already supply its requested coordinate.
+            output, incoming = self.read32(sp + 4), self.read32(sp + 8)
+            assert [self.read32(sp + n) for n in (12, 16, 20)] == [0, 0, 0]
+            raw = bytes(u.mem_read(incoming, 12))
+            u.mem_write(output, raw)
+            self.subcell_calls.append(list(struct.unpack('<iii', raw)))
+            return_from_sink(u, 20, output)
+        elif pc == 0x4DF7F0:
+            index = self.actor_index[actor]
+            row = self.actors[index]
+            coord = list(struct.unpack('<iii', u.mem_read(sp + 4, 12)))
+            actual = bool(row.get('native_warp_refusal', False))
+            accepted = False if actual else row.get('accept', True)
+            self.warp_calls.append(dict(actor=index, offset=self.last_cell[index],
+                coord=coord,
+                boundary='original_27c_refusal' if actual else 'supplied_warp_result'))
+            if not actual:
+                return_from_sink(u, 12, int(accepted))
+
+    def execute_case(self, case):
+        u = self.u
+        self.case, self.actors = case, case['actors']
+        assert len(self.actors) <= len(self.pool)
+        self.blocked = set(case.get('blocked_offsets', []))
+        self.actor_index = {pointer: index for index, pointer in enumerate(self.pool[:len(self.actors)])}
+        self.visits, self.enter_calls, self.warp_calls = [], [], []
+        self.subcell_calls, self.last_cell, self.rng_calls = [], {}, []
+        u.mem_write(self.foot_array, dwords(*self.pool[:len(self.actors)]))
+        u.mem_write(0x8B3DD0, dwords(len(self.actors)))
+        for pointer, row in zip(self.pool, self.actors):
+            u.mem_write(pointer, bytes(0x300))
+            u.mem_write(pointer, dwords(self.vtable))
+            u.mem_write(pointer + 0x21C, dwords(self.other_house if row.get('foreign') else self.house))
+            u.mem_write(pointer + 0x11C, dwords(int(row.get('transported', False))))
+            u.mem_write(pointer + 0x27C, bytes((int(row.get('native_warp_refusal', False)),)))
+        target = case.get('target', [75, 50])
+        u.mem_write(SCENARIO + 0x632, packed(*target))
+        read = self.read_action('128,0,7,0,0,0,0,A')
+        before = self.rng_hashes()
+        result = self.call(0x6DD8B0, [self.house, 0, 0, 0], ecx=ACTION) & 255
+        self.check_code()
+        return dict(input=case, read=read, action_result=result,
+            visits=self.visits, can_enter=self.enter_calls, warp=self.warp_calls,
+            subcell_identity_calls=self.subcell_calls, rng_before=before,
+            rng_after=self.rng_hashes(), rng_calls=self.rng_calls)
+
+
+def chrono_house_generate():
+    f = ChronoHouseFixture()
+    cases = [
+        dict(name='reverse_mixed_classes', actors=[{'class': 1}, {'class': 15}, {'class': 1}]),
+        dict(name='owner_class_and_transporter', actors=[{'class': 1}, {'class': 2},
+            {'class': 6}, {'class': 1, 'foreign': True}, {'class': 15, 'transported': True},
+            {'class': 1, 'transported': True}, {'class': 15}]),
+        dict(name='nonzero_can_enter_skips_shared_offset', actors=[{'class': 15}, {'class': 1}],
+             blocked_offsets=[0, 2], blocked_result=2),
+        dict(name='supplied_warp_refusal_reuses_offset', actors=[{'class': 1}, {'class': 15, 'accept': False}]),
+        dict(name='original_foot_refusal_reuses_offset', actors=[{'class': 1}, {'class': 1, 'native_warp_refusal': True}]),
+        dict(name='last_unit_offset_stops_before_next_actor', actors=[{'class': 1}, {'class': 1}],
+             blocked_offsets=list(range(350))),
+        dict(name='last_infantry_offset_stops_before_next_actor', actors=[{'class': 1}, {'class': 15}],
+             blocked_offsets=list(range(350))),
+        dict(name='all351_blocked', actors=[{'class': 1}, {'class': 1}], blocked_offsets=list(range(351))),
+        dict(name='empty_foot_array', actors=[]),
+        dict(name='invalid_waypoint_sentinel', target=f.empty_cell, actors=[{'class': 1}]),
+    ]
+    return dict(schema_version=1, native_offset_pairs=f.offsets,
+                empty_cell=f.empty_cell, map_constants=f.constants,
+                rows=[f.execute_case(case) for case in cases])
+
+
+def chrono_house_metadata():
+    return provenance(
+        scope='Original Action1286E1A40/House50D6D0 reverse Foot traversal, owner/class/transporter gates and shared351-offset cursor with bounded virtual leaf inputs; not complete teleport or placement parity.',
+        assumptions=[
+            'Reuse ActionFixture and initialize_waypoint_map original startup/slope transport. Original561910 initializes the CellSpread table; the first351 signed pairs are retained as native outputs. Original47BBF0 constructs the351 flat level0/slope0 Cells on an explicitly supplied sparse512-stride map.',
+            'Each row supplies a Foot array in storage order, incoming House identity, RTTI virtual answers, owner pointers, transporter-null/non-null priors and per-offset CanEnter virtual answers. Original dispatcher6DD8B0 invokes6E1A40, original68BCC0 reads waypointA, original50D6D0 computes candidate cells, walks actors backwards and owns the single shared offset cursor.',
+            'Original5657A0 and Cell486840 execute for map lookup and ground coordinates. Native selected runtime startup/ground code supplies their flat Z values; no host formula supplies expected candidate coordinates. Infantry481180 identity is an explicit boundary, not a native subcell-position claim.',
+            'visits rows are [actor-storage-index,current-offset-index]; can_enter rows are [actor-index,offset-index,supplied-return]. Warp entries retain native caller coordinates and identify supplied return versus original rejection. CanEnter arguments after Cell must be[-1,-1,0,1]. No source array mutation/reentrant callback is supplied.',
+            'The original_foot_refusal row really executes Foot4DF7F0 with+27C=1 and the two earlier status virtual answers false; its original return0 leaves the next actor on the same offset. Other Warp returns are explicit supplied leaf results; no COM locomotor, detach, occupation, interpolation, cooldown or WarpIn implementation is certified.',
+            'The last-offset and all-blocked controls execute up to the original ABD A08/15E guards, covering exactly candidate indices0..350, then exit before the earlier actor. Original static initializer4F50A0 executes on deliberately poisoned A8EF98 and produces the empty Cell(0,0); the invalid-waypoint control uses that observed sentinel. Null Foot pointers, arbitrary out-of-bounds waypoints and loaded native registry construction are excluded.',
+            'Existing three RNG streams start with native seed31; hashes and actual draw entries are recorded. Selected caller bodies contain no timer/detach producer. Hidden effects/RNG behind virtual boundary callbacks are excluded.'],
+        substitutions=[
+            'Inherited heap/CRT/VM transport; no new mapper or VM. RTTI returns each declared actor class, CanEnterCell vslot1AC returns the declared offset admission, and status vslots54/160/1D4/1D8 return false.',
+            'Foot4DF7F0 is an observed RET12 sink returning the declared result except the original+27C-refusal control, which executes the original body. Positive teleport effects, live ownership/list mutations and occupied-cell changes do not occur at this boundary.',
+            'Infantry481180 records its request and copies the already native-derived incoming coordinate to its caller output, RET20. Native subcell availability, priority selection and RNG are excluded rather than approximated as verified behavior.'],
+        entry_points=dict(dispatch=0x6DD8B0, action128=0x6E1A40, waypoint=0x68BCC0,
+            chrono_house=0x50D6D0, cell_spread_init=0x561910,
+            empty_cell_init=0x4F50A0,
+            cell_constructor=0x47BBF0, cell_lookup=0x5657A0,
+            cell_coords=0x486840, infantry_subcell_boundary=0x481180,
+            foot_warp=0x4DF7F0))
+
+
+class AllChangeHouseFixture(ActionFixture):
+    """Original36 selection/iteration; supplied owner callbacks are explicit."""
+
+    def __init__(self):
+        super().__init__()
+        u = self.u
+        # Same three-House Country priors as PowerEventControls, and the
+        # same Scenario Player@ slot storage as team_creation's native calls.
+        self.houses = [self.allocate(0x100) for _ in range(3)]
+        self.house_types = [self.allocate(0x100) for _ in range(3)]
+        self.house_array, self.live = self.allocate(12), self.allocate(0x48)
+        for house, typ, country in zip(self.houses, self.house_types, (0, 7, 0)):
+            u.mem_write(house, bytes(0x100))
+            u.mem_write(typ, bytes(0x100))
+            u.mem_write(house + 0x34, dwords(typ))
+            u.mem_write(typ + 0xB8, dwords(country))
+        u.mem_write(0xA8022C, dwords(self.house_array))
+        u.mem_write(0xA80238, dwords(3))
+        self.vtable = self.allocate(0x400)
+        self.what_sink, self.change_sink = self.allocate(4), self.allocate(4)
+        u.mem_write(self.vtable, bytes(0x400))
+        u.mem_write(self.vtable + 0x2C, dwords(self.what_sink))
+        u.mem_write(self.vtable + 0x3D4, dwords(self.change_sink))
+        self.pool = [self.allocate(0x600) for _ in range(12)]
+        self.types = [self.allocate(0x1600) for _ in range(12)]
+        self.techno_array = self.allocate(12 * 4)
+        for stream in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [31], ecx=stream)
+        for begin, end in ((0x6E0B60, 0x6E0C92), (0x502D30, 0x502D60),
+                           (0x510ED0, 0x510FA6), (0x68C030, 0x68C04D),
+                           (0x726910, 0x726914)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(u.mem_read(begin, end - begin)))
+        self.owner_hook = u.hook_add(UC_HOOK_CODE, self.observe_owner)
+
+    def house_index(self, pointer):
+        return self.houses.index(pointer) if pointer else None
+
+    def publish(self):
+        self.u.mem_write(0xA8EC7C, dwords(self.techno_array))
+        self.u.mem_write(0xA8EC88, dwords(len(self.active)))
+        self.u.mem_write(self.techno_array, dwords(*(self.pool[i] for i in self.active)))
+
+    def observe_owner(self, u, pc, _size, _data):
+        sp, pointer = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        if pc in (0x65C780, 0x65C7E0):
+            self.rng_calls.append(f'{pc:08X}')
+        if pc == 0x6E0BAE:
+            self.phase = 1
+        elif pc == 0x6E0C1D:
+            self.phase = 2
+        elif pc in (0x6E0BC2, 0x6E0C2F):
+            actor = self.actor_index[u.reg_read(UC_X86_REG_ESI)]
+            self.visits.append([self.phase, u.reg_read(UC_X86_REG_EDI), actor])
+        elif pc in (0x510F60, 0x510ED0, 0x502D30, 0x726910):
+            self.selectors.append(dict(entry=f'{pc:08X}', argument=self.integer_reg(UC_X86_REG_ECX)
+                if pc != 0x726910 else 'live_trigger'))
+        elif pc == self.what_sink:
+            return_from_sink(u, 0, self.actors[self.actor_index[pointer]]['class'])
+        elif pc == self.change_sink:
+            index = self.actor_index[pointer]
+            target, announce = self.read32(sp + 4), self.read32(sp + 8)
+            assert announce == 0
+            before = self.house_index(self.read32(pointer + 0x21C))
+            row = self.actors[index]
+            if row.get('change_writes_owner', True):
+                u.mem_write(pointer + 0x21C, dwords(target))
+            effect = row.get('callback_effect')
+            if effect == 'remove_self' and index in self.active:
+                self.active.remove(index)
+            elif effect == 'append' and row['append_actor'] not in self.active:
+                self.active.append(row['append_actor'])
+            self.publish()
+            result = row.get('callback_result', 1)
+            self.calls.append(dict(call='change_owner', phase=self.phase, actor=index,
+                target=self.house_index(target), announce=announce, before=before,
+                after=self.house_index(self.read32(pointer + 0x21C)), supplied_result=result,
+                active=list(self.active)))
+            return_from_sink(u, 8, result)
+        elif pc == 0x4549B0:
+            self.calls.append(dict(call='powered_refresh', phase=self.phase,
+                actor=self.actor_index[pointer], active=list(self.active)))
+            return_from_sink(u, 0, 0)
+
+    def execute_case(self, case):
+        u = self.u
+        self.actors = case['actors']
+        self.actor_index = {p: i for i, p in enumerate(self.pool[:len(self.actors)])}
+        self.active = list(case.get('active', range(len(self.actors))))
+        self.phase = 0
+        self.calls, self.visits, self.selectors, self.rng_calls = [], [], [], []
+        order = case.get('house_order', [1, 2, 0])
+        u.mem_write(self.house_array, dwords(*(self.houses[i] for i in order)))
+        u.mem_write(SCENARIO + 0x1180, dwords(*case.get('slots', [1, 0, -1, -1, -1, -1, -1, -1])))
+        u.mem_write(self.live, bytes(0x48))
+        trigger_owner = case.get('trigger_owner', 2)
+        u.mem_write(self.live + 0x2C, dwords(self.houses[trigger_owner] if trigger_owner is not None else 0))
+        for i, row in enumerate(self.actors):
+            pointer, typ = self.pool[i], self.types[i]
+            u.mem_write(pointer, bytes(0x600))
+            u.mem_write(typ, bytes(0x1600))
+            u.mem_write(pointer, dwords(self.vtable))
+            u.mem_write(pointer + 0x21C, dwords(self.houses[row.get('owner', 0)]))
+            u.mem_write(pointer + 0x520, dwords(0 if row.get('null_type') else typ))
+            u.mem_write(pointer + 0x90, bytes((int(row.get('alive', True)),)))
+            u.mem_write(pointer + 0x81, bytes((int(row.get('limbo', False)),)))
+            u.mem_write(typ + 0x1573, bytes((int(row.get('powered', False)), int(row.get('powered_special', False)))))
+        self.publish()
+        read = self.read_action(f"36,0,{case.get('selector', 7)},0,0,0,0,A")
+        before = self.rng_hashes()
+        result = self.call(0x6DD8B0, [self.houses[case.get('source_owner', 0)], 0,
+            0 if case.get('null_trigger') else self.live, 0], ecx=ACTION) & 255
+        self.check_code()
+        return dict(input=case, read=read, result=result, visits=self.visits,
+            selectors=self.selectors, calls=self.calls, active=list(self.active),
+            owners=[self.house_index(self.read32(p + 0x21C)) for p in self.pool[:len(self.actors)]],
+            rng_before=before, rng_after=self.rng_hashes(), rng_calls=self.rng_calls)
+
+
+def all_change_house_generate():
+    f = AllChangeHouseFixture()
+    ordinary = [{'class': 1}]
+    cases = [
+        dict(name='ordinary_before_powered_two_passes', actors=[
+            {'class': 6, 'powered': True}, {'class': 1}, {'class': 6},
+            {'class': 6, 'powered_special': True}, {'class': 1, 'owner': 1},
+            {'class': 15, 'alive': False, 'limbo': True}, {'class': 6, 'null_type': True}]),
+        dict(name='same_owner_still_calls', selector=0, house_order=[0, 1, 2], actors=[
+            {'class': 1}, {'class': 6, 'powered': True}]),
+        dict(name='callback_failure_still_refreshes_powered', actors=[
+            {'class': 6, 'powered': True, 'callback_result': 0, 'change_writes_owner': False}]),
+        dict(name='compacted_first_pass_is_not_a_snapshot', actors=[
+            {'class': 1, 'callback_effect': 'remove_self'}, {'class': 1},
+            {'class': 1}, {'class': 6, 'powered': True}]),
+        dict(name='appended_first_pass_is_visited', active=[0], actors=[
+            {'class': 1, 'callback_effect': 'append', 'append_actor': 1}, {'class': 1}]),
+        dict(name='appended_powered_second_pass_is_visited', active=[0], actors=[
+            {'class': 6, 'powered': True, 'callback_effect': 'append', 'append_actor': 1},
+            {'class': 6, 'powered_special': True}]),
+        dict(name='country_first_registered_duplicate', selector=0, actors=ordinary),
+        dict(name='player_at_0x117b_slot', selector=0x117B, actors=ordinary),
+        dict(name='player_at_0x117d_unmapped', selector=0x117D, actors=ordinary),
+        dict(name='4507_is_not_0x117b', selector=4507, actors=ordinary),
+        dict(name='live_trigger_house_0x2325', selector=0x2325, actors=ordinary),
+        dict(name='live_trigger_house_null', selector=0x2325, trigger_owner=None, actors=ordinary),
+        dict(name='9001_is_not_0x2325', selector=9001, actors=ordinary),
+        dict(name='9005_is_not_0x2325', selector=9005, actors=ordinary),
+        dict(name='null_trigger_rejects_even_country', null_trigger=True, actors=ordinary),
+        dict(name='minus_one_target', selector=-1, actors=ordinary),
+        dict(name='unknown_country', selector=999, actors=ordinary),
+        dict(name='no_matching_source', source_owner=2, actors=ordinary),
+        dict(name='empty_techno_array', actors=[]),
+    ]
+    return dict(schema_version=1, house_countries=[0, 7, 0], rows=[f.execute_case(case) for case in cases])
+
+
+def all_change_house_metadata():
+    return provenance(
+        scope='Original Action36 AllChangeHouse target selector and two mutable forward Techno passes; callback effects are declared boundaries, not full ChangeOwner/power parity.',
+        assumptions=[
+            'ActionFixture executes original TAction constructor/read/full dispatch6DD8B0 into6E0B60. Minimal House Country storage follows existing PowerEventControls(0,7,0); Player@ Scenario1180 slot storage follows team_creation. Original510F60/510ED0/68C030/502D30/726910 execute target resolution, with supplied canonical House order, slot map and live Trigger+2C.',
+            'Incoming Execute House is source owner0 unless stated; target defaults to Country7, whose first registered matching House is1. The live Trigger pointer is present unless stated. Negative/unknown Country, unmapped Player@, duplicate-Country order, same-owner target,0x2325(8997) live owner and null Trigger controls are bounded by their supplied inputs.9001/9005 are separate unknown-Country negative controls, not aliases for0x2325. Original Player@ range is0x117B..0x1182(4475..4482);4507 is a separate unknown-Country negative control.',
+            'Techno storage supplies class RTTI answers, owner pointers, BuildingType nullable pointer and Powered/PoweredSpecial bytes at1573/1574. Actor Alive/limbo bytes are independent priors; the original caller reads neither as admission gates. No complete Techno/Building/House constructors or scenario registry loading run.',
+            'visits entries are [pass-number,live-array-index,stable-actor-index]. The original body reloads the mutable Techno base/count and runs ordinary objects before Powered-or-PoweredSpecial Buildings. Callback removal/append controls explicitly mutate the supplied registry; resulting iteration order comes only from original instructions.',
+            'ChangeOwner callback writes owner by default and can explicitly return0 without writing, remove its current registry slot or append a supplied actor. The second-pass Building4549B0 call is recorded even when ChangeOwner returns0; same-owner calls are retained. These are caller dispatch/ordering witnesses, not native ChangeOwner results.',
+            'Three native RNG streams start with seed31 and retain hash comparisons/draw-entry observations. Selected caller performs no numerical timer or detach operation. RNG, timers, detach and world side effects hidden behind ChangeOwner and Building4549B0 boundaries remain excluded.'],
+        substitutions=[
+            'Reuse ActionFixture shared PE/VM/heap/CRT transport. RTTI virtual slot2C answers supplied class. ChangeOwner slot3D4 is an explicit RET8 callback boundary with declared state/list effects and result; real tracking, ownership, Team and detach lifecycles are not executed.',
+            'Building4549B0 is a recorded RET0 sink; operational power state, animation, sound and nested callbacks are excluded. No target-selector, caller-loop, power-classification or dispatch instruction is replaced.'],
+        entry_points=dict(dispatch=0x6DD8B0, action36_dispatch=0x6DE07B,
+            all_change_house=0x6E0B60, country_house=0x502D30,
+            player_at_test=0x510F60, player_at_resolve=0x510ED0,
+            scenario_slot=0x68C030, trigger_house=0x726910,
+            building_refresh_boundary=0x4549B0))
+
+
+class ConcealAreaFixture(ActionFixture):
+    """Original101 plus real local conceal and full small-map cache sweep."""
+
+    def __init__(self):
+        super().__init__()
+        self.uc = u = self.u
+        self.constants = initialize_waypoint_map(self)
+        u.hook_del(self.waypoint_hook)
+        for entry in (0x6D1830, 0x6D18C0, 0x6D1BB0, 0x49F2F0,
+                      0x561710, 0x5617A0, 0x5617C0, 0x5617E0):
+            self.call(entry, [])
+        assert struct.unpack('<Q', u.mem_read(0xB0CD48, 8))[0] == STANDARD_Z_MULTIPLIER_BITS
+        self.constants.update(trigger_level_leptons=self.integer(0xB0E6E0),
+            area_level_leptons=self.integer(0xABDE88),
+            adjust_for_z_multiplier_hex=bytes(u.mem_read(0xB0CD48, 8)).hex())
+        self.size = (4, 4)
+        u.mem_write(DISCOVERY_MAP + 0xF4, dwords(*self.size))
+        # Same original no-dirty-screen branch used by execute_trigger_reveal.
+        # No gameplay/Cell/edge/notification method is replaced.
+        u.mem_write(DISCOVERY_MAP + 0xC, dwords(1))
+        u.mem_write(0x8871E0, dwords(RULES))
+        u.mem_write(0x887324, dwords(self.allocate(0x1000)))
+        self.player, self.foreign = self.allocate(0x300), self.allocate(0x300)
+        for p in (self.player, self.foreign):
+            u.mem_write(p, bytes(0x300))
+        u.mem_write(0xA83D4C, dwords(self.player))
+        self.cells = {}
+        for y in range(9):
+            for x in range(9):
+                if not in_diamond(self.size, x, y):
+                    continue
+                p = self.allocate(0x200)
+                self.call(0x47BBF0, [], ecx=p)
+                u.mem_write(p + 0x24, packed(x, y))
+                u.mem_write(self.table + (y * 512 + x) * 4, dwords(p))
+                self.cells[x, y] = p
+        self.call(0x47BBF0, [], ecx=0xABDC50)
+        self.constructor_cell = self.state(next(iter(self.cells.values())))
+        self.key = self.allocate(32)
+        for stream in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [31], ecx=stream)
+        for begin, end in ((0x6E1A70, 0x6E1B7F), (0x567F70, 0x568140),
+                           (0x578100, 0x578343), (0x6D20E0, 0x6D211C),
+                           (0x47BBF0, 0x47BDA8), (0x6D8700, 0x6D8ADB),
+                           (0x5865F0, 0x5866BA)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(u.mem_read(begin, end - begin)))
+        self.conceal_hook = u.hook_add(UC_HOOK_CODE, self.observe_conceal)
+
+    def state(self, pointer):
+        p = DiscoveryFixture.pointer_state(self, pointer)
+        return [*p['cell'], p['level'], p['counter'], p['gap'], p['alt'], p['flags'],
+                *p['cache'], self.u.mem_read(pointer + 0x138, 1)[0]]
+
+    def states(self):
+        return {xy: self.state(p) for xy, p in sorted(self.cells.items())}
+
+    def read_radius(self, values, name):
+        self.ordered_ini(values)
+        for reg, value in ((UC_X86_REG_ESI, RULES), (UC_X86_REG_EDI, INI),
+                           (UC_X86_REG_ESP, SP)):
+            self.u.reg_write(reg, value)
+        run_checked(self.u, 0x67181C, 0x67183C, required_addresses=(0x5276D0,))
+        return dict(layer=name, value=self.integer(RULES + 0x62C))
+
+    def observe_conceal(self, u, pc, _size, _data):
+        if not getattr(self, 'capturing_conceal', False):
+            return
+        sp = u.reg_read(UC_X86_REG_ESP)
+        if pc in (0x65C780, 0x65C7E0):
+            self.rng_calls.append(f'{pc:08X}')
+        if pc == 0x68BCC0:
+            self.waypoint_calls.append(self.integer(sp + 8))
+        elif pc == 0x567F70:
+            self.map_calls.append(dict(coord=list(struct.unpack('<iii',
+                u.mem_read(self.read32(sp + 4), 12))), radius=self.integer(sp + 8)))
+        elif pc == 0x567FF5:
+            self.projected_cells.append(list(struct.unpack('<hh', u.mem_read(sp + 0x14, 4))))
+        elif pc == 0x56807B:
+            p = u.reg_read(UC_X86_REG_ECX)
+            self.probes.append([*struct.unpack('<hh', u.mem_read(p + 0x24, 4)), self.integer(p + 0x130)])
+        elif pc == 0x6E1B66:
+            self.after_conceal = self.states()
+        elif pc == 0x578100:
+            self.update_calls += 1
+        elif pc in (0x578148, 0x5781E8):
+            p = u.reg_read(UC_X86_REG_ESI)
+            if p:
+                self.update_visits[0 if pc == 0x578148 else 1].append(
+                    list(struct.unpack('<hh', u.mem_read(p + 0x24, 4))))
+        elif pc in (0x6DA7D0, 0x5865F0):
+            p = self.read32(sp + 4)
+            self.notifications.append([f'{pc:08X}', *struct.unpack('<hh', u.mem_read(p + 0x24, 4))])
+
+    def execute_case(self, case, layers):
+        u = self.u
+        self.capturing_conceal = False
+        # Execute the existing exact constructor/read scalar owner. These
+        # are declared per-layer caches, not an invented radius assignment.
+        u.reg_write(UC_X86_REG_ESI, RULES)
+        u.reg_write(UC_X86_REG_ESP, SP)
+        run_checked(u, 0x665EDE, 0x665EE8)
+        radius_reads = [self.read_radius(values, name) for name, values in layers]
+        if 'radius' in case:
+            radius_reads.append(self.read_radius({'General': {'RevealTriggerRadius': str(case['radius'])}}, 'case_override'))
+        for xy, p in self.cells.items():
+            u.mem_write(p + 0x11B, b'\0\0')
+            u.mem_write(p + 0x120, b'\xFE\xFE')
+            u.mem_write(p + 0x12C, dwords(0x12340018, 0, 0))
+            u.mem_write(p + 0x138, b'\0')
+            u.mem_write(p + 0x140, dwords(0))
+        for row in case.get('overrides', []):
+            p = self.cells[tuple(row['cell'])]
+            for field, offset in (('counter', 0x130), ('gap', 0x134), ('alt', 0x12C), ('flags', 0x140)):
+                if field in row:
+                    u.mem_write(p + offset, dwords(row[field]))
+        source = tuple(case.get('cell', (4, 4)))
+        p = self.cells[source]
+        u.mem_write(p + 0x11B, bytes((case.get('level', 0) & 255,)))
+        if 'flags' in case:
+            u.mem_write(p + 0x140, dwords(case['flags']))
+        u.mem_write(self.player + 0x240, bytes((case.get('latch', 0),)))
+        u.mem_write(self.foreign + 0x240, b'\1')
+        read = self.read_action('101,0,7,0,0,0,0,A')
+        u.mem_write(SCENARIO + 0x632 + 7 * 4, packed(*source))
+        u.mem_write(SCENARIO + 0x632, packed(1, 4))
+        before = self.states()
+        self.after_conceal = None
+        self.map_calls, self.projected_cells, self.probes = [], [], []
+        self.update_calls, self.update_visits = 0, [[], []]
+        self.waypoint_calls, self.notifications, self.rng_calls = [], [], []
+        rng_before = self.rng_hashes()
+        self.capturing_conceal = True
+        result = self.call(0x6DD8B0, [self.foreign, 0, 0, 0], ecx=ACTION) & 255
+        self.capturing_conceal = False
+        after_conceal = self.after_conceal or before
+        after = self.states()
+        self.check_code()
+        return dict(input=case, read=read, radius_reads=radius_reads, result=result,
+            waypoint_calls=self.waypoint_calls, map_calls=self.map_calls,
+            projected_cells=self.projected_cells, conceal_probes=self.probes,
+            after_conceal_delta=[state for xy, state in after_conceal.items() if state != before[xy]],
+            after_update_delta=[state for xy, state in after.items() if state != after_conceal[xy]],
+            update_calls=self.update_calls, update_visits=self.update_visits,
+            notifications=self.notifications, rng_before=rng_before,
+            rng_after=self.rng_hashes(), rng_calls=self.rng_calls)
+
+
+def conceal_area_generate():
+    root = configured_gamemd().parent
+    rules_raw = mix((root / 'expandmd01.mix').read_bytes())[mix_hash('RULESMD.INI')]
+    map_raw = mix((root / 'mapsmd03.mix').read_bytes())[mix_hash('SOV01UMD.MAP')]
+    # This retained scalar kernel reads exactly one key. Reuse its native
+    # cache/CRC transport for that key, without initializing hundreds of
+    # unrelated General entries and independent native CRC VMs.
+    layers = [(name, {'General': {key: value for key, value in sections(raw).get('General', {}).items()
+                                if key == 'RevealTriggerRadius'}})
+              for name, raw in (('retail_rulesmd', rules_raw), ('retail_sov01', map_raw))]
+    f = ConcealAreaFixture()
+    cases = [
+        dict(name='retail_radius_flat'),
+        dict(name='radius2_flat', radius=2),
+        dict(name='positive_odd_level3', radius=2, level=3),
+        dict(name='negative_odd_level3', radius=2, level=-3),
+        dict(name='bridge100', radius=2, level=3, flags=0x100),
+        dict(name='bridge400', radius=2, level=3, flags=0x400),
+        dict(name='radius_zero', radius=0),
+        dict(name='radius_negative1', radius=-1),
+        dict(name='counter_and_gap_controls', radius=2, overrides=[
+            dict(cell=[3, 4], counter=-1, gap=3), dict(cell=[4, 3], counter=1),
+            dict(cell=[5, 4], counter=2), dict(cell=[4, 5], gap=-2)]),
+        dict(name='global_pending_outside_local_circle', radius=0,
+             overrides=[dict(cell=[1, 4], counter=2, flags=0x12340023)]),
+        dict(name='player_latch_skips_conceal_and_update', radius=0, latch=1,
+             overrides=[dict(cell=[1, 4], counter=2, flags=0x12340023)]),
+        dict(name='signed_max_level', radius=0, level=127),
+        dict(name='signed_min_level', radius=0, level=-128),
+    ]
+    return dict(schema_version=1,
+        fields=['x', 'y', 'level', 'counter', 'gap', 'alt', 'flags', 'cache0', 'cache1', 'dirty138'],
+        fixture=dict(size=list(f.size), allocated_cells=[list(xy) for xy in sorted(f.cells)],
+            constructor_cell=f.constructor_cell,
+            default_prior=dict(level=0, counter=0, gap=0, alt=0x12340018, flags=0, cache=[-2, -2], dirty138=0)),
+        constants=f.constants,
+        physical_inputs=[dict(file=name, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+            for name, raw in (('expandmd01.mix/RULESMD.INI', rules_raw), ('mapsmd03.mix/SOV01UMD.MAP', map_raw))],
+        controls=[f.execute_case(case, layers) for case in cases])
+
+
+def conceal_area_metadata():
+    return provenance(
+        scope='Original Action101/Map567F70 local conceal and full578100 two-pass sweep on a small complete allocated Size4x4 diamond; no occupied-object or rendered-pixel claim.',
+        assumptions=[
+            'Reuse ActionFixture, initialize_waypoint_map, DiscoveryFixture Cell observations, native Cell constructor47BBF0 and sparse512-stride table. All28 Size4x4 diamond Cells and shared Dummy execute original constructors. World priors explicitly replace only level/counter/gap/alt/flags/cache/dirty fields for selected histories; this is not retail scenario geometry.',
+            'Original TAction constructor/reader/full dispatch1016DE8B7->6E1A70 reads waypoint index from+90(7), independently of trailing tokenA/+44(0). Current Player+240, rather than incoming foreign Trigger House+240, gates both conceal and following update. Foreign latch is1 in all cases; only the declared local latch control skips.',
+            'Existing original projection6D1830/6D18C0/6D1BB0 and Cell/TAction/Map constant initializer groups run. Caller half-height,100/400 bridge flags, signed word arithmetic, native AdjustForZ6D20E0, original567F70 radius traversal, counter admission and both alt-bit stores execute without substitutions. No Python formula supplies a golden coordinate, distance, counter or bitmask.',
+            'RevealTriggerRadius uses original constructor store665EDE and existing General scalar read67181C..67183C/5276D0 on declared cached physical RULESMD then SOV01 General layers, cropped to the one exact key this body reads; optional case overrides use the same native reader. Physical hashes are pinned. Full INI loader/Process chronology, optional LANGRULE/mode passes and unrelated General keys/index collisions are excluded.',
+            'Original578100 and allocated578290 run to completion, including pending20 cleanup,138 dirty writes, both native edge-cache6D8700 recomputation and empty resident5865F0 notifications. The global-pending control lies outside radius0 and demonstrates this sweep is broader than the local circle. CellDelta arrays use the declared fields order and are native post-conceal then post-update differences.',
+            'Original6DA7D0 takes its no-dirty-screen branch from supplied Map+C=1; actual dirty-region publication/rendering is excluded. Cells have empty resident lists and no local Tags/units/buildings. Native neighbor/radar/empty-resident bodies execute; occupied knowledge callbacks, nested actions, renderer and full map/session loading remain outside scope.',
+            'Three native RNG streams start with seed31; original draw entry observations and full state hashes are retained. The selected path has no timer/detach producer; no gameplay callable is replaced.'],
+        substitutions=[
+            'Only inherited ActionFixture platform/CRT/heap/INI-cache boundaries; no Action101, Map567F70/578100/578290, projection, Cell writer, edge-cache or notification instruction is replaced.'],
+        entry_points=dict(dispatch=0x6DD8B0, execute101=0x6DE8B7, action101=0x6E1A70,
+            local_conceal=0x567F70, update=0x578100, allocated_next=0x578290,
+            edge_cache=0x6D8700, cell_constructor=0x47BBF0, adjust_for_z=0x6D20E0,
+            radius_ctor=0x665EDE, radius_read=0x67181C, resident_notify=0x5865F0))
+
+
+MUSIC_THEME_KEYS = ('INTRO', 'LOADING', 'CREDITS', 'SCORE', 'BrainFreeze', 'Drok', 'Deceiver', 'PhatAttack')
+MUSIC_THEME_INI = '[Themes]\n' + ''.join(f'{i}={key}\n' for i, key in enumerate(MUSIC_THEME_KEYS)) + ''.join(f'[{key}]\nSound={"BrainFre" if key == "BrainFreeze" else key}\n' for key in MUSIC_THEME_KEYS)
+
+def music_theme_case(spec):
+    f = ActionFixture()
+    # Preserve the original bodies as well as the inherited action reader.
+    for begin, end in ((0x720B20, 0x720BA6), (0x721210, 0x721263),
+                       (0x407100, 0x4072C0), (0x4080C0, 0x4080EC),
+                       (0x720FD0, 0x721006)):
+        f.ranges.append((begin, end))
+        f.original.append(bytes(f.u.mem_read(begin, end - begin)))
+    u = f.u
+    theme = 0xA83D10
+    u.mem_write(theme, bytes(0x30))
+    u.mem_write(theme, dwords(2, spec.get('retained', 2), -2, spec.get('volume', 255)))
+    u.mem_write(theme + 0x11, bytes([spec.get('fading', False)]))
+    entries = []
+    for key in MUSIC_THEME_KEYS:
+        pointer = f.allocate(0x2A0)
+        u.mem_write(pointer, key.encode('ascii') + b'\0')
+        entries.append(pointer)
+    vector = f.allocate(4 * len(entries))
+    u.mem_write(vector, dwords(*entries))
+    u.mem_write(theme + 0x18, dwords(vector))
+    u.mem_write(theme + 0x24, dwords(len(entries)))
+    stream = f.allocate(0x100) if spec.get('stream', False) else 0
+    u.mem_write(theme + 0x2C, dwords(stream))
+    timed = 'wall_times' in spec
+    now = 0
+    sample = None
+    if timed:
+        assert stream and len(spec['wall_times']) == len(spec['actions'])
+        sample = f.allocate(0x100)
+        u.mem_write(sample, bytes(0x100))
+        u.mem_write(stream, bytes(0x100))
+        u.mem_write(stream + 0xC, dwords(1))
+        u.mem_write(stream + 0x14, dwords(sample))
+    u.mem_write(0xA8EC74, bytes([spec.get('scores', True)]))
+    u.mem_write(0xA8ED64, bytes([spec.get('suppressed', False)]))
+    for pointer in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+        f.call(0x65C6D0, [31], ecx=pointer)
+    before = f.rng_hashes()
+    calls, queues, draws = [], [], []
+    playing = spec.get('playing', bool(stream))
+    def observe(_u, pc, _size, _data):
+        nonlocal playing
+        if pc == 0x720B20:
+            queues.append(f.integer(u.reg_read(UC_X86_REG_ESP) + 4))
+        elif pc == 0x407000:
+            return_from_sink(u, 0, int(spec.get('device', True)))
+        elif pc == 0x4068E0:
+            return_from_sink(u, 0, 0)
+        elif pc == 0x4093B0 and timed:
+            u.reg_write(UC_X86_REG_EDX, now >> 32)
+            return_from_sink(u, 0, now & 0xFFFFFFFF)
+        elif pc == 0x4080D0 and not timed:
+            return_from_sink(u, 0, int(spec.get('interpolating', True)))
+        elif pc == 0x408070:
+            return_from_sink(u, 0, int(playing))
+        elif pc == 0x407F40:
+            calls.append('stop'); playing = False
+            return_from_sink(u, 0, 0)
+        elif pc == 0x4080C0:
+            calls.append('fade_target_zero')
+            if not timed:
+                return_from_sink(u, 0, 0)
+        elif pc in (0x65C780, 0x65C7E0):
+            draws.append(hex(pc))
+    u.hook_add(UC_HOOK_CODE, observe)
+    if timed:
+        # PlayFile407E7D supplies this full-scale initial value. Original
+        # Init/SetTarget/Tick run; the clock import is the only time input.
+        u.reg_write(UC_X86_REG_EDX, 0x4000)
+        f.call(0x407100, [], ecx=sample + 0x10)
+    parsed, returned, ramp_history = [], [], []
+    for index, raw in enumerate(spec['actions']):
+        if timed:
+            now = spec['wall_times'][index]
+            f.call(0x4071C0, [], ecx=sample + 0x10)
+        parsed.append(f.read_action(raw)['value'])
+        returned.append(f.call(0x6DD8B0, [0, 0, 0, 0], ecx=ACTION) & 255)
+        if timed:
+            ramp_history.append(dict(wall_ms=now, current=f.integer(sample + 0x14),
+                target=f.integer(sample + 0x18),
+                last_ms=struct.unpack('<Q', u.mem_read(sample + 0x28, 8))[0]))
+    settled = None
+    if timed:
+        now = spec['settle_at_ms']
+        f.call(0x4071C0, [], ecx=sample + 0x10)
+        mark = len(calls)
+        query = bool(f.call(0x720FD0, [], ecx=theme) & 255)
+        settled = dict(wall_ms=now, playing=query, stopped='stop' in calls[mark:])
+    f.check_code()
+    after = f.rng_hashes()
+    assert before == after and not draws
+    result = dict(input=spec, parsed=parsed, returned=returned, queue_requests=queues,
+                slots=[f.integer(theme + offset) for offset in (0, 4, 8)],
+                fading=bool(u.mem_read(theme + 0x11, 1)[0]), stream_calls=calls,
+                rng_draws=draws, rng_unchanged=before == after)
+    if timed:
+        result.update(ramp_history=ramp_history, settled=settled)
+    return result
+
+def music_theme_generate():
+    def named(name, **prior):
+        return dict(actions=[f'20,8,{name},0,0,0,0,A'], **prior)
+    cases = [
+        named('Drok'), named('dRoK', stream=True), named('BrainFreeze', stream=True),
+        named('BrainFre', stream=True), named(' Drok ', stream=True), named('unknown'),
+        dict(actions=['20,0,-3,0,0,0,0,A'], stream=True),
+        dict(actions=['20,0,-2,0,0,0,0,A'], stream=True),
+        dict(actions=['20,0,1,0,0,0,0,A']),
+        named('Drok', scores=False), named('Drok', device=False),
+        named('Drok', suppressed=True), named('Drok', retained=5, stream=True),
+        named('Drok', volume=0),
+        dict(actions=['20,8,Drok,0,0,0,0,A', '20,8,BrainFreeze,0,0,0,0,A',
+                      '20,0,-3,0,0,0,0,A'], stream=True),
+        dict(actions=['20,11,3,0,0,0,0,29']),
+        dict(actions=['20,0,5,0,0,0,0,A', '20,0,4,0,0,0,0,A',
+                      '20,0,-3,0,0,0,0,A'], stream=True,
+             wall_times=[100, 600, 950], settle_at_ms=1200),
+    ]
+    return dict(default_prior=dict(slots=[2, 2, -2], volume=255, fading=False,
+                                   scores=True, device=True, suppressed=False,
+                                   stream=False, interpolating=True),
+                theme_ini=MUSIC_THEME_INI, theme_keys=list(MUSIC_THEME_KEYS),
+                controls=[music_theme_case(case) for case in cases])
+
+
+def music_theme_metadata():
+    return provenance(
+        scope='Seventeen original TAction20 constructor/read/dispatch and Theme queue controls; names, scalar operands, sentinels, ordering, audio gates and one repeated-request fade history. No physical audio claim.',
+        assumptions=[
+            'The eight declared Theme keys and preexisting slots/stream flags are supplied priors, not a replay of Init_Game or Theme ReadINI. Rust reads the accompanying synthetic INI through its production catalog reader. Native From_Name721210 and the actual CRT case-insensitive compare execute; Sound= stems are not name aliases.',
+            'Original6DD000 constructor,6DD5B0 counted action reader and full6DD8B0 Execute run. Parameter8 resolves its untrimmed name into+90; scalar0/11 reads preserve signed values independently of the trailing waypoint/auxiliary token. All requests reach original720B20, including its process/device/startup gates, retained comparison, pending write and fading byte.',
+            'The existing ActionFixture supplies CRT thread data/heap/INI transport. No action, name lookup or queue instruction is patched. In the first16 controls, stream playing/interpolating/stop/target-zero are recorded transports, without decoding or output-device callbacks.',
+            'The timed history supplies a full-scale sample shell, then executes original VolumeInterp Init407100, Tick4071C0, target-zero4080C0, SetTarget407170 and stream interpolation4080D0. Timestamp4093B0 returns declared milliseconds. Repeated queue requests at100/600/950 finish fading by1200; no call restarts the current ramp. Rust retains its documented linear-fade/1ms residual and compares the post-fade stop, not exact gain samples. This is not a Windows audio-pump cadence or waveform comparison.',
+            'Three original RNG constructors seed31 before each control. Read/Execute/Queue leave the complete states unchanged and reach neither original draw entry. This control does not run later Theme AI/NextSong and makes no automatic-playlist RNG claim.',
+            'No gameplay timer or detach belongs to this dispatcher leaf. Its ordered queue requests return AL1 even when audio admission rejects them. Numeric sentinels pass unfiltered; missing/unknown names resolve-1. Non-theme named metadata types6/7 on Action20 and malformed/truncated action authoring are outside this ordinary music-parameter chain.',
+            'VERA retains type8 names until the process Theme owner receives the ordered effect. Its catalog is immutable after initial selection, so this uses the same lookup without copying a catalog into deterministic simulation. The existing intentional RA2 playlist append policy is unchanged; native controls use only the declared YR-shaped prefix.'
+        ],
+        substitutions=[
+            'Audio device407000, stream playing408070 and stop407F40 return declared/recorded transport results. Interpolation4080D0 and fade target4080C0 are transports only in untimed controls; timed controls execute them unchanged and supply Timestamp4093B0. Diagnostic4068E0 is a no-op. No Theme AI or actual hardware output is included.'
+        ],
+        entry_points=dict(action_constructor=0x6DD000, action_read=0x6DD5B0,
+                          action_execute=0x6DD8B0, action20=0x6DE8E4,
+                          theme_from_name=0x721210, theme_queue=0x720B20,
+                          interp_init=0x407100, interp_target=0x407170,
+                          interp_tick=0x4071C0, still_playing=0x720FD0))
+
+
+
+
+def all_to_hunt_action_controls():
+    f = AllChangeHouseFixture()
+    u = f.u
+    f.houses = [f.allocate(0x17000) for _ in range(3)]
+    for house, typ, country in zip(f.houses, f.house_types, (0, 7, 0)):
+        u.mem_write(house, bytes(0x17000))
+        u.mem_write(house+0x24, dwords(0x7EA834))
+        u.mem_write(house+0x34, dwords(typ))
+        u.mem_write(typ+0xB8, dwords(country))
+    assert f.read32(0x7EA834+0x38) == 0x501400
+    for start, end in ((0x6E45E0, 0x6E462B), (0x501400, 0x50153D)):
+        f.ranges.append((start, end))
+        f.original.append(bytes(u.mem_read(start, end-start)))
+    vtable, mission_sink, occupants_sink = f.allocate(0x500), f.allocate(4), f.allocate(4)
+    u.mem_write(vtable, bytes(0x500))
+    u.mem_write(vtable+0x2C, dwords(f.what_sink))
+    u.mem_write(vtable+0x1E8, dwords(mission_sink))
+    u.mem_write(vtable+0x408, dwords(occupants_sink))
+    f.actors = [dict(owner=0, team=True, foot=True, down=True, limbo=False, **{'class':1}),
+        dict(owner=0, team=False, foot=True, down=True, limbo=False, **{'class':1}),
+        dict(owner=2, team=False, foot=True, down=True, limbo=False, **{'class':1}),
+        dict(owner=1, team=False, foot=True, down=True, limbo=False, **{'class':1}),
+        dict(owner=0, team=False, foot=True, down=True, limbo=True, **{'class':1}),
+        dict(owner=0, team=False, foot=True, down=False, limbo=False, **{'class':1}),
+        dict(owner=0, team=False, foot=False, down=True, limbo=False, **{'class':6})]
+    f.actor_index = {pointer:i for i,pointer in enumerate(f.pool[:len(f.actors)])}
+    f.active = list(range(len(f.actors)))
+    calls, writes, events = [], [], []
+
+    def observe(vm, pc, _size, _data):
+        sp = vm.reg_read(UC_X86_REG_ESP)
+        if pc == 0x501400:
+            calls.append(dict(entry=hex(pc), house=f.house_index(f.read32(sp+4)-0x24)))
+        elif pc == mission_sink:
+            events.append(dict(call='queue_mission', actor=f.actor_index[vm.reg_read(UC_X86_REG_ECX)],
+                               mission=f.integer(sp+4), arg=f.integer(sp+8)))
+            return_from_sink(vm, 8, 1)
+        elif pc == 0x6EA870:
+            events.append(dict(call='team_remove', actor=f.actor_index[f.read32(sp+4)],
+                               arg1=f.integer(sp+8), arg2=f.integer(sp+12)))
+            return_from_sink(vm, 12, 1)
+        elif pc == occupants_sink:
+            events.append(dict(call='occupant_count', actor=f.actor_index[vm.reg_read(UC_X86_REG_ECX)], result=0))
+            return_from_sink(vm, 0, 0)
+
+    def write(vm, _access, at, size, value, _data):
+        for index, pointer in enumerate(f.houses):
+            if pointer <= at < pointer+0x17000:
+                writes.append(dict(house=index, offset=hex(at-pointer), size=size,
+                                   value=value, pc=hex(vm.reg_read(UC_X86_REG_EIP))))
+
+    u.hook_add(UC_HOOK_CODE, observe)
+    u.hook_add(UC_HOOK_MEM_WRITE, write)
+    view = SimpleNamespace(u=u, scenario=SCENARIO)
+    cases = [dict(name='country0_not_incoming_or_retained', selector=0),
+        dict(name='country7', selector=7),
+        dict(name='duplicate_country_reversed', selector=0, order=(2,1,0)),
+        dict(name='retained_house8997', selector=8997),
+        dict(name='retained_house_null', selector=8997, trigger_owner=None),
+        dict(name='null_trigger_valid_country', selector=0, null_trigger=True),
+        dict(name='missing_country999', selector=999),
+        dict(name='null_incoming_valid_country', selector=0, incoming=None)]
+    rows = []
+    for case in cases:
+        f.selectors, f.rng_calls = [], []
+        order = case.get('order', (0,1,2))
+        u.mem_write(f.house_array, dwords(*(f.houses[i] for i in order)))
+        u.mem_write(f.live, bytes(0x48))
+        owner = case.get('trigger_owner', 2)
+        u.mem_write(f.live+0x2C, dwords(f.houses[owner] if owner is not None else 0))
+        for i, house in enumerate(f.houses):
+            u.mem_write(house+0x249, b'\0')
+            u.mem_write(house+0x250, dwords((-7,3,5)[i]))
+            u.mem_write(house+0x5634, dwords(41+i,777+i,108+i))
+        for pointer, actor in zip(f.pool, f.actors):
+            u.mem_write(pointer, bytes(0x600))
+            u.mem_write(pointer, dwords(vtable))
+            u.mem_write(pointer+0x14, dwords(4 if actor['foot'] else 0))
+            u.mem_write(pointer+0x21C, dwords(f.houses[actor['owner']]))
+            u.mem_write(pointer+0x74, bytes([actor['down']]))
+            u.mem_write(pointer+0x81, bytes([actor['limbo']]))
+            u.mem_write(pointer+0x5D4, dwords(0x7EA70000 if actor['team'] else 0))
+        f.publish()
+        read = f.read_action(f"6,0,{case['selector']},0,0,0,0,A")
+        rng_before = CampaignReader.rng_state(view)
+        before = [bytes(u.mem_read(p, 0x17000)) for p in f.houses]
+        calls.clear(); events.clear(); writes.clear()
+        incoming = case.get('incoming', 1)
+        result = f.call(0x6DD8B0, [f.houses[incoming] if incoming is not None else 0,
+            0, 0 if case.get('null_trigger') else f.live, 0], ecx=ACTION)&255
+        after = [bytes(u.mem_read(p, 0x17000)) for p in f.houses]
+        rng_after = CampaignReader.rng_state(view)
+        assert rng_before == rng_after and not f.rng_calls
+        assert all(w['offset']=='0x249' and w['size']==1 and w['value']==1 for w in writes)
+        assert all(all(j == 0x249 for j,(a,b) in enumerate(zip(left,right)) if a != b)
+                   for left,right in zip(before,after))
+        rows.append(dict(input=case, native_read=read, result=result, selector_calls=f.selectors,
+            calls=list(calls), events=list(events), writes=list(writes),
+            latch_after=[raw[0x249] for raw in after],
+            strategy_timers_before=[list(struct.unpack_from('<iii',raw,0x5634)) for raw in before],
+            strategy_timers_after=[list(struct.unpack_from('<iii',raw,0x5634)) for raw in after],
+            modes_before=[struct.unpack_from('<i',raw,0x250)[0] for raw in before],
+            modes_after=[struct.unpack_from('<i',raw,0x250)[0] for raw in after],
+            three_full_rng_states_unchanged=True,
+            rng_before={k:hashlib.sha256(bytes.fromhex(v)).hexdigest() for k,v in rng_before.items()},
+            rng_after={k:hashlib.sha256(bytes.fromhex(v)).hexdigest() for k,v in rng_after.items()}))
+    f.check_code()
+    return dict(country_priors=[0,7,0],actors=f.actors,controls=rows,code_unchanged=True,
+        rng_full_seed31=CampaignReader.rng_state(view),
+        limits='Original constructor/record-reader/Execute Action6/6E45E0 and actual7EA834+38/501400 execute. House/list/actor priors are supplied. Team_remove and QueueMission are existing-style recorded leaves, not full Team or Mission execution. The nonfoot Building has explicitly zero occupants; no garrison, permanent-Dominator damage or actual cleanup result is certified.')
+
+
+def all_to_hunt_garrison_controls():
+    # Same VM, original map/CRT/allocator and seed owners as existing controls.
+    from tools.native_oracle import image_sha256
+    from tools.spatial_oracle.unit_source_scatter import make_source_fixture, CELLS, SCENARIO as scenario
+    f = ActionFixture()
+    u, _, read = make_source_fixture(dict(seed=31, live_entry=True), uc=f.u)
+    alloc = f.allocate
+    building, btype, bvt = alloc(0x800), alloc(0x1800), alloc(0x500)
+    foots = [alloc(0x800), alloc(0x800)]
+    types, locos, houses = [alloc(0x1000) for _ in foots], [alloc(0x200) for _ in foots], [alloc(0x6000) for _ in foots]
+    # Supplied reciprocal+2A8 pair; actual Temporal pointers are+274/+278.
+    targets, reciprocal2a8_peers = [alloc(0x800) for _ in foots], [alloc(0x400) for _ in foots]
+    vector, fvt, rules = alloc(0x100), alloc(0x600), alloc(0x2000)
+    u.mem_write(rules,bytes(0x2000))
+    u.mem_write(0x8871E0,dwords(rules))
+    unlimbo, uninit, can_enter, scatter, do_action, destination = [alloc(4) for _ in range(6)]
+    u.mem_write(bvt, bytes(u.mem_read(0x7E3EBC,0x500)))
+    u.mem_write(fvt, bytes(u.mem_read(0x7EB058,0x600)))
+    # Actual selected class slots. Placement/lifecycle/DoAction are boundaries.
+    for slot,pointer in ((0xD8,unlimbo),(0xF8,uninit),(0x558,do_action),(0x480,destination)):
+        u.mem_write(fvt+slot,dwords(pointer))
+    original_ranges = ((0x457DE0,0x4581E5),(0x4585C0,0x458741),
+        (0x51B1F0,0x51B350),(0x6FCDB0,0x6FCF95),(0x5B35E0,0x5B3645),
+        (0x51D0D0,0x51D6F0),(0x45EC90,0x45ECE0),(0x447AC0,0x447B14),
+        (0x5657A0,0x565803),(0x41BEA0,0x41BEDD),(0x65C6D0,0x65C88D))
+    code = [bytes(u.mem_read(a,b-a)) for a,b in original_ranges]
+    names = {pointer:index for index,pointer in enumerate(foots)}
+    calls, writes, rng_calls, pending_rng, raw_draws = [], [], [], [], []
+    row = {}
+    returned_entries = []
+    watch = {0x51B1F0:'infantry_assign_target',0x6FCDB0:'techno_assign_target',
+        0x51D0D0:'scatter_native',0x5B35E0:'queue_native',0x4585C0:'kill_occupants',
+        0x4581F0:'occupant_count_native',0x5657A0:'map_lookup_native'}
+    phase = 'setup'
+
+    def actor_index(pointer):
+        return names.get(pointer)
+
+    def observe(vm,pc,_size,_data):
+        if phase != 'run': return
+        sp, this = vm.reg_read(UC_X86_REG_ESP), vm.reg_read(UC_X86_REG_ECX)
+        index = actor_index(this)
+        for returning in list(pending_rng):
+            if pc==returning['return_pc'] and sp==returning['return_sp']:
+                returning['result']=vm.reg_read(UC_X86_REG_EAX)
+                pending_rng.remove(returning)
+        if pc in (0x65C780,0x65C7E0):
+            entry=dict(pc=hex(pc),this=hex(this),return_pc=read(sp),
+                return_sp=sp+(12 if pc==0x65C7E0 else 4),
+                args=[read(sp+4),read(sp+8)] if pc == 0x65C7E0 else [])
+            rng_calls.append(entry);pending_rng.append(entry)
+        if pc in (0x65C79D,0x65C84B):
+            # The same actual XOR-word store observed by the existing RNG owner.
+            raw_draws.append(vm.reg_read(UC_X86_REG_ESI)&0xFFFFFFFF)
+        if pc in watch:
+            count = {0x51B1F0:1,0x6FCDB0:1,0x51D0D0:3,0x5B35E0:2,0x4585C0:1,0x5657A0:1}.get(pc,0)
+            entry=dict(call=watch[pc],actor=index,args=[read(sp+4+4*i) for i in range(count)])
+            if pc == 0x51D0D0:
+                entry['source']=list(struct.unpack('<3i',vm.mem_read(read(sp+4),12)))
+            if pc == 0x5657A0:
+                entry['cell']=list(struct.unpack('<2h',vm.mem_read(read(sp+4),4)))
+            calls.append(entry)
+        if pc in (can_enter,0x51BF90):
+            cell = read(sp+4)
+            args=[read(sp+4+4*i) for i in range(5)]
+            entry=dict(call='can_enter_native' if pc == 0x51BF90 else 'can_enter_supplied',
+                actor=index,cell=list(struct.unpack('<2h',vm.mem_read(cell+0x24,4))),args=args[1:])
+            calls.append(entry)
+            if pc == can_enter:
+                count=sum(item['call']=='can_enter_supplied' for item in calls)
+                value=0 if row.get('accept_probe')==count else 7
+                entry['supplied_result']=value
+                return_from_sink(vm,20,value)
+            else:
+                returned_entries.append((read(sp),sp+24,entry))
+        for returning in list(returned_entries):
+            if pc==returning[0] and sp==returning[1]:
+                returning[2]['native_result']=vm.reg_read(UC_X86_REG_EAX)
+                returned_entries.remove(returning)
+        if pc == unlimbo:
+            coords=list(struct.unpack('<3i',vm.mem_read(read(sp+4),12)))
+            ok=index not in row.get('fail_unlimbo',[])
+            calls.append(dict(call='unlimbo_supplied',actor=index,coords=coords,
+                facing=read(sp+8),priority=read(0xA8E7AC),supplied_result=ok))
+            if ok:
+                # Explicit post-placement XYZ prestate, not a claimed full Unlimbo.
+                vm.mem_write(this+0x9C,dwords(*coords))
+                vm.mem_write(this+0x81,b'\x00')
+                vm.mem_write(this+0x74,b'\x01')
+            return_from_sink(vm,8,int(ok))
+        elif pc == uninit:
+            calls.append(dict(call='uninit_recorded',actor=index,priority=read(0xA8E7AC)))
+            return_from_sink(vm,0,0)
+        elif pc == scatter:
+            calls.append(dict(call='scatter_recorded',actor=index,
+                source=list(struct.unpack('<3i',vm.mem_read(read(sp+4),12))),
+                args=[read(sp+8),read(sp+12)]))
+            return_from_sink(vm,12,0)
+        elif pc == do_action:
+            calls.append(dict(call='do_action_recorded',actor=index,
+                args=[read(sp+4+4*i) for i in range(3)]))
+            return_from_sink(vm,12,1)
+        elif pc == destination:
+            cell=read(sp+4)
+            calls.append(dict(call='destination_recorded',actor=index,
+                cell=list(struct.unpack('<2h',vm.mem_read(cell+0x24,4))),mode=read(sp+8)))
+            return_from_sink(vm,8,0)
+        elif pc == 0x6EA870:
+            calls.append(dict(call='team_remove_recorded',actor=actor_index(read(sp+4)),
+                args=[f.integer(sp+8),f.integer(sp+12)]))
+            return_from_sink(vm,12,1)
+        elif pc == 0x70F6E0:
+            calls.append(dict(call='refresh_recorded',this_is_building=this==building,arg=read(sp+4)))
+            return_from_sink(vm,4,0)
+        elif pc in (0x7258D0,0x70D4A0):
+            calls.append(dict(call='detach_native_entry',pc=hex(pc)))
+
+    def write(vm,_access,address,size,value,_data):
+        if phase != 'run': return
+        if address == 0xA8E7AC:
+            writes.append(dict(global_='placement_priority',value=value,pc=hex(vm.reg_read(UC_X86_REG_EIP))))
+        for index,pointer in enumerate(foots):
+            if pointer<=address<pointer+0x800:
+                writes.append(dict(actor=index,offset=hex(address-pointer),size=size,value=value,
+                    pc=hex(vm.reg_read(UC_X86_REG_EIP))))
+
+    u.hook_add(UC_HOOK_CODE,observe)
+    u.hook_add(UC_HOOK_MEM_WRITE,write)
+    view=SimpleNamespace(u=u,scenario=scenario)
+    cases=[dict(name='empty_hunt',count=0,hunt=1,inside=0),
+        dict(name='outside_first_hunt',hunt=1,inside=0,accept_probe=1),
+        dict(name='outside_later_hunt',hunt=1,inside=0,accept_probe=6),
+        dict(name='outside_nonhunt',hunt=0,inside=0,accept_probe=1),
+        dict(name='distinct_building_and_passenger_owners',hunt=1,inside=0,
+             accept_probe=1,building_owner=0,passenger_owners=[1,0]),
+        dict(name='no_exit_hunt',hunt=1,inside=0),
+        dict(name='inside_fallback_control',hunt=1,inside=1),
+        dict(name='outside_failed_last_unlimbo',hunt=1,inside=0,accept_probe=1,fail_unlimbo=[1]),
+        dict(name='actual_empty_cell_entry',hunt=1,inside=0,live_entry=True),
+        dict(name='actual_blocked_terrain_entry',hunt=1,inside=0,live_entry=True,blocked=True),
+        dict(name='actual_entry_outside_playfield',hunt=1,inside=0,live_entry=True,bounds=[16,0,0,1,1]),
+        dict(name='nested_placement_scope',hunt=1,inside=0,live_entry=True,priority=7),
+        dict(name='actual_scatter_move_then_hunt',hunt=1,inside=0,live_entry=True,live_scatter=True),
+        dict(name='actual_nonfraidy_scatter_move_then_hunt',hunt=1,inside=0,live_entry=True,live_scatter=True,fraidycat=False)]
+    output=[]
+    for row in cases:
+        phase='setup'
+        for pointer,size in ((building,0x800),(btype,0x1800),(vector,0x100)):
+            u.mem_write(pointer,bytes(size))
+        u.mem_write(building,dwords(bvt));u.mem_write(building+0x520,dwords(btype))
+        u.mem_write(building+0x9C,dwords(2688,2688,0))
+        owner=row.get('building_owner')
+        u.mem_write(building+0x21C,dwords(houses[owner] if owner is not None else 0))
+        u.mem_write(btype+0xEF0,dwords(3)) # Actual image Foundation index3 =2x2.
+        count=row.get('count',2)
+        u.mem_write(vector,dwords(*foots))
+        u.mem_write(building+0x684,dwords(0x7E43C8,vector,2,0x101,count,10))
+        u.mem_write(building+0x69C,dwords(7))
+        u.mem_write(fvt+0x1AC,dwords(0x51BF90 if row.get('live_entry') else can_enter))
+        u.mem_write(fvt+0x174,dwords(0x51D0D0 if row.get('live_scatter') else scatter))
+        for y in range(32):
+            for x in range(32):
+                u.mem_write(CELLS+(y*32+x)*0x200+0xEC,dwords(int(row.get('blocked',False))))
+        bounds=row.get('bounds',[16,-16,-16,64,64])
+        u.mem_write(0x87F7E8+0xF4,dwords(bounds[0]));u.mem_write(0x87F7E8+0xFC,dwords(*bounds[1:]))
+        for i,(foot,typ,loco,house,target,reciprocal2a8_peer) in enumerate(zip(foots,types,locos,houses,targets,reciprocal2a8_peers)):
+            for pointer,size in ((foot,0x800),(typ,0x1000),(loco,0x200),(house,0x6000),(target,0x800),(reciprocal2a8_peer,0x400)):
+                u.mem_write(pointer,bytes(size))
+            u.mem_write(foot,dwords(fvt));u.mem_write(foot+0x14,dwords(5))
+            u.mem_write(foot+0x6C0,dwords(typ));u.mem_write(foot+0x6C4,dwords(-1))
+            u.mem_write(foot+0x6C,dwords(100));u.mem_write(foot+0x90,b'\x01')
+            u.mem_write(foot+0x81,b'\x01')
+            u.mem_write(foot+0x21C,dwords(houses[row.get('passenger_owners',[0,1])[i]]))
+            u.mem_write(house+0x1EC,bytes([i==0]))
+            u.mem_write(house+0x5788,dwords(1));u.mem_write(foot+0x3D5,b'\x01')
+            u.mem_write(foot+0xAC,dwords(5,-1,-1));u.mem_write(foot+0xB8,b'\x01')
+            u.mem_write(foot+0xC8,dwords(41,777,108));u.mem_write(foot+0x640,dwords(42,778,109))
+            u.mem_write(foot+0x690,b'\x01\x01')
+            u.mem_write(foot+0x2B4,dwords(target));u.mem_write(foot+0x2A8,dwords(reciprocal2a8_peer))
+            u.mem_write(reciprocal2a8_peer+0x2A8,dwords(foot));u.mem_write(foot+0x3B8,dwords(99))
+            u.mem_write(foot+0x5D4,dwords(target if i==1 else 0))
+            u.mem_write(foot+0x5E0,dwords(9));u.mem_write(foot+0x684,b'\xff')
+            u.mem_write(typ+0x67C,dwords(1));u.mem_write(typ+0xDFC,dwords(-1))
+            u.mem_write(typ+0xEBF,bytes([row.get('fraidycat',True)]))
+            f.call(0x75AA90,[],ecx=loco)
+            u.mem_write(loco+0xC,dwords(foot));u.mem_write(foot+0x674,dwords(loco+4))
+        u.mem_write(0xA8E9A0,b'\x01');u.mem_write(0xA8B238,dwords(1))
+        priority=row.get('priority',0)
+        u.mem_write(0xA8ED84,dwords(100));u.mem_write(0xA8E7AC,dwords(priority))
+        for pointer in (scenario+0x218,0x886B88,0xABE890): f.call(0x65C6D0,[31],ecx=pointer)
+        before=CampaignReader.rng_state(view)
+        calls.clear();writes.clear();rng_calls.clear();returned_entries.clear();pending_rng.clear();raw_draws.clear()
+        phase='run'
+        f.call(0x457DE0,[row['hunt'],row['inside']],ecx=building)
+        phase='setup'
+        after=CampaignReader.rng_state(view)
+        assert not pending_rng and not returned_entries
+        assert before['main']==after['main'] and before['mapgen']==after['mapgen']
+        assert row.get('live_scatter') or before==after
+        assert read(0xA8E7AC)==priority
+        assert all(bytes(u.mem_read(a,b-a))==blob for (a,b),blob in zip(original_ranges,code))
+        f.check_code()
+        final=[]
+        for foot,reciprocal2a8_peer in zip(foots,reciprocal2a8_peers):
+            final.append(dict(owner=houses.index(read(foot+0x21C)),
+                target=read(foot+0x2B4),reciprocal2a8=read(foot+0x2A8),
+                reciprocal2a8_backlink=read(reciprocal2a8_peer+0x2A8),path0=f.integer(foot+0x5E0),
+                health=f.integer(foot+0x6C),limbo=bool(u.mem_read(foot+0x81,1)[0]),
+                cell_marked=bool(u.mem_read(foot+0x74,1)[0]),
+                current_mission=f.integer(foot+0xAC),queued_mission=f.integer(foot+0xB4),
+                occupy_seeks=list(u.mem_read(foot+0x690,2)),
+                mission_timer=list(struct.unpack('<3i',u.mem_read(foot+0xC8,12))),
+                movement_timer=list(struct.unpack('<3i',u.mem_read(foot+0x640,12)))))
+        output.append(dict(input=row,calls=list(calls),writes=list(writes),occupants_after=read(building+0x694),
+            fire_index_after=read(building+0x69C),priority_after=read(0xA8E7AC),foot_after=final,
+            three_full_rng_states_unchanged=before==after,
+            rng_before={k:hashlib.sha256(bytes.fromhex(v)).hexdigest() for k,v in before.items()},
+            rng_after={k:hashlib.sha256(bytes.fromhex(v)).hexdigest() for k,v in after.items()},
+            rng_calls=list(rng_calls),raw_draws=list(raw_draws),
+            rng_full_before=before if row.get('live_scatter') else None,
+            rng_full_after=after if row.get('live_scatter') else None))
+    return dict(native_sha256=image_sha256(),
+        priors=dict(building_xyz=[2688,2688,0],foundation_index=3,
+            native_foundation_dimensions=[read(0x8192B8+12),read(0x819310+12)],
+            foot_health=100,foot_current_mission=5,foot_queued_mission=-1,
+            human_by_foot=[True,False],team_present_by_foot=[False,True],
+            mission_timer=[41,777,108],movement_timer=[42,778,109],
+            rules_player_scatter=False,game_mode=1,all_three_rng_seeds=31,
+            placement_priority_default=0,nonnull_targets_and_reciprocal2a8_links=True,
+            foot_initial_limbo=True,foot_initial_cell_marked=False,
+            successful_unlimbo_supplied_xyz_and_limbo_clear_and_cell_marked=True,
+            building_owner_default=None,passenger_owners_default=[0,1]),
+        controls=output,code_unchanged=True,
+        limits=['Original complete457DE0 and4585C0(NULL), actual foundation2x2 table, Building/Cell coords, Map lookup, live dynamic-vector clear/resize, Infantry51B1F0/Techno6FCDB0 NULL setter and Queue5B35E0 execute.',
+            'Infantry51B25D..51B26D clears both supplied reciprocal+2A8 fields. These are native observations only: Rust has no corresponding reciprocal2a8 state in this batch, so neither this pair nor Temporal cleanup is claimed implemented. Actual Temporal pointers are+274/+278; see foot_navigation_coordinate.py and src/sim/mission/infantry_target_tests.rs.',
+            'Some CanEnter rows supply numeric results; empty/blocked/outside-playfield/nested-scope rows execute real51BF90. Final two rows additionally execute source-aware51D0D0 with actual flags1,1 and native RNG, varying Fraidycat. All use the existing source-map owner and single ActionFixture VM.',
+            'Unlimbo return and successful XYZ publication are explicit supplied prestates. Complete placement, world/House publication and locomotor state setup are not certified.',
+            'DoAction, TeamRemove, UnInit and threat refresh record argument/order only. Native queue15,0 does not commence Hunt; future Hunt cadence is outside this procedure. SetDestination records selected Cell without executing movement/path/timers. No complete Scatter movement, detach/death/Team lifecycle or whole campaign parity claim.',
+            'RNG counts and unchanged timers cover only actual executed instructions across those named supplied seams. Full Unlimbo, DoAction, TeamRemove, UnInit and future Hunt may add draws/timer/detach effects; zero direct detach observations do not prove zero in those excluded dependencies.'])
+
+
+def all_to_hunt_retail_inputs():
+    """Exact retained ALL06 records plus existing original scalar readers.
+
+    Lexical section extraction retains source data, not native gameplay. The
+    counted Event/flags/Action6 and Country-registration readers run unchanged.
+    Team admission/placement is explicitly a prerequisite, not a supplied result.
+    """
+    from tools.input_oracle.campaign_start import prepare_house_rules
+    from tools.spatial_oracle.tag_lifecycle import PowerEventControls
+
+    install=configured_gamemd().parent
+    archive=(install/'mapsmd03.mix').read_bytes()
+    raw_map=mix(archive)[mix_hash('ALL06UMD.MAP')]
+    rules_path=Path(__file__).parents[2]/'ini'/'rulesmd.ini'
+    raw_rules=rules_path.read_bytes()
+    values,rule_values=sections(raw_map),sections(raw_rules)
+    m=CampaignReader()
+    m.invoke(0x6832C0,m.scenario)
+    rules_pointer=prepare_house_rules(m,rule_values)
+    registrations=[]
+    for label,entries in (('RULESMD.INI',rule_values),('ALL06UMD.MAP',values)):
+        m.ordered_ini({'Countries':entries.get('Countries',{})})
+        m.u.reg_write(UC_X86_REG_ESI,INI);m.u.reg_write(UC_X86_REG_EDI,rules_pointer)
+        m.region(0x668C8B,0x668CDB)
+        registrations.append(dict(layer=label,entries=[dict(index=i,
+            name=m.string(m.read32(m.read32(0xA83C9C)+i*4)+0x24))
+            for i in range(m.read32(0xA83CA8))]))
+    houses=[]
+    for name in values['Houses'].values():
+        m.ordered_ini({name:values[name]})
+        country=m.invoke(0x475540,INI,(m.cstring(name),m.cstring('Country'),0xFFFFFFFF))
+        if country==9:
+            houses.append(dict(name=name,raw=values[name],native_country=country))
+    flags=FlagsFixture()
+    routes={}
+    for identity in ('095EB2AC','05C6450C','05C6397C'):
+        raw_event=values['Events'][identity]
+        routes[identity]=dict(trigger=values['Triggers'][identity],event=raw_event,
+            native_event=PowerEventControls.read_event(raw_event),
+            native_flags=flags.execute(values['Triggers'][identity],[1,1,1,1,0]),
+            actions=values['Actions'][identity],
+            tags={key:body for key,body in values['Tags'].items() if body.endswith(','+identity)})
+    # Action6 is scalar Country9; original counted reader/constructor are the
+    # same owner as the executable controls. Other action lists stay raw here.
+    action=ActionFixture()
+    native_action=action.read_action('6,0,9,0,0,0,0,A',ini_capacity=512)
+    team_id='06C0E3DC';team=values[team_id]
+    tf_id,script_id=team['TaskForce'],team['Script']
+    selected_names={row['name'] for row in houses}
+    m.check_code();action.check_code()
+    return dict(map='ALL06UMD.MAP',archive='mapsmd03.mix',
+        archive_sha256=hashlib.sha256(archive).hexdigest(),map_sha256=hashlib.sha256(raw_map).hexdigest(),
+        rules_file='ini/rulesmd.ini',rules_sha256=hashlib.sha256(raw_rules).hexdigest(),
+        basic=values['Basic'],country_registration=registrations,target_houses=houses,
+        routes=routes,native_action6_read=native_action,
+        target_initial_units={key:body for key,body in values.get('Units',{}).items()
+            if body.split(',')[0] in selected_names},
+        target_initial_infantry={key:body for key,body in values.get('Infantry',{}).items()
+            if body.split(',')[0] in selected_names},
+        preferred_ordinary_team=dict(id=team_id,team=team,task_force_id=tf_id,
+            task_force=values[tf_id],script_id=script_id,script=values[script_id]),
+        limits='Three exact raw elapsed/enable/Hunt records and raw Wave4 Team/TaskForce/Script bind the selected common YTNK route. Original counted Event, flags, Action6 and Country readers execute. Target Country9 has no initial Foot: the real reinforcement/Team owner must admit the selected3YTNK, or production tests must name that precondition explicitly. No native whole Team creation, elapsed Tag scheduling, physical full-map load, world placement or whole campaign outcome is claimed. The other Action53/7 lists and Tag records are exact retail bytes, not native reference-resolution executions in this row.')
+
+
+def all_to_hunt_generate():
+    from tools.native_oracle import image_sha256,NATIVE_FPCW
+    return dict(schema_version=1,native_sha256=image_sha256(),native_fpcw=f'0x{NATIVE_FPCW:X}',
+        action6=all_to_hunt_action_controls(),garrison=all_to_hunt_garrison_controls(),
+        retail=all_to_hunt_retail_inputs())
+
+
+def all_to_hunt_metadata():
+    result=provenance(
+        scope='Eight original Action6 selector/state controls, fourteen complete457DE0 garrison procedure controls around explicit dependencies, and retained retail ALL06 Country9 elapsed/enable/Hunt binding. Not a complete campaign, native Team/placement/UnInit lifecycle, general Hunt or Dominator-death parity claim.',
+        assumptions=[
+            'Reuse the existing ActionFixture/AllChangeHouseFixture VM, allocation/CRT/INI owners. Original Action constructor6DD000, counted read6DD5B0, Execute6DD8B0 and selector6E45E0 execute before actual House IHouse+24/vt38 dispatch501400. Country0/7/0 House order, first duplicate, retained8997/null, null live Trigger, unknown Country and unrelated/null incoming House are supplied priors. A null live Trigger rejects even a valid Country. All three full native seed31 states are saved, not only hashes.',
+            '501400 captures the initial global Techno count once, traverses reverse ordinal order and re-reads the current array pointer at each ordinal; owner, cell-marked+74 and not-limbo admission run. The ordinary Foot TeamRemove(-1,0)/QueueMission(Hunt,0) calls are recorded, and only selected House+249 changes. Mode+250 and strategy timers+5634 remain untouched. Permanent Dominator/Insignificant damage is outside the selected ordinary route, not claimed absent.',
+            'The existing make_source_fixture on the same ActionFixture VM supplies the small32x32 map and original Walk setup. Garrison rows execute complete457DE0 and no-exit4585C0(NULL), actual image Foundation index3 dimensions2x2, Building/Cell coordinates, map lookup and dynamic-vector clear/resize. Some CanEnter results are supplied; declared empty/blocked/outside-playfield/nested-scope rows run real51BF90. Field/list/House/limbo/type/mission priors are explicit, not native full constructors or entry lifecycle.',
+            'Successful Unlimbo result/XYZ/limbo-clear/cell-marked publication is a supplied boundary. Actual Infantry51B1F0 and Techno6FCDB0 NULL target setters clear old Target, supplied reciprocal+2A8 links and path0 with their DoAction child recorded. Infantry51B25D..51B26D clears both supplied+2A8 fields; these are native observations only, with no corresponding Rust reciprocal2a8 state in this batch. Neither this pair nor Temporal cleanup is claimed implemented; actual Temporal pointers are+274/+278. Building centre feeds Scatter(1,1), then TeamRemove(-1,0) if a Team remains, then original QueueMission15,0. The selected owner-transfer control has distinct Building/passenger House priors and records actual per-field writes; SellBuilding only reads the passenger House+21C for its human-seek test. Full Unlimbo remains excluded.',
+            'The final two garrison controls execute original source-aware Infantry Scatter with flags1,1, real heading, RandomRanged, rejection/XOR stores, map/CanEnter and QueueMove2,0. SetDestination records the selected Cell without moving it. Full three-stream RNG before/after hex, individual range returns and raw words are retained. Two range calls need three raw words for seed31; Main/MapGen are unchanged. Do not infer total world-chain draws from this bounded subgraph.',
+            'Actual Queue15,0 only queues Hunt; the declared Guard current mission and mission/movement timers remain unchanged by executed instructions. Placement priority brackets the successful loop and returns to its input; no-exit does not raise it. DoAction, TeamRemove, UnInit, destination and threat-refresh dependencies are recorded, so their own timer/RNG/detach/lifecycle effects and later Hunt cadence remain outside this execution. Unlimbo failure invokes original caller UnInit before continuing, and no-exit removes all occupant callbacks LIFO before vector cleanup.',
+            'Actual mapsmd03.mix ALL06UMD.MAP and retained ini/rulesmd.ini have file hashes. Existing CampaignReader registers physical Rules then map Country entries and reads target Houses Country; counted Event/Trigger flags and scalar Action6 readers execute. Raw three-route Trigger/Tag/Actions and selected Wave4 Team/TaskForce/Script records bind the ordinary path without hand-authored gameplay tuning. Country9 has zero initial Units/Infantry; production must use existing reinforcement/Team admission or explicitly supply that precondition. No original entire wave schedule or full physical INI layering is certified.',
+            'CampaignReader requires VERA20K_CAMPAIGN_START_ASSETS to name an existing empty directory; its constructor otherwise preloads that directory. Selected Country prefixes request no assets. RA2_DIR or VERA20K_GAMEMD_EXE selects the supported retail binary and adjacent mapsmd03.mix. Keep native evidence identity separate from prior corpus provenance.'],
+        substitutions=[
+            'Inherited CRT/heap/TLS/import and cached-INI transports only; original selected dispatch, selector, House loop, garrison branch, target-setter, CanEnter, Scatter/RNG, queue and vector instructions are unmodified.',
+            'Ordinary Action6 Foot TeamRemove/QueueMission are recorded leaves. Garrison Unlimbo supplies success and declared post-placement fields; failed rows returnfalse. UnInit, DoAction, TeamRemove, SetDestination and spatial-threat refresh record calls without executing their full effects. No damage result is substituted into a claimed Dominator chain.'],
+        entry_points=dict(action_constructor=0x6DD000,action_read=0x6DD5B0,action_execute=0x6DD8B0,
+            action6=0x6DEBF9,live_house_selector=0x6E45E0,all_to_hunt=0x501400,
+            garrison_release=0x457DE0,no_exit_cleanup=0x4585C0,
+            infantry_target=0x51B1F0,techno_target=0x6FCDB0,infantry_entry=0x51BF90,
+            infantry_scatter=0x51D0D0,queue_mission=0x5B35E0,random_seed=0x65C6D0,
+            random_ranged=0x65C7E0,country_registration=0x668C8B))
+    result['environment']=dict(RA2_DIR='retail install containing gamemd.exe and mapsmd03.mix',
+        VERA20K_CAMPAIGN_START_ASSETS='existing empty directory; selected prefixes request no assets',
+        checkout_prerequisite='ini/rulesmd.ini is the extracted retail RULESMD.INI')
+    return result
+
+
+def all_to_hunt_source_paths():
+    paths=dict(SOURCE_PATHS)
+    paths.update(source_map=Path(__file__).with_name('unit_source_scatter.py'),
+        source_state=Path(__file__).with_name('unit_scatter_state.py'))
+    return paths
+
+
+def crate_placement_control(case):
+    """Actual108/Place/Overlay constructor on the shared small flat map.
+
+    Reuse the source-aware movement map and Overlay constructor's TMP/registry
+    priors. No placement, FNPC, Mark, random or timer return is supplied.
+    """
+    from tools.spatial_oracle.unit_source_scatter import make_source_fixture, CELLS
+    from tools.spatial_oracle.bridge_constructor import D, REGISTRIES
+    f=ActionFixture();u=f.u
+    make_source_fixture(dict(seed=31,live_entry=True),uc=u)
+    u.mem_map(D,0x200000)
+    overlay=f.allocate(0x400)
+    native=OriginalBridgeConstructor.__new__(OriginalBridgeConstructor)
+    native.uc=u;native.typ=overlay;native.overlay_id=0;native.required=[]
+    native.cell=CELLS+(10*32+10)*0x200
+    native.prepare_success('success')
+    u.mem_write(overlay,bytes(0x400));u.mem_write(overlay,dwords(0x7EF600))
+    u.mem_write(overlay+0x294,dwords(0));u.mem_write(overlay+0x2AA,b'\1')
+    rules=D+0x40000
+    u.mem_write(rules+0xF8,dwords(overlay));u.mem_write(rules+0x100,dwords(overlay))
+    u.mem_write(rules+0x1678,struct.pack('<d',case.get('regen_minutes',3.0)))
+    u.mem_write(0x87F7E8+0xF4,dwords(16,16,0,0,16,16))
+    u.mem_write(0x87F7E8+0x158,bytes(16*256))
+    u.mem_write(0xA8B230,dwords(SCENARIO));u.mem_write(SCENARIO+0x214,dwords(1000))
+    u.mem_write(0xA8B238,dwords(0));u.mem_write(0xA8ED84,dwords(100))
+    u.mem_write(0xA8E9A0,b'\1');u.mem_write(0xA8ED2C,dwords(D+0x48000))
+    f.call(0x47B2F0,[]);f.call(0x5FC310,[])
+    # Slot EmptyCell has its own original static initializer; the native image
+    # starts at zero here, and the same actual value is retained in output.
+    OriginalBridgeConstructor.empty_registries(u,f.allocate)
+    if case.get('slots_full'):
+        u.mem_write(0x87F7E8+0x158,(dwords(50,777,100)+packed(5,5))*256)
+    for y in range(32):
+        for x in range(32):
+            cell=CELLS+(y*32+x)*0x200
+            if case.get('all_occupied'):
+                u.mem_write(cell+0x44,dwords(0))
+            if case.get('blocked'):
+                u.mem_write(cell+0x124,dwords(0xFF))
+            if case.get('water'):
+                u.mem_write(cell+0xEC,dwords(2))
+    read=f.read_action(f"108,0,{case.get('scalar',0)},0,0,0,0,A",ini_capacity=512)
+    requested=case.get('waypoint',[10,10])
+    if not case.get('missing_waypoint'):
+        u.mem_write(SCENARIO+0x632,packed(*requested))
+    waypoint=list(struct.unpack('<2h',u.mem_read(SCENARIO+0x632,4)))
+    for stream in (SCENARIO+0x218,0x886B88,0xABE890):
+        f.call(0x65C6D0,[31],ecx=stream)
+    proxy=SimpleNamespace(u=u,scenario=SCENARIO)
+    before=CampaignReader.rng_state(proxy)
+    events=[];rng_calls=[]
+    lifecycle_calls=[];overlay_object=None
+    observe_lifecycle=case['name']=='money'
+    def lifecycle_snapshot(*,live_object=False):
+        pending=f.read32(0xB0F6A8);array=f.read32(0xB0F69C)
+        state=dict(cursor=f.read32(SCENARIO+0x214),
+            registry_counts={f'{p:08X}':f.read32(p+16) for p in REGISTRIES},
+            pending_native_ids=[f.read32(f.read32(array+n*4)+0x10) for n in range(pending)])
+        if live_object:
+            state.update(native_id=f.read32(overlay_object+0x10),
+                alive=u.mem_read(overlay_object+0x90,1)[0],
+                limbo=u.mem_read(overlay_object+0x81,1)[0],
+                on_map=u.mem_read(overlay_object+0x74,1)[0])
+        return state
+    lifecycle_before=lifecycle_snapshot() if observe_lifecycle else None
+    addresses={0x56BEC0:'place',0x56DC20:'find_nearby',0x4A17C0:'slot_place',
+        0x4A18F0:'validate_create',0x5FC380:'overlay_constructor',0x5FC570:'overlay_mark'}
+    def observe(vm,pc,size,data):
+        nonlocal overlay_object
+        sp=vm.reg_read(UC_X86_REG_ESP)
+        if observe_lifecycle:
+            receiver=vm.reg_read(UC_X86_REG_ECX)
+            if pc==0x5FC380:
+                assert overlay_object is None
+                overlay_object=receiver
+                lifecycle_calls.append(dict(pc=f'{pc:08X}',call='overlay_constructor'))
+            elif overlay_object is not None:
+                if pc==0x410230 and f.read32(sp+4)==overlay_object+4:
+                    lifecycle_calls.append(dict(pc=f'{pc:08X}',call='create_id',
+                        cursor_before=f.read32(SCENARIO+0x214)))
+                elif pc==0x68BCB0 and receiver==SCENARIO:
+                    lifecycle_calls.append(dict(pc=f'{pc:08X}',call='next_unique_id',
+                        cursor_before=f.read32(SCENARIO+0x214)))
+                elif receiver==overlay_object and pc in (0x5FC570,0x5F65F0,0x7258D0,0x5FDF70,0x5F3B80):
+                    names={0x5FC570:'mark',0x5F65F0:'uninit',0x7258D0:'announce_expired',
+                           0x5FDF70:'overlay_destructor',0x5F3B80:'object_destructor'}
+                    lifecycle_calls.append(dict(pc=f'{pc:08X}',call=names[pc]))
+                elif pc in (0x725C70,0x7C8B3D):
+                    lifecycle_calls.append(dict(pc=f'{pc:08X}',call='drain' if pc==0x725C70 else 'crt_free'))
+        if pc in addresses:
+            row=dict(call=addresses[pc])
+            if pc==0x56BEC0:
+                row.update(cell=list(struct.unpack('<2h',vm.mem_read(sp+4,4))),
+                    scalar=struct.unpack('<i',vm.mem_read(sp+8,4))[0])
+            elif pc==0x56DC20:
+                row.update(speed=f.read32(sp+12))
+            events.append(row)
+        if pc in (0x65C780,0x65C7E0):
+            rng_calls.append(dict(address=f'{pc:08X}',receiver=f'{vm.reg_read(UC_X86_REG_ECX):08X}',
+                args=list(struct.unpack('<2i',vm.mem_read(sp+4,8))) if pc==0x65C7E0 else []))
+        if pc in (0x47FDE0,0x47FB90):
+            output=f.read32(sp+4);vm.mem_write(output,bytes(16))
+            return_from_sink(vm,4,output)
+        elif pc==0x6D2790:
+            return_from_sink(vm,20,0)
+        elif pc==0x4068E0:
+            return_from_sink(vm,0,0)
+    u.hook_add(UC_HOOK_CODE,observe)
+    returned=f.call(0x6DD8B0,[0,0,0,0],ecx=ACTION)&255
+    slots=[list(struct.unpack('<3i2h',u.mem_read(0x87F7E8+0x158+i*16,16))) for i in range(256)]
+    placed=[dict(xy=[x,y],overlay=struct.unpack('<i',u.mem_read(CELLS+(y*32+x)*0x200+0x44,4))[0],
+        data=u.mem_read(CELLS+(y*32+x)*0x200+0x11E,1)[0])
+        for y in range(32) for x in range(32)
+        if struct.unpack('<i',u.mem_read(CELLS+(y*32+x)*0x200+0x44,4))[0]!=-1]
+    f.check_code()
+    result=dict(input=case,native_read=read,native_waypoint=waypoint,
+        output=dict(returned=returned,first_slot=slots[0],second_slot=slots[1],
+            occupied_slots=sum(row[3:]!=[0,0] for row in slots),
+            cells=placed if not case.get('all_occupied') else [],
+            all_occupied_prior=bool(case.get('all_occupied')),scenario_id_cursor=f.read32(SCENARIO+0x214),
+            empty_cell=list(struct.unpack('<2h',u.mem_read(0x89E748,4)))),
+        events=events,rng_calls=rng_calls,rng_before=before,rng_after=CampaignReader.rng_state(proxy))
+    if observe_lifecycle:
+        assert overlay_object is not None
+        after_placement=lifecycle_snapshot(live_object=True)
+        before_drain=CampaignReader.rng_state(proxy)
+        # Shared constructor/deferred Windows transport; the actual drain and
+        # Overlay/Object destructors execute. No lifecycle result is supplied.
+        OriginalBridgeConstructor.prepare_deferred_services(u)
+        f.call(0x725C70,[])
+        after_drain=lifecycle_snapshot()
+        after_drain['free_calls']=sum(row['call']=='crt_free' for row in lifecycle_calls)
+        after_rng=CampaignReader.rng_state(proxy)
+        assert before_drain==after_rng
+        result['lifecycle']=dict(before=lifecycle_before,after_placement=after_placement,
+            after_drain=after_drain,calls=lifecycle_calls,
+            rng_before_drain=before_drain,rng_after_drain=after_rng)
+        f.check_code()
+    return result
+
+
+def crate_retail_inputs():
+    """One actual active ALL07 map and original counted input readers."""
+    from tools.spatial_oracle.tag_lifecycle import PowerEventControls
+    directory=configured_gamemd().parent
+    probes=[];raw_map=None
+    for name in ('langmd.mix','language.mix','expandmd01.mix','mapsmd03.mix'):
+        data=(directory/name).read_bytes();member=mix(data).get(mix_hash('ALL07SMD.MAP'))
+        probes.append(dict(archive=name,sha256=hashlib.sha256(data).hexdigest(),
+            member_sha256=None if member is None else hashlib.sha256(member).hexdigest(),
+            member_bytes=None if member is None else len(member)))
+        if member is not None and raw_map is None:raw_map=member
+    assert [row['archive'] for row in probes if row['member_sha256']] == ['mapsmd03.mix']
+    values=sections(raw_map);rules_raw=(Path(__file__).parents[2]/'ini/rulesmd.ini').read_bytes()
+    rules=sections(rules_raw);identity='04F0AACC';f=ActionFixture()
+    tokens=values['Actions'][identity].split(',');actions=[]
+    for index in range(2):
+        action=f.read_action(','.join(tokens[1+index*8:9+index*8]),ini_capacity=512)
+        wp=action['waypoint'];f.ordered_ini({'Waypoints':values['Waypoints']})
+        f.u.mem_write(SP+0x10,str(wp).encode()+b'\0')
+        for reg,value in ((UC_X86_REG_ESP,SP),(UC_X86_REG_EBX,INI),
+                (UC_X86_REG_ESI,wp),(UC_X86_REG_EDI,SCENARIO+0x632+wp*4)):
+            f.u.reg_write(reg,value)
+        run_checked(f.u,0x68BDE7,0x68BE35,required_addresses=(0x5276D0,))
+        action.update(raw_waypoint=values['Waypoints'][str(wp)],
+            native_waypoint=list(struct.unpack('<2h',f.u.mem_read(SCENARIO+0x632+wp*4,4))))
+        actions.append(action)
+    # Exact selected section only: this is a ReadString field-block probe,
+    # not a second Rules loader or a full OverlayType::ReadINI execution.
+    f.ordered_ini({'CRATE':rules['CRATE']})
+    section=f.allocate(16);buffer=f.allocate(128)
+    f.u.mem_write(section,b'CRATE\0');f.u.mem_write(buffer,bytes(128))
+    cell_anim_length=f.call(0x528A10,[section,0x833544,0x889F64,buffer,128],ecx=INI)
+    cell_anim=dict(rules_section=rules['CRATE'],map_override=values.get('CRATE'),
+        key='CellAnim',capacity=128,default='',native_read_length=cell_anim_length,
+        native_read=bytes(f.u.mem_read(buffer,128)).split(b'\0')[0].decode('latin1'))
+    flags=FlagsFixture();f.check_code()
+    return dict(map='ALL07SMD.MAP',map_sha256=hashlib.sha256(raw_map).hexdigest(),
+        source_scan=probes,selected_source='mapsmd03.mix',
+        rules_file='ini/rulesmd.ini',rules_sha256=hashlib.sha256(rules_raw).hexdigest(),
+        trigger_id=identity,trigger=values['Triggers'][identity],events=values['Events'][identity],
+        actions=values['Actions'][identity],tags={k:v for k,v in values['Tags'].items() if v.endswith(','+identity)},
+        native_events=PowerEventControls.read_event(values['Events'][identity]),
+        native_flags=flags.execute(values['Triggers'][identity],[1,1,1,1,0]),native_actions=actions,
+        raw_rules={name:rules[name] for name in ('CrateRules','Powerups')},
+        raw_overrides={name:values[name] for name in ('CrateRules','Powerups') if name in values},
+        crate_cell_anim=cell_anim,
+        limits='Physical registered-source probes bind this install and existing AssetManager priority; no new general resolver. Native Event/Action/flags/Waypoints field readers execute. CrateRules/Powerups values are raw source records here, not a whole Rules loader or whole-map placement execution.')
+
+
+def crate_generate():
+    from tools.native_oracle import image_sha256,file_span,image_bytes
+    from tools.spatial_oracle.crate_pickup import execute as pickup_execute
+    from tools.spatial_oracle.tag_lifecycle import PowerEventControls,execute as tag_execute
+    placement=[crate_placement_control(case) for case in (
+        dict(name='money',scalar=0),dict(name='random_sentinel20',scalar=20),
+        dict(name='scalar276_low_byte20',scalar=276),dict(name='negative_scalar_low_byte255',scalar=-1),
+        dict(name='missing_waypoint_zero_prior',missing_waypoint=True),
+        dict(name='full_slots',slots_full=True),dict(name='already_occupied_cells',all_occupied=True),
+        dict(name='water_speed_zero_table_reject',water=True))]
+    pickups=[]
+    for extra in (
+        dict(name='ordinary_money'),dict(name='no_tag',tag=False),
+        dict(name='no_crate_trigger',crate_trigger=False),dict(name='callback_kill',mutation='kill'),
+        dict(name='callback_owner1',mutation='owner1'),
+        dict(name='callback_data10',mutation='selection10',prefix_only=True),
+        dict(name='callback_data0',selection=10,mutation='selection0'),
+        dict(name='dead_no_tag_bypasses_alive_gate',tag=False,alive=False),
+        dict(name='random_money_amount',solo_money=0)):
+        case=dict(mode=0,selection=0,solo_choices=[2,0,0],same_images=True,solo_money=5000)|extra
+        f=ActionFixture();f.u.mem_map(SCRATCH+0x10000,0x10000)
+        pickups.append(pickup_execute(case,native_fixture=f));f.check_code()
+    m=PowerEventControls(reader_inputs=[]);pscene=m.arena+0xB0000
+    m.u.mem_write(0xA8B230,dwords(pscene))
+    for stream in (pscene+0x218,0x886B88,0xABE890):m.fixture.call(0x65C6D0,[31],ecx=stream)
+    predicate_rng=CampaignReader.rng_state(SimpleNamespace(u=m.u,scenario=pscene));classification=[]
+    for kind in (49,50):
+        for name,raised,bypass,persist in (
+            ('matching',kind,False,0),('wrong_raise',8,False,0),
+            ('scenario_init',kind,True,0),('initial_persistence1',kind,False,1)):
+            # predicate supplies this sentinel immediately before its call.
+            m.u.mem_write(m.event+0x54,dwords(0xABCD1234))
+            event54=struct.unpack('<i',m.u.mem_read(m.event+0x54,4))[0]
+            before=list(struct.unpack('<3i',m.u.mem_read(m.timer,12)))
+            m.predicate(f'{kind}_{name}',f'1,{kind},0,-7',house_index=None,
+                raised=raised,actor_index=None,scenario_init=bypass,initial_persistence=persist)
+            row=m.predicates[-1];row.update(timer_before=before,
+                timer_after=list(struct.unpack('<3i',m.u.mem_read(m.timer,12))),event54_before=event54,
+                three_rng_unchanged=predicate_rng==CampaignReader.rng_state(SimpleNamespace(u=m.u,scenario=pscene)))
+            row['inputs']['initial_persistence']=persist
+            assert row['three_rng_unchanged']
+        classification.append(dict(kind=kind,state_a=m.fixture.call(0x71F950,[],ecx=m.event)&255,
+            state_b=m.fixture.call(0x71F9C0,[],ecx=m.event)&255))
+    m.assert_unchanged()
+    histories=[tag_execute(dict(name=f'crate_logic_repeat{repeat}',repeat=repeat,polling=True,lifecycle=True,
+        observe_object_cleanup=True,
+        triggers=[dict(events=[[50,0]],actions=[[28,7]])],
+        operations=[['shared'],['register_logic',0],['poll'],['scenario_flags',0,0,0,1],
+            ['poll'],['poll'],['scenario_flags',0,0,0,1],['poll'],['drain']])) for repeat in (0,2)]
+    image=image_bytes()
+    ranges=(('action108',0x6DF69B,0x35),('waypoint',0x68BCC0,0x14),
+        ('empty_cell_initializer',0x47B2F0,0xF),('empty_cell_crt_pointer',0x812A24,4),
+        ('place',0x56BEC0,0x160),('slot_place_timer',0x4A17C0,0x130),
+        ('slot_validate_create',0x4A18F0,0x1B0),('pickup_selection',0x481A00,0x199),
+        ('pickup_money',0x482465,0x86),('logic_poll',0x55AFB0,0x255),
+        ('overlay_constructor',0x5FC380,0x12E),('overlay_uninit',0x5F65F0,0x92),
+        ('overlay_destructor',0x5FDF70,0x96),('object_destructor',0x5F3B80,0x204),
+        ('overlay_type_constructor_defaults',0x5FE250,0x70),('cell_anim_read',0x5FE865,0x58))
+    return dict(schema_version=1,native_sha256=image_sha256(),
+        placement_controls=placement,pickup_controls=pickups,event_controls=m.predicates,
+        classification=classification,predicate_rng_seed31=predicate_rng,logic_histories=histories,
+        retail=crate_retail_inputs(),bytes={name:dict(address=f'{a:08X}',size=n,
+            hex=file_span(image,a,n)[1].hex()) for name,a,n in ranges})
+
+
+def crate_metadata():
+    return provenance(
+        scope='Bounded active Action108 placement, original solo Money pickup and synchronous49 caller mutation controls,49/50 predicates, Logic50 histories and one retail ALL07 reader binding. Not whole crate/world/campaign parity.',
+        assumptions=[
+            'Reuse ActionFixture, make_source_fixture and OriginalBridgeConstructor prepare_success/empty_registries on one VM; flat32x32 allocated Cell table, Size16x16/LocalSize0,0,16,16, empty occupants/Terrain, resident1x1 TMP metadata, OverlayType/raw Rules state, GameActive1, mode0/frame100 and spare native registry capacity are supplied world priors. Land0 speed rows1.0, land1 rows0.0 and remaining image-default rows0.0; water contrast deliberately reaches Float5 then fails this supplied zero table. Original FNPC, slot creation, Overlay constructor/Mark, timer arithmetic and original RNG execute. No physical full-map load or pathfinding/movement integration is claimed.',
+            'Place controls supply CrateRegen3 minutes and selected image/type priors; actual original three RandomClass streams seeded31 and full hex before/after are retained. Missing waypoint row supplies zero-initialized absent Scenario slot; native GetWaypointCoords reads it and FNPC executes, rather than an invented missing-index reject. Malformed out-of-range waypoint indexing is excluded. Full dword scalar20 is random sentinel;276 stores low byte20. Timer draw executes in campaign too.',
+            'The same existing money placement row additionally observes the real Overlay constructor/ID, five registry baselines and increments, Alive0/limbo1/on_map0, pending object identity and actual725C70 -> Overlay/Object destructors/free. Action construction already occupies one AllAbstract/B0F670 entry, so its retained1 baseline is not an Overlay leak. Each of the five arrays loses the Overlay during drain, cursor stays1001 and all three full RNG states remain unchanged by the drain. No released-memory host object is prescribed.',
+            'Pickup reuses crate_pickup.execute on the reader VM via crate_speed_effect.fixture optional VM. Original actor/vtables, neutral House income1, empty storage and balances100/200, one owned building, CrateTrigger/raw images, fixed solo choices and money5000 are explicit priors, not full constructors/INI layering. Original AddCredits executes; FillSilos/nonempty storage/conversion and multiplayer regeneration are excluded.',
+            '49 invokes a declared sink with actual Tag/actor/EmptyCell/force/source ABI. Named sink controls kill actor, change owner or change Cell data; they do not execute Tag action bodies. Original caller rereads Alive only after nonnull Tag callback, then dirty34BE, data and later House/images. No Tag deletion, attachment lifecycle or whole callback-effect parity is claimed by this sink.',
+            'Original47B2F0 establishes global89E748 EmptyCell(0,0); its CRT pointer and bytes are retained. It is BSS, not file-backed data. Dirty34BE writes are conditional on CrateTrigger and outside the nonnull-Tag branch, while callback death exits before dirty and removal.',
+            'PowerEventControls provides eight49/50 predicate controls and four classification calls with explicit persistence, timer, retained, actor/source/House null priors. All three seeded states are checked unchanged per leaf. Existing tag_lifecycle.execute owns two Logic/Tag/Register/Action28 histories: dirty producer is supplied by scenario_flags, not a claimed connected native pickup-to-Logic world execution. Its existing observe_object_cleanup mode seeds and observes all three full states unchanged after each operation; no Object is constructed by these histories. Original timer/completed/pending fields and cleanup calls remain in the inherited history shape.',
+            'retail.crate_cell_anim retains the actual CRATE section and absent ALL07 override, then executes only original ReadString528A10 with the exact CellAnim key, empty default and capacity128. Its empty result combines with the saved static OverlayType constructor+29C zero store and ReadINI missing-key retain branch; this is not whole OverlayType construction/ReadINI, arbitrary animation lookup or all language-layer execution evidence.',
+            'Selected actual ALL07SMD from mapsmd03 is bound by higher-priority-source absence probes, member/archive SHA, raw route/Tags/rules and native Action/Event/flags/Waypoints field readers. Rules/Powerups raw sections are source evidence, not a full Rules reader claim. Placement uses small synthetic geometry, not the distant retail waypoint coordinates. Existing production asset policy remains authoritative.'],
+        substitutions=[
+            'Inherited cached INI/CRT/heap/TLS/Windows transports. Screen rectangle calls return empty rectangles; dirty-screen and diagnostic printf are recorded/no-op presentation sinks. The money-row drain uses OriginalBridgeConstructor Windows SEH/IsBadReadPtr transport and inherited external-free sink; original gameplay cleanup is not replaced.',
+            'Tag6E53A0 pickup callback is an explicit mutation sink. No Place, FNPC, Mark, RandomRanged, Money amount, AddCredits or predicate return is supplied. Inherited source fixture has unused movement observer seams; selected Place does not invoke them.'],
+        entry_points=dict(action_execute=0x6DD8B0,action108=0x6DF69B,waypoint=0x68BCC0,
+            place=0x56BEC0,slot_place=0x4A17C0,slot_create=0x4A18F0,
+            pickup=0x481A00,tag49=0x6E53A0,add_credits=0x4F9950,
+            has_occurred=0x71E940,state_a=0x71F950,state_b=0x71F9C0,
+            logic=0x55AFB0,empty_cell_init=0x47B2F0,overlay_constructor=0x5FC380,
+            object_uninit=0x5F65F0,deferred_drain=0x725C70,
+            overlay_destructor=0x5FDF70,object_destructor=0x5F3B80))
+
+
+def crate_source_paths():
+    paths=dict(SOURCE_PATHS)
+    paths.update(crate_pickup=Path(__file__).with_name('crate_pickup.py'),
+        crate_actor=Path(__file__).with_name('crate_speed_effect.py'),
+        source_map=Path(__file__).with_name('unit_source_scatter.py'),
+        source_state=Path(__file__).with_name('unit_scatter_state.py'))
+    return paths
+
+
+class WakeupFixture(ActionFixture):
+    """One existing action VM; real class slots and deferred Mission writes."""
+
+    TABLES = {'infantry': 0x7EB058, 'unit': 0x7F5C70,
+              'aircraft': 0x7E22A4, 'building': 0x7E3EBC}
+    # Checked original loop-body boundaries, after each pointer load.
+    VISITS = {0x6E01DA: UC_X86_REG_ESI, 0x6DDC15: UC_X86_REG_ESI,
+              0x6DDC8F: UC_X86_REG_ESI}
+
+    def __init__(self):
+        super().__init__()
+        self.actor_ptrs = [self.allocate(0x800) for _ in range(12)]
+        self.actor_ids = {p: i for i, p in enumerate(self.actor_ptrs)}
+        self.house_ptrs = [self.allocate(0x100) for _ in range(3)]
+        self.trigger_ptrs = [self.allocate(0x80) for _ in range(8)]
+        self.tag_ptrs = [self.allocate(0x80) for _ in range(12)]
+        self.lists = [self.allocate(0x100) for _ in range(2)]
+        self.capturing_wakeup = False
+        for table in self.TABLES.values():
+            assert self.read32(table + 0x184) == 0x5B3040
+            assert self.read32(table + 0x1E8) == (
+                0x41BA90 if table == self.TABLES['aircraft'] else 0x5B35E0)
+        extra = [(0x5B3040, 0x5B3052), (0x5B35E0, 0x5B3645),
+                 (0x41BA90, 0x41BAF0), (0x6E5380, 0x6E539F),
+                 (0x65C6D0, 0x65C77D)]
+        extra += [(table, table + 0x500) for table in self.TABLES.values()]
+        extra += [(self.read32(table + 0x2C), self.read32(table + 0x2C) + 6)
+                  for table in self.TABLES.values()]
+        for a, b in extra:
+            self.ranges.append((a, b))
+            self.original.append(bytes(self.u.mem_read(a, b - a)))
+        self.u.hook_add(UC_HOOK_CODE, self.observe_wakeup)
+
+    def publish_wakeup(self, techno, foot):
+        for base, order, slot in ((0xA8EC78, techno, 0), (0x8B3DC0, foot, 1)):
+            pointer = self.lists[slot]
+            self.u.mem_write(pointer, dwords(*(self.actor_ptrs[i] for i in order)))
+            self.u.mem_write(base + 4, dwords(pointer, 12, 0, len(order), 12))
+
+    def observe_wakeup(self, u, pc, _size, _data):
+        if not self.capturing_wakeup:
+            return
+        sp = u.reg_read(UC_X86_REG_ESP)
+        if pc in self.VISITS:
+            self.visited.append(self.actor_ids[u.reg_read(self.VISITS[pc])])
+        if pc == 0x5B3040:
+            self.effective_queries.append(self.actor_ids[u.reg_read(UC_X86_REG_ECX)])
+        elif pc in (0x5B35E0, 0x41BA90):
+            actor = self.actor_ids[u.reg_read(UC_X86_REG_ECX)]
+            self.queue_bodies.append(dict(actor=actor, entry=f'{pc:08X}'))
+            if pc == 0x41BA90 or self.actors[actor]['category'] != 'aircraft':
+                self.queue_calls.append(dict(actor=actor, mission=self.integer(sp + 4),
+                                             arg=self.integer(sp + 8)))
+        elif pc == 0x6E5380:
+            self.tag_queries.append(dict(actor=self.tag_ptrs.index(u.reg_read(UC_X86_REG_ECX)),
+                trigger=None if self.read32(sp + 4) == 0 else
+                    self.trigger_ptrs.index(self.read32(sp + 4))))
+        if pc in (0x65C780, 0x65C7E0):
+            self.rng_calls.append(f'{pc:08X}')
+        if pc in (0x5B3570, 0x4D7390, 0x70D4A0, 0x6EA870):
+            self.unexpected_effects.append(f'{pc:08X}')
+
+    def actor_state(self, pointer):
+        return dict(current=self.integer(pointer + 0xAC), queued=self.integer(pointer + 0xB4),
+                    bypass=self.u.mem_read(pointer + 0xB8, 1)[0])
+
+    def wakeup_case(self, case):
+        self.capturing_wakeup = False
+        u = self.u
+        defaults = dict(category='infantry', current=0, queued=2, health=100,
+            alive=True, cell_marked=True, limbo=False, house=0, group=-1,
+            tag_chain=[0], bypass=165)
+        self.actors = [dict(defaults, **actor) for actor in case.get('actors', [{}])]
+        assert len(self.actors) <= len(self.actor_ptrs)
+        links = {}
+        for p in self.trigger_ptrs:
+            u.mem_write(p, bytes(0x80))
+            # All are distinct live instances with the SAME supplied type.
+            u.mem_write(p + 0x24, dwords(TYPE))
+        for i, actor in enumerate(self.actors):
+            p = self.actor_ptrs[i]
+            u.mem_write(p, bytes(0x800))
+            u.mem_write(p, dwords(self.TABLES[actor['category']]))
+            u.mem_write(p + 0x6C, dwords(actor['health']))
+            for offset, name in ((0x90, 'alive'), (0x74, 'cell_marked'), (0x81, 'limbo')):
+                u.mem_write(p + offset, bytes((actor[name],)))
+            u.mem_write(p + 0x21C, dwords(0 if actor['house'] is None else self.house_ptrs[actor['house']]))
+            u.mem_write(p + 0x214, dwords(actor['group']))
+            u.mem_write(p + 0xAC, dwords(actor['current'], 17, actor['queued']))
+            u.mem_write(p + 0xB8, bytes((actor['bypass'],)))
+            # Nonzero mission/timer/target/Team priors must survive deferred Queue.
+            u.mem_write(p + 0xBC, dwords(137, 31, 19, 113, 7, 45))
+            u.mem_write(p + 0x2B4, dwords(0x12345678))
+            u.mem_write(p + 0x5D4, dwords(0x23456789))
+            chain = actor['tag_chain']
+            if chain is None:
+                u.mem_write(p + 0x34, dwords(0))
+            else:
+                tag = self.tag_ptrs[i]
+                u.mem_write(tag, bytes(0x80))
+                u.mem_write(tag + 0x28, dwords(self.trigger_ptrs[chain[0]] if chain else 0))
+                u.mem_write(p + 0x34, dwords(tag))
+                for n, item in enumerate(chain):
+                    next_item = chain[n + 1] if n + 1 < len(chain) else None
+                    assert item not in links or links[item] == next_item
+                    links[item] = next_item
+        for i, following in links.items():
+            u.mem_write(self.trigger_ptrs[i] + 0x28,
+                dwords(0 if following is None else self.trigger_ptrs[following]))
+        order = list(range(len(self.actors)))
+        self.techno_order = case.get('techno_order', order)
+        self.foot_order = case.get('foot_order',
+            [i for i in order if self.actors[i]['category'] != 'building'])
+        self.publish_wakeup(self.techno_order, self.foot_order)
+        for stream in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [31], ecx=stream)
+        kind, scalar = case['action_kind'], case.get('scalar', -7)
+        raw = f'{kind},0,{scalar},0,0,0,0,A'
+        self.visited, self.effective_queries, self.tag_queries = [], [], []
+        self.queue_calls, self.queue_bodies, self.rng_calls, self.unexpected_effects = [], [], [], []
+        rng_before = self.rng_hashes()
+        self.capturing_wakeup = True
+        read = self.read_action(raw, ini_capacity=512)
+        rng_after_read = self.rng_hashes()
+        assert rng_after_read == rng_before and not self.rng_calls
+        incoming, trigger = case.get('incoming_house', 0), case.get('trigger', 0)
+        before = [bytes(u.mem_read(p, 0x800)) for p in self.actor_ptrs[:len(self.actors)]]
+        result = self.call(0x6DD8B0,
+            [0 if incoming is None else self.house_ptrs[incoming], 0,
+             0 if trigger is None else self.trigger_ptrs[trigger], 0], ecx=ACTION) & 255
+        self.capturing_wakeup = False
+        after = [bytes(u.mem_read(p, 0x800)) for p in self.actor_ptrs[:len(self.actors)]]
+        timers_unchanged = all(a[0xBC:0xD4] == b[0xBC:0xD4] for a, b in zip(before, after))
+        changed = [(i, offset) for i, (a, b) in enumerate(zip(before, after))
+                   for offset, (left, right) in enumerate(zip(a, b)) if left != right]
+        permitted = set(range(0xB4, 0xB9))
+        other_unchanged = all(offset in permitted for _, offset in changed)
+        assert self.rng_hashes() == rng_before and not self.rng_calls
+        assert not self.unexpected_effects and timers_unchanged and other_unchanged
+        self.check_code()
+        return dict(name=case['name'], action_kind=kind, raw_record=raw,
+            incoming_house=incoming, trigger=trigger, scalar=scalar,
+            actors=self.actors, techno_order=self.techno_order, foot_order=self.foot_order,
+            native_read=read, ret=result, visited=self.visited,
+            effective_queries=self.effective_queries, tag_queries=self.tag_queries,
+            queue_calls=self.queue_calls, queue_bodies=self.queue_bodies,
+            after=[self.actor_state(p) for p in self.actor_ptrs[:len(self.actors)]],
+            rng_before=rng_before, rng_after_read=rng_after_read,
+            rng_after=self.rng_hashes(), rng_calls=self.rng_calls,
+            mission_timers_unchanged=timers_unchanged, other_actor_bytes_unchanged=other_unchanged)
+
+
+def wakeup_retail_inputs():
+    """Retain the actual ALL02 attacked-guards → disabled prisoners binding.
+
+    Existing native reader owners establish Countries, mission-name ids and
+    initial enablement. References/actions remain exact retail strings here;
+    their production binding is separate from these native scalar controls.
+    """
+    from tools.input_oracle.campaign_start import prepare_house_rules
+    from tools.spatial_oracle.tag_lifecycle import execute as tag_lifecycle
+    from tools.spatial_oracle.trigger_event_records import execute as event_reader
+
+    # Init_Game52BB64 calls Init_Base_Mix_Files5301A0 before its later
+    # Init_Mix_Files530460 call52C59C. The original EXPANDMD99..00 loop
+    # formats5301C4/constructs530217 before numbered MAPSMD530A2E.
+    # Pin the official patch member here rather than inventing another MIX
+    # priority resolver. The Rust test compares its production-resolved map
+    # bytes with this identity, rejecting any higher-priority override.
+    archive = (configured_gamemd().parent / 'expandmd01.mix').read_bytes()
+    raw_map = mix(archive)[mix_hash('ALL02UMD.MAP')]
+    rules_path = Path(__file__).parents[2] / 'ini' / 'rulesmd.ini'
+    raw_rules = rules_path.read_bytes()
+    langrule_path = rules_path.with_name('langrule.ini')
+    layers = [('RULESMD.INI', raw_rules)]
+    if langrule_path.is_file():
+        layers.append(('LANGRULE.INI', langrule_path.read_bytes()))
+    layers.append(('ALL02UMD.MAP', raw_map))
+    values, rule_values = sections(raw_map), sections(raw_rules)
+    m = CampaignReader()
+    m.invoke(0x6832C0, m.scenario)
+    rules_pointer = prepare_house_rules(m, rule_values)
+    m.seed_streams(31)
+    rng_before = m.rng_state()
+    registrations = []
+    for label, raw in layers:
+        entries = sections(raw)
+        m.ordered_ini({'Countries': entries.get('Countries', {})})
+        m.u.reg_write(UC_X86_REG_ESI, INI)
+        m.u.reg_write(UC_X86_REG_EDI, rules_pointer)
+        m.region(0x668C8B, 0x668CDB)
+        registrations.append(dict(layer=label, entries=[dict(index=i,
+            name=m.string(m.read32(m.read32(0xA83C9C) + i * 4) + 0x24))
+            for i in range(m.read32(0xA83CA8))]))
+    houses = []
+    for name in ('Americans', 'Germans', 'Neutral'):
+        m.ordered_ini({name: values[name]})
+        country = m.invoke(0x475540, INI,
+            (m.cstring(name), m.cstring('Country'), 0xFFFFFFFF))
+        houses.append(dict(name=name, raw=values[name], native_country=country))
+    missions = [dict(name=name, native_id=struct.unpack('<i', dwords(
+        m.invoke(0x5B3910, m.cstring(name))))[0])
+        for name in ('Sleep', 'Guard', 'Area Guard', 'Harmless')]
+    rng_after = m.rng_state()
+    assert rng_before == rng_after
+    m.check_code()
+    flags, routes = FlagsFixture(), {}
+    for identity in ('095D099C', '0958149C', '095D033C'):
+        trigger = values['Triggers'][identity]
+        tag_records = {key: raw for key, raw in values['Tags'].items()
+                       if raw.endswith(',' + identity)}
+        attachments = [dict(section=section, key=key, raw=raw)
+            for section in ('Infantry', 'Units', 'Aircraft', 'Structures')
+            for key, raw in values.get(section, {}).items()
+            if any(tag in raw.split(',') for tag in tag_records)]
+        native_flags = flags.execute(trigger, [1, 1, 1, 1, 0])
+        native_events = event_reader(values['Events'][identity])
+        definition = dict(flags=native_flags['output'][:4], actions=[],
+            events=[[row['kind'], row['value']] for row in native_events['conditions']])
+        ctor = tag_lifecycle(dict(name='ALL02_' + identity + '_flags_ctor_only',
+            triggers=[definition], operations=[['shared']]))
+        routes[identity] = dict(trigger=trigger, tags=tag_records,
+            attachments=attachments, events_raw=values['Events'][identity],
+            actions_raw=values['Actions'][identity], native_flags=native_flags,
+            native_events=[dict(kind=row['kind'], value=row['value'])
+                for row in native_events['conditions']],
+            initial_enabled=ctor['history'][0]['tags'][0]['triggers'][0]['enabled'])
+    action = ActionFixture()
+    native_action = action.read_action('81,0,0,0,0,0,0,A', ini_capacity=512)
+    action.check_code()
+    return dict(map='ALL02UMD.MAP', archive='expandmd01.mix',
+        archive_sha256=hashlib.sha256(archive).hexdigest(),
+        map_sha256=hashlib.sha256(raw_map).hexdigest(),
+        rules_file='ini/rulesmd.ini', rules_sha256=hashlib.sha256(raw_rules).hexdigest(),
+        source_selection=dict(policy='fixed official YR patch member; production identity must match',
+            native_init_base_mix=0x5301A0, native_init_base_call=0x52BB64,
+            native_expand_format=0x5301C4, native_expand_construct=0x530217,
+            native_expand_descending_loop=0x530289, native_init_mix=0x530460,
+            native_init_mix_call=0x52C59C, native_numbered_map_format=0x530A2E,
+            boundary='Instruction-read archive-registration order, not native filesystem/mount execution. Existing Rust AssetManager owns lookup priority; map digest mismatch must fail for loose/language/later-expansion overrides.'),
+        layers=[dict(layer=label, sha256=hashlib.sha256(raw).hexdigest()) for label, raw in layers],
+        basic=dict(Player=values['Basic']['Player']), houses=houses,
+        country_registration=registrations, mission_from_name=missions,
+        routes=routes, native_action81_read=native_action,
+        country_mission_rng=dict(unchanged=True,
+            before={k: hashlib.sha256(bytes.fromhex(v)).hexdigest() for k, v in rng_before.items()},
+            after={k: hashlib.sha256(bytes.fromhex(v)).hexdigest() for k, v in rng_after.items()}),
+        limits='Seven real Neutral CIV Sleep records share the disabled Wakeup_Prisoners Tag. Eight Germans INIT Guard/AreaGuard records share the Event6 Germans_Attacked Tag, whose exact two Action53 references include the Wakeup and Prisoners_Panic triggers. The sibling Panic13/1 and its Team action remain raw; its later timer/Team effect is outside the selected Wakeup13/0 interval. Native Country/mission-name/flags/event readers and initial enabled constructors execute. Action references/Tag attachment/actor placement and whole Event6→53→13→81 schedule are not executed natively in this row; their original raw IDs bind the Rust production path. Authored health256 is an encoding, not native HP256. No full Type/Rules load or future Guard/Scatter/cadence/RNG claim.')
+
+
+def wakeup_generate():
+    from tools.native_oracle import image_sha256
+
+    f = WakeupFixture()
+    cases = []
+    def add(name, kind, actor=None, **kwargs):
+        cases.append(dict(name=name, action_kind=kind,
+            actors=[{} if actor is None else actor], **kwargs))
+    for kind, mission, house in ((81, 0, 0), (82, 0, 1), (83, 23, 0)):
+        base = dict(current=mission, house=house, group=-7)
+        add(f'action{kind}_admitted', kind, base)
+        add(f'action{kind}_empty_registry', kind, base, techno_order=[], foot_order=[])
+        for field, value in (('alive', False), ('cell_marked', False),
+                             ('health', 0), ('health', -1), ('limbo', True)):
+            add(f'action{kind}_{field}_{value}', kind, dict(base, **{field: value}))
+        for category in ('unit', 'aircraft'):
+            add(f'action{kind}_{category}', kind, dict(base, category=category))
+        add(f'action{kind}_current_none_queued_admitted', kind,
+            dict(base, current=-1, queued=mission))
+        add(f'action{kind}_current_none_queued_none', kind, dict(base, current=-1, queued=-1))
+        add(f'action{kind}_sticky_unchanged', kind, dict(base, current=6))
+    for name, actor in (
+        ('harmless', dict(current=23)), ('building_excluded', dict(category='building')),
+        ('no_tag', dict(tag_chain=None)), ('empty_tag', dict(tag_chain=[])),
+        ('different_instance_same_type', dict(tag_chain=[1])),
+        ('linked_instance', dict(tag_chain=[2, 1, 0])),
+        ('zero_health_limbo', dict(health=0, limbo=True)),
+        ('foreign_house_irrelevant', dict(house=1)),
+        ('queued_guard_still_clears_bypass', dict(queued=5)),
+        ('current_attack_queued_sleep', dict(current=1, queued=0))):
+        add('action81_' + name, 81, actor)
+    add('action81_null_trigger', 81, trigger=None)
+    add('action81_null_incoming_ignored', 81, incoming_house=None)
+    add('action82_same_house_excluded', 82)
+    add('action82_harmless_excluded', 82, dict(current=23, house=1))
+    add('action82_null_incoming_foreign', 82, dict(house=1), incoming_house=None)
+    add('action82_scalar_not_house_selector', 82, dict(house=1), scalar=1)
+    add('action83_foreign_house_excluded', 83, dict(current=23, house=1))
+    add('action83_sleep_excluded', 83)
+    add('action83_null_incoming_excluded', 83, dict(current=23), incoming_house=None)
+    add('action83_scalar_not_house_selector', 83, dict(current=23), scalar=1)
+    actors = [{}, dict(current=23), dict(current=6)]
+    cases.append(dict(name='action81_global_order', action_kind=81,
+        actors=actors, techno_order=[1, 2, 0]))
+    return dict(schema=1, native_sha256=image_sha256(),
+        scope='Actions81..83 live Tag/Mission deferred Guard queue',
+        rng_seed=31, mission_priors=dict(suspended=17, handler_state=137,
+            mission_start_frame=31, ai_counter=19, dispatch_start=113,
+            dispatch_clock_pad=7, dispatch_delay=45),
+        controls=[f.wakeup_case(case) for case in cases],
+        retail=wakeup_retail_inputs(), code_unchanged=True)
+
+
+def wakeup_metadata():
+    return provenance(
+        scope='Original Actions81..83 constructor/read/dispatch, Tag identity membership, effective Mission and deferred Queue.',
+        entry_points=dict(action_constructor=0x6DD000, action_read=0x6DD5B0,
+            counted_read_string=0x528A10, action_execute=0x6DD8B0,
+            action81=0x6DDB67, wakeup_attached=0x6E01C0,
+            action82=0x6DDBF6, action83=0x6DDC71,
+            tag_contains=0x6E5380, effective_mission=0x5B3040,
+            queue_mission=0x5B35E0, aircraft_queue=0x41BA90,
+            spring=0x7265C0, spring_execute_call=0x726605,
+            spring_house_lookup=0x502D30, rng_seed=0x65C6D0,
+            country_registration=0x668C8B, read_country=0x475540,
+            mission_from_name=0x5B3910),
+        assumptions=[
+            'One existing ActionFixture VM executes unchanged original constructor, cached ReadString512, CRT strtok/atoi, full Read and full Execute. Actor memory, House pointers, active Techno/Foot order, Tags and live Trigger instances are supplied inputs. No actor/Tag/House constructor, map load or full campaign is claimed.',
+            'Original class vtables are used unchanged: Infantry7EB058, Unit7F5C70, Aircraft7E22A4 and Building7E3EBC. Their actual WhatAmI, GetMission and QueueMission slots execute; no virtual answer or mission mutation is substituted. Aircraft Queue41BA90 forwards these admitted Sleep/Harmless controls to5B35E0.',
+            'All supplied live Trigger pointers share one type, distinguishing pointer identity from type/name equality. Actual Tag6E5380 follows+28 links until NULL; Action81 uses the executing Trigger third argument and ignores incoming House/source/scalar. It requires alive+90 and cell-marked+74, excludes Building6, and does not inspect Health or Limbo.',
+            'Actions82/83 use Execute first House argument directly, not scalar or retained Trigger+2C. The original active caller Spring7265E7..726605 separately reads TriggerType+A4 HouseType+B4 country index, calls502D30 and pushes its result for EACH action. That caller identity is instruction-read evidence; these controls begin at Execute and do not certify country registration.',
+            'Action82 scans Foot forward, admits effective Sleep0 with House!=incoming; Action83 admits effective Harmless23 with House==incoming. Both require Health>0,alive,cell-marked,!limbo and do not inspect Tag. Action84 Group selection is outside this corpus.',
+            'Actual GetMission returns current+AC unless-1, then queued+B4. Every admitted outer Queue receives Guard5,0. Original Queue writes queued+B4 and clears bypass+B8 while preserving current/suspended, handler/cadence/dispatch timers, target, Team and all other supplied actor bytes. No Commence, EnterIdle, readiness, detach, Team removal or RNG draw is part of this leaf. Later normal AI/Guard/target acquisition are outside these bounded controls.',
+            'Three complete original-layout RNG streams are initialized by actual65C6D0(seed31) before the reader. Hashes of their complete bytes are identical after Read/Execute; entry observations record zero65C780/65C7E0 draws. Timers+BC..D3 and all nonqueue actor bytes are checked unchanged.',
+            'The action bodies reread the live list pointer/count and actor fields at each forward ordinal. Deferred Queue has no list-mutating callback in the ordinary native chain. The corpus supplies stable lists and makes no arbitrary callback-mutation or whole-world ordering claim.',
+            'Physical expandmd01.mix ALL02UMD.MAP and retained retail ini/rulesmd.ini plus optional LANGRULE have hashes. Init_Game52BB64 calls Init_Base_Mix_Files5301A0 before later Init_Mix_Files52C59C→530460; original EXPANDMD99..00 format5301C4/constructor530217/loop530289 precede MAPSMD530A2E. This instruction-read source policy selects the official patch member, not the older mapsmd03 member. Rust production AssetManager owns priority and must match this fixed member digest; higher-priority overrides must fail the input binding. Native archive mounting/file IO is not executed here. Exact raw Germans_Attacked/Wakeup_Prisoners and sibling Prisoners_Panic Trigger/Tag/Events/Actions plus seven prisoners/eight guards bind the production Rust test. Existing Country/mission-name/flag/event readers and Tag constructors execute; the sibling Panic timer/Team effect, complete Event6→53→13→81 native scheduling, real reference registration, actor placement and whole campaign remain outside this row.',
+            'CampaignReader requires VERA20K_CAMPAIGN_START_ASSETS to name an existing empty directory; this bounded Country/name prefix requests no assets. Country/name reader streams are seed31 after setup and unchanged; constructor setup draws and the separate Tag fixture terminal next_random are outside the wakeup zero-draw claim. Action84 requires the separate Group ownership/lifecycle mechanism and remains a residual, not part of this corpus or implementation.',
+        ],
+        substitutions=[
+            'Inherited ActionFixture supplies existing CRT thread-data, heap and cached INI transports only. No native wakeup, Tag, Mission or class vtable bytes are patched and no gameplay leaf is substituted.'
+        ])
+
+
+class AiActivationFixture(ActionFixture):
+    """Compose the existing action and AI fixtures on one original image."""
+
+    def __init__(self, *, seed=31):
+        from tools import ai_team_oracle as ai
+        from tools.native_oracle import NativeCallTrace
+        super().__init__()
+        self.ai_module = ai
+        self.ai = ai.TeamEmu(image_owner=self)
+        self.houses = [ai.HOUSE, ai.ENEMY, ai.FAKE + 0x40000]
+        self.house_types = [ai.HOUSE_TYPES + i * 0x300 for i in range(3)]
+        self.house_array, self.live = self.allocate(12), self.allocate(0x48)
+        self.phase = 'setup'
+        self.events, self.writes, self.raw_draws = [], [], []
+        self.native_calls = []
+        self.trace = NativeCallTrace(self.u, self.read32, self.native_calls)
+        for i, (house, typ, country) in enumerate(zip(self.houses, self.house_types, (0, 7, 0))):
+            self.u.mem_write(house, bytes(0x8000))
+            self.u.mem_write(typ, bytes(0x200))
+            self.u.mem_write(house + 0x24, dwords(ai.IHOUSE_VTABLE))
+            self.u.mem_write(house + 0x30, dwords(i))
+            self.u.mem_write(house + 0x34, dwords(typ))
+            self.u.mem_write(typ + 0xB8, dwords(country))
+        self.type_objects = ai.prepare_selector(self.ai, team_types=[False, True],
+            teams=[dict(type=1, created=7, formed=True)], triggers=[(0, None, 100.0)])
+        # Exactly the existing eligibility_row's unconditional multiplayer
+        # path: no side, TechLevel0, <all> owner, no zone relation, no Max,
+        # empty TaskForce, one enabled trigger admitting every difficulty.
+        self.ai.write32(ai.GAME_MODE, 1)
+        self.ai.write32(ai.HOUSE + 0x1D4, 10)
+        self.ai.rules_vector(0x1394, [9, 2, 9])
+        self.ai.write32(ai.TASK_FORCE + 0x9C, 0)
+        for typ in self.type_objects:
+            self.ai.write32(typ + 0xE4, ai.TASK_FORCE)
+            self.ai.write32(typ + 0xB8, -1)
+        trigger = ai.TRIGGERS
+        self.ai.write32(trigger + 0x98, -1)
+        self.ai.write32(trigger + 0xA0, 2)
+        self.u.mem_write(trigger + 0xA4, b'\x01')
+        self.u.mem_write(trigger + 0xD0, b'\x01')
+        self.u.mem_write(trigger + 0xD2, b'\x01\x01\x01')
+        self.ai.rules_vector(0x115C, [300, 600, 900])
+        self.configure_selection({})
+        for pointer in (SCENARIO + 0x218, 0x886B88, 0xABE890):
+            self.call(0x65C6D0, [seed], ecx=pointer)
+        for begin, end in ((0x6E45E0, 0x6E462B), (0x502D30, 0x502D60),
+                           (0x510ED0, 0x510FA6), (0x726910, 0x726914),
+                           (ai.BLOCK_START, ai.BLOCK_END), (0x6F0AB0, 0x6F0FB0),
+                           (0x41E720, 0x41F000), (0x65C6D0, 0x65C88D)):
+            self.ranges.append((begin, end))
+            self.original.append(bytes(self.u.mem_read(begin, end - begin)))
+        self.u.hook_add(UC_HOOK_CODE, self.observe_ai)
+        self.u.hook_add(UC_HOOK_MEM_WRITE, self.observe_ai_write)
+
+    def house_index(self, pointer):
+        return self.houses.index(pointer) if pointer in self.houses else None
+
+    def configure_selection(self, case):
+        self.u.mem_write(0xA8022C, dwords(self.house_array))
+        self.u.mem_write(0xA80238, dwords(3))
+        self.u.mem_write(self.house_array, dwords(*(self.houses[i] for i in case.get('order', [0, 1, 2]))))
+        self.u.mem_write(SCENARIO + 0x1180, dwords(*case.get('slots', [1, 0, -1, -1, -1, -1, -1, -1])))
+        self.u.mem_write(self.live, bytes(0x48))
+        retained = case.get('trigger_owner', 2)
+        self.u.mem_write(self.live + 0x2C, dwords(self.houses[retained] if retained is not None else 0))
+        for typ, country in zip(self.house_types, case.get('countries', [0, 7, 0])):
+            self.u.mem_write(typ + 0xB8, dwords(country))
+
+    def rng_full(self):
+        return CampaignReader.rng_state(SimpleNamespace(u=self.u, scenario=SCENARIO))
+
+    def observe_ai(self, u, pc, _size, _data):
+        if self.phase == 'setup':
+            return
+        sp, ecx = u.reg_read(UC_X86_REG_ESP), u.reg_read(UC_X86_REG_ECX)
+        self.trace.returned(pc, sp)
+        if pc in (0x65C780, 0x65C7E0, 0x41E720):
+            spec = {0x65C780: ('rng_next', 0, 0), 0x65C7E0: ('rng_ranged', 2, 8),
+                    0x41E720: ('native_eligibility', 3, 12)}[pc]
+            self.trace.entered(pc, sp, spec)
+        if pc in (0x65C79D, 0x65C84B):
+            self.raw_draws.append(u.reg_read(UC_X86_REG_ESI) & 0xFFFFFFFF)
+        if pc == 0x6E45E0:
+            self.events.append(dict(call='live_house_selector', selector=self.integer(sp + 8),
+                live_trigger=bool(self.read32(sp + 4))))
+        elif pc in (0x502D30, 0x510F60, 0x510ED0, 0x726910):
+            self.events.append(dict(call='house_selector_leaf', entry=f'{pc:08X}',
+                argument=self.integer_reg(UC_X86_REG_ECX) if pc != 0x726910 else 'live_trigger'))
+        elif pc == 0x6F0AB0:
+            house = u.reg_read(UC_X86_REG_EDX)
+            self.events.append(dict(call='native_team_selector', house=self.house_index(house),
+                active=bool(u.mem_read(house + 0x1F2, 1)[0])))
+        elif pc == 0x6F09C0:
+            self.events.append(dict(call='create_team_boundary', team_type=self.type_objects.index(ecx),
+                house=self.house_index(self.read32(sp + 4))))
+            # Existing AI oracle's TeamType::Create_Team boundary. Its body,
+            # object allocation, member admission and later missions are excluded.
+            return_from_sink(u, 4, 0)
+
+    def observe_ai_write(self, u, _access, address, size, value, _data):
+        if self.phase == 'setup':
+            return
+        for i, house in enumerate(self.houses):
+            if house <= address < house + 0x8000:
+                self.writes.append(dict(house=i, offset=address - house, size=size,
+                    value=value, pc=f'{u.reg_read(UC_X86_REG_EIP):08X}'))
+
+    def clear_observations(self):
+        assert not self.trace.pending
+        self.events.clear(); self.writes.clear(); self.raw_draws.clear()
+        self.native_calls.clear(); self.ai.events.clear()
+
+    def house_summary(self, index):
+        pointer = self.houses[index]
+        return dict(latches=[self.u.mem_read(pointer + off, 1)[0] for off in (0x1EE, 0x1EF, 0x1F2, 0x1F3)],
+            team_timer=list(struct.unpack('<iii', self.u.mem_read(pointer + 0x5798, 12))))
+
+    def action(self, kind, case):
+        assert kind in (74, 75)
+        self.phase = 'setup'
+        self.configure_selection(case)
+        read = self.read_action(f"{kind},0,{case.get('selector', 0)},0,0,0,0,A", ini_capacity=512)
+        before = [bytes(self.u.mem_read(p, 0x8000)) for p in self.houses]
+        summaries = [self.house_summary(i) for i in range(3)]
+        old_team = bytes(self.u.mem_read(self.ai_module.TEAMS, 0x100))
+        team_count = self.read32(self.ai_module.TEAM_ARRAY[1])
+        rng_before = self.rng_hashes()
+        self.clear_observations(); self.phase = 'action'
+        incoming = case.get('incoming', 1)
+        result = self.call(0x6DD8B0, [self.houses[incoming] if incoming is not None else 0,
+            0, 0 if case.get('null_trigger') else self.live, 0], ecx=ACTION) & 255
+        self.phase = 'setup'
+        after = [bytes(self.u.mem_read(p, 0x8000)) for p in self.houses]
+        assert self.rng_hashes() == rng_before and not self.native_calls
+        assert old_team == bytes(self.u.mem_read(self.ai_module.TEAMS, 0x100))
+        assert team_count == self.read32(self.ai_module.TEAM_ARRAY[1]) and not self.ai.events
+        assert all(row['offset'] == 0x1F2 and row['size'] == 1 and row['value'] == (kind == 74)
+                   for row in self.writes)
+        assert all(all(j == 0x1F2 for j, (a, b) in enumerate(zip(left, right)) if a != b)
+                   for left, right in zip(before, after))
+        return dict(kind=kind, input=case, native_read=read, result=result,
+            houses_before=summaries, houses_after=[self.house_summary(i) for i in range(3)],
+            events=list(self.events), writes=list(self.writes), rng_unchanged=True,
+            rng_hashes=rng_before, existing_team_unchanged=True)
+
+    def team_update(self, frame, *, house=0):
+        ai = self.ai_module
+        pointer = self.houses[house]
+        self.u.mem_write(ai.FRAME, dwords(frame))
+        self.u.mem_write(ai.BLOCK_STACK, bytes(0x1000))
+        self.u.reg_write(UC_X86_REG_ESP, ai.BLOCK_STACK + 0x800)
+        self.u.reg_write(UC_X86_REG_ESI, pointer)
+        self.u.reg_write(UC_X86_REG_EBP, 0)
+        before = self.house_summary(house)
+        old_team = bytes(self.u.mem_read(ai.TEAMS, 0x100))
+        team_count = self.read32(ai.TEAM_ARRAY[1])
+        rng_before = self.rng_hashes()
+        self.clear_observations(); self.phase = 'consumer'
+        run_checked(self.u, ai.BLOCK_START, ai.BLOCK_END)
+        self.phase = 'setup'
+        assert not self.trace.pending
+        assert old_team == bytes(self.u.mem_read(ai.TEAMS, 0x100))
+        assert self.read32(ai.TEAM_ARRAY[1]) == team_count and not self.ai.events
+        assert before['latches'] == self.house_summary(house)['latches']
+        self.check_code()
+        return dict(frame=frame, house=house, before=before, after=self.house_summary(house),
+            events=list(self.events), native_calls=list(self.native_calls),
+            raw_rng_words=list(self.raw_draws), writes=list(self.writes),
+            existing_team_unchanged=True, rng_before=rng_before, rng_after=self.rng_hashes(),
+            scenario_rng_after_full=self.rng_full()['scenario'],
+            autocreate_after=[self.u.mem_read(p + 0xA9, 1)[0] for p in self.type_objects])
+
+
+def ai_activation_action_controls():
+    fixture = AiActivationFixture()
+    cases = [dict(name='country0_not_incoming_or_retained'), dict(name='country7', selector=7),
+        dict(name='duplicate_country_reversed', order=[2, 1, 0]),
+        dict(name='player_at4475', selector=4475),
+        dict(name='player_at4477_unmapped', selector=4477),
+        dict(name='retained_house8997', selector=8997),
+        dict(name='retained_house_null', selector=8997, trigger_owner=None),
+        dict(name='null_trigger_valid_country', null_trigger=True),
+        dict(name='minus_one', selector=-1), dict(name='missing_country999', selector=999),
+        dict(name='9001_is_not_retained', selector=9001),
+        dict(name='null_incoming_valid_country', incoming=None),
+        dict(name='idempotent_store', same_prior=True)]
+    controls = []
+    for kind in (74, 75):
+        for case in cases:
+            for i, house in enumerate(fixture.houses):
+                for off, value in ((0x1EE, i & 1), (0x1EF, (i + 1) & 1),
+                                   (0x1F2, (kind == 74) if case.get('same_prior') else (kind == 75)),
+                                   (0x1F3, i & 1)):
+                    fixture.u.mem_write(house + off, bytes([value]))
+                fixture.u.mem_write(house + 0x5798, dwords(41 + i, 777 + i, 108 + i))
+            controls.append(fixture.action(kind, case))
+    fixture.check_code()
+    return dict(country_priors=[0, 7, 0], controls=controls,
+        rng_full_seed31=fixture.rng_full(), code_unchanged=True)
+
+
+def ai_activation_histories():
+    ai_cases = [
+        dict(name='stop_campaign_due_repeats', game_mode=0,
+             steps=[dict(action=75), dict(frame=10), dict(frame=609), dict(frame=610), dict(frame=1210)]),
+        dict(name='inverse74_minimal_skirmish', initial_active=False,
+             steps=[dict(action=74), dict(frame=10)]),
+        dict(name='stop_restart_stop_same_house', steps=[dict(action=75), dict(frame=10),
+             dict(action=74), dict(frame=610), dict(action=75), dict(frame=1210)]),
+        dict(name='stop_at_cap_preserves_old_defense_team', cap=1,
+             steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_seed0_ranged_rejects_one_raw_word', seed=0,
+             steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_before_expiry', steps=[dict(action=75), dict(frame=9)]),
+        dict(name='stop_human_outer_gate', human=True, steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_campaign_control_outer_gate', game_mode=0, control=True,
+             steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_multiplayer_control_is_not_human', control=True,
+             steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_passive_outer_gate', passive=True, steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_paused_zero_timer', timer=[-1, 123, 0], steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_paused_positive_timer', timer=[-1, 123, 3], steps=[dict(action=75), dict(frame=10)]),
+        dict(name='stop_wrapped_timer', timer=[0x7FFFFFF0, 123, 0x20],
+             steps=[dict(action=75), dict(frame=-0x7FFFFFF0)]),
+        dict(name='retail_country16_and17_stop_campaign', game_mode=0, countries=[16, 17, 0],
+             steps=[dict(action=75, selector=16), dict(action=75, selector=17),
+                    dict(frame=10), dict(frame=10, house=1)]),
+    ]
+    rows = []
+    for case in ai_cases:
+        fixture = AiActivationFixture(seed=case.get('seed', 31))
+        ai = fixture.ai_module
+        fixture.u.mem_write(ai.GAME_MODE, dwords(case.get('game_mode', 1)))
+        fixture.ai.rules_vector(0x13CC, [case.get('cap', 8)] * 3)
+        for house, typ in zip(fixture.houses, fixture.house_types):
+            fixture.u.mem_write(house + 0x1EC, bytes([case.get('human', False), case.get('control', False)]))
+            fixture.u.mem_write(house + 0x1EE, b'\x00\x01')
+            fixture.u.mem_write(house + 0x1F2, bytes([case.get('initial_active', True), 0]))
+            fixture.u.mem_write(house + 0x184, dwords(1))
+            fixture.u.mem_write(house + 0x565C, dwords(100))
+            fixture.u.mem_write(house + 0x5798, dwords(*case.get('timer', [0, 123, 10])))
+            fixture.u.mem_write(typ + 0x1A6, bytes([case.get('passive', False)]))
+        fixture.configure_selection(case)
+        initial_rng = fixture.rng_full()
+        steps = []
+        for step in case['steps']:
+            if 'action' in step:
+                steps.append(dict(action=fixture.action(step['action'], dict(case,
+                    selector=step.get('selector', 0)))))
+            else:
+                steps.append(dict(update=fixture.team_update(step['frame'], house=step.get('house', 0))))
+        final_rng = fixture.rng_full()
+        assert all(initial_rng[key] == final_rng[key] for key in ('main', 'mapgen'))
+        rows.append(dict(input=case, initial_rng_full=initial_rng, steps=steps,
+            final_rng_full=final_rng, other_rng_streams_unchanged=True, code_unchanged=True))
+    return rows
+
+
+def ai_activation_retail():
+    from tools.input_oracle.campaign_start import prepare_house_rules
+    from tools.spatial_oracle.tag_lifecycle import PowerEventControls
+    archive = (configured_gamemd().parent / 'mapsmd03.mix').read_bytes()
+    raw_map = mix(archive)[mix_hash('ALL05UMD.MAP')]
+    rules_path = Path(__file__).parents[2] / 'ini' / 'rulesmd.ini'
+    raw_rules = rules_path.read_bytes()
+    values, rule_values = sections(raw_map), sections(raw_rules)
+    reader = CampaignReader()
+    reader.invoke(0x6832C0, reader.scenario)
+    rules = prepare_house_rules(reader, rule_values)
+    registrations = []
+    for label, entries in (('RULESMD.INI', rule_values), ('ALL05UMD.MAP', values)):
+        reader.ordered_ini({'Countries': entries.get('Countries', {})})
+        reader.u.reg_write(UC_X86_REG_ESI, INI); reader.u.reg_write(UC_X86_REG_EDI, rules)
+        reader.region(0x668C8B, 0x668CDB)
+        registrations.append(dict(layer=label, entries=[dict(index=i,
+            name=reader.string(reader.read32(reader.read32(0xA83C9C) + i * 4) + 0x24))
+            for i in range(reader.read32(0xA83CA8))]))
+    houses = []
+    for name in values['Houses'].values():
+        reader.ordered_ini({name: values[name]})
+        country = reader.invoke(0x475540, INI,
+            (reader.cstring(name), reader.cstring('Country'), 0xFFFFFFFF))
+        if country in (16, 17):
+            houses.append(dict(name=name, raw=values[name], native_country=country))
+    identity = '092A219C'
+    raw_actions = values['Actions'][identity]
+    action = ActionFixture()
+    reads = [action.read_action(body, ini_capacity=512) for body in
+             ('75,0,16,0,0,0,0,A', '75,0,17,0,0,0,0,A')]
+    assert all(body['raw'] in raw_actions for body in reads)
+    flags = FlagsFixture()
+    begin = '0778A83C'
+    enable_begin = '0E5FA1BC'
+    related_routes = {}
+    for route in (begin, enable_begin):
+        related_routes[route] = dict(raw_trigger=values['Triggers'][route],
+            raw_event=values['Events'][route], raw_actions=values['Actions'][route],
+            native_event=PowerEventControls.read_event(values['Events'][route]),
+            native_flags=flags.execute(values['Triggers'][route], [1, 1, 1, 1, 0]),
+            tags={key: body for key, body in values['Tags'].items() if body.endswith(',' + route)})
+    begin_reads = [action.read_action(body, ini_capacity=512) for body in
+                   ('74,0,16,0,0,0,0,A', '74,0,17,0,0,0,0,A')]
+    assert all(body['raw'] in values['Actions'][begin] for body in begin_reads)
+    result = dict(map='ALL05UMD.MAP', archive='mapsmd03.mix',
+        archive_sha256=hashlib.sha256(archive).hexdigest(), map_bytes=len(raw_map),
+        map_sha256=hashlib.sha256(raw_map).hexdigest(),
+        rules_file='ini/rulesmd.ini', rules_sha256=hashlib.sha256(raw_rules).hexdigest(),
+        trigger_id=identity, raw_trigger=values['Triggers'][identity],
+        raw_event=values['Events'][identity], raw_actions=raw_actions,
+        tags={key: body for key, body in values['Tags'].items() if body.endswith(',' + identity)},
+        native_flags=flags.execute(values['Triggers'][identity], [1, 1, 1, 1, 0]),
+        native_event=PowerEventControls.read_event(values['Events'][identity]),
+        native_action75_reads=reads, country_registration=registrations, target_houses=houses,
+        native_action74_reads=begin_reads, conditional_begin_routes=related_routes,
+        rules_team_delays=[reader.read32(reader.read32(rules + 0x115C) + i * 4) for i in range(3)],
+        explicit_team=dict(id='08AE9CBC', raw=values['08AE9CBC']),
+        limits='Physical mapsmd03 member and original selected scalar/Country readers only. Production AssetManager resolution must independently match this map hash. Full layering, elapsed scheduling, explicit Team admission, world placement and whole campaign outcome are excluded. The preceding Action4 and both Action53 references are retained raw, not executed here.0778A83C supplies real74 Country16/17 records but starts disabled;0E5FA1BC contains its53 enable behind Event55 value17. That prerequisite and its timing relative to the elapsed240 stop are not executed or assumed satisfied.')
+    reader.check_code(); action.check_code()
+    return result
+
+
+def ai_activation_generate():
+    from tools.native_oracle import image_sha256, NATIVE_FPCW
+    return dict(schema_version=1, native_sha256=image_sha256(), native_fpcw=f'0x{NATIVE_FPCW:X}',
+        actions=ai_activation_action_controls(), histories=ai_activation_histories(), retail=ai_activation_retail())
+
+
+def ai_activation_metadata():
+    return provenance(
+        scope='Original74/75 constructor/read/dispatch and shared House selector; connected ordinary House team-timer/selector/native RNG/eligibility on explicit state; physical ALL05 Country16/17 elapsed240 binding. No complete campaign AI, new-Team lifecycle or whole-map outcome claim.',
+        assumptions=[
+            'The existing ActionFixture image owns constructor6DD000, reader6DD5B0, Execute6DD8B0, CRT/TLS/heap/INI and Scenario. TeamEmu attaches its existing storage/selector preparation to that same image; no result flag is transferred between VMs.',
+            'Three supplied0x8000-byte House windows, Country0/7/0 (or explicit16/17/0), registered order, live retained House, Player@ slots, four independent latches and team-timer priors are explicit. Action controls compare every supplied House byte and all three complete RNG streams; successful Execute writes only+1F2, including idempotent stores. Neither null Trigger nor -1 selects a House; incoming House does not choose the target.',
+            'House Update4F8A00..4F8B08 executes as a contiguous original block, ESI=House, EBP=0, zero incoming local stack and declared frame/start/unused-word/duration, game-mode, human/control, passive and difficulty1 priors. Other House Update phases and scheduling are excluded. The unused timer+4 becomes the actual zero local at4F8AE3, not a duration field.',
+            'The native selector6F0AB0 and actual65C7E0 execute with three seed31 streams, except the explicitly named seed0 rejection control. Full initial/final states and each update Scenario state, ranged args/returns and every raw XOR word are retained. Main/MapGen remain byte-identical. A ranged request can consume multiple raw words; no supplied draw answers or reduction model is used.',
+            'Existing selector preparation supplies one formed base-defense Team of a different type, cap8 (or explicit1), one nondefense trigger weight100 and one empty TaskForce. Positive74 runs real41E720 with multiplayer mode, enabled all-difficulty trigger, <all> owner, condition-1, no side/zone relation/Max and TechLevel0. This bounded skirmish control does not resolve campaign/factory/recruitment eligibility tracked under issue1508.',
+            'Inactive selection still reaches the original cancellation traversal with an empty pick vector. No eligibility, weighted draw, eviction or Team creation request occurs; old Team bytes/count and independent House latches are checked unchanged. Timer rearm and its native ranged request remain live when ordinary outer gates pass.',
+            'ALL05 evidence reads the physical mapsmd03.mix member and checkout retail RULESMD.INI with hashes, executes original Country registration/read, counted Event13, flags and scalar75 readers. Production AssetManager must separately match its source identity. No original whole map loading or complete layering is certified.',
+            'VERA20K_CAMPAIGN_START_ASSETS must name an existing empty directory for the reused CampaignReader; no file in that directory is requested by the selected prefixes.'],
+        substitutions=[
+            'Inherited action/AI CRT, heap, cached INI, platform and fixture-memory transports. All selected original gameplay instructions remain unchanged.',
+            'TeamType Create_Team6F09C0 is a recorded RET4 boundary returning0 after the actual original selector asks for it; no Team allocation/admission/member/mission result is supplied as parity. Existing AI team deletion callback remains the shared oracle boundary; covered rows assert it is never reached.'],
+        entry_points=dict(action_constructor=0x6DD000, action_reader=0x6DD5B0,
+            action_execute=0x6DD8B0, action74=0x6DF2D1, action75=0x6DF310,
+            house_selector=0x6E45E0, house_team_block=0x4F8A00,
+            team_selector=0x6F0AB0, eligibility=0x41E720,
+            create_team_boundary=0x6F09C0, random_seed=0x65C6D0,
+            random_ranged=0x65C7E0, country_registration=0x668C8B))
+
+
+def chrono_reinforcement_retail():
+    archive=(configured_gamemd().parent/'mapsmd03.mix').read_bytes()
+    raw=mix(archive)[mix_hash('ALL07SMD.MAP')]
+    values=sections(raw)
+    definitions={}
+    for identity in ('0964C97C','04E3AA8C'):
+        team=values[identity]
+        definitions[identity]=dict(team=team,task_force_id=team['TaskForce'],
+            task_force=values[team['TaskForce']],script_id=team['Script'],script=values[team['Script']])
+    routes={identity:dict(trigger=values['Triggers'][identity],events=values['Events'][identity],
+        actions=values['Actions'][identity]) for identity in ('0964B13C','098DB96C')}
+    return raw,dict(map='ALL07SMD.MAP',archive='mapsmd03.mix',
+        archive_sha256=hashlib.sha256(archive).hexdigest(),map_sha256=hashlib.sha256(raw).hexdigest(),
+        definitions=definitions,routes=routes,
+        waypoints={key:values['Waypoints'][key] for key in ('26','27')},
+        general=values.get('General',{}))
+
+
+def chrono_reinforcement_generate(fixture=None):
+    from tools.native_oracle import image_sha256
+    from tools.spatial_oracle.team_creation import (reinforcement_fixture,execute_reinforcement_rows,
+        initialize_chrono_unit,execute_chrono_reinforcement_rows)
+    from tools.spatial_oracle.anytown_damage import anytown_resident
+    raw,retail=chrono_reinforcement_retail()
+    q=fixture or reinforcement_fixture(unit_geometry=True)
+    assert 'tables' in getattr(q,'unit_geometry_startup',{}),'Chrono fixture requires original Foot startup before baseline placement'
+    if not hasattr(q,'orca_type'):execute_reinforcement_rows(q,[])
+    theater=q.resident.theater
+    anytown_resident.Resident.ensure_tiles(q.resident,theater,
+        {row['tile'] for row in q.resident.case['supplied_cells'] if row['tile']!=0xFFFF},uc=q.u)
+    initialize_chrono_unit(q,'AMCV',raw)
+    geometry_prior={f'{address:08X}':q.m.read32(address) for address in
+        (0xA8F240,0xA8F234,0xAC13C8,0xAC13BC,0xB0EC38,0xB1D0B8,0xB1D0AC)}
+    cases=[dict(name='NULL_TEAM',entries=[],origin=[87,50],action='107,1,-1,0,0,0,0,G'),
+        dict(name='NO_WAYPOINT',entries=[['MTNK',1]],origin=[87,50],waypoint_override=-1),
+        dict(name='EMPTY_TASK_FORCE',entries=[],origin=[87,50]),
+        dict(name='NEGATIVE_WAYPOINT',entries=[],origin=[87,50],waypoint_override=-2),
+        dict(name='MINIMUM_WAYPOINT',entries=[],origin=[87,50],waypoint_override=-2147483648),
+        dict(name='04E3AA8C',entries=[['MTNK',1]],origin=[87,50],script_steps=[(11,0)],
+            retail_team='04E3AA8C',retail_action='107,1,04E3AA8C,0,0,0,0,AB'),
+        dict(name='0964C97C',entries=[['AMCV',1]],origin=[87,50],script_steps=[(11,0)],
+            retail_team='0964C97C',retail_action='107,1,0964C97C,0,0,0,0,AA'),
+        dict(name='ORDER_TWO_UNITS',entries=[['MTNK',2]],origin=[87,50]),
+        dict(name='TYPED_INFANTRY',entries=[['E1',1]],origin=[87,50]),
+        dict(name='TYPED_AIRCRAFT',entries=[['ORCA',1]],origin=[87,50]),
+        dict(name='PROCESS_UNIT',entries=[['MTNK',1]],origin=[87,50],first_process=True,
+            process_frames=[1,2,3,4,63,64,65]),
+        dict(name='PROCESS_UNIT_WITH_TARGET',entries=[['MTNK',1]],origin=[87,50],first_process=True,
+            process_target=True,process_frames=[1,2,3,4,63,64,65])]
+    rows=execute_chrono_reinforcement_rows(q,cases)
+    m,u=q.m,q.u
+    p=m.read32(m.read32(0xA8EC7C)+(m.read32(0xA8EC88)-1)*4)
+    original_ammo=bytes(u.mem_read(p+0x2FC,4));cpu=u.context_save();ammo=[]
+    try:
+        for value in (-2147483648,-2,-1,0,1,2147483647):
+            u.mem_write(p+0x2FC,dwords(value));u.reg_write(UC_X86_REG_EDI,p)
+            run_checked(u,0x65EDC8,0x65EDCE,required_addresses=[0x65EDC8])
+            ammo.append(dict(before=value,after=struct.unpack('<i',u.mem_read(p+0x2FC,4))[0]))
+    finally:u.mem_write(p+0x2FC,original_ammo);u.context_restore(cpu)
+    # Complete states are interned by content, keeping repeated unchanged
+    # Main/MapGen streams compact without discarding their actual bytes.
+    states={}
+    def intern(streams):
+        result={}
+        for key,raw_state in streams.items():
+            digest=hashlib.sha256(bytes.fromhex(raw_state)).hexdigest()
+            states[digest]=raw_state;result[key]=digest
+        return result
+    for row in rows:
+        for key in ('rng_before','rng_after'):row[key]=intern(row[key])
+        if row['creation']:row['creation']['rng']=intern(row['creation']['rng'])
+        for step in row.get('process',[]):step['rng']=intern(step['rng'])
+    return dict(schema_version=1,native_sha256=image_sha256(),retail=retail,
+        unit_geometry_startup=q.unit_geometry_startup,
+        geometry_prior=geometry_prior,
+        type_reads=q.chrono_unit_reads,rng_states=states,cases=rows,
+        ammo_decrement=dict(entry='0065EDC8',end='0065EDCE',
+            scope='Original DEC fragment with supplied prior values; field and CPU restored. Numeric overflow only, not whole107 boundary coverage.',rows=ammo),
+        inherited_crop=dict(map_sha256=q.world['physical_map_sha256'],
+            size=q.resident.case['size'],local_size=q.resident.case['local_size'],
+            waypoint_cell=[88,49],waypoint_level=q.u.mem_read(q.resident.ptrs[88,49]+0x11B,1)[0],
+            frame=1,game_active=1,scenario_started=0,
+            rules_reader='0066D530',rules_layers=q.inputs['ai_rules_layers'],
+            chrono_delay=struct.unpack('<i',q.u.mem_read(q.rules+0xBEC,4))[0],
+            chrono_reinf_delay=struct.unpack('<i',q.u.mem_read(q.rules+0xBF0,4))[0],
+            supplied_cells=q.resident.case['supplied_cells'],physical_tmp=q.resident.assets,
+            game_mode=struct.unpack('<i',q.u.mem_read(0xA8B238,4))[0],
+            unmodified_native_code_sha256=q.resident.code_hash))
+
+
+def chrono_reinforcement_metadata():
+    record=provenance(scope='Original107 reader/full Execute->65EC30->65DD30, physical Unit/Infantry/Aircraft construction and placement, original Teleport factory/piggyback/MoveTo/finalize and two bounded Process histories on the existing FootMissions crop.',
+        assumptions=[
+            'ActionFixture reader methods attach to the existing FootMissions allocator/image. No constructor or dispatch result crosses VMs. Resolved TeamType/ScriptType/TaskForce priors use the existing prepare_reinforcement_case owner; their full definition readers are excluded. The original TAction constructor, tokenizer, reference lookup and Read execute on those registered native Team identities.',
+            'Physical ALL07SMD.MAP in mapsmd03.mix binds ChronoMCV Trigger0964B13C ->Team0964C97C/AMCV and ChronoSupport098DB96C ->Team04E3AA8C/MTNK. The gameplay controls transplant their destination to waypointG=(88,49) on the existing Anytown crop. Actual authored AA/AB geometry, full campaign startup and outcomes are excluded; actual authored records and map hash remain in the corpus.',
+            'AMCV uses original7470D0/747620 on physical RULESMD, optional LANGRULE and ALL07 map in that order, with physical ARTMD. Existing physical MTNK/E1/ORCA readers, ordinary constructors, spare registries and partial Houses/crop come from team_creation/FootMissions. Each case retains genuine object IDs, constructor Ammo, native member and temporary chain order, FNPC arguments/results, actual Unlimbo, pending/timer/coordinate writes and three complete RNG streams interned by hash.',
+            'NULL_TEAM, NO_WAYPOINT and EMPTY_TASK_FORCE are genuine original early returns. Native65EC30 dereferences a null created head before its late check and dereferences the null success head when every placement fails. Those undefined/fault paths are not converted into invented safe return values. Full transport/cargo paths and arbitrary all-blocked maps are excluded.',
+            'Cases retain their genuinely constructed live actors and native registry/RNG history. Each preparation resets creation depth, recent-cell ring, player and Team definition/waypoint priors as declared by the existing reinforcement fixture. No post-case scalar deletion is inserted into107. Finalization clears temporary Object+30 links in reverse success order, Mark0 then pending3 then Commence. Two Process histories record all supplied frames, states, timers and RNG calls: the ordinary initially NULL target acquires existing hostile195 at timer expiry; a second control calls original6FCDB0 to set the genuine existing victim as target before Process (input.process_target_id). Other actors/TeamAI/global phases, device audio and rendering are excluded.',
+            'The existing Resident.ensure_tiles owner supplies actual relocated TMP bytes for all55 non-sentinel tile types referenced by the180-cell crop, including newly reached tile140/clat09.tem. Historical default slots/payload remain unchanged. Extra bodies avoid the existing raw-zone planes; the supplied raw land/slope/zone priors still exclude whole native map initialization. No terrain/FNPC return is supplied.',
+            'Existing unit_unlimbo.initialize_unit_geometry executes the original Infantry table813490 (the existing infantry_entry_raw.STARTUP), full Teleport table8150B8 and five Unit GEOMETRY_CALLS before the four baseline actors are constructed/placed. Native Unit B1D0AC and Infantry A8F234 become416; their level copies and Teleport B0EC38 become104. Full before/after field bytes and unchanged three-stream RNG are recorded. Aircraft inherits Object raw receivers5F60A0/5F6120: the existing FootMissions Object table8141D8 establishes AC13C8/AC13BC104/416 before the typed Aircraft case, and geometry_prior records them. Historical fixture payloads retain their omitted startup boundaries and are not silently regenerated. Earlier new107 zero-Unit and zero-Infantry diagnostics remain external and are superseded by this corpus.',
+            'Six Ammo overflow controls execute only original65EDC8..65EDCE with EDI and the signed field prior supplied on a genuine actor. Original field bytes and CPU state are restored afterward. This proves the DEC fragment, including wrap, not every full107 arithmetic input.'],
+        substitutions=[
+            'Inherited FootMissions physical lexical INI caches, successful heap, asset/file, partial House and cropped-world transports remain explicit. Existing Mission.locomotor_com_transport now routes the actual Teleport CLSID at7E9A90 to original CreateInstance6C4C10, established by factory vtable7F3D38+0C and its718000 constructor call. Existing OleRun/Interlocked OS boundaries remain. No gameplay factory, FNPC, subcell, Unlimbo, COM QueryInterface/AddRef/BeginPiggyback, MoveTo, RNG, Mark, Commence or class cleanup return is supplied.'],
+        entry_points=dict(action_read=0x6DD5B0,execute=0x6DD8B0,chrono_dispatch=0x6DF672,
+            chrono_reinforce=0x65EC30,create_members=0x65DD30,fnpc=0x56DC20,subcell=0x481180,
+            teleport_factory=0x6C4C10,teleport_ctor=0x718000,teleport_move=0x718100,
+            process=0x7192F0,mark=0x4D3780,commence=0x5B3570,unit_ammo_init=0x7355A8,
+            infantry_ammo_init=0x517D7A,ammo_decrement=0x65EDC8))
+    record['command']='python -m tools.spatial_oracle.trigger_action_values --chrono-reinforcement --check'
+    record['required_inputs']={'VERA20K_SHRAPNEL_INPUTS':'existing physical RULESMD/ARTMD/SOUNDMD/theater owner',
+        'VERA20K_ANYTOWN_INPUTS':'existing physical Anytown map/shot assets plus all55 crop TMPs from retail ra2.mix/isotemp.mix'}
+    return record
+
+
+def tech_level_retail():
+    """Physical MD layers and original727516..7275A5 counted Action reader."""
+    root = configured_gamemd().parent
+    archive_raw = (root/'mapsmd03.mix').read_bytes()
+    archive = mix(archive_raw)
+    patch_raw = (root/'expandmd01.mix').read_bytes()
+    rules_raw = mix(patch_raw)[mix_hash('RULESMD.INI')]
+    rules = sections(rules_raw)
+    sources = [dict(file='RULESMD.INI', archive='expandmd01.mix',
+        archive_sha256=hashlib.sha256(patch_raw).hexdigest(),
+        sha256=hashlib.sha256(rules_raw).hexdigest())]
+    routes, layers = [], []
+    for filename, identity, names in (
+        ('SOV03UMD.MAP','0D3F1D6C',('TTNK',)),
+        ('SOV04DMD.MAP','068A958C',('NAIRON',)),
+        ('SOV07TMD.MAP','093BB0FC',('TERROR','DTRUCK')),
+        ('ALL05UMD.MAP','068397DC',('ORCA','BEAG'))):
+        raw = archive[mix_hash(filename)]
+        values = sections(raw)
+        sources.append(dict(file=filename, archive='mapsmd03.mix',
+            archive_sha256=hashlib.sha256(archive_raw).hexdigest(),
+            sha256=hashlib.sha256(raw).hexdigest()))
+        f = ActionFixture()
+        f.call(0x7C8F5E, [])
+        f.ordered_ini({'Actions': {identity: values['Actions'][identity]}})
+        trigger = f.allocate(0xB4)
+        f.u.mem_write(trigger, bytes(0xB4))
+        f.u.mem_write(trigger+0x24, identity.encode()+b'\0')
+        f.u.mem_write(SP+0x248, dwords(INI))
+        f.u.reg_write(UC_X86_REG_ESP, SP)
+        f.u.reg_write(UC_X86_REG_EBP, trigger)
+        f.u.reg_write(UC_X86_REG_EBX, 0)
+        run_checked(f.u, 0x727516, 0x7275A5)
+        ptr, actions = f.read32(trigger+0xB0), []
+        while ptr:
+            actions.append(dict(kind=f.integer(ptr+0x2C),
+                inline_type=f.string(ptr+0x54), value=f.integer(ptr+0x90),
+                args=[f.integer(ptr+n) for n in (0x34,0x38,0x3C,0x40)],
+                waypoint=f.integer(ptr+0x44)))
+            ptr = f.read32(ptr+0x28)
+        f.check_code()
+        routes.append(dict(map=filename, trigger_id=identity,
+            trigger=values['Triggers'][identity], events=values['Events'][identity],
+            raw_actions=values['Actions'][identity], actions=actions,
+            tags={key: body for key,body in values['Tags'].items()
+                  if body.endswith(','+identity)}))
+        for name in names:
+            scalar = ActionFixture()
+            scalar.call(0x7C8F5E, [])
+            pointer = scalar.allocate(0x800)
+            scalar.u.mem_write(pointer, bytes(0x800))
+            scalar.u.mem_write(pointer+0x24, name.encode()+b'\0')
+            scalar.u.reg_write(UC_X86_REG_ESI, pointer)
+            run_checked(scalar.u, 0x711082, 0x71108C)
+            constructor = scalar.integer(pointer+0x634)
+            passes = []
+            # Optional files are absent in the supported install. Keep that
+            # absence explicit rather than substituting the RA2 base INIs.
+            for label, entries in [('RULESMD.INI',rules),
+                    ('LANGRULE.INI',None),(filename[:-4]+'.INI',None),
+                    (filename,values)]:
+                if entries is None:
+                    assert not (root/label).exists(), label
+                    passes.append(dict(layer=label, absent=True,
+                        raw_key=None, value=scalar.integer(pointer+0x634)))
+                    continue
+                section = entries.get(name,{})
+                scalar.ordered_ini({name: section})
+                scalar.u.reg_write(UC_X86_REG_ESP, SP)
+                scalar.u.reg_write(UC_X86_REG_EBP, pointer)
+                scalar.u.reg_write(UC_X86_REG_EBX, pointer+0x24)
+                scalar.u.reg_write(UC_X86_REG_ESI, INI)
+                run_checked(scalar.u, 0x714570, 0x71458A,
+                    required_addresses=(0x5276D0,0x714584))
+                passes.append(dict(layer=label, absent=False,
+                    raw_key=section.get('TechLevel'),
+                    value=scalar.integer(pointer+0x634)))
+            scalar.check_code()
+            layers.append(dict(map=filename,type=name,constructor=constructor,passes=passes))
+    return dict(sources=sources,routes=routes), layers
+
+
+def tech_level_dispatch_controls():
+    """Original106 on declared global Type/House registration priors."""
+    specs = [
+        ('retail_ttnk','TTNK',1,[('TTNK','Vehicle',12),('NAIRON','Building',11)],2),
+        ('case_miss','ttnk',1,[('TTNK','Vehicle',12)],2),
+        ('missing_type','MISSING',1,[('TTNK','Vehicle',12)],2),
+        ('reverse_duplicate','TTNK',1,[('TTNK','Vehicle',12),('NAIRON','Building',11),('TTNK','Aircraft',9)],2),
+        ('negative','TTNK',-2,[('TTNK','Vehicle',12)],2),
+        ('i32_min','TTNK',-2147483648,[('TTNK','Vehicle',12)],2),
+        ('i32_max','TTNK',2147483647,[('TTNK','Vehicle',12)],2),
+        ('no_houses','TTNK',1,[('TTNK','Vehicle',12)],0),
+        ('empty_registry','TTNK',1,[],2)]
+    output = []
+    for name, target, value, types, house_count in specs:
+        f = ActionFixture()
+        f.call(0x7C8F5E, [])
+        proxy = SimpleNamespace(u=f.u,scenario=SCENARIO,
+            invoke=lambda pc,this,args: f.call(pc,list(args),ecx=this))
+        CampaignReader.seed_streams(proxy,31)
+        pointers, houses, writes, calls = [], [], [], []
+        for identity, category, prior in types:
+            pointer = f.allocate(0x700)
+            f.u.mem_write(pointer,bytes(0x700))
+            f.u.mem_write(pointer+0x24,identity.encode()+b'\0')
+            f.u.mem_write(pointer+0x634,dwords(prior))
+            pointers.append(pointer)
+        for _ in range(house_count):
+            pointer=f.allocate(0x200)
+            f.u.mem_write(pointer,bytes(0x200))
+            houses.append(pointer)
+        for slot,items in ((0xA8EB04,pointers),(0xA8022C,houses)):
+            storage=f.allocate(max(4,4*len(items)))
+            f.u.mem_write(storage,dwords(*items) if items else dwords(0))
+            f.u.mem_write(slot,dwords(storage))
+            f.u.mem_write(slot+12,dwords(len(items)))
+        def observe_write(u,_access,address,size,stored,_data):
+            for owner,items,offset in (('type',pointers,0x634),('house',houses,0x1FC)):
+                if address in [p+offset for p in items]:
+                    signed=struct.unpack('<i',dwords(stored))[0] if owner=='type' else stored
+                    writes.append(dict(owner=owner,index=items.index(address-offset),size=size,value=signed))
+        def observe_rng(u,pc,_size,_data):
+            if pc in (0x65C780,0x65C7E0):
+                calls.append(f'{pc:08X}')
+        raw=f'106,9,{target},0,0,0,0,{value}'
+        read=f.read_action(raw)
+        before=f.rng_hashes()
+        f.u.hook_add(UC_HOOK_MEM_WRITE,observe_write)
+        f.u.hook_add(UC_HOOK_CODE,observe_rng)
+        returned=f.call(0x6DD8B0,[0,0,0,0],ecx=ACTION)&255
+        f.check_code()
+        output.append(dict(name=name,input=dict(raw_action=raw,
+            types=[dict(id=i,category=c,tech_level=v) for i,c,v in types],
+            house_dirty=[False]*house_count,incoming_house=None),
+            read=dict(kind=read['kind'],value=read['value'],inline_type=f.string(ACTION+0x54)),
+            output=dict(returned=returned,tech_levels=[f.integer(p+0x634) for p in pointers],
+                house_dirty=[bool(f.u.mem_read(p+0x1FC,1)[0]) for p in houses],writes=writes),
+            rng_seed=31,rng_before=before,rng_after=f.rng_hashes(),rng_calls=calls))
+    return output
+
+
+def tech_level_lifecycle():
+    """Compose existing reset owner; observe live prefix and Type retirement."""
+    from tools.rules_oracle.select_anim_reset import fresh_reset
+    from tools.native_inspect import selected_ranges
+    from tools.native_oracle import image_bytes
+    m,rules=fresh_reset()
+    u=m.u
+    original=selected_ranges(image_bytes(),None,None,code_only=True)
+    for start,end in ((0x4E7A60,0x4E7A96),(0x4E73E0,0x4E7416)):
+        u.reg_write(UC_X86_REG_ESP,SP)
+        run_checked(u,start,end)
+    types={name:m.invoke(0x41CEF0,m.cstring(name)) for name in ('ORCA','BEAG')}
+    def state(name):
+        items=m.read32(0xA8EB04)
+        return dict(name=name,global_count=m.read32(0xA8EB10),
+            aircraft_count=m.read32(0xA8B228),
+            types=[dict(id=m.string(m.read32(items+i*4)+0x24),category='Aircraft',
+                tech_level=struct.unpack('<i',u.mem_read(m.read32(items+i*4)+0x634,4))[0])
+                for i in range(m.read32(0xA8EB10))])
+    stages=[state('constructors')]
+    u.mem_write(0xA80238,dwords(0))
+    action=m.alloc(0x94)
+    u.mem_write(action,bytes(0x94))
+    u.mem_write(action+0x2C,dwords(106))
+    raw_actions=['106,9,ORCA,0,0,0,0,11','106,9,BEAG,0,0,0,0,3']
+    for name,value in (('ORCA',11),('BEAG',3)):
+        u.mem_write(action+0x54,bytes(25))
+        u.mem_write(action+0x54,name.encode()+b'\0')
+        u.mem_write(action+0x90,dwords(value))
+        assert m.invoke(0x6DD8B0,action,(0,0,0,0))&255==1
+    stages.append(state('actions'))
+    passes=[dict(name='prefix_missing_key',sections={'ORCA':{'Name':'ORCA'},'BEAG':{'Name':'BEAG'}}),
+        dict(name='prefix_present_key',sections={'ORCA':{'TechLevel':'7'},'BEAG':{'TechLevel':'8'}})]
+    for row in passes:
+        m.rules_cache(row['sections'])
+        m.invoke(0x668BF0,rules,(RULES,))
+        stages.append(state(row['name']))
+    m.rules_cache({})
+    # ResetReader observes free before its existing transport rewrites ESP.
+    # A second later code hook would see the returned stack, not the argument.
+    m.retiring={ptr:dict(name=name,pointer=ptr,family='Aircraft') for name,ptr in types.items()}
+    m.record_reset=True
+    u.reg_write(UC_X86_REG_ESP,SP)
+    u.reg_write(UC_X86_REG_ECX,rules)
+    u.mem_write(SP+4,dwords(RULES))
+    run_checked(u,0x6686C0,0x6689E7,count=2_000_000)
+    m.record_reset=False
+    events=[dict(event='delete_type',id=row['name']) for row in m.reset_events
+            if row['event']=='delete_type']
+    assert sorted(row['id'] for row in events)==sorted(types)
+    stages.append(state('destructive_reset'))
+    for name in ('ORCA','BEAG'):
+        m.invoke(0x41CEF0,m.cstring(name))
+    stages.append(state('new_constructors'))
+    assert all(bytes(u.mem_read(x['address'],len(x['bytes'])))==x['bytes'] for x in original)
+    return dict(input=dict(raw_actions=raw_actions,prefix_passes=passes),
+        stages=stages,events=events,code_unchanged=True)
+
+
+def tech_level_generate(root, *, production=True):
+    from tools.native_oracle import image_sha256
+    retail,layers=tech_level_retail()
+    return dict(schema=1,native_sha256=image_sha256(),retail=retail,
+        dispatch_controls=tech_level_dispatch_controls(),scalar_layers=layers,
+        lifecycle=tech_level_lifecycle(),
+        production_history=tech_level_production_history(root) if production else None)
+
+
+def tech_level_production_history(root):
+    from tools.sidebar_oracle.factory_loss import aircraft_tech_setup,aircraft_tech_history
+    retail,_=tech_level_retail()
+    row=next(row for row in retail['routes'] if row['map']=='ALL05UMD.MAP')
+    for source in retail['sources']:
+        if source['file'] in ('RULESMD.INI',row['map']):
+            assert hashlib.sha256((root/source['file']).read_bytes()).hexdigest()==source['sha256']
+    # Preserve the actual counted reader's order. The subsequent Action53
+    # enables another trigger and is outside this production common path.
+    actions=[a for a in row['actions'] if a['kind']==106]
+    tokens=row['raw_actions'].split(',')
+    assert int(tokens[0])==len(row['actions']) and len(tokens)==1+8*len(row['actions'])
+    raw=[','.join(tokens[1+i*8:1+(i+1)*8]) for i,a in enumerate(row['actions']) if a['kind']==106]
+    return aircraft_tech_history(aircraft_tech_setup(root),raw,actions)
+
+
+def tech_level_metadata(root):
+    record = provenance(scope='Original106 exact global lookup/write/all-House dirty, selected '
+        'physical MD counted records/scalar layers, Type prefix/reset and bounded ALL05 paid '
+        'Aircraft production/Strip/event history. No full campaign or Event55 replay.',
+        assumptions=[
+            'Dispatch controls supply minimal named Type shells in explicit native global registration order and House dirty fields, not full constructors. Same-name reverse control uses distinct Vehicle/Aircraft identities.',
+            'Selected four maps come from physical mapsmd03.mix and patched RULESMD from expandmd01.mix. Real727516..7275A5 counted reader and714570..71458A scalar reader execute; optional layers absent in supported installation. No RA2 base INI is used.',
+            'Lifecycle reuses select_anim_reset.fresh_reset, actual Type vector CRT/constructor/destructor, full Process on declared two-section caches and reset before first post-reset Process. Prefix7/8 are custom inputs, not ALL05 named INI. New objects and deleted objects are distinct lifetimes.',
+            'Three RNG seed31 states use existing trigger ActionFixture SHA256 format. Leaf observations do not assert downstream recheck has no RNG/timer/detach effects.',
+            'ALL05 production reuses ReadyBuildingFixture with explicit RULESMD/optionalLANGRULE/ALL05 layers; Battle/Hills gameplay reads are excluded. Hills provides only the existing flat terrain crop. Local Country is Player, not its ParentCountry Americans.',
+            'Healthy completed GACNST/GAPILE/GAPOWR/GAAIRC and already-open sidebar, TechLevel10 and credits10000 are declared played-world priors. Aircraft real constructors/CRT, actual type readers, General production/prerequisite readers, original paid Factory AI,106, House dirty suffix, wholeStrip and same-frame receive execute.',
+            'Original Building health sampler440042..440074 and House power consumer4F84D9..4F84F1 establish the four completed buildings power cache before production. Native input geometry is the existing16x16 map/32x32 coordinate crop/33x33 class-height plane. Only the admitted local production House is registered in this bounded fixture; inherited unrelated actors do not run AI.',
+            'BeginProduction starts at the recorded initial_frame. Each payment visit increments FRAME before FactoryAI; no frame is rewritten to fit a refund. rng_seed_states imports the three complete native states after fixture setup without reseeding, so comparisons bound the production segment rather than full constructor chronology.',
+            'All three raw Factory timer dwords and writes are observed. Canonical writes name the actual Factory and relative offsets; its unused running middle word can retain native stack bytes. Rust CdTimer comparisons cover start/duration, not a claim about that raw middle word.',
+            'Native type9/count-reader materialization is copied into the joined runtime Action input shell before realExecute. This is an explicit parser-to-runtime input boundary, not a replacement gameplay decision. Event55 and original full-map/GUI startup remain excluded.',
+        ],substitutions=[
+            'Existing original-reader lexical cache, allocation/free, CRT/TLS/Windows and joined physical asset/audio service boundaries are reused. No admission/cancel/refund/timer answer is supplied. Lifecycle free is observed without heap storage reuse.',
+            'Joined Mission COM transport forwards Fly activation to the original6C4A90 factory. Reused type visual-asset boundaries do not certify rendered aircraft/assets or mounted theater/archive precedence. Audio/window/device inputs remain declared existing transports.',
+        ],entry_points=dict(action_reader=0x6DD5B0,action_execute=0x6DD8B0,
+            action106=0x6DF5D1,tech_level_reader=0x714570,type_reset=0x6686C0,
+            house_tail=0x4F9265,can_build=0x4F7870,strip_recalculate=0x6AA600,
+            building_health_sample=0x440042,house_power_consumer=0x4F84D9,
+            begin_production=0x4FA350,factory_ai=0x4C9B20,
+            held_aircraft_delete=0x41C210,factory_abandon=0x4C9FF0,
+            event_receive=0x6474C7))
+    record['command']='python -m tools.spatial_oracle.trigger_action_values --tech-level --check'
+    record['required_inputs']={'VERA20K_TRIGGER_TECH_INPUTS':'existing joined retail asset cache plus physical ALL05UMD.MAP; --inputs is equivalent'}
+    receipt=root/'extraction-receipt.json'
+    record['physical_input_sources']=json.loads(receipt.read_text(encoding='utf-8')) if receipt.exists() else {
+        'files':[dict(file=p.name,sha256=hashlib.sha256(p.read_bytes()).hexdigest())
+                 for p in sorted(root.iterdir()) if p.is_file() and p.suffix.lower()!='.json']}
+    for row in record['physical_input_sources']['files']:
+        assert hashlib.sha256((root/row['file']).read_bytes()).hexdigest()==row['sha256']
+    for name in record['physical_input_sources'].get('missing_candidate_names',[]):
+        assert not (root/name).exists(),name
+    return record
+
+def explosion_weapon_fields(m):
+    """Real constructor/current-default read controls, in the retained registry."""
+    name='Action42FieldControl'
+    count=len(m.weapon_registry())
+    pointer=m.invoke(0x772FA0,m.cstring(name));assert pointer
+    rows=[];pending={};active=[]
+    def state():
+        wh=m.read32(pointer+0xAC)
+        return dict(damage=struct.unpack('<i',m.u.mem_read(pointer+0xA4,4))[0],
+                    warhead=m.string(wh+0x24) if wh else None)
+    def observe(u,pc,size,data):
+        sp=u.reg_read(UC_X86_REG_ESP)
+        if (pc,sp) in pending:
+            row=pending.pop((pc,sp));row['returned']=struct.unpack('<i',dwords(u.reg_read(UC_X86_REG_EAX)))[0]
+            if row['key']=='Warhead':row['read_string']=m.string(row['output_address'])
+        if pc not in (0x5276D0,0x528A10):return
+        section,key=m.string(m.read32(sp+4)),m.string(m.read32(sp+8))
+        if section!=name or key not in ('Damage','Warhead') or (key=='Damage')!=(pc==0x5276D0):return
+        row=dict(entry=f'{pc:08X}',return_pc=f'{m.read32(sp):08X}',section=section,key=key)
+        if key=='Damage':row['default']=struct.unpack('<i',dwords(m.read32(sp+12)))[0];cleanup=16
+        else:
+            row.update(default=m.string(m.read32(sp+12)),capacity=m.read32(sp+20),output_address=m.read32(sp+16));cleanup=24
+        active.append(row);pending[m.read32(sp),sp+cleanup]=row
+    hook=m.u.hook_add(UC_HOOK_CODE,observe);before_rng=m.rng_state();constructor=state()
+    try:
+        for label,keys in (
+            ('missing_section',None),('set_both',{'Damage':'37','Warhead':'AP'}),
+            ('missing_keys',{'Range':'1'}),('empty_keys',{'Damage':'','Warhead':''}),
+            ('signed_and_none',{'Damage':'-17','Warhead':'none'}),
+            ('missing_after_clear',{'Range':'1'}),('case_lookup',{'Damage':'90','Warhead':'ap'})):
+            m.ordered_ini({name:keys} if keys is not None else {'Unrelated':{'Marker':'1'}})
+            active.clear();before=state();returned=m.invoke(0x772080,pointer,(INI,))&255
+            assert not pending,pending
+            rows.append(dict(name=label,keys=keys,before=before,returned=returned,after=state(),
+                reads=[{k:v for k,v in row.items() if k!='output_address'} for row in active]))
+    finally:m.u.hook_del(hook)
+    m.check_code()
+    return dict(constructor=constructor,rows=rows,registry_count_before=count,
+        rng_before=before_rng,rng_after=m.rng_state(),
+        scope='One real appended Weapon; complete original771C70/772080 on ordered cache controls. These custom controls exclude physical loading and full Rules Process.')
+
+
+def do_explosion_generate(*,receipt_path=None):
+    """Two independent physical map Process branches from one full root state."""
+    from tools.rules_oracle.weapon_speed_order import RetailRulesInputs,retail_history
+    from tools.native_oracle import image_sha256
+    inputs=RetailRulesInputs(configured_gamemd().parent);m=retail_history(inputs);failure=None
+    try:
+        root=m.campaign_root(('ALL06UMD.MAP','SOV03UMD.MAP'))
+        common=m.snapshot();maps=[]
+        for name,trigger in (('ALL06UMD.MAP','048BB6BC'),('SOV03UMD.MAP','0B3BE93C')):
+            m.restore(common);registry=m.map_process(root['pointers'][name],name)
+            raw,_=m.string_read(root['pointers'][name],'Actions',trigger)
+            # The authored Action42 record, from the physical map INI bytes.
+            tokens=raw.split(',');records=[tokens[1+i*8:9+i*8] for i in range(int(tokens[0]))]
+            selected=[r for r in records if r[0]=='42'];assert len(selected)==1
+            maps.append(dict(map=name,weapon_registry=registry,trigger_id=trigger,
+                raw_action=','.join(selected[0]),selected_weapon_index=int(selected[0][2])))
+        fields=explosion_weapon_fields(m)
+        for key in ('rng_before','rng_after'):fields.pop(key)
+        # Keep the consumed INI/map identities; every other physical request
+        # (art SHPs, absent theater variants) is pinned by count and digest.
+        receipt=inputs.receipt();requests=receipt.pop('requests')
+        receipt.update(inis=[row for row in requests if row['file'].upper().endswith(('.INI','.MAP'))],
+            request_count=len(requests),absent_count=sum(row['absent'] for row in requests),
+            requests_sha256=hashlib.sha256(json.dumps(requests,sort_keys=True).encode()).hexdigest())
+        return dict(schema_version=1,native_sha256=image_sha256(),sources=receipt,
+            startup=dict(arena_bytes=0xC000000,physical=root['physical'],initializers=root['initializers'],
+                optional_pass_guards=root['optional'],initialization_depth=root['initialization_depth'],
+                theater=root['theater'],root_weapons=root['weapons']),
+            maps=maps,weapon_field_controls=fields)
+    except Exception as error:
+        failure=dict(type=type(error).__name__,message=str(error),phase=m.phase,
+            pc=f'{m.u.reg_read(UC_X86_REG_EIP):08X}',sp=f'{m.u.reg_read(UC_X86_REG_ESP):08X}')
+        raise
+    finally:
+        if receipt_path:
+            receipt=dict(status='stopped' if failure else 'returned',failure=failure,
+                registry_events=m.registry_events,phase_visits=m.phase_visits,
+                budgets=m.budgets,phase_seconds=m.phase_seconds,native_events=m.native_events,
+                arena_used=m.cursor-0x24000000,arena_bytes=0xC000000)
+            Path(receipt_path).write_text(json.dumps(receipt,indent=2)+'\n',encoding='utf-8')
+        m.close()
+
+
+def do_explosion_source_paths():
+    return dict(SOURCE_PATHS,**{name:Path(__file__).parents[2]/path for name,path in {
+        'native_full_registry':'tools/rules_oracle/weapon_speed_order.py',
+        'single_arena':'tools/rules_oracle/bridge_anim_lists.py',
+        'bullet_reader':'tools/projectile_oracle/bridge_render_inputs.py',
+        'native_platform':'tools/spatial_oracle/engineer_repair_admission.py',
+        'palette_platform':'tools/projectile_oracle/bridge_render_inputs_palette.py',
+    }.items()})
+
+
+def do_explosion_metadata():
+    return provenance(scope='Physical RULESMD/ARTMD plus independent ALL06/SOV03 full native type histories: the retained WeaponType array order, Damage and Warhead that TAction42 (6E2390) indexes, and Weapon constructor/ReadINI Damage/Warhead controls.',
+        assumptions=[
+            '535B30/4739F0/4741F0/525A60 parse actual source-selected bytes. Physical maps are loaded before a common full original Rules root history, then each original687744..687754 map Process runs from an in-memory CPU/RAM/transport snapshot. Optional LANGRULE and campaign basename INI guards execute473C50 and must report absent; a present file stops until its real pass is supported.',
+            'Original constructors/static type initializers, cold readers, init-depth kernels, media-2 (6BD7CB passes ECX), palette/Convert bodies, map Theater read and InitTheater5349C0, and destructive Reset6686C0/full Process668BF0 execute. The 192MiB successful heap is one existing Lists allocator, not native malloc-failure equivalence. Physical INI checkDigest0 is explicit; whole campaign digest/UI startup and theater tile/World loading are excluded.',
+            'The authored 42 record is read from each physical map [Actions] entry; its third field is the Weapon ordinal Execute42 passes to 6E2390. Action42 body behavior (coordinate, SelectAnim/Anim, Flash, AreaDamage) is outside this corpus and rests on instruction reading.',
+            'Weapon constructor771C9D/771CA9 initializes Damage0/WarheadNULL. Original772080 reads exact Damage at7722D4..7722E8 using5276D0 with CURRENT Damage; Warhead at77294C..772981 uses528A10/current binding, nonempty75E3B0. Missing and empty controls are executable, not inferred: empty Damage reads0; empty Warhead retains; none clears; case-insensitive lookup preserves stored identity.',
+        ],substitutions=[
+            'Existing CampaignReader/Reader/Lists owns unchanged PE, INI caches, CRT/heap/GUID/clock/atomic transport. Existing NativeAudioPlatform owns RawFile bytes/Win32 and wsprintfA ASCII one-%s/%d formatting for InitTheater and direct CALL [7E14B0] sites. RetailRulesInputs selects actual archive bytes, records absent 8.3 names, and rejects unproven byte conflicts; it supplies only IO bytes/absence, not gameplay read/constructor/parser results. Existing RGB565 opaque surface/getter and palette transport remain explicit. No instruction patches, native RNG/timer calculations or gameplay-return stubs.',
+        ],entry_points=dict(physical_ini_ctor=0x535B30,file_ctor=0x4739F0,physical_load=0x4741F0,physical_parse=0x525A60,
+            init_theater=0x5349C0,rules_reset=0x6686C0,rules_process=0x668BF0,weapon_ctor=0x771C70,weapon_read=0x772080,
+            weapon_find_or_allocate=0x772FA0,map_process=0x687744,action42=0x6E2390))
+
+def _map_lighting_retail():
+    root = native.configured_gamemd().parent
+    matches = {}
+    candidates = []
+    for name in ('expandmd01.mix', 'ra2md.mix', 'ra2.mix'):
+        path = root / name
+        raw = path.read_bytes()
+        entries = mix(raw)
+        candidates.append((name, raw, entries))
+        for nested in ('multimd.mix', 'multi.mix', 'localmd.mix', 'local.mix'):
+            val = entries.get(mix_hash(nested))
+            if val is not None:
+                candidates.append((name + ' -> ' + nested, val, mix(val)))
+    for name in ('TRANSYLV.YRO', 'RULESMD.INI', 'MPBATTLEMD.INI', 'ARTMD.INI'):
+        if (root / name).is_file():
+            raw = (root / name).read_bytes()
+            matches.setdefault(name, []).append(dict(archive='retail loose file', sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw), sections=sections(raw)))
+        for archive, archive_raw, entries in candidates:
+            raw = entries.get(mix_hash(name))
+            if raw is not None:
+                matches.setdefault(name, []).append(dict(archive=archive, archive_sha256=hashlib.sha256(archive_raw).hexdigest(), sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw), sections=sections(raw)))
+    for val in matches.get('TRANSYLV.YRO', []):
+        s = val.pop('sections')
+        selected = {}
+        for key, raw in s.get('Actions', {}).items():
+            cells = raw.split(',')
+            n = int(cells[0])
+            assert len(cells) == 1 + n * 8
+            actions = [','.join(cells[1 + i * 8:9 + i * 8]) for i in range(n)]
+            if any((int(a.split(',')[0]) in (66, 73) for a in actions)):
+                selected[key] = dict(raw=raw, actions=actions, trigger=s.get('Triggers', {}).get(key), events=s.get('Events', {}).get(key))
+        val['selected'] = selected
+        val['Lighting'] = s.get('Lighting', {})
+        val['Waypoints'] = s.get('Waypoints', {})
+        val['Basic'] = s.get('Basic', {})
+        val['CombatDamage'] = s.get('CombatDamage', {})
+        val['Super'] = s.get('Super', {})
+        val['General'] = s.get('General', {})
+        val['AudioVisual'] = s.get('AudioVisual', {})
+        val['Triggers'] = s.get('Triggers', {})
+        val['Events'] = s.get('Events', {})
+        val['Actions'] = s.get('Actions', {})
+    for val in matches.get('RULESMD.INI', []):
+        s = val.pop('sections')
+        val['CombatDamage'] = {k: v for k, v in s.get('CombatDamage', {}).items() if k == 'C4Warhead'}
+        val['Super'] = s.get('Super', {})
+        val['General'] = {k: v for k, v in s.get('General', {}).items() if k in ('AmbientChangeRate', 'AmbientChangeStep')}
+        val['AudioVisual'] = {k: v for k, v in s.get('AudioVisual', {}).items() if k in ('AmbientChangeRate', 'AmbientChangeStep')}
+    for name in ('MPBATTLEMD.INI', 'ARTMD.INI'):
+        for val in matches.get(name, []):
+            val.pop('sections')
+    return matches
+
+def _map_lighting_ambient_controls():
+    rows = []
+    for value in (110, 75, 0, -1, 100, 2147483647, -2147483648):
+        for storm in (False, True):
+            for nuke, chrono, dominator in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 2)):
+                f = ActionFixture()
+                u = f.u
+                definition = f.read_action(f'73,0,{value},0,0,0,0,A')
+                u.mem_write(SCENARIO + 13608, dwords(87, 87, 43))
+                u.mem_write(SCENARIO + 13620, dwords(90, 90, 100, 50, 8))
+                u.mem_write(SCENARIO + 4680, dwords(12, 2779096485, 8))
+                u.mem_write(11139764, bytes([storm]))
+                u.mem_write(11139772, dwords(nuke))
+                u.mem_write(11139760, dwords(chrono))
+                u.mem_write(11139776, dwords(dominator))
+                before = f.rng_hashes()
+                calls = []
+
+                def observe(uc, pc, _sz, _data):
+                    if pc in (5480704, 5489280, 5483776, 4908224, 6670032, 6670208, 6670304):
+                        calls.append(f'{pc:08X}')
+                h = u.hook_add(UC_HOOK_CODE, observe)
+                result = f.call(7198896, [0, 0, 0, 0], ecx=ACTION) & 255
+                u.hook_del(h)
+                f.check_code()
+                rows.append(dict(input=dict(value=value, storm=storm, nuke=nuke, chrono=chrono, dominator=dominator, current=87, target=43, normal=87, timer=[12, 8]), definition=definition, returned=result, after=dict(normal=f.integer(SCENARIO + 13608), current=f.integer(SCENARIO + 13612), target=f.integer(SCENARIO + 13616), normal_rgb_ground_level=list(struct.unpack('<5i', u.mem_read(SCENARIO + 13620, 20))), timer=[f.integer(SCENARIO + 4680), f.integer(SCENARIO + 4688)]), calls=calls, rng_before=before, rng_after=f.rng_hashes()))
+    return dict(native_sha256=native.image_sha256(), cases=rows, scope='Original action constructor/token reader/Execute73; supplied scenario/global priors; no consumer timing or render output claim')
+
+def _map_lighting_flash_controls():
+    f = ActionFixture()
+    u = f.u
+    constants = initialize_waypoint_map(f)
+    initializers = list(struct.unpack('<15I', u.mem_read(8472744, 60)))
+    for entry in initializers:
+        f.call(entry, [])
+    constants['scenario_waypoint_bridge_height'] = f.integer(11556028)
+    f.call(4701168, [], ecx=f.cell)
+    f.call(4701168, [], ecx=11263056)
+    u.mem_write(8942784, dwords(8304340, f.allocate(4096), 1024, 1, 0, 10))
+    f.call(8163166, [])
+    u.mem_write(8942048, dwords(RULES))
+    f.call(6706768, [], ecx=RULES)
+    root = native.configured_gamemd().parent
+    raw_rules = mix((root / 'expandmd01.mix').read_bytes())[mix_hash('RULESMD.INI')]
+    physical = sections(raw_rules)
+    f.ordered_ini({name: physical[name] for name in ('CombatDamage', 'Super')})
+    name = f.allocate(8)
+    u.mem_write(name, b'Super\x00')
+    wh = f.call(7726000, [], ecx=name)
+    ctor = dict(bright=u.mem_read(wh + 336, 1)[0], size_f32_le_hex=bytes(u.mem_read(wh + 316, 4)).hex())
+    answered = f.call(7721888, [INI], ecx=wh) & 255
+    from unicorn.x86_const import UC_X86_REG_ESI, UC_X86_REG_EDI
+    u.reg_write(UC_X86_REG_ESP, 269475840)
+    u.reg_write(UC_X86_REG_ESI, RULES)
+    u.reg_write(UC_X86_REG_EDI, INI)
+    native.run_checked(u, 6734596, 6734668, count=100000)
+    assert f.read32(RULES + 4008) == wh
+    inputs = dict(rules_sha256=hashlib.sha256(raw_rules).hexdigest(), read_returned=answered, ctor=ctor, after=dict(bright=u.mem_read(wh + 336, 1)[0], size_f32_le_hex=bytes(u.mem_read(wh + 316, 4)).hex()), c4=f.string(f.read32(RULES + 4008) + 36))
+    rows = []
+    for kind in (64, 65, 66):
+        for case in (dict(name='transylv_EA_flat_crop', cell=[68, 77]), dict(name='raised_slope', cell=[68, 77], level=3, slope=1), dict(name='bridge100', cell=[68, 77], level=3, slope=1, flags=256), dict(name='bridge400', cell=[68, 77], flags=1024), dict(name='scalar_not_tail', cell=[68, 77], scalar=131)):
+            install_waypoint_cell(f, case)
+            scalar = case.get('scalar', 130)
+            definition = f.read_action(f'{kind},0,{scalar},0,0,0,0,EA')
+            u.mem_write(SCENARIO + 1586 + 130 * 4, struct.pack('<hh', 12, 11))
+            u.mem_write(SCENARIO + 1586 + scalar * 4, struct.pack('<hh', *case['cell']))
+            u.mem_write(11070328, dwords(2))
+            u.mem_write(11259204, dwords(60))
+            u.mem_write(11259216, b'\x00')
+            u.mem_write(8560628, dwords(15, 5))
+            calls = []
+
+            def observe(uc, pc, _sz, _data):
+                sp = uc.reg_read(UC_X86_REG_ESP)
+                if pc == 4761120:
+                    calls.append(dict(call='Flash', damage=f.integer_reg(UC_X86_REG_ECX), warhead=f.string(uc.reg_read(UC_X86_REG_EDX) + 36), arguments=list(struct.unpack('<5i', uc.mem_read(sp + 4, 20)))))
+                elif pc == 6287952:
+                    raise AssertionError('Unexpected retail Super bright light constructor')
+            h = u.hook_add(UC_HOOK_CODE, observe)
+            before = f.rng_hashes()
+            result = f.call(7198896, [0, 0, 0, 0], ecx=ACTION) & 255
+            u.hook_del(h)
+            f.check_code()
+            rows.append(dict(input=case, definition=definition, returned=result, calls=calls, light_constructor_calls=0, rng_before=before, rng_after=f.rng_hashes()))
+    # Flash queries the shared detail latch before its Bright test, including
+    # stock calls which create no light. Keep this original wrapper/55AF60 in
+    # the same physical C4 fixture; only the downstream Light constructor is
+    # a recorded return boundary in these explicit presentation-state controls.
+    original_code = {
+        start: native.file_span(native.image_bytes(), start, length)[1]
+        for start, length in ((0x48A620, 0xE0), (0x55AF60, 0x50))
+    }
+    assert all(bytes(u.mem_read(start, len(raw))) == raw for start, raw in original_code.items())
+    base = dict(detail=2, fps=60, minimum=15, buffer=5, reduced=0,
+                bright=1, force=0, flags=0, damage=300)
+    creation_inputs = [
+        dict(base, name='detail0_cannot_force', detail=0, force=1),
+        dict(base, name='detail0_flag_but_not_bright', detail=0, flags=1, bright=0),
+        dict(base, name='detail0_flag_force', detail=0, fps=0, flags=1, force=1, bright=0),
+        dict(base, name='detail0_high_flag_no_bypass', detail=0, flags=16, force=1),
+        dict(base, name='lowfps_cannot_force', fps=10, force=1),
+        dict(base, name='lowfps_flag_force', fps=10, flags=1, force=1, bright=0),
+        dict(base, name='lowfps_flag_but_not_bright', fps=10, flags=1, bright=0),
+        dict(base, name='lowfps_high_flag_no_bypass', fps=10, flags=16, force=1),
+        dict(base, name='fps_equal_minimum', fps=15),
+        dict(base, name='stock_no_bright_normalfps', bright=0),
+        dict(base, name='hysteresis_band_reduced', fps=17, reduced=1),
+        dict(base, name='hysteresis_band_not_reduced', fps=17),
+        dict(base, name='hysteresis_recovery_equal', fps=20, reduced=1),
+    ]
+    history_input = dict(base, name='stock_no_bright_lowfps_then_sample', fps=10, bright=0)
+    creation_admission = []
+    hysteresis_history = None
+    admission_rng_before = f.rng_hashes()
+    for case in [*creation_inputs, history_input]:
+        u.mem_write(0xA8EB78, dwords(case['detail']))
+        u.mem_write(0xABCD44, dwords(case['fps']))
+        u.mem_write(0x829FF4, dwords(case['minimum'], case['buffer']))
+        u.mem_write(0xABCD50, bytes([case['reduced']]))
+        # Declared Bright branch prior on the genuinely read C4 Warhead.
+        # Its original constructor/read established CombatLightSize=0 above.
+        u.mem_write(wh + 0x150, bytes([case['bright']]))
+        observation = dict(input=case, queries=0, threshold=None,
+                           bright_test_reached=False, constructor_sizes=[])
+
+        def observe_admission(uc, pc, _size, _data):
+            sp = uc.reg_read(UC_X86_REG_ESP)
+            if pc == 0x55AF60:
+                observation['queries'] += 1
+            elif pc == 0x48A639:
+                # Actual original55AF60 return, before Flash's unsigned gate.
+                observation['threshold'] = uc.reg_read(UC_X86_REG_EAX)
+            elif pc == 0x48A65A:
+                observation['bright_test_reached'] = True
+            elif pc == 0x5FF250:
+                observation['constructor_sizes'].append(f.integer(sp + 16))
+                # Flash needs the returned object for its flags OR at +14.
+                # The real allocator already supplied this24-byte object; no
+                # constructor fields, lifetime, manager or pixels are claimed.
+                return_from_sink(uc, 16, uc.reg_read(UC_X86_REG_ECX))
+
+        hook = u.hook_add(UC_HOOK_CODE, observe_admission)
+        try:
+            u.reg_write(UC_X86_REG_EDX, wh)
+            f.call(0x48A620, [17536, 19840, 0, case['force'], case['flags']],
+                   ecx=case['damage'])
+        finally:
+            u.hook_del(hook)
+        observation['reduced_after'] = u.mem_read(0xABCD50, 1)[0]
+        if case is history_input:
+            # Retain the Flash-produced latch across one explicit FPS sample.
+            # The omitted-Flash control changes only its initial latch; both
+            # next queries execute the same original55AF60, not Python math.
+            u.mem_write(0xABCD44, dwords(17))
+            with_threshold = f.call(0x55AF60, [])
+            with_reduced = u.mem_read(0xABCD50, 1)[0]
+            u.mem_write(0xABCD50, bytes([case['reduced']]))
+            without_threshold = f.call(0x55AF60, [])
+            hysteresis_history = dict(
+                input=dict(first_flash=case, next_fps=17),
+                after_flash_reduced=observation['reduced_after'],
+                flash_queries=observation['queries'],
+                flash_constructor_sizes=observation['constructor_sizes'],
+                with_flash_next_threshold=with_threshold,
+                with_flash_next_reduced=with_reduced,
+                without_flash_next_threshold=without_threshold,
+                without_flash_next_reduced=u.mem_read(0xABCD50, 1)[0])
+        else:
+            creation_admission.append(observation)
+        assert all(bytes(u.mem_read(start, len(raw))) == raw for start, raw in original_code.items())
+    f.check_code()
+    return dict(native_sha256=native.image_sha256(), warhead_inputs=inputs,
+        constants=constants, cases=rows, creation_admission=creation_admission,
+        hysteresis_history=hysteresis_history,
+        creation_code_sha256={f'{start:08X}': hashlib.sha256(raw).hexdigest()
+                             for start, raw in original_code.items()},
+        creation_code_unchanged=True, admission_rng_before=admission_rng_before,
+        admission_rng_after=f.rng_hashes(),
+        scope='Original Warhead ctor/full read and C4 reference selected physical-cache reader; Execute64..66/GetWaypointLocation/Flash body. Retail no-bright arm produces no CombatLight, but the original Flash detail query can mutate shared hysteresis. Declared creation-state controls execute Flash/55AF60; only5FF250 is an observed constructor return boundary. Declared terrain crop and FPS transitions, not played Transylv or render parity.')
+
+def _map_lighting_ambient_history():
+    from tools.spatial_oracle.building_body_rules import SP
+    from unicorn.x86_const import UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_FPCW
+    f = ActionFixture()
+    u = f.u
+    u.mem_write(8942048, dwords(RULES))
+    f.call(6706768, [], ecx=RULES)
+    f.call(8163166, [])
+
+    def rates():
+        return dict(rate_f64_le_hex=bytes(u.mem_read(RULES + 5736, 8)).hex(), step_f64_le_hex=bytes(u.mem_read(RULES + 5744, 8)).hex())
+    root = native.configured_gamemd().parent
+    raw_rules = mix((root / 'expandmd01.mix').read_bytes())[mix_hash('RULESMD.INI')]
+    raw_map = (root / 'Transylv.yro').read_bytes()
+    layers = []
+    ctor = rates()
+    for name, raw in (('RULESMD.INI', raw_rules), ('Transylv.yro', raw_map)):
+        source = sections(raw)
+        chosen = {sec: {k: v for k, v in source.get(sec, {}).items() if k in ('AmbientChangeRate', 'AmbientChangeStep')} for sec in ('General', 'AudioVisual')}
+        f.ordered_ini(chosen)
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_ESI, RULES)
+        u.reg_write(UC_X86_REG_EDI, INI)
+        u.reg_write(UC_X86_REG_FPCW, 3711)
+        native.run_checked(u, 6731223, 6731301, count=100000)
+        assert u.reg_read(UC_X86_REG_ESP) == SP
+        layers.append(dict(file=name, sha256=hashlib.sha256(raw).hexdigest(), keys=chosen, after=rates()))
+    u.mem_write(SCENARIO + 13608, dwords(60, 60, 60))
+    u.mem_write(SCENARIO + 4680, dwords(0, 2779096485, 0))
+    u.mem_write(11139772, dwords(0, 0))
+    u.mem_write(11139764, b'\x00')
+    u.mem_write(11139760, dwords(0))
+    definition = f.read_action('73,0,110,0,0,0,0,A')
+    f.call(7198896, [0, 0, 0, 0], ecx=ACTION)
+    events = []
+
+    def observe(uc, pc, _sz, _data):
+        sp = uc.reg_read(UC_X86_REG_ESP)
+        if pc == 4908224:
+            events.append(dict(call='UpdateCellLighting'))
+            return_from_sink(uc, 0, 0)
+        elif pc == 5194480:
+            events.append(dict(call='Redraw', argument=f.read32(sp + 4)))
+            return_from_sink(uc, 4, 0)
+    h = u.hook_add(UC_HOOK_CODE, observe)
+    rows = []
+    before = f.rng_hashes()
+    for frame in (1000, 1001, 1179, 1180, 1359, 1360, 1539, 1540, 1719, 1720, 1900):
+        u.mem_write(11070852, dwords(frame))
+        events.clear()
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_EBP, SCENARIO)
+        u.reg_write(UC_X86_REG_EBX, RULES)
+        u.reg_write(UC_X86_REG_EDI, frame)
+        u.reg_write(UC_X86_REG_FPCW, 3711)
+        native.run_checked(u, 5616445, 5616855, count=10000)
+        rows.append(dict(frame=frame, normal=f.integer(SCENARIO + 13608), current=f.integer(SCENARIO + 13612), target=f.integer(SCENARIO + 13616), timer=[f.integer(SCENARIO + 4680), f.integer(SCENARIO + 4688)], events=list(events)))
+    u.hook_del(h)
+    f.check_code()
+    return dict(native_sha256=native.image_sha256(), definition=definition, constructor_rates=ctor, layers=layers, rates=rates(), initial=dict(normal=60, current=60, target=60, timer=[0, 0]), rows=rows, rng_before=before, rng_after=f.rng_hashes(), scope='Original Rules constructor then AudioVisual retained ReadDouble66B5D7..66B625 using physical selected key caches, then Execute73 and actual Logic55B33D..55B4D7. Declared initial map60 and sparse frame observations; cell relight/redraw output sinks only. Whole physical INI load/Process/mode chronology, gameplay and pixels excluded.')
+
+def _map_lighting_rate_controls():
+    from tools.spatial_oracle.building_body_rules import SP
+    from unicorn.x86_const import UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_FPCW
+    f = ActionFixture()
+    u = f.u
+    f.call(8163166, [])
+    f.call(6706768, [], ecx=RULES)
+
+    def state():
+        return dict(rate_f64_le_hex=bytes(u.mem_read(RULES + 5736, 8)).hex(), step_f64_le_hex=bytes(u.mem_read(RULES + 5744, 8)).hex())
+    ctor = state()
+    rows = []
+    for case in (dict(name='wrong_general_ignored', cache={'General': {'AmbientChangeRate': '1.5', 'AmbientChangeStep': '.9'}}), dict(name='av_exact', cache={'AudioVisual': {'AmbientChangeRate': '.001', 'AmbientChangeStep': '.07'}}), dict(name='missing_retains', cache={}), dict(name='wrong_key_case_ignored', cache={'AudioVisual': {'ambientchangerate': '9', 'Ambientchangestep': '9'}}), dict(name='signed_zero', cache={'AudioVisual': {'AmbientChangeRate': '0', 'AmbientChangeStep': '-.1'}})):
+        before = state()
+        f.ordered_ini(case['cache'])
+        u.reg_write(UC_X86_REG_ESP, SP)
+        u.reg_write(UC_X86_REG_ESI, RULES)
+        u.reg_write(UC_X86_REG_EDI, INI)
+        u.reg_write(UC_X86_REG_FPCW, 3711)
+        native.run_checked(u, 6731223, 6731301, count=100000)
+        assert u.reg_read(UC_X86_REG_ESP) == SP
+        rows.append(dict(input=case, before=before, after=state()))
+    f.check_code()
+    return dict(native_sha256=native.image_sha256(), constructor=ctor, cases=rows, scope='Original Rules constructor and retained AudioVisual two-key reader66B5D7..66B625; declared ordered cached keys. Physical lexical-empty elision and full Process not included. Cached-empty and malformed float reads expose uninitialized output and are excluded; physical empty omission is separate.')
+
+def map_lighting_generate():
+    physical = _map_lighting_retail()
+    map_row = physical['TRANSYLV.YRO'][0]
+    retail_map = {key: map_row[key] for key in
+                  ('archive','sha256','bytes','selected','Lighting','Waypoints','General','AudioVisual','CombatDamage','Super')}
+    selected_waypoints = {str(130): retail_map['Waypoints']['130']}
+    retail_map['Waypoints'] = selected_waypoints
+    return dict(schema_version=1,
+        native_sha256=native.image_sha256(),
+        retail=dict(map=retail_map,rules=physical['RULESMD.INI']),
+        ambient_controls=_map_lighting_ambient_controls()['cases'],
+        flash_controls=_map_lighting_flash_controls(),
+        ambient_history=_map_lighting_ambient_history(),
+        rate_controls=_map_lighting_rate_controls())
+
+
+def map_lighting_metadata():
+    return provenance(
+        scope='Original Execute73 normal/target writes and64..66 local light producer, retained AV scalar readers, and bounded Transylv110 ambient fade; no full scene or pixel parity claim.',
+        assumptions=[
+            'Physical configured MD install: loose Transylv.yro and expandmd01.mix RULESMD.INI, with original hashes; lexical cache transport uses existing sections/ordered_ini. Physical INI loading, optional LANGRULE, full mode/Process chronology and full terrain are excluded.',
+            '56 declared Execute73 scenario/effect-state controls keep current ambient, RGB/Ground/Level and fade timer explicit. Storm activation alone gates target3530; original action remains reachable in YR dispatcher.',
+            'Retail C4Warhead=Super is resolved by original C4 reader and factory; original Warhead constructor/full Read runs. Stock Super Bright=0 and CombatLightSize=0 select the actual no-light Flash leaf.15 control producers cover50/100/300 and distinct scalar versus tail waypoint.',
+            'Thirteen additional creation-admission controls supply explicit detail/FPS/minimum/buffer/reduced/Bright/force/flags/damage priors on that same physical C4 object. Actual48A620 calls the original55AF60 before Bright; the constructor size, latch and threshold outputs are executed, not supplied. A stock no-Bright low-FPS Flash retains its mutated latch into a declared next-FPS sample and original55AF60 query; an omitted-Flash control changes only the latch prior.',
+            'History uses original Rules ctor, original retained AudioVisual ReadDouble kernels on physical selected keys and actual Logic fade instructions. Initial ambient60 is a declared prior corresponding to map Lighting.Ambient; this comparison does not execute the map lighting reader.',
+            'Action64/65 controls establish shared producer sizes; they are not used by this official map. Invalid native array/cell indices, non-finite float values and cached-empty/malformed uninitialized ReadDouble outputs are excluded. Existing ini_value.rs intentionally returns deterministic zero for malformed data; no parser exception is introduced here.',
+            'Native controller globals correspond to existing superweapon_oracle: stormA9FAB4, nukeA9FABC, chronoA9FAB0, PsyDomA9FAC0. Current root data has no applicable Transylv AV/C4 override; production Rust retail tests must independently parse layers.',
+        ],
+        substitutions=[
+            'Existing ActionFixture supplies allocator/delete/TLS/Win32 fixture seams and preallocated registries. Native action, Rules, Warhead, waypoint and Flash instructions are unchanged.',
+            'History UpdateCellLighting4AE4C0 and MapRedraw4F42F0 are recorded output sinks; no sampled colors, terrain relight, palette composition or rendered output is asserted.',
+            'Only in the additional creation-admission/hysteresis controls, LightCtor5FF250 records its actual size argument and returns its real allocated receiver with ret16; original Flash and55AF60 bytes are checked against the immutable executable before/after. No light constructor, lifetime, manager or Bright-positive rendered result is certified.',
+        ],
+        entry_points=dict(action_execute=0x6DD8B0,small_light=0x6DDDF6,
+            medium_light=0x6DDE4B,large_light=0x6DDEA0,ambient=0x6DF292,
+            rules_ctor=0x665650,ambient_rules=0x66B5D7,c4_reader=0x66C304,
+            warhead_factory=0x75E3B0,warhead_read=0x75D3A0,
+            waypoint_location=0x68BD00,flash=0x48A620,light_ctor=0x5FF250,
+            minimum_frame_rate=0x55AF60,
+            ambient_logic=0x55B33D,cell_refresh_sink=0x4AE4C0,redraw_sink=0x4F42F0))
+
+
+def map_lighting_source_paths():
+    return dict(SOURCE_PATHS,
+        scalar_reader_owner=Path(__file__).parents[1]/'rules_oracle/bridge_landing_inputs.py')
+
+
+def nuke_strike_retail(root):
+    """Physical map row selection plus the unchanged TAction constructor/reader."""
+    raw = (root / 'HighExpR.yro').read_bytes()
+    candidates = [(key, value) for key, value in mix(raw).items()
+                  if b'[Basic]' in value or b'[Map]' in value]
+    assert len(candidates) == 1
+    entry_hash, map_raw = candidates[0]
+    assert map_raw == (root / 'HighExpR.map').read_bytes()
+    data = sections(map_raw)
+    fixture = ActionFixture()
+    actions = []
+    for trigger_id, row in data['Actions'].items():
+        tokens = row.split(',')
+        assert len(tokens) == 1 + 8 * int(tokens[0])
+        for ordinal in range(int(tokens[0])):
+            fields = tokens[1 + ordinal * 8:1 + (ordinal + 1) * 8]
+            if int(fields[0]) != 95:
+                continue
+            raw_action = ','.join(fields)
+            materialized = fixture.read_action(raw_action)
+            assert materialized['kind'] == 95
+            actions.append(dict(trigger_id=trigger_id, trigger=data['Triggers'][trigger_id],
+                event=data['Events'][trigger_id], ordinal=ordinal, raw=raw_action,
+                materialized=materialized,
+                waypoint_raw=data['Waypoints'][str(materialized['waypoint'])]))
+    fixture.check_code()
+    assert len(actions) == 6
+    return dict(archive=dict(name='HighExpR.yro',sha256=hashlib.sha256(raw).hexdigest()),
+        map=dict(entry_hash=entry_hash,sha256=hashlib.sha256(map_raw).hexdigest(),bytes=len(map_raw)),
+        actions=actions)
+
+
+def nuke_strike_sources(root):
+    required = ('RULESMD.INI','ARTMD.INI','MPBattleMD.ini','HighExpR.yro',
+                'HighExpR.map','Hills.map','DRAGON.SHP','NKMSLDN.SHP')
+    result = []
+    for name in (*required,'LANGRULE.INI'):
+        path = root / name
+        if not path.is_file():
+            if name != 'LANGRULE.INI':
+                raise FileNotFoundError(path)
+            result.append(dict(file=name,absent=True))
+            continue
+        raw = path.read_bytes()
+        result.append(dict(file=name,bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()))
+    return result
+
+
+def nuke_strike_dispatch_case(name,cell,wp,*,flags=0,ground=0,damage=600,
+                              weapon_speed=10,incoming_house=False,fire_accepts=True):
+    """Original Execute95/factory/math; Construct and Fire are explicit ABI sinks."""
+    from tools import superweapon_oracle as s
+    e=s.Emu();action=s.BASE+0x50000;scene=e.read32(s.SCENARIO_PTR)
+    e.write32(action+0x2C,95);e.write32(action+0x44,wp)
+    e.uc.mem_write(scene+0x632+wp*4,struct.pack('<hh',*cell))
+    e.write32(s.WEAPON_TYPES,s.ITEMS);e.write32(s.ITEMS+8,s.WEAPON)
+    e.write32(s.WEAPON+0xA0,s.BULLET_TYPE);e.write32(s.WEAPON+0xA4,damage)
+    e.write32(s.WEAPON+0xA8,weapon_speed);e.write32(s.WEAPON+0xAC,s.WARHEAD)
+    e.write32(s.CELL+0x140,flags);e.write32(0xB0E6D4,416)
+    e.write32(s.BULLET,s.BULLET_VT);e.write32(s.BULLET_VT+0x1F0,s.STUB_FIRE)
+    rngs={'scenario':scene+0x218,'main':0x886B88,'mapgen':0xABE890}
+    for pointer in rngs.values():e.invoke(0x65C6D0,ecx=pointer,args=[31])
+    state=lambda:{key:bytes(e.uc.mem_read(pointer,0x3F4)) for key,pointer in rngs.items()}
+    before=state();visits=[]
+    def observer(u,pc,_size,_data):
+        if pc in (0x6DD8B0,0x6DD9DA,0x6E3410,0x68BCC0,0x46B050,0x46B260,0x65C780,0x65C7E0):
+            visits.append(f'{pc:08X}')
+    e.uc.hook_add(UC_HOOK_CODE,observer)
+    def ground_fn(m):m.events.append(['ground',s.read_coord(m,m.arg(0))]);return ground
+    def cell_lookup(m):m.events.append(['cell_lookup',s.read_cell(m,m.arg(0))]);return s.CELL
+    def coord_lookup(m):m.events.append(['coord_lookup',s.read_coord(m,m.arg(0))]);return s.CELL
+    def find_weapon(m):
+        m.events.append(['weapon_type',s.read_name(m,m.uc.reg_read(UC_X86_REG_ECX))]);return 2
+    def co_create(m):m.write32(m.arg(4),s.BULLET);m.events.append(['co_create']);return 0
+    def construct(m):
+        assert m.uc.reg_read(UC_X86_REG_ECX)==s.BULLET
+        m.events.append(['construct',dict(projectile=m.arg(0)==s.BULLET_TYPE,
+            target_cell=m.arg(1)==s.CELL,owner=m.arg(2),damage=s.i32(m.arg(3)),
+            warhead=m.arg(4)==s.WARHEAD,speed=s.i32(m.arg(5)),bright=m.arg(6)&255)])
+    def fire(m):
+        assert m.uc.reg_read(UC_X86_REG_ECX)==s.BULLET
+        bits=struct.unpack('<QQQ',m.uc.mem_read(m.arg(1),24))
+        m.events.append(['fire',dict(origin=s.read_coord(m,m.arg(0)),
+            velocity_bits=[f'{value:016x}' for value in bits],accepts=fire_accepts)])
+        return int(fire_accepts)
+    e.hook(0x578080,ground_fn,4);e.hook(0x5657A0,cell_lookup,4);e.hook(0x565730,coord_lookup,4)
+    e.hook(0x773030,find_weapon,0)
+    e.write32(0x7E15FC,s.STUBS+0x1D0);e.hook(s.STUBS+0x1D0,co_create,0x14)
+    e.hook(0x4664C0,construct,0x1C);e.hook(s.STUB_FIRE,fire,8)
+    originals=[(address,bytes(e.uc.mem_read(address,size))) for address,size in (
+        (0x6DD8B0,0x37A0),(0x6E3410,0x1D5),(0x46B050,0x64),(0x46B260,13),
+        (0x68BCC0,20),(0x4CACB0,128),(0x4CAD00,128))]
+    returned=e.invoke(0x6DD8B0,ecx=action,args=[s.HOUSE if incoming_house else 0,0,0,0],
+        required=[0x6DD9DA,0x6E3410,0x68BCC0,0x46B050,0x46B260])&255
+    after=state();assert before==after
+    assert originals==[(address,bytes(e.uc.mem_read(address,len(raw)))) for address,raw in originals]
+    return dict(name=name,input=dict(cell=list(cell),waypoint=wp,flags=flags,ground=ground,
+        damage=damage,weapon_speed=weapon_speed,incoming_house=incoming_house,fire_accepts=fire_accepts),
+        result=returned,events=e.events,installed_weapon=e.read32(s.BULLET+0x130)==s.WEAPON,
+        native_visits=visits,rng_hashes_before={key:hashlib.sha256(raw).hexdigest() for key,raw in before.items()},
+        rng_hashes_after={key:hashlib.sha256(raw).hexdigest() for key,raw in after.items()},code_unchanged=True)
+
+
+def nuke_strike_flight(root):
+    """Real Bullet activation, Configure, Fire and complete AI visits to impact."""
+    from tools.projectile_oracle import guided_step as g
+    from tools.projectile_oracle.bridge_render_art_state import ArtStateReader
+    from tools.projectile_oracle.bridge_render_inputs import lexical
+    from tools.projectile_oracle.ifv_impact import (
+        initialize_effect_world,initialize_effect_registries,retirement_transport)
+    from tools.projectile_oracle.ifv_launch import (
+        bullet_activation_transport,bullet_addref_transport)
+    from tools.native_oracle import initialize_empty_windows_seh,image_bytes
+    from tools.native_inspect import selected_ranges
+    art,_=lexical((root/'ARTMD.INI').read_bytes(),
+        {'AAHeatSeeker2','DRAGON','FV','GiantNukeDown','NKMSLDN'})
+    # create owns original Bullet/Cell/Homing initializers and the existing
+    # small allocated flat-cell table, not HighExpR topography.
+    m=ArtStateReader(art,root=root)
+    m,_,cells,_=g.create(False,reader=m);u=m.u
+    initialize_effect_registries(m)
+    initialize_effect_world(m,cells,map_size=(32,32))
+    # Explicit native map Size prior. Without Map+F4, ordinary Bullet AI
+    # correctly culls the otherwise allocated target outside its map.
+    u.mem_write(0x87F7E8+0xF4,dwords(32,32))
+    weapon=m.invoke(0x772FA0,m.cstring('NukePayload'));layers=[]
+    for name in ('RULESMD.INI','LANGRULE.INI','MPBattleMD.ini','HighExpR.map'):
+        path=root/name
+        if not path.is_file():continue
+        cached,_=lexical(path.read_bytes(),{'NukePayload','GiantNukeDown','NUKE'})
+        m.rules_cache(cached);m.invoke(0x772080,weapon,(RULES,))
+        projectile=m.read32(weapon+0xA0)
+        m.read_layer(projectile,cached);m.invoke(0x7729F0,weapon)
+        warhead=m.read32(weapon+0xAC);m.invoke(0x75D3A0,warhead,(RULES,))
+        layers.append(dict(file=name,keys=cached,damage=g.i32(u,weapon+0xA4),
+            weapon_speed=g.i32(u,weapon+0xA8),warhead=m.string(warhead+0x24),
+            projectile=m.string(projectile+0x24),
+            vertical=bool(u.mem_read(projectile+0x2C0,1)[0]),
+            acceleration=g.i32(u,projectile+0x2D0),
+            detonation_altitude=g.i32(u,projectile+0x2BC)))
+    scenario=m.read32(0xA8B230)
+    u.mem_write(scenario+0x632+4,struct.pack('<hh',16,20))
+    u.mem_write(0xB0E6D4,dwords(416));u.mem_write(0xA8ED84,dwords(0))
+    action=m.alloc(0x94);u.mem_write(action,bytes(0x94))
+    u.mem_write(action+0x2C,dwords(95));u.mem_write(action+0x44,dwords(1))
+    initialize_empty_windows_seh(u)
+    for pointer in (scenario+0x218,0x886B88,0xABE890):
+        m.invoke(0x65C6D0,pointer,(31,))
+    rng=lambda:CampaignReader.rng_state(SimpleNamespace(u=u,scenario=scenario))
+    before_rng=rng();before_id=g.i32(u,scenario+0x214)
+    originals=selected_ranges(image_bytes(),None,None,code_only=True)
+    events=[];bullets=[];frames=[];visits=set()
+    def observe(_u,pc,_size,_data):
+        if bullet_activation_transport(m,pc,events):return
+        if bullet_addref_transport(m,pc,events):return
+        if retirement_transport(m,pc,events):return
+        if pc==0x6E34E1:bullets.append(u.reg_read(UC_X86_REG_EAX))
+        if pc in (0x6DD9DA,0x6E3410,0x46B050,0x6C5090,0x466380,
+                  0x4664C0,0x468670,0x467E53,0x65C780,0x65C7E0):
+            visits.add(f'{pc:08X}')
+    hook=u.hook_add(UC_HOOK_CODE,observe)
+    try:
+        returned=m.invoke(0x6DD8B0,action,(0,0,0,0))&255
+        assert returned==1 and len(bullets)==1
+        bullet=bullets[0]
+        launch=dict(position=g.xyz(u,bullet+0x9C),fire_coord=g.xyz(u,bullet+0x134),
+            target_coord=g.xyz(u,bullet+0x140),velocity=g.vec(u,bullet+0xE8),
+            maximum_speed=g.i32(u,bullet+0x110),damage=g.i32(u,bullet+0x6C),
+            source_is_null=m.read32(bullet+0xB0)==0,
+            weapon=m.string(m.read32(bullet+0x130)+0x24),
+            warhead=m.string(m.read32(bullet+0x128)+0x24),
+            alive=bool(u.mem_read(bullet+0x90,1)[0]),
+            last_cell=list(struct.unpack('<hh',u.mem_read(bullet+0x14C,4))),
+            arm_timer=[g.i32(u,bullet+0xC4),g.i32(u,bullet+0xCC)],
+            native_id_delta=g.i32(u,scenario+0x214)-before_id)
+        for frame in range(1,450):
+            u.mem_write(0xA8ED84,dwords(frame));u.mem_write(SP,dwords(RET_MAGIC))
+            u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_ECX,bullet)
+            run_checked(u,0x4666E0,(RET_MAGIC,0x467E53),count=500000,
+                context=dict(case='trigger95_descending_payload',frame=frame))
+            impact=u.reg_read(UC_X86_REG_EIP)==0x467E53
+            frames.append(dict(frame=frame,position=g.xyz(u,bullet+0x9C),
+                velocity_bits=g.vec(u,bullet+0xE8)['bits'],impact_entry=impact))
+            if impact:break
+        assert frames[-1]['impact_entry'],'did not reach native NUKE impact entry'
+        after_rng=rng();assert before_rng==after_rng
+        assert all(bytes(u.mem_read(row['address'],len(row['bytes'])))==row['bytes'] for row in originals)
+        required={'006DD9DA','006E3410','0046B050','006C5090','00466380','004664C0','00468670','00467E53'}
+        assert required<=visits
+        return dict(input=dict(map_size=[32,32],flat_level=6,flat_slope=0,
+            target_cell=[16,20],waypoint=1,binary_frame=0,rng_seed=31),
+            result=returned,layers=layers,launch=launch,frames=frames,
+            native_visits=sorted(visits),platform_events=events,
+            rng_hashes_before={key:hashlib.sha256(bytes.fromhex(raw)).hexdigest() for key,raw in before_rng.items()},
+            rng_hashes_after={key:hashlib.sha256(bytes.fromhex(raw)).hexdigest() for key,raw in after_rng.items()},
+            code_unchanged=True)
+    finally:u.hook_del(hook)
+
+
+def nuke_strike_generate(root):
+    from tools.native_oracle import image_sha256
+    previous=os.environ.get('VERA20K_PROJECTILE_RENDER_ASSETS')
+    os.environ['VERA20K_PROJECTILE_RENDER_ASSETS']=str(root)
+    try:
+        sources=nuke_strike_sources(root)
+        retail=nuke_strike_retail(root)
+        rows=[]
+        for action in retail['actions']:
+            packed=int(action['waypoint_raw'])
+            rows.append(nuke_strike_dispatch_case(action['trigger_id'],
+                (packed%1000,packed//1000),action['materialized']['waypoint']))
+        for flags in (0,0x100,0x400,0x500):
+            rows.append(nuke_strike_dispatch_case('elevated_bridge_'+hex(flags),
+                (67,19),1,flags=flags,ground=416))
+        rows.append(nuke_strike_dispatch_case('signed_cell_negative',(-2,-32768),17,
+            ground=-104,damage=-17,weapon_speed=255,incoming_house=True))
+        rows.append(nuke_strike_dispatch_case('fire_refused',(67,19),1,fire_accepts=False))
+        return dict(schema_version=1,native_sha256=image_sha256(),sources=sources,
+            retail=retail,dispatch_controls=rows,production_flight=nuke_strike_flight(root))
+    finally:
+        if previous is None:os.environ.pop('VERA20K_PROJECTILE_RENDER_ASSETS',None)
+        else:os.environ['VERA20K_PROJECTILE_RENDER_ASSETS']=previous
+
+
+def nuke_strike_source_paths():
+    return dict(SOURCE_PATHS,**{name:Path(__file__).parents[2]/path for name,path in {
+        'superweapon_transport':'tools/superweapon_oracle.py',
+        'generic_emulator':'tools/ai_base_building_oracle.py',
+        'guided_world':'tools/projectile_oracle/guided_step.py',
+        'impact_world':'tools/projectile_oracle/ifv_impact.py',
+        'bullet_platform':'tools/projectile_oracle/ifv_launch.py',
+        'bullet_reader':'tools/projectile_oracle/bridge_render_inputs.py',
+        'bullet_art':'tools/projectile_oracle/bridge_render_art_state.py',
+    }.items()})
+
+
+def nuke_strike_metadata():
+    return provenance(scope='Original Execute95/factory/launch arithmetic controls plus selected physical HighExpR records and a real descending NukePayload from full construct/Fire through202 BulletAI calls to NUKE impact entry; no full map or downstream detonation parity claim.',
+        assumptions=[
+            'Six Action95 records are selected from physical HighExpR.yro inner map and materialized by original6DD000/6DD5B0. Archive/inner-map identities and exact raw records are retained. Source order is preserved; the host supplies the moment of each action call rather than running the complete Trigger/Tag scheduler.',
+            'Twelve isolated controls execute original6DD8B0 case95/6E3410, GetWaypoint68BCC0, factory46B050, SetWeapon46B260 and sine/cosine arithmetic. Explicit shells supply Weapon Damage/WH/projectile, incoming House and flat ground/bridge flags. The hard-coded50/brightfalse/sourceNULL, coordinate lifting, scale-100 velocity and ignored Fire refusal are native outputs. These control inputs600/10 are supplied scalars, not the map350/converted-speed values.',
+            'The separate production control reuses guided_step.create and impact world owners: actual Bullet/Cell/Homing/effect initializers, explicit32x32 Map Size at+F4 and existing world size storage, mapped flat level6/slope0 cells, no actors/overlays/live bridges, GameActive1 and supplied waypoint1=(16,20). Native map geometry is a declared crop, not HighExpR terrain. Earlier unrelated HoverMissile/Hills setup initializes the common fixture; selected NukePayload/GiantNukeDown/NUKE are then read in RULESMD, optionalLANGRULE, MPBattleMD and HighExpR order.',
+            'Unique selected physical lexical strings feed existing native INI cache transport; original Weapon772080/postpass7729F0, BulletType46BEE0 and Warhead75D3A0 execute. Full physical INI/archive startup and original Rules discovery/reset chronology are excluded. The unused stored Weapon Speed is therefore recorded as a component-history output, not certified complete-game speed.',
+            'Original Bullet activation46B050 reaches registered factory6C5090, constructor466380, Configure4664C0, SetWeapon46B260 and whole Fire468670 including original Unlimbo/coordinate placement. Full BulletAI runs once per host-supplied frame until467E53 before the NUKE impact block. No native arithmetic/timer/RNG/gameplay branch is replaced in that production segment; all three RNG streams are seeded natively31 immediately before95 and compared after this bounded history.',
+            'Downstream ScreenNukeFlash/NUKEBALL, delayed detonation/AreaDamage, receiver callbacks, radiation, retirement and rendered nuclear output are outside this new corpus. Existing tools/superweapon_oracle sections nuke_impact/nuke_wait/nuke_flash and projectile/combat owners provide separately bounded evidence; this sample does not prove their entire combined lifecycle or all map targets.',
+        ],substitutions=[
+            'Isolated controls record Ground578080/Cell5657A0/565730/WeaponLookup773030/CoCreate/Construct4664C0/Fire as explicit ABI boundaries; full production control removes those gameplay sinks and reuses existing physical asset IO, allocation/CRT/TLS/COM-activation/Windows atomic/readability transports. Original code bytes remain unchanged.',
+            'ArtStateReader retains its existing unrelated voxel-loading boundary after scalar reads. Exact physical SHP bytes are supplied by existing Reader IO. No device renderer/audio or whole native startup is run.',
+        ],entry_points=dict(action_execute=0x6DD8B0,action95=0x6E3410,waypoint=0x68BCC0,
+            bullet_factory=0x46B050,registered_factory=0x6C5090,bullet_constructor=0x466380,
+            configure=0x4664C0,set_weapon=0x46B260,bullet_fire=0x468670,bullet_ai=0x4666E0,
+            impact_entry=0x467E53))
+
+
 if __name__=='__main__':
     import argparse
     import os
     selector = argparse.ArgumentParser(add_help=False)
     selected_modes = selector.add_mutually_exclusive_group()
     selected_modes.add_argument('--damage-waypoint', action='store_true')
+    selected_modes.add_argument('--click-shroud', action='store_true')
     selected_modes.add_argument('--super-charge', action='store_true')
+    selected_modes.add_argument('--superweapon-state', action='store_true')
+    selected_modes.add_argument('--superweapon-reset', action='store_true')
     selected_modes.add_argument('--reveal-zone', action='store_true')
     selected_modes.add_argument('--forced-map', action='store_true')
     selected_modes.add_argument('--inline-type', action='store_true')
     selected_modes.add_argument('--flash-team', action='store_true')
     selected_modes.add_argument('--reshroud', action='store_true')
+    selected_modes.add_argument('--scenario-timer', action='store_true')
+    selected_modes.add_argument('--chrono-house', action='store_true')
+    selected_modes.add_argument('--all-change-house', action='store_true')
+    selected_modes.add_argument('--conceal-area', action='store_true')
+    selected_modes.add_argument('--music-theme', action='store_true')
+    selected_modes.add_argument('--all-to-hunt', action='store_true')
+    selected_modes.add_argument('--crate', action='store_true')
+    selected_modes.add_argument('--wakeup', action='store_true')
+    selected_modes.add_argument('--ai-activation', action='store_true')
+    selected_modes.add_argument('--chrono-reinforcement', action='store_true')
+    selected_modes.add_argument('--tech-level', action='store_true')
+    selected_modes.add_argument('--do-explosion', action='store_true')
+    selected_modes.add_argument('--map-lighting', action='store_true')
+    selected_modes.add_argument('--nuke-strike', action='store_true')
     selector.add_argument('--inputs', type=Path)
     selected, remaining = selector.parse_known_args()
-    if selected.reshroud:
+    if selected.map_lighting:
+        if selected.inputs is not None:
+            selector.error('--map-lighting reads configured physical retail assets, not --inputs')
+        finish_vectors(map_lighting_generate,
+            Path(__file__).with_name('trigger_map_lighting.json'),
+            provenance=map_lighting_metadata,argv=remaining,
+            source_paths=map_lighting_source_paths())
+    elif selected.nuke_strike:
+        inputs_root=selected.inputs or Path(os.environ.get('VERA20K_TRIGGER_NUKE_INPUTS',''))
+        finish_vectors(lambda:nuke_strike_generate(inputs_root),
+            Path(__file__).with_name('trigger_nuke_strike.json'),
+            provenance=nuke_strike_metadata,argv=remaining,source_paths=nuke_strike_source_paths())
+    elif selected.do_explosion:
+        if os.environ.get('VERA20K_NATIVE_STATE_CACHE'):
+            selector.error('VERA20K_NATIVE_STATE_CACHE is no longer supported; unset it to read fresh retail inputs')
+        if selected.inputs is not None:
+            selector.error('--do-explosion reads configured physical MD assets, not --inputs')
+        receipt_path=os.environ.get('VERA20K_TRIGGER_EXPLOSION_RECEIPTS') if '--write' in remaining else None
+        finish_vectors(lambda:do_explosion_generate(receipt_path=receipt_path),
+            Path(__file__).with_name('trigger_do_explosion.json'),provenance=do_explosion_metadata,
+            argv=remaining,source_paths=do_explosion_source_paths())
+    elif selected.superweapon_reset:
+        if selected.inputs is not None:
+            selector.error('--superweapon-reset reads configured physical MD assets, not --inputs')
+        receipt_path = os.environ.get('VERA20K_TRIGGER_SUPER_RESET_RECEIPTS') if '--write' in remaining else None
+        finish_vectors(lambda: superweapon_reset_generate(receipt_path=receipt_path),
+            Path(__file__).with_name('trigger_superweapon_reset.json'),
+            provenance=superweapon_reset_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.superweapon_state:
+        if selected.inputs is not None:
+            selector.error('--superweapon-state reads configured physical MD assets, not --inputs')
+        receipt_path = os.environ.get('VERA20K_TRIGGER_SUPER_STATE_RECEIPTS') if '--write' in remaining else None
+        finish_vectors(lambda: superweapon_state_generate(receipt_path=receipt_path),
+            Path(__file__).with_name('trigger_superweapon_state.json'),
+            provenance=superweapon_state_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.tech_level:
+        from tools.spatial_oracle.building_construction import JOINED_ROOT
+        inputs_root = selected.inputs or Path(os.environ.get('VERA20K_TRIGGER_TECH_INPUTS', str(JOINED_ROOT)))
+        finish_vectors(lambda: tech_level_generate(inputs_root),
+            Path(__file__).with_name('trigger_object_tech_level.json'),
+            provenance=lambda: tech_level_metadata(inputs_root), argv=remaining,
+            source_paths=dict(SOURCE_PATHS,
+                reset_owner=Path(__file__).parents[1]/'rules_oracle/select_anim_reset.py',
+                factory_loss_owner=Path(__file__).parents[1]/'sidebar_oracle/factory_loss.py',
+                sidebar_owner=Path(__file__).parents[1]/'sidebar_oracle/cameo_order.py',
+                construction_owner=Path(__file__).with_name('building_construction.py'),
+                engineer_owner=Path(__file__).with_name('engineer_repair_admission.py'),
+                joined_owner=Path(__file__).with_name('building_death_anims.py'),
+                com_owner=Path(__file__).parent/'anytown_damage/mission.py'))
+    elif selected.chrono_reinforcement:
+        if selected.inputs is not None:
+            selector.error('--chrono-reinforcement reuses the configured retail FootMissions inputs, not --inputs')
+        from tools.spatial_oracle.team_creation import source_paths as team_source_paths
+        finish_vectors(chrono_reinforcement_generate,
+            Path(__file__).with_name('trigger_chrono_reinforcement.json'),
+            provenance=chrono_reinforcement_metadata,argv=remaining,
+            source_paths=dict(SOURCE_PATHS,**team_source_paths()))
+    elif selected.ai_activation:
+        if selected.inputs is not None:
+            selector.error('--ai-activation reads configured retail ALL05, not --inputs')
+        finish_vectors(ai_activation_generate,
+            Path(__file__).with_name('trigger_ai_activation.json'),
+            provenance=ai_activation_metadata, argv=remaining,
+            source_paths=dict(SOURCE_PATHS,
+                ai_team=Path(__file__).parents[1] / 'ai_team_oracle.py',
+                rng_owner=Path(__file__).parents[1] / 'rmg_oracle' / 'gen_rng_vectors.py'))
+    elif selected.crate:
+        if selected.inputs is not None:
+            selector.error('--crate uses configured retail assets, not --inputs')
+        finish_vectors(crate_generate, Path(__file__).with_name('trigger_crate.json'),
+            provenance=crate_metadata, argv=remaining, source_paths=crate_source_paths())
+    elif selected.wakeup:
+        if selected.inputs is not None:
+            selector.error('--wakeup uses declared object/Tag/Mission priors, not --inputs')
+        finish_vectors(wakeup_generate,
+            Path(__file__).with_name('trigger_wakeup.json'),
+            provenance=wakeup_metadata, argv=remaining,
+            source_paths=dict(SOURCE_PATHS,
+                wakeup_event_reader=Path(__file__).with_name('trigger_event_records.py')))
+    elif selected.all_to_hunt:
+        if selected.inputs is not None:
+            selector.error('--all-to-hunt reads configured retail ALL06, not --inputs')
+        finish_vectors(all_to_hunt_generate,
+            Path(__file__).with_name('trigger_all_to_hunt.json'),
+            provenance=all_to_hunt_metadata, argv=remaining, source_paths=all_to_hunt_source_paths())
+    elif selected.music_theme:
+        if selected.inputs is not None:
+            selector.error('--music-theme uses its declared Theme priors, not --inputs')
+        finish_vectors(music_theme_generate,
+            Path(__file__).with_name('trigger_music_theme.json'),
+            provenance=music_theme_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.conceal_area:
+        if selected.inputs is not None:
+            selector.error('--conceal-area reads configured retail RULESMD/SOV01, not --inputs')
+        finish_vectors(conceal_area_generate,
+            Path(__file__).with_name('trigger_conceal_area.json'),
+            provenance=conceal_area_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.all_change_house:
+        if selected.inputs is not None:
+            selector.error('--all-change-house uses declared House/Techno priors, not --inputs')
+        finish_vectors(all_change_house_generate,
+            Path(__file__).with_name('trigger_all_change_house.json'),
+            provenance=all_change_house_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.chrono_house:
+        if selected.inputs is not None:
+            selector.error('--chrono-house uses declared Foot/map priors, not --inputs')
+        finish_vectors(chrono_house_generate,
+            Path(__file__).with_name('trigger_chrono_house.json'),
+            provenance=chrono_house_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.scenario_timer:
+        if selected.inputs is not None:
+            selector.error('--scenario-timer uses declared timer priors, not --inputs')
+        finish_vectors(scenario_timer_generate,
+            Path(__file__).with_name('scenario_timer.json'),
+            provenance=scenario_timer_metadata, argv=remaining, source_paths=SOURCE_PATHS)
+    elif selected.reshroud:
         if selected.inputs is not None:
             selector.error('--reshroud uses declared sparse priors, not --inputs')
         finish_vectors(reshroud_generate,
@@ -3481,6 +8103,12 @@ if __name__=='__main__':
         finish_vectors(lambda: damage_waypoint_generate(inputs_root),
             Path(__file__).with_name('trigger_damage_at_waypoint.json'),
             provenance=damage_waypoint_metadata, argv=remaining, source_paths=sources)
+    elif selected.click_shroud:
+        if selected.inputs is not None:
+            selector.error('--click-shroud uses declared click/Cell priors, not --inputs')
+        finish_vectors(click_shroud_generate,
+            Path(__file__).with_name('click_shroud.json'),
+            provenance=click_shroud_metadata, argv=remaining, source_paths=SOURCE_PATHS)
     else:
         if selected.inputs is not None:
             selector.error('--inputs requires --damage-waypoint or --super-charge')

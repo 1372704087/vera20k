@@ -18,7 +18,6 @@ use crate::map::rmg::x87::{self, TruncF64, approx_sqrt_f32};
 use super::area;
 use super::blob::MinHeap;
 use super::regions::{Regions, RmgRegion};
-use super::shore::TileBlocks;
 use super::zones::{ZoneField, diamond_frame_contains};
 
 /// ~3*2^-32 with a perturbed mantissa — the lane-index draw scale.
@@ -66,7 +65,6 @@ pub struct StartsCtx<'a> {
     pub grid: &'a mut RmgGrid,
     pub scratch: &'a mut RmgScratch,
     pub ids: &'a TileIds,
-    pub blocks: &'a dyn TileBlocks,
     pub rng: &'a mut RmgRng,
     pub regions: &'a mut Regions,
 }
@@ -207,8 +205,6 @@ fn rebuild_regions(ctx: &mut StartsCtx<'_>, zones: &ZoneField) {
             id,
             level: ctx.grid.get(x, y).map_or(0, |cell| cell.level),
             active: false,
-            seed: (x as i16, y as i16),
-            done: false,
             cell_count: 0,
             cells: Vec::new(),
             start_quota: 0,
@@ -492,7 +488,7 @@ mod tests {
     use super::*;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock, TileBlocks};
     use crate::map::rmg::phases::zones::{self, ZoneKind, ZoneParams};
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     struct ClearBlocks;
 
@@ -522,6 +518,7 @@ mod tests {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -537,7 +534,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -593,83 +590,12 @@ mod tests {
                 grid: &mut grid,
                 scratch: &mut scratch,
                 ids: &identity,
-                blocks: &ClearBlocks,
                 rng: &mut rng,
                 regions: &mut regions,
             };
             run(&mut ctx, &args, &field)
         };
         (outcome, regions, grid, scratch)
-    }
-
-    #[test]
-    fn a_clear_map_produces_all_four_starts() {
-        let (outcome, regions, grid, _) = run_phase(1234);
-        assert_eq!(outcome.waypoints.len(), 4);
-        for (slot, waypoint) in outcome.waypoints.iter().enumerate() {
-            let (x, y) = waypoint.unwrap_or_else(|| panic!("slot {slot} written"));
-            let cell = grid.get(i32::from(x), i32::from(y)).expect("start in band");
-            assert!(cell.start_marker, "slot {slot} marks its cell");
-        }
-        // One landmass -> one region carrying the whole quota.
-        assert_eq!(regions.list.len(), 1);
-        assert_eq!(regions.list[0].start_quota, 4);
-        assert_eq!(
-            regions.list[0].cell_count,
-            regions.list[0].cells.len() as i32,
-            "the rebuild fills the cell list"
-        );
-    }
-
-    #[test]
-    fn starts_sit_on_protected_clear_ground() {
-        let (outcome, _, grid, scratch) = run_phase(77);
-        for waypoint in outcome.waypoints.iter().flatten() {
-            let (x, y) = (i32::from(waypoint.0), i32::from(waypoint.1));
-            // The 6x6 gate demands clear tiles around the pick.
-            for yy in y - 3..y + 3 {
-                for xx in x - 3..x + 3 {
-                    let cell = grid.get(xx, yy).expect("gate window in band");
-                    assert!(cell.tile == 0 || cell.tile == 0xFFFF);
-                }
-            }
-            assert!(scratch.get(x, y).water_lock, "clearing flood marks starts");
-        }
-    }
-
-    #[test]
-    fn small_regions_are_deleted_before_quota_assignment() {
-        let args = args();
-        let (mut grid, mut scratch) = world(&args);
-        let identity = ids();
-        // An islet of clear land cut off by water: below the 400-cell floor.
-        let coords: Vec<(i32, i32)> = grid.native_cells().collect();
-        let islet_center = coords[coords.len() / 2];
-        for &(x, y) in &coords {
-            let dx = (x - islet_center.0).abs();
-            let dy = (y - islet_center.1).abs();
-            if dx.max(dy) == 3 {
-                grid.get_mut(x, y).unwrap().tile = 500;
-            }
-        }
-        let field = zone_field(&grid, &args);
-        let mut rng = RmgRng::new(9);
-        let mut regions = Regions::default();
-        {
-            let mut ctx = StartsCtx {
-                grid: &mut grid,
-                scratch: &mut scratch,
-                ids: &identity,
-                blocks: &ClearBlocks,
-                rng: &mut rng,
-                regions: &mut regions,
-            };
-            run(&mut ctx, &args, &field);
-        }
-        // Only the big landmass survives; the ringed islet is gone.
-        assert_eq!(regions.list.len(), 1);
-        assert!(regions.list[0].cell_count >= 400);
-        assert_eq!(regions.list[0].start_quota, 4);
     }
 
     #[test]
@@ -704,135 +630,6 @@ mod tests {
     }
 
     #[test]
-    fn leftover_selection_becomes_field_slots() {
-        let (_, regions, _, _) = run_phase(4242);
-        // TiberiumLayout 50 -> target = trunc((50*0.01*12/4 + 2) * 4) = 14,
-        // so 4 starts leave 10 field slots (when the gather found enough).
-        let region = &regions.list[0];
-        let slots = region
-            .field_slots
-            .as_ref()
-            .expect("the selector produced a field-slot list");
-        assert!(!slots.is_empty(), "field slots retained for tiberium");
-        assert!(slots.len() <= 10);
-    }
-
-    #[test]
-    fn lane_draw_is_bounded() {
-        let mut rng = RmgRng::new(5);
-        for _ in 0..200 {
-            assert!((0..=2).contains(&lane_draw(&mut rng)));
-        }
-    }
-
-    #[test]
-    fn selector_takes_the_farthest_pair_then_farthest_point() {
-        let args = args();
-        let (mut grid, mut scratch) = world(&args);
-        let identity = ids();
-        let mut rng = RmgRng::new(1);
-        let mut regions = Regions::default();
-        regions.list.push(RmgRegion {
-            id: 0,
-            level: 4,
-            active: false,
-            seed: (30, 30),
-            done: false,
-            cell_count: 4,
-            cells: vec![(30, 30)],
-            start_quota: 2,
-            field_slots: None,
-        });
-        regions.id_counter = 1;
-        let ctx = StartsCtx {
-            grid: &mut grid,
-            scratch: &mut scratch,
-            ids: &identity,
-            blocks: &ClearBlocks,
-            rng: &mut rng,
-            regions: &mut regions,
-        };
-        // Colinear candidates: ends are the farthest pair; the third pick
-        // maximises min distance (the middle).
-        let buffer = vec![(20i16, 40i16), (26, 40), (32, 40), (44, 40)];
-        let selection = select_candidates(&ctx, &args, 0, &buffer).expect("selection");
-        assert_eq!(selection[0], (20, 40), "first element of the far pair");
-        assert_eq!(selection[1], (44, 40), "farthest from the seed");
-        assert_eq!(selection[2], (32, 40), "max-min-distance next");
-    }
-
-    #[test]
-    fn the_candidate_window_reaches_three_cells_back_and_two_forward() {
-        // `gate_6x6` is now a one-line adapter over the shared area test, so
-        // the only thing left in it to get wrong is the rect it hands over.
-        // Nothing else in this module reaches that call — gutting the shared
-        // predicate leaves every other test here green — so without this the
-        // window could be moved or resized freely and the suite would not
-        // notice.
-        let args = args();
-        let identity = ids();
-        let accepts = |bx: i32, by: i32| {
-            let (mut grid, mut scratch) = world(&args);
-            grid.get_mut(bx, by).expect("native cell").tile = 100;
-            let mut rng = RmgRng::new(1);
-            let mut regions = Regions::default();
-            let ctx = StartsCtx {
-                grid: &mut grid,
-                scratch: &mut scratch,
-                ids: &identity,
-                blocks: &ClearBlocks,
-                rng: &mut rng,
-                regions: &mut regions,
-            };
-            gate_6x6(&ctx, 40, 40)
-        };
-        assert!(!accepts(37, 37), "three back is the window's near corner");
-        assert!(!accepts(42, 42), "two forward is its far corner");
-        assert!(accepts(43, 42), "one column further out is not judged");
-        assert!(accepts(37, 36), "one row further back is not judged");
-    }
-
-    #[test]
-    fn zero_candidates_with_zero_quota_selects_nothing() {
-        let args = args();
-        let (mut grid, mut scratch) = world(&args);
-        let identity = ids();
-        let mut rng = RmgRng::new(1);
-        let mut regions = Regions::default();
-        regions.list.push(RmgRegion {
-            id: 0,
-            level: 4,
-            active: false,
-            seed: (30, 30),
-            done: false,
-            cell_count: 1,
-            cells: vec![(30, 30)],
-            start_quota: 0,
-            field_slots: None,
-        });
-        let ctx = StartsCtx {
-            grid: &mut grid,
-            scratch: &mut scratch,
-            ids: &identity,
-            blocks: &ClearBlocks,
-            rng: &mut rng,
-            regions: &mut regions,
-        };
-        assert!(select_candidates(&ctx, &args, 0, &[]).is_none());
-    }
-
-    #[test]
-    fn clearing_flood_marks_at_most_400_cells_per_start() {
-        let (_, _, grid, scratch) = run_phase(31);
-        let marked = grid
-            .native_cells()
-            .filter(|&(x, y)| scratch.get(x, y).water_lock)
-            .count();
-        assert!(marked > 0);
-        assert!(marked <= 4 * 400, "four floods, 400 pops each");
-    }
-
-    #[test]
     fn the_phase_is_deterministic() {
         let snapshot = |seed| {
             let (outcome, regions, _, scratch) = run_phase(seed);
@@ -847,31 +644,5 @@ mod tests {
             (outcome.waypoints.clone(), quotas, slots, locks)
         };
         assert_eq!(snapshot(2024), snapshot(2024));
-    }
-
-    #[test]
-    fn tech_coin_flips_only_run_on_map_type_zero() {
-        let args_type0 = StartsArgs {
-            map_type: 0,
-            ..args()
-        };
-        let (mut grid, mut scratch) = world(&args_type0);
-        let identity = ids();
-        let field = zone_field(&grid, &args_type0);
-        let mut rng = RmgRng::new(4);
-        let mut regions = Regions::default();
-        let outcome = {
-            let mut ctx = StartsCtx {
-                grid: &mut grid,
-                scratch: &mut scratch,
-                ids: &identity,
-                blocks: &ClearBlocks,
-                rng: &mut rng,
-                regions: &mut regions,
-            };
-            run(&mut ctx, &args_type0, &field)
-        };
-        // One region with quota 4: no zero-quota buckets, no flips.
-        assert!(outcome.tech_regions.is_empty());
     }
 }

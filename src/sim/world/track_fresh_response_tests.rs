@@ -9,8 +9,9 @@
 //! - The gate question and the Unit setter run their Rust owners; their
 //!   oracle events are not compared, their effects are (destination, NavCom,
 //!   timers).
-//! - Drive+64 (the straight byte) is not represented (track_fresh residual);
-//!   its rows still compare the selector it forces.
+//! - Drive+64 compares the retained fresh-selection byte independently of
+//!   its selector. Ship's distinct +64 producer/reader remains outside this
+//!   selected Drive pre-entry wall-tilt integration.
 //! - The speed rows set flat Cell levels, the Clear and Road rows, the four
 //!   `[General]` slope keys and the Foot's health, then compare the published
 //!   target (a double natively, 16 fraction bits here; every oracle value is
@@ -293,6 +294,11 @@ fn compare(sim: &Simulation, id: u64, row: &Value, out: bool) {
             .and_then(|l| l.selected_drive_runtime())
             .and_then(|r| r.retained())
             .unwrap();
+        assert_eq!(
+            d.straight(),
+            state["straight"] == 1,
+            "native Drive+64: {row}"
+        );
         (
             d.destination(),
             d.head_to(),
@@ -488,6 +494,69 @@ fn fresh_arm_rows_match_the_original_responses() {
         checked += 1;
     }
     assert_eq!(checked, 104);
+}
+
+#[test]
+fn crusher_all_non_wall_overlay_uses_ground_unit_for_straight_latch() {
+    // Original 4B3FF9 asks GetUnit(false) only after the noncrushable/non-wall
+    // overlay gates. 4B400C/4B4012 then store Drive+64 independently of whether
+    // the route already looks straight. The retained native zone12 rows use a
+    // wall and skip this query; this is instruction-derived caller integration,
+    // with the existing clear CanEnter seam, not a new native timing golden or
+    // coverage of the separate pre-entry Foot+6B5 producer.
+    let input = json!({
+        "family": "drive", "movement_zone": 12,
+        "overlays": [[12, 10, false, false, 0]], "route": [2, 2, 2],
+    });
+    for (blocker, expected) in [
+        (None, false),
+        (Some("ENGINEER"), false),
+        (Some("DRV"), true),
+    ] {
+        let (mut sim, rules, registry, id) = unit(&input);
+        if let Some(kind) = blocker {
+            sim.spawn_object_with_overlay_registry(kind, "Americans", 12, 10, 0, &rules, &registry)
+                .unwrap_or_else(|| panic!("ordinary Ground registration of {kind}"));
+        }
+        order(&mut sim, &rules, id, (13, 10));
+        let actor = sim.substrate.entities.get_mut(id).unwrap();
+        actor
+            .navigation
+            .path_replay
+            .set_directions_for_test(vec![2, 2, 2]);
+        actor.navigation.path_replay.set_cursor(0);
+        actor
+            .navigation
+            .path_replay
+            .set_reference_cell(Some((9, 8)));
+        actor.body_facing = FacingClass::with_rate_of(2 << 13, &actor.body_facing);
+        actor.navigation.path_runtime.start_movement(100, 0);
+        actor.navigation.path_runtime.start_blocked(100, 22);
+        sim.session.binary_frame = 101;
+        fresh_oracle_seam::install(vec![0], vec![]);
+        let result = sim.run_track_process_movement(
+            id,
+            TrackFamily::Drive,
+            ProcessMovementArgs::OUTER,
+            &rules,
+            Some(&registry),
+            crate::sim::world::FrameEffects::default(),
+        );
+        let (_, unused) = fresh_oracle_seam::finish();
+        result.unwrap();
+        assert_eq!(unused, 0, "{blocker:?}");
+        let drive = sim
+            .substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .locomotor
+            .as_ref()
+            .and_then(|loco| loco.selected_drive_runtime())
+            .and_then(|runtime| runtime.retained())
+            .unwrap();
+        assert_eq!(drive.straight(), expected, "{blocker:?}");
+    }
 }
 
 #[test]

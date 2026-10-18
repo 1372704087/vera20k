@@ -468,7 +468,7 @@ impl TeamAiInstallDiagnostic {
 }
 
 /// A candidate member passed to a test seam's TaskForce admission.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamScriptMember {
     pub entity_id: u64,
@@ -631,6 +631,7 @@ impl TeamScriptState {
         self.cursor
     }
 
+    #[cfg(test)]
     pub fn advance_pending(&self) -> bool {
         self.advance_pending
     }
@@ -650,18 +651,19 @@ impl TeamScriptState {
             .map(|pair| pair[1].id)
     }
 
+    #[cfg(test)]
     pub fn member_count(&self) -> usize {
         self.members.len()
     }
 
     /// Read-only observation of the existing TaskForce counting owner for
     /// cross-module native destructor comparisons. It never mutates the Team.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn taskforce_counts_for_test(&self) -> [i32; 6] {
         self.slot_counts
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn response_suspension_state(&self) -> (bool, bool, bool, i32, i32) {
         (
             self.altered,
@@ -672,14 +674,17 @@ impl TeamScriptState {
         )
     }
 
+    #[cfg(test)]
     pub fn succeeded(&self) -> bool {
         self.succeeded
     }
 
+    #[cfg(test)]
     pub fn refusal(&self) -> Option<TeamScriptRefusal> {
         self.refusal
     }
 
+    #[cfg(test)]
     pub fn formed(&self) -> bool {
         self.formed
     }
@@ -862,7 +867,7 @@ impl TeamScriptVm {
     }
 
     /// Live teams in TeamClass::Array order (their construction order).
-    pub(crate) fn teams_in_order(&self) -> impl Iterator<Item = &TeamScriptState> {
+    pub fn teams_in_order(&self) -> impl Iterator<Item = &TeamScriptState> {
         self.teams.values()
     }
 
@@ -980,7 +985,7 @@ impl TeamScriptVm {
 
     /// Puts team `id` on script line `line` (0-based) as action 6 does
     /// (`0x006E98AE`): its next step runs that line with `first` set.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seek_line_for_test(&mut self, id: u64, line: i32) {
         if let Some(team) = self.teams.get_mut(&id) {
             team.cursor = line.wrapping_sub(1);
@@ -1044,6 +1049,14 @@ impl TeamScriptVm {
         {
             team.leaving_map = true;
         }
+    }
+
+    /// HasOccurred23 at71EEA9 scans Team+24, head+54 and leaving byte+82.
+    /// The Team owner supplies the same live query before Recalc destroys it.
+    pub(crate) fn has_empty_leaving_team(&self, team_type: Option<InternedId>) -> bool {
+        self.teams_in_order().any(|team| {
+            team.team_type_id == team_type && team.members.is_empty() && team.leaving_map
+        })
     }
 
     /// The object's destructor: its team to rejoin goes with it.
@@ -1129,6 +1142,20 @@ impl TeamScriptVm {
             self.member_team.remove(&entity_id);
         }
         Some(member)
+    }
+
+    /// gamemd.exe Detach70D554..70D57B walks the live Team roster after the Techno
+    /// sweep, clearing only matching +3C/+40. Unlike AssignMissionTarget
+    /// 6E9050, it issues no member orders and preserves zone/membership.
+    pub(crate) fn detach_target(&mut self, target: TeamTarget) {
+        for team in self.teams.values_mut().rev() {
+            if team.mission_target == Some(target) {
+                team.mission_target = None;
+            }
+            if team.focus == Some(target) {
+                team.focus = None;
+            }
+        }
     }
 
     /// `TeamClass::PointerExpired @ 0x006EAE60` for every team, as the
@@ -1331,7 +1358,7 @@ impl TeamScriptVm {
     /// A formed team without a TeamType, running `script_id` from its first
     /// action (cursor 0, already stepped), whose members are `members` in
     /// list order, all joined up.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn create_team(
         &mut self,
         owner: InternedId,
@@ -1367,7 +1394,7 @@ impl TeamScriptVm {
     /// `candidates` admitted in TaskForce-entry order, preserving input order
     /// within each type, listed in admission order and all initiated: the
     /// state after it formed and ran into its first action (cursor 0).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn create_team_from_type(
         &mut self,
         owner: InternedId,
@@ -1463,7 +1490,7 @@ fn script_action_at(
 
 /// Puts `members`, all of the first one's type, in a team of that many whose
 /// TeamType has `Suicide=suicide` and `Aggressive=aggressive`, and returns it.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn join_team_for_test(
     sim: &mut crate::sim::world::Simulation,
     members: &[u64],
@@ -1514,13 +1541,15 @@ pub(crate) fn join_team_for_test(
 }
 
 #[cfg(test)]
+mod firesale_retail_tests;
+#[cfg(test)]
 mod oracle_tests;
 #[cfg(test)]
 mod path_threat_input_tests;
 #[cfg(test)]
 mod recruit_oracle_tests;
 #[cfg(test)]
-mod reinforcements_tests;
+pub(crate) mod reinforcements_tests;
 
 #[cfg(test)]
 mod tests {

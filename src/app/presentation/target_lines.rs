@@ -115,11 +115,18 @@ impl TargetLineState {
 /// Build selected unit action-line instances from live simulation state.
 pub(crate) fn build_target_line_instances(
     line_state: &TargetLineState,
+    planning_active: bool,
     sim: Option<&Simulation>,
     rules: Option<&RuleSet>,
     palette_bytes: Option<&[u8]>,
     viewport: TacticalViewport,
 ) -> Vec<SpriteInstance> {
+    // Tactical6D4729..6D472F skips selected Foot4DC060 while PlanMgr is
+    // active. Otherwise its solid strokes cover the animated planning path.
+    // Native controls: action_lines.json::tactical_gate_cases (gate_14/15).
+    if planning_active {
+        return Vec::new();
+    }
     let Some(sim) = sim else {
         return Vec::new();
     };
@@ -320,7 +327,7 @@ pub(crate) fn build_factory_rally_line_instances(
         if owner != local_owner {
             continue;
         }
-        let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
+        let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
             continue;
         };
         if !obj.has_rally_line() {
@@ -328,7 +335,7 @@ pub(crate) fn build_factory_rally_line_instances(
         }
         let Some(mut target) = entity
             .archive_target()
-            .and_then(|target| target_get_coords(target, sim.entities(), Some(&cells)))
+            .and_then(|target| target_get_coords(target, sim, Some(&cells)))
         else {
             continue;
         };
@@ -406,7 +413,7 @@ fn selected_action_line_for_entity(
         | NavTargetRef::Object { id }
         | NavTargetRef::Building { id } => TargetKind::Entity(id),
     };
-    let mut end = target_get_coords(target, sim.entities(), cells)?;
+    let mut end = target_get_coords(target, sim, cells)?;
     let end_cell = (
         crate::util::lepton::lepton_to_cell_packed(end.x),
         crate::util::lepton::lepton_to_cell_packed(end.y),
@@ -527,7 +534,7 @@ fn emit_rally_line(
 /// https://www.w3.org/TR/WGSL/#builtin-values-position
 /// Thus each half-open scaled edge maps to ceil(edge * zoom - 0.5). Resolving
 /// opaque overlaps in logical pixels before this mapping preserves coverage.
-fn push_surface_rect(
+pub(crate) fn push_surface_rect(
     instances: &mut Vec<SpriteInstance>,
     [left, top, width, height]: [i32; 4],
     tint: [f32; 3],
@@ -704,6 +711,17 @@ mod tests {
         let mut state = TargetLineState::default();
         assert!(!state.is_selected_action_active(100));
         state.start_timer(100);
+        // The original admitted planning click reaches70D150; its rejected
+        // capacity control skips that suffix. Consume the executed duration
+        // here; production input capture covers whether dispatch reaches it.
+        let native = crate::test_fixture::json("tools/spatial_oracle/building_manual_primary.json");
+        assert_eq!(
+            state.remaining_frames(100),
+            native["planning_admission"]["controls"][0]["phases"][0]["state"]["planning"]
+                ["action_line_timer"][2]
+                .as_i64()
+                .unwrap() as i32
+        );
         assert!(state.is_selected_action_active(100));
         assert!(state.is_selected_action_active(124));
         assert!(!state.is_selected_action_active(125));
@@ -745,7 +763,8 @@ mod tests {
         let rules = rules_with_factory_and_non_factory();
 
         assert!(
-            build_target_line_instances(&state, Some(&sim), None, None, test_viewport()).is_empty()
+            build_target_line_instances(&state, false, Some(&sim), None, None, test_viewport())
+                .is_empty()
         );
         assert!(
             !build_factory_rally_line_instances(
@@ -766,6 +785,7 @@ mod tests {
         assert!(
             build_target_line_instances(
                 &TargetLineState::default(),
+                false,
                 None,
                 None,
                 None,

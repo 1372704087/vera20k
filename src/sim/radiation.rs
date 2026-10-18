@@ -2,38 +2,35 @@
 //! linear-falloff level over a square of cells, step it back down on a
 //! per-site countdown, and self-delete when their lifetime expires. Foot
 //! units standing on irradiated cells take periodic damage through the
-//! `[Radiation] RadSiteWarhead=` warhead (applied by the combat tick, not
-//! here — this module owns only the field state and its evolution).
+//! `[Radiation] RadSiteWarhead=` warhead (applied during each Foot AI, not
+//! here — this module owns the field, sites and their retained light sources).
 //!
 //! Depends on `rules/` ([Radiation] constants), `map/resolved_terrain`
 //! (cell ground height for 3D falloff distance) and `util/lepton`.
 //!
 //! ## Float exception
-//! Cell levels and the falloff/decay kernel are carried as `f64` with
-//! truncate-toward-zero staging at every integer boundary — the same
-//! documented float exception as `combat::damage`. IEEE `+ - * /` are
-//! bit-deterministic, so lockstep safety is preserved. Site bookkeeping
-//! (level/duration/remaining/steps) is integer math, and the cell distance is
-//! the original's ([`cell_distance_leptons`]).
-//!
-//! RESIDUAL: the original runs the falloff and decay kernel on the x87 with
-//! truncating rounding (`FIDIV`/`FIMUL` at `0x0065BAE6`, `0x0065BC8B`,
-//! `0x0065BE1E`); these `f64` operations round to nearest. Trigger: every
-//! radiation site. Effect: a cell level can differ from the original's in its
-//! low bits, which moves the damaging level (`damaging_level`) only where its
-//! truncation lands on a whole number. Downstream: radiation damage and the
-//! state hash.
+//! Cell levels retain native binary64 stores. The existing deterministic
+//! integer x87 subset preserves the original PC53/chop operation and store
+//! boundaries in falloff, accumulation and removal. This precision changes
+//! gameplay: three stock DESO fields can leave a DOG at one HP instead of
+//! killing it (`tools/spatial_oracle/radiation_overlap`). Site bookkeeping is
+//! integer math; distance keeps its existing owner ([`cell_distance_leptons`]).
 
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
+use crate::map::lighting::{self, LIGHT_CLAMP_MAX, LIGHT_UNIT, PointLight};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RadiationRules;
 use crate::sim::light_sources::LightingEvent;
 use crate::sim::timer::CdTimer;
 use crate::util::lepton::{UnsupportedGroundSlope, ground_height_leptons};
 use crate::util::native_x87::sqrt_approx_length;
+use crate::util::native_x87::{
+    MaskedX87Chop53 as X87, MaskedX87Ordering, MaskedX87Value, NativeF64Bits,
+};
 
 /// Leptons per cell edge (cell-center to cell-center step).
 const LEPTONS_PER_CELL: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
@@ -60,7 +57,7 @@ pub struct RadSite {
     pub level: i32,
     /// Number of decay steps over the lifetime = duration / level_delay
     /// (integer division — 0 is possible for short-lived sites and makes the
-    /// per-step amount unbounded, clearing affected cells on the first step).
+    /// per-step amount unbounded; zero-over-zero cells retain a masked NaN).
     pub level_steps: i32,
     /// Total lifetime in frames = duration_multiple × level.
     pub duration: i32,
@@ -72,6 +69,117 @@ pub struct RadSite {
     /// with `RadLevelDelay=` at each activation and decay step
     /// (`RadSiteClass::AI @ 0x0065B80E`).
     pub level_timer: CdTimer,
+    /// Independent source clock and retained output, owned by this site.
+    /// A before-AI activation decrements lifetime on its creation frame but
+    /// does not advance this timer. Neither rendering nor load restarts it.
+    light: RadiationLight,
+}
+
+impl RadSite {
+    /// Current source parameters, without deriving age from the lifetime.
+    /// Callers receive a value; the site remains the sole mutation owner.
+    pub fn light_source(&self) -> Option<PointLight> {
+        self.light.source.clone()
+    }
+
+    fn activate_light(&mut self, frame: u32, theater: &str, rules: &RadiationRules) -> bool {
+        let light = &mut self.light;
+        light.timer = CdTimer::started(frame as i32, rules.light_delay);
+        if self.duration < 1 {
+            return light.source.take().is_some();
+        }
+        // Retain the rules owner's SimFixed factors. Wide integer scaling
+        // truncates toward zero without float work in a simulation update.
+        // Native uses doubles; arbitrary factor quantization remains outside
+        // the stock source controls in radiation_light_lifecycle.json.
+        let scaled = |value: i32, factor: crate::util::fixed_math::SimFixed| {
+            (i64::from(value) * i64::from(factor.to_bits()) / 65_536)
+                .clamp(i64::from(i32::MIN), i64::from(LIGHT_CLAMP_MAX)) as i32
+        };
+        let intensity = scaled(self.level, rules.light_factor);
+        // RadSite65B5EA..65B684: Scenario+1258 == SNOW1 substitutes signed
+        // -128 for red/blue before the signed channel normalization. Theater
+        // comes from ScenarioSession; Rules still owns the configured bytes.
+        // Original activation/refresh/decay and Snow Cell/TMP controls:
+        // tools/spatial_oracle/radiation_snow_light_lifecycle.json.
+        let channels = if theater.eq_ignore_ascii_case("SNOW") {
+            [-128, i32::from(rules.color.1), -128]
+        } else {
+            [rules.color.0, rules.color.1, rules.color.2].map(i32::from)
+        };
+        light.base_tint =
+            channels.map(|channel| scaled(channel * LIGHT_UNIT / 255, rules.tint_factor));
+        // The selected retail levels have at least one light step. Preserve
+        // the previous defensive handling of shorter custom lifetimes; this
+        // does not claim native divide-fault equivalence for that domain.
+        light.decrement = intensity / (self.duration / rules.light_delay.max(1)).max(1);
+        match &mut light.source {
+            Some(source) => source.update_parameters(intensity, light.base_tint),
+            None => {
+                light.source = Some(lighting::radiation_point_light(
+                    self.center.0,
+                    self.center.1,
+                    self.radius_leptons,
+                    intensity,
+                    light.base_tint,
+                ));
+                true
+            }
+        }
+    }
+
+    pub(crate) fn hash_into(&self, hasher: &mut impl Hasher) {
+        self.center.hash(hasher);
+        self.spread.hash(hasher);
+        self.radius_leptons.hash(hasher);
+        self.level.hash(hasher);
+        self.level_steps.hash(hasher);
+        self.duration.hash(hasher);
+        self.remaining.hash(hasher);
+        self.level_timer.start_frame().hash(hasher);
+        self.level_timer.duration().hash(hasher);
+        self.light.hash(hasher);
+    }
+}
+
+/// RadSite65B580/65B800 and its retained LightSource. These integer outputs
+/// are independent of viewer/detail settings and persist with the site.
+#[derive(Debug, Clone, Default, Hash, Serialize, Deserialize)]
+struct RadiationLight {
+    timer: CdTimer,
+    base_tint: [i32; 3],
+    decrement: i32,
+    source: Option<PointLight>,
+}
+
+impl RadiationLight {
+    fn advance(
+        &mut self,
+        frame: u32,
+        remaining: i32,
+        duration: i32,
+        rules: &RadiationRules,
+    ) -> bool {
+        if !self.timer.expired(frame as i32) {
+            return false;
+        }
+        self.timer.start(frame as i32, rules.light_delay);
+        let Some(source) = &mut self.source else {
+            return false;
+        };
+        //65B871..65B8A4: remaining was already decremented by this AI.
+        source.update_parameters(
+            source.intensity.wrapping_sub(self.decrement),
+            fade_rad_tint(self.base_tint, remaining, duration),
+        )
+    }
+}
+
+///65B874..65B898: three low-dword IMULs followed by signed IDIV. A wide
+/// product changes long-lived stacked sources; native overflow/sign controls
+/// in radiation_light_lifecycle.json exercise this exact shared operation.
+fn fade_rad_tint(base: [i32; 3], remaining: i32, duration: i32) -> [i32; 3] {
+    base.map(|channel| channel.wrapping_mul(remaining) / duration)
 }
 
 /// The per-cell radiation field + site registry. Persisted and state-hashed.
@@ -80,11 +188,17 @@ pub struct RadiationState {
     /// Sparse per-cell radiation level. Entries are removed when they decay
     /// to exactly 0 (the subtraction clamps negative results to 0).
     cells: BTreeMap<(u16, u16), f64>,
-    /// One site per center cell.
+    /// One site per center cell. For canonical real Cells, membership is the
+    /// Cell487C70/487C80 center marker; deletion clears it while residual F0
+    /// levels remain. This does not model arbitrary off-map/Dummy pointers.
     sites: BTreeMap<(u16, u16), RadSite>,
+    /// RadSiteClass ctor65B27E appends to the process vector; Logic55B5D2
+    /// visits it backwards. A merge retains its slot, and dtor65B36A removes
+    /// it without reordering survivors. This order affects rounded subtraction.
+    creation_order: Vec<(u16, u16)>,
 }
 
-/// A weapon detonation that emits radiation, recorded by the combat tick and
+/// A weapon detonation that emits radiation, recorded by the Bullet transaction and
 /// folded into `RadiationState` the same tick.
 #[derive(Debug, Clone, Copy)]
 pub struct RadDetonation {
@@ -138,13 +252,21 @@ fn falloff_at(
     site: &RadSite,
     terrain: Option<&ResolvedTerrainGrid>,
     cell: (u16, u16),
-) -> Result<f64, UnsupportedGroundSlope> {
+) -> Result<MaskedX87Value, UnsupportedGroundSlope> {
     let dist = cell_distance_leptons(terrain, site.center, cell)?;
     let radius = site.radius_leptons;
     if dist <= radius {
-        Ok(((radius - dist) as f64 / radius as f64) * site.level as f64)
+        // 65BAE2..65BAEA / 65BC87..65BC8F / 65BE1A..65BE22.
+        // Keep the register value: removal divides it again before storing.
+        Ok(X87::mul(
+            X87::div(
+                X87::load_i32(radius.wrapping_sub(dist)),
+                X87::load_i32(radius),
+            ),
+            X87::load_i32(site.level),
+        ))
     } else {
-        Ok(0.0)
+        Ok(X87::load_i32(0))
     }
 }
 
@@ -170,6 +292,33 @@ fn for_each_square_cell(
 }
 
 impl RadiationState {
+    /// A native component fixture supplies retained site words without
+    /// claiming to have executed a detonation or field activation.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn from_retained_site_for_test(
+        center: (u16, u16),
+        level: i32,
+        duration: i32,
+        remaining: i32,
+    ) -> Self {
+        let site = RadSite {
+            center,
+            spread: 0,
+            radius_leptons: 128,
+            level,
+            level_steps: 0,
+            duration,
+            remaining,
+            level_timer: CdTimer::default(),
+            light: RadiationLight::default(),
+        };
+        Self {
+            creation_order: vec![site.center],
+            sites: BTreeMap::from([(site.center, site)]),
+            cells: BTreeMap::new(),
+        }
+    }
+
     /// Raw level of one cell (un-clamped, may exceed `RadLevelMax`).
     pub fn cell_level(&self, cell: (u16, u16)) -> f64 {
         self.cells.get(&cell).copied().unwrap_or(0.0)
@@ -178,10 +327,15 @@ impl RadiationState {
     /// The level a cell DAMAGES as: `trunc(min(level, RadLevelMax))`. The
     /// clamp caps damage only — the stored level itself is unbounded.
     pub fn damaging_level(&self, cell: (u16, u16), level_max: i32) -> i32 {
-        let level = self.cell_level(cell);
-        let max = level_max as f64;
-        let clamped = if level < max { level } else { max };
-        clamped as i32
+        // Cell487CB0 keeps the stored operand for less-than or unordered;
+        // otherwise it converts the cap. Math::ftol owns masked conversion.
+        let level = X87::load_f64(NativeF64Bits::from_bits(self.cell_level(cell).to_bits()));
+        let max = X87::load_i32(level_max);
+        let clamped = match X87::compare(level, max) {
+            MaskedX87Ordering::Less | MaskedX87Ordering::Unordered => level,
+            MaskedX87Ordering::Equal | MaskedX87Ordering::Greater => max,
+        };
+        X87::ftol_i32_low_masked(clamped)
     }
 
     pub fn site_at(&self, center: (u16, u16)) -> Option<&RadSite> {
@@ -192,6 +346,34 @@ impl RadiationState {
         self.sites.values()
     }
 
+    pub(crate) fn sites_in_update_order(&self) -> impl Iterator<Item = &RadSite> {
+        self.creation_order.iter().rev().map(|center| {
+            self.sites
+                .get(center)
+                .expect("radiation order must refer to a retained site")
+        })
+    }
+
+    pub(crate) fn validate_site_order(&self) -> Result<(), &'static str> {
+        let mut seen = std::collections::BTreeSet::new();
+        for center in &self.creation_order {
+            if !seen.insert(*center) {
+                return Err("duplicate radiation site in update order");
+            }
+            if !self
+                .sites
+                .get(center)
+                .is_some_and(|site| site.center == *center)
+            {
+                return Err("radiation update order has no matching site");
+            }
+        }
+        if seen.len() != self.sites.len() {
+            return Err("radiation site is missing from update order");
+        }
+        Ok(())
+    }
+
     /// Deterministic iteration over irradiated cells (sorted by coord), for
     /// state hashing and the render glow layer.
     pub fn iter_cells(&self) -> impl Iterator<Item = (&(u16, u16), &f64)> {
@@ -199,13 +381,14 @@ impl RadiationState {
     }
 
     /// True when nothing is irradiated and no site is alive.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty() && self.sites.is_empty()
     }
 
-    /// Effective level of a site right now: `remaining × level / duration`
-    /// (integer math), 0 when the duration is degenerate. Drives the deployed
-    /// self-irradiator re-fire gate.
+    /// RadSite65B510, used by deployed Guard5213E7: signed wrapping integer
+    /// `remaining × level / duration`, or zero for a nonpositive duration.
+    /// Merge65B530 instead computes its old contribution in floating point.
     pub fn current_site_level(site: &RadSite) -> i32 {
         if site.duration < 1 {
             return 0;
@@ -214,19 +397,36 @@ impl RadiationState {
     }
 
     fn add_cell(&mut self, cell: (u16, u16), amount: f64) {
-        if amount != 0.0 {
-            *self.cells.entry(cell).or_insert(0.0) += amount;
+        // Cell487CE0: FLD incoming, FADD stored, FSTP stored.
+        let value = X87::store_f64_masked_chop(X87::add(
+            X87::load_f64(NativeF64Bits::from_bits(amount.to_bits())),
+            X87::load_f64(NativeF64Bits::from_bits(self.cell_level(cell).to_bits())),
+        ));
+        if value == NativeF64Bits::POSITIVE_ZERO {
+            self.cells.remove(&cell);
+        } else {
+            self.cells.insert(cell, f64::from_bits(value.bits()));
         }
     }
 
     /// Subtract clamping at exactly 0 (negative results store 0; the entry is
     /// then dropped to keep the map sparse).
     fn sub_cell(&mut self, cell: (u16, u16), amount: f64) {
-        if let Some(v) = self.cells.get_mut(&cell) {
-            *v -= amount;
-            if *v <= 0.0 {
-                self.cells.remove(&cell);
-            }
+        // Cell487D00 compares the register result with zero after its first
+        // store; only a negative result clamps. Unordered is retained.
+        let difference = X87::sub(
+            X87::load_f64(NativeF64Bits::from_bits(self.cell_level(cell).to_bits())),
+            X87::load_f64(NativeF64Bits::from_bits(amount.to_bits())),
+        );
+        let value = if X87::compare(X87::load_i32(0), difference) == MaskedX87Ordering::Greater {
+            NativeF64Bits::POSITIVE_ZERO
+        } else {
+            X87::store_f64_masked_chop(difference)
+        };
+        if value == NativeF64Bits::POSITIVE_ZERO {
+            self.cells.remove(&cell);
+        } else {
+            self.cells.insert(cell, f64::from_bits(value.bits()));
         }
     }
 
@@ -241,7 +441,8 @@ impl RadiationState {
             .unwrap_or(FALLBACK_BOUNDS);
         for_each_square_cell(site.center, site.spread, bounds, |cell| {
             if let Ok(amount) = falloff_at(&site, terrain, cell) {
-                self.add_cell(cell, amount);
+                let stored = X87::store_f64_masked_chop(amount);
+                self.add_cell(cell, f64::from_bits(stored.bits()));
             }
         });
     }
@@ -249,10 +450,8 @@ impl RadiationState {
     /// Remove the site's OUTSTANDING contribution before a merge: per cell,
     /// `(falloff / level_steps) × (remaining/level_delay + 1)` — the per-step
     /// decay amount times the decay steps the site still had ahead of it.
-    /// With `level_steps == 0` the division is unbounded and clears the
-    /// touched cells outright (instead of poisoning them — a guard the
-    /// original double pipeline lacks for the falloff==0 corner; unreachable
-    /// on stock rules where every RadLevel ≥ the decay delay).
+    /// The division and final store retain native masked zero-step behavior;
+    /// ordinary stock DESO sites have five level steps.
     fn decrease_site_levels(
         &mut self,
         center: (u16, u16),
@@ -265,22 +464,38 @@ impl RadiationState {
         let bounds = terrain
             .map(|t| (t.width(), t.height()))
             .unwrap_or(FALLBACK_BOUNDS);
-        let steps_ahead = (site.remaining / rules.level_delay + 1) as f64;
+        let steps_ahead = X87::load_i32((site.remaining / rules.level_delay).wrapping_add(1));
         for_each_square_cell(site.center, site.spread, bounds, |cell| {
             let Ok(falloff) = falloff_at(&site, terrain, cell) else {
                 return;
             };
-            if falloff != 0.0 {
-                self.sub_cell(cell, (falloff / site.level_steps as f64) * steps_ahead);
-            }
+            // 65BC92..65BCA3: divide and multiply the still-live falloff
+            // register, then store once before the Cell subtraction call.
+            let amount = X87::mul(
+                X87::div(falloff, X87::load_i32(site.level_steps)),
+                steps_ahead,
+            );
+            self.sub_cell(
+                cell,
+                f64::from_bits(X87::store_f64_masked_chop(amount).bits()),
+            );
         });
     }
 
     /// (Re)arm the decay countdown and derive the per-lifetime step count.
-    fn activate_site(&mut self, center: (u16, u16), frame: u32, rules: &RadiationRules) {
+    fn activate_site(
+        &mut self,
+        center: (u16, u16),
+        frame: u32,
+        theater: &str,
+        rules: &RadiationRules,
+    ) -> bool {
         if let Some(site) = self.sites.get_mut(&center) {
             site.level_steps = site.duration / rules.level_delay;
             site.level_timer = CdTimer::started(frame as i32, rules.level_delay);
+            site.activate_light(frame, theater, rules)
+        } else {
+            false
         }
     }
 
@@ -310,19 +525,25 @@ impl RadiationState {
     /// - Frequency: every structure and bridge death.
     /// - Downstream risk: it spawns damage events from the animation pass, so it
     ///   needs the same ordering care as any other non-combat damage commit.
-    pub(crate) fn apply_detonation(
+    pub fn apply_detonation(
         &mut self,
         det: RadDetonation,
         frame: u32,
+        theater: &str,
         rules: &RadiationRules,
         terrain: Option<&ResolvedTerrainGrid>,
         lights: &mut Vec<LightingEvent>,
     ) {
         let center = (det.rx, det.ry);
-        let merged = self
-            .sites
-            .get(&center)
-            .map(|site| Self::current_site_level(site).wrapping_add(det.rad_level));
+        let merged = self.sites.get(&center).map(|site| {
+            // Merge65B534..65B541 multiplies before dividing, without the
+            // signed-dword overflow of the distinct Guard query65B510.
+            let effective = X87::ftol_i32_low_masked(X87::div(
+                X87::mul(X87::load_i32(site.level), X87::load_i32(site.remaining)),
+                X87::load_i32(site.duration),
+            ));
+            effective.wrapping_add(det.rad_level)
+        });
         match merged {
             None => {
                 let level = det.rad_level;
@@ -338,8 +559,10 @@ impl RadiationState {
                         duration,
                         remaining: duration,
                         level_timer: CdTimer::started(frame as i32, rules.level_delay),
+                        light: RadiationLight::default(),
                     },
                 );
+                self.creation_order.push(center);
             }
             Some(merged) => {
                 self.decrease_site_levels(center, terrain, rules);
@@ -353,21 +576,20 @@ impl RadiationState {
                 site.remaining = duration;
             }
         }
-        self.activate_site(center, frame, rules);
+        let light_changed = self.activate_site(center, frame, theater, rules);
         self.spread_site(center, terrain);
         // RadSite activation65B7CA/65B7E8 publishes source changes in this
         // interval, even if another change later returns to the same inputs.
-        let source = self
-            .sites
-            .get(&center)
-            .and_then(|site| crate::sim::radiation_light::radiation_site_light(site, rules));
-        lights.push(LightingEvent::Radiation { center, source });
+        let source = self.sites.get(&center).and_then(RadSite::light_source);
+        if light_changed {
+            lights.push(LightingEvent::Radiation { center, source });
+        }
     }
 
     /// Per-tick site evolution: lifetime countdown, the periodic per-cell
     /// decay step, and site self-deletion. Residual cell levels survive a
     /// site's death — only the center registration is released. Each changed
-    /// site light goes to `lights` in site order.
+    /// site light goes to `lights` in native reverse-creation order.
     pub(crate) fn tick_decay(
         &mut self,
         frame: u32,
@@ -378,12 +600,11 @@ impl RadiationState {
         if self.sites.is_empty() {
             return;
         }
-        let centers: Vec<(u16, u16)> = self.sites.keys().copied().collect();
+        // Logic55B5CD..55B5E7 walks RadSiteClass's vector backwards before
+        // ordinary Logic objects. Deleting the current site preserves every
+        // earlier slot; cloning the identities retains that same visit order.
+        let centers: Vec<_> = self.creation_order.iter().rev().copied().collect();
         for center in centers {
-            let previous_light = self
-                .sites
-                .get(&center)
-                .and_then(|site| crate::sim::radiation_light::radiation_site_light(site, rules));
             // Lifetime ticks down every frame, independent of the decay timer.
             let (expired, dead) = {
                 let Some(site) = self.sites.get_mut(&center) else {
@@ -398,17 +619,22 @@ impl RadiationState {
                     site.level_timer = CdTimer::started(frame as i32, rules.level_delay);
                 }
             }
-            if dead {
-                self.sites.remove(&center);
-            }
-            let current_light = self
-                .sites
-                .get(&center)
-                .and_then(|site| crate::sim::radiation_light::radiation_site_light(site, rules));
-            if previous_light != current_light {
+            if let Some(site) = self.sites.get_mut(&center)
+                && site
+                    .light
+                    .advance(frame, site.remaining, site.duration, rules)
+            {
                 lights.push(LightingEvent::Radiation {
                     center,
-                    source: current_light,
+                    source: site.light_source(),
+                });
+            }
+            if dead {
+                self.sites.remove(&center);
+                self.creation_order.retain(|retained| *retained != center);
+                lights.push(LightingEvent::Radiation {
+                    center,
+                    source: None,
                 });
             }
         }
@@ -428,12 +654,19 @@ impl RadiationState {
             let Ok(falloff) = falloff_at(&site, terrain, cell) else {
                 return;
             };
-            if falloff != 0.0 {
-                self.sub_cell(cell, falloff / site.level_steps as f64);
-            }
+            // 65BE25..65BE32: no intermediate binary64 falloff spill.
+            let amount = X87::div(falloff, X87::load_i32(site.level_steps));
+            self.sub_cell(
+                cell,
+                f64::from_bits(X87::store_f64_masked_chop(amount).bits()),
+            );
         });
     }
 }
+
+#[cfg(test)]
+#[path = "radiation_native_tests.rs"]
+mod native_tests;
 
 #[cfg(test)]
 mod tests {
@@ -535,44 +768,30 @@ mod tests {
         }
     }
 
-    /// Exact falloff values at center / edge / corner of the square
-    /// (flat terrain, radius = 10·256+128 = 2688).
-    #[test]
-    fn desolator_deploy_irradiates_square_with_linear_falloff() {
-        let rules = stock_rules();
-        let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(100, 100), 0, &rules, None, &mut Vec::new());
-
-        // Center: dist 0 → full level.
-        assert_eq!(rad.cell_level((100, 100)), 500.0);
-        // Edge of the square, straight east: dist = 10·256 = 2560 ≤ 2688 →
-        // (2688−2560)/2688 × 500.
-        let edge = (2688.0 - 2560.0) / 2688.0 * 500.0;
-        assert_eq!(rad.cell_level((110, 100)), edge);
-        // One cell out (11 east): dist 2816 > 2688 → no radiation.
-        assert_eq!(rad.cell_level((111, 100)), 0.0);
-        // Corner of the square: dist = trunc(sqrt(2)·2560) = 3620 > radius →
-        // the corner stays clean (the square overshoots the circle).
-        assert_eq!(rad.cell_level((110, 110)), 0.0);
-        // Diagonal inside the circle: (105,105): dist = trunc(sqrt(2)·1280)
-        // = 1810 → (2688−1810)/2688 × 500.
-        let diag = (2688.0 - 1810.0) / 2688.0 * 500.0;
-        assert_eq!(rad.cell_level((105, 105)), diag);
-        // Damaging level clamps at RadLevelMax but the raw value is stored.
-        assert_eq!(rad.damaging_level((100, 100), rules.level_max), 500);
-        assert_eq!(rad.damaging_level((105, 105), rules.level_max), diag as i32);
-    }
-
     /// Same-center re-detonation merges (effective + added), it does not
     /// stack to 2× full level.
     #[test]
     fn same_center_redetonation_merges_not_stacks() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(50, 50), 0, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(50, 50),
+            0,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         // Immediately re-detonate: effective is still the full 500 (no frames
         // elapsed), so the merged level is exactly 500 + 500.
-        rad.apply_detonation(desolator_det(50, 50), 0, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(50, 50),
+            0,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         let site = rad.site_at((50, 50)).expect("merged site survives");
         assert_eq!(site.level, 1000);
         assert_eq!(site.duration, 1000);
@@ -584,23 +803,6 @@ mod tests {
         assert_eq!(rad.sites().count(), 1);
     }
 
-    /// Different centers stack additively on shared cells.
-    #[test]
-    fn different_center_sites_stack_additively() {
-        let rules = stock_rules();
-        let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(100, 100), 0, &rules, None, &mut Vec::new());
-        rad.apply_detonation(desolator_det(102, 100), 0, &rules, None, &mut Vec::new());
-        assert_eq!(rad.sites().count(), 2);
-        // (101,100) is 1 cell from each center: dist 256 →
-        // (2688−256)/2688 × 500 from each site.
-        let one_cell = (2688.0 - 256.0) / 2688.0 * 500.0;
-        assert_eq!(rad.cell_level((101, 100)), one_cell + one_cell);
-        // Each center also receives the other site's 2-cell falloff.
-        let two_cell = (2688.0 - 512.0) / 2688.0 * 500.0;
-        assert_eq!(rad.cell_level((100, 100)), 500.0 + two_cell);
-    }
-
     /// The site counts down once per tick, steps the field down every
     /// `RadLevelDelay` frames, and self-deletes once `remaining < 1` —
     /// releasing only the center registration.
@@ -608,7 +810,14 @@ mod tests {
     fn site_self_deletes_and_clears_center_ptr() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(10, 10), 0, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(10, 10),
+            0,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         let full = rad.cell_level((10, 10));
         // duration 500, level_steps = 500/90 = 5, step every 90 frames.
         for frame in 1..=89 {
@@ -654,7 +863,14 @@ mod tests {
     fn decay_countdown_is_activation_anchored() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(10, 10), 37, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(10, 10),
+            37,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         let full = rad.cell_level((10, 10));
         for frame in 38..=126 {
             rad.tick_decay(frame, &rules, None, &mut Vec::new());
@@ -670,7 +886,14 @@ mod tests {
     fn midlife_merge_resets_to_effective_plus_added() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(10, 10), 0, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(10, 10),
+            0,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         // Advance 180 frames: two decay steps, remaining 500→320.
         for frame in 1..=180 {
             rad.tick_decay(frame, &rules, None, &mut Vec::new());
@@ -678,7 +901,14 @@ mod tests {
         let site = rad.site_at((10, 10)).unwrap();
         assert_eq!(site.remaining, 320);
         // Effective = 320×500/500 = 320; merge adds 500 → 820.
-        rad.apply_detonation(desolator_det(10, 10), 180, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(10, 10),
+            180,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         let site = rad.site_at((10, 10)).unwrap();
         assert_eq!(site.level, 820);
         assert_eq!(site.duration, 820);
@@ -695,7 +925,14 @@ mod tests {
     fn detonation_near_origin_clamps_square() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(2, 2), 0, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(2, 2),
+            0,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         assert_eq!(rad.cell_level((2, 2)), 500.0);
         assert!(rad.cell_level((0, 0)) > 0.0);
     }
@@ -705,7 +942,14 @@ mod tests {
     fn radiation_state_serde_round_trip() {
         let rules = stock_rules();
         let mut rad = RadiationState::default();
-        rad.apply_detonation(desolator_det(10, 10), 5, &rules, None, &mut Vec::new());
+        rad.apply_detonation(
+            desolator_det(10, 10),
+            5,
+            "TEMPERATE",
+            &rules,
+            None,
+            &mut Vec::new(),
+        );
         for frame in 6..=130 {
             rad.tick_decay(frame, &rules, None, &mut Vec::new());
         }

@@ -25,18 +25,35 @@ VERA20k is made by gamers, for gamers, and gamers have the final say in where it
 
 1. Keep the gameplay, visuals and atmosphere of the original Red Alert 2: Yuri's Revenge.
 2. Support bigger battles: up to **30 players** and **20,000 units** on 500×500 maps.
-3. Incorporate known RTS features, old and new, and some never seen before.
+3. Incorporate known RTS features and some never seen before.
 4. Integrated multiplayer client
 
 ## Current status
 
-**Mid development.** Local skirmish is playable on Windows against a basic AI. Retail and
-random maps, menus, base building, harvesting, combat and save/load are in place, but there's
-still a lot to fix and finish.
+**In active development.**
 
-Multiplayer, campaigns and the original AI are still missing. Aircraft, mind control, bridges
-and several weapons and effects need more work. We haven't demonstrated 30-player,
-20,000-unit battles yet.
+- **Skirmish:** Playable on Windows, Linux and macOS, with original and random maps,
+  base building, harvesting, combat and save/load.
+- **Campaigns:** Missions can launch; support remains incomplete.
+- **AI:** Parts of the original AI handle base building and scripted attacks.
+- **Ongoing work:** Gameplay accuracy, visuals and performance.
+- **Multiplayer:** Network play is not available yet.
+- **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
+
+## Architecture
+
+The engine has three main parts:
+
+- **Simulation:** Owns gameplay state and logic.
+- **Rendering:** An absolutely new GPU rendering pipeline using the original game assets, built
+  to preserve the original look.
+- **Application:** Handles input, menus, audio, and platform integration, connecting the systems.
+
+This separation supports deterministic gameplay.
+
+Arrows show data flow:
+
+![Application sends commands to simulation, which returns world state; application sends draw data to rendering.](docs/images/architecture.png)
 
 ## Build and run
 
@@ -60,14 +77,16 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Write `ra2_dir` with forward slashes, like `C:/Games/RA2`. Use `--release` to play; debug
-builds are too slow. The log is in `logs/ra2.log`.
-
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original
 engine, then port its behavior to Rust and check it with [comparison tools](tools/native_oracle.md)
 and playtesting. Agents follow [AGENTS.md](AGENTS.md).
+
+## Customization
+
+Optional features (e.g. Ares) should be configurable through INI files, with client toggles
+where appropriate.
 
 ## Contributing
 
@@ -75,10 +94,15 @@ Help is welcome. You can write code, refactor the engine, test the game, share i
 it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
 Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
 
-Gameplay is in `src/sim/`, rendering in `src/render/`, and menus and input in `src/app/` and
-`src/ui/`; you don't need the Python tools in `tools/`.
+## Support
 
-Contributions are licensed under the GPLv3, like the rest of the project; there's no CLA.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20k via PayPal" height="40"></a>
+
+All donations received are distributed
+to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
+
+Payouts to contributors go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
+or Bitcoin.
 
 ## Credits and legal
 

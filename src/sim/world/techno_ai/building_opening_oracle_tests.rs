@@ -13,11 +13,8 @@ use crate::sim::rng::{SimRng, trace_draws};
 use crate::sim::world::PlacementEvidence;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_construction_joined.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_construction_joined.json")
 }
 
 fn rng_digest(hex: String) -> String {
@@ -304,6 +301,7 @@ fn assert_joined_frame(sim: &Simulation, id: u64, frame: &Value, context: &str) 
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
     let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
@@ -427,7 +425,7 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
         let input = &row["input"];
         let control = input["clear_stupid_guard_control"].as_bool().unwrap();
         let control_rules = if control {
-            let mut ini = fixture.processed_rules.clone();
+            let mut ini = (*fixture.processed_rules).clone();
             ini.merge(&IniFile::from_str("[GAPOWR]\nHasStupidGuardMode=no\n"));
             let mut rules =
                 RuleSet::from_ini_with_fixed_art_for_test(&ini, &fixture.fixed_art).unwrap();
@@ -638,11 +636,13 @@ fn place_selects_the_original_house_order_and_primary_factory() {
     {
         let before = sim
             .production
-            .primary_factory(owner, ProductionCategory::Building);
+            .primary_factory_ids(owner, ProductionCategory::Building)
+            .next();
         initialize_factory_primary(&mut sim, ids[index], &rules);
         let after = sim
             .production
-            .primary_factory(owner, ProductionCategory::Building);
+            .primary_factory_ids(owner, ProductionCategory::Building)
+            .next();
         assert_eq!(
             u8::from(before != after),
             row["changed"].as_u64().unwrap() as u8

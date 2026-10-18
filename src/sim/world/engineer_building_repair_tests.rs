@@ -26,11 +26,8 @@ use crate::sim::power_system::PowerState;
 use crate::sim::rng::{SimRng, trace_draws};
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let native: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/engineer_repair_joined.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let native = crate::test_fixture::json("tools/spatial_oracle/engineer_repair_joined.json");
     assert_eq!(native["source"], "unicorn/gamemd.exe");
     assert_eq!(
         native["native_sha256"],
@@ -275,7 +272,7 @@ impl Fixture {
             );
             assert_eq!(
                 entity.navigation.nav_com(),
-                Some(NavTargetRef::Building { id: building })
+                Some(NavTargetRef::object(building))
             );
             install_mission(entity, &route["before_arrivals"][index]["engineer"]);
             engineers.push(id);
@@ -316,8 +313,13 @@ impl Fixture {
                 dispatch_timer: MissionDispatchTimer::at_frame(0),
             });
         } else if name == "enemy_warped_refusal" {
-            sim.substrate.entities.get_mut(building).unwrap().temporal =
-                crate::sim::temporal::TemporalState::warped_by_for_test(0xf001);
+            sim.substrate
+                .entities
+                .get_mut(building)
+                .unwrap()
+                .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+                    0xf001,
+                ));
         } else if name == "missing_physical_building" {
             for y in 10..12 {
                 for x in 10..12 {
@@ -664,7 +666,7 @@ impl Fixture {
         if int(&expected["destination"]) == self.native_building {
             assert_eq!(
                 entity.navigation.nav_com(),
-                Some(NavTargetRef::Building { id: self.building }),
+                Some(NavTargetRef::Object { id: self.building }),
                 "{boundary}: retained object NavCom"
             );
         } else {

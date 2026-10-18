@@ -16,7 +16,7 @@
 mod core;
 // Search scratch shared by the cell A* and the zone precheck
 mod native_heap;
-mod stamped_table;
+mod search_table;
 
 // Path post-processing
 pub mod path_smooth;
@@ -27,7 +27,7 @@ pub mod terrain_speed;
 
 // Zone connectivity (flood-fill zones, hierarchy, zone-aware search)
 pub(crate) mod zone_build;
-pub(crate) mod zone_hierarchy;
+pub mod zone_hierarchy;
 pub(crate) mod zone_incremental;
 pub mod zone_map;
 pub mod zone_search;

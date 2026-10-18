@@ -5,9 +5,11 @@
 //! Each state is a pure function over plain facts and a host that performs
 //! every effect where the original performs it, so the order of queries,
 //! shots, destinations and Scenario draws is native:
-//! - [`strike_visit`], states 4..9, runs in the combat phase, where VERA's
+//! - [`strike_visit`], states 4..9, runs through the receiver, where VERA's
 //!   FireAt lives (`combat::aircraft_release`);
-//! - [`exit_visit`], state 10, runs in the aircraft's own dispatch.
+//! - [`exit_visit`], state 10, runs in the world's dispatch host.
+//!
+//! Both run inside the aircraft's own dispatch.
 //!
 //! A visit returns Mission+0xBC, the mission delay and the `+0x6D2` release
 //! latch write. The entry prefixes (`0x00418006`/`0x00418031`/`0x004180A1`/
@@ -41,7 +43,7 @@ pub(crate) fn enter_attack_state(entity: &mut crate::sim::game_entity::GameEntit
         entity.mission_leaf.set_aircraft_action_latch(false);
     }
     if matches!(state, 1 | 3 | 10)
-        && let Some(ammo) = entity.aircraft_ammo.as_mut()
+        && let Some(ammo) = entity.ammo_mut()
     {
         ammo.consume_release(state == 10);
     }

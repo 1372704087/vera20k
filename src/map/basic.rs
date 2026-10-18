@@ -41,10 +41,24 @@ pub struct BasicSection {
     /// Native Scenario+34A4 (`0068A5E3..0068A61A`). Missing/invalid keys
     /// preserve the caller's prior value; a fresh scenario resets it to false.
     pub free_radar: Option<bool>,
+    /// Scenario+34B2: ReadBool with its current default at68A253..68A271;
+    /// SetDefaults683893 resets false. Read from the map, never rules/mode.
+    pub fill_silos: Option<bool>,
     /// Native Scenario+34B4 (`ScenarioClass::Read_INI_Basic
     /// 0x0068A271..0x0068A289`, `Set_Defaults` false at `0x00683899`): the
     /// AI triggers of `AIMD.INI` never qualify (`sim::ai_team_creation`).
     pub ignore_global_ai_triggers: Option<bool>,
+    /// Scenario+0x34AC (`0x0068A11A`): a won mission ends the campaign.
+    pub end_of_game: Option<bool>,
+    /// Scenario+0x34AF (`0x0068A1EE`): a won mission returns to the shell.
+    pub one_time_only: Option<bool>,
+    /// Scenario+0x34B0 (`0x0068A20C`): MapSelect takes NextScenario instead
+    /// of the MAPSELMD stage following the current map.
+    pub skip_map_select: Option<bool>,
+    /// Scenario+0x1448 movie (`ReadMovie` at `0x0068A0A2`), after the score.
+    pub post_score: Option<String>,
+    /// Scenario+0x144C movie (`ReadMovie` at `0x0068A0C0`), before MapSelect.
+    pub pre_map_select: Option<String>,
 }
 
 /// Parsed flags from a map's `[SpecialFlags]` section.
@@ -71,7 +85,7 @@ impl SpecialFlagsSection {
     /// SetDefaults683610 retains the special word. A cold Scenario ctor
     /// initializes0x8088: Inert/grows false, spreads/destroyable bridges true.
     /// The passed snapshot is a projection of the existing live authorities.
-    pub(crate) fn resolve_campaign_defaults(&mut self, prior: Option<&Self>) {
+    pub fn resolve_campaign_defaults(&mut self, prior: Option<&Self>) {
         self.inert
             .get_or_insert(prior.and_then(|flags| flags.inert).unwrap_or(false));
         self.tiberium_grows.get_or_insert(
@@ -138,8 +152,18 @@ pub fn parse_basic_section(ini: &IniFile) -> BasicSection {
             .then(|| section.read_int("NewINIFormat", 0)),
         tiberium_growth_enabled: section.read_bool_value("TiberiumGrowthEnabled"),
         free_radar: section.read_bool_value("FreeRadar"),
+        fill_silos: section.read_bool_value("FillSilos"),
         // ReadBool with the current Scenario+0x34B4 as default (`0x0068A284`).
         ignore_global_ai_triggers: section.read_bool_value("IgnoreGlobalAITriggers"),
+        end_of_game: section.read_bool_value("EndOfGame"),
+        one_time_only: section.read_bool_value("OneTimeOnly"),
+        skip_map_select: section.read_bool_value("SkipMapSelect"),
+        post_score: section
+            .is_present("PostScore")
+            .then(|| section.read_string("PostScore", "", 128)),
+        pre_map_select: section
+            .is_present("PreMapSelect")
+            .then(|| section.read_string("PreMapSelect", "", 128)),
     }
 }
 

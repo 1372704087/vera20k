@@ -98,17 +98,14 @@ fn slave_rules(input: &Value) -> String {
 
 /// The Do_Action sequences the slave machine requests; any non-zero count.
 const SLAVE_SEQUENCE: &str = "[SlavSequence]\nReady=0,1,1\nGuard=0,1,1\nWalk=8,6,6\n\
-    Shovel=56,4,4\nCheer=100,8,0,E\n";
+    Shovel=56,4,4\nCarry=228,6,6\nCheer=100,8,0,E\n";
 
 const YAREFN_NW: (u16, u16) = (12, 12);
 /// The oracle's regen spare (`slave_address(7)`).
 const SPARE: u64 = 7;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/slave_manager.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/slave_manager.json")
 }
 
 fn mission(name: &str) -> MissionType {

@@ -5,8 +5,12 @@
 //! This sealed two-phase interface lets Mission authority prove availability
 //! before its first write and then commit an infallible, ordered transaction.
 
+use std::collections::BTreeMap;
+
 use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;
+use crate::sim::entity_store::EntityStore;
+use crate::sim::terrain_object::TerrainObjectState;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
@@ -37,7 +41,7 @@ pub(crate) enum ConcreteSetterRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum AuthorityUnavailable {
+pub enum AuthorityUnavailable {
     #[error("exact concrete Target setter is unavailable for Mission receiver {0}")]
     TargetSetter(u64),
     #[error("exact destination setter is unavailable for Mission receiver {0}")]
@@ -78,14 +82,14 @@ pub(crate) trait ConcreteMissionEffects: private::Sealed {
 
 /// Honest production boundary until full concrete Target and destination
 /// setters are implemented.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Default)]
 pub(crate) struct UnavailableConcreteMissionEffects;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl private::Sealed for UnavailableConcreteMissionEffects {}
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ConcreteMissionEffects for UnavailableConcreteMissionEffects {
     type Prepared = ();
 
@@ -181,6 +185,7 @@ impl<'r> RepresentedConcreteMissionEffects<'r> {
                 | NavTargetRef::Building { id },
             ) = destination
             && !sim.substrate.entities.contains(id)
+            && !sim.production.terrain_objects.contains_key(&id)
             // Building455D50 only archives the pointer; it never asks the
             // destination for a coordinate or otherwise dereferences it.
             && sim.substrate.entities.get(receiver).is_some_and(|actor| {
@@ -214,7 +219,7 @@ impl<'r> RepresentedConcreteMissionEffects<'r> {
             && crate::sim::movement::nav_target_coordinate(
                 destination,
                 Some(receiver),
-                &sim.substrate.entities,
+                sim,
                 sim.resolved_terrain.as_ref(),
                 Some((rules, &sim.interner)),
             )
@@ -353,7 +358,11 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
         if changes && entity.airstrike_link() == Some(prepared.receiver) {
             sim.airstrike_clear_target(prepared.receiver, self.rules, self.frame_effects);
         }
-        let commits = assign_target_commits(&sim.substrate.entities, requested);
+        let commits = assign_target_commits(
+            &sim.substrate.entities,
+            &sim.production.terrain_objects,
+            requested,
+        );
         let entity = sim
             .substrate
             .entities
@@ -553,20 +562,31 @@ impl Simulation {
 /// retaliation that names a dying object leaves its receiver without a
 /// target. Techno+3CD also refuses the candidate (`0x006FCF10`); its stock
 /// surface-ship producer is Unit ReceiveDamage737E51, owned by world::sinking.
+/// Both borrowed stores are authoritative; the split permits synchronous wall
+/// expiry to use this same admission while other World fields are borrowed.
 pub(crate) fn assign_target_commits(
-    entities: &crate::sim::entity_store::EntityStore,
+    entities: &EntityStore,
+    terrain_objects: &BTreeMap<u64, TerrainObjectState>,
     requested: Option<TargetKind>,
 ) -> bool {
     match requested {
-        Some(TargetKind::Entity(id)) => entities.get(id).is_some_and(|target| {
-            target.lifecycle.object_alive()
-                && target.health.current() != 0
-                && !target.sinking.is_active()
-                && !(target.category() == crate::map::entities::EntityCategory::Infantry
-                    && target.mission_leaf.as_infantry().is_some_and(|leaf| {
-                        crate::sim::movement::infantry_action::in_death_sequence(leaf.doing())
-                    }))
-        }),
+        Some(TargetKind::Entity(id)) => {
+            if let Some(target) = entities.get(id) {
+                target.lifecycle.object_alive()
+                    && target.health.current() != 0
+                    && !target.sinking.is_active()
+                    && !(target.category() == crate::map::entities::EntityCategory::Infantry
+                        && target.mission_leaf.as_infantry().is_some_and(|leaf| {
+                            crate::sim::movement::infantry_action::in_death_sequence(leaf.doing())
+                        }))
+            } else {
+                // 6FCEF1..6FCF0E: Terrain has Object alive/Health, but no
+                // Foot bit, sinking state or Infantry death-action gate.
+                terrain_objects
+                    .get(&id)
+                    .is_some_and(|target| target.object_alive() && target.health != 0)
+            }
+        }
         Some(TargetKind::Cell(..)) | None => true,
     }
 }
@@ -621,7 +641,7 @@ pub(crate) fn represented_assign_target_admitted(
     //SpawnOwner. A NULL request reaches this gate too (6FCDEB..6FCE46).
     let requested = if entity.type_facts.spawned_non_missile_aircraft()
         && matches!(crate::sim::aircraft::attack_state(entity), Some(5..=9))
-        && let Some(ammo) = entity.aircraft_ammo.as_mut()
+        && let Some(ammo) = entity.ammo_mut()
         && ammo.current() != 0
     {
         ammo.empty();
@@ -654,14 +674,14 @@ pub(crate) fn represented_assign_destination(
     entity.navigation.publish_nav_com(requested);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RecordingPrepared {
     receiver: u64,
     request: ConcreteSetterRequest,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConcreteEffectEvent {
     Preflight {
@@ -684,7 +704,7 @@ pub(crate) enum ConcreteEffectEvent {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug)]
 pub(crate) struct RecordingConcreteMissionEffects {
     pub allow_target: bool,
@@ -692,7 +712,7 @@ pub(crate) struct RecordingConcreteMissionEffects {
     pub events: Vec<ConcreteEffectEvent>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl RecordingConcreteMissionEffects {
     pub(crate) fn available() -> Self {
         Self {
@@ -703,10 +723,10 @@ impl RecordingConcreteMissionEffects {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl private::Sealed for RecordingConcreteMissionEffects {}
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
     type Prepared = RecordingPrepared;
 
@@ -806,254 +826,5 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
             .navigation
             .set_pending_destination_setter_for_test(false);
         false
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn retail_rules() -> Option<crate::rules::ruleset::RuleSet> {
-        let (rules_ini, art_ini) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
-        let mut rules =
-            crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
-                .expect("retail rules parse");
-        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
-        Some(rules)
-    }
-
-    /// vt+0x480's mode reaches only the Unit setter (`0x00741970` reads its
-    /// `clear_queue`): mode 1 clears a retail tank's NavQueue, mode 0 keeps
-    /// it.
-    #[test]
-    fn only_a_mode_one_destination_clears_a_unit_navqueue() {
-        let Some(rules) = retail_rules() else {
-            return;
-        };
-        for keep_queue in [true, false] {
-            let mut sim = Simulation::new();
-            crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
-            let id = sim
-                .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
-                .expect("retail MTNK");
-            let queued = vec![NavTargetRef::cell(14, 10), NavTargetRef::cell(16, 10)];
-            sim.substrate
-                .entities
-                .get_mut(id)
-                .unwrap()
-                .navigation
-                .set_nav_queue_for_test(queued.clone());
-            let requested = Some(NavTargetRef::cell(12, 10));
-            let effects = FrameEffects::default();
-            let assigned = if keep_queue {
-                sim.assign_destination_keeping_queue(id, requested, Some(&rules), None, effects)
-            } else {
-                sim.assign_destination_represented(id, requested, Some(&rules), None, effects)
-            };
-            assigned.expect("the Unit setter takes the cell");
-            let unit = sim.substrate.entities.get(id).unwrap();
-            assert_eq!(unit.navigation.nav_com(), requested);
-            let kept = if keep_queue { queued } else { Vec::new() };
-            assert_eq!(unit.navigation.nav_queue(), kept, "keep_queue {keep_queue}");
-        }
-    }
-
-    /// FootClass::Mission_Enter (`0x004D9290`) is the Infantry's too
-    /// (vt+0x240), and no class test precedes its arms: a tethered
-    /// infantryman with no NavCom takes NavQueue[0] through his class setter
-    /// with mode 0 (`0x004D939A`), and the queue shifts.
-    #[test]
-    fn a_tethered_infantryman_on_enter_takes_his_first_waypoint() {
-        let Some(rules) = retail_rules() else {
-            return;
-        };
-        let mut sim = Simulation::new();
-        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
-        let building = sim
-            .spawn_object("GAPOWR", "Americans", 20, 20, 0, &rules)
-            .expect("retail GAPOWR");
-        let id = sim
-            .spawn_object("E1", "Americans", 10, 10, 0, &rules)
-            .expect("retail E1");
-        let queued = [NavTargetRef::cell(14, 10), NavTargetRef::cell(16, 10)];
-        let infantry = sim.substrate.entities.get_mut(id).unwrap();
-        infantry.mark_live_contact_with(building);
-        infantry.tether.set_for_test(Some(building));
-        infantry.navigation.set_nav_queue_for_test(queued.to_vec());
-        sim.substrate
-            .entities
-            .get_mut(building)
-            .unwrap()
-            .mark_live_contact_with(id);
-        sim.mission_assign_exact(
-            id,
-            crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter),
-            0,
-        )
-        .expect("retail E1 exists");
-
-        crate::sim::mission::enter::mission_enter(
-            &mut sim,
-            &rules,
-            None,
-            id,
-            FrameEffects::default(),
-        );
-
-        let infantry = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(infantry.navigation.nav_com(), Some(queued[0]));
-        assert_eq!(infantry.navigation.nav_queue(), [queued[1]]);
-    }
-
-    /// A Restore the AoE pointer expiry deferred (`pending_destination_setter`)
-    /// completes through the Aircraft setter (`0x0041AA80`) like Restore's
-    /// own call (`0x004D8F99`): NavCom keeps the saved order and the Fly
-    /// heads for it.
-    #[test]
-    fn a_deferred_aircraft_restore_completes_through_the_aircraft_setter() {
-        let Some(rules) = retail_rules() else {
-            return;
-        };
-        let mut sim = Simulation::new();
-        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
-        let id = sim
-            .spawn_object("ORCA", "Americans", 10, 10, 0, &rules)
-            .expect("retail ORCA");
-        let saved = NavTargetRef::cell(20, 10);
-        let aircraft = sim.substrate.entities.get_mut(id).unwrap();
-        aircraft.navigation.set_nav_com_for_test(Some(saved));
-        aircraft
-            .navigation
-            .set_pending_destination_setter_for_test(true);
-
-        sim.complete_pending_order(id, Some(&rules), None, FrameEffects::default());
-
-        let aircraft = sim.substrate.entities.get(id).unwrap();
-        assert!(!aircraft.navigation.pending_destination_setter());
-        assert_eq!(aircraft.navigation.nav_com(), Some(saved));
-        let fly = aircraft
-            .locomotor
-            .as_ref()
-            .and_then(|locomotor| locomotor.fly_runtime())
-            .expect("Fly runtime");
-        assert!(fly.moving());
-        let destination = fly.destination();
-        assert_eq!((destination.x / 256, destination.y / 256), (20, 10));
-    }
-
-    /// FootClass::AI's pending entry calls vt+0x480 on the waiting Foot
-    /// (`0x0070D849`), so an aircraft that waited for a `UnitRepair=` depot
-    /// takes the Aircraft setter (`0x0041AA80`) toward it once the depot
-    /// answers CAN_LOAD.
-    #[test]
-    fn an_aircraft_pending_depot_entry_takes_the_aircraft_setter() {
-        let Some(rules) = retail_rules() else {
-            return;
-        };
-        let mut sim = Simulation::new();
-        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
-        let depot = sim
-            .spawn_object("GADEPT", "Americans", 20, 20, 0, &rules)
-            .expect("retail GADEPT");
-        let id = sim
-            .spawn_object("ORCA", "Americans", 10, 10, 0, &rules)
-            .expect("retail ORCA");
-        crate::sim::docking::building_dock::set_pending_entry(&mut sim, id, Some(depot));
-
-        crate::sim::docking::building_dock::try_pending_entry(
-            &mut sim,
-            &rules,
-            id,
-            FrameEffects::default(),
-        );
-
-        let aircraft = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(aircraft.pending_entry(), None);
-        assert_eq!(
-            aircraft.navigation.nav_com(),
-            Some(NavTargetRef::Building { id: depot })
-        );
-    }
-
-    /// Every retail `[VehicleTypes]` and `[InfantryTypes]` entry, spawned
-    /// through production, reaches its class setter (Unit `0x741970`,
-    /// Infantry `0x51AA40`) rather than the NavCom-only fallback, except the
-    /// four without rules data, which construct no locomotor
-    /// (`should_construct_locomotor`'s zero-speed gate): `DeathDummy` reads
-    /// only `Primary=`, and `YDUM`, `VISC_LRG` and `VISC_SML` have no section.
-    /// No map is installed: the receiver tests read the object alone, and
-    /// without one a naval type is not refused a land cell.
-    #[test]
-    fn every_retail_unit_and_infantry_type_reaches_its_class_setter() {
-        let Some(rules) = retail_rules() else {
-            return;
-        };
-        let mut unspawned = Vec::new();
-        let mut without_locomotor = Vec::new();
-        let mut unrepresented = Vec::new();
-        for type_id in rules.vehicle_ids.iter().chain(&rules.infantry_ids) {
-            let mut sim = Simulation::new();
-            let Some(id) = sim.spawn_object(type_id, "Americans", 10, 10, 64, &rules) else {
-                unspawned.push(type_id.as_str());
-                continue;
-            };
-            let actor = sim.substrate.entities.get(id).expect("spawned");
-            let Some(locomotor) = actor.locomotor.as_ref() else {
-                without_locomotor.push(type_id.as_str());
-                continue;
-            };
-            let represented = match actor.category() {
-                crate::map::entities::EntityCategory::Unit => {
-                    sim.unit_setter_receiver(id, Some(&rules))
-                }
-                crate::map::entities::EntityCategory::Infantry => {
-                    sim.infantry_setter_receiver(id, &rules)
-                }
-                _ => false,
-            };
-            if !represented {
-                unrepresented.push(format!(
-                    "{type_id} {:?} {:?}",
-                    actor.category(),
-                    locomotor.active_kind()
-                ));
-            }
-        }
-        assert!(
-            rules.vehicle_ids.len() + rules.infantry_ids.len() > 100,
-            "the retail rosters were read"
-        );
-        assert_eq!(unspawned, Vec::<&str>::new(), "types that did not spawn");
-        assert_eq!(
-            without_locomotor,
-            ["DeathDummy", "YDUM", "VISC_LRG", "VISC_SML"]
-        );
-        assert_eq!(
-            unrepresented,
-            Vec::<String>::new(),
-            "types without a class setter"
-        );
-    }
-
-    #[test]
-    fn production_concrete_effects_never_claim_partial_setter_coverage() {
-        let sim = Simulation::new();
-        let mut effects = UnavailableConcreteMissionEffects;
-
-        assert_eq!(
-            effects.preflight(&sim, 7, ConcreteSetterRequest::Target { requested: None }),
-            Err(AuthorityUnavailable::TargetSetter(7))
-        );
-        assert_eq!(
-            effects.preflight(
-                &sim,
-                7,
-                ConcreteSetterRequest::TargetAndDestination {
-                    requested_target: None,
-                    requested_destination: None,
-                }
-            ),
-            Err(AuthorityUnavailable::TargetSetter(7))
-        );
     }
 }

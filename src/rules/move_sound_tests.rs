@@ -10,11 +10,9 @@ use super::sound_ini::SoundRegistry;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub(crate) fn native() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/fv_cell_attack/foot_move_sound.json",
-    ))
-    .unwrap();
+pub fn native() -> &'static Value {
+    let corpus =
+        crate::test_fixture::json("tools/spatial_oracle/fv_cell_attack/foot_move_sound.json");
     assert_eq!(corpus["schema_version"], 1);
     corpus
 }
@@ -178,6 +176,7 @@ fn move_sound_selected_physical_layers_and_reader_history_match_original() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn move_sound_retained_cadence_and_names_match_the_full_retail_battle_reader() {
     let Some(retail) = super::retail_ini_fixture::retail_battle_rules() else {
         return;

@@ -149,6 +149,7 @@ impl ParticleSystemType {
     /// `holds_what` is always `None` — the resolver in `RuleSet::from_ini`
     /// fills it in after all particle types have been collected.
     /// Use `from_ini_section_pending` if you need the unresolved reference name.
+    #[cfg(test)]
     pub fn from_ini_section(name: &str, section: &IniSection) -> Self {
         Self::from_ini_section_pending(name, section).partial
     }
@@ -218,7 +219,7 @@ impl ParticleSystemType {
             light_size: section.read_int("LightSize", 0),
             one_frame_light: section.read_bool("OneFrameLight", false),
             laser: section.read_bool("Laser", false),
-            laser_color: section.read_color_rgb("LaserColor", [0, 0, 0]),
+            laser_color: section.read_color_rgb("LaserColor", [0, 0, 0], None),
         };
 
         PendingParticleSystemType {

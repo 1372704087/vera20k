@@ -43,6 +43,12 @@
 //! (`0x00502B28..0x00502B42`, `0x005027D4..0x005027EE`); the computer's
 //! economy check reads all three (`sim::ai_build_need`).
 //!
+//! Building arms also retain signed House+310 capacity, independently of
+//! DontScore/Insignificant: ADD32 at502B78, SUB32 at502815. Constructor
+//! 4F58DE starts0; this is not the separate four-slot resource amount total.
+//! `spatial_oracle/building_storage_withdrawals.py` executes those transfer
+//! slices; its consumed capacity controls do not prove the whole callbacks.
+//!
 //! Their Aircraft, Infantry and Unit arms first add, and subtract, the
 //! object's value, its type's `Cost_Of` (`vt+0x84`, `0x00711F00`) for this
 //! house at that moment, again with no DontScore test: infantry to `+0x160A8`
@@ -71,8 +77,12 @@
 //! SpawnSurvivors and Selling reveals restore the contribution and clear
 //! `+0x439` (`0x0051A30F`, `0x0051A327..0x0051A348`,
 //! `0x0044DBEA..0x0044DC02`, `0x00442F6D..0x00442FA1`,
-//! `0x0044A510..0x0044A548`). `+0x2EC`, `+0x2F8`
-//! and the owned-type sets have no reader here and are not kept.
+//! `0x0044A510..0x0044A548`). The tracked navy (`+0x2EC`) counts only Units
+//! whose `Naval=` is set and whose signed `Passengers=` is exactly zero
+//! (`0x004FF8C0`, `0x004FF6C8`). TEvent55 reads this scalar; TEvent56 reads
+//! vehicles minus navy, then tracked infantry (`0x0071F159..0x0071F187`).
+//! Limbo does not remove tracking, so transports and constructed limbo objects
+//! must not be inferred from the on-map sets. `+0x2F8` is not kept.
 //!
 //! Factory counters (`+0x5378` aircraft, `+0x537C` infantry, `+0x5380`
 //! vehicle, `+0x5384` building, `+0x5388` naval): a building whose type has
@@ -90,8 +100,11 @@
 //! Evidence: `tools/spatial_oracle/house_tracking.py` runs the original
 //! Add_Tracking and Remove_Tracking (36 cases);
 //! `tools/spatial_oracle/house_defeat_gate.py` runs the gate block with the
-//! original counter readers (21 cases). Added_To_Game and Removed_From_Game
-//! are read, not executed.
+//! original counter readers (21 cases). `tag_lifecycle.py --naval-land-events`
+//! replays the tracking payload on the Steam image and executes TEvent55/56;
+//! its metadata distinguishes the old payload's provenance from this replay.
+//! Whole Added_To_Game and Removed_From_Game are read, not executed; only
+//! their capacity/amount transfer slices have executable controls here.
 //!
 //! RESIDUAL: the survivor flag `+0x6D9` is not written. SpawnSurvivors sets it
 //! (`0x00443111..0x00443127`), before the survivor's Unlimbo, on a `Nominal=`
@@ -150,6 +163,10 @@ pub struct TrackingFacts {
     /// A building tracked with the units: a 1x1 undeployer, or one that
     /// undeploys into a `ResourceGatherer=` (a deployed Slave Miner).
     unit_like_building: bool,
+    /// Unit RTTI, `Naval=` nonzero and signed `Passengers=` exactly zero:
+    /// the native Add/Remove_Tracking navy arm (`4FF8C0` / `4FF6C8`).
+    #[serde(default)]
+    naval_combatant: bool,
     /// `TechnoType+0x5EC`, `ResourceGatherer=` (ReadINI `0x007143DF`).
     resource_gatherer: bool,
     /// `TechnoType+0x5ED`, `ResourceDestination=` (ReadINI `0x007143FE`).
@@ -165,6 +182,11 @@ pub struct TrackingFacts {
     /// `Naval=`.
     #[serde(default)]
     factory: Option<FactorySlot>,
+    /// Live BuildingType+800 (`Storage=`); other classes' cargo capacity
+    /// does not join House+310. Production types are immutable for this object;
+    /// deploy/undeploy constructs a replacement with its own type facts.
+    #[serde(default)]
+    storage_capacity: i32,
 }
 
 impl TrackingFacts {
@@ -192,13 +214,31 @@ impl TrackingFacts {
             dont_score: ty.dont_score,
             insignificant: ty.insignificant,
             unit_like_building,
+            naval_combatant: category == EntityCategory::Unit && ty.naval && ty.passengers == 0,
             resource_gatherer: ty.resource_gatherer,
             resource_destination: ty.resource_destination,
             war_factory: category == EntityCategory::Structure && ty.weapons_factory && !ty.naval,
             force_value: ForceValueFacts::of(category, ty),
             factory: (category == EntityCategory::Structure)
-                .then(|| ty.factory.map(|factory| FactorySlot::of(factory, ty.naval)))
+                .then(|| {
+                    FactoryType::for_production_rtti(ty.factory_rtti())
+                        .map(|factory| FactorySlot::of(factory, ty.naval))
+                })
                 .flatten(),
+            storage_capacity: if category == EntityCategory::Structure {
+                ty.storage
+            } else {
+                0
+            },
+        }
+    }
+
+    /// The retained input affects a later Added/Removed even while in limbo.
+    pub(crate) fn hash_storage_capacity(self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        if self.storage_capacity != 0 {
+            b"building-storage-capacity-input-v1".hash(hasher);
+            self.storage_capacity.hash(hasher);
         }
     }
 
@@ -207,14 +247,19 @@ impl TrackingFacts {
         self.dont_score
     }
 
+    /// The retained type admission used by both tracking writers and hashing.
+    pub(crate) const fn naval_combatant(self) -> bool {
+        self.naval_combatant
+    }
+
     /// Install a fixture's `DontScore=`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_dont_score_for_test(&mut self, value: bool) {
         self.dont_score = value;
     }
 
     /// An `Insignificant=` object's facts.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insignificant_for_test() -> Self {
         Self {
             insignificant: true,
@@ -270,12 +315,12 @@ impl InfantryTrackingLatches {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn is_counted(&self) -> bool {
         self.counted_infantry_total
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn is_absorbed(&self) -> bool {
         self.skip_infantry_total_on_add
     }
@@ -293,7 +338,7 @@ pub enum FactorySlot {
 
 impl FactorySlot {
     /// The counter of a building with `Factory=factory`: the switch on Type
-    /// `+0xEB8` in IncrementFactoryCount and Recount, where a `UnitType`
+    /// `+0xEB8` in IncrementFactoryCount and Recount, where a Unit/UnitType
     /// factory whose type is `Naval=` (`+0xCCE`) is a shipyard.
     pub(crate) const fn of(factory: FactoryType, naval: bool) -> Self {
         match factory {
@@ -377,6 +422,10 @@ pub struct HouseTracking {
     /// with them. Derived from the hashed object set; not folded separately.
     #[serde(default)]
     vehicles: i32,
+    /// `HouseClass+0x2EC`: tracked Naval Units without a passenger capacity.
+    /// Zeroed with the other scalars at House construction (`4F58B5`).
+    #[serde(default)]
+    navy: i32,
     /// `HouseClass+0x2F4`: the tracked infantry.
     #[serde(default)]
     infantry: i32,
@@ -422,6 +471,10 @@ pub struct HouseTracking {
     /// `HouseClass+0x5378..+0x5388`, in [`FactorySlot`] order.
     #[serde(default)]
     factories: [i32; 5],
+    /// House+310, zeroed by4F58DE. Retained event total, independent of
+    /// filtered active-building counts and the separate raw amount stores.
+    #[serde(default)]
+    storage_capacity: i32,
 }
 
 impl HouseTracking {
@@ -448,6 +501,12 @@ impl HouseTracking {
             }
             EntityCategory::Structure | EntityCategory::Unit => {
                 self.vehicles = self.vehicles.wrapping_add(delta);
+                if facts.naval_combatant() {
+                    // Steam 3e81a617..08600: 4FF8C0 INC / 4FF6C8 DEC.
+                    // tools/spatial_oracle/house_tracking.py (36 controls),
+                    // replayed by tag_lifecycle.py --naval-land-events.
+                    self.navy = self.navy.wrapping_add(delta);
+                }
             }
             EntityCategory::Infantry => {
                 let count_total = if delta > 0 {
@@ -497,10 +556,7 @@ impl HouseTracking {
     /// through `0x0049FAE0`, signed `> 0` (`JG`), as the Harvest preamble
     /// (`0x0073E69B..0x0073E6A2`) and Guard's computer-harvester arm
     /// (`0x007408AF..0x007408B6`) test a harvester's `Dock=` list.
-    pub(crate) fn owns_any_building(
-        &self,
-        building_types: impl IntoIterator<Item = InternedId>,
-    ) -> bool {
+    pub fn owns_any_building(&self, building_types: impl IntoIterator<Item = InternedId>) -> bool {
         building_types
             .into_iter()
             .any(|type_id| self.owned_count(EntityCategory::Structure, type_id) > 0)
@@ -623,11 +679,29 @@ impl HouseTracking {
         self.active_infantry().hash(hasher);
         self.active_aircraft().hash(hasher);
         self.active_building_types.hash(hasher);
+        if self.navy != 0 {
+            b"house-tracked-navy-v1".hash(hasher);
+            self.navy.hash(hasher);
+        }
+        if self.storage_capacity != 0 {
+            b"house-storage-capacity-v1".hash(hasher);
+            self.storage_capacity.hash(hasher);
+        }
+    }
+
+    /// Retained House+310, not AvailableStorage4F69D0 for nonempty stores.
+    pub(crate) const fn storage_capacity(&self) -> i32 {
+        self.storage_capacity
     }
 
     /// `HouseClass+0x2E8`.
     pub(crate) const fn vehicles(&self) -> i32 {
         self.vehicles
+    }
+
+    /// `HouseClass+0x2EC`, independent of the on-map and factory counters.
+    pub(crate) const fn navy(&self) -> i32 {
+        self.navy
     }
 
     /// `HouseClass+0x2F4`.
@@ -691,6 +765,14 @@ impl HouseTracking {
         if entity.tracking_facts.war_factory {
             self.war_factories = self.war_factories.wrapping_add(1);
         }
+        // Added502B57..502B78: independent of DontScore/Insignificant.
+        // Current Added's live power/COM prelude remains deferred to the
+        // existing power owner; no callback occurs inside this counter phase.
+        if entity.category() == EntityCategory::Structure {
+            self.storage_capacity = self
+                .storage_capacity
+                .wrapping_add(entity.tracking_facts.storage_capacity);
+        }
         if let Some(value) = entity.tracking_facts.force_value {
             let total = self.force_values.total(value.kind);
             *total = total.wrapping_add(factors.adjust(value.cost, value.factor_slot.into()));
@@ -708,17 +790,31 @@ impl HouseTracking {
         *count = count.wrapping_add(1);
     }
 
-    /// `HouseClass::Removed_From_Game @ 0x005025F0`, pricing with this
-    /// house's `factors`.
-    pub(crate) fn removed_from_game(&mut self, entity: &GameEntity, factors: &HouseCostFactors) {
+    /// Removed502606..50262A precedes the powered-center callback. Its
+    /// receiving House is retained by the Simulation entry point.
+    pub(crate) fn removed_from_game_prefix(&mut self, entity: &GameEntity) {
         if entity.tracking_facts.resource_gatherer {
             self.resource_gatherers = self.resource_gatherers.wrapping_sub(1);
         }
         if entity.tracking_facts.resource_destination {
             self.resource_destinations = self.resource_destinations.wrapping_sub(1);
         }
+    }
+
+    /// The class phase of Removed_From_Game50277B..502A55, after the
+    /// powered-center prelude. Type facts are read at this phase, not retained
+    /// across its callbacks. Actual Limbo/ChangeOwner callers pass flag0;
+    /// nonempty stores and the distinct flag1 withdrawal remain unported.
+    pub(crate) fn removed_from_game(&mut self, entity: &GameEntity, factors: &HouseCostFactors) {
         if entity.tracking_facts.war_factory {
             self.war_factories = self.war_factories.wrapping_sub(1);
+        }
+        //502801..502815 SUB32 of the live BuildingType.Storage. No clamp
+        // or per-object contribution latch; DontScore does not skip it.
+        if entity.category() == EntityCategory::Structure {
+            self.storage_capacity = self
+                .storage_capacity
+                .wrapping_sub(entity.tracking_facts.storage_capacity);
         }
         if let Some(value) = entity.tracking_facts.force_value {
             let total = self.force_values.total(value.kind);
@@ -749,7 +845,7 @@ impl HouseTracking {
     }
 
     /// `+0x2F0`, the tracked buildings.
-    pub(crate) fn buildings(&self) -> i32 {
+    pub fn buildings(&self) -> i32 {
         self.buildings
     }
 
@@ -857,11 +953,18 @@ fn wrapping_total(counts: &BTreeMap<InternedId, i32>) -> i32 {
         .fold(0, |total, &count| total.wrapping_add(count))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl HouseTracking {
     /// Stand in for tracked buildings a fixture places without the lifecycle.
-    pub(crate) fn set_buildings_for_test(&mut self, buildings: i32) {
+    pub fn set_buildings_for_test(&mut self, buildings: i32) {
         self.buildings = buildings;
+    }
+
+    /// Explicit native TEvent55/56 scalar priors, without fabricating objects.
+    pub(crate) fn set_naval_land_for_test(&mut self, vehicles: i32, navy: i32, infantry: i32) {
+        self.vehicles = vehicles;
+        self.navy = navy;
+        self.infantry = infantry;
     }
 
     /// Stand in for the on-map gatherers, destinations and war factories
@@ -951,3 +1054,7 @@ impl HouseTracking {
 #[cfg(test)]
 #[path = "house_tracking_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "house_storage_capacity_tests.rs"]
+mod storage_capacity_tests;

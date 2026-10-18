@@ -3,8 +3,8 @@ use super::*;
 use crate::rules::ini_parser::IniSection;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/voxel_oracle/recoil.json")).unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/voxel_oracle/recoil.json")
 }
 
 fn config(native: &Value, name: &str) -> RecoilConfig {
@@ -33,7 +33,9 @@ fn config(native: &Value, name: &str) -> RecoilConfig {
     for (key, value) in keys.as_object().unwrap() {
         section.set(key, value.as_str().unwrap());
     }
-    RecoilConfig::from_ini_section(&section)
+    let mut config = RecoilConfig::default();
+    config.apply_pass(&section);
+    config
 }
 
 fn assert_part(part: &Recoil, native: &Value, context: &str) {
@@ -117,7 +119,9 @@ fn recoil_original_fireat_gates() {
             },
         );
         let mut entity = GameEntity::test_default(1, "T", "French", 10, 10);
-        entity.initialize_voxel_recoil(RecoilConfig::from_ini_section(&section));
+        let mut config = RecoilConfig::default();
+        config.apply_pass(&section);
+        entity.initialize_voxel_recoil(config);
         entity.fire_voxel_recoil(row["has_turret"].as_bool().unwrap());
         for phase in ["armed", "tick"] {
             if phase == "tick" {

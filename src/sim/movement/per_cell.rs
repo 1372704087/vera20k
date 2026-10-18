@@ -168,6 +168,13 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
+        // 739ED3..739EE2: +1B8 (41BEA0) samples physical packed XY once,
+        // before MCV/arrival callbacks. This is not the navigation/head cell.
+        let entry_cell = self
+            .substrate
+            .entities
+            .get(id)
+            .map(|entity| super::foot_path::coord_cell(position_world_coord(&entity.position)));
         // Unit739EC0 invokes the MCV receiver before normal crush/Foot tail.
         if let Some(rules) = rules {
             crate::sim::mcv_deploy::per_cell_process(self, id, rules, registry, effects);
@@ -183,24 +190,79 @@ impl Simulation {
             // 0x00739F21..0x00739F59 come first: a `PoweredUnit=` type whose
             // house has no powered center goes offline off a building.
             self.powered_unit_arrival(id, rules, effects);
+            //739F7D..73A234: Eaten consumes the unit before docking, boarding
+            //and the Foot sight/mission tail.
+            if self.foot_per_cell_eaten(id, rules, registry, effects) {
+                return;
+            }
             // The object-destination docking arm73A31F..A547 completes
             // Foot's tail and returns before the later factory clearance.
             if self.unit_dock_now(id, rules, registry, effects) {
                 return;
             }
+            // Steam gamemd3e81a617, Unit73A64A..73A793: Enter attaches
+            // at PerCell2, before clearance, sight, Ready and Foot's tail.
+            // Drive4B20CD..4B2115 retires its track before this callback;
+            // attaching in the late passenger pass concealed a moving Unit
+            // whose old head resumed when another shore unloaded it.
+            if let Some(transport) = self
+                .substrate
+                .entities
+                .get(id)
+                .and_then(|entity| entity.passenger_role.boarding_transport_id())
+                && self
+                    .substrate
+                    .entities
+                    .get(transport)
+                    .is_some_and(|target| target.category() == EntityCategory::Unit)
+            {
+                match crate::sim::passenger::process_boarding_passenger(
+                    self,
+                    rules,
+                    id,
+                    crate::sim::passenger::BoardingVisit::CellArrival,
+                    registry,
+                    effects,
+                ) {
+                    crate::sim::passenger::BoardingOutcome::Boarded => return,
+                    crate::sim::passenger::BoardingOutcome::Refused => {
+                        //73A796..73A7CF: null destination, deferred Guard,
+                        //then forced Scatter(NULL,1,1), returning before Foot.
+                        self.assign_null_destination(id, Some(rules), registry, effects);
+                        if let Some(entity) = self.substrate.entities.get_mut(id) {
+                            crate::sim::mission::authority::queue_entity_mission_deferred(
+                                entity,
+                                MissionId::from_known(MissionType::Guard),
+                            );
+                        }
+                        let _ = self.scatter(
+                            id,
+                            None,
+                            super::ScatterFlags::new(true, true),
+                            rules,
+                            registry,
+                            effects,
+                        );
+                        return;
+                    }
+                    crate::sim::passenger::BoardingOutcome::Waiting => {}
+                }
+            }
             self.unit_per_cell_factory_clearance(id, rules, registry, effects);
         }
-        // 0x0073AC52..0x0073AC74: ReReveal then UpdateReveal, after the
-        // clearance arms and before Ready/Commence. RESIDUAL: native returns
+        // 0x0073AC52..0x0073ACAE: ReReveal then UpdateReveal and the
+        // current-XYZ/cached-radius+3 Map567DA0 border, after clearance and
+        // before Ready/Commence. Evidence: shroud_frontier_moving.json.
+        // RESIDUAL: native returns
         // before them from arms VERA runs elsewhere or not at all: the
-        // `Grinding=`, `UnitAbsorb=` and transport entries, their failure
+        // `UnitAbsorb=` entry, its failure
         // tail (`0x0073A796`), and Guard's map exit (`0x0073AC0E..
-        // 0x0073AC4F`). Trigger: a unit arriving to board a transport or
-        // to leave the map (VERA boards in the passenger pass and has no
-        // grinder). Effect: VERA reveals one more footprint, at that cell,
-        // and its cells stay revealed.
+        // 0x0073AC4F`). Trigger: a unit arriving to enter a building or
+        // to leave the map (VERA retains building entry adapters). Effect:
+        // VERA reveals one more footprint at that cell, which stays revealed.
         if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
             self.refresh_object_sight(id, rules, 0);
+            self.refresh_object_sight_border(id, UninitContext::new(rules, registry));
         }
         // Unit PerCell2 739EC0: after MCV retry, +6D1==0 admits
         // Ready(+200)73ACC2 -> Commence(+1EC)73ACD1, BEFORE full-cell
@@ -225,6 +287,11 @@ impl Simulation {
             && reason == PerCellReason::Arrival
         {
             crate::sim::miner::per_cell_release_dock_contact(self, rules, id, effects);
+        }
+        // 73AFD4..73B06E is common to reasons0/2 and precedes the fresh
+        // +1B8/full-cell crush query73B074 and the Foot continuation.
+        if let (Some(cell), Some(rules), Some(registry)) = (entry_cell, rules, registry) {
+            self.unit_per_cell_overlay_crush(id, cell, rules, registry, effects);
         }
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
@@ -310,6 +377,78 @@ impl Simulation {
         // 0x0073B08F tests only IsAlive (`+0x90`) before the Foot body.
         if self.per_cell_owner_alive(id) {
             self.foot_per_cell_process(id, reason, rules, registry, effects);
+        }
+    }
+
+    /// Unit73AFD4..73B06E. The Cell is selected from the entry sample;
+    /// Sound73B04D separately samples the actor's current raw XYZ (+48).
+    /// Controls: unit_per_cell_overlay.json and anytown_damage/fence_driveover.json.
+    fn unit_per_cell_overlay_crush(
+        &mut self,
+        id: u64,
+        entry_cell: (i16, i16),
+        rules: &RuleSet,
+        registry: &OverlayTypeRegistry,
+        effects: FrameEffects<'_>,
+    ) {
+        use crate::map::cell_index::NativeCellIdentity;
+        use crate::rules::locomotor_type::MovementZone;
+        use crate::rules::object_type::Ability;
+        use crate::sim::combat::veterancy::has_weapon_ability;
+        use crate::sim::overlay_grid::WallPointerTarget;
+
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return;
+        };
+        let cell = terrain.native_cell_identity(entry_cell);
+        let Some(actor) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(object) = self.object_type(actor.type_ref(), rules) else {
+            return;
+        };
+        if !(object.crusher
+            || has_weapon_ability(actor.veterancy.rank_kind(), object, Ability::Crusher))
+        {
+            return;
+        }
+        let Some(flags) = self
+            .cell_overlay(cell)
+            .overlay_id
+            .and_then(|id| registry.flags(id))
+        else {
+            return;
+        };
+        if !(flags.crushable || (flags.wall && object.movement_zone == MovementZone::CrusherAll)) {
+            return;
+        }
+        let target = match cell {
+            NativeCellIdentity::Real(index) => {
+                let c = &terrain.cells()[index];
+                WallPointerTarget::Real(c.rx, c.ry)
+            }
+            NativeCellIdentity::Dummy => WallPointerTarget::SharedDummy,
+        };
+        if let Some(sound) = flags.crush_sound.as_ref() {
+            self.sound_events
+                .push(crate::sim::world::SimSoundEvent::wall_crushed(
+                    sound.clone(),
+                    &actor.position,
+                ));
+            //7509E0 completes before480CB0. The existing process owner may
+            //draw Main RNG during cue admission/playback; queuing alone would
+            //defer it across this native boundary.
+            effects.flush_sound(self, Some(rules));
+        }
+        self.apply_wall_damage(target, -1, registry);
+        if let Some(actor) = self.substrate.entities.get_mut(id) {
+            actor
+                .rocking
+                .get_or_insert_with(Default::default)
+                .recoil_after_overlay_crush();
+            // 73B067 clears Foot+6B5. For selected normal MTNK its ctor0
+            // persists: Drive4B1A2F's only positive writer requires Zone12.
+            // CrusherAll building-crush state/consumers remain a separate chain.
         }
     }
 
@@ -600,7 +739,8 @@ impl Simulation {
     ///
     /// Mobile Enter executes the shared passenger owner at51A3A0..51A485,
     /// before C4 and the Teleport caller's NULL destination, despite warp-in.
-    /// RESIDUAL: other Capture branches, Eaten, building Enter and the C4 cell
+    /// Eaten51973C runs after the occupier arm and before ordinary Capture.
+    /// RESIDUAL: other Capture branches, building Enter and the C4 cell
     /// arm (`0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
     /// ports with their own owners (`capture_manager`, `passenger`); native
     /// runs them before the Foot body, with some early returns, which also
@@ -618,6 +758,12 @@ impl Simulation {
         if reason == PerCellReason::Arrival
             && let Some(rules) = rules
             && self.infantry_per_cell_occupy(id, rules, registry, effects)?
+        {
+            return Ok(false);
+        }
+        if reason == PerCellReason::Arrival
+            && let Some(rules) = rules
+            && self.foot_per_cell_eaten(id, rules, registry, effects)
         {
             return Ok(false);
         }
@@ -819,7 +965,7 @@ impl Simulation {
     /// RESIDUAL: MCV 53/54 and Map zone 24 (`0x004D8A14..0x004D8D99`), the
     /// `+0x83` / `0x00586360` step (`0x004D8DA7..0x004D8DF5`), the
     /// planning-waypoint upkeep (`0x004D8DFF..0x004D8F1D`) and the Techno
-    /// tail's `+0x420` call, tag event 0x22, `+0x198` call and cell
+    /// tail's `+0x198` call and cell
     /// `0x00486920` are not ported. Trigger: every arrival. Effect: zone
     /// triggers and planning waypoints do not fire from movement. Risk: maps
     /// with those trigger families.
@@ -835,7 +981,7 @@ impl Simulation {
             return;
         }
         if let Some(rules) = rules {
-            self.refresh_unit_sensor_at_per_cell(id, rules);
+            self.refresh_unit_sensor_at_per_cell(id, rules, registry);
         }
         //4D8657..4D868D compares the two coarse threat buckets and migrates
         //the cached contribution BEFORE4D870E replaces retained Foot+55C.
@@ -871,6 +1017,23 @@ impl Simulation {
         }
         // `0x006F5090`'s head lets a held Temporal target go.
         self.temporal_release_if_warping(id);
+        //6F50FA calls the existing cloak/sensor owner before Tag34. The
+        //ordinary stock arm is dormant without a CloakGenerator field;
+        //custom fields retain the owner's StartCloaking/targeter response.
+        if let Some(rules) = rules {
+            crate::sim::world::techno_ai_cloak::sensor_reevaluate_stock_cloak(
+                self, id, rules, registry,
+            );
+        }
+        //6F5100..6F5115: attached Tag, actor=this, zero cell/source. This
+        //follows earlier cell/line callbacks and precedes playfield promotion.
+        self.dispatch_object_tag_event(
+            id,
+            34,
+            Some(id),
+            None,
+            UninitContext::new(rules, registry).with_effects(effects),
+        );
         self.promote_entity_playfield_membership_after_move(id);
     }
 

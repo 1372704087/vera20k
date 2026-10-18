@@ -97,8 +97,9 @@ impl RocketHost for RocketProcessHost<'_> {
     }
     fn type_speed(&self) -> i32 {
         let owner = self.owner();
-        self.rules
-            .object(self.sim.interner.resolve(owner.type_ref()))
+        self.sim
+            .interner
+            .object_type(owner.type_ref(), self.rules)
             .map_or(0, |object| {
                 crate::util::fixed_math::ra2_speed_to_leptons_per_frame(object.speed)
             })
@@ -160,8 +161,9 @@ impl RocketHost for RocketProcessHost<'_> {
         debug_assert_eq!(coord, self.location());
         let owner = self.owner();
         let Some(sound) = self
-            .rules
-            .object(self.sim.interner.resolve(owner.type_ref()))
+            .sim
+            .interner
+            .object_type(owner.type_ref(), self.rules)
             .and_then(|object| object.aux_sound1.clone())
         else {
             return;
@@ -439,7 +441,7 @@ pub(super) mod retail_tests {
                     vec![CommandEnvelope::new(
                         owner,
                         runtime.simulation.session.tick + 1,
-                        Command::ForceAttack {
+                        Command::Attack {
                             attacker_id: v3,
                             target_id: target,
                         },
@@ -734,7 +736,7 @@ pub(super) mod retail_tests {
                 vec![CommandEnvelope::new(
                     owner,
                     runtime.simulation.session.tick + 1,
-                    Command::ForceAttack {
+                    Command::Attack {
                         attacker_id: dred,
                         target_id: target,
                     },
@@ -899,7 +901,7 @@ pub(super) mod retail_tests {
                 vec![CommandEnvelope::new(
                     owner,
                     runtime.simulation.session.tick + 1,
-                    Command::ForceAttack {
+                    Command::Attack {
                         attacker_id: carrier,
                         target_id: target,
                     },
@@ -1007,28 +1009,16 @@ pub(super) mod retail_tests {
     #[ignore = "requires the configured retail install and stock Hills.mmx"]
     fn retail_flak_tracks_shoot_down_a_v3_rocket_in_flight() {
         use crate::sim::spawn_manager::SpawnSlotState;
-        use crate::skirmish_launch::{
-            AiDifficulty, LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster,
-            SkirmishAiSlot,
-        };
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
         let retail = std::env::var("RA2_DIR")
             .map(std::path::PathBuf::from)
             .expect("RA2_DIR names the retail install");
-        let mut session = crate::headless_scenario::battle_session("Hills.mmx");
-        session.opponents.push(SkirmishAiSlot {
-            country: LaunchCountry::Russia,
-            country_random: false,
-            color_index: 1,
-            color_random: false,
-            start_position: LaunchStartPosition::Auto,
-            team: LaunchTeam::None,
-            difficulty: AiDifficulty::Easy,
-        });
-        session.pre_fill_house_roster = PreFillHouseRoster::from_compact_skirmish(1);
-        let launch =
-            crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(session).unwrap();
+        let session = crate::headless_scenario::battle_session(
+            "Hills.mmx",
+            &[(LaunchCountry::Russia, AiDifficulty::Easy)],
+        );
         let mut scenario =
-            crate::headless_scenario::load_with_launch(&retail, "Hills.mmx", 0x0B21_D6E5, launch)
+            crate::headless_scenario::load_session(&retail, "Hills.mmx", 0x0B21_D6E5, session)
                 .expect("load retail Hills with a computer opponent");
         let candidates = sites(&scenario);
         let owner = scenario.sim().session.current_house.expect("launch house");
@@ -1105,7 +1095,7 @@ pub(super) mod retail_tests {
                 vec![CommandEnvelope::new(
                     owner,
                     runtime.simulation.session.tick + 1,
-                    Command::ForceAttack {
+                    Command::Attack {
                         attacker_id: v3,
                         target_id: target,
                     },

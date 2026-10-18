@@ -18,7 +18,7 @@ use crate::sim::world::Simulation;
 
 /// One sim-owned row before localization, colour selection, or display sorting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TerminalScoreRowSnapshot {
+pub struct TerminalScoreRowSnapshot {
     pub owner: InternedId,
     pub country: Option<InternedId>,
     pub survived: bool,
@@ -31,13 +31,13 @@ pub(crate) struct TerminalScoreRowSnapshot {
 
 /// The one-shot raw score result for a finished match.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TerminalScoreSnapshot {
+pub struct TerminalScoreSnapshot {
     pub rows: Vec<TerminalScoreRowSnapshot>,
 }
 
 impl Simulation {
     /// Read the already-finalized raw terminal score rows without mutation.
-    pub(crate) fn terminal_score_snapshot(&self) -> Option<&TerminalScoreSnapshot> {
+    pub fn terminal_score_snapshot(&self) -> Option<&TerminalScoreSnapshot> {
         self.terminal_score_snapshot.as_ref()
     }
 
@@ -372,9 +372,14 @@ mod tests {
     #[test]
     fn natural_terminal_frame_finalizes_score_before_returned_hash_once() {
         let mut sim = natural_terminal_sim(0x51C0_9ABC);
+        // At normal play's cadence the ending frame hashes off the interval.
+        // It does not commit, so its tick stays the last committed one.
+        sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
+        sim.session.tick = 7;
 
         let first = sim.advance_tick(&[], None, None, None, 67);
 
+        assert_eq!(first.tick, 7);
         assert!(!first.frame_committed);
         assert!(first.terminal_score_finalized);
         assert_eq!(first.state_hash, Some(sim.state_hash()));

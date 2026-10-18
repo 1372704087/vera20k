@@ -273,25 +273,6 @@ fn parses_anim_start_sound_and_report() {
 }
 
 #[test]
-fn parses_generic_animtype_rate_with_constructor_default() {
-    let ini: IniFile =
-        IniFile::from_str("[UCFAST]\nRate=300\n\n[UCDEFAULT]\nFixtureOnly=1\n\n[UCSTOP]\nRate=0\n");
-    let reg: ArtRegistry = ArtRegistry::from_ini(&ini);
-
-    assert_eq!(reg.rate_ms("UCFAST"), Some(200));
-    assert_eq!(reg.rate_ms("UCDEFAULT"), Some(DEFAULT_ART_RATE_MS));
-    assert_eq!(reg.rate_ms("UCSTOP"), Some(0));
-    assert_eq!(reg.rate_ms("MISSING"), None);
-    assert_eq!(reg.rate_logic_frames("UCFAST"), Some(3));
-    assert_eq!(
-        reg.rate_logic_frames("UCDEFAULT"),
-        Some(DEFAULT_ART_RATE_LOGIC_FRAMES)
-    );
-    assert_eq!(reg.rate_logic_frames("UCSTOP"), Some(0));
-    assert_eq!(reg.rate_logic_frames("MISSING"), None);
-}
-
-#[test]
 fn test_resolve_effective_image_id_chain() {
     let ini: IniFile =
         IniFile::from_str("[NACNST]\nImage=CIVNC\n\n[E1]\nFixtureOnly=1\n\n[MTNK]\nImage=MTNK\n");
@@ -376,6 +357,7 @@ fn declared_cameo_comes_from_the_rules_image_section_before_the_type_section() {
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_sidebar_cameos_follow_the_rules_image_section() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;

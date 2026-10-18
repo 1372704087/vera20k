@@ -7,11 +7,8 @@ use crate::sim::ai_buildable::country_bit;
 use crate::sim::house_state::{HouseDifficulty, HouseState};
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/ai_base_defense_oracle.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/ai_base_defense_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -315,6 +312,15 @@ fn whole_choices_match_native() {
             side_index: int(&row["side"]) as u8,
             country_bit: country_bit(country),
             tech_level: int(&row["tech"]) as i32,
+            candidate_tech_levels: rules
+                .base_defense_types(int(&row["side"]) as u8)
+                .iter()
+                .map(|id| {
+                    rules
+                        .object_in_category(ObjectCategory::Building, id)
+                        .map(|object| object.tech_level)
+                })
+                .collect(),
             enemy: (int(&row["enemy"]) != -1).then(|| force_values(&row["values"])),
             fudge: ints(&row["fudge"])[int(&row["difficulty"]) as usize],
             node_type: nodes[int(&row["index"]) as usize].type_or_control,

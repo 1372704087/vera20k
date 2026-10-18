@@ -7,11 +7,8 @@ use crate::sim::combat::world_fire::fireat_rearm_frames;
 use crate::sim::timer::CdTimer;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ifv_turret_switching.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/ifv_turret_switching.json")
 }
 
 fn int(row: &Value, key: &str) -> i32 {
@@ -35,7 +32,12 @@ fn object(native: &Value, charge: bool, count: i32, gunner: bool, gattling: bool
     section.set("TurretCount", &count.to_string());
     section.set("Gunner", if gunner { "yes" } else { "no" });
     section.set("IsGattling", if gattling { "yes" } else { "no" });
-    ObjectType::from_ini_section("FV", &section, ObjectCategory::Vehicle)
+    let mut object = ObjectType::from_ini_section("FV", &section, ObjectCategory::Vehicle);
+    // The ordered Process owner's one admitted-pass read of the FV table.
+    object
+        .gunner_turrets
+        .apply_pass("FV", &section, ObjectCategory::Vehicle);
+    object
 }
 
 fn assert_selection(entity: &GameEntity, expected: &Value, context: &str) {

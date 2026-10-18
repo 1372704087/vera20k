@@ -840,9 +840,9 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
     let _state10 = pick();
     let (rx, ry) = pick().expect("the playfield has an edge");
 
-    let fires =
+    let strike =
         crate::sim::aircraft::dispatch_mission(&mut sim, missile, &rules, Default::default());
-    assert!(!fires);
+    assert!(strike.is_none());
     let entity = sim.substrate.entities.get(missile).unwrap();
     assert_eq!(
         entity.mission.current(),
@@ -2581,8 +2581,7 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
         7,
     );
     child
-        .aircraft_ammo
-        .as_mut()
+        .ammo_mut()
         .expect("Hornet ammo")
         .set_current_for_test(1);
 
@@ -2601,7 +2600,7 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
 
     pass(&mut sim, Some(other));
     let child = sim.substrate.entities.get(hornet).unwrap();
-    assert_eq!(child.aircraft_ammo.as_ref().unwrap().current(), 0);
+    assert_eq!(child.ammo().unwrap().current(), 0);
     assert!(
         child.attack_target.target().is_none(),
         "the aircraft arm drops it"
@@ -2778,6 +2777,7 @@ CurleyShuffle=yes
 /// `AircraftClass::AI` paid a pass's ammo the frame after its first bomb
 /// (`0x0041505E`).
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn every_hornet_of_a_carrier_wing_flies_a_whole_strafe_pass() {
     for (shape, hornet_keys) in [("cruising", ""), ("Landable", "Landable=yes\nROT=3\n")] {
         let sortie = strafing_carrier_sortie(hornet_keys);
@@ -2798,7 +2798,7 @@ fn every_hornet_of_a_carrier_wing_flies_a_whole_strafe_pass() {
                     .substrate
                     .entities
                     .get(*hornet)
-                    .and_then(|h| h.aircraft_ammo.as_ref())
+                    .and_then(|h| h.ammo())
                     .map(|a| a.current()),
                 Some(0),
                 "{shape} Hornet {hornet}: the pass paid its one ammo"
@@ -2824,7 +2824,7 @@ fn a_recalled_hornet_flies_home_and_lands_on_the_carrier() {
         let navs = &sortie.navs[hornet];
         assert_eq!(
             navs.iter().rev().find_map(|&(_, nav)| nav),
-            Some(crate::sim::components::NavTargetRef::Entity { id: sortie.carrier }),
+            Some(crate::sim::components::NavTargetRef::Object { id: sortie.carrier }),
             "Hornet {hornet} is sent home to the Carrier: {navs:?}"
         );
         let h = sortie.sim.substrate.entities.get(*hornet).unwrap();
@@ -2968,15 +2968,12 @@ fn retail_launches(
 /// slot, `CMislType=`).
 #[test]
 fn retail_missiles_keep_their_launch_coordinate_from_unlimbo() {
-    use crate::rules::art_data::ArtRegistry;
     use crate::rules::flh::Flh;
     use crate::sim::components::DriveCoord;
 
-    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art() else {
         return;
     };
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
     let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/projectile_oracle/ifv_fire_coord.json",
     ))

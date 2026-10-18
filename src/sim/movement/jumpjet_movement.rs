@@ -150,27 +150,27 @@ fn unit_destination(centre: DriveCoord, host: &impl JumpjetOrderHost) -> DriveCo
 impl JumpjetRuntime {
     pub(crate) const NULL: DriveCoord = DriveCoord { x: 0, y: 0, z: 0 };
 
-    pub(crate) fn destination(&self) -> DriveCoord {
+    pub fn destination(&self) -> DriveCoord {
         self.destination
     }
 
-    pub(crate) fn moving(&self) -> bool {
+    pub fn moving(&self) -> bool {
         self.moving
     }
 
-    pub(crate) fn phase(&self) -> i32 {
+    pub fn phase(&self) -> i32 {
         self.phase
     }
 
-    pub(crate) fn params(&self) -> jumpjet_flight::JumpjetFlightParams {
+    pub fn params(&self) -> jumpjet_flight::JumpjetFlightParams {
         self.params
     }
 
-    pub(crate) fn flight(&self) -> jumpjet_flight::JumpjetFlight {
+    pub fn flight(&self) -> jumpjet_flight::JumpjetFlight {
         self.flight
     }
 
-    pub(crate) fn landing_latched(&self) -> bool {
+    pub fn landing_latched(&self) -> bool {
         self.landing_latched
     }
 
@@ -203,25 +203,25 @@ impl JumpjetRuntime {
         result
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_destination_for_test(mut self, destination: DriveCoord) -> Self {
         self.destination = destination;
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_moving_for_test(mut self, moving: bool) -> Self {
         self.moving = moving;
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_phase_for_test(mut self, phase: i32) -> Self {
         self.phase = phase;
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_params_for_test(
         mut self,
         params: jumpjet_flight::JumpjetFlightParams,
@@ -230,13 +230,13 @@ impl JumpjetRuntime {
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_flight_for_test(mut self, flight: jumpjet_flight::JumpjetFlight) -> Self {
         self.flight = flight;
         self
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn with_landing_latched_for_test(mut self, landing_latched: bool) -> Self {
         self.landing_latched = landing_latched;
         self
@@ -388,7 +388,7 @@ impl JumpjetRuntime {
     /// `world::jumpjet_cruise` dispatches from `Process 0x0054AEC0`; that is the
     /// single authority. This mirror survives only because the
     /// `jumpjet_coordinates` corpus drives `activate` as one of its actions.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn activate(&mut self) {
         if self.phase == 0 && self.moving {
             self.phase = 1;
@@ -450,8 +450,6 @@ struct WorldOrderHost<'a> {
     sim: &'a mut Simulation,
     id: u64,
     rules: Option<&'a crate::rules::ruleset::RuleSet>,
-    path_grid: Option<std::sync::Arc<crate::sim::pathfinding::PathGrid>>,
-    radius_cap: u16,
 }
 
 impl WorldOrderHost<'_> {
@@ -474,31 +472,17 @@ impl WorldOrderHost<'_> {
         passability: crate::sim::find_nearby_cell::PassabilityArgs,
         allow_bridge_cells: bool,
     ) -> Option<(i16, i16)> {
-        use crate::sim::find_nearby_cell::*;
-        find_nearby_passable_cell(
-            (i32::from(seed.0), i32::from(seed.1)),
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.sim.substrate.raw_cell_occupation),
-                passability,
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: self.radius_cap,
-                target_cell: None,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(self.terrain()),
-                overlay_grid: self.sim.overlay_grid.as_ref(),
-                occupancy: Some(&self.sim.substrate.occupancy),
-                entities: Some(&self.sim.substrate.entities),
-                zone_grid: self.sim.zone_grid.as_ref(),
-                playfield_bounds: self.sim.playfield_bounds,
-            },
-            self.sim.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0))
-        .map(|(x, y)| (x as i16, y as i16))
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint};
+        self.sim
+            .nearby_passable_cell(
+                (i32::from(seed.0), i32::from(seed.1)),
+                NearbyArgs {
+                    allow_bridge_cells,
+                    ..NearbyArgs::plain(passability, NearbyFootprint::SINGLE)
+                },
+            )
+            .filter(|cell| *cell != (0, 0))
+            .map(|(x, y)| (x as i16, y as i16))
     }
     fn cell_identity(&self, xy: [i32; 2]) -> crate::map::cell_index::NativeCellIdentity {
         self.terrain()
@@ -652,20 +636,10 @@ impl Simulation {
         rules: Option<&crate::rules::ruleset::RuleSet>,
         order: impl FnOnce(&mut JumpjetRuntime, &mut WorldOrderHost<'_>) -> R,
     ) -> Option<R> {
-        let path_grid = self.path_grid_snapshot();
-        let size = self
-            .map_size_diamond()
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
+        self.map_size_diamond()?;
         self.resolved_terrain.as_ref()?;
-        let radius_cap = crate::sim::find_nearby_cell::map_owned_radius_cap(size.0, size.1);
         self.with_jumpjet_process(id, |runtime, sim| {
-            let mut host = WorldOrderHost {
-                sim,
-                id,
-                rules,
-                path_grid,
-                radius_cap,
-            };
+            let mut host = WorldOrderHost { sim, id, rules };
             order(runtime, &mut host)
         })
     }
@@ -816,7 +790,7 @@ impl Simulation {
         let input = match super::navcom::nav_target_coordinate(
             requested,
             Some(id),
-            &self.substrate.entities,
+            self,
             Some(terrain),
             Some((rules, &self.interner)),
         ) {

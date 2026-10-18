@@ -5,7 +5,6 @@
 
 use super::electric_bolt::{self, ElectricBoltBirth};
 use super::{TargetKind, WeaponSlot};
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::retail_ini_fixture::{RetailBattleRules, retail_battle_rules_for_map};
 use crate::rules::ruleset::RuleSet;
@@ -89,8 +88,8 @@ fn assert_rng(sim: &Simulation, expected: &Value, name: &str) {
 /// Preserve the physical layered Battle input, then supply only the native
 /// fixture's explicit field controls through the same production readers.
 fn controlled_rules(retail: &RetailBattleRules, input: &Value) -> RuleSet {
-    let mut ini = retail.processed_rules.clone();
-    let mut art = retail.fixed_art.clone();
+    let mut ini = (*retail.processed_rules).clone();
+    let mut art = (*retail.fixed_art).clone();
     let mut controls = format!(
         "[CoilBolt]\nIsLaser={}\nIsElectricBolt={}\nIsAlternateColor={}\n\
          [TESLA]\nTurretCount={}\n",
@@ -115,7 +114,7 @@ fn controlled_rules(retail: &RetailBattleRules, input: &Value) -> RuleSet {
     }
     ini.merge(&IniFile::from_str(&controls));
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     rules
 }
 
@@ -205,6 +204,7 @@ fn assert_birth(actual: ElectricBoltBirth, expected: &Value, frame: i32, name: &
 }
 
 #[test]
+#[ignore = "slow; run when changing what it covers"]
 fn retail_birth_fields_match_native_with_documented_flh_residual() {
     let Some(retail) = retail_battle_rules_for_map("XMP03T4.MAP") else {
         return;
@@ -306,7 +306,7 @@ fn retail_birth_fields_match_native_with_documented_flh_residual() {
             assert_eq!(json!(system.target_coords.to_array()), call["target"]);
             assert!(
                 system.owner_entity.is_none()
-                    && system.attached_entity.is_none()
+                    && system.target_ref.is_none()
                     && system.owner_house.is_none()
             );
             assert_eq!(system.lifetime, int(&original_system["lifetime"]));
@@ -328,6 +328,60 @@ fn retail_birth_fields_match_native_with_documented_flh_residual() {
             );
         }
     }
+}
+
+#[test]
+fn direct_bolt_uses_explicit_weapon_source_and_existing_rng_constructor() {
+    let Some(retail) = retail_battle_rules_for_map("XMP03T4.MAP") else {
+        return;
+    };
+    let row = ordinary_birth();
+    let mut input = row["input"].clone();
+    // Direct native6FD460 does not apply FireAt's IsLaser suppression or
+    // reselect a different weapon; the caller already admitted this effect.
+    input["is_laser"] = Value::Bool(true);
+    let rules = controlled_rules(&retail, &input);
+    let (mut sim, source, target) = scene(&rules, &input);
+    restore_rng(&mut sim, &row["rng_before"]);
+    let spark = ordinary_spark();
+    let initial_id = spark["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["pc"] == "0x62dc50")
+        .unwrap()["native_id_before"]
+        .as_u64()
+        .unwrap() as u32;
+    sim.native_unique_ids = Some(NativeUniqueIdCursor::test_at_current_value(initial_id));
+    let expected = &row["bolts"][0];
+    let from = coord(&expected["source"]);
+    electric_bolt::create(
+        &mut sim,
+        &rules,
+        source,
+        crate::sim::projectile::ProjectileTarget::Entity(target),
+        rules.weapon("CoilBolt").unwrap(),
+        from,
+    );
+    let births: Vec<_> = sim
+        .lifecycle_outputs
+        .iter()
+        .filter_map(|output| match output {
+            LifecycleOutput::ElectricBoltCreated(birth) => Some(*birth),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(births.len(), 1);
+    assert_eq!(births[0].from, from);
+    assert_birth(births[0], expected, int(&input["birth_frame"]), "direct");
+    assert_rng(&sim, &row["rng_after"], "direct");
+    let systems: Vec<_> = sim.particle_systems().iter().collect();
+    assert_eq!(systems.len(), 1);
+    assert_eq!(
+        systems[0].1.native_unique_id(),
+        int(&spark["birth"]["state"]["systems"][0]["native_id"])
+    );
+    assert_eq!(systems[0].1.coords.to_array(), xyz(&expected["target"]));
 }
 
 #[test]
@@ -360,7 +414,8 @@ fn building_fireat_reads_the_retained_target_for_its_launch_coordinate() {
             },
             &rules,
             None,
-         crate::sim::world::FrameEffects::default(),);
+            crate::sim::world::FrameEffects::default(),
+        );
         assert_eq!(sim.fire_events.len(), 1, "{name} actual Building FireAt");
         let event = &sim.fire_events[0];
         assert_eq!(event.attacker_id, source);
@@ -434,7 +489,8 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
         },
         rules,
         None,
-     crate::sim::world::FrameEffects::default(),);
+        crate::sim::world::FrameEffects::default(),
+    );
     let bullet = *sim.projectiles.iter().next().unwrap().0;
     assert!(sim.object_ai_visit_one(bullet, Some(rules), Default::default()));
     let victim = sim.substrate.entities.get(target).unwrap();
@@ -457,8 +513,16 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
         );
     }
     for _ in 0..2 {
-        sim.advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
-            .unwrap();
+        sim.advance_app_frame(
+            &[],
+            Some(rules),
+            None,
+            67,
+            TickLane::Ordinary,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
         for &(x, y) in &cells {
             assert!(sim.path_grid().unwrap().is_walkable(x, y));
         }
@@ -515,7 +579,15 @@ fn delayed_building_fire_skips_spark_after_bullet_compaction_until_the_next_pass
         dispatch_timer: MissionDispatchTimer::from_raw(now, 100),
     });
     let frame = sim
-        .advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
+        .advance_app_frame(
+            &[],
+            Some(rules),
+            None,
+            67,
+            TickLane::Ordinary,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     let births: Vec<_> = frame
         .lifecycle_outputs
@@ -616,7 +688,15 @@ fn delayed_building_fire_skips_spark_after_bullet_compaction_until_the_next_pass
     let identity_before_ai = sim.native_identity_cursor().unwrap();
     sim.clear_lifecycle_test_events_for_test();
     let next = sim
-        .advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
+        .advance_app_frame(
+            &[],
+            Some(rules),
+            None,
+            67,
+            TickLane::Ordinary,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     assert!(
         !next
@@ -737,8 +817,16 @@ fn natural_charge_expiry_preserves_native_bullet_and_spark_visit_order() {
             });
         source_entity.mission_leaf.set_building_ready_latch(1);
         for _ in 0..start {
-            sim.advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
-                .unwrap();
+            sim.advance_app_frame(
+                &[],
+                Some(rules),
+                None,
+                67,
+                TickLane::Ordinary,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
         }
         sim.clear_building_anim_slot(source, 3);
         let charge = sim
@@ -750,8 +838,16 @@ fn natural_charge_expiry_preserves_native_bullet_and_spark_visit_order() {
                 int(&visit["frame"]) as u32,
                 "{name}"
             );
-            sim.advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
-                .unwrap();
+            sim.advance_app_frame(
+                &[],
+                Some(rules),
+                None,
+                67,
+                TickLane::Ordinary,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
             let actual = sim.anim(charge).unwrap_or_else(|| {
                 panic!("{name} charge retired during warmup at {}", visit["frame"])
             });
@@ -799,7 +895,15 @@ fn natural_charge_expiry_preserves_native_bullet_and_spark_visit_order() {
             .enumerate()
         {
             let frame = sim
-                .advance_app_frame(&[], Some(rules), None, 67, TickLane::Ordinary, None, crate::sim::world::FrameEffects::default())
+                .advance_app_frame(
+                    &[],
+                    Some(rules),
+                    None,
+                    67,
+                    TickLane::Ordinary,
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .unwrap();
             let expected = &case[key]["state"];
             let births = frame

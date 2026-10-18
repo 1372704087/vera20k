@@ -1,7 +1,8 @@
-//! Aircraft Mission_Attack's strike states 4..9 (`0x00417FE0`) in the combat
-//! phase, where VERA's FireAt lives: the host [`aircraft::attack_mission`]'s
-//! [`strike_visit`] asks for GetFireError, IsClose, the facings, the state-4
-//! burst and the single shots of states 5..9. Each shot is
+//! Aircraft Mission_Attack's strike states 4..9 (`0x00417FE0`), run by the
+//! receiver where VERA's FireAt lives, inside the aircraft's own AI visit:
+//! the host [`aircraft::attack_mission`]'s [`strike_visit`] asks for
+//! GetFireError, IsClose, the facings, the state-4 burst and the single shots
+//! of states 5..9. Each shot is
 //! [`aircraft::fire_at`], whose TechnoClass::FireAt is the receiver's
 //! emission.
 //!
@@ -26,49 +27,34 @@ fn live_shot<'r>(
     id: u64,
 ) -> Option<(i32, Option<AdmittedFire<'r>>)> {
     let entity = world.substrate.entities.get(id)?;
-    let obj = rules.object(world.interner.resolve(entity.type_ref()))?;
+    let obj = world.interner.object_type(entity.type_ref(), rules)?;
     let target = entity.attack_target.target();
-    let target_facts = match target {
-        Some(TargetKind::Entity(id)) => world.substrate.entities.get(id).and_then(|target| {
-            let obj = rules.object(world.interner.resolve(target.type_ref()))?;
-            Some(combat_weapon::techno_target_facts(
-                target,
-                obj,
-                world.resolved_terrain.as_ref(),
-                combat_weapon::is_ally_by_object(
-                    Some(&world.house_alliances),
-                    &world.interner,
-                    entity.owner(),
-                    target.owner(),
-                ),
-                rules,
-                &world.interner,
-            ))
-        }),
-        Some(TargetKind::Cell(rx, ry)) => Some(combat_weapon::cell_target_facts(
-            rx,
-            ry,
-            world.resolved_terrain.as_ref(),
-        )),
-        None => None,
-    };
-    let selected = combat_weapon::resolve_selected_weapon(
+    let (_, selected) = combat_weapon::select_weapon_against(
         rules,
         entity,
         obj,
         &combat_weapon::attacker_facts(entity, obj),
-        target_facts.as_ref(),
-        &world.substrate.entities,
+        target.as_ref(),
+        world,
         &world.interner,
+        world.resolved_terrain.as_ref(),
+        Some(&world.house_alliances),
     )?;
+    let selected = selected?;
     let burst = selected.weapon.burst;
     let coordinates = match target {
         Some(TargetKind::Entity(id)) => world
             .substrate
             .entities
             .get(id)
-            .filter(|target| !target.lifecycle.in_limbo())
-            .map(|target| (target_coords(target), target.type_ref())),
+            .map(|target| (target_coords(target), target.type_ref()))
+            .or_else(|| {
+                let terrain = world.production.terrain_objects.get(&id)?;
+                Some((
+                    resolve_target_coords(&TargetKind::Entity(id), world)?,
+                    terrain.type_ref,
+                ))
+            }),
         Some(TargetKind::Cell(rx, ry)) => Some((cell_center_coords(rx, ry), entity.type_ref())),
         None => None,
     };
@@ -83,47 +69,36 @@ fn live_shot<'r>(
     Some((burst, shot))
 }
 
-/// One strike visit (states 4..9) for an aircraft whose dispatch asked for it.
-/// Its Mission+0xBC write is `AircraftClass::Mission_Attack`'s own
+/// One strike visit (states 4..9), inside the aircraft's own dispatch. Its
+/// Mission+0xBC write is `AircraftClass::Mission_Attack`'s own
 /// (`0x00417FE0`, stores at `0x0041801B..0x00418D17`).
 pub(super) fn visit(
     world: &mut Simulation,
     run: &mut ReceiverRun,
     rules: &RuleSet,
     overlay_registry: Option<&OverlayTypeRegistry>,
-    snap: &AttackerSnapshot,
-    fog: Option<&FogState>,
-    binary_frame: u32,
+    id: u64,
     out: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) {
-    let id = snap.stable_id;
-    // A phase-local receipt is not permission after an intervening mission change.
-    let Some(state) = world
-        .substrate
-        .entities
-        .get(id)
-        .and_then(crate::sim::aircraft::attack_state)
-        .filter(|state| (4..=9).contains(state))
+    let Some(entity) = world.substrate.entities.get(id) else {
+        return;
+    };
+    let Some(state) =
+        crate::sim::aircraft::attack_state(entity).filter(|state| (4..=9).contains(state))
     else {
         return;
     };
-    let Some(obj) = rules.object(world.interner.resolve(snap.type_id)) else {
+    let Some(obj) = world.interner.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let entity = world.substrate.entities.get(id).unwrap();
+    let binary_frame = world.session.binary_frame;
     let weapon0 = combat_weapon::primary_for_tier(obj, entity.veterancy.rank())
         .and_then(|name| rules.weapon(name));
     let facts = StrikeFacts {
         state,
-        target: crate::sim::combat::target_present(
-            entity.attack_target.target(),
-            &world.substrate.entities,
-        ),
-        ammo: entity
-            .aircraft_ammo
-            .as_ref()
-            .map_or(-1, |ammo| ammo.current()),
+        target: crate::sim::combat::target_present(entity.attack_target.target(), world),
+        ammo: entity.ammo().map_or(-1, |ammo| ammo.current()),
         strafe: combat_weapon::aircraft_strafes(rules, obj, entity.veterancy.rank()),
         fighter: obj.fighter,
         curley_shuffle: rules.general.curley_shuffle,
@@ -132,16 +107,16 @@ pub(super) fn visit(
         speed: crate::util::fixed_math::ra2_speed_to_leptons_per_frame(obj.speed),
     };
     let mut host = CombatStrike {
+        fog_enabled: fog_enabled(world),
         world,
         run,
         rules,
         overlay_registry,
-        fog,
         binary_frame,
         out,
         under_attack_events,
         obj,
-        snap: snap.clone(),
+        id,
     };
     let visit = strike_visit(&facts, &mut host);
     let entity = host.world.substrate.entities.get_mut(id).unwrap();
@@ -156,23 +131,24 @@ pub(super) fn visit(
         .write_dispatch_epilogue(binary_frame as i32, visit.delay);
 }
 
-/// The combat phase's side of a strike visit.
+/// The receiver's side of a strike visit.
 struct CombatStrike<'w, 'r, 'f> {
     world: &'w mut Simulation,
     run: &'w mut ReceiverRun<'f>,
     rules: &'r RuleSet,
     overlay_registry: Option<&'w OverlayTypeRegistry>,
-    fog: Option<&'w FogState>,
+    /// GetFireError reads the live fog when the scenario has it.
+    fog_enabled: bool,
     binary_frame: u32,
     out: &'w mut CombatEmit,
     under_attack_events: &'w mut Vec<UnderAttackEvent>,
     obj: &'r ObjectType,
-    snap: AttackerSnapshot,
+    id: u64,
 }
 
 impl CombatStrike<'_, '_, '_> {
     fn id(&self) -> u64 {
-        self.snap.stable_id
+        self.id
     }
 
     /// Target (`+0x2B4`), read live as `AircraftClass::Mission_Attack`
@@ -194,42 +170,28 @@ impl CombatStrike<'_, '_, '_> {
         let world = &*self.world;
         let firer = world.substrate.entities.get(self.id())?;
         let target = self.target()?;
-        let target_facts = match target {
-            TargetKind::Entity(id) => world.substrate.entities.get(id).and_then(|target| {
-                let obj = self
-                    .rules
-                    .object(world.interner.resolve(target.type_ref()))?;
-                Some(combat_weapon::techno_target_facts(
-                    target,
-                    obj,
-                    world.resolved_terrain.as_ref(),
-                    combat_weapon::is_ally_by_object(
-                        Some(&world.house_alliances),
-                        &world.interner,
-                        firer.owner(),
-                        target.owner(),
-                    ),
-                    self.rules,
-                    &world.interner,
-                ))
-            }),
-            TargetKind::Cell(rx, ry) => Some(combat_weapon::cell_target_facts(
-                rx,
-                ry,
-                world.resolved_terrain.as_ref(),
-            )),
-        };
-        let weapon_index = combat_weapon::what_weapon_should_i_use(
+        let cells = world
+            .resolved_terrain
+            .as_ref()
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+        let weapon_index = combat_weapon::select_weapon_index_against_in_query(
             self.rules,
+            firer,
             self.obj,
             &combat_weapon::attacker_facts(firer, self.obj),
-            target_facts.as_ref(),
-        );
+            Some(&target),
+            world,
+            &world.interner,
+            cells.as_ref(),
+            Some(&world.house_alliances),
+        )?;
         Some(ask(&fire_error_world::FireSubject {
             world,
             rules: self.rules,
             overlay_registry: self.overlay_registry,
-            fog: self.fog,
+            fog: self
+                .fog_enabled
+                .then(|| world.fog.fire_view(&world.house_alliances)),
             firer,
             obj: self.obj,
             target: Some(target),
@@ -248,7 +210,7 @@ impl CombatStrike<'_, '_, '_> {
     }
 }
 
-/// The combat phase's side of one `AircraftClass::Fire_At`.
+/// The receiver's side of one `AircraftClass::Fire_At`.
 struct AircraftFireAt<'s, 'w, 'r, 'f> {
     strike: &'s mut CombatStrike<'w, 'r, 'f>,
     /// Fire_At's target, Mission_Attack's Target as the shot read it.
@@ -276,7 +238,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
         let strike = &mut *self.strike;
         crate::sim::aircraft::drop_payload::drop_payload(
             strike.world,
-            strike.snap.stable_id,
+            strike.id,
             strike.rules,
             strike.overlay_registry,
             strike.run.effects(),
@@ -363,11 +325,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
         self.target
             .and_then(|target| {
-                crate::sim::movement::ground_pose::target_get_coords(
-                    target,
-                    &world.substrate.entities,
-                    cells.as_ref(),
-                )
+                crate::sim::movement::ground_pose::target_get_coords(target, world, cells.as_ref())
             })
             .map_or(ProjectileCoord::new(0, 0, 0), |coord| {
                 ProjectileCoord::new(coord.x, coord.y, coord.z)
@@ -441,7 +399,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
     fn reveal_area(&mut self, final_pass: bool) {
         let strike = &mut *self.strike;
         let world = &mut *strike.world;
-        let Some(entity) = world.substrate.entities.get(strike.snap.stable_id) else {
+        let Some(entity) = world.substrate.entities.get(strike.id) else {
             return;
         };
         let owner = entity.owner();
@@ -456,7 +414,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             .clamp(0, i32::from(u16::MAX)) as u16;
         let config = world.sight_reveal_config(Some(strike.rules));
         let heights = world.sight_height_grid(&config);
-        world.reveal_area(
+        let _ = world.reveal_area(
             &[owner],
             (
                 location.x.div_euclid(256) as u16,
@@ -469,6 +427,8 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             &config,
             crate::sim::world::UninitContext::new(Some(strike.rules), strike.overlay_registry)
                 .with_effects(strike.run.effects()),
+            crate::sim::vision::MapRevealProjection::Transient,
+            world.session.current_house,
         );
     }
 
@@ -480,7 +440,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
     fn uninit(&mut self) {
         let strike = &mut *self.strike;
         strike.world.uninit_with_context(
-            strike.snap.stable_id,
+            strike.id,
             crate::sim::world::UninitContext::new(Some(strike.rules), strike.overlay_registry)
                 .with_effects(strike.run.effects()),
         );
@@ -507,11 +467,7 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
         };
         let world = &mut *self.world;
         let Some(desired) = world.substrate.entities.get(id).and_then(|entity| {
-            crate::sim::movement::turret::facing_toward_target(
-                entity,
-                &target,
-                &world.substrate.entities,
-            )
+            crate::sim::movement::turret::facing_toward_target(entity, &target, world)
         }) else {
             return;
         };
@@ -536,7 +492,7 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
             .substrate
             .entities
             .get_mut(id)
-            .and_then(|e| e.aircraft_ammo.as_mut())
+            .and_then(|e| e.ammo_mut())
         {
             ammo.begin_release();
         }
@@ -577,10 +533,7 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
     fn assign_target_destination(&mut self) {
         let id = self.id();
         if let Some(target) = self.target() {
-            let destination = match target {
-                TargetKind::Entity(id) => crate::sim::components::NavTargetRef::Entity { id },
-                TargetKind::Cell(rx, ry) => crate::sim::components::NavTargetRef::cell(rx, ry),
-            };
+            let destination = target.into();
             self.world.assign_aircraft_destination(
                 id,
                 Some(destination),
@@ -604,8 +557,8 @@ impl StrikeHost for CombatStrike<'_, '_, '_> {
         self.world
             .substrate
             .entities
-            .get(self.snap.stable_id)
-            .and_then(|entity| entity.aircraft_ammo.as_ref())
+            .get(self.id)
+            .and_then(|entity| entity.ammo())
             .map_or(-1, |ammo| ammo.current())
     }
 }

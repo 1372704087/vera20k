@@ -20,7 +20,7 @@ impl Simulation {
     /// factory. AircraftType changes them to Winged/Fly; Naval overrides both.
     /// Source zone uses physical Location, and the clicked cell's bridge flag.
     /// Native FNPC selection reads binary frame; it makes no RNG draw.
-    pub(crate) fn factory_rally_cell_input(
+    pub fn factory_rally_cell_input(
         &self,
         id: u64,
         clicked: (u16, u16),
@@ -29,7 +29,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return Ok(None);
         };
-        let Some(object) = rules.object(self.interner.resolve(entity.type_ref())) else {
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
             return Ok(None);
         };
         let terrain = self
@@ -44,9 +44,7 @@ impl Simulation {
             .playfield_bounds
             .ok_or("rally input lacks playfield bounds")?;
         let size = self
-            .playfield_size_height
-            .map(|height| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+            .map_size_diamond()
             .ok_or("rally input lacks native map dimensions")?;
         let cells = NativeCellQuery::isolated(terrain);
         resolve_rally_cell_click(
@@ -59,13 +57,12 @@ impl Simulation {
             &RallyCellClick {
                 clicked: (clicked.0 as i16, clicked.1 as i16),
                 location: crate::sim::movement::ground_pose::position_world_coord(&entity.position),
-                factory: object.factory,
+                factory: object.factory_type(),
                 naval: object.naval,
             },
         )
-        // A miss sends no rally event and keeps ArchiveTarget. The separate
-        // redeployable ConstructionYard branch requires its repack/move owner;
-        // it is not admitted by the current HasRallyPoint cell-click route.
+        // A miss sends no rally event and keeps ArchiveTarget. The click
+        // owner still queues the following SELL for an UndeploysInto type.
     }
 }
 

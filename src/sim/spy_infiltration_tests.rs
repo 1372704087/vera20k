@@ -18,7 +18,7 @@ use crate::sim::superweapon::SuperWeaponInstance;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 /// The oracle's `infiltrate` rows.
-pub(crate) fn rows() -> Vec<Value> {
+pub fn rows() -> Vec<Value> {
     let data: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spy_infiltration_oracle.json",
     ))
@@ -28,13 +28,12 @@ pub(crate) fn rows() -> Vec<Value> {
 
 /// The houses a row names: the building's owner, the spy's, and a third
 /// that only watches.
-pub(crate) const HOUSES: [(&str, &str); 3] =
-    [("owner", "H0"), ("infiltrator", "H1"), ("bystander", "H2")];
+pub const HOUSES: [(&str, &str); 3] = [("owner", "H0"), ("infiltrator", "H1"), ("bystander", "H2")];
 
 /// A row after [`Simulation::infiltrate_building`].
-pub(crate) struct Replay {
-    pub(crate) sim: Simulation,
-    pub(crate) rules: RuleSet,
+pub struct Replay {
+    pub sim: Simulation,
+    pub rules: RuleSet,
     owner: InternedId,
     infiltrator: InternedId,
 }
@@ -97,7 +96,7 @@ fn rules_for(row: &Value) -> RuleSet {
 
 /// Builds the row's fixture as the oracle does (only the local house is
 /// human, GameMode 1) and runs the infiltration.
-pub(crate) fn replay(row: &Value) -> Replay {
+pub fn replay(row: &Value) -> Replay {
     let rules = rules_for(row);
     let mut sim = Simulation::new();
     sim.intern_rule_type_ids(&rules);
@@ -142,6 +141,37 @@ pub(crate) fn replay(row: &Value) -> Replay {
     } else {
         infiltrator
     };
+    if let Some(gains) = row["initial_gains"].as_array() {
+        assert_eq!(gains.len(), 5);
+        let house = sim.houses.get_mut(&infiltrator).unwrap();
+        for (slot, side) in [(0, 2), (1, 1), (2, 0)] {
+            if int(&gains[slot]) != 0 {
+                house.steal_tech(side);
+            }
+        }
+        if int(&gains[3]) != 0 {
+            house.grant_veteran_infantry();
+        }
+        if int(&gains[4]) != 0 {
+            house.grant_veteran_units();
+        }
+        for (slot, kind) in ["T0", "T1", "T2"].into_iter().enumerate() {
+            assert_eq!(
+                house.has_stolen_tech_for(rules.object(kind).unwrap()),
+                int(&gains[slot]) != 0,
+                "{}: supplied prior stolen gain",
+                row["name"],
+            );
+        }
+        assert_eq!(house.veteran_infantry(), int(&gains[3]) != 0);
+        assert_eq!(house.veteran_units(), int(&gains[4]) != 0);
+    }
+    // Match the native settled input AFTER installing prior gains. Neither
+    // constructor nor earlier gain requests may satisfy the measured write.
+    for house in sim.houses.values_mut() {
+        house.take_tech_recheck();
+        assert!(!house.tech_recheck_pending());
+    }
     sim.infiltrate_building(building, spy, &rules);
     Replay {
         sim,
@@ -165,6 +195,16 @@ fn infiltrate_matches_the_original() {
             infiltrator,
         } = replay(&row);
         let (victim, spy) = (&sim.houses[&owner], &sim.houses[&infiltrator]);
+        assert_eq!(
+            victim.tech_recheck_pending(),
+            int(&expected["owner"]["recheck_tech"]) != 0,
+            "{name}: victim House tech request"
+        );
+        assert_eq!(
+            spy.tech_recheck_pending(),
+            int(&expected["infiltrator"]["recheck_tech"]) != 0,
+            "{name}: infiltrator House tech request"
+        );
         assert_eq!(
             [victim.economy.credits(), victim.economy.spent_credits()],
             [
@@ -600,9 +640,17 @@ fn retail_rules_name_the_spy_and_what_it_enters() {
     let rules = &retail.rules;
     let spy = rules.object("SPY").unwrap();
     assert!(spy.infiltrate && spy.agent);
-    for kind in ["E1", "ENGINEER", "GHOST", "TANY"] {
+    assert!(!rules.object("E1").unwrap().infiltrate);
+    for kind in [
+        "ENGINEER",
+        "SENGINEER",
+        "YENGINEER",
+        "GHOST",
+        "PTROOP",
+        "TANY",
+    ] {
         let object = rules.object(kind).unwrap();
-        assert!(!object.infiltrate && !object.agent, "{kind}");
+        assert!(object.infiltrate && !object.agent, "{kind}");
     }
     for kind in [
         "GAPOWR", "NAPOWR", "NANRCT", "GAPILE", "NAWEAP", "YATECH", "AMRADR",

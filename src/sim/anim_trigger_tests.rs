@@ -5,7 +5,6 @@
 
 use super::*;
 use crate::map::waypoints::Waypoint;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{NativeRulesRegistryState, process_native_rules_cold_start};
 use crate::rules::retail_ini_fixture::retail_rules_and_art;
@@ -33,7 +32,7 @@ fn retail_cold_and_post_reset_animation_ordinals_match_original_registries() {
         return;
     };
     let rows = corpus();
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&retail, &art).unwrap();
+    let rules = crate::rules::retail_ini_fixture::retail_unlayered_rules().expect("retail rules");
     let cold =
         process_native_rules_cold_start(NativeRulesRegistryState::default(), &retail, &art, None)
             .unwrap();
@@ -100,7 +99,7 @@ fn rules_for_history(retail: &IniFile, physical_art: &IniFile, row: &Value) -> R
         );
     }
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(retail, &art).unwrap();
-    let mut registry = ArtRegistry::from_ini(&art);
+    let mut registry = crate::rules::retail_ini_fixture::art_registry(&art);
     for native in [&row["art"], &row["next_art"]]
         .into_iter()
         .filter(|v| !v.is_null())
@@ -164,7 +163,7 @@ fn simulation_for_history(rules: &RuleSet, row: &Value) -> Simulation {
     sim
 }
 
-fn assert_state(sim: &Simulation, id: AnimId, expected: &Value, context: &str) {
+pub(in crate::sim) fn assert_state(sim: &Simulation, id: AnimId, expected: &Value, context: &str) {
     let anim = sim.anim(id).unwrap();
     let retired = sim.substrate.pending_delete.contains_object(&id);
     let runtime = &anim.runtime;

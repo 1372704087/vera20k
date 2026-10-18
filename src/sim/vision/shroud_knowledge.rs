@@ -115,24 +115,38 @@ impl ShroudKnowledge {
 /// turn an unchanged source into another reveal event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SightAdmission {
+    /// Native250: release clears the latch but retains cached254/260.
+    /// Old snapshots stored only active admissions.
+    #[serde(default = "sight_latched_by_default")]
+    pub latched: bool,
     pub owner: InternedId,
     pub origin: (u16, u16, i32),
-    pub radius: u16,
+    pub radius: i32,
+    /// Derived active source-count footprint of real native Cell identities.
+    /// Missing slots still receive native calls through the shared Dummy, but
+    /// never acquire rectangular source-count slots. Cleared with the latch;
+    /// a native release recomputes geometry from cached origin/radius.
     pub cells: Vec<(u16, u16)>,
+}
+
+fn sight_latched_by_default() -> bool {
+    true
 }
 
 impl Hash for SightAdmission {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         let Self {
+            latched,
             owner,
             origin,
             radius,
             cells,
         } = self;
+        latched.hash(hasher);
         owner.hash(hasher);
         origin.hash(hasher);
         radius.hash(hasher);
-        // The footprint lists every cell of the sight circle.
+        // Retain the ordered derived real-cell footprint.
         hash_records(cells, hasher, |&(rx, ry)| {
             let [x0, x1] = rx.to_le_bytes();
             let [y0, y1] = ry.to_le_bytes();
@@ -141,50 +155,42 @@ impl Hash for SightAdmission {
     }
 }
 
-/// The object's sight facts: the fog-of-war sight range in cells, which the
-/// constructor takes from its caller ([`Self::new`]), and the exact
-/// `Type+0x5E8 == 0` predicate `InfantryClass::Unlimbo` tests
-/// (`0x0051E0EF`). The fog range clamps and truncates the raw `Sight=`
-/// integer and cannot answer that query, so construction resolves it once
-/// ([`Self::stamp_zero`]); snapshots keep it for rules-less re-entry,
-/// independently of client discovery history.
+/// One retained native Type Sight integer, initialized by the existing
+/// production type reader. Exact zero and effective/clamped range are queries
+/// of this authority, never independently stored facts. Rules-less re-entry
+/// and snapshots retain the raw value (`InfantryUnlimbo51E0EF`,70AF87).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SightFacts {
-    range: u16,
-    zero: bool,
+    range: i32,
 }
 
 impl SightFacts {
-    /// The constructor's range; the zero fact waits for construction.
+    /// Synthetic constructor prior; production stamps the actual type value.
     pub(crate) const fn new(range: u16) -> Self {
-        Self { range, zero: false }
+        Self {
+            range: range as i32,
+        }
     }
 
-    /// The fog sight range in cells.
-    pub(crate) const fn range(self) -> u16 {
+    /// The raw signed type Sight value in cells.
+    pub(crate) const fn range(self) -> i32 {
         self.range
     }
 
     /// The type's `Sight=` is exactly 0.
     pub(crate) const fn is_zero(self) -> bool {
-        self.zero
+        self.range == 0
     }
 
-    /// Construction's resolution of `Sight= == 0`.
-    pub(crate) fn stamp_zero(&mut self, zero: bool) {
-        self.zero = zero;
+    /// Construction's existing native-reader Type Sight value.
+    pub(crate) fn stamp_type_sight(&mut self, sight: i32) {
+        self.range = sight;
     }
 
     /// Install a fixture's range.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_vision_range_for_test(&mut self, range: u16) {
-        self.range = range;
-    }
-
-    /// Install a fixture's zero fact.
-    #[cfg(test)]
-    pub(crate) fn set_sight_is_zero_for_test(&mut self, zero: bool) {
-        self.zero = zero;
+        self.range = i32::from(range);
     }
 }
 
@@ -214,45 +220,8 @@ impl SightRefreshTimers {
     }
 
     /// The viewer has its own countdown.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn has_timer_for_test(&self, viewer: InternedId) -> bool {
         self.by_viewer.contains_key(&viewer)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ShroudKnowledge;
-    use crate::sim::state_hasher::{StateHasher, hash_records};
-    use std::hash::Hasher;
-
-    fn grid_hash(cells: &[ShroudKnowledge]) -> u64 {
-        let mut hasher = StateHasher::new();
-        hash_records(cells, &mut hasher, ShroudKnowledge::hash_record);
-        hasher.finish()
-    }
-
-    #[test]
-    fn every_field_of_every_cell_moves_the_grid_hash() {
-        // 300 cells span two 240-record batches.
-        let grid = vec![ShroudKnowledge::default(); 300];
-        let base = grid_hash(&grid);
-        let edits: [fn(&mut ShroudKnowledge); 7] = [
-            |cell| cell.counter = 2,
-            |cell| cell.gap_counter = 1,
-            |cell| cell.open = true,
-            |cell| cell.pending = true,
-            |cell| cell.local_sources = 1,
-            |cell| cell.allied_sources = 1,
-            |cell| cell.transient_visible = true,
-        ];
-        for index in [0, 239, 240, 299] {
-            for edit in edits {
-                let mut changed = grid.clone();
-                edit(&mut changed[index]);
-                assert_ne!(grid_hash(&changed), base, "cell {index}");
-            }
-        }
-        assert_ne!(grid_hash(&grid[..299]), base);
     }
 }

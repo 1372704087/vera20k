@@ -5,7 +5,6 @@
 //! supplied native zone hierarchy, or later Anim AI.
 
 use super::*;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::retail_ini_fixture::retail_rules_and_art;
 use crate::sim::combat::world_receiver::{ReceiverRun, commit_projectiles};
@@ -44,8 +43,8 @@ fn coord(value: &Value) -> ProjectileCoord {
 
 fn retail_rules(native: &Value) -> Option<(RuleSet, OverlayTypeRegistry)> {
     let (ini, art) = retail_rules_and_art()?;
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(&art));
+    let mut rules =
+        crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art().expect("retail rules");
     let overlays = OverlayTypeRegistry::from_ini(&ini, Some(&art));
     let initial = &native["rows"][0]["initial"];
     let fv = rules.object("FV").unwrap();
@@ -215,8 +214,15 @@ fn native_ifv_bridge_impact_orders_live_selection_debris_ids_and_rng() {
         let payload = ProjectilePayload::new(
             rules.weapon("HoverMissile").unwrap().damage,
             world.interner.intern("HE"),
-            world.interner.intern("HoverMissile"),
-        );
+            rules
+                .weapon("HoverMissile")
+                .unwrap()
+                .projectile
+                .as_deref()
+                .map(|name| world.interner.intern(name)),
+            rules.weapon("HoverMissile").unwrap().bright,
+        )
+        .with_installed_weapon(Some(world.interner.intern("HoverMissile")));
         let target = ProjectileTarget::Cell { rx: 10, ry: 20 };
         let stable_id = world.allocate_stable_id();
         // Only retained location/OnBridge and payload are read by this handoff.

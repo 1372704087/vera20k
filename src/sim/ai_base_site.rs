@@ -418,7 +418,6 @@ impl SiteWorld for SimSiteWorld<'_> {
             reservation_arg: house_index,
             reservations: Some(&sim.substrate.base_reservations),
             occupancy: Some(&sim.substrate.occupancy),
-            entities: Some(&sim.substrate.entities),
             terrain_object_cells: Some(&sim.production.terrain_object_cells),
             resolved_terrain: sim.resolved_terrain.as_ref(),
             overlay_grid: sim.overlay_grid.as_ref(),
@@ -434,6 +433,7 @@ impl SiteWorld for SimSiteWorld<'_> {
             self.ty,
             site,
             Some(self.owner),
+            None,
         )
     }
 }

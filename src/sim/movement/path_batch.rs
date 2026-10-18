@@ -20,7 +20,12 @@
 //! that much later, and its movement timer (PathDelay) is armed that much
 //! later, which shifts its later requests too. A Foot that stops repeating
 //! its request does not search at all: a blocked Foot whose blocker moved on
-//! keeps its route; a no-queue request whose destination cleared is dropped. Two
+//! keeps its route; a no-queue request whose destination cleared is dropped; a
+//! Drive/Ship code-2 ladder whose destination its own Find_Path redirect
+//! stopped (a Chrono Miner bound for its refinery, #1672) waits, its request
+//! gets no answer and Process_Movement then returns on the null destination,
+//! so the NULL destination native sets in that call is not set, and the
+//! redirect's NavCom stays for the queued Enter mission. Two
 //! visible cases: Infantry Scatter's immediate Process (0x51D478) waits, so
 //! scattered infantry leave a frame later; a Drive/Ship Foot whose track
 //! ends with no path left loses that frame's movement where native's timer
@@ -51,9 +56,15 @@
 //! PathDelay (8 frames in the retail rules). Then the last of N waiting Foots
 //! waits about N / [`SEARCHES_PER_PASS`] frames, one sweep of the turn; Foots
 //! start their routes in bands of ascending id; and the cap is shared, so
-//! one House's mass order delays every House's requests. A code-2 re-path
-//! that waits past its latched blockage timer searches at urgency 2, around
-//! all blockage, where native searched at urgency 1.
+//! one House's mass order delays every House's requests.
+//!
+//! A code-2 re-path searches at the urgency its ladder asked when the Foot
+//! registered it, the frame native searched: 2 once the Foot's latched
+//! blockage timer had run out, else 1. A Foot a capped pass leaves out keeps
+//! that urgency while it registers the re-path again every frame, so a wait
+//! past its blockage timer does not raise it
+//! ([`Simulation::batched_code2_urgency`]). A Foot that skips a frame, or
+//! registers another request, starts afresh.
 //!
 //! The batch runs Find_Path's own steps up to its redirect
 //! ([`Simulation::find_path_target_answer`]) and the core search, without
@@ -110,6 +121,9 @@ const SEARCHES_PER_PASS: usize = 256;
 pub(crate) struct PathBatch {
     /// Foots whose request waited this frame, and which request each repeats.
     pending: Vec<(u64, WaitingRequest)>,
+    /// The urgency of each code-2 re-path the last pass left out, which the
+    /// Foot's registrations this frame keep.
+    left_out_code2: BTreeMap<u64, u8>,
     /// The lowest Foot id the next capped pass answers first; see
     /// [`take_turn`].
     next_turn: u64,
@@ -123,24 +137,32 @@ pub(crate) struct PathBatch {
     #[serde(skip)]
     entry_facts: EntryFacts,
     /// Answers Find_Path used, by [`WaitingRequest`].
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     used: [usize; 2],
     /// The Foots the latest pass answered.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     answered: Vec<u64>,
 }
 
 impl std::hash::Hash for PathBatch {
-    /// The registrations and the next capped turn, which carry into the next
-    /// frame; answers live within one. A cap that never bound leaves the
-    /// turn at zero, which folds nothing.
+    /// The registrations, the left-out re-paths' urgencies and the next
+    /// capped turn, which carry into the next frame; answers live within one.
+    /// A cap that never bound leaves no re-path out and the turn at zero,
+    /// which fold nothing.
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         (self.pending.len() as u64).hash(hasher);
         for &(id, request) in &self.pending {
             id.hash(hasher);
-            (request as u8).hash(hasher);
+            request.hash_bytes().hash(hasher);
+        }
+        if !self.left_out_code2.is_empty() {
+            (self.left_out_code2.len() as u64).hash(hasher);
+            for (&id, &urgency) in &self.left_out_code2 {
+                id.hash(hasher);
+                urgency.hash(hasher);
+            }
         }
         if self.next_turn != 0 {
             self.next_turn.hash(hasher);
@@ -180,8 +202,28 @@ pub(crate) enum WaitingRequest {
     /// The no-queue request, `Find_Path(cell, 0, 0)` toward Walk's
     /// destination or Drive/Ship's track destination.
     NoQueue,
-    /// A code-2 ladder's re-path, at the ladder's urgency.
-    Code2Ladder,
+    /// A code-2 ladder's re-path, at the urgency the ladder asked; see the
+    /// module docs.
+    Code2Ladder { urgency: u8 },
+}
+
+impl WaitingRequest {
+    /// Which request this is: 0 no-queue, 1 code-2 re-path.
+    #[cfg(any(test, feature = "test-support"))]
+    fn kind(self) -> usize {
+        match self {
+            Self::NoQueue => 0,
+            Self::Code2Ladder { .. } => 1,
+        }
+    }
+
+    /// The bytes the batch's hash folds.
+    fn hash_bytes(self) -> [u8; 2] {
+        match self {
+            Self::NoQueue => [0, 0],
+            Self::Code2Ladder { urgency } => [1, urgency],
+        }
+    }
 }
 
 /// A Foot's entry in this pass's answers.
@@ -190,6 +232,8 @@ struct ReadySlot {
     /// Whether one of the Foot's requests this frame went on to Find_Path;
     /// any later one waits for the next batch.
     claimed: bool,
+    /// The registration the pass answered.
+    request: WaitingRequest,
     /// The search, until Find_Path takes it; `None` when the batch had
     /// nothing to answer.
     answer: Option<BatchedSearch>,
@@ -197,7 +241,6 @@ struct ReadySlot {
 
 #[derive(Debug, PartialEq)]
 struct BatchedSearch {
-    request: WaitingRequest,
     key: FootSearchKey,
     found: Result<Vec<(u16, u16)>, MovePathFailure>,
 }
@@ -230,18 +273,21 @@ struct FootSearchKey {
     radio_contacts: Contacts,
 }
 
-/// The destination a code-2 ladder searches toward: Walk's destination,
-/// zero without one, or Drive/Ship's track destination.
+/// The destination a code-2 ladder searches toward: Walk's destination or
+/// Drive/Ship's track destination, the null coordinate (0,0,0) without one.
+/// No ladder tests it (Walk `0x0075B8A9..`, Drive `0x004B39D3`, Ship
+/// `0x006A3022`), so a destination cleared earlier in the same call searches
+/// cell (0,0), which Find_Path's precheck refuses (#1672).
 pub(super) fn code2_ladder_destination(actor: &GameEntity) -> Option<DriveCoord> {
     let loco = actor.locomotor.as_ref()?;
     match loco.active_kind() {
-        LocomotorKind::Walk => {
-            Some(
-                loco.walk_destination()
-                    .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 }),
-            )
+        LocomotorKind::Walk => Some(
+            loco.walk_destination()
+                .unwrap_or(super::foot_coordinate::NULL_COORD),
+        ),
+        LocomotorKind::Drive | LocomotorKind::Ship => {
+            Some(super::track_path::track_destination_or_null(actor))
         }
-        LocomotorKind::Drive | LocomotorKind::Ship => super::track_path::track_destination(actor),
         _ => None,
     }
 }
@@ -255,7 +301,8 @@ impl Simulation {
     /// Whether `id`'s `request` waits for the next frame's batch, as if its
     /// movement timer still ran. It does, and registers, when batching is
     /// on, the batch can search this map, and `id` has no unclaimed answer
-    /// this frame; otherwise this request claims the answer.
+    /// this frame; otherwise this request claims the answer. A code-2
+    /// re-path the last pass left out registers at the urgency it had.
     pub(super) fn defer_path_search(&mut self, id: u64, request: WaitingRequest) -> bool {
         if self.overlay_grid.is_none() || self.resolved_terrain.is_none() {
             return false;
@@ -269,8 +316,29 @@ impl Simulation {
             slot.claimed = true;
             return false;
         }
+        let request = match (request, batch.left_out_code2.get(&id)) {
+            (WaitingRequest::Code2Ladder { .. }, Some(&urgency)) => {
+                WaitingRequest::Code2Ladder { urgency }
+            }
+            _ => request,
+        };
         batch.pending.push((id, request));
         true
+    }
+
+    /// The urgency `id`'s code-2 ladder searches at, given `now`, the
+    /// urgency it asks this frame: the urgency of the re-path this pass
+    /// answered, if it answered one; see the module docs.
+    pub(super) fn batched_code2_urgency(&self, id: u64, now: u8) -> u8 {
+        match self
+            .path_batch
+            .as_ref()
+            .and_then(|batch| batch.ready.get(&id))
+            .map(|slot| slot.request)
+        {
+            Some(WaitingRequest::Code2Ladder { urgency }) => urgency,
+            _ => now,
+        }
     }
 
     /// The batched answer for `request`'s core search toward `goal`, if one
@@ -292,14 +360,14 @@ impl Simulation {
         }
         let key = self.foot_search_key(request, goal)?;
         let batch = self.path_batch.as_mut()?;
-        let slot = &mut batch.ready.get_mut(&id)?.answer;
-        if slot.as_ref()?.key != key {
+        let slot = batch.ready.get_mut(&id)?;
+        if slot.answer.as_ref()?.key != key {
             return None;
         }
-        let answer = slot.take()?;
-        #[cfg(test)]
+        let answer = slot.answer.take()?;
+        #[cfg(any(test, feature = "test-support"))]
         {
-            batch.used[answer.request as usize] += 1;
+            batch.used[slot.request.kind()] += 1;
         }
         Some(answer.found)
     }
@@ -315,9 +383,11 @@ impl Simulation {
             return;
         };
         batch.ready.clear();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         batch.answered.clear();
         let pending = std::mem::take(&mut batch.pending);
+        // Last pass's left-out urgencies went into this frame's registrations.
+        batch.left_out_code2.clear();
         if pending.is_empty() {
             return;
         }
@@ -328,7 +398,19 @@ impl Simulation {
             .collect::<BTreeMap<_, _>>()
             .into_iter()
             .collect();
+        // The code-2 re-paths this pass leaves out keep their urgencies.
+        let mut left_out: BTreeMap<u64, u8> = pending
+            .iter()
+            .filter_map(|&(id, request)| match request {
+                WaitingRequest::Code2Ladder { urgency } => Some((id, urgency)),
+                WaitingRequest::NoQueue => None,
+            })
+            .collect();
         let pending = take_turn(pending, &mut batch.next_turn, SEARCHES_PER_PASS);
+        for (id, _) in &pending {
+            left_out.remove(id);
+        }
+        batch.left_out_code2 = left_out;
         let answers = match (rules, self.path_grid_snapshot()) {
             (Some(rules), Some(grid))
                 if self.overlay_grid.is_some() && self.resolved_terrain.is_some() =>
@@ -339,18 +421,19 @@ impl Simulation {
         };
         let mut answers = answers.into_iter();
         let batch = self.path_batch.as_mut().expect("batching is on");
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         {
             batch.answered = pending.iter().map(|&(id, _)| id).collect();
         }
         batch.ready = pending
             .into_iter()
-            .map(|(id, _)| {
+            .map(|(id, request)| {
                 let answer = answers.next().flatten();
                 (
                     id,
                     ReadySlot {
                         claimed: false,
+                        request,
                         answer,
                     },
                 )
@@ -407,14 +490,22 @@ impl Simulation {
             .shared_cell_dummy();
         // Main is shared with retained playback, which may draw on another
         // thread, so only tests check that the searches draw nothing.
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let rng = sim.rng_state();
-        let answers = crate::sim::parallel::map(pending, |&(id, request)| {
+        // Urgency-2 re-paths route around every moving friendly and cost the
+        // most by far (match bench: a median of ~720 expansions against ~70
+        // for the rest), so they start first and none runs alone at the end.
+        // An answer depends on its request alone, so the order changes none.
+        let mut order: Vec<usize> = (0..pending.len()).collect();
+        order.sort_by_key(|&index| {
+            !matches!(pending[index].1, WaitingRequest::Code2Ladder { urgency: 2 })
+        });
+        let answers = crate::sim::parallel::map_in_order(pending, &order, |&(id, request)| {
             dummy.detached(|| {
                 sim.batched_search(id, request, rules, registry, grid, counts, Some(facts))
             })
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         assert_eq!(rng, sim.rng_state(), "batched searches draw no RNG");
         answers
     }
@@ -432,10 +523,9 @@ impl Simulation {
         counts: &BlockerNeighborCounts,
         facts: Option<&EntryFacts>,
     ) -> Option<BatchedSearch> {
-        let waiting = request;
-        let request = match waiting {
+        let request = match request {
             WaitingRequest::NoQueue => self.no_queue_request(id)?,
-            WaitingRequest::Code2Ladder => self.code2_ladder_request(id)?,
+            WaitingRequest::Code2Ladder { urgency } => self.code2_ladder_request(id, urgency)?,
         };
         let goal = request.destination;
         let answer = self
@@ -468,7 +558,6 @@ impl Simulation {
             return None;
         }
         Some(BatchedSearch {
-            request: waiting,
             key: self.foot_search_key(&request, goal)?,
             found,
         })
@@ -496,16 +585,12 @@ impl Simulation {
         )
     }
 
-    /// The request `id`'s code-2 ladder makes now, at the ladder's urgency.
-    /// Drive's ladder is `DriveLocomotionClass::Process_Movement` (`0x004B2630`)'s
+    /// The request `id`'s code-2 ladder makes now, at `urgency`. Drive's
+    /// ladder is `DriveLocomotionClass::Process_Movement` (`0x004B2630`)'s
     /// `0x004B3607..0x004B3A94`; Walk's is `0x0075B8A9..0x0075B9F9`.
-    fn code2_ladder_request(&self, id: u64) -> Option<FootPathRequest> {
+    fn code2_ladder_request(&self, id: u64, urgency: u8) -> Option<FootPathRequest> {
         let actor = self.substrate.entities.get(id)?;
         let destination = code2_ladder_destination(actor)?;
-        let urgency = actor
-            .navigation
-            .path_runtime
-            .code2_urgency(self.session.binary_frame);
         FootPathRequest::track(
             &self.substrate.entities,
             id,

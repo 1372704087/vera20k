@@ -3,13 +3,14 @@
 
 use super::*;
 
-/// What a [`TarCom`] points at: an entity or a ground cell.
+/// What a [`TarCom`] points at: an Object stable ID or a ground cell.
 ///
 /// Force-fire on empty terrain (Ctrl + click cell) sets the `Cell` variant.
-/// Auto-acquired and explicit attack-on-unit orders set `Entity`.
+/// Object orders and blocker Overrides retain their Object ID as `Entity`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TargetKind {
-    /// Entity-targeted attack (normal Attack / ForceAttack on a unit/building).
+    /// Object-targeted attack. `Entity` is the retained Rust/wire spelling;
+    /// the ID can name a Techno or Terrain in its authoritative store.
     Entity(u64),
     /// Ground-targeted attack (force-fire on a cell). Cell coord in map space.
     Cell(u16, u16),
@@ -32,13 +33,29 @@ impl From<TargetKind> for crate::sim::components::NavTargetRef {
     /// A target as a destination (a Target handed to `Assign_Destination`).
     fn from(target: TargetKind) -> Self {
         match target {
-            TargetKind::Entity(id) => Self::Entity { id },
+            TargetKind::Entity(id) => Self::Object { id },
             TargetKind::Cell(rx, ry) => Self::cell(rx, ry),
         }
     }
 }
 
 impl TargetKind {
+    /// Techno FireAt6FE55D passes the actual Object pointer to CreateBullet
+    /// 46B050. Terrain reaches its existing Terrain receiver at impact.
+    pub(crate) fn projectile_target(
+        self,
+        world: &crate::sim::world::Simulation,
+    ) -> crate::sim::projectile::ProjectileTarget {
+        use crate::sim::projectile::ProjectileTarget;
+        match self {
+            Self::Entity(id) if world.production.terrain_objects.contains_key(&id) => {
+                ProjectileTarget::Terrain(id)
+            }
+            Self::Entity(id) => ProjectileTarget::Entity(id),
+            Self::Cell(rx, ry) => ProjectileTarget::Cell { rx, ry },
+        }
+    }
+
     /// Recover an already-retained native Cell allocation without a map lookup.
     /// A Cell TarCom is a pointer: later queries may have changed Dummy.coord,
     /// so reading the target must not restamp it with the command coordinate.
@@ -94,8 +111,8 @@ impl TarCom {
     }
 
     /// Install a fixture's target without the setter's effects.
-    #[cfg(test)]
-    pub(crate) fn set_for_test(&mut self, target: Option<TargetKind>) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_for_test(&mut self, target: Option<TargetKind>) {
         self.target = target;
     }
 }
@@ -107,7 +124,10 @@ impl TarCom {
 ///
 /// [`object_center_xy`]: crate::sim::movement::ground_pose::object_center_xy
 pub(super) fn target_coords(entity: &GameEntity) -> (u16, u16, SimFixed, SimFixed) {
-    let [x, y] = crate::sim::movement::ground_pose::object_center_xy(entity);
+    target_xy_coords(crate::sim::movement::ground_pose::object_center_xy(entity))
+}
+
+fn target_xy_coords([x, y]: [i32; 2]) -> (u16, u16, SimFixed, SimFixed) {
     (
         (x / 256) as u16,
         (y / 256) as u16,
@@ -135,30 +155,50 @@ pub(super) fn cell_center_coords(rx: u16, ry: u16) -> (u16, u16, SimFixed, SimFi
 /// ends.
 pub(crate) fn target_present(
     target: Option<TargetKind>,
-    entities: &crate::sim::entity_store::EntityStore,
+    world: &crate::sim::world::Simulation,
 ) -> bool {
     match target {
         None => false,
         Some(TargetKind::Cell(..)) => true,
-        Some(TargetKind::Entity(id)) => entities
-            .get(id)
-            .is_some_and(|target| !target.death.is_dying() && target.health.current() > 0),
+        Some(TargetKind::Entity(id)) => {
+            if let Some(target) = world.substrate.entities.get(id) {
+                !target.death.is_dying() && target.health.current() > 0
+            } else {
+                world
+                    .production
+                    .terrain_objects
+                    .get(&id)
+                    .is_some_and(|target| target.object_alive() && target.health != 0)
+            }
+        }
     }
 }
 
 /// Resolve target coords from a `TargetKind`, looking up entity position when
 /// needed and using cell-center for `Cell` targets.
 ///
-/// Returns `None` if the target is `Entity(id)` and the entity no longer
-/// exists (despawned). `Cell` targets always resolve.
+/// Returns `None` if the Object ID is no longer in either authoritative
+/// Techno or Terrain store. `Cell` targets always resolve.
 ///
 /// Read by the combat tick, the fire coordinate and the Temporal weapon.
 pub(crate) fn resolve_target_coords(
     target: &TargetKind,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
 ) -> Option<(u16, u16, SimFixed, SimFixed)> {
     match *target {
-        TargetKind::Entity(id) => entities.get(id).map(target_coords),
+        TargetKind::Entity(id) => {
+            world
+                .substrate
+                .entities
+                .get(id)
+                .map(target_coords)
+                .or_else(|| {
+                    // Terrain7F522C+48 inherits Object5F65A0. Keep its retained
+                    // coordinate readable during expiry, before Limbo/unlink.
+                    let target = world.production.terrain_objects.get(&id)?.world_coord();
+                    Some(target_xy_coords([target.x, target.y]))
+                })
+        }
         TargetKind::Cell(rx, ry) => Some(cell_center_coords(rx, ry)),
     }
 }
@@ -173,7 +213,7 @@ pub(crate) fn resolve_target_coords(
 pub(crate) fn object_distance_to(
     source: &GameEntity,
     target: &TargetKind,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
 ) -> Option<i32> {
     let planar = |(rx, ry, sx, sy): (u16, u16, SimFixed, SimFixed)| {
         [
@@ -183,10 +223,10 @@ pub(crate) fn object_distance_to(
         ]
     };
     let from = planar(target_coords(source));
-    let to = planar(resolve_target_coords(target, entities)?);
+    let to = planar(resolve_target_coords(target, world)?);
     let distance = crate::util::native_x87::distance_3d_leptons(from, to);
     if let TargetKind::Entity(id) = *target
-        && let Some(building) = entities.get(id)
+        && let Some(building) = world.substrate.entities.get(id)
         && building.category() == EntityCategory::Structure
     {
         let (width, height) = foundation_dimensions(building.type_facts.foundation());
@@ -203,8 +243,8 @@ pub(crate) fn object_distance_to(
 /// Install a bare combat fixture's entity target. Production commands use
 /// `Simulation::assign_target_represented`, including concrete class effects.
 /// This adapter stages the admitted Techno base state without running an event.
-#[cfg(test)]
-pub(crate) fn install_entity_attack_target_for_test(
+#[cfg(any(test, feature = "test-support"))]
+pub fn install_entity_attack_target_for_test(
     entities: &mut EntityStore,
     attacker_id: u64,
     target_id: u64,
@@ -229,8 +269,8 @@ pub(crate) fn install_entity_attack_target_for_test(
 /// Install a bare combat fixture's cell target. Keep its current-weapon gate
 /// through the shared weapon reader; production ForceAttackCell uses the
 /// concrete class authority in `world_commands`, not this setup adapter.
-#[cfg(test)]
-pub(crate) fn install_cell_attack_target_for_test(
+#[cfg(any(test, feature = "test-support"))]
+pub fn install_cell_attack_target_for_test(
     entities: &mut EntityStore,
     attacker_id: u64,
     target_rx: u16,
@@ -241,7 +281,7 @@ pub(crate) fn install_cell_attack_target_for_test(
     // Read weapon presence before the mutable borrow.
     let has_weapon = match entities.get(attacker_id) {
         Some(a) => rules
-            .and_then(|r| r.object(interner.resolve(a.type_ref())))
+            .and_then(|r| interner.object_type(a.type_ref(), r))
             .is_some_and(|obj| combat_weapon::is_armed(a, obj)),
         None => return false,
     };
@@ -272,13 +312,22 @@ pub(crate) fn install_cell_attack_target_for_test(
 
 pub(super) fn attack_world_z_leptons(
     target: TargetKind,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> i32 {
     match target {
-        TargetKind::Entity(entity_id) => entities
+        TargetKind::Entity(entity_id) => world
+            .substrate
+            .entities
             .get(entity_id)
             .map(|entity| object_world_z_leptons(entity, terrain))
+            .or_else(|| {
+                world
+                    .production
+                    .terrain_objects
+                    .get(&entity_id)
+                    .map(|target| target.world_coord().z)
+            })
             .unwrap_or(0),
         // FireAt6FE1FF and Get_Led_Target_Coords70BCB0 read Cell+58;
         // Bullet::Fire468707 freezes that same unled aim. The flight/impact

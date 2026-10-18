@@ -243,6 +243,11 @@ fn tactical_world_tip_text(
     };
     match entity.category() {
         EntityCategory::Structure | EntityCategory::Infantry => {}
+        // Aircraft41C1D0 returns its actual Type+60 directly, without a
+        // disguise, dock or flight-state name branch. Keep the same picker
+        // and exact-Z projection owner for grounded and flying aircraft.
+        // Source: `tools.native_inspect disasm 0x41C1D0 --bytes 0xA`.
+        EntityCategory::Aircraft => {}
         // Exact ownership also makes Unit746750's observer-disguise +C8
         // false. Unit746B20 then returns actual Type+60 when the first gate
         // 70DC60 -> 717880 (signed TurretCount > 0) is false, as for HTNK.
@@ -713,6 +718,7 @@ mod tests {
     fn mapped_own_reactor_tip_uses_retail_ui_name_and_clears_after_limbo() {
         assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
             "NAPOWR",
+            "Russians",
             "Building459ED0",
         );
     }
@@ -721,6 +727,7 @@ mod tests {
     fn mapped_own_conscript_tip_uses_retail_ui_name_and_clears_after_limbo() {
         assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
             "E2",
+            "Russians",
             "Infantry51F2C0 flag-zero own-House arm",
         );
     }
@@ -729,12 +736,23 @@ mod tests {
     fn mapped_own_rhino_tip_uses_retail_ui_name_and_clears_after_limbo() {
         assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
             "HTNK",
+            "Russians",
             "Unit746B20 own-House TurretCount<=0 arm",
+        );
+    }
+
+    #[test]
+    fn mapped_own_harrier_tip_uses_retail_ui_name_and_clears_after_limbo() {
+        assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
+            "ORCA",
+            "British",
+            "Aircraft41C1D0",
         );
     }
 
     fn assert_mapped_own_tip_uses_retail_ui_name_and_clears_after_limbo(
         type_id: &str,
+        owner_name: &str,
         native_name_body: &str,
     ) {
         use crate::sim::house_state::HouseState;
@@ -754,7 +772,7 @@ mod tests {
         let mut sim = Simulation::with_seed(0x4AE4_F000);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
-        let owner = sim.intern("Russians");
+        let owner = sim.intern(owner_name);
         sim.houses
             .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
         sim.session.house_order.push(owner);
@@ -768,7 +786,7 @@ mod tests {
         // begins native Infantry+6D9 clear (517A98), with Nominal absent/false.
         // Stock HTNK's TurretCount=0 bypasses Unit746B20's name formatter.
         let entity_id = sim
-            .spawn_object(type_id, "Russians", 14, 14, 0, &rules)
+            .spawn_object(type_id, owner_name, 14, 14, 0, &rules)
             .unwrap();
         let world = crate::app::presentation::instances::interpolated_screen_position_entity(
             sim.entities().get(entity_id).unwrap(),
@@ -780,7 +798,7 @@ mod tests {
                 sim.entities(),
                 &order,
                 Some(&sim.fog),
-                Some("Russians"),
+                Some(owner_name),
                 world.0,
                 world.1,
                 0.0,

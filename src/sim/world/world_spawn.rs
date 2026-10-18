@@ -568,8 +568,8 @@ impl Simulation {
                 }
                 if let Some(ruleset) = rules {
                     sim.initialize_cloak_after_unlimbo(stable_id, ruleset);
-                    sim.add_unit_sensor_after_unlimbo(stable_id, ruleset);
-                    sim.add_building_sensor_array_if_powered(stable_id, ruleset);
+                    sim.add_unit_sensor_after_unlimbo(stable_id, ruleset, overlay_registry);
+                    sim.add_building_sensor_array_if_powered(stable_id, ruleset, overlay_registry);
                 }
                 sim.commit_map_placement_mission(stable_id, map_ent.mission);
                 if let Some(rules) = rules {
@@ -986,7 +986,7 @@ impl Simulation {
             return Ok(None);
         }
         self.initialize_cloak_after_unlimbo(stable_id, rules);
-        self.add_unit_sensor_after_unlimbo(stable_id, rules);
+        self.add_unit_sensor_after_unlimbo(stable_id, rules, overlay_registry);
         self.ready_placed_building(stable_id);
         Ok(Some(stable_id))
     }
@@ -1252,7 +1252,7 @@ impl Simulation {
         }
         self.allocate_building_light(stable_id, rules);
         self.initialize_cloak_after_unlimbo(stable_id, rules);
-        self.add_unit_sensor_after_unlimbo(stable_id, rules);
+        self.add_unit_sensor_after_unlimbo(stable_id, rules, overlay_registry);
         Some(stable_id)
     }
 
@@ -2349,7 +2349,7 @@ impl Simulation {
             building.mission_leaf.set_building_ready_latch(1);
         }
         self.initialize_cloak_after_unlimbo(new_sid, rules);
-        self.add_unit_sensor_after_unlimbo(new_sid, rules);
+        self.add_unit_sensor_after_unlimbo(new_sid, rules, registry);
         self.mission_spawned_entities = true;
         // 0x00739956: a Slave Miner's manager moves to its refinery (the
         // hand-off 0x006B0D10, then SetOwner 0x006AF580) before the unit
@@ -2570,7 +2570,7 @@ impl Simulation {
             return;
         }
         self.initialize_cloak_after_unlimbo(new_sid, rules);
-        self.add_unit_sensor_after_unlimbo(new_sid, rules);
+        self.add_unit_sensor_after_unlimbo(new_sid, rules, overlay_registry);
         if let Some(unit) = self.substrate.entities.get_mut(new_sid) {
             converted_health.apply(unit);
             if was_selected {

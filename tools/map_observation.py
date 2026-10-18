@@ -92,6 +92,7 @@ EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
                               'observe_electric_bolt_steps', 'observe_bombs', 'observe_temporal',
+                              'observe_cloak',
                               'observe_spawns', 'observe_crates',
                               'observe_audio', 'allow_load_segments',
                               'observe_tooltips',
@@ -630,7 +631,8 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         raise ValidationError('profile.observe_action_line_inputs must be a boolean')
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
-    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_temporal', 'observe_spawns',
+    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_temporal',
+                'observe_cloak', 'observe_spawns',
                 'observe_crates', 'observe_tooltips'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
@@ -690,9 +692,9 @@ def _target_reference(value: Any, label: str, *, navigation: bool = False) -> No
         raise ValidationError(f'{label} has an unknown target reference tag')
 
 
-def _timer(value: Any, label: str) -> None:
+def _timer(value: Any, label: str, *, remaining: bool = False) -> None:
     timer = require_object(value, label)
-    require_exact_keys(timer, ('start_frame', 'duration'), label)
+    require_exact_keys(timer, ('start_frame', 'duration', *(('remaining',) if remaining else ())), label)
     for key in timer:
         _bounded_int(timer[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
 
@@ -1018,17 +1020,27 @@ def _action_line_inputs(value: Any, category: str, label: str) -> None:
             _bounded_int(bits, f'{label}.rocking_angles_fixed_bits[{index}]', -(1 << 31), (1 << 31) - 1)
 
 
-def _cloak(value: Any, label: str) -> None:
+def _cloak(value: Any, label: str, *, runtime: bool = False) -> None:
     if value is None:
         return
     cloak = require_object(value, label)
     require_exact_keys(cloak, ('state_i32', 'progress_i32', 'cloaking_stages_i32',
-                         'voxel', 'no_shadow'), label)
+                         'voxel', 'no_shadow', *(('runtime',) if runtime else ())), label)
     for key in ('state_i32', 'progress_i32', 'cloaking_stages_i32'):
         _bounded_int(cloak[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
     for key in ('voxel', 'no_shadow'):
         if type(cloak[key]) is not bool:
             raise ValidationError(f'{label}.{key} must be a boolean')
+    if runtime:
+        row = require_object(cloak['runtime'], f'{label}.runtime')
+        require_exact_keys(row, ('in_playfield', 'step_delta_i32', 'step_speed_i32',
+                                 'step_timer', 'recloak_delay'), f'{label}.runtime')
+        if type(row['in_playfield']) is not bool:
+            raise ValidationError(f'{label}.runtime.in_playfield must be boolean')
+        for key in ('step_delta_i32', 'step_speed_i32'):
+            _bounded_int(row[key], f'{label}.runtime.{key}', -(1 << 31), (1 << 31) - 1)
+        for key in ('step_timer', 'recloak_delay'):
+            _timer(row[key], f'{label}.runtime.{key}', remaining=True)
 
 
 def _disguise_inputs(value: Any, category: str, label: str) -> None:
@@ -1387,10 +1399,7 @@ def _fire(value: Any, label: str) -> None:
     _bounded_int(row['last_fire_frame'], f'{label}.last_fire_frame', -(1 << 63), (1 << 63) - 1)
     _bounded_int(row['body_counter'], f'{label}.body_counter', 0, (1 << 32) - 1)
     _bounded_int(row['stage_value'], f'{label}.stage_value', -(1 << 31), (1 << 31) - 1)
-    rearm = require_object(row['rearm'], f'{label}.rearm')
-    require_exact_keys(rearm, ('start_frame', 'duration', 'remaining'), f'{label}.rearm')
-    for key in rearm:
-        _bounded_int(rearm[key], f'{label}.rearm.{key}', -(1 << 31), (1 << 31) - 1)
+    _timer(row['rearm'], f'{label}.rearm', remaining=True)
 
 
 def _temporal(value: Any, label: str) -> int:
@@ -1462,7 +1471,8 @@ def _spawns(value: Any, label: str) -> int:
 def _actor(value: Any, label: str, *, building_state: bool = True,
            docking_state: bool = True, walk_state: bool = True,
            action_line_inputs: bool = False, disguise_inputs: bool = False,
-           lasers: bool = False, bombs: bool = False, temporal: bool = False, spawns: bool = False,
+           lasers: bool = False, bombs: bool = False, temporal: bool = False,
+           cloak: bool = False, spawns: bool = False,
            damage_smoke: bool = False) -> tuple[int, str]:
     actor = require_object(value, label)
     require_exact_keys(actor, ('stable_id', 'owner', 'type_id', 'category', 'cell',
@@ -1476,7 +1486,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('building',) if building_state else ()),
                               *(('unit',) if 'unit' in actor else ()),
                               *(('jumpjet',) if 'jumpjet' in actor else ()),
-                              *(('cloak',) if 'cloak' in actor else ()),
+                              *(('cloak',) if cloak or 'cloak' in actor else ()),
                               *(('retask',) if 'retask' in actor else ()),
                               *(('cell_marked', 'in_logic_vector')
                                 if 'cell_marked' in actor or 'in_logic_vector' in actor else ()),
@@ -1484,7 +1494,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('disguise_inputs',) if disguise_inputs else ()),
                               *(('prism',) if lasers else ()),
                               *(('damage_smoke_system_id',) if damage_smoke and 'damage_smoke_system_id' in actor else ()),
-                              *(('fire',) if bombs or temporal else ()),
+                              *(('fire',) if bombs or temporal or cloak else ()),
                               *(('temporal',) if temporal else ()),
                               *(('spawns',) if spawns else ()),
                               *(('miner', 'radio') if docking_state else ())), label)
@@ -1503,7 +1513,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
         _prism(actor['prism'], category, f'{label}.prism')
     if damage_smoke and actor.get('damage_smoke_system_id') is not None:
         _bounded_int(actor['damage_smoke_system_id'], f'{label}.damage_smoke_system_id', 1, (1 << 64) - 1)
-    if bombs or temporal:
+    if bombs or temporal or cloak:
         _fire(actor['fire'], f'{label}.fire')
     if temporal:
         _temporal(actor['temporal'], f'{label}.temporal')
@@ -1526,7 +1536,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
     if 'jumpjet' in actor:
         _jumpjet(actor['jumpjet'], f'{label}.jumpjet')
     if 'cloak' in actor:
-        _cloak(actor['cloak'], f'{label}.cloak')
+        _cloak(actor['cloak'], f'{label}.cloak', runtime=cloak)
     _coordinate(actor['cell'], f'{label}.cell')
     _coordinate(actor['physical_leptons'], f'{label}.physical_leptons', leptons=True)
     _bounded_int(actor['health'], f'{label}.health', -(1 << 31), (1 << 31) - 1)
@@ -2533,8 +2543,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     gesture_input = 'gestures' in profile
     sidebar = 'observe_sidebar_steps' in profile
     effects = _observes_effects(profile)
-    if profile.get('observe_temporal', False) and not (walk_state and disk_laser_state):
-        raise ValidationError('Temporal observations require the current v8 observation policy')
+    if (profile.get('observe_temporal', False) or profile.get('observe_cloak', False)) and not (walk_state and disk_laser_state):
+        raise ValidationError('Temporal/cloak observations require the current v8 observation policy')
     if effects and not walk_state:
         raise ValidationError('effect observations require the current observation policy')
     if (gesture_input or sidebar) and not walk_state:
@@ -2635,6 +2645,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                      lasers=profile.get('observe_lasers', False) or profile.get('observe_electric_bolts', False),
                                      bombs=profile.get('observe_bombs', False),
                                      temporal=profile.get('observe_temporal', False),
+                                     cloak=profile.get('observe_cloak', False),
                                      spawns=profile.get('observe_spawns', False),
                                      damage_smoke=profile.get('observe_electric_bolts', False))
             if identity <= previous_id:
@@ -2691,6 +2702,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
             sample_count += sum(1 + len(actor['temporal']['cargo']['passengers'])
                                 if actor['temporal']['cargo'] is not None else 1
                                 for actor in actors)
+        if profile.get('observe_cloak', False):
+            sample_count += sum(actor['cloak'] is not None for actor in actors)
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
     if profile.get('observe_electric_bolts', False):

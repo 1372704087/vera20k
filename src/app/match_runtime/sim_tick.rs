@@ -160,22 +160,183 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     state.frontend.finished_game_count = state.frontend.finished_game_count.saturating_add(1);
-    let elapsed_seconds = state.match_state.scenario_elapsed_clock.stop(wall_ms);
-    let model = build_score_screen_model(state, elapsed_seconds);
-    // The outcome handlers at 0x00685670 / 0x00685DC0 begin only after the
-    // HouseClass timer and 0x78-bucket Vox wait. From here the existing cascade
-    // performs their master fade, 300-bucket tail, hard stop, and SCORE handoff.
-    state.match_state.scenario_exit = Some(
-        crate::app::match_runtime::scenario_exit::ScenarioExitCascade::start(
-            wall_ms,
-            crate::app::match_runtime::scenario_exit::ScenarioExitDestination::Score {
-                title: crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string(),
-                detail: crate::app::match_runtime::scenario_exit::outcome_detail(outcome)
-                    .to_string(),
-                model,
-            },
-        ),
+    let elapsed_score_ticks = state
+        .match_state
+        .scenario_elapsed_clock
+        .stop_buckets(wall_ms);
+    let elapsed_seconds = elapsed_score_ticks / 60;
+    let title = crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string();
+    let detail = crate::app::match_runtime::scenario_exit::outcome_detail(outcome).to_string();
+    let destination = crate::app::match_runtime::scenario_exit::scenario_exit_destination(
+        state.match_state.session.mode(),
+        outcome,
+        state.match_state.map_basic.skip_score.unwrap_or(false),
+        title,
+        detail,
+        || build_campaign_score_screen_model(state, elapsed_score_ticks),
+        || build_score_screen_model(state, elapsed_seconds),
     );
+    // Native campaign victories enter the standalone dialog `0x103`; campaign
+    // defeats take a separate prompt path. Only GameMode!=0 takes the generic
+    // `ScoreDialog__Run 0x5C9720` / SCORE-theme handoff.
+    state.match_state.scenario_exit = Some(
+        crate::app::match_runtime::scenario_exit::ScenarioExitCascade::start(wall_ms, destination),
+    );
+}
+
+fn build_campaign_score_screen_model(
+    state: &AppState,
+    elapsed_score_ticks: i32,
+) -> crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+    let difficulty = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .simulation
+                .session
+                .campaign_house_difficulties()
+                // Retain the raw campaign selector index: GameExit copies
+                // OptionsClass::Difficulty into Scenario+0x60C (0=Easy,
+                // 1=Medium, 2=Hard) before the standalone score lookup.
+                .map(|(player, _)| player as i32)
+        })
+        .unwrap_or(state.persistence.options_profile.difficulty);
+    let houses = state.match_state.sim_runtime.as_ref().map(|runtime| {
+        runtime
+            .simulation
+            .houses
+            .values()
+            .map(|house| (house.player_control, house.stats.kills()))
+            .collect::<Vec<_>>()
+    });
+    let side = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .simulation
+                .session
+                .current_house
+                .and_then(|owner| runtime.simulation.houses.get(&owner))
+                .map(|house| house.side_index)
+        })
+        .unwrap_or(0);
+    build_campaign_score_screen_model_from_sources(
+        elapsed_score_ticks,
+        difficulty,
+        &state.match_state.map_ranking,
+        houses.unwrap_or_default(),
+        side,
+        |key| resolve_campaign_score_label(state, key),
+    )
+}
+
+fn build_campaign_score_screen_model_from_sources(
+    elapsed_score_ticks: i32,
+    difficulty: i32,
+    ranking: &crate::map::ranking::RankingSection,
+    houses: impl IntoIterator<Item = (bool, u32)>,
+    side: u8,
+    mut resolve_label: impl FnMut(&str) -> String,
+) -> crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+    let mut model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+        side,
+        ..Default::default()
+    };
+    let elapsed_score_seconds = elapsed_score_ticks / 60;
+    model.your_time = format_campaign_score_time(elapsed_score_seconds);
+    let par_score_ticks = ranking.par_time_for_difficulty(difficulty);
+    let par_score_seconds = par_score_ticks / 60;
+    model.par_time = format_campaign_score_time(par_score_seconds);
+    // Native `0x6C9231..33` divides both Scenario+0x61C and ParTime by 60,
+    // then selects the over-par strings only when elapsed is strictly greater.
+    let (rank_key, commendation_key) = if elapsed_score_seconds <= par_score_seconds {
+        (&ranking.under_par_title, &ranking.under_par_message)
+    } else {
+        (&ranking.over_par_title, &ranking.over_par_message)
+    };
+    model.rank = resolve_label(rank_key);
+    model.commendation = resolve_label(commendation_key);
+    // Native 0x6C92C1 sums all four Killed*Types arrays for every HouseClass
+    // with PlayerControl set. MatchStatistics is the existing per-house total
+    // owner; `player_control` is the matching +0x1ED bit.
+    let enemies_destroyed = houses
+        .into_iter()
+        .fold(0u32, |sum, (player_control, kills)| {
+            if player_control {
+                sum.wrapping_add(kills)
+            } else {
+                sum
+            }
+        });
+    model.enemies_destroyed = enemies_destroyed.to_string();
+    model
+}
+
+fn resolve_campaign_score_label(state: &AppState, native_key: &str) -> String {
+    crate::app::frontend::shell_pass::resolve_csf(state, native_key).into_owned()
+}
+
+fn format_campaign_score_time(total_seconds: i32) -> String {
+    let hours = total_seconds / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
+#[cfg(test)]
+mod campaign_score_model_tests {
+    use super::build_campaign_score_screen_model_from_sources;
+    use crate::assets::csf_file::test_csf;
+    use crate::map::ranking::parse_ranking_section;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::house_state::MatchStatistics;
+
+    #[test]
+    fn campaign_score_model_uses_ranking_difficulty_native_buckets_csf_and_player_control_kills() {
+        let ranking = parse_ranking_section(&IniFile::from_str(
+            "[Ranking]\nParTimeEasy=00:00:01\nParTimeMedium=00:00:02\nParTimeHard=00:00:15\nUnderParTitle=GUI:FastRank\nUnderParMessage=GUI:FastMessage\nOverParTitle=GUI:SlowRank\nOverParMessage=GUI:SlowMessage\n",
+        ));
+        let csf = test_csf(&[
+            ("GUI:FastRank", "Gold"),
+            ("GUI:FastMessage", "Under par"),
+            ("GUI:SlowRank", "Silver"),
+            ("GUI:SlowMessage", "Over par"),
+        ]);
+        // Production supplies the existing per-house MatchStatistics::kills()
+        // projection; these represent two PlayerControl houses plus an AI.
+        let player_a = MatchStatistics::from_totals_for_test(3, 2, 0, 0, 0);
+        let player_b = MatchStatistics::from_totals_for_test(4, 1, 0, 0, 0);
+        let computer = MatchStatistics::from_totals_for_test(90, 10, 0, 0, 0);
+        let houses = [
+            (true, player_a.kills()),
+            (true, player_b.kills()),
+            (false, computer.kills()),
+        ];
+        let resolve = |key: &str| csf.text(key).into_owned();
+
+        // Scenario+0x60C raw 2 selects ParTimeHard. Elapsed=959 and Par=900
+        // both divide to the same native 60-tick bucket, so this is UnderPar.
+        let equal_bucket =
+            build_campaign_score_screen_model_from_sources(959, 2, &ranking, houses, 0, resolve);
+        assert_eq!(equal_bucket.par_time, "00:00:15");
+        assert_eq!(equal_bucket.your_time, "00:00:15");
+        assert_eq!(equal_bucket.rank, "Gold");
+        assert_eq!(equal_bucket.commendation, "Under par");
+        assert_eq!(equal_bucket.enemies_destroyed, "10");
+
+        let over_bucket =
+            build_campaign_score_screen_model_from_sources(960, 2, &ranking, houses, 0, |key| {
+                csf.text(key).into_owned()
+            });
+        assert_eq!(over_bucket.your_time, "00:00:16");
+        assert_eq!(over_bucket.rank, "Silver");
+        assert_eq!(over_bucket.commendation, "Over par");
+        assert_eq!(over_bucket.enemies_destroyed, "10");
+    }
 }
 
 /// A score row's name: the house's UI name (`house+0x1602A`, copied at

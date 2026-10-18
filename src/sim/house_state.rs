@@ -1938,7 +1938,7 @@ impl MatchStatistics {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn from_totals_for_test(
+    pub const fn from_totals_for_test(
         units_killed: u32,
         buildings_killed: u32,
         units_lost: u32,
@@ -1956,7 +1956,7 @@ impl MatchStatistics {
 
     /// Score-screen Kills column: units + buildings destroyed.
     pub const fn kills(&self) -> u32 {
-        self.units_killed + self.buildings_killed
+        self.units_killed.wrapping_add(self.buildings_killed)
     }
 
     /// Score-screen Losses column: units + buildings lost.

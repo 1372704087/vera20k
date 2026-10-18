@@ -1131,7 +1131,9 @@ use crate::sim::world::Simulation;
 // registered at, and the batch keeps those a capped pass left out.
 // 415 -> 416: retain Building+660 independently of Temporal state.
 // 416 -> 417: retain control-node line timers and ordered Rules/Type line settings.
-const SNAPSHOT_VERSION: u32 = 417;
+// 417 -> 418: saved map presentation retains its parsed campaign `[Ranking]`
+// par times and result strings for the standalone score page.
+const SNAPSHOT_VERSION: u32 = 418;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4856,7 +4858,8 @@ mod tests {
         // 414 -> 415: path-batch code-2 re-path urgencies.
         // 415 -> 416: Building online latch independent of Temporal.
         // 416 -> 417: control-node line timers and ordered line settings.
-        assert_eq!(super::SNAPSHOT_VERSION, 417);
+        // 417 -> 418: campaign score map-rank presentation metadata.
+        assert_eq!(super::SNAPSHOT_VERSION, 418);
     }
 
     #[test]

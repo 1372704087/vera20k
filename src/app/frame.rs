@@ -310,7 +310,7 @@ impl App {
 
         crate::app::frontend::shell_transition::activate_shell_first_paint_after_acquire(state);
         crate::app::frontend::shell_transition::poll_main_menu_title_reveal(state);
-        let shell_capture_current_frame = match shell_capture.as_deref_mut() {
+        let mut shell_capture_current_frame = match shell_capture.as_deref_mut() {
             Some(session) => session.should_capture_current_frame(state)?,
             None => false,
         };
@@ -593,19 +593,34 @@ impl App {
                 // screens with no native analogue (a load failure, a
                 // trigger-driven campaign end) carry no model and keep the
                 // non-art card.
-                let score_rendered = Self::score_shell_active(state)
-                    && (matches!(
+                let score_rendered = if Self::campaign_score_shell_active(state) {
+                    matches!(
                         crate::app::frontend::shell_transition::render_shell_first_paint_slide(
                             state,
                             &mut encoder,
                             &output.texture,
                         )?,
                         crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered { .. }
-                    ) || crate::app::frontend::score_shell_render::render_score_page(
+                    ) || crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
                         state,
                         &mut encoder,
                         &output.texture,
-                    )?);
+                    )?
+                } else {
+                    Self::score_shell_active(state)
+                        && (matches!(
+                            crate::app::frontend::shell_transition::render_shell_first_paint_slide(
+                                state,
+                                &mut encoder,
+                                &output.texture,
+                            )?,
+                            crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered { .. }
+                        ) || crate::app::frontend::score_shell_render::render_score_page(
+                            state,
+                            &mut encoder,
+                            &output.texture,
+                        )?)
+                };
                 if score_rendered {
                     presented_shell = PresentedShell::Score;
                 } else {
@@ -646,6 +661,10 @@ impl App {
                 }
                 (Some(_), None) | (None, _) => false,
             };
+        if let Some(session) = shell_capture.as_deref_mut() {
+            shell_capture_current_frame |=
+                session.should_capture_after_render(state, presented_shell)?;
+        }
         let capture_current_frame = shell_capture_current_frame || tactical_capture_current_frame;
         let pending_capture = if capture_current_frame {
             Some(crate::render::frame_readback::PendingBgra8Readback::encode(
@@ -710,6 +729,9 @@ impl App {
         if let Some(page) = state.frontend.score_page.as_mut() {
             page.commit_presented();
         }
+        if let Some(page) = state.frontend.campaign_score_page.as_mut() {
+            page.commit_presented();
+        }
         let skirmish = &mut state.frontend.skirmish_shell_state;
         skirmish.statics.commit_presented();
         if let Some(modal) = skirmish.choose_map_modal.as_mut() {
@@ -756,16 +778,21 @@ impl App {
                 capture_timeout.expect("capture timeout exists with pending readback"),
             )?;
             let surface_format = state.renderer.gpu.config.format;
-            if shell_capture_current_frame {
-                shell_capture
-                    .expect("shell capture session exists when readback completes")
-                    .complete(state, surface_format, &pixels)?;
+            let capture_terminal = if shell_capture_current_frame {
+                let session = shell_capture
+                    .as_deref_mut()
+                    .expect("shell capture session exists when readback completes");
+                session.complete(state, surface_format, &pixels)?;
+                session.is_terminal()
             } else {
                 tactical_capture
                     .expect("tactical capture session exists when readback completes")
                     .complete_after_readback(state, surface_format, &pixels)?;
+                true
+            };
+            if capture_terminal {
+                event_loop.exit();
             }
-            event_loop.exit();
         }
         if let Some(pending_screenshot) = pending_retail_screenshot {
             match pending_screenshot.finish(

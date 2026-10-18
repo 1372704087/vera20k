@@ -1453,6 +1453,7 @@
       ],
       "dialog_id": 258,
       "height": 480,
+      "side": 0,
       "width": 640
     },
     {
@@ -2908,6 +2909,7 @@
       ],
       "dialog_id": 258,
       "height": 600,
+      "side": 0,
       "width": 800
     },
     {
@@ -4363,6 +4365,7 @@
       ],
       "dialog_id": 258,
       "height": 768,
+      "side": 0,
       "width": 1024
     },
     {
@@ -4596,6 +4599,7 @@
       ],
       "dialog_id": 107,
       "height": 480,
+      "side": 0,
       "width": 640
     },
     {
@@ -4829,6 +4833,7 @@
       ],
       "dialog_id": 107,
       "height": 600,
+      "side": 0,
       "width": 800
     },
     {
@@ -5062,6 +5067,7 @@
       ],
       "dialog_id": 107,
       "height": 768,
+      "side": 0,
       "width": 1024
     },
     {
@@ -5577,6 +5583,7 @@
       ],
       "dialog_id": 261,
       "height": 480,
+      "side": 0,
       "width": 640
     },
     {
@@ -6092,6 +6099,7 @@
       ],
       "dialog_id": 261,
       "height": 600,
+      "side": 0,
       "width": 800
     },
     {
@@ -6607,6 +6615,7 @@
       ],
       "dialog_id": 261,
       "height": 768,
+      "side": 0,
       "width": 1024
     },
     {
@@ -7838,6 +7847,7 @@
       ],
       "dialog_id": 264,
       "height": 480,
+      "side": 0,
       "width": 640
     },
     {
@@ -9069,6 +9079,7 @@
       ],
       "dialog_id": 264,
       "height": 600,
+      "side": 0,
       "width": 800
     },
     {
@@ -10300,6 +10311,1519 @@
       ],
       "dialog_id": 264,
       "height": 768,
+      "side": 0,
+      "width": 1024
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            484,
+            409,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            432,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            432,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            450,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            450,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            57,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            81,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            163,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            163,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            10,
+            458,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            24,
+            142,
+            424,
+            220
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            475,
+            9,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 480,
+      "side": 0,
+      "width": 640
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            484,
+            409,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            432,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            432,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            450,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            450,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            57,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            81,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            163,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            163,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            10,
+            458,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            23,
+            130,
+            424,
+            230
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            475,
+            9,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 480,
+      "side": 1,
+      "width": 640
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            644,
+            535,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            7,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            31,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            113,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            113,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            10,
+            578,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            104,
+            142,
+            424,
+            220
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            635,
+            9,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 600,
+      "side": 0,
+      "width": 800
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            644,
+            535,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            7,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            31,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            113,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            113,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            10,
+            578,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            103,
+            130,
+            424,
+            230
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            635,
+            9,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 600,
+      "side": 1,
+      "width": 800
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            756,
+            619,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            7,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            31,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            113,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            113,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            122,
+            662,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            216,
+            226,
+            424,
+            220
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            747,
+            93,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 768,
+      "side": 0,
+      "width": 1024
+    },
+    {
+      "children": [
+        {
+          "class": "Button",
+          "id": 1059,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B350",
+            "0x0060B950"
+          ],
+          "rect": [
+            756,
+            619,
+            156,
+            42
+          ],
+          "template": [
+            425,
+            346,
+            108,
+            23
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1775,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1776,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            382,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            266,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1777,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            188,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            125,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1778,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            363,
+            400,
+            84,
+            17
+          ],
+          "template": [
+            242,
+            277,
+            55,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1779,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            7,
+            387,
+            17
+          ],
+          "template": [
+            85,
+            35,
+            257,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1780,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            31,
+            387,
+            66
+          ],
+          "template": [
+            85,
+            50,
+            257,
+            40
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1695,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            128,
+            113,
+            166,
+            17
+          ],
+          "template": [
+            85,
+            100,
+            110,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1782,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B950"
+          ],
+          "rect": [
+            300,
+            113,
+            214,
+            17
+          ],
+          "template": [
+            200,
+            100,
+            142,
+            10
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1685,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B550",
+            "0x0060B950"
+          ],
+          "rect": [
+            122,
+            662,
+            456,
+            21
+          ],
+          "template": [
+            10,
+            357,
+            303,
+            12
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1835,
+          "inset_override": 0,
+          "placement": [
+            "0x0060AF50",
+            "0x0060B950"
+          ],
+          "rect": [
+            215,
+            214,
+            424,
+            230
+          ],
+          "template": [
+            72,
+            115,
+            282,
+            141
+          ]
+        },
+        {
+          "class": "Static",
+          "id": 1684,
+          "inset_override": 0,
+          "placement": [
+            "0x0060B1D0",
+            "0x0060B950"
+          ],
+          "rect": [
+            747,
+            93,
+            163,
+            18
+          ],
+          "template": [
+            425,
+            1,
+            108,
+            10
+          ]
+        }
+      ],
+      "dialog_id": 259,
+      "height": 768,
+      "side": 1,
       "width": 1024
     }
   ],

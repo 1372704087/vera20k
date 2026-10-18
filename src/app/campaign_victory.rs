@@ -1,5 +1,7 @@
 //! Campaign victory continuation: the GameMode 0 tail of `GameExit::Victory`
-//! `0x00685670` after the score dialog `0x108` returns.
+//! `0x00685670` after StandaloneScore dialog `0x103` returns, or after
+//! `[Basic] SkipScore=yes` bypasses that dialog. Generic score dialog `0x108`
+//! is a non-campaign path.
 //!
 //! Native order (`0x0068594B..0x00685D7F`): the PostScore movie
 //! (`Scenario+0x1448`), then PreMapSelect (`+0x144C`), each through
@@ -13,9 +15,10 @@
 //! `0x004C6210` once Start_Scenario has read the next map.
 //!
 //! Residuals, all inert on the retail campaign maps:
-//! - the Win movie (`+0x143C`, before the score) and SkipScore (`+0x34AE`)
-//!   belong to the score handoff and are not read; every retail map has
-//!   `Win=<none>` and `SkipScore=no`.
+//! - the Win movie (`+0x143C`, before StandaloneScore) is not played; retail
+//!   campaign maps use `Win=<none>`. `[Basic] SkipScore` (`+0x34AE`) is read by
+//!   the outcome router: yes skips only `0x103`, then follows this continuation;
+//!   retail campaign maps use `SkipScore=no`.
 //! - the record's money (`CarryOverMoney` x the House's money, capped by
 //!   `CarryOverCap`, also added to House+0x1DC) and the mission timer
 //!   (`TimerInherit`) are not carried; every retail map has

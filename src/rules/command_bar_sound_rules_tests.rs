@@ -24,6 +24,7 @@ const SOUND_CATALOG: &str = "\
 5=MapClose
 6=ComboOpen
 7=ComboClose
+8=ScoreEmblemSoundLoop
 [Unregistered]
 Sounds=unregistered_sample
 ";
@@ -60,6 +61,34 @@ fn command_bar_sounds_start_invalid_and_wait_for_registered_binding() {
     rules.bind_type_sound_references(processed.ini(), &sounds);
     assert_eq!(rules.general.gui_open_sound(), Some("RootOpen"));
     assert_eq!(rules.general.gui_close_sound(), Some("RootClose"));
+}
+
+#[test]
+fn campaign_score_animation_sound_uses_the_same_audiovisual_binding() {
+    // `Dialog0x103__DlgProc` 0x4EC plays Rules+ScoreAnimSound through
+    // VocClass__PlayGlobal; the key is in [AudioVisual].
+    assert_eq!(GeneralRules::default().score_anim_sound(), None);
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str(SOUND_CATALOG));
+    let processed = RulesLayerStack::new(IniFile::from_str(
+        "[AudioVisual]\nScoreAnimSound=ScoreEmblemSoundLoop\n",
+    ))
+    .process()
+    .unwrap();
+    let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
+    assert_eq!(rules.general.score_anim_sound(), None, "unbound raw ID");
+    rules.bind_type_sound_references(processed.ini(), &sounds);
+    assert_eq!(
+        rules.general.score_anim_sound(),
+        Some("ScoreEmblemSoundLoop")
+    );
+
+    let processed =
+        RulesLayerStack::new(IniFile::from_str("[AudioVisual]\nScoreAnimSound=Unknown\n"))
+            .process()
+            .unwrap();
+    let mut unknown = RuleSet::from_processed_rules(&processed).unwrap();
+    unknown.bind_type_sound_references(processed.ini(), &sounds);
+    assert_eq!(unknown.general.score_anim_sound(), None);
 }
 
 #[test]

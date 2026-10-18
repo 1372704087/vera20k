@@ -161,6 +161,18 @@ impl App {
             dialog.sync_full_screen(full_screen);
         }
     }
+
+    fn campaign_score_animation_deadline(state: &AppState) -> Option<Instant> {
+        if Self::campaign_score_shell_active(state) {
+            state
+                .frontend
+                .campaign_score_page
+                .as_ref()
+                .and_then(|page| page.next_emblem_animation_tick())
+        } else {
+            None
+        }
+    }
 }
 
 /// winit 0.30 hides the menu bar and Dock just before a borderless game enters
@@ -823,6 +835,9 @@ impl ApplicationHandler for App {
                 if Self::score_shell_active(state) {
                     Self::handle_score_shell_mouse_move(state);
                 }
+                if Self::campaign_score_shell_active(state) {
+                    Self::handle_campaign_score_mouse_move(state);
+                }
                 if !dev_ui_consumed
                     && state.frontend.screen == GameScreen::MainMenu
                     && state.frontend.main_menu_shell_error.is_none()
@@ -929,7 +944,15 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                if Self::score_shell_active(state) {
+                if Self::campaign_score_shell_active(state) {
+                    if button == MouseButton::Left {
+                        if btn_state.is_pressed() {
+                            Self::handle_campaign_score_mouse_down(state);
+                        } else {
+                            Self::handle_campaign_score_mouse_up(state);
+                        }
+                    }
+                } else if Self::score_shell_active(state) {
                     if button == MouseButton::Left {
                         if btn_state.is_pressed() {
                             Self::handle_score_shell_mouse_down(state);
@@ -1024,6 +1047,7 @@ impl ApplicationHandler for App {
                 Self::poll_movie_list_scroll(state),
                 Self::poll_choose_map_scroll(state),
                 Self::poll_campaign(state),
+                Self::campaign_score_animation_deadline(state),
             ]
             .into_iter()
             .flatten()
@@ -1063,6 +1087,9 @@ impl ApplicationHandler for App {
                     crate::app::frontend::shell_transition::main_menu_presented_wake_deadline(state)
                 {
                     deadline = deadline.max(wave_deadline);
+                }
+                if let Some(animation_deadline) = Self::campaign_score_animation_deadline(state) {
+                    deadline = deadline.min(animation_deadline);
                 }
                 event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
             }

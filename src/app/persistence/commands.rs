@@ -124,6 +124,7 @@ fn save(
         map_hash,
         source,
         &state.match_state.map_basic,
+        &state.match_state.map_ranking,
         &presentation.terrain_objects,
         &presentation.house_roster,
         &presentation.house_color_map,

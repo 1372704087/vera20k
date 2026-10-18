@@ -38,8 +38,9 @@ PARENT = 0x1000
 # conversion (measured on the retail heading, monitor and list windows).
 WINDOW_GROWTH = 1
 SIZES = ((640, 480), (800, 600), (1024, 768))
-# Skirmish, Choose Map, the random-map dialog and the score screen.
-DIALOGS = (0x102, 0x6B, 0x105, 0x108)
+# Skirmish, Choose Map, the random-map dialog, the score screen and the
+# campaign victory score page.
+DIALOGS = (0x102, 0x6B, 0x105, 0x108, 0x103)
 
 # Shape globals the rect initializer reads, with the retail canvas sizes
 # (the same fixture as shell_slide_engine.py).
@@ -177,7 +178,7 @@ def parse_template(data):
 class Machine:
     """One dialog and its children on a stubbed window manager."""
 
-    def __init__(self, dialog_id, width, height):
+    def __init__(self, dialog_id, width, height, side=0):
         self.width, self.height = width, height
         uc = self.uc = Uc(UC_ARCH_X86, UC_MODE_32)
         load_image(uc)
@@ -197,6 +198,10 @@ class Machine:
             self.w32(address, header)
         for address in PALETTES:
             self.w32(address, self.alloc(16))
+        # 0x103's 0x72B override reads Scenario+0x34B8 (the campaign side).
+        scenario = self.alloc(0x4000)
+        self.w32(0xA8B230, scenario)
+        self.w32(scenario + 0x34B8, side)
         self.w32(0x8A00A4, width)
         self.w32(0x8A00A8, height)
         self.windows = {PARENT: {"id": 0, "class": "#32770", "style": 0x40000040,
@@ -329,6 +334,8 @@ class Machine:
             "GetClassNameA": get_class_name,
             "ClientToScreen": (lambda: self.ret(8, 1)),
             "EnumChildWindows": enum_child_windows,
+            "InvalidateRect": (lambda: self.ret(12, 1)),
+            "ValidateRect": (lambda: self.ret(8, 1)),
             "Sleep": (lambda: self.ret(4, 0)),
         }
         for iat, name in imports.items():
@@ -368,8 +375,8 @@ class Machine:
         run_checked(self.uc, function, RET_MAGIC, count=count, timeout_us=60_000_000)
 
 
-def relayout(dialog_id, width, height):
-    machine = Machine(dialog_id, width, height)
+def relayout(dialog_id, width, height, side=0):
+    machine = Machine(dialog_id, width, height, side=side)
     machine.call(0x72EC70, ecx=width, edx=height, count=20_000_000)
     for hwnd in machine.children:
         machine.call(0x60AAB0, stack_args=(hwnd, 0))
@@ -405,26 +412,28 @@ def relayout(dialog_id, width, height):
 
 
 def generate():
-    return {
-        "source": "unicorn/gamemd.exe",
-        "cases": [
-            {"dialog_id": dialog_id, "width": width, "height": height,
-             "children": relayout(dialog_id, width, height)}
-            for dialog_id in DIALOGS
-            for width, height in SIZES
-        ],
-    }
+    cases = []
+    for dialog_id in DIALOGS:
+        for width, height in SIZES:
+            for side in ((0, 1) if dialog_id == 0x103 else (0,)):
+                cases.append(
+                    {"dialog_id": dialog_id, "width": width, "height": height,
+                     "side": side,
+                     "children": relayout(dialog_id, width, height, side=side)})
+    return {"source": "unicorn/gamemd.exe", "cases": cases}
 
 
 if __name__ == "__main__":
     finish_vectors(
         generate, Path(__file__).with_suffix(".json"),
         provenance=lambda: provenance(
-            scope="The WM_INITDIALOG child relayout (0x0060AAB0, 0x0060C540, 0x0060C4A0 -> 0x0060C0C0 and its placement helpers) of 0x102, 0x6B, 0x105 and 0x108 at 640x480, 800x600 and 1024x768, after 0x0072EC70",
+            scope="The WM_INITDIALOG child relayout (0x0060AAB0, 0x0060C540, 0x0060C4A0 -> 0x0060C0C0 and its placement helpers) of 0x102, 0x6B, 0x105, 0x108 and campaign score 0x103 (allies and the Soviet/Yuri side branch) at 640x480, 800x600 and 1024x768, after 0x0072EC70",
             assumptions=[
                 "Children start at the 6x13 dialog-base-unit conversion of their RT_DIALOG template (MulDiv rounding) one pixel wider and taller, the runtime window size measured in retail captures; the conversion itself is Windows code and not executed",
                 "The dialog is at (0, 0); no game is suspended behind the shell and the session globals are zero (no network session)",
                 "Record +0x68 (the class code the subclass installer stores) is Button 0, Static 2, anything else 0xB",
+                "0x103's 0x72B override reads Scenario+0x34B8; the fixture supplies a zeroed Scenario with that dword set to the case's side, 0 for allies and 1 for the Soviet/Yuri branch",
+                "The reference was regenerated with the supported Steam image 3e81a617...; its code addresses and file-backed section contents match the historical 1cdd1180... image (tools/native_oracle.md), and the pre-existing cases' children are unchanged",
             ],
             substitutions=[
                 "user32 window calls are served by a window model of the dialog and its children; any other import faults",

@@ -84,6 +84,7 @@ pub(crate) fn commit_prepared_load(
     let binary_frame = runtime.simulation.session.binary_frame;
     let map = crate::app::loading::transitions::MapPresentationInputs {
         basic: committed.map.basic().clone(),
+        ranking: committed.map.ranking().clone(),
         source: committed.map.source().clone(),
         map_hash: Some(committed.map.map_hash()),
         terrain_grid: committed.terrain_grid,

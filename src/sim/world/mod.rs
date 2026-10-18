@@ -138,6 +138,8 @@ mod world_commands;
 mod world_hash;
 mod world_orders;
 mod world_spawn;
+#[cfg(test)]
+mod wall_autofill_oracle_tests;
 
 #[cfg(test)]
 mod aegis_distributed_fire_tests;

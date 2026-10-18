@@ -372,13 +372,6 @@ impl MovementZone {
         }
     }
 
-    /// Water movers bypass the land PathGrid and use the passability matrix
-    /// directly. Single source of truth for pathfinding, movement stepping,
-    /// target redirect, and wake effects.
-    pub fn is_water_mover(&self) -> bool {
-        matches!(self, Self::Water | Self::WaterBeach)
-    }
-
     /// All MovementZone variants that need computed zone grids.
     /// gamemd rebuilds every binary movement-zone row, including Fly.
     pub fn all_ground() -> &'static [MovementZone] {

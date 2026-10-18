@@ -74,8 +74,6 @@ pub struct ParticleType {
     pub damage: i32,
     /// Warhead reference name, resolved later against the warhead registry.
     pub warhead: Option<String>,
-    /// Starting animation frame.
-    pub start_frame: u16,
     /// Frames per animation loop.
     pub num_loop_frames: u16,
     /// Base translucency level: 0, 25, or 50.
@@ -189,7 +187,6 @@ impl ParticleType {
             max_ec: section.read_int("MaxEC", 1),
             damage: section.read_int("Damage", 0),
             warhead: section.read_name("Warhead", 0x80).map(str::to_owned),
-            start_frame: section.read_int("StartFrame", 0).clamp(0, u16::MAX as i32) as u16,
             num_loop_frames: section
                 .read_int("NumLoopFrames", 1)
                 .clamp(0, u16::MAX as i32) as u16,

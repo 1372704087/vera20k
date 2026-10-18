@@ -56,11 +56,6 @@ impl LowBridgeTubeMovementState {
         self.cursor
     }
 
-    /// The retained transit target.
-    pub fn target(&self) -> DriveCoord {
-        self.target
-    }
-
     /// A fixture's transit.
     #[cfg(any(test, feature = "test-support"))]
     pub fn for_test(tube_id: TubeId, cursor: u8, target: DriveCoord) -> Self {

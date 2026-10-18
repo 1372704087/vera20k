@@ -261,8 +261,6 @@ pub struct TerrainCell {
     pub rx: u16,
     /// Isometric cell Y coordinate (preserved for lighting lookups).
     pub ry: u16,
-    /// True when the resolved terrain classifies the cell as water.
-    pub is_water: bool,
     /// Tile visual variant index: 0 = pristine, positive = suffix sibling.
     pub variant: u8,
     /// RGB color tint from map lighting. [1,1,1] = full brightness (default).
@@ -271,11 +269,6 @@ pub struct TerrainCell {
     pub radar_left: [u8; 3],
     /// Per-tile radar minimap color (right half of isometric diamond), from TMP header.
     pub radar_right: [u8; 3],
-    /// Mirrors `ResolvedTerrainCell.has_damaged_data` — true when this cell's
-    /// TMP sub-tile carries a baked damaged-variant pixel set. Cached at
-    /// `TerrainGrid` construction; treat as map-load-immutable. Drives the
-    /// per-frame variant-override decision in `build_visible_instances`.
-    pub has_damaged_data: bool,
 }
 
 /// Pre-computed terrain grid ready for rendering.
@@ -663,9 +656,8 @@ pub fn screen_to_iso_with_height_and_bridges(
     (rx, ry)
 }
 
-/// Build a TerrainGrid from the resolved terrain stage: the final
-/// LAT-adjusted tile choice and the water classification from resolved
-/// terrain metadata.
+/// Build a TerrainGrid from the resolved terrain stage's final LAT-adjusted
+/// tile choice.
 pub fn build_terrain_grid_from_resolved(
     resolved: &ResolvedTerrainGrid,
     local_bounds: Option<LocalBounds>,
@@ -693,12 +685,10 @@ pub fn build_terrain_grid_from_resolved(
             z: cell.level,
             rx: cell.rx,
             ry: cell.ry,
-            is_water: cell.final_tile_index >= 0 && cell.is_water,
             variant: cell.variant,
             tint: [1.0, 1.0, 1.0],
             radar_left: cell.radar_left,
             radar_right: cell.radar_right,
-            has_damaged_data: cell.has_damaged_data,
         });
         min_x = min_x.min(sx);
         min_y = min_y.min(sy);

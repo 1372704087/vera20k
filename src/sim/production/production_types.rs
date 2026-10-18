@@ -39,11 +39,7 @@ pub struct ReadyBuildingView {
 /// Active producer/facility focus for one queue category.
 #[derive(Debug, Clone)]
 pub struct ProducerFocusView {
-    pub stable_id: u64,
-    pub display_name: String,
     pub category: ProductionCategory,
-    pub rx: u16,
-    pub ry: u16,
 }
 
 /// Placement preview/evaluation for a ready building.
@@ -149,17 +145,6 @@ pub enum BuildQueueState {
     Building,
     Paused,
     Done,
-}
-
-impl BuildQueueState {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Queued => "Queued",
-            Self::Building => "Building",
-            Self::Paused => "Paused",
-            Self::Done => "Done",
-        }
-    }
 }
 
 impl ProductionCategory {

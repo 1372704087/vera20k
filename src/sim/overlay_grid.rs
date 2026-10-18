@@ -1832,27 +1832,8 @@ pub(crate) fn runtime_wall_cleanup_visit_at(
     })
 }
 
-/// Refresh a newly stamped wall and its four cardinal neighbors only.
-pub fn refresh_wall_connectivity_after_placement(
-    grid: &mut OverlayGrid,
-    registry: &OverlayTypeRegistry,
-    resolved_terrain: Option<&mut ResolvedTerrainGrid>,
-    rx: u16,
-    ry: u16,
-) {
-    refresh_wall_connectivity_after_placement_with_host(
-        grid,
-        registry,
-        resolved_terrain,
-        rx,
-        ry,
-        None,
-    );
-}
-
 /// Runtime-hosted `PostDestructionWallCleanup(anchor, 1)` used by one wall
-/// Mark transaction. Load-time materialization uses the hostless wrapper
-/// above because no live tactical/radar/entity/navigation observers exist.
+/// Mark transaction.
 pub(crate) fn refresh_wall_connectivity_after_placement_with_host(
     grid: &mut OverlayGrid,
     registry: &OverlayTypeRegistry,

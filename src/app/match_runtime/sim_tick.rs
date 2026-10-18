@@ -2018,7 +2018,6 @@ mod modal_pump_tests {
             destroyed_structure: false,
             ownership_changed: false,
             bridge_state_changed: false,
-            movement: Default::default(),
         };
 
         assert!(should_record_replay_tick(&tick, &[]));

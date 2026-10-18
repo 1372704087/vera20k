@@ -20,7 +20,7 @@ use crate::sim::components::DriveCoord;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::occupancy::{CellOccupancy, OccupancyGrid};
+use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::rng::SimRng;
 use crate::util::fixed_math::SimFixed;
 
@@ -28,10 +28,8 @@ use crate::util::fixed_math::SimFixed;
 /// 2 (NE), 3 (SW), 4 (SE) — three corners of the isometric diamond. Sub-cells
 /// 0 (center) and 1 (NW) are never assigned to infantry by the placement function
 /// (FUN_00481180 explicitly skips them: `if (uVar11 != 0 && uVar11 != 1)`).
+#[cfg(test)]
 pub const FUNCTIONAL_SUB_CELLS: [u8; 3] = [2, 3, 4];
-
-/// Maximum infantry that can share one cell (one per functional sub-cell spot).
-pub const MAX_INFANTRY_PER_CELL: usize = 3;
 
 /// Determine which sub-cell quadrant a lepton position falls in.
 ///
@@ -171,34 +169,6 @@ pub(crate) fn blocker_plane_source(
 // ---------------------------------------------------------------------------
 // Sub-cell allocation
 // ---------------------------------------------------------------------------
-
-/// Find the first available sub-cell in a cell. Returns `None` if the cell is
-/// full (3 infantry) or contains a vehicle/structure.
-pub fn allocate_sub_cell(occ: Option<&CellOccupancy>, layer: MovementLayer) -> Option<u8> {
-    let Some(o) = occ else {
-        // Empty cell — first infantry gets sub-cell 2 (NE corner).
-        return Some(FUNCTIONAL_SUB_CELLS[0]);
-    };
-    // Vehicle/structure in cell blocks all sub-cells.
-    if o.has_blockers_on(layer) {
-        return None;
-    }
-    let infantry: Vec<(u64, u8)> = o.infantry(layer).collect();
-    if infantry.len() >= MAX_INFANTRY_PER_CELL {
-        return None;
-    }
-    // Find first sub-cell not already occupied.
-    FUNCTIONAL_SUB_CELLS
-        .iter()
-        .copied()
-        .find(|&spot| !infantry.iter().any(|&(_, s)| s == spot))
-}
-
-/// Can infantry enter this cell? True if there's an available sub-cell and no
-/// vehicles/structures blocking.
-pub fn cell_passable_for_infantry(occ: Option<&CellOccupancy>, layer: MovementLayer) -> bool {
-    allocate_sub_cell(occ, layer).is_some()
-}
 
 /// `CellClass::PlaceInfantryInCell @ 0x00481180` with priority 0: the infantry
 /// spot for a request at `(sub_x, sub_y)` inside cell `(rx, ry)` on `layer`,

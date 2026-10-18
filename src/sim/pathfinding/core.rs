@@ -1162,10 +1162,6 @@ fn terrain_object_blocks_infantry(cell_bits: u8) -> bool {
 }
 
 impl PathCell {
-    pub fn is_bridge_transition_cell(&self) -> bool {
-        self.transition
-    }
-
     pub fn is_elevated_bridge_cell(&self) -> bool {
         self.bridge_deck_level_if_any()
             .is_some_and(|deck| deck > self.ground_level)
@@ -1190,14 +1186,6 @@ impl PathCell {
                 self.ground_level
             }
         }
-    }
-
-    pub fn can_enter_bridge_layer_from_ground(&self) -> bool {
-        self.bridge_walkable && self.is_bridge_transition_cell()
-    }
-
-    pub fn is_low_bridge_tube_cell(&self) -> bool {
-        self.low_bridge_tube_cell
     }
 }
 
@@ -1489,16 +1477,6 @@ impl PathGrid {
 
     pub fn bridge_deck_level(&self, x: u16, y: u16) -> Option<u8> {
         self.cell(x, y).and_then(PathCell::bridge_deck_level_if_any)
-    }
-
-    pub fn can_enter_bridge_layer_from_ground(&self, x: u16, y: u16) -> bool {
-        self.cell(x, y)
-            .is_some_and(PathCell::can_enter_bridge_layer_from_ground)
-    }
-
-    pub fn is_low_bridge_tube_cell(&self, x: u16, y: u16) -> bool {
-        self.cell(x, y)
-            .is_some_and(PathCell::is_low_bridge_tube_cell)
     }
 
     /// Find the nearest ground-walkable cell to `(x, y)`, searching in expanding rings.

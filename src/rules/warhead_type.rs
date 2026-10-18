@@ -247,27 +247,12 @@ pub struct WarheadType {
     /// `0x00847CF4`), tested last in the detonation chain at
     /// `BulletClass::DetonateAtCoord @ 0x00469a2c`.
     pub nuke_maker: bool,
-
-    // --- Int fields ---
     /// `EMEffect=`, a bool at `WarheadTypeClass+0x154`: `ReadBool` at
     /// `0x0075D7C1` with the field as default, which the constructor zeroes
     /// (`0x0075CFB3`). The bullet's impact resolution skips its last snaps
     /// for it (`0x00468E9F`). The one stock `EMEffect=yes`, `[EMPuls]`, is
     /// mounted by no stock weapon.
     pub em_effect: bool,
-    /// Money transfer on hit. Native offset **UNKNOWN** — VERA-internal,
-    /// gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body` reads no
-    /// `TransactMoney=` key (and no such string exists in the image);
-    /// `+0x17C` — the offset previously claimed here — is `ShakeXlo=`, an int.
-    /// Stock `rulesmd.ini` authors no `TransactMoney=` line, so this field is
-    /// always 0 in stock play.
-    pub transact_money: i32,
-    /// Infantry death type for cell-level kills. Native offset **UNKNOWN** —
-    /// VERA-internal, gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body`
-    /// writes nothing at `+0x114` and reads no `CellInfDeath=` key (no such
-    /// string exists in the image). Stock `rulesmd.ini` authors no
-    /// `CellInfDeath=` line, so this field is always 0 in stock play.
-    pub cell_inf_death: i32,
 
     // --- List fields ---
     /// `[VoxelAnims]` type names thrown on detonation.
@@ -399,11 +384,7 @@ impl WarheadType {
             electric_assault: section.read_bool("ElectricAssault", false),
             bomb_disarm: section.read_bool("BombDisarm", false),
             nuke_maker: section.read_bool("NukeMaker", false),
-
-            // Int fields — all default 0
             em_effect: section.read_bool("EMEffect", false),
-            transact_money: section.read_int("TransactMoney", 0),
-            cell_inf_death: section.read_int("CellInfDeath", 0),
 
             // List fields
             debris_types,

@@ -111,6 +111,18 @@ impl ShellSlideKind {
 
 /// Right-panel tile rows at the current surface size (`[0x00B0FA20]`).
 fn panel_rows(state: &AppState) -> u32 {
+    // A fitted shell paints the scaled 800x600 column, so its slide must use
+    // the authored 9 tile rows even when the live window is too short for
+    // `right_panel_rects(window)` to reach the same count. Retail 640/800
+    // keep the live window's own rows.
+    if crate::app::frontend::shell_layout::fills_window(state) {
+        return crate::ui::shell::geom::right_panel_rects(
+            crate::ui::shell::geom::SHELL_BASE_W,
+            crate::ui::shell::geom::SHELL_BASE_H,
+        )
+        .tile_count
+        .max(1) as u32;
+    }
     let config = &state.renderer.gpu.config;
     crate::ui::shell::geom::right_panel_rects(config.width as i32, config.height as i32)
         .tile_count

@@ -293,6 +293,30 @@ entry and each carried record count toward the shared 100000-sample budget;
 the 128 MiB receipt limit is unchanged. False/absent adds no frame or actor
 fields, v1 rejects any presence, and present null/nonboolean values are invalid.
 
+Optional v2/v3 `observe_temporal: true` adds `temporal` and the same `fire`
+readback to every observed actor at L0 and each committed frame. `temporal`
+reads public owner queries: `has_link`, nullable `warp_target` and `chain_head`,
+nullable `boarding_transport`, nullable `inside_transport` (`transport`,
+`open_topped`), and nullable `cargo` (`count`, ordered `passengers`). The count,
+list, carrier relationship and link queries remain independent; the observer
+never repairs membership, calls a gunner callback, advances a timer or draws RNG.
+The existing Unit `current_weapon_138` and `current_turret_124` report IFV mode;
+private burst/charge state is not exposed. Count one snapshot and every cargo
+entry toward the shared sample budget. Fire state is emitted once when both
+bomb and Temporal observations are enabled. A preceding Attack does not prove a
+live Temporal victim at gunner removal: ordinary UnloadPassengers clears its
+attack target before the callback, so inspect the reached phase boundaries.
+
+This opt-in is additive within child/wrapper v8: false or absent leaves the
+historical actor and fire byte schema unchanged. True requires the current v8
+policy; older sealed policies without the flag remain readable. V1 rejects any
+presence, and present null/nonboolean values are invalid. Use the existing
+`render_depth_fixture --temporal-gunner` scene for stock full-health CLEG/FV,
+enemy HTNK and distant enemy GAPOWR. Its authored native House names are
+`<human player>`/`Computer`; ordinary launch diagnostics still use
+`Americans`/`Computer1`. Boarding, approach, live rearm, unload and later CLEG
+firing must be established by runtime history, without actor or rule injection.
+
 Optional v2/v3 `observe_spawns: true` adds `spawns` to every observed actor at L0
 and each committed frame. It is `null` when the actor has no spawn manager.
 Otherwise it reads current rules `type_spawns_number`, retained `spawn_type`,

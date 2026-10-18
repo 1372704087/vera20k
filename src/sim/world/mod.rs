@@ -2219,11 +2219,6 @@ impl Simulation {
         event: &SimFireEvent,
         wave_type: u8,
     ) {
-        #[cfg(any(test, feature = "test-support"))]
-        self.trace_lifecycle_for_test(LifecycleTestEvent::CombatFireEffectsCommitted {
-            attacker_id: event.attacker_id,
-            scenario_rng_state: self.scenario_rng.state(),
-        });
         if let Some(wave) = self.prepare_fired_wave(rules, event, wave_type) {
             self.admit_fired_wave(event.attacker_id, wave, rules);
         }

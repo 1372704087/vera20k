@@ -2065,6 +2065,8 @@ struct FireCommitBoundary {
     damage_start: usize,
     explosion_start: usize,
     smudge_start: usize,
+    #[cfg(any(test, feature = "test-support"))]
+    fire_event_start: usize,
 }
 
 impl FireCommitBoundary {
@@ -2073,6 +2075,8 @@ impl FireCommitBoundary {
             damage_start: emit.damage_events.len(),
             explosion_start: emit.effects.explosion_effects.len(),
             smudge_start: emit.effects.smudge_spawn_requests.len(),
+            #[cfg(any(test, feature = "test-support"))]
+            fire_event_start: emit.fire_events.len(),
         }
     }
 
@@ -2085,10 +2089,13 @@ impl FireCommitBoundary {
         emit: &mut CombatEmit,
         under_attack_events: &mut Vec<UnderAttackEvent>,
     ) {
+        #[cfg(any(test, feature = "test-support"))]
+        let fire_event_start = self.fire_event_start;
         let Self {
             damage_start,
             explosion_start,
             smudge_start,
+            ..
         } = self;
         let outer_explosion_effects = emit.effects.explosion_effects.split_off(explosion_start);
         let outer_anim_requests = emit.effects.smudge_spawn_requests.split_off(smudge_start);
@@ -2112,6 +2119,15 @@ impl FireCommitBoundary {
         );
         under_attack_events.append(&mut pings);
         commit_fire_bookkeeping(world, rules, emit, overlay_registry, run.effects());
+        #[cfg(any(test, feature = "test-support"))]
+        for event in &emit.fire_events[fire_event_start..] {
+            world.trace_lifecycle_for_test(
+                crate::sim::world::LifecycleTestEvent::CombatFireEffectsCommitted {
+                    attacker_id: event.attacker_id,
+                    scenario_rng_state: world.scenario_rng.state(),
+                },
+            );
+        }
     }
 }
 

@@ -260,6 +260,8 @@ pub struct MapFile {
     pub header: MapHeader,
     /// Parsed `[Basic]` metadata such as title and briefing hooks.
     pub basic: BasicSection,
+    /// Parsed campaign score text and difficulty par times from `[Ranking]`.
+    pub ranking: crate::map::ranking::RankingSection,
     /// Parsed preview metadata from `[Preview]` / `[PreviewPack]`.
     pub preview: PreviewSection,
     pub cells: Vec<MapCell>,
@@ -311,6 +313,8 @@ impl MapFile {
     fn from_ini(ini: IniFile) -> Result<Self, MapError> {
         let header: MapHeader = parse_header(&ini)?;
         let basic: BasicSection = basic::parse_basic_section(&ini);
+        let ranking: crate::map::ranking::RankingSection =
+            crate::map::ranking::parse_ranking_section(&ini);
         let special_flags: SpecialFlagsSection = basic::parse_special_flags_section(&ini);
         let mut preview: PreviewSection = preview::parse_preview_section(&ini);
         match preview::decode_preview_image_from_ini(&ini) {
@@ -346,6 +350,7 @@ impl MapFile {
         Ok(MapFile {
             header,
             basic,
+            ranking,
             preview,
             cells: iso_map_pack.cells,
             iso_map_pack_lookups: iso_map_pack.lookups,

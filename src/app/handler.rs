@@ -823,6 +823,9 @@ impl ApplicationHandler for App {
                 if Self::score_shell_active(state) {
                     Self::handle_score_shell_mouse_move(state);
                 }
+                if Self::campaign_score_shell_active(state) {
+                    Self::handle_campaign_score_mouse_move(state);
+                }
                 if !dev_ui_consumed
                     && state.frontend.screen == GameScreen::MainMenu
                     && state.frontend.main_menu_shell_error.is_none()
@@ -929,7 +932,15 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                if Self::score_shell_active(state) {
+                if Self::campaign_score_shell_active(state) {
+                    if button == MouseButton::Left {
+                        if btn_state.is_pressed() {
+                            Self::handle_campaign_score_mouse_down(state);
+                        } else {
+                            Self::handle_campaign_score_mouse_up(state);
+                        }
+                    }
+                } else if Self::score_shell_active(state) {
                     if button == MouseButton::Left {
                         if btn_state.is_pressed() {
                             Self::handle_score_shell_mouse_down(state);

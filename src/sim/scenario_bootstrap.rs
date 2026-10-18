@@ -2937,6 +2937,7 @@ mod tests {
                 local_height: 40,
             },
             basic: Default::default(),
+            ranking: Default::default(),
             preview: Default::default(),
             cells: Vec::new(),
             iso_map_pack_lookups: Vec::new(),

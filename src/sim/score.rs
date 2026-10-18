@@ -345,6 +345,7 @@ mod tests {
 
     fn natural_terminal_sim(seed: u64) -> Simulation {
         let mut sim = Simulation::with_seed(seed);
+        sim.session.game_mode_nonzero = true;
         let human = sim.interner.intern("Human");
         let mut human_house = HouseState::new(human, 0, None, true, 0, 10);
         human_house.is_defeated = true;
@@ -399,6 +400,19 @@ mod tests {
             Some(&first_snapshot),
             "later terminal pumps expose the same immutable snapshot"
         );
+    }
+
+    #[test]
+    fn campaign_terminal_does_not_finalize_skirmish_bonus_or_draw_rng() {
+        let mut sim = natural_terminal_sim(0x51C0_CAFE);
+        sim.session.game_mode_nonzero = false;
+        let cursor = sim.clone_scenario_rng().state();
+
+        let tick = sim.advance_tick(&[], None, None, None, 67);
+
+        assert!(!tick.terminal_score_finalized);
+        assert!(sim.terminal_score_snapshot().is_none());
+        assert_eq!(sim.clone_scenario_rng().state(), cursor);
     }
 
     #[test]

@@ -61,6 +61,7 @@ pub fn empty_map_file(options: &RmgOptions, gen_w: u32, gen_h: u32) -> MapFile {
     MapFile {
         header,
         basic: Default::default(),
+        ranking: Default::default(),
         preview: Default::default(),
         cells: Vec::new(),
         iso_map_pack_lookups: Vec::new(),

@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::app::App;
+use crate::ui::campaign_score_shell::CampaignScoreScreenModel;
 use crate::ui::score_shell::{ScoreRow, ScoreScreenModel};
 use serde_json::{Value, json};
 
@@ -53,6 +54,144 @@ pub(super) struct ScoreCapture {
     target: ScoreTarget,
     phase: Phase,
     route: Vec<Value>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum CampaignScorePhase {
+    #[default]
+    MainMenu,
+    CampaignScore,
+    Settling(u32),
+}
+
+/// A synthetic, asset-independent fixture for visually reviewing the real
+/// campaign victory page through the production app renderer. These values
+/// are display examples only and establish no native parity.
+fn synthetic_campaign_score_model() -> CampaignScoreScreenModel {
+    CampaignScoreScreenModel {
+        par_time: "00:10:00".into(),
+        your_time: "00:08:31".into(),
+        enemies_destroyed: "17".into(),
+        rank: "Captain".into(),
+        commendation: "Mission completed ahead of schedule.".into(),
+    }
+}
+
+pub(super) struct CampaignScoreCapture {
+    phase: CampaignScorePhase,
+    route: Vec<Value>,
+}
+
+impl CampaignScoreCapture {
+    pub(super) fn new() -> Self {
+        Self {
+            phase: CampaignScorePhase::MainMenu,
+            route: Vec::new(),
+        }
+    }
+
+    pub(super) fn after_present(
+        &mut self,
+        state: &mut AppState,
+        rendered: PresentedShell,
+        frame: u32,
+    ) -> Result<()> {
+        if self.phase == CampaignScorePhase::MainMenu {
+            if rendered == PresentedShell::MainMenu
+                && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(state))?
+            {
+                App::open_campaign_score_page(
+                    state,
+                    synthetic_campaign_score_model(),
+                    "Synthetic campaign score capture".into(),
+                    "Synthetic UI fixture; not native-parity evidence.".into(),
+                );
+                self.route.push(json!({
+                    "dialog": 0x103,
+                    "frame": frame,
+                    "action": "open through App::open_campaign_score_page",
+                    "fixture": "synthetic UI example",
+                }));
+                self.phase = CampaignScorePhase::CampaignScore;
+            }
+            return Ok(());
+        }
+
+        ensure!(
+            rendered == PresentedShell::Score,
+            "campaign capture did not render the production score page"
+        );
+        ensure!(
+            App::campaign_score_shell_active(state),
+            "campaign score capture left the 0x103 page"
+        );
+        if self.phase == CampaignScorePhase::CampaignScore
+            && state
+                .frontend
+                .campaign_score_page
+                .as_ref()
+                .is_some_and(|page| page.reveals_terminal())
+        {
+            self.phase = CampaignScorePhase::Settling(SETTLE_FRAMES);
+        } else if let CampaignScorePhase::Settling(remaining) = self.phase {
+            self.phase = CampaignScorePhase::Settling(remaining.saturating_sub(1));
+        }
+        Ok(())
+    }
+
+    pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
+        if self.phase != CampaignScorePhase::Settling(0) {
+            return Ok(false);
+        }
+        ensure!(
+            App::campaign_score_shell_active(state),
+            "campaign score capture left the 0x103 page"
+        );
+        ensure!(
+            state.frontend.shell_controller.top_id()
+                == Some(crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG),
+            "campaign score capture lost dialog 0x103"
+        );
+        Ok(state
+            .frontend
+            .campaign_score_page
+            .as_ref()
+            .is_some_and(|page| page.reveals_terminal()))
+    }
+
+    pub(super) fn manifest(
+        &self,
+        request: &ShellCaptureRequest,
+        format: wgpu::TextureFormat,
+        pixels: &[u8],
+        frame: u32,
+    ) -> Value {
+        let fixture = synthetic_campaign_score_model();
+        json!({
+            "schema_version": "vera20k.campaign-score-shell-capture.v1",
+            "checkpoint": request.checkpoint.as_str(),
+            "dialog_resource_id": 0x103,
+            "fixture_kind": "synthetic UI review; no campaign execution",
+            "fixture_values": {
+                "par_time": fixture.par_time,
+                "your_time": fixture.your_time,
+                "enemies_destroyed": fixture.enemies_destroyed,
+                "rank": fixture.rank,
+                "commendation": fixture.commendation,
+            },
+            "parity_certification": "NONE",
+            "presenter_domain": "final-swapchain-after-rgb565",
+            "surface": {"width": request.width, "height": request.height,
+                "format": format!("{format:?}"), "pixel_layout": "BGRA8",
+                "row_order": "top-left", "row_stride": request.width * 4},
+            "cursor": {"x": request.cursor_x, "y": request.cursor_y,
+                "policy": "software-composited"},
+            "route": self.route,
+            "capture_frame": frame,
+            "frame": {"path": FRAME_FILE_NAME, "byte_length": pixels.len(),
+                "sha256": crate::util::sha256::sha256_hex(pixels)}
+        })
+    }
 }
 
 /// The retail comparison game's page: a loss on DC Uprising, 800x600.

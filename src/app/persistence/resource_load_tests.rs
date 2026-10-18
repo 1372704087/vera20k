@@ -100,6 +100,7 @@ fn bound_saved_world(
         map.ini.content_hash(),
         &loaded.source,
         &map.basic,
+        &map.ranking,
         &map.terrain_objects,
         &roster,
         &roster.color_map(),

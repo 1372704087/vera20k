@@ -738,6 +738,24 @@ impl App {
             }) => {
                 Self::open_score_page(state, model, title, detail);
             }
+            Some(
+                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignScore {
+                    title,
+                    detail,
+                    model,
+                },
+            ) => {
+                Self::open_campaign_score_page(state, model, title, detail);
+            }
+            Some(
+                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignVictoryContinue,
+            ) => Self::leave_mission_result_screen(state),
+            Some(
+                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignDefeat {
+                    title,
+                    detail,
+                },
+            ) => Self::open_campaign_defeat_fallback(state, title, detail),
             Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::MainMenu) => {
                 Self::return_to_main_menu(state);
             }

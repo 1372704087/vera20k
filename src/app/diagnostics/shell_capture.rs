@@ -131,6 +131,7 @@ const CHECKPOINT_SKIRMISH_AFTER_QUIT: &str = "skirmish-after-quit";
 const CHECKPOINT_SKIRMISH_DEFEAT_SCORE: &str = "skirmish-defeat-score";
 const CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE: &str = "skirmish-defeat-continue";
 const CHECKPOINT_SCORE_0X108_STEADY: &str = "score-0x108-steady";
+const CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY: &str = "campaign-score-0x103-steady";
 const CHECKPOINT_SCORE_0X108_ENTRY_PREFIX: &str = "score-0x108-entry-tick-";
 const CHECKPOINT_SCORE_0X108_HOVER_CONTINUE: &str = "score-0x108-hover-continue";
 const CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE: &str = "score-0x108-leave-continue";
@@ -304,6 +305,9 @@ pub enum ShellCaptureCheckpoint {
     /// Continue pressed, its teardown slide held at one tick
     /// (`score-0x108-slide-out-tick-<N>`).
     Score0x108SlideOut(u32),
+    /// Synthetic, settled rendering of the production campaign victory page
+    /// `0x103`; fixture strings do not establish native parity.
+    CampaignScore0x103Steady,
 }
 
 impl ShellCaptureCheckpoint {
@@ -432,6 +436,7 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_SKIRMISH_DEFEAT_SCORE => Ok(Self::SkirmishDefeatScore),
             CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE => Ok(Self::SkirmishDefeatContinue),
             CHECKPOINT_SCORE_0X108_STEADY => Ok(Self::Score0x108Steady),
+            CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY => Ok(Self::CampaignScore0x103Steady),
             CHECKPOINT_SCORE_0X108_HOVER_CONTINUE => Ok(Self::Score0x108HoverContinue),
             CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE => Ok(Self::Score0x108LeaveContinue),
             CHECKPOINT_MOVIES_0X101_STEADY => Ok(Self::MoviesPage0x101Steady),
@@ -616,6 +621,7 @@ impl ShellCaptureCheckpoint {
             Self::SkirmishDefeatScore => CHECKPOINT_SKIRMISH_DEFEAT_SCORE,
             Self::SkirmishDefeatContinue => CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE,
             Self::Score0x108Steady => CHECKPOINT_SCORE_0X108_STEADY,
+            Self::CampaignScore0x103Steady => CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY,
             Self::Score0x108Entry(_) => "score-0x108-entry",
             Self::Score0x108HoverContinue => CHECKPOINT_SCORE_0X108_HOVER_CONTINUE,
             Self::Score0x108LeaveContinue => CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE,
@@ -1122,6 +1128,7 @@ pub(crate) struct ShellCaptureSession {
     skirmish: Option<skirmish::SkirmishCapture>,
     movies: Option<movies::MoviesCapture>,
     score: Option<score::ScoreCapture>,
+    campaign_score: Option<score::CampaignScoreCapture>,
     outcome: Option<std::result::Result<(), String>>,
 }
 
@@ -1223,6 +1230,9 @@ impl ShellCaptureSession {
             _ => None,
         }
         .map(score::ScoreCapture::new);
+        let campaign_score = (request.checkpoint
+            == ShellCaptureCheckpoint::CampaignScore0x103Steady)
+            .then(score::CampaignScoreCapture::new);
         Self {
             request,
             started_at: None,
@@ -1232,6 +1242,7 @@ impl ShellCaptureSession {
             skirmish,
             movies,
             score,
+            campaign_score,
             outcome: None,
         }
     }
@@ -1272,7 +1283,7 @@ impl ShellCaptureSession {
             capture.timeout()
         } else if let Some(capture) = &self.movies {
             capture.timeout()
-        } else if self.score.is_some() {
+        } else if self.score.is_some() || self.campaign_score.is_some() {
             Duration::from_secs(60)
         } else {
             CAPTURE_TIMEOUT
@@ -1284,6 +1295,9 @@ impl ShellCaptureSession {
             return capture.ready(state);
         }
         if let Some(capture) = &self.score {
+            return capture.ready(state);
+        }
+        if let Some(capture) = &self.campaign_score {
             return capture.ready(state);
         }
         match &self.skirmish {
@@ -1304,6 +1318,9 @@ impl ShellCaptureSession {
             capture.after_present(state, rendered, self.frames_seen)?;
         }
         if let Some(capture) = &mut self.score {
+            capture.after_present(state, rendered, self.frames_seen)?;
+        }
+        if let Some(capture) = &mut self.campaign_score {
             capture.after_present(state, rendered, self.frames_seen)?;
         }
         Ok(())
@@ -1489,27 +1506,38 @@ impl ShellCaptureSession {
             "capture state changed before bundle write"
         );
 
-        let mut manifest_bytes = match (&self.skirmish, &self.movies, &self.score) {
-            (Some(capture), _, _) => serde_json::to_vec_pretty(&capture.manifest(
+        let mut manifest_bytes = match (
+            &self.skirmish,
+            &self.movies,
+            &self.score,
+            &self.campaign_score,
+        ) {
+            (Some(capture), _, _, _) => serde_json::to_vec_pretty(&capture.manifest(
                 &self.request,
                 surface_format,
                 pixels,
                 self.frames_seen,
             )),
-            (None, Some(capture), _) => serde_json::to_vec_pretty(&capture.manifest(
+            (None, Some(capture), _, _) => serde_json::to_vec_pretty(&capture.manifest(
                 &self.request,
                 surface_format,
                 pixels,
                 self.frames_seen,
                 state,
             )?),
-            (None, None, Some(capture)) => serde_json::to_vec_pretty(&capture.manifest(
+            (None, None, Some(capture), _) => serde_json::to_vec_pretty(&capture.manifest(
                 &self.request,
                 surface_format,
                 pixels,
                 self.frames_seen,
             )),
-            (None, None, None) => serde_json::to_vec_pretty(&capture_manifest(
+            (None, None, None, Some(capture)) => serde_json::to_vec_pretty(&capture.manifest(
+                &self.request,
+                surface_format,
+                pixels,
+                self.frames_seen,
+            )),
+            (None, None, None, None) => serde_json::to_vec_pretty(&capture_manifest(
                 &self.request,
                 surface_format,
                 pixels.len() as u64,
@@ -2142,6 +2170,30 @@ mod tests {
         assert_eq!(session.timeout(), Duration::from_secs(60));
         assert!(!session.is_entry_sequence());
         assert!(session.skirmish.is_some());
+    }
+
+    #[test]
+    fn campaign_score_capture_selects_the_synthetic_0x103_route() {
+        let output = new_output_path("campaign-score");
+        let mut values = valid_args(&output);
+        values[1] = OsString::from(CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY);
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).expect("parse") else {
+            panic!("expected capture");
+        };
+        assert_eq!(
+            request.checkpoint(),
+            ShellCaptureCheckpoint::CampaignScore0x103Steady
+        );
+        assert_eq!(
+            ShellCaptureCheckpoint::parse(CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY)
+                .expect("checkpoint")
+                .as_str(),
+            CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY
+        );
+        let session = ShellCaptureSession::new(request);
+        assert_eq!(session.timeout(), Duration::from_secs(60));
+        assert!(session.campaign_score.is_some());
+        assert!(session.score.is_none());
     }
 
     #[test]

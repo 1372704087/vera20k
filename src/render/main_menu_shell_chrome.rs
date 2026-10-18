@@ -408,6 +408,50 @@ pub struct ScoreArt {
     pub bars: [Option<MainMenuShellChromeEntry>; 10],
 }
 
+/// The campaign victory page's native `0x72E9F0` full-screen background.
+/// Retail loads two additional side shapes for custom-control messages, but
+/// only `SCRBK` is directly drawn by the confirmed background caller.
+pub struct CampaignScoreArt {
+    pub texture: BatchTexture,
+    pub background: MainMenuShellChromeEntry,
+}
+
+/// Campaign StandaloneScore shape names selected by side and native width
+/// branch (`0x72D300`/`0x72D460`): width exactly640 chooses small; every other
+/// width chooses medium. `Scenario+0x34B8` supplies side 0/1/other.
+pub fn campaign_score_art_names(
+    side: u8,
+    screen_w: u32,
+) -> (&'static str, &'static str, &'static str, &'static str) {
+    let small = screen_w == 640;
+    match side {
+        0 if small => ("ASCRBKSM.SHP", "ASCRTSM.SHP", "ASCRASM.SHP", "ASCORE.PAL"),
+        0 => ("ASCRBKMD.SHP", "ASCRTMD.SHP", "ASCRAMD.SHP", "ASCORE.PAL"),
+        1 if small => ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "SSCORE.PAL"),
+        1 => ("SSCRBKMD.SHP", "SSCRTMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL"),
+        _ if small => ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "YSCORE.PAL"),
+        _ => ("SYCRBKMD.SHP", "SYCRTMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL"),
+    }
+}
+
+pub fn build_campaign_score_art(
+    gpu: &GpuContext,
+    batch: &BatchRenderer,
+    assets: &AssetManager,
+    side: u8,
+    screen_w: u32,
+) -> Option<CampaignScoreArt> {
+    let (background_name, _score_table_name, _bars_name, palette_name) =
+        campaign_score_art_names(side, screen_w);
+    let palette = load_named_palette(assets, palette_name)?;
+    let background = render_shp_entry(assets, background_name, &palette, 0, None)?;
+    let (texture, mut entries) = pack_entries(gpu, batch, &[background])?;
+    Some(CampaignScoreArt {
+        texture,
+        background: entries.pop()?,
+    })
+}
+
 /// Background shape and palette by side (`0x0072D830`, `0x0072D730`): the
 /// small shape only at exactly 640 wide, and Yuri's small shape is Soviet's.
 pub fn score_art_names(side: u8, screen_w: u32) -> (&'static str, &'static str) {
@@ -803,6 +847,26 @@ mod tests {
         assert_eq!(score_bar_name(0, 0).as_deref(), Some("mpascrnlbar01.pcx"));
         assert_eq!(score_bar_name(2, 9).as_deref(), Some("mpyscrnlbar10.pcx"));
         assert_eq!(score_bar_name(3, 0), None);
+    }
+
+    #[test]
+    fn campaign_score_art_uses_standalone_side_tables_and_native_width_branch() {
+        assert_eq!(
+            campaign_score_art_names(0, 640),
+            ("ASCRBKSM.SHP", "ASCRTSM.SHP", "ASCRASM.SHP", "ASCORE.PAL")
+        );
+        assert_eq!(
+            campaign_score_art_names(1, 800),
+            ("SSCRBKMD.SHP", "SSCRTMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL")
+        );
+        assert_eq!(
+            campaign_score_art_names(2, 640),
+            ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "YSCORE.PAL")
+        );
+        assert_eq!(
+            campaign_score_art_names(2, 800),
+            ("SYCRBKMD.SHP", "SYCRTMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL")
+        );
     }
 
     #[test]

@@ -91,12 +91,86 @@ impl ScenarioOutcomeVoiceWait {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ScenarioExitDestination {
+    /// Skirmish/multiplayer score dialog `0x108`.
     Score {
         title: String,
         detail: String,
         model: ScoreScreenModel,
     },
+    /// Campaign victory's distinct retail dialog `0x103`.
+    CampaignScore {
+        title: String,
+        detail: String,
+        model: crate::ui::campaign_score_shell::CampaignScoreScreenModel,
+    },
+    /// Campaign victory with `[Basic] SkipScore=yes` continues directly.
+    CampaignVictoryContinue,
+    /// Campaign defeat bypasses `0x108`; its native retry prompt remains a
+    /// separate route from the campaign victory score page.
+    CampaignDefeat {
+        title: String,
+        detail: String,
+    },
     MainMenu,
+}
+
+/// Campaign outcome paths around GameExit's score/prompt calls. This decision
+/// uses the live session mode, not an installed-campaign token: restored
+/// Campaign saves still own the campaign result presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CampaignOutcomeRoute {
+    VictoryScore,
+    VictoryContinue,
+    DefeatPrompt,
+}
+
+pub(crate) fn campaign_outcome_route(
+    mode: super::session::SessionMode,
+    outcome: crate::sim::house_state::HouseOutcomeKind,
+    skip_score: bool,
+) -> Option<CampaignOutcomeRoute> {
+    if mode != super::session::SessionMode::Campaign {
+        return None;
+    }
+    Some(match outcome {
+        crate::sim::house_state::HouseOutcomeKind::Victory if skip_score => {
+            CampaignOutcomeRoute::VictoryContinue
+        }
+        crate::sim::house_state::HouseOutcomeKind::Victory => CampaignOutcomeRoute::VictoryScore,
+        crate::sim::house_state::HouseOutcomeKind::Defeat => CampaignOutcomeRoute::DefeatPrompt,
+    })
+}
+
+/// Commit the route selected for a terminal outcome. Model builders are lazy:
+/// campaign SkipScore and defeat paths do not construct either score model,
+/// and a campaign result never evaluates the multiplayer score owner.
+pub(crate) fn scenario_exit_destination(
+    mode: super::session::SessionMode,
+    outcome: crate::sim::house_state::HouseOutcomeKind,
+    skip_score: bool,
+    title: String,
+    detail: String,
+    campaign_score: impl FnOnce() -> crate::ui::campaign_score_shell::CampaignScoreScreenModel,
+    skirmish_score: impl FnOnce() -> ScoreScreenModel,
+) -> ScenarioExitDestination {
+    match campaign_outcome_route(mode, outcome, skip_score) {
+        Some(CampaignOutcomeRoute::VictoryScore) => ScenarioExitDestination::CampaignScore {
+            title,
+            detail,
+            model: campaign_score(),
+        },
+        Some(CampaignOutcomeRoute::VictoryContinue) => {
+            ScenarioExitDestination::CampaignVictoryContinue
+        }
+        Some(CampaignOutcomeRoute::DefeatPrompt) => {
+            ScenarioExitDestination::CampaignDefeat { title, detail }
+        }
+        None => ScenarioExitDestination::Score {
+            title,
+            detail,
+            model: skirmish_score(),
+        },
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +326,108 @@ mod tests {
             detail: "done".to_string(),
             model: ScoreScreenModel::default(),
         }
+    }
+
+    #[test]
+    fn campaign_outcome_routes_follow_mode_and_skip_score() {
+        use crate::app::match_runtime::session::SessionMode;
+        use crate::sim::house_state::HouseOutcomeKind::{Defeat, Victory};
+
+        assert_eq!(
+            campaign_outcome_route(SessionMode::Campaign, Victory, false),
+            Some(CampaignOutcomeRoute::VictoryScore)
+        );
+        assert_eq!(
+            campaign_outcome_route(SessionMode::Campaign, Victory, true),
+            Some(CampaignOutcomeRoute::VictoryContinue)
+        );
+        assert_eq!(
+            campaign_outcome_route(SessionMode::Campaign, Defeat, false),
+            Some(CampaignOutcomeRoute::DefeatPrompt)
+        );
+        // A restored Campaign session is classified without consulting the
+        // optional campaign bootstrap token used by next-mission progression.
+        assert_eq!(
+            campaign_outcome_route(SessionMode::Campaign, Victory, false),
+            Some(CampaignOutcomeRoute::VictoryScore)
+        );
+        assert_eq!(
+            campaign_outcome_route(SessionMode::Skirmish, Victory, false),
+            None
+        );
+    }
+
+    #[test]
+    fn production_destination_keeps_campaign_and_skirmish_models_on_their_owners() {
+        use crate::app::match_runtime::session::SessionMode;
+        use crate::sim::house_state::HouseOutcomeKind::{Defeat, Victory};
+
+        let campaign_model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+            par_time: "00:00:10".into(),
+            your_time: "00:00:09".into(),
+            enemies_destroyed: "8".into(),
+            rank: "fast".into(),
+            commendation: "well done".into(),
+        };
+        let victory = scenario_exit_destination(
+            SessionMode::Campaign,
+            Victory,
+            false,
+            "victory".into(),
+            "detail".into(),
+            || campaign_model.clone(),
+            || panic!("campaign victory must not build multiplayer score"),
+        );
+        assert!(matches!(
+            victory,
+            ScenarioExitDestination::CampaignScore { model, .. }
+                if model == campaign_model
+        ));
+
+        let skipped = scenario_exit_destination(
+            SessionMode::Campaign,
+            Victory,
+            true,
+            "victory".into(),
+            "detail".into(),
+            || panic!("SkipScore must continue without a score model"),
+            || panic!("SkipScore must not build multiplayer score"),
+        );
+        assert!(matches!(
+            skipped,
+            ScenarioExitDestination::CampaignVictoryContinue
+        ));
+
+        let defeat = scenario_exit_destination(
+            SessionMode::Campaign,
+            Defeat,
+            false,
+            "defeat".into(),
+            "detail".into(),
+            || panic!("campaign defeat does not build a score model"),
+            || panic!("campaign defeat must not build multiplayer score"),
+        );
+        assert!(matches!(
+            defeat,
+            ScenarioExitDestination::CampaignDefeat { .. }
+        ));
+
+        let skirmish = scenario_exit_destination(
+            SessionMode::Skirmish,
+            Victory,
+            false,
+            "victory".into(),
+            "detail".into(),
+            || panic!("skirmish must not build campaign score"),
+            || ScoreScreenModel {
+                side: 3,
+                ..ScoreScreenModel::default()
+            },
+        );
+        assert!(matches!(
+            skirmish,
+            ScenarioExitDestination::Score { model, .. } if model.side == 3
+        ));
     }
 
     #[test]

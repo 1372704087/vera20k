@@ -7115,8 +7115,13 @@ impl Simulation {
         self.debug_assert_logic_membership_consistent();
         #[cfg(debug_assertions)]
         self.debug_assert_lifecycle_consistent();
-        let terminal_score_finalized =
-            self.natural_outcome_exit_ready() && self.finalize_terminal_score_snapshot();
+        // Native GameExit mode-0 victory/defeat branches skip both
+        // ScoreDialog__FillEntries `0x5C9700` and `ScoreDialog__Run `0x5C9720`.
+        // Keep their survivor bonus and Scenario RNG draws out of campaigns;
+        // Campaign's standalone result dialog reads its own House statistics.
+        let terminal_score_finalized = self.session.game_mode_nonzero
+            && self.natural_outcome_exit_ready()
+            && self.finalize_terminal_score_snapshot();
         // A frame that ends the match hashes whatever its tick: the replay
         // log records it as its last frame.
         let state_hash = (!frame_committed

@@ -236,6 +236,14 @@ impl App {
             && state.frontend.main_menu_shell_chrome.is_some()
     }
 
+    /// Campaign victories own the native StandaloneScore dialog `0x103`.
+    /// This page has no Skirmish score-art dependency.
+    pub(super) fn campaign_score_shell_active(state: &AppState) -> bool {
+        matches!(state.frontend.screen, GameScreen::MissionResult { .. })
+            && state.frontend.campaign_score_page.is_some()
+            && state.frontend.main_menu_shell_chrome.is_some()
+    }
+
     /// `ScoreDialog__Run` `0x005C9720` after a skirmish win or loss: the side
     /// art (`ScoreArt__Load` `0x0072D730`), then dialog `0x108` with every
     /// text its init (`0x497`) sets. The exit cascade has already restored the
@@ -269,6 +277,8 @@ impl App {
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
             )
         });
+        state.frontend.campaign_score_page = None;
+        state.frontend.campaign_score_art = None;
         if state.frontend.score_art.is_none() {
             log::warn!("Could not prepare the score art; the result screen falls back");
         }
@@ -278,6 +288,82 @@ impl App {
             .frontend
             .shell_controller
             .reset_to(crate::ui::score_shell::SCORE_DIALOG, false);
+    }
+
+    /// Open retail Campaign StandaloneScore dialog `0x103` from the app-owned
+    /// projection of the campaign result fields.
+    pub(crate) fn open_campaign_score_page(
+        state: &mut AppState,
+        model: crate::ui::campaign_score_shell::CampaignScoreScreenModel,
+        title: String,
+        detail: String,
+    ) {
+        use crate::app::frontend::shell_pass::resolve_csf;
+        use crate::ui::campaign_score_shell::{CampaignScorePage, CampaignScoreTexts};
+
+        state.frontend.score_page = None;
+        state.frontend.score_art = None;
+        let side = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .and_then(|runtime| {
+                runtime
+                    .simulation
+                    .session
+                    .current_house
+                    .and_then(|owner| runtime.simulation.houses.get(&owner))
+                    .map(|house| house.side_index)
+            })
+            .unwrap_or(0);
+        state.frontend.campaign_score_art = state.process_assets.manager().and_then(|assets| {
+            crate::render::main_menu_shell_chrome::build_campaign_score_art(
+                &state.renderer.gpu,
+                &state.renderer.batch_renderer,
+                assets,
+                side,
+                crate::app::frontend::shell_layout::art_key_screen_width(state),
+            )
+        });
+        if state.frontend.campaign_score_art.is_none() {
+            log::warn!(
+                "Could not prepare Campaign StandaloneScore background; Continue remains available"
+            );
+        }
+        let texts = CampaignScoreTexts {
+            title: resolve_csf(state, "GUI:StandaloneScore").into_owned(),
+            continue_label: resolve_csf(state, "GUI:Continue").into_owned(),
+            continue_status: resolve_csf(state, "STT:StandScoreButtonReturn").into_owned(),
+            par_time_label: resolve_csf(state, "GUI:ParTime").into_owned(),
+            your_time_label: resolve_csf(state, "GUI:YourTime").into_owned(),
+            enemies_destroyed_label: resolve_csf(state, "GUI:HeadsTaken").into_owned(),
+        };
+        let now = Instant::now();
+        let mut page = CampaignScorePage::open(model, texts, now);
+        page.start_reveals(now);
+        state.frontend.campaign_score_page = Some(page);
+        state.frontend.shell_first_paint_slide = None;
+        state.frontend.screen = GameScreen::MissionResult { title, detail };
+        state.frontend.shell_controller.reset_to(
+            crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG,
+            false,
+        );
+    }
+
+    /// Campaign defeat also bypasses the generic multiplayer score dialog.
+    /// Until the native message-box choices are ported, retain the common
+    /// asset-independent result card instead of presenting `0x108`.
+    pub(crate) fn open_campaign_defeat_fallback(
+        state: &mut AppState,
+        title: String,
+        detail: String,
+    ) {
+        state.frontend.score_page = None;
+        state.frontend.score_art = None;
+        state.frontend.campaign_score_art = None;
+        state.frontend.campaign_score_page = None;
+        state.frontend.shell_first_paint_slide = None;
+        state.frontend.screen = GameScreen::MissionResult { title, detail };
     }
 
     fn score_layout(state: &AppState) -> crate::ui::score_shell::ScoreLayout {
@@ -336,6 +422,91 @@ impl App {
         }
     }
 
+    fn campaign_score_layout(
+        state: &AppState,
+    ) -> crate::ui::campaign_score_shell::CampaignScoreLayout {
+        let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
+        if crate::app::frontend::shell_layout::fills_window(state) {
+            crate::ui::campaign_score_shell::CampaignScoreLayout::compute_responsive_layout(
+                width, height,
+            )
+        } else {
+            crate::ui::campaign_score_shell::CampaignScoreLayout::compute_layout(width, height)
+        }
+    }
+
+    fn campaign_score_input(
+        state: &mut AppState,
+    ) -> (
+        crate::ui::campaign_score_shell::CampaignScoreLayout,
+        Vec<crate::ui::shell::layout::LaidOutControl>,
+        Vec<crate::ui::shell::layout::LaidOutControl>,
+        (i32, i32),
+    ) {
+        use crate::ui::campaign_score_shell::{CAMPAIGN_SCORE_CONTROLS, CONTINUE_BUTTON};
+
+        let layout = Self::campaign_score_layout(state);
+        // Hover tracks the value statics' help strings. Keep the separate
+        // button-only press feed so those static ids are never pressed.
+        let hover_feed = CAMPAIGN_SCORE_CONTROLS
+            .iter()
+            .filter(|control| control.action.is_some() || control.tooltip_key.is_some())
+            .filter_map(|control| {
+                layout.control_rect(control.id).map(|rect| {
+                    crate::ui::shell::layout::LaidOutControl {
+                        id: control.id,
+                        rect,
+                    }
+                })
+            })
+            .collect();
+        let press_feed = vec![crate::ui::shell::layout::LaidOutControl {
+            id: CONTINUE_BUTTON,
+            rect: layout.continue_button,
+        }];
+        state.frontend.shell_controller.ensure_active(
+            crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG,
+            false,
+        );
+        let cursor = state.match_state.input.cursor_px();
+        (layout, hover_feed, press_feed, cursor)
+    }
+
+    pub(super) fn handle_campaign_score_mouse_move(state: &mut AppState) {
+        let (_, hover_feed, _, (x, y)) = Self::campaign_score_input(state);
+        state
+            .frontend
+            .shell_controller
+            .on_pointer_move(x, y, &hover_feed);
+    }
+
+    pub(super) fn handle_campaign_score_mouse_down(state: &mut AppState) {
+        let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
+        state
+            .frontend
+            .shell_controller
+            .on_pointer_down(x, y, &press_feed);
+        if state.frontend.shell_controller.pressed()
+            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+        {
+            Self::play_main_menu_button_sound(state);
+        }
+    }
+
+    /// Native `0x103` Continue advances the campaign from GameExit::Victory;
+    /// its button result isn't a `0x108` slide result.
+    pub(super) fn handle_campaign_score_mouse_up(state: &mut AppState) {
+        let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
+        if state
+            .frontend
+            .shell_controller
+            .on_pointer_up(x, y, &press_feed)
+            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+        {
+            Self::leave_mission_result_screen(state);
+        }
+    }
+
     /// Shared teardown for both result-screen forms: flush the deterministic log
     /// while its simulation is still alive, hand the scenario stream back to the
     /// offline shell, retaining the runtime and presentation resources.
@@ -353,8 +524,10 @@ impl App {
         state.match_state.startup.clear();
         state.match_state.scenario_elapsed_clock.reset();
         state.frontend.score_page = None;
+        state.frontend.campaign_score_page = None;
         // 0x0072D780 releases the score art.
         state.frontend.score_art = None;
+        state.frontend.campaign_score_art = None;
         state.frontend.screen = GameScreen::MainMenu;
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;

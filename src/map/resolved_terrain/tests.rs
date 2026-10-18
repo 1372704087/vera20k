@@ -197,6 +197,7 @@ fn make_map(
             local_height: 4,
         },
         basic: crate::map::basic::BasicSection::default(),
+        ranking: crate::map::ranking::RankingSection::default(),
         preview: crate::map::preview::PreviewSection::default(),
         cells,
         iso_map_pack_lookups: Vec::new(),

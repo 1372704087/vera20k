@@ -1129,7 +1129,9 @@ use crate::sim::world::Simulation;
 // 413 -> 414: retain the global GasCloudSys reference and Particle CC/D0/D4 motion words.
 // 414 -> 415: a path batch's code-2 re-paths keep the urgency they
 // registered at, and the batch keeps those a capped pass left out.
-const SNAPSHOT_VERSION: u32 = 415;
+// 415 -> 416: saved map presentation retains its parsed campaign `[Ranking]`
+// par times and result strings for the standalone score page.
+const SNAPSHOT_VERSION: u32 = 416;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4849,7 +4851,8 @@ mod tests {
         // 412 -> 413: retained Super one-time and provider-loss/hold flags.
         // 413 -> 414: global GasCloudSys reference and Particle motion words.
         // 414 -> 415: path-batch code-2 re-path urgencies.
-        assert_eq!(super::SNAPSHOT_VERSION, 415);
+        // 415 -> 416: campaign score map-rank presentation metadata.
+        assert_eq!(super::SNAPSHOT_VERSION, 416);
     }
 
     #[test]

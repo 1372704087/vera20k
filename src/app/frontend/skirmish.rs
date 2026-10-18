@@ -523,6 +523,7 @@ mod tests {
                 local_height: 64,
             },
             basic: crate::map::basic::BasicSection::default(),
+            ranking: crate::map::ranking::RankingSection::default(),
             preview: crate::map::preview::PreviewSection::default(),
             cells: Vec::new(),
             iso_map_pack_lookups: Vec::new(),

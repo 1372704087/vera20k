@@ -20,7 +20,8 @@ use crate::map::resolved_terrain::NativeCellQuery;
 /// its own plane, keeps its inputs, and nothing reaches the plane before it
 /// applies. Every other use of a plane applies its waiting writes first, and a
 /// read of a plane with writes waiting panics. The kept viewers are the ones
-/// the pass reads: the human players and the current house.
+/// the pass reads: the human players and the current house, whose map the
+/// app's sound boundary also reads (`advance_live_object_pass`).
 #[derive(Debug, Clone, Default)]
 pub struct Planes {
     planes: BTreeMap<InternedId, Plane>,
@@ -46,8 +47,6 @@ pub(super) enum PlaneWrite {
     /// [`OwnerVisibility::count_sources`]: a retained footprint's source
     /// counts, `local` for its owner's own plane.
     Sources { local: bool, add: bool },
-    /// [`OwnerVisibility::mark_cells`]: a retained footprint's current sight.
-    Mark,
 }
 
 impl OwnerVisibility {
@@ -63,7 +62,6 @@ impl OwnerVisibility {
             }
             PlaneWrite::Border => self.refresh_ground_frames(cells, native_cells),
             PlaneWrite::Sources { local, add } => self.count_sources(cells, local, add),
-            PlaneWrite::Mark => self.mark_cells(cells),
         }
     }
 }
@@ -266,7 +264,9 @@ impl<'de> Deserialize<'de> for Planes {
 #[cfg(test)]
 mod tests {
     use super::{PlaneWrite, Planes};
-    use crate::sim::intern::{InternedId, test_intern};
+    use crate::map::cell_index::NativeCellIdentity;
+    use crate::map::resolved_terrain::{NativeCellQuery, test_flat_cell, test_grid};
+    use crate::sim::intern::test_intern;
 
     fn square(x: u16, y: u16, radius: u16) -> Vec<(u16, u16)> {
         (y - radius..=y + radius)
@@ -274,57 +274,51 @@ mod tests {
             .collect()
     }
 
-    /// A kept viewer's writes and a deferred viewer's, with another use of
-    /// the deferred plane between them and a walk reaching the map's edge,
-    /// which cannot wait.
-    fn script(
-        kept: InternedId,
-        deferred: InternedId,
-    ) -> Vec<(InternedId, PlaneWrite, Vec<(u16, u16)>)> {
-        let mut script = Vec::new();
-        for viewer in [kept, deferred] {
-            let sources = |add| PlaneWrite::Sources { local: true, add };
-            script.extend([
-                (viewer, sources(true), square(6, 6, 2)),
-                (
-                    viewer,
-                    PlaneWrite::Reveal { final_pass: false },
-                    square(6, 6, 2),
-                ),
-                (viewer, PlaneWrite::Border, square(6, 6, 3)),
-                (viewer, PlaneWrite::Mark, square(6, 6, 2)),
-                (viewer, sources(true), square(7, 6, 2)),
-                (
-                    viewer,
-                    PlaneWrite::Reveal { final_pass: false },
-                    square(2, 3, 2),
-                ),
-                (viewer, sources(false), square(6, 6, 2)),
-                (
-                    viewer,
-                    PlaneWrite::Reveal { final_pass: true },
-                    square(6, 6, 2),
-                ),
-                (viewer, PlaneWrite::Border, square(7, 6, 3)),
-                (
-                    viewer,
-                    PlaneWrite::Reveal { final_pass: false },
-                    square(7, 6, 2),
-                ),
-            ]);
-        }
-        script
+    /// One viewer's writes: walks, border refreshes and source counts over
+    /// interior cells, which wait while deferring, and over the unallocated
+    /// cell (9, 6) and beside it, where lookups read the shared Dummy, or at
+    /// the map's edge, which apply at once.
+    fn script() -> Vec<(PlaneWrite, Vec<(u16, u16)>)> {
+        let sources = |add| PlaneWrite::Sources { local: true, add };
+        let walk = |final_pass| PlaneWrite::Reveal { final_pass };
+        vec![
+            (sources(true), square(5, 11, 2)),
+            (walk(false), square(5, 11, 2)),
+            (PlaneWrite::Border, square(5, 11, 3)),
+            (walk(false), square(9, 6, 1)),
+            (sources(true), square(6, 11, 2)),
+            (walk(false), square(6, 11, 2)),
+            (PlaneWrite::Border, square(8, 6, 2)),
+            (walk(false), square(2, 3, 2)),
+            (sources(false), square(5, 11, 2)),
+            (walk(true), square(5, 11, 2)),
+            (PlaneWrite::Border, square(6, 11, 3)),
+            (walk(false), square(7, 11, 2)),
+        ]
     }
 
-    /// Each plane as debug text, its derived lists included.
-    fn run(defer: bool, kept: InternedId, deferred: InternedId) -> Vec<String> {
+    /// A kept and a deferred viewer's writes in turn on a map with a hole,
+    /// with another use of the deferred plane between them: each plane as
+    /// debug text, its derived lists included, and where the Dummy was last
+    /// stamped.
+    fn run(defer: bool) -> (Vec<String>, (i16, i16)) {
+        let mut terrain = test_grid(16, 16, test_flat_cell);
+        let allocated: Vec<_> = (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|&cell| cell != (9, 6))
+            .collect();
+        terrain.test_set_native_allocated_cells(&allocated);
+        let query = NativeCellQuery::isolated(&terrain);
+        let (kept, deferred) = (test_intern("Kept"), test_intern("Deferred"));
         let mut planes = Planes::default();
         if defer {
             planes.defer(vec![kept]);
         }
-        for (step, (viewer, write, cells)) in script(kept, deferred).into_iter().enumerate() {
-            planes.write(viewer, (16, 16), write, &cells, None);
-            if step == 13 {
+        for (step, (write, cells)) in script().into_iter().enumerate() {
+            for viewer in [kept, deferred] {
+                planes.write(viewer, (16, 16), write, &cells, Some(&query));
+            }
+            if step == 4 {
                 planes.get_mut(&deferred);
             }
         }
@@ -333,13 +327,15 @@ mod tests {
             assert!(planes.planes[&kept].waiting.is_empty());
         }
         planes.settle();
-        planes.iter().map(|plane| format!("{plane:?}")).collect()
+        (
+            planes.iter().map(|plane| format!("{plane:?}")).collect(),
+            query.coord(NativeCellIdentity::Dummy),
+        )
     }
 
     #[test]
     fn waiting_writes_end_as_immediate_ones() {
-        let (kept, deferred) = (test_intern("Kept"), test_intern("Deferred"));
-        assert_eq!(run(true, kept, deferred), run(false, kept, deferred));
+        assert_eq!(run(true), run(false));
     }
 
     #[test]
@@ -348,7 +344,11 @@ mod tests {
         let viewer = test_intern("Deferred");
         let mut planes = Planes::default();
         planes.defer(Vec::new());
-        planes.write(viewer, (16, 16), PlaneWrite::Mark, &square(6, 6, 1), None);
+        let count = PlaneWrite::Sources {
+            local: true,
+            add: true,
+        };
+        planes.write(viewer, (16, 16), count, &square(6, 6, 1), None);
         let _ = planes.get(&viewer);
     }
 }

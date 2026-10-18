@@ -358,18 +358,6 @@ impl OwnerVisibility {
         }
     }
 
-    /// Mark each of a retained footprint's `cells` as current sight
-    /// ([`FogState::mark_sight_admission`]).
-    fn mark_cells(&mut self, cells: &[(u16, u16)]) {
-        for &(x, y) in cells {
-            let Some(index) = self.index(x, y) else {
-                continue;
-            };
-            self.mark_sight(x, y);
-            self.publish_knowledge(index);
-        }
-    }
-
     /// Count a retained footprint in, with `add`, or out of each of its
     /// `cells`' source counts: the local ones for its owner's own plane
     /// (`local`), else the allied ones ([`FogState::retain_sight_admission`]).
@@ -868,13 +856,16 @@ impl FogState {
     /// Rebuild the derived current-sight projection without emitting another
     /// native reveal or changing Cell cache bytes.
     pub(crate) fn mark_sight_admission(&mut self, viewer: InternedId, admission: &SightAdmission) {
-        self.by_owner.write(
-            viewer,
-            (self.width, self.height),
-            PlaneWrite::Mark,
-            &admission.cells,
-            None,
-        );
+        let vis = self
+            .by_owner
+            .get_or_insert_with(viewer, || OwnerVisibility::new(self.width, self.height));
+        for &(x, y) in &admission.cells {
+            let Some(index) = vis.index(x, y) else {
+                continue;
+            };
+            vis.mark_sight(x, y);
+            vis.publish_knowledge(index);
+        }
     }
 
     /// Mark each footprint source `stable_id` retains as current sight on

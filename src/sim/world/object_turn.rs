@@ -742,15 +742,19 @@ impl Simulation {
 
         let mut outcome = LiveObjectPassOutcome::default();
         // Sight writes to the maps the pass never reads wait for its end,
-        // and apply map by map in parallel (`vision::Planes`).
-        let kept = self
-            .houses
-            .keys()
-            .copied()
-            .filter(|&house| self.owner_is_human(house))
-            .chain(self.session.current_house)
-            .collect();
-        self.fog.by_owner.defer(kept);
+        // and apply map by map in parallel (`vision::Planes`). Without a
+        // current house the app's sound boundary reads the map of whichever
+        // house it falls back to, so none waits.
+        if let Some(current) = self.session.current_house {
+            let kept = self
+                .houses
+                .keys()
+                .copied()
+                .filter(|&house| self.owner_is_human(house))
+                .chain([current])
+                .collect();
+            self.fog.by_owner.defer(kept);
+        }
         let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;
             outcome.destroyed_structure |= turn.destroyed_structure;

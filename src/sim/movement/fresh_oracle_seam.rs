@@ -6,12 +6,17 @@
 //! the oracle's substitutions, their bodies do not run. Nothing is supplied,
 //! recorded or skipped unless a test installs the queues. Walk's response
 //! corpus opts into live effects: the same boundaries are recorded while the
-//! real Scatter and Override bodies run.
+//! real Scatter and Override bodies run. The Teleport resolver's replay
+//! (`tools/spatial_oracle/cmin_dock`) supplies only Find_Nearby_Passable_Cell's
+//! answer at `0x00719185`, which that harness stubs; Can_Enter_Cell and every
+//! effect run for real.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
+use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::sim::combat::TargetKind;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint};
 
 /// A supplied `Find_Path` answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,12 +55,29 @@ pub(crate) enum FreshCallRecord {
     UncloakContacts {
         cell: (i16, i16),
     },
+    /// A supplied Find_Nearby_Passable_Cell answer, with the seed and every
+    /// argument the caller passed.
+    NearbyCell {
+        seed: (i32, i32),
+        speed_type: SpeedType,
+        zone: Option<u32>,
+        movement_zone: MovementZone,
+        bridge_aware_zone: bool,
+        footprint: NearbyFootprint,
+        allow_bridge_cells: bool,
+        check_height: bool,
+        check_occupancy: bool,
+        target_cell: Option<(i32, i32)>,
+        reject_any_overlay: bool,
+    },
 }
 
 #[derive(Default)]
 struct Seam {
     codes: VecDeque<u8>,
     paths: VecDeque<SuppliedPath>,
+    /// Find_Nearby_Passable_Cell answers; `None` runs the real search.
+    nearby: Option<VecDeque<Option<(u16, u16)>>>,
     records: Vec<FreshCallRecord>,
     core_null: bool,
     live_effects: bool,
@@ -72,6 +94,7 @@ pub(crate) fn install(codes: Vec<u8>, paths: Vec<SuppliedPath>) {
         *seam.borrow_mut() = Some(Seam {
             codes: codes.into(),
             paths: paths.into(),
+            nearby: None,
             records: Vec::new(),
             core_null: false,
             live_effects: false,
@@ -99,13 +122,23 @@ pub(crate) fn install_path_only(paths: Vec<SuppliedPath>) {
     });
 }
 
+/// A composed native comparison that supplies only Find_Nearby_Passable_Cell's
+/// answers; `None` is the null cell.
+pub(crate) fn install_nearby_only(answers: Vec<Option<(u16, u16)>>) {
+    install_path_only(Vec::new());
+    SEAM.with(|seam| seam.borrow_mut().as_mut().unwrap().nearby = Some(answers.into()));
+}
+
 /// Remove the seam, returning the records and any unused answers.
 pub(crate) fn finish() -> (Vec<FreshCallRecord>, usize) {
     SEAM.with(|seam| {
         seam.borrow_mut().take().map_or((Vec::new(), 0), |seam| {
             (
                 seam.records,
-                seam.codes.len() + seam.paths.len() + usize::from(seam.core_null),
+                seam.codes.len()
+                    + seam.paths.len()
+                    + seam.nearby.as_ref().map_or(0, VecDeque::len)
+                    + usize::from(seam.core_null),
             )
         })
     })
@@ -144,6 +177,37 @@ pub(crate) fn supplied_can_enter(cell: (i16, i16), direction: i32, height: i32) 
             code,
         });
         Some(code)
+    })
+}
+
+/// The supplied answer for one Find_Nearby_Passable_Cell call, recorded with
+/// its arguments; `None` when no answers are installed.
+pub(crate) fn supplied_nearby_cell(
+    seed: (i32, i32),
+    args: NearbyArgs,
+) -> Option<Option<(u16, u16)>> {
+    SEAM.with(|seam| {
+        let mut seam = seam.borrow_mut();
+        let seam = seam.as_mut()?;
+        let answer = seam
+            .nearby
+            .as_mut()?
+            .pop_front()
+            .expect("unsupplied Find_Nearby_Passable_Cell");
+        seam.records.push(FreshCallRecord::NearbyCell {
+            seed,
+            speed_type: args.passability.speed_type,
+            zone: args.passability.required_zone_id,
+            movement_zone: args.passability.movement_zone,
+            bridge_aware_zone: args.passability.bridge_aware_zone,
+            footprint: args.footprint,
+            allow_bridge_cells: args.allow_bridge_cells,
+            check_height: args.check_height,
+            check_occupancy: args.check_occupancy,
+            target_cell: args.target_cell,
+            reject_any_overlay: args.options.reject_any_overlay,
+        });
+        Some(answer)
     })
 }
 

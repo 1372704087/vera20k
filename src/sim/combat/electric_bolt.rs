@@ -106,8 +106,12 @@ pub(crate) fn fired(
         return;
     };
     let from = bolt_source(world, rules, source, object, index);
-    // `0x006FD5E2..0x006FD5FA` and SetOwner's own gate: a live Unit out of
-    // Limbo. Its `+0x6DC` slot is the app registry's.
+    // `0x006FD5E2..0x006FD5FA` admits a live Unit (its `+0x6DC` slot is the
+    // app registry's); SetOwner (`0x004C2BF2`) then refuses one in Limbo.
+    // RESIDUAL: native has already stored the bolt in `+0x6DC` by then
+    // (`0x006FD600`), so a Limbo Unit's slot stays taken by an unowned bolt
+    // and its later bolts never follow; here the slot stays free. Trigger: a
+    // Limbo Unit firing an IsElectricBolt weapon; no retail case is known.
     let owner = (source.category() == crate::map::entities::EntityCategory::Unit
         && source.is_object_alive()
         && !source.in_limbo())
@@ -168,8 +172,9 @@ pub(crate) fn create(
             },
         ));
     // Init4C2B30 supplies the copied TARGET, no owner/attachment and static
-    // zero aim8A0E50; SetOwner follows only for FireAt's Unit bolt. The constructor alone owns ID allocation and live
-    // Logic tail registration. A preceding Inviso Bullet can remove itself
+    // zero aim8A0E50; SetOwner follows only for FireAt's Unit bolt. The
+    // constructor alone owns ID allocation and live Logic tail
+    // registration. A preceding Inviso Bullet can remove itself
     // and compact this entry behind the advancing cursor, deferring its AI
     // to the next pass (electric_bolt.json's live scheduling controls).
     if let Some(system_type) = rules

@@ -3611,6 +3611,22 @@ impl Simulation {
                 self.sound_events.push(SimSoundEvent::TriggerEva { index });
                 frame_effects.flush_sound(self, rules);
             }
+            59 => {
+                let (Some(rules), Some(registry), Some(waypoint)) =
+                    (rules, overlay_registry, value)
+                else {
+                    return false;
+                };
+                return self.trigger_reduce_tiberium_at_waypoint(waypoint, rules, registry);
+            }
+            86 => {
+                let Some(value) = value else {
+                    return false;
+                };
+                self.production
+                    .ore_growth_config
+                    .set_enabled_from_trigger(value);
+            }
             88 => {
                 let (Some(rules), Some(index), Some(waypoint)) =
                     (rules, value, action.waypoint_index)
@@ -4111,6 +4127,10 @@ mod lightning_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_explosion_tests.rs"]
 mod explosion_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_ore_tests.rs"]
+mod ore_tests;
 
 #[cfg(test)]
 #[path = "trigger_runtime_particle_tests.rs"]

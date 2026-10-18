@@ -1129,10 +1129,11 @@
      list in a box the page cannot reach. */
   .roster-peek {
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-    /* Not `width: 100%`: that would make the flex container claim the card's
-       full width before its chips had a chance to wrap, and the card then
-       sizes to the longest unwrapped row. Let it be a block that wraps. */
-    width: auto; min-width: 0; text-align: left;
+    /* `width: 100%` is load-bearing: a <button> is shrink-to-fit by default,
+       so `auto` would size it to one unwrapped row of chips and overflow the
+       card instead of wrapping. Fill the card and let `flex-wrap` do its job;
+       `min-width: 0` lets this box shrink below its content's min-content. */
+    width: 100%; min-width: 0; text-align: left;
     margin-top: 2px; padding: 6px 8px;
     background: rgba(0, 40, 70, 0.28);
     border: 1px solid var(--line);
@@ -1155,8 +1156,10 @@
     font-style: normal; font-variant-numeric: tabular-nums; color: var(--cyan); flex: none;
   }
   .roster-peek .peek-more {
-    margin-left: auto; font-size: 10px; color: var(--dim);
-    /* Wraps with the chips rather than pushing the line wider. */
+    font-size: 10px; color: var(--dim);
+    /* Wraps with the chips rather than pushing the line wider; `margin-left`
+       is dropped because on a wrapped row an auto margin would shove this
+       label to the far edge of its own line and read as detached. */
     white-space: normal; text-align: right;
   }
   .roster-peek .peek-empty { font-size: 11.5px; color: var(--dim); }

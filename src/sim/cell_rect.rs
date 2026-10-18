@@ -410,7 +410,10 @@ struct IsClearToMoveRequest {
     deck_occupation_bits: u8,
     ignore_infantry: bool,
     ignore_vehicles: bool,
-    /// `None` without a CellClass array: no land row can refuse.
+    /// `None` without a CellClass array (pre-Fill): VERA admits. Native's
+    /// constructor-default cells read the Clear row, which refuses Float and
+    /// FloatBeach; the one such caller, the pre-Fill start search, passes
+    /// Track, which that row admits.
     land: Option<CellLand>,
 }
 

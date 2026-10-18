@@ -677,7 +677,7 @@ pub fn test_flat_ground_grid(size: u16) -> ResolvedTerrainGrid {
 /// Retail `rulesmd.ini` `[Clear]` speed keys; a resolved-terrain test pins
 /// them to the retail file through the production land reader.
 #[cfg(any(test, feature = "test-support"))]
-const TEST_RETAIL_CLEAR_INI: &str = "[Clear]\nFoot=100%\nTrack=100%\nWheel=100%\nFloat=0%\n\
+pub(crate) const TEST_RETAIL_CLEAR_INI: &str = "[Clear]\nFoot=100%\nTrack=100%\nWheel=100%\nFloat=0%\n\
     Hover=50%\nAmphibious=80%\nFloatBeach=0%\n";
 
 /// The row the production land reader makes of retail `[Clear]`.
@@ -695,7 +695,7 @@ pub(crate) const TEST_RETAIL_CLEAR_SPEED_COSTS: SpeedCostProfile = SpeedCostProf
 /// Retail `[Clear]` read by the production land reader, for binding a test
 /// grid's land rows as a scenario load binds its rules.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) fn test_retail_clear_rules() -> TerrainRules {
+pub fn test_retail_clear_rules() -> TerrainRules {
     TerrainRules::from_ini(&crate::rules::ini_parser::IniFile::from_str(
         TEST_RETAIL_CLEAR_INI,
     ))
@@ -960,7 +960,7 @@ impl ResolvedTerrainGrid {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn set_land_speed_rules_for_test(&mut self, rules: &TerrainRules) {
+    pub fn set_land_speed_rules_for_test(&mut self, rules: &TerrainRules) {
         self.land_speed_costs = land_speed_cost_profiles(Some(rules));
     }
 

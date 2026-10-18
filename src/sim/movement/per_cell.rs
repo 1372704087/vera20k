@@ -970,7 +970,7 @@ impl Simulation {
             return;
         }
         if let Some(rules) = rules {
-            self.refresh_unit_sensor_at_per_cell(id, rules);
+            self.refresh_unit_sensor_at_per_cell(id, rules, registry);
         }
         //4D8657..4D868D compares the two coarse threat buckets and migrates
         //the cached contribution BEFORE4D870E replaces retained Foot+55C.

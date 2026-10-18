@@ -488,6 +488,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_temporal: Option<bool>,
+    /// Add immutable cloak timers and playfield membership to the existing projection.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_cloak: Option<bool>,
     /// Read the existing spawn manager's ordered pool and count queries.
     #[serde(
         default,
@@ -586,6 +593,7 @@ impl MapCaptureProfile {
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
                     && self.observe_temporal.is_none()
+                    && self.observe_cloak.is_none()
                     && self.observe_spawns.is_none()
                     && self.observe_crates.is_none()
                     && self.camera_cell.is_none()
@@ -1932,9 +1940,23 @@ fn fire_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) ->
     json!({"last_fire_frame": entity.last_fire_frame.frame(),
         "body_counter": entity.body_frame_counter,
         "stage_value": entity.native_stage().value(),
-        "rearm": {"start_frame": entity.rearm_timer.start_frame(),
-            "duration": entity.rearm_timer.duration(),
-            "remaining": entity.rearm_timer.remaining(frame)}})
+        "rearm": timer_observation(entity.rearm_timer.timer(), frame)})
+}
+
+fn timer_observation(timer: crate::sim::timer::CdTimer, frame: i32) -> Value {
+    json!({"start_frame": timer.start_frame(), "duration": timer.duration(),
+        "remaining": timer.remaining(frame)})
+}
+
+fn cloak_runtime_observation(
+    cloak: &crate::sim::cloak_disguise::CloakRuntime,
+    in_playfield: bool,
+    frame: i32,
+) -> Value {
+    let step = cloak.step_timer();
+    json!({"in_playfield": in_playfield, "step_delta_i32": cloak.step_delta(),
+        "step_speed_i32": step.speed(), "step_timer": timer_observation(step.timer(), frame),
+        "recloak_delay": timer_observation(cloak.recloak_delay(), frame)})
 }
 
 fn temporal_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
@@ -2514,6 +2536,9 @@ impl MapObservation {
                         .and_then(|count| count.checked_add(spawn_sample_count(&actor["spawns"])))
                         .and_then(|count| {
                             count.checked_add(temporal_sample_count(&actor["temporal"]))
+                        })
+                        .and_then(|count| {
+                            count.checked_add(usize::from(actor["cloak"].get("runtime").is_some()))
                         })
                 })
             })
@@ -3601,13 +3626,21 @@ impl TacticalCaptureSession {
                     let object = rules
                         .object(type_name)
                         .context("cloak observation type absent")?;
-                    Some(json!({
+                    let mut snapshot = json!({
                         "state_i32": cloak.state(),
                         "progress_i32": cloak.depth() as i32,
                         "cloaking_stages_i32": rules.general.cloaking_stages,
                         "voxel": entity.is_voxel(),
                         "no_shadow": object.no_shadow,
-                    }))
+                    });
+                    if profile.observe_cloak == Some(true) {
+                        snapshot["runtime"] = cloak_runtime_observation(
+                            cloak,
+                            entity.in_playfield(),
+                            sim.session.binary_frame as i32,
+                        );
+                    }
+                    Some(snapshot)
                 } else {
                     None
                 };
@@ -3653,7 +3686,10 @@ impl TacticalCaptureSession {
                 if profile.observe_electric_bolts == Some(true) {
                     observation["damage_smoke_system_id"] = json!(entity.damage_smoke_system_id);
                 }
-                if profile.observe_bombs == Some(true) || profile.observe_temporal == Some(true) {
+                if profile.observe_bombs == Some(true)
+                    || profile.observe_temporal == Some(true)
+                    || profile.observe_cloak == Some(true)
+                {
                     observation["fire"] = fire_observation(entity, sim.session.binary_frame as i32);
                 }
                 if profile.observe_temporal == Some(true) {
@@ -4510,6 +4546,49 @@ mod tests {
     }
 
     #[test]
+    fn cloak_runtime_snapshot_reads_timers_and_membership_without_advancing_state() {
+        use crate::rules::retail_ini_fixture::retail_battle_rules;
+        use crate::sim::cloak_disguise::CloakTickFacts;
+
+        let Some(retail) = retail_battle_rules() else {
+            return;
+        };
+        let mut sim = crate::sim::arena_fixture::rival_water_arena(&retail.rules, 0xC10A_0028, 64);
+        let sub = sim
+            .spawn_object("SUB", "Americans", 24, 24, 64, &retail.rules)
+            .unwrap();
+        // Exercise a running owner timer without modelling the world admission
+        // predicate here. World gameplay tests cover that independent input.
+        let cloak = sim
+            .substrate
+            .entities
+            .get_mut(sub)
+            .unwrap()
+            .cloak
+            .as_mut()
+            .unwrap();
+        cloak.tick(
+            CloakTickFacts::new(17, true, true, false, true, 5, 18, 9, false, true, false),
+            &mut sim.scenario_rng,
+        );
+        let hash = sim.state_hash();
+        let rng = sim.rng_state();
+        let actor = sim.substrate.entities.get(sub).unwrap();
+        let cloak = actor.cloak.as_ref().unwrap();
+        let retained = *cloak;
+        assert!(actor.in_playfield());
+        assert_eq!(
+            cloak_runtime_observation(cloak, actor.in_playfield(), 18),
+            json!({"in_playfield": true, "step_delta_i32": 1, "step_speed_i32": 5,
+                "step_timer": {"start_frame": 17, "duration": 5, "remaining": 4},
+                "recloak_delay": {"start_frame": 0, "duration": 0, "remaining": 0}})
+        );
+        assert_eq!(*cloak, retained);
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+
+    #[test]
     fn temporal_snapshots_read_public_owners_without_advancing_state() {
         use crate::rules::retail_ini_fixture::retail_battle_rules;
         use crate::sim::{temporal::TemporalState, world::Simulation};
@@ -5103,6 +5182,9 @@ mod tests {
         legacy.observe_temporal = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
+        legacy.observe_cloak = Some(false);
+        assert!(legacy.validate().is_err());
+        let mut legacy = example();
         legacy.observe_spawns = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
@@ -5138,6 +5220,7 @@ mod tests {
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
         modern["observe_temporal"] = json!(true);
+        modern["observe_cloak"] = json!(true);
         modern["observe_spawns"] = json!(true);
         modern["observe_crates"] = json!(true);
         modern["cursor_position"] = json!([720, 556]);
@@ -5163,6 +5246,7 @@ mod tests {
             "observe_electric_bolt_steps",
             "observe_bombs",
             "observe_temporal",
+            "observe_cloak",
             "observe_spawns",
             "observe_crates",
             "camera_cell",
@@ -5182,6 +5266,7 @@ mod tests {
         modern["observe_action_line_inputs"] = json!(false);
         modern["observe_spawns"] = json!(false);
         modern["observe_temporal"] = json!(false);
+        modern["observe_cloak"] = json!(false);
         let disabled: MapCaptureProfile = serde_json::from_value(modern.clone()).unwrap();
         disabled.validate().unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap(), modern);
@@ -5189,6 +5274,7 @@ mod tests {
             "observe_action_line_inputs",
             "observe_spawns",
             "observe_temporal",
+            "observe_cloak",
         ] {
             for value in [json!(0), json!(1), json!("true"), json!([])] {
                 let mut invalid = modern.clone();

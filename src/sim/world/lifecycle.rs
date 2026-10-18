@@ -3553,7 +3553,7 @@ impl Simulation {
         // FootClass::Limbo @ 0x004DB260 and BuildingClass::Limbo @
         // 0x00445880 remove the exact deposited footprint before conceal.
         if let Some(rules) = context.rules() {
-            self.remove_sensor_before_limbo_with_rules(stable_id, rules);
+            self.remove_sensor_before_limbo_with_rules(stable_id, rules, context.registry());
         } else {
             self.remove_sensor_before_limbo(stable_id);
         }

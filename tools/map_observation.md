@@ -182,6 +182,30 @@ no transition, timer or movement callback. Historical sealed receipts may omit
 it; omission supplies no cloak-state evidence. This records VERA production
 inputs and does not independently establish native timing or whole-object parity.
 
+Optional v2/v3 `observe_cloak: true` extends this same `cloak` projection with
+`runtime`: retained `in_playfield` (`Techno+3D5`), signed `step_delta_i32` and
+`step_speed_i32`, and `step_timer`/`recloak_delay` rows containing signed
+`start_frame`, `duration` and `remaining`. A null cloak stays null. The same flag
+adds the existing actor `fire` readback, including the separate weapon rearm
+timer; combining it with bomb or Temporal observation emits `fire` once. These
+are public immutable owner queries, with no range test, transition, RNG draw,
+membership change or inferred phase. Count each non-null extended cloak row
+toward the shared 100000-sample budget. False or absent preserves the old cloak
+and actor byte schema. This additive extension requires current child/wrapper
+v8 when true; older sealed policies remain readable without it or with false.
+V1 rejects any presence, and null/nonboolean flag values are invalid.
+
+For an ordinary SUB retained-target control, reuse the Dreadnought water terrain
+as in the AEGIS recipe below. Its existing lake includes (38,48) and (54,48).
+Author full-health stock SUB/DEST with native scenario House names
+`<human player>`/`Computer`, then issue ordinary Attack at completed step0.
+Measure L0 playfield/cell/Logic membership, state and timers, actual command
+execution and the next committed state before relying on pre-first-AI admission.
+Do not infer reveal from a SUB shot: retail SubTorpedo has `DecloakToFire=no`.
+An ordinary Stop can clear the retained target for cleanup. A schedule is not
+proof of admission, and this fixture does not independently establish native
+range, frame, pixel or sound parity.
+
 Foot's optional `track` observation reads the installed Drive/Ship owner's
 destination and head XYZ, selector, signed cursor and valid byte. It sends no
 movement callback and creates no runtime. A paid head may survive Stop after

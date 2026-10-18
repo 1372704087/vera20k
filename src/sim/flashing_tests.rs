@@ -16,6 +16,7 @@ const RULES: &str = "\
 0=HTNK
 [AircraftTypes]
 [BuildingTypes]
+0=GAPOWR
 [Warheads]
 0=SA
 [E1]
@@ -29,6 +30,9 @@ Strength=1000
 Speed=4
 ROT=5
 Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}
+[GAPOWR]
+Strength=750
+Foundation=2x2
 [M60]
 Damage=15
 ROF=20
@@ -48,7 +52,11 @@ fn rules() -> RuleSet {
 /// Americans and Russians, enemies; the current player is `player`.
 fn arena(rules: &RuleSet, player: &str) -> (Simulation, crate::sim::pathfinding::PathGrid) {
     let mut sim = Simulation::with_seed(7);
-    for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
+    for (name, side, human) in [
+        ("Americans", 0, true),
+        ("Russians", 1, false),
+        ("British", 0, false),
+    ] {
         let id = sim.interner.intern(name);
         sim.houses
             .insert(id, HouseState::new(id, side, None, human, 0, 10));
@@ -197,4 +205,76 @@ fn a_unit_disguised_without_a_house_stays_dark_to_the_enemy_player() {
     sim.session.current_house = Some(sim.interner.intern("Russians"));
     sim.flash_object(mirage, 5);
     assert_eq!(flash(&sim, mirage), 5, "its owner sees through it");
+}
+
+/// The player's own ally mask decides (`0x004F9A90` reads the asker's +5788):
+/// a house that names the player an ally, without the player naming it back,
+/// does not flash for the player.
+#[test]
+fn the_order_flash_asks_the_current_players_one_way_alliance() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules, "Americans");
+    let tommy = spawn(&mut sim, &rules, "E1", "British", 10, 10);
+    let tank = spawn(&mut sim, &rules, "HTNK", "Russians", 13, 10);
+    let attack = Command::Attack {
+        attacker_id: tommy,
+        target_id: tank,
+    };
+
+    sim.house_alliances
+        .insert("BRITISH".into(), ["AMERICANS".to_string()].into());
+    order(&mut sim, &rules, &grid, attack.clone(), "British");
+    assert_eq!(flash(&sim, tank), 0);
+
+    sim.house_alliances
+        .insert("AMERICANS".into(), ["BRITISH".to_string()].into());
+    order(&mut sim, &rules, &grid, attack, "British");
+    assert_eq!(flash(&sim, tank), 7);
+}
+
+/// A building keeps the base gate (`0x0041C020`/`0x0041BE70`): its raw
+/// disguise flag hides it from every player, its owner included.
+#[test]
+fn a_building_flashes_unless_its_raw_disguise_flag_is_up() {
+    let rules = rules();
+    let mut sim = Simulation::with_seed(7);
+    let americans = sim.interner.intern("Americans");
+    sim.houses
+        .insert(americans, HouseState::new(americans, 0, None, true, 0, 10));
+    sim.session.house_order.push(americans);
+    sim.session.current_house = Some(americans);
+    let power = spawn(&mut sim, &rules, "GAPOWR", "Americans", 10, 10);
+    sim.flash_object(power, 7);
+    assert_eq!(flash(&sim, power), 7);
+    sim.substrate
+        .entities
+        .get_mut(power)
+        .unwrap()
+        .disguise
+        .get_or_insert_with(|| DisguiseRuntime::new(0))
+        .acquire(0, None, Some(americans));
+    sim.flash_object(power, 3);
+    assert_eq!(flash(&sim, power), 7);
+}
+
+/// A present destination object wins over the target object.
+#[test]
+fn the_order_flash_prefers_the_destination_object() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules, "Americans");
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", 10, 10);
+    let tank = spawn(&mut sim, &rules, "HTNK", "Russians", 13, 10);
+    let other = spawn(&mut sim, &rules, "HTNK", "Russians", 16, 10);
+    order(
+        &mut sim,
+        &rules,
+        &grid,
+        Command::AttackMove {
+            entity_id: gi,
+            target: Some(crate::sim::combat::TargetKind::Entity(tank)),
+            destination: Some(crate::sim::combat::TargetKind::Entity(other)),
+        },
+        "Americans",
+    );
+    assert_eq!((flash(&sim, tank), flash(&sim, other)), (0, 7));
 }

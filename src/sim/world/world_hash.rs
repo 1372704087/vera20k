@@ -1768,12 +1768,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.veterancy.rank().hash(hasher);
     entity.veterancy.raw().bits().hash(hasher);
     entity.veterancy.rank_cache().hash(hasher);
-    // Folded only while armed so the legacy default-zero hash stream
-    // is preserved (the `no_damage` pattern).
-    if entity.flashing.frames() != 0 {
-        b"elite-flash-v1".hash(hasher);
-        entity.flashing.frames().hash(hasher);
-    }
+    // The flash countdown (+F0) is not folded: TechnoClass::Flash's gate and
+    // the MegaMission event's flash read the current player, so lockstep
+    // peers hold different values, and no gameplay decision reads it.
     entity.crate_multipliers.armor().bits().hash(hasher);
     // Folded only once a Firepower crate changed it, so the legacy
     // hash stream of every untouched object is preserved.

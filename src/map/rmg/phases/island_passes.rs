@@ -14,13 +14,12 @@
 //! the active connector/low-deck owner in `carve_driver`; that separation keeps
 //! this module's only draw in the narrow dissolve case (see [`flood_build`]).
 
-use crate::map::rmg::grid::RmgGrid;
+use crate::map::rmg::grid::{CellRef, RmgGrid};
 use crate::map::rmg::rng::RmgRng;
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::tiles::TileIds;
 use crate::map::rmg::x87::{self, TruncF64};
 
-use super::CellRef;
 use super::regions::{Regions, RmgRegion};
 
 /// One terrain step. Cliff lines are exactly this far apart, which is what
@@ -74,8 +73,7 @@ pub(crate) fn ring_mask(
     for dir in [1, 2, 3, 4, 5, 6, 7, 0] {
         let (nx, ny) = RmgGrid::step(x, y, dir);
         let (nx, ny) = (i32::from(nx as i16), i32::from(ny as i16));
-        neighbors[dir] = (CellRef::at(grid, nx, ny), (nx, ny));
-        grid.cell_native(nx, ny);
+        neighbors[dir] = (grid.cell_ref(nx, ny), (nx, ny));
     }
     let mut mask = 0;
     for dir in [7, 0, 1, 6, 2, 5, 4, 3] {
@@ -83,10 +81,7 @@ pub(crate) fn ring_mask(
         if !scratch.in_diamond(nx, ny) {
             continue;
         }
-        let cell = match held {
-            CellRef::Cell(cx, cy) => *grid.cell_native(i32::from(cx), i32::from(cy)),
-            CellRef::Border => *grid.border_cell_mut(),
-        };
+        let cell = grid.ref_cell(held);
         if i32::from(cell.level as i8) == target
             && !ids.cliffs.is_special_terrain_tile(cell.tile, cell.sub_tile)
         {
@@ -188,27 +183,20 @@ pub(super) fn raise_pinched(
     let mut pending = Some((x, y));
     loop {
         if let Some((cx, cy)) = pending.take() {
-            let held = CellRef::at(grid, cx, cy);
-            grid.cell_native(cx, cy);
+            let held = grid.cell_ref(cx, cy);
             let mask = ring_mask(grid, scratch, ids, cx, cy);
             // All trench probes precede the final opposite-cardinal test.
             let pinched = is_pinched(grid, scratch, ids, cx, cy, mask);
             let forced = mask & 0x88 == 0x88 || mask & 0x22 == 0x22;
             if forced || pinched {
-                let (tx, ty) = match held {
-                    CellRef::Cell(tx, ty) => (i32::from(tx), i32::from(ty)),
-                    CellRef::Border => grid.border_coord(),
-                };
+                let (tx, ty) = grid.ref_coord(held);
                 let owner = scratch.get(tx, ty).region;
                 if owner > 0 && owner != tag && tag != -1 {
                     if frames.is_empty() {
                         return false;
                     }
                 } else {
-                    let cell = match held {
-                        CellRef::Cell(tx, ty) => grid.cell_native_mut(i32::from(tx), i32::from(ty)),
-                        CellRef::Border => grid.border_cell_mut(),
-                    };
+                    let cell = grid.ref_cell_mut(held);
                     cell.level = cell.level.wrapping_add(LEVEL_STEP);
                     scratch.get_mut(tx, ty).region = tag;
                     frames.push((held, 0));
@@ -222,10 +210,7 @@ pub(super) fn raise_pinched(
             frames.pop();
             continue;
         }
-        let (px, py) = match *held {
-            CellRef::Cell(px, py) => (i32::from(px), i32::from(py)),
-            CellRef::Border => grid.border_coord(),
-        };
+        let (px, py) = grid.ref_coord(*held);
         let (nx, ny) = RmgGrid::step(px, py, *next_dir);
         *next_dir += 1;
         pending = Some((i32::from(nx as i16), i32::from(ny as i16)));

@@ -5,12 +5,16 @@ This module supplies explicit component priors and observes original
 instructions; Python computes no function return or expected value. The
 sidecar records the supplied boundaries. Importing it performs no asset reads,
 VM construction or native execution. With RA2_DIR and VERA20K_GAMEMD_EXE set,
-`python -m tools.rmg_oracle.cliff_materialization --check` replays the retained
-controls and the full raw archive.
+`python -m tools.rmg_oracle.cliff_materialization --check` replays the controls
+and compares the corpus `cliff_native_tests` consumes; `--write` replaces it.
+
+The corpus keeps only consumed observations: the Cell/Dummy fields Rust models,
+per-record scratch region changes, ordered MapGen draws and every `57B440`
+call's AL and caller out-bool. Projection refuses a native change outside those
+fields instead of dropping it.
 """
 from __future__ import annotations
 
-from bisect import bisect_right
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -62,6 +66,14 @@ CELL_RECEIVERS = frozenset((0x486380, 0x4863D0, 0x4865B0, 0x481810))
 ORDERED_CALLS = frozenset(('materialize', 'raise', 'select', 'shared_stamp',
                            'variant', 'jitter', 'restamp', 'unconditional_stamp',
                            'scaled_range', 'next', 'placement'))
+# Cell+38 tile (signed dword), +11A subtile, +11B level, +11C slope: the Cell
+# fields RmgGrid models. Dummy+24/+26 hold the last stamped lookup coordinate.
+CELL_FIELD_BYTES = frozenset(range(0x38, 0x3C)) | {0x11A, 0x11B, 0x11C}
+DUMMY_COORD_BYTES = frozenset(range(0x24, 0x28))
+REGION_BYTES = frozenset(range(0x38, 0x3C))
+# Placement origin global (88095C) read by 57B440 for the selected TileType.
+PLACEMENT_ORIGIN = MAP + 0x1174
+SELECTED_TYPE = 0x880990
 
 
 def cell(x, y, **values):
@@ -231,6 +243,46 @@ def compact_calls(calls):
                         for (n, e, r), count in sorted(counts.items())], ordered=ordered)
 
 
+def require_projected(before, after, allowed, owner):
+    """Refuse to drop a native byte change outside the consumed fields."""
+    outside = sorted(n for n, (old, new) in enumerate(zip(before, after))
+                     if old != new and n not in allowed)
+    if len(before) != len(after) or outside:
+        raise ValueError(f'{owner} changed unprojected bytes {[hex(n) for n in outside[:8]]}')
+
+
+def cell_fields(raw):
+    """Read the modeled fields from an observed Cell image; no Cell logic."""
+    return dict(tile=struct.unpack_from('<i', raw, 0x38)[0], subtile=raw[0x11A],
+                level=raw[0x11B], slope=raw[0x11C])
+
+
+def dummy_fields(raw):
+    return dict(cell_fields(raw), coords=list(struct.unpack_from('<hh', raw, 0x24)))
+
+
+def region_changes(before, after):
+    """Per-record region changes over the whole observed scratch block."""
+    changes = []
+    for index in range(len(before) // RECORD_BYTES):
+        start = index * RECORD_BYTES
+        old, new = before[start:start + RECORD_BYTES], after[start:start + RECORD_BYTES]
+        if old == new:
+            continue
+        require_projected(old, new, REGION_BYTES, f'Scratch record {index}')
+        changes.append(dict(coords=[index % STRIDE, index // STRIDE],
+                            before=struct.unpack_from('<i', old, 0x38)[0],
+                            after=struct.unpack_from('<i', new, 0x38)[0]))
+    return changes
+
+
+def stamp_results(calls):
+    """Every observed 57B440 call in order: selected tile/origin, AL, out-bool."""
+    return [dict(tile=call['tile'], origin=call['origin'], al=call['return_eax'] & 255,
+                 outbool_before=call['outbool_before'], outbool=call['outbool'])
+            for call in calls if call['name'] == 'shared_stamp']
+
+
 class CliffFixture:
     """Compose one existing PaletteReader VM; no gameplay return substitutions."""
     def __init__(self):
@@ -251,7 +303,7 @@ class CliffFixture:
         self.code = code_guard(u)
         assets, sources = physical_assets(tile=True, tmp_names=('clear01.tem', 'cliff01.tem'))
         files = {s['name']: assets[s['name'].upper()] for s in sources}
-        parsed, authored = decode_cells(files['XMP03T4.MAP'])
+        _map, authored = decode_cells(files['XMP03T4.MAP'])
         authored_cell = authored[(18, 69)]
         tiles, mapping = tmp.theater_tile_files(m, files['temperatmd.ini'], authored_cell['tile'], 'tem')
         self.bases = dict(clear=m.read32(0xAA10B0), cliff=m.read32(0xAA1020), shore=m.read32(0xABAD28))
@@ -271,8 +323,8 @@ class CliffFixture:
         files = {s['name']: assets[s['name'].upper()] for s in sources}
         m.assets.update(assets)
         m.phase = 'cliff_tmp_preparation'
-        heads, file_io = tmp.load_tmp_files(m, {name: files[name] for name in names},
-                                           tile_ids={tiles[n]: n for n in ids})
+        heads, _file_io = tmp.load_tmp_files(m, {name: files[name] for name in names},
+                                            tile_ids={tiles[n]: n for n in ids})
         registry = m.alloc(len(tiles) * 4)
         self.heads = {}
         for n in ids:
@@ -284,7 +336,6 @@ class CliffFixture:
         u.mem_write(0xA8ED38, words(len(tiles)))
         m.invoke(0x579320, 0)  # Original CRT anchor initializer; BSS is not a file table.
         m.invoke(0x49F2F0, 0)  # Original neighbor direction initializer.
-        self.anchors = bytes(u.mem_read(0xABDDA4, 41 * 4)).hex()
         self.table, pointers = _prepare_flat_cells(m, range(32), range(32))
         m.invoke(0x47BBF0, DUMMY)
         self.backing = {(x, y): pointers[y * 32 + x] for y in range(32) for x in range(32)}
@@ -317,7 +368,7 @@ class CliffFixture:
                 membership_trace.returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
                 assert actual == (pointer if xy in admitted_set else DUMMY), 'Original lookup membership readback differs'
                 assert bytes(u.mem_read(actual + 0x24, 4)) == struct.pack('<hh', *xy), 'Original lookup coordinate readback differs'
-            membership_calls = compact_calls(membership_trace.calls)
+            compact_calls(membership_trace.calls)  # Every membership entry returned.
             assert not membership_trace.pending
         finally:
             u.hook_del(membership_hook)
@@ -326,7 +377,6 @@ class CliffFixture:
                                for xy, p in self.backing.items() if xy not in admitted_set}
         m.invoke(0x47BBF0, DUMMY)
         self.pointer_coords = {p: xy for xy, p in self.cells.items()}
-        self.starts = sorted(self.pointer_coords)
         self.scratch = m.alloc(STRIDE * STRIDE * RECORD_BYTES)
         for index in range(STRIDE * STRIDE):
             m.invoke(0x58BDC0, self.scratch + index * RECORD_BYTES)
@@ -339,34 +389,27 @@ class CliffFixture:
         u.mem_write(0x8A03F8, struct.pack('<hh', -32768, -32768))
         u.mem_write(0x88098C, words(0, 0))
         self.out = m.alloc(4)
-        self.coord = m.alloc(4)
         self.rngs = dict(scenario=m.read32(0xA8B230) + 0x218, main=0x886B88, mapgen=0xABE890)
         self.cell_prior = {xy: bytes(u.mem_read(p, CELL_BYTES)) for xy, p in self.cells.items()}
         self.scratch_prior = bytes(u.mem_read(self.scratch, STRIDE * STRIDE * RECORD_BYTES))
         self.map_prior = bytes(u.mem_read(MAP, 0x1200))
         self.dummy_prior = bytes(u.mem_read(DUMMY, CELL_BYTES))
         assert m.read32(DUMMY + 0x38) == 0xFFFF and u.mem_read(DUMMY + 0x11B, 1) == b'\0', f'Native Dummy prior differs: tile={m.read32(DUMMY + 0x38):08X}, level={u.mem_read(DUMMY + 0x11B, 1).hex()}'
-        self.inputs = dict(theater='TEMPERATE', sources=sources, authored_map=dict(name='XMP03T4.MAP',
-            section=parsed['Map'], coords=[18, 69], cell=authored_cell), binding=mapping,
-            bases=self.bases, registered_tiles=[self.registered_input(n, tiles[n]) for n in ids],
-            registered_count=len(tiles), file_io=file_io, anchors_hex=self.anchors,
-            scene=dict(domain=list(DOMAIN), map_size=list(MAP_SIZE), real_cells=len(self.cells),
-                       constructed_backing_cells=len(self.backing), admitted_cells=[list(xy) for xy in admitted],
-                       membership=dict(entry='00568300', lookup_readback='005657A0',
-                           readback_cells=len(self.backing), rejected_slots_zero=True,
-                           native_calls=membership_calls,
-                           boundary='Original admission supplies component lookup membership; original allocation history is unproven.'),
-                       scratch_stride=STRIDE, scratch_record_bytes=RECORD_BYTES,
-                       scratch_constructor_prior_hex=self.scratch_prior.hex(),
-                       scratch_unwritten_prior='Fresh mapped fixture storage is supplied zero; constructor-written fields are original58BDC0 outputs.',
-                       tagged_regions=[dict(coords=list(xy), region=1 + (xy[0] + xy[1]) % 3) for xy in self.cells],
-                       common=dict(tile=0, subtile=0, level=0, slope=0, region=0, eligible=1),
-                       dummy_prior_hex=self.dummy_prior.hex()),
-            family_globals={f'{p:08X}': m.read32(p) for p in FAMILY_GLOBALS},
-            fpcw=native.NATIVE_FPCW)
+        # Consumed inputs only. Provenance (theater, authored identity, file
+        # transport, membership boundary) stays in the sidecar assumptions.
+        # The supplied flat Cell prior is checked against every observed
+        # changed Cell's native before-image by the Rust consumer.
+        self.inputs = dict(
+            bases=self.bases, family_globals={f'{p:08X}': m.read32(p) for p in FAMILY_GLOBALS},
+            registered_tiles=[self.registered_input(n) for n in ids],
+            scene=dict(map_size=list(MAP_SIZE), scratch_stride=STRIDE,
+                       admitted_cells=[list(xy) for xy in admitted],
+                       common=dict(tile=0, subtile=0, level=0, slope=0),
+                       tagged_regions=[dict(coords=list(xy), region=1 + (xy[0] + xy[1]) % 3)
+                                       for xy in self.cells]))
         self._guard_returns()
 
-    def registered_input(self, tile, name):
+    def registered_input(self, tile):
         # Observe the actual original-loaded in-memory descriptor and sparse
         # header pointers consumed by57B440/5A6C10. This is not a file parser
         # or a Rust-supplied footprint. Height+28 is read at57B667; slope+2A
@@ -383,19 +426,17 @@ class CliffFixture:
             else:
                 level, terrain, slope = u.mem_read(header + 0x28, 3)
                 subtiles.append(dict(height=level, terrain=terrain, slope=slope))
-        return dict(tile=tile, name=name, width=width, height=height, subtiles=subtiles)
+        return dict(tile=tile, width=width, height=height, subtiles=subtiles)
 
     def _guard_returns(self):
         from unicorn.x86_const import UC_X86_REG_EIP
         original = self.m.ret
         self.active = False
-        self.transports = []
         def guarded(eax, cleanup=0):
             if self.active:
                 pc = self.u.reg_read(UC_X86_REG_EIP)
                 if pc not in TRANSPORT_RETURNS:
                     raise self.native.OracleError(f'Unadmitted hooked return at {pc:08X}')
-                self.transports.append(dict(pc=f'{pc:08X}', eax=eax, cleanup=cleanup))
             return original(eax, cleanup)
         self.m.ret = guarded
 
@@ -483,10 +524,8 @@ class CliffFixture:
 
     def run(self, row, pool):
         from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
-        from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDX,
-                                      UC_X86_REG_EBP, UC_X86_REG_EDI, UC_X86_REG_EIP,
-                                      UC_X86_REG_ESI, UC_X86_REG_ESP,
-                                      UC_X86_REG_FPCW)
+        from unicorn.x86_const import (UC_X86_REG_ECX, UC_X86_REG_EDX, UC_X86_REG_EIP,
+                                      UC_X86_REG_ESI, UC_X86_REG_ESP)
         from tools.spatial_oracle.building_body_rules import SP
         from tools.rmg_oracle.gen_rng_vectors import check_code
         self.reset(row)
@@ -495,45 +534,23 @@ class CliffFixture:
         before_cells = {xy: bytes(u.mem_read(p, CELL_BYTES)) for xy, p in self.cells.items()}
         before_scratch = bytes(u.mem_read(self.scratch, len(self.scratch_prior)))
         before_dummy = bytes(u.mem_read(DUMMY, CELL_BYTES))
-        before_map = bytes(u.mem_read(MAP, len(self.map_prior)))
         trace = native.NativeCallTrace(u, m.read32)
-        reached, raw, writes, dummy_receivers = set(), [], [], []
-        branch_reads, jitter_coins, phases = [], [], []
-        held_neighbors = {}
+        reached, raw, writes, phases = set(), [], [], []
         scratch_observation = dict(pointer=self.scratch, before=before_scratch)
-        scratch_before_pointer = m.read32(SCRATCH_PTR)
-        self.transports.clear()
+        def returned(pc, sp):
+            # 57B440 reports through AL and the caller-owned out-bool; read
+            # the out-bool byte at the actual return, before any caller use.
+            for index in trace.returned(pc, sp):
+                call = trace.calls[index]
+                if call['name'] == 'shared_stamp':
+                    call['outbool'] = u.mem_read(call['args'][4], 1)[0]
         def observe(machine, pc, _size, _data):
             sp = machine.reg_read(UC_X86_REG_ESP)
-            trace.returned(pc, sp)
+            returned(pc, sp)
             redirected = machine.reg_read(UC_X86_REG_EIP) != pc
             if redirected and pc not in TRANSPORT_RETURNS | TRANSPORT_REDIRECTS:
                 raise native.OracleError(f'Inherited hook replaced original entry {pc:08X}')
             reached.add(pc)
-            if pc in (0x5A1849, 0x5A1906):
-                current = machine.reg_read(UC_X86_REG_EDI)
-                if pc == 0x5A1849:
-                    # East is still EAX before5A184C assigns EBP; ESI holds
-                    # south. Later SI is reused for a coordinate, so retain
-                    # the actual original pointer rather than reading ESI at
-                    # the east gate or performing another map lookup.
-                    held_neighbors.update(current=current,
-                        south=machine.reg_read(UC_X86_REG_ESI),
-                        east=machine.reg_read(UC_X86_REG_EAX))
-                else:
-                    assert current == held_neighbors['current']
-                    assert machine.reg_read(UC_X86_REG_EBP) == held_neighbors['east']
-                branch_reads.append(dict(pc=f'{pc:08X}', gate='south' if pc == 0x5A1849 else 'east',
-                    write_index=len(writes), raw_draw_index=len(raw),
-                    current=self.cell_observation(current),
-                    south=self.cell_observation(held_neighbors['south']),
-                    east=self.cell_observation(held_neighbors['east'])))
-            if pc in (0x5A1AA0, 0x5A1B51):
-                # Actual originalftol result immediately before CMP EAX,1;
-                # this observes the coin/retry gate without reducing a word.
-                jitter_coins.append(dict(pc=f'{pc:08X}', raw_draw_index=len(raw),
-                    current=self.cell_observation(machine.reg_read(UC_X86_REG_ESI)),
-                    converted_eax=machine.reg_read(UC_X86_REG_EAX)))
             if pc == 0x578EC9 and not row.get('scratch', True):
                 # After native allocation/58BDC0, before the all+4A pass.
                 pointer = m.read32(SCRATCH_PTR)
@@ -549,13 +566,17 @@ class CliffFixture:
             if pc in CALLS:
                 assert not redirected, f'Original {pc:08X} entry was substituted'
                 index = trace.entered(pc, sp, CALLS[pc])
-                if pc == 0x598030:
-                    trace.calls[index]['edx'] = machine.reg_read(UC_X86_REG_EDX)
+                if pc == 0x57B440:
+                    # The selected TileType and origin are 57B440's global
+                    # inputs (57B440/57B4BC/57B4C4); read them at entry.
+                    selected = m.read32(SELECTED_TYPE)
+                    trace.calls[index].update(
+                        tile=struct.unpack('<i', machine.mem_read(selected + 0x294, 4))[0] if selected else None,
+                        origin=list(struct.unpack('<hh', machine.mem_read(PLACEMENT_ORIGIN, 4))),
+                        outbool_before=machine.mem_read(trace.calls[index]['args'][4], 1)[0])
             if pc in CELL_RECEIVERS:
                 receiver = machine.reg_read(UC_X86_REG_ECX)
-                if receiver == DUMMY:
-                    dummy_receivers.append(dict(entry=f'{pc:08X}', coords=list(struct.unpack('<hh', machine.mem_read(DUMMY + 0x24, 4)))))
-                elif receiver not in self.pointer_coords:
+                if receiver != DUMMY and receiver not in self.pointer_coords:
                     raise native.OracleError(f'Unenrolled Cell receiver {receiver:08X} at {pc:08X}')
             if pc == 0x579B70:
                 receiver = m.read32(sp + 4)
@@ -564,24 +585,12 @@ class CliffFixture:
                 owner = machine.reg_read(UC_X86_REG_ECX)
                 assert owner in self.rngs.values(), f'Unknown RNG stream {owner:08X}'
                 raw.append(dict(stream=next(name for name, p in self.rngs.items() if p == owner),
-                                pc=f'{pc:08X}', word=machine.reg_read(UC_X86_REG_ESI) & 0xFFFFFFFF))
-        def memory(machine, _access, address, size, value, _data):
-            owner, offset = None, None
-            index = bisect_right(self.starts, address) - 1
-            if index >= 0 and address + size <= self.starts[index] + CELL_BYTES:
-                owner = list(self.pointer_coords[self.starts[index]])
-                offset = address - self.starts[index]
-            elif DUMMY <= address and address + size <= DUMMY + CELL_BYTES:
-                owner, offset = 'dummy', address - DUMMY
-            elif address == SCRATCH_PTR:
-                owner, offset = 'scratch_pointer', 0
-            else:
-                pointer = scratch_observation['pointer']
-                if pointer <= address and address + size <= pointer + len(self.scratch_prior):
-                    owner, offset = 'scratch', address - pointer
-            if owner is not None:
+                                word=machine.reg_read(UC_X86_REG_ESI) & 0xFFFFFFFF))
+        def memory(machine, _access, address, size, _value, _data):
+            # Only Dummy write offsets are needed: the declared-scope check.
+            if DUMMY <= address and address + size <= DUMMY + CELL_BYTES:
                 writes.append(dict(pc=f'{machine.reg_read(UC_X86_REG_EIP):08X}',
-                                   owner=owner, offset=offset, size=size, value=value & ((1 << (8 * size)) - 1)))
+                                   offset=address - DUMMY, size=size))
         code_hook = u.hook_add(UC_HOOK_CODE, observe)
         write_hook = u.hook_add(UC_HOOK_MEM_WRITE, memory)
         self.active = True
@@ -604,91 +613,66 @@ class CliffFixture:
             u.reg_write(UC_X86_REG_EDX, edx)
             result = m.invoke(function, receiver, args, timeout_us=60_000_000,
                               instruction_limit=20_000_000, context=dict(control=row['id']))
-            trace.returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+            returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
             assert u.reg_read(UC_X86_REG_ESP) == SP + 4 + len(args) * 4, 'Unexpected native cleanup'
             assert function in reached, 'Original entry was not observed'
-            closure = compact_calls(trace.calls)
+            compact_calls(trace.calls)  # Every entered original function returned.
             assert not trace.pending, 'Original call/return closure incomplete'
             check_code(u, self.code)
             assert all(bytes(u.mem_read(p, CELL_BYTES)) == prior
                        for p, prior in self.rejected_prior.items()), 'Native modified rejected backing storage'
             if row['kind'] in ('sweep', 'joined'):
                 assert 0x579010 in reached and 0x578290 in reached, 'Whole original raise/iterator pass was not entered'
-                assert m.read32(0x880990) == 0 and m.read32(0x88098C) == 0, 'Native selected/temporary cleanup incomplete'
+                assert m.read32(SELECTED_TYPE) == 0 and m.read32(0x88098C) == 0, 'Native selected/temporary cleanup incomplete'
                 assert m.read32(SCRATCH_PTR) == (self.scratch if row.get('scratch', True) else 0), 'Native scratch ownership changed'
             if row['kind'] == 'joined':
                 materialized_scratch = bytes(u.mem_read(self.scratch, len(self.scratch_prior)))
-                phases.append(dict(name='after_materialize', eax=result,
-                    rng=pool.refs(self.states()), write_index=len(writes), raw_draw_index=len(raw),
+                phases.append(dict(name='after_materialize', rng=pool.refs(self.states()),
                     cells=[dict(coords=list(xy), **self.fields(xy, materialized_scratch))
-                           for xy in self.cells],
-                    scratch_sha256=sha(materialized_scratch),
-                    scratch_pointer=m.read32(SCRATCH_PTR), selected_type=m.read32(0x880990),
-                    temporary=m.read32(0x88098C)))
+                           for xy in self.cells]))
                 result = m.invoke(0x5A17F0, 0xABDFD8, timeout_us=60_000_000,
                     instruction_limit=20_000_000, context=dict(control=row['id'], phase='restamp'))
-                trace.returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
+                returned(native.RET_MAGIC, u.reg_read(UC_X86_REG_ESP))
                 assert u.reg_read(UC_X86_REG_ESP) == SP + 4, 'Unexpected joined restamp cleanup'
                 assert 0x5A17F0 in reached
                 assert not trace.pending, 'Joined call/return closure incomplete'
-                closure = compact_calls(trace.calls)
+                compact_calls(trace.calls)
                 check_code(u, self.code)
                 assert m.read32(SCRATCH_PTR) == self.scratch, 'Joined scratch owner changed'
-                assert m.read32(0x880990) == 0 and m.read32(0x88098C) == 0
+                assert m.read32(SELECTED_TYPE) == 0 and m.read32(0x88098C) == 0
                 assert all(bytes(u.mem_read(p, CELL_BYTES)) == prior
                            for p, prior in self.rejected_prior.items()), 'Joined restamp modified rejected backing storage'
             # Native may update Dummy coordinates during rejected lookups. A
             # positive material write to the shared Dummy requires named scope.
             if not row.get('allow_dummy'):
-                assert not any(w['owner'] == 'dummy' and w['offset'] != 0x24 for w in writes), 'Undeclared positive Dummy effect'
+                assert not any(w['offset'] != 0x24 for w in writes), 'Undeclared positive Dummy effect'
         finally:
             self.active = False
             u.hook_del(code_hook)
             u.hook_del(write_hook)
-        observed_scratch = scratch_observation['pointer']
         scratch_after = scratch_observation.get('after')
         if scratch_after is None:
-            scratch_after = bytes(u.mem_read(observed_scratch, len(self.scratch_prior)))
+            scratch_after = bytes(u.mem_read(scratch_observation['pointer'], len(self.scratch_prior)))
         changes = []
         for xy, p in self.cells.items():
             after = bytes(u.mem_read(p, CELL_BYTES))
             if after != before_cells[xy]:
-                changes.append(dict(coords=list(xy), before_hex=before_cells[xy].hex(),
-                    changed=native.changed_byte_spans(before_cells[xy], after),
-                    fields=self.fields(xy, scratch_after)))
-        region_changes = []
-        for xy in self.cells:
-            offset = (xy[1] * STRIDE + xy[0]) * RECORD_BYTES + 0x38
-            before_region = struct.unpack_from('<i', scratch_observation['before'], offset)[0]
-            after_region = struct.unpack_from('<i', scratch_after, offset)[0]
-            if before_region != after_region:
-                region_changes.append(dict(coords=list(xy), before=before_region, after=after_region))
+                require_projected(before_cells[xy], after, CELL_FIELD_BYTES, f'Cell {xy}')
+                changes.append(dict(coords=list(xy), before=cell_fields(before_cells[xy]),
+                                    after=cell_fields(after)))
+        after_dummy = bytes(u.mem_read(DUMMY, CELL_BYTES))
+        require_projected(before_dummy, after_dummy, CELL_FIELD_BYTES | DUMMY_COORD_BYTES, 'Dummy')
+        stamps = stamp_results(trace.calls)
+        if row['kind'] == 'stamp':
+            assert len(stamps) == 1 and (stamps[0]['al'], stamps[0]['outbool']) == (result & 255, u.mem_read(self.out, 1)[0])
         return dict(id=row['id'], input=row,
             before_rng=before_rng, after_rng=pool.refs(self.states()), raw_draws=raw,
             eax=result, al=result & 255, outbool=u.mem_read(self.out, 1)[0],
-            fpcw=u.reg_read(UC_X86_REG_FPCW), calls=closure,
-            changed_cells=changes, unchanged_cell_count=len(self.cells) - len(changes),
-            changed_regions=region_changes,
-            scratch_before_sha256=sha(scratch_observation['before']),
-            scratch_changed=native.changed_byte_spans(scratch_observation['before'], scratch_after),
-            scratch_before_pointer=scratch_before_pointer, scratch_observed_pointer=observed_scratch,
+            changed_cells=changes,
+            changed_regions=region_changes(scratch_observation['before'], scratch_after),
             scratch_final_pointer=m.read32(SCRATCH_PTR),
-            dummy_before_hex=before_dummy.hex(), dummy_changed=native.changed_byte_spans(before_dummy, bytes(u.mem_read(DUMMY, CELL_BYTES))),
-            map_changed=native.changed_byte_spans(before_map, bytes(u.mem_read(MAP, len(self.map_prior)))),
-            scratch_retained=m.read32(SCRATCH_PTR) == self.scratch,
-            selected_type=m.read32(0x880990), temporary=m.read32(0x88098C),
-            phases=phases, restamp_branch_reads=branch_reads, jitter_coins=jitter_coins,
-            writes=writes, dummy_receivers=dummy_receivers, transports=self.transports.copy())
-
-    def cell_observation(self, pointer):
-        """Read a retained native pointer, without a coordinate-stamping lookup."""
-        if pointer != DUMMY and pointer not in self.pointer_coords:
-            raise self.native.OracleError(f'Unenrolled retained Cell {pointer:08X}')
-        tile = struct.unpack('<i', self.u.mem_read(pointer + 0x38, 4))[0]
-        sub, level, slope = self.u.mem_read(pointer + 0x11A, 3)
-        return dict(owner='dummy' if pointer == DUMMY else list(self.pointer_coords[pointer]),
-                    coords=list(struct.unpack('<hh', self.u.mem_read(pointer + 0x24, 4))),
-                    tile=tile, subtile=sub, level=level, slope=slope)
+            dummy=dict(before=dummy_fields(before_dummy), after=dummy_fields(after_dummy)),
+            phases=phases, stamps=stamps)
 
     def fields(self, xy, scratch):
         p = self.cells[xy]
@@ -702,11 +686,6 @@ def words(*values):
     return b''.join(struct.pack('<I', n & 0xFFFFFFFF) for n in values)
 
 
-def sha(raw):
-    import hashlib
-    return hashlib.sha256(raw).hexdigest()
-
-
 @lru_cache(maxsize=None)
 def controlled_state(seed, words_):
     from tools.rmg_oracle.gen_rng_vectors import constrained_state
@@ -717,11 +696,7 @@ def generate():
     from tools import native_oracle as native
     fixture, pool = CliffFixture(), StatePool()
     rows = [fixture.run(row, pool) for row in controls()]
-    constraints = [dict(seed=seed, raw=list(raw), native_verification=controlled_state(seed, raw))
-                   for seed, raw in sorted({(row.get('seed', 11), tuple(row['raw']))
-                                             for row in controls() if 'raw' in row})]
-    return dict(schema=1, native_sha256=native.image_sha256(), inputs=fixture.inputs,
-                constrained_rng_inputs=constraints,
+    return dict(schema=2, native_sha256=native.image_sha256(), inputs=fixture.inputs,
                 rng_states_hex=pool.states, rows=rows)
 
 
@@ -744,21 +719,6 @@ def provenance():
             scratch_constructor=0x58BDC0, seed=0x65C6D0, raw=0x65C780))
 
 
-def projection(data):
-    """Retain consumed controls; finish_vectors keeps the full raw gzip owner.
-
-    No expected value is recomputed. Original entry/return/write/gate evidence
-    remains losslessly replay-compared in the shared owner's raw archive.
-    """
-    keys = ('id', 'input', 'before_rng', 'after_rng', 'raw_draws', 'eax', 'al',
-            'outbool', 'changed_cells', 'changed_regions', 'scratch_changed',
-            'scratch_final_pointer', 'dummy_before_hex', 'dummy_changed', 'phases')
-    return {key: ([{name: row[name] for name in keys} for row in value]
-                  if key == 'rows' else value) for key, value in data.items()}
-
-
 if __name__ == '__main__':
     from tools.native_oracle import finish_vectors
-    finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=provenance,
-                   projection=projection,
-                   raw_archive_sha256='344bafe0f1deab7661813e3bef464963246ff60f42f377a8d98a531b90ba1803')
+    finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=provenance)

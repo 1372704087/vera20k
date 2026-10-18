@@ -2,7 +2,6 @@
 from copy import deepcopy
 from pathlib import Path
 import struct
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -91,24 +90,50 @@ class Memory:
         pass
 
 
-class RetainedCellReadTests(unittest.TestCase):
-    def test_observation_reads_pointer_fields_without_a_fresh_lookup(self):
-        fixture = cliff.CliffFixture.__new__(cliff.CliffFixture)
-        fixture.u = Memory()
-        fixture.pointer_coords = {0x10000: (16, 17)}
-        fixture.native = SimpleNamespace(OracleError=ValueError)
-        for pointer, xy, tile, fields in ((0x10000, (16, 17), 53, (2, 7, 19)),
-                                          (cliff.DUMMY, (31, 18), 65535, (0, 0, 0))):
-            fixture.u.mem_write(pointer + 0x24, struct.pack('<hh', *xy))
-            fixture.u.mem_write(pointer + 0x38, struct.pack('<i', tile))
-            fixture.u.mem_write(pointer + 0x11A, bytes(fields))
-            actual = fixture.cell_observation(pointer)
-            self.assertEqual(actual['coords'], list(xy))
-            self.assertEqual(actual['tile'], tile)
-            self.assertEqual([actual[k] for k in ('subtile', 'level', 'slope')], list(fields))
-        self.assertEqual(fixture.cell_observation(cliff.DUMMY)['owner'], 'dummy')
-        with self.assertRaisesRegex(ValueError, 'Unenrolled'):
-            fixture.cell_observation(0x20000)
+class ProjectionTests(unittest.TestCase):
+    """The corpus keeps consumed fields only; anything else must refuse."""
+
+    def cell_image(self, tile=0, fields=(0, 0, 0)):
+        raw = bytearray(cliff.CELL_BYTES)
+        struct.pack_into('<i', raw, 0x38, tile)
+        raw[0x11A:0x11D] = bytes(fields)
+        return raw
+
+    def test_cell_projection_reads_modeled_fields_and_refuses_other_changes(self):
+        before = self.cell_image(0xFFFF)
+        after = self.cell_image(-1, (2, 7, 19))
+        cliff.require_projected(before, after, cliff.CELL_FIELD_BYTES, 'Cell')
+        self.assertEqual(cliff.cell_fields(after),
+                         dict(tile=-1, subtile=2, level=7, slope=19))
+        after[0x11D] = 1
+        with self.assertRaisesRegex(ValueError, 'unprojected bytes'):
+            cliff.require_projected(before, after, cliff.CELL_FIELD_BYTES, 'Cell')
+
+    def test_dummy_projection_includes_the_stamped_coordinate(self):
+        raw = self.cell_image(0xFFFF)
+        struct.pack_into('<hh', raw, 0x24, 31, -2)
+        self.assertEqual(cliff.dummy_fields(raw), dict(tile=0xFFFF, subtile=0, level=0,
+                                                       slope=0, coords=[31, -2]))
+
+    def test_region_changes_cover_every_record_and_refuse_other_fields(self):
+        before = bytearray(cliff.RECORD_BYTES * (cliff.STRIDE + 2))
+        after = bytearray(before)
+        struct.pack_into('<i', after, (cliff.STRIDE + 1) * cliff.RECORD_BYTES + 0x38, -1)
+        self.assertEqual(cliff.region_changes(bytes(before), bytes(after)),
+                         [dict(coords=[1, 1], before=0, after=-1)])
+        after[cliff.RECORD_BYTES + 0x4A] = 1
+        with self.assertRaisesRegex(ValueError, 'Scratch record 1'):
+            cliff.region_changes(bytes(before), bytes(after))
+
+    def test_stamp_results_keep_every_shared_stamp_call_in_order(self):
+        def call(name, eax, outbool):
+            return dict(name=name, tile=58, origin=[16, 17], return_eax=eax,
+                        outbool_before=1, outbool=outbool)
+        calls = [call('shared_stamp', 0x00ABCD00, 1), call('select', 1, 1),
+                 call('shared_stamp', 0x00ABCD01, 0)]
+        self.assertEqual([(r['al'], r['outbool']) for r in cliff.stamp_results(calls)],
+                         [(0, 1), (1, 0)])
+        self.assertEqual(cliff.stamp_results(calls)[0]['origin'], [16, 17])
 
 
 class TmpOwner:

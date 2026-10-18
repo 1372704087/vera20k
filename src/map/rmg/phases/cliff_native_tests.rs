@@ -1,22 +1,40 @@
 //! Original-executable component comparisons; scene inputs are supplied by the
 //! native producer, independently of the ordinary Generate regression.
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::map::rmg::grid::{GridCell, RmgGrid};
+use crate::map::rmg::grid::{CellRef, GridCell, RmgGrid};
 use crate::map::rmg::rng::RmgRng;
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::tiles::TileIds;
 use crate::map::theater::{RmgTileKeys, TheaterCliffRanges};
 use crate::rng_continuation::MapGenRngContinuation;
 
-use super::shore::{BlockPlacement, SubTile, TileBlock, TileBlocks};
+use super::shore::{BlockPlacement, PlacementResult, SubTile, TileBlock, TileBlocks};
 use super::{cliff_materialization, cliff_variants, island_passes, shore};
+
+/// One cliff-selector `0x57B440` call: tile, origin, AL, caller out-bool.
+type Placement = (i32, (i32, i32), bool, bool);
+
+thread_local! {
+    /// Placements observed while a comparison records; `None` otherwise.
+    static PLACEMENTS: RefCell<Option<Vec<Placement>>> = const { RefCell::new(None) };
+}
+
+/// Test hook in the cliff selector after each shared placement call.
+pub(super) fn observe_placement(tile: i32, origin: (i32, i32), result: &PlacementResult) {
+    PLACEMENTS.with_borrow_mut(|log| {
+        if let Some(log) = log {
+            log.push((tile, origin, result.complete, result.admitted));
+        }
+    });
+}
 
 fn corpus() -> &'static Value {
     let doc = crate::test_fixture::json("tools/rmg_oracle/cliff_materialization.json");
-    assert_eq!(doc["schema"], 1);
+    assert_eq!(doc["schema"], 2);
     assert_eq!(
         doc["native_sha256"],
         "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
@@ -236,18 +254,27 @@ fn blocks(doc: &Value) -> Blocks {
 fn xy(value: &Value) -> (i32, i32) {
     (number(&value[0]), number(&value[1]))
 }
-fn apply_spans(raw: &mut [u8], spans: &Value) {
-    for span in spans.as_array().unwrap() {
-        let offset = span[0].as_u64().unwrap() as usize;
-        let data = bytes(span[1].as_str().unwrap());
-        raw[offset..offset + data.len()].copy_from_slice(&data);
-    }
-}
 fn cell_fields(cell: GridCell) -> (i32, u8, u8, u8) {
     (cell.tile, cell.sub_tile, cell.level, cell.slope)
 }
-fn raw_cell_fields(raw: &[u8]) -> (i32, u8, u8, u8) {
-    (word(raw, 0x38) as i32, raw[0x11a], raw[0x11b], raw[0x11c])
+/// Native Cell+38/+11A/+11B/+11C as projected by the producer.
+fn native_fields(value: &Value) -> (i32, u8, u8, u8) {
+    (
+        number(&value["tile"]),
+        number(&value["subtile"]) as u8,
+        number(&value["level"]) as u8,
+        number(&value["slope"]) as u8,
+    )
+}
+/// The shared border cell's fields and its last stamped coordinate.
+fn border(grid: &RmgGrid) -> ((i32, u8, u8, u8), (i32, i32)) {
+    (
+        cell_fields(*grid.ref_cell(CellRef::Border)),
+        grid.border_coord(),
+    )
+}
+fn native_border(value: &Value) -> ((i32, u8, u8, u8), (i32, i32)) {
+    (native_fields(value), xy(&value["coords"]))
 }
 
 #[test]
@@ -351,14 +378,9 @@ fn cliff_passes_match_original_cells_regions_border_and_rng() {
             .native_cells()
             .map(|coords @ (x, y)| (coords, *grid.get(x, y).unwrap()))
             .collect();
+        // The producer refuses any native scratch change outside region+38,
+        // so every other modeled scratch field must stay as supplied.
         let mut expected_scratch = scratch.cells().to_vec();
-        let mut expected_raw_scratch =
-            bytes(scene["scratch_constructor_prior_hex"].as_str().unwrap());
-        for (index, cell) in scratch.cells().iter().enumerate() {
-            expected_raw_scratch[index * 0x50 + 0x38..index * 0x50 + 0x3c]
-                .copy_from_slice(&cell.region.to_le_bytes());
-            expected_raw_scratch[index * 0x50 + 0x4a] = u8::from(cell.shore_enable);
-        }
         for change in row["changed_regions"].as_array().unwrap() {
             let (cx, cy) = xy(&change["coords"]);
             assert_eq!(
@@ -367,34 +389,25 @@ fn cliff_passes_match_original_cells_regions_border_and_rng() {
                 "{}: supplied region prior",
                 row["id"]
             );
-        }
-        apply_spans(&mut expected_raw_scratch, &row["scratch_changed"]);
-        for (index, cell) in expected_scratch.iter_mut().enumerate() {
-            cell.region = word(&expected_raw_scratch, index * 0x50 + 0x38) as i32;
-            cell.shore_enable = expected_raw_scratch[index * 0x50 + 0x4a] != 0;
+            expected_scratch[scratch.index(cx, cy)].region = number(&change["after"]);
         }
         for changed in row["changed_cells"].as_array().unwrap() {
-            let before = bytes(changed["before_hex"].as_str().unwrap());
-            let initial = expected_cells[&xy(&changed["coords"])];
+            let cell = expected_cells.get_mut(&xy(&changed["coords"])).unwrap();
             assert_eq!(
-                cell_fields(initial),
-                raw_cell_fields(&before),
+                cell_fields(*cell),
+                native_fields(&changed["before"]),
                 "{}: supplied Cell prior",
                 row["id"]
             );
-            let cell = expected_cells.get_mut(&xy(&changed["coords"])).unwrap();
-            let fields = &changed["fields"];
-            cell.tile = number(&fields["tile"]);
-            cell.sub_tile = number(&fields["subtile"]) as u8;
-            cell.level = number(&fields["level"]) as u8;
-            cell.slope = number(&fields["slope"]) as u8;
+            (cell.tile, cell.sub_tile, cell.level, cell.slope) = native_fields(&changed["after"]);
         }
-        let mut dummy = bytes(row["dummy_before_hex"].as_str().unwrap());
         assert_eq!(
-            cell_fields(*grid.border_cell_mut()),
-            raw_cell_fields(&dummy)
+            border(&grid),
+            native_border(&row["dummy"]["before"]),
+            "{}: supplied shared border prior",
+            row["id"]
         );
-        apply_spans(&mut dummy, &row["dummy_changed"]);
+        PLACEMENTS.with_borrow_mut(|log| *log = Some(Vec::new()));
         let mut random = rng_from_before(doc, row);
         let (x, y) = prior["target"]
             .as_array()
@@ -504,6 +517,31 @@ fn cliff_passes_match_original_cells_regions_border_and_rng() {
             }
             _ => unreachable!(),
         }
+        let placements = PLACEMENTS.with_borrow_mut(Option::take).unwrap();
+        if kind != "stamp" {
+            // Direct stamp rows compare AL/out-bool above; every other row
+            // compares each selector placement, including soft stops.
+            let expected: Vec<Placement> = row["stamps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|stamp| {
+                    // 579B3A stores 1, so out-bool after means admitted.
+                    assert_eq!(stamp["outbool_before"], 1, "{}", row["id"]);
+                    (
+                        number(&stamp["tile"]),
+                        xy(&stamp["origin"]),
+                        number(&stamp["al"]) != 0,
+                        number(&stamp["outbool"]) != 0,
+                    )
+                })
+                .collect();
+            assert_eq!(
+                placements, expected,
+                "{}: ordered 57B440 results",
+                row["id"]
+            );
+        }
         for ((cx, cy), expected) in expected_cells {
             assert_eq!(
                 *grid.get(cx, cy).unwrap(),
@@ -519,18 +557,9 @@ fn cliff_passes_match_original_cells_regions_border_and_rng() {
             row["id"]
         );
         assert_eq!(
-            cell_fields(*grid.border_cell_mut()),
-            raw_cell_fields(&dummy),
-            "{} shared border fields",
-            row["id"]
-        );
-        assert_eq!(
-            grid.border_coord(),
-            (
-                i16::from_le_bytes(dummy[0x24..0x26].try_into().unwrap()) as i32,
-                i16::from_le_bytes(dummy[0x26..0x28].try_into().unwrap()) as i32
-            ),
-            "{} shared border coordinates",
+            border(&grid),
+            native_border(&row["dummy"]["after"]),
+            "{} shared border fields and coordinates",
             row["id"]
         );
         compare_rng(doc, row, random);

@@ -40,21 +40,5 @@
     "raw": "0x0065C780"
   },
   "replay_command": "python -m tools.rmg_oracle.cliff_materialization",
-  "payload_sha256": "050ad721f3fb9b428a68302959e789da0891d957a12fd0feb646258c937391af",
-  "raw_archive": {
-    "file": "cliff_materialization.raw.json.gz",
-    "sha256": "1ee7ec10f920d70c863710858c0ebf0ffe3dd5371126405978b4da3ac5258939",
-    "bytes": 304249,
-    "uncompressed_sha256": "344bafe0f1deab7661813e3bef464963246ff60f42f377a8d98a531b90ba1803",
-    "uncompressed_bytes": 13035548,
-    "canonical_payload_sha256": "0e5b71a18dc10a54209d9269bae026ee4efb7e73b4130f233a9986e7af36b16e",
-    "compression": {
-      "format": "gzip",
-      "level": 9,
-      "mtime": 0,
-      "filename": "",
-      "os_byte": 255,
-      "zlib_runtime": "1.2.12"
-    }
-  }
+  "payload_sha256": "db756dc05f94f65d54bc09ee7735e023702ed0221f52d062c78d1b64a4452558"
 }

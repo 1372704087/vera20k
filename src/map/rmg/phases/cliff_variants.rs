@@ -9,11 +9,10 @@
 //! These are different CliffSet tile identities, not TMP suffix variants.
 //! The existing MapGen RNG and unconditional tile stamper remain authoritative.
 
-use crate::map::rmg::grid::{GridCell, RmgGrid};
+use crate::map::rmg::grid::RmgGrid;
 use crate::map::rmg::rng::RmgRng;
 use crate::map::rmg::scratch::RmgScratch;
 
-use super::CellRef;
 use super::carve::stamp_iso_block;
 use super::shore::TileBlocks;
 
@@ -39,17 +38,14 @@ pub(in crate::map::rmg) fn run(
         // the east lookup may overwrite the coordinate the south pointer sees.
         let neighbors = [4, 2].map(|direction| {
             let (nx, ny) = RmgGrid::step(x, y, direction);
-            let (nx, ny) = (i32::from(nx as i16), i32::from(ny as i16));
-            let held = CellRef::at(grid, nx, ny);
-            grid.cell_native(nx, ny);
-            held
+            grid.cell_ref(i32::from(nx as i16), i32::from(ny as i16))
         });
 
         for neighbor in neighbors {
             // The south stamp can change the current cell or held east cell.
             // Read the live owners again for the second branch (5A1906).
             let current = *grid.cell_native(x, y);
-            let next = held_cell(grid, neighbor);
+            let next = *grid.ref_cell(neighbor);
             if current.tile != next.tile || current.sub_tile <= next.sub_tile {
                 continue;
             }
@@ -68,17 +64,11 @@ pub(in crate::map::rmg) fn run(
                 .expect("cliff restamp requires the current tile's TMP block")
                 .width;
             assert!(width > 0, "cliff restamp requires a positive TMP width");
-            let sub_tile = i32::from(held_cell(grid, neighbor).sub_tile);
-            let (nx, ny) = match neighbor {
-                CellRef::Cell(nx, ny) => (nx, ny),
-                CellRef::Border => {
-                    let (nx, ny) = grid.border_coord();
-                    (nx as i16, ny as i16)
-                }
-            };
+            let sub_tile = i32::from(grid.ref_cell(neighbor).sub_tile);
+            let (nx, ny) = grid.ref_coord(neighbor);
             let origin = (
-                i32::from(nx.wrapping_sub((sub_tile % width) as i16)),
-                i32::from(ny.wrapping_sub((sub_tile / width) as i16)),
+                i32::from((nx as i16).wrapping_sub((sub_tile % width) as i16)),
+                i32::from((ny as i16).wrapping_sub((sub_tile / width) as i16)),
             );
             let region = scratch.get(origin.0, origin.1).region;
 
@@ -87,14 +77,6 @@ pub(in crate::map::rmg) fn run(
             // and scratch region. Some(0xFF) would incorrectly change height.
             stamp_iso_block(grid, scratch, blocks, replacement, origin, region, None);
         }
-    }
-}
-
-/// Read a held pointer without a fresh lookup that would restamp dummy coords.
-fn held_cell(grid: &mut RmgGrid, held: CellRef) -> GridCell {
-    match held {
-        CellRef::Cell(x, y) => *grid.cell_native(i32::from(x), i32::from(y)),
-        CellRef::Border => *grid.border_cell_mut(),
     }
 }
 

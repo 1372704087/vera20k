@@ -522,7 +522,8 @@ pub(super) struct PlacementResult {
 /// Shared selected-TMP placement, original gamemd.exe `0x0057B440..0x0057B78D`,
 /// for the shore tiler, the cliff selector and BuildRiverBridge's waterfalls.
 /// Source: original instruction audit and executable controls in
-/// `tools/rmg_oracle/cliff_materialization.py`. Writes tile, subtile and height;
+/// `tools/rmg_oracle/cliff_materialization.py`, whose per-call AL/out-bool
+/// results `cliff_native_tests` compares. Writes tile, subtile and height;
 /// unlike unconditional `5A6C10`, this function never writes Cell+11C (slope).
 pub(super) fn place_block(
     grid: &mut RmgGrid,

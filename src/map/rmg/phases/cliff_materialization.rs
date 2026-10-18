@@ -5,40 +5,26 @@
 //! Source: original instruction bodies and the consumed native controls in
 //! `tools/rmg_oracle/cliff_materialization.py`.
 
-use crate::map::rmg::grid::{GridCell, RmgGrid};
+use crate::map::rmg::grid::{CellRef, RmgGrid};
 use crate::map::rmg::rng::RmgRng;
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::tiles::TileIds;
 
-use super::CellRef;
 use super::island_passes::{raise_pinched, ring_mask};
 use super::shore::{BlockPlacement, TileBlocks, place_block};
 
-fn coord(grid: &RmgGrid, held: CellRef) -> (i32, i32) {
-    match held {
-        CellRef::Cell(x, y) => (i32::from(x), i32::from(y)),
-        CellRef::Border => grid.border_coord(),
-    }
-}
-
-fn cell(grid: &mut RmgGrid, held: CellRef) -> &mut GridCell {
-    match held {
-        CellRef::Cell(x, y) => grid.cell_native_mut(i32::from(x), i32::from(y)),
-        CellRef::Border => grid.border_cell_mut(),
-    }
-}
-
+/// Signed 16-bit step from a held reference's live coordinate, then the
+/// coordinate-stamping lookup.
 fn neighbor(grid: &mut RmgGrid, held: CellRef, dx: i16, dy: i16) -> CellRef {
-    let (x, y) = coord(grid, held);
-    let x = i32::from((x as i16).wrapping_add(dx));
-    let y = i32::from((y as i16).wrapping_add(dy));
-    let result = CellRef::at(grid, x, y);
-    grid.cell_native(x, y);
-    result
+    let (x, y) = grid.ref_coord(held);
+    grid.cell_ref(
+        i32::from((x as i16).wrapping_add(dx)),
+        i32::from((y as i16).wrapping_add(dy)),
+    )
 }
 
 fn mask(grid: &mut RmgGrid, scratch: &RmgScratch, ids: &TileIds, held: CellRef) -> u8 {
-    let (x, y) = coord(grid, held);
+    let (x, y) = grid.ref_coord(held);
     ring_mask(grid, scratch, ids, x, y)
 }
 
@@ -77,43 +63,43 @@ pub(in crate::map::rmg) fn jitter(
         let target = match m {
             0x83 => {
                 if mask(grid, scratch, ids, southeast) != 0x83
-                    || !ids.is_clear(cell(grid, east).tile)
+                    || !ids.is_clear(grid.ref_cell(east).tile)
                     || rng.uniform(0, 1) != 0
                 {
                     continue;
                 }
-                let target = cell(grid, east);
+                let target = grid.ref_cell_mut(east);
                 target.level = target.level.wrapping_sub(4);
                 east
             }
             0x38 => {
                 if mask(grid, scratch, ids, southeast) != 0x38
-                    || !ids.is_clear(cell(grid, west).tile)
+                    || !ids.is_clear(grid.ref_cell(west).tile)
                     || rng.uniform(0, 1) != 0
                 {
                     continue;
                 }
-                let target = cell(grid, west);
+                let target = grid.ref_cell_mut(west);
                 target.level = target.level.wrapping_sub(4);
                 west
             }
             0xE0 => {
                 if mask(grid, scratch, ids, southwest) != 0xE0
                     || mask(grid, scratch, ids, northeast) != 0xE0
-                    || !ids.is_clear(cell(grid, current).tile)
+                    || !ids.is_clear(grid.ref_cell(current).tile)
                 {
                     continue;
                 }
-                let target = cell(grid, current);
+                let target = grid.ref_cell_mut(current);
                 target.level = target.level.wrapping_add(4);
                 current
             }
             _ => continue,
         };
         let source = if m == 0xE0 { west } else { current };
-        let (sx, sy) = coord(grid, source);
+        let (sx, sy) = grid.ref_coord(source);
         let region = scratch.get(sx, sy).region;
-        let (tx, ty) = coord(grid, target);
+        let (tx, ty) = grid.ref_coord(target);
         scratch.get_mut(tx, ty).region = region;
     }
 }
@@ -131,8 +117,7 @@ pub(super) fn select_cell(
     y: i32,
     region: i32,
 ) -> bool {
-    let held = CellRef::at(grid, x, y);
-    grid.cell_native(x, y);
+    let held = grid.cell_ref(x, y);
     let choice = rng.uniform(0, 5);
     let m = mask(grid, scratch, ids, held);
     let piece = if m & 0xA0 == 0xA0 {
@@ -199,17 +184,17 @@ pub(super) fn select_cell(
     // pieces1..40 except piece32=(1,0), via CellStruct constructor42D470.
     // This is initialized BSS ABDDA4/DDA6, indexed by piece, not piece-1.
     let anchor_x: i16 = if piece == 32 { 1 } else { 0 };
-    let (cx, cy) = coord(grid, held);
+    let (cx, cy) = grid.ref_coord(held);
     let origin = (i32::from((cx as i16).wrapping_add(anchor_x)), cy);
-    let level = cell(grid, held).level;
-    let cliff_base = ids.cliffs.cliff_set.map_or(-1, i32::from);
+    let level = grid.ref_cell(held).level;
+    let tile = ids.cliffs.cliff_set.map_or(-1, i32::from) + piece - 1;
     let result = place_block(
         grid,
         scratch,
         ids,
         blocks,
         BlockPlacement {
-            tile: cliff_base + piece - 1,
+            tile,
             origin,
             level,
             window: (0, 0),
@@ -217,6 +202,8 @@ pub(super) fn select_cell(
             keep: false,
         },
     );
+    #[cfg(test)]
+    super::cliff_native_tests::observe_placement(tile, origin, &result);
     // 579B44 accepts either AL or the caller-owned admission out-bool.
     result.complete || result.admitted
 }

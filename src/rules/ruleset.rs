@@ -814,6 +814,10 @@ pub struct GeneralRules {
     /// @ 0x00519630` (`0x0051A298..0x0051A30A`). `None` is the constructor's
     /// invalid Voc index; the fixed SOUNDMD binder resolves the name.
     pub enter_bio_reactor_sound: Option<String>,
+    /// Rules+268: ReadAudioVisual66A10B..66A141 resolves the exact-case
+    /// EnterGrinderSound through the fixed Voc catalog, retaining the prior
+    /// index on absent/empty/unknown values. Constructor default is -1.
+    pub enter_grinder_sound: Option<String>,
     /// `[AudioVisual] UpgradeVeteranSound=` — `RulesClass::ReadAudioVisual @
     /// 0x006691E0` resolves it to a Voc index at `RulesClass+0x228`
     /// (`0x00669CFD..0x00669D27`); `TechnoClass::AI_Update` plays that index
@@ -1721,9 +1725,9 @@ pub struct GeneralRules {
     /// [General] WeaponNullifyAnim (+350), constructor null; retained reader
     /// 66E2AF. Bullet46A2A1 uses it after AreaDamage returns IronCurtain (2).
     pub weapon_nullify_anim: String,
-    /// Whether `[AudioVisual] AmbientChangeRate=` is nonzero before its native
-    /// frame conversion. Kept separately because a nonzero mod value can chop
-    /// to a zero-frame interval while still passing ScenarioClass's outer gate.
+    /// Whether `[AudioVisual] AmbientChangeRate=` passes the native ordered,
+    /// nonzero gate before conversion. A nonzero mod value can chop to a
+    /// zero-frame interval; NaN fails the original FCOMP/C3 gate.
     pub ambient_change_rate_nonzero: bool,
     /// Lightning/global ambient transition interval in native frames:
     /// `ftol(AmbientChangeRate * 900)`.
@@ -2282,6 +2286,7 @@ impl Default for GeneralRules {
             cloak_sound: None,
             leave_bio_reactor_sound: None,
             enter_bio_reactor_sound: None,
+            enter_grinder_sound: None,
             upgrade_veteran_sound: None,
             upgrade_elite_sound: None,
             slaves_free_sound: None,
@@ -2818,7 +2823,21 @@ const VETERAN_CAP_DEFAULT: f64 = 2.0;
 /// `ftol(rate * 900)` (`0x0055B3D8..0x0055B3E4`) and the step
 /// `ftol(step * 100)` (`0x0055B447..0x0055B453`).
 pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
-    (rate != 0.0, (rate * 900.0) as i32, (step * 100.0) as i32)
+    use crate::util::native_x87::{MaskedX87Chop53 as X, MaskedX87Ordering, NativeF64Bits};
+    let rate = X::load_f64(NativeF64Bits::from_bits(rate.to_bits()));
+    let step = X::load_f64(NativeF64Bits::from_bits(step.to_bits()));
+    // FCOMP/test C3 at55B351..55B362 rejects zero and unordered. Math_ftol
+    // returns the low dword of its signed64 result; a Rust saturating cast
+    // differs for large/exceptional binary32 action inputs.
+    let enabled = matches!(
+        X::compare(rate, X::load_i32(0)),
+        MaskedX87Ordering::Less | MaskedX87Ordering::Greater
+    );
+    (
+        enabled,
+        X::ftol_i32_low_masked(X::mul(rate, X::load_i32(900))),
+        X::ftol_i32_low_masked(X::mul(step, X::load_i32(100))),
+    )
 }
 
 impl GeneralRules {
@@ -3361,6 +3380,7 @@ impl GeneralRules {
             // Keep the constructor's invalid index until that owner binds it.
             leave_bio_reactor_sound: None,
             enter_bio_reactor_sound: None,
+            enter_grinder_sound: None,
             upgrade_veteran_sound: audio_visual
                 .read_name("UpgradeVeteranSound", 0x80)
                 .map(str::to_owned),
@@ -4376,6 +4396,9 @@ impl RuleSet {
         self.general.enter_bio_reactor_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "EnterBioReactorSound"));
+        self.general.enter_grinder_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "EnterGrinderSound"));
         self.general.sinking_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SinkingSound"));
@@ -6163,6 +6186,17 @@ impl RuleSet {
     /// Look up a particle system type by ID. Panics if `id` is out of range.
     pub fn particle_system_type(&self, id: ParticleSystemTypeId) -> &ParticleSystemType {
         &self.particle_system_types[id.0 as usize]
+    }
+
+    /// Resolve an ordinal in the native ParticleSystemType registry A83D6C.
+    pub(crate) fn particle_system_type_id_by_index(
+        &self,
+        index: i32,
+    ) -> Option<ParticleSystemTypeId> {
+        let index = usize::try_from(index).ok()?;
+        self.particle_system_types
+            .get(index)
+            .map(|_| ParticleSystemTypeId(index as u32))
     }
 
     /// Resolve a particle type name to its ID (case-insensitive).

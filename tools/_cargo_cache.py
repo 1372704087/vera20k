@@ -1,6 +1,7 @@
 """Private retention implementation; cargo_run owns its lock, registry and CLI.
 
-Only compiler objects and complete incremental sessions are disposable. Preserved
+Only compiler objects, complete incremental sessions and executables a newer one of
+the same name replaced in a Cargo deps directory are disposable. Preserved
 labels and all surviving references remain protected. Never infer that linking made its
 debug objects disposable: Mach-O executables commonly refer to them by pathname.
 """
@@ -484,6 +485,61 @@ def _dependencies(binary: Path) -> set[Path]:
     raise ValueError(f'Unsupported executable debug dependency format: {binary}')
 
 
+def _checkout_running(store: Path, namespace: str) -> bool:
+    """Whether a cargo_run holds this checkout's lock; this process's own run counts.
+
+    Probes cargo_run.file_lock's lock without creating it: a run creates the file
+    before locking it, and the pass watches the store directory for changes.
+    """
+    try:
+        handle = (store / 'checkouts' / f'{namespace}.lock').open('rb')
+    except FileNotFoundError:
+        return False
+    with handle:
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        except (BlockingIOError, PermissionError):
+            return True
+    return False
+
+
+def _superseded(store: Path, roots, profiles, inventory, links, executables) -> set[Path]:
+    """Cache executables an equally named newer one in its deps directory replaced.
+
+    Cargo keeps every test and bin executable whose hash changed with features,
+    flags or the toolchain. Each kept itself and every object its debug map names
+    protected, so a pass under pressure met neither budget: on 2026-10-18 26 such
+    Mach-O executables held 3.2 GiB plus 5.5 GiB of objects only they named. The
+    newest of each name stays, as does any executable of a checkout whose run
+    holds its lock: that run may execute its own recorded tests after Cargo.
+    Windows executables and their PDBs stay unless a later change pairs them.
+    """
+    names = {}
+    deps = {profile / 'deps' for profile in profiles}
+    for path in executables:
+        match = re.fullmatch(r'(.+)-[0-9a-f]{16}', path.name)
+        if match and path.parent in deps and _magic(path) in MACH | {b'\x7fELF'}:
+            names.setdefault((path.parent, match[1]), []).append(path)
+    running = {}
+    superseded = set()
+    for paths in names.values():
+        paths.sort(key=lambda path: (inventory[path].st_mtime_ns, path.name))
+        for path in paths[:-1]:
+            namespace = next(cache.name for cache in roots if path.is_relative_to(cache))
+            if namespace not in running:
+                running[namespace] = _checkout_running(store, namespace)
+            if inventory[path].st_nlink == 1 and links.eligible(path) and not running[namespace]:
+                superseded.add(path)
+    return superseded
+
+
 def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) -> dict:
     """Called ONLY while cargo_run holds its build lock; never apply an old plan."""
     from tools.cargo_run import build_processes
@@ -528,6 +584,7 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
             directories.update(path for path in (store / 'artifacts', store / 'latest') if path.exists())
             for path in directories:
                 directory_states.setdefault(path, _directory_identity(path))
+            published = set(binaries)
             # Include unlabelled lib tests, examples and build-script executables.
             # No dependence on Unix executable bits (Windows does not have them).
             for path, info in inventory.items():
@@ -535,7 +592,11 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                     continue
                 if _magic(path) in MACH | {b'\x7fELF'} or _magic(path)[:2] == b'MZ':
                     binaries.add(path)
-            protected = set(binaries)
+            links = _CacheLinks(inventory, increments)
+            superseded = _superseded(store, roots, profiles, inventory, links, binaries - published)
+            receipt['superseded_executables'] = sorted(map(str, superseded))
+            protected = binaries - superseded
+            needed = {}  # Objects only superseded executables name, and those executables.
             # Immutable validation inputs first: an already broken label can
             # stop safely before scanning numerous rebuildable cache binaries.
             for binary in sorted(binaries, key=lambda path: (path not in preserved_checks, str(path))):
@@ -553,17 +614,21 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                             with dependency.open('rb') as source:
                                 if source.read(8) == b'!<thin>\n':
                                     raise ValueError(f'Unsupported thin-archive debug closure: {dependency}')
-                        protected.add(dependency)
+                        if binary in superseded:
+                            needed.setdefault(dependency, set()).add(binary)
+                        else:
+                            protected.add(dependency)
                 if missing:
                     receipt['degraded_debug_inputs'][str(binary)] = sorted(missing)
             receipt['protected_files'] = len(protected)
-            links = _CacheLinks(inventory, increments)
-            groups = []
+            # Each group: paths, incremental, age, newest session, executables first removed.
+            groups = [([path], False, inventory[path].st_mtime_ns, 0, frozenset())
+                      for path in sorted(superseded - protected)]
             # Only exact Cargo profile/deps *.rcgu.o; never arbitrary *.o.
             for path, info in inventory.items():
                 if (path.name.endswith('.rcgu.o') and path.parent in {profile / 'deps' for profile in profiles}
                         and links.eligible(path) and path not in protected):
-                    groups.append(([path], False, info.st_mtime_ns, 0))
+                    groups.append(([path], False, info.st_mtime_ns, 0, frozenset(needed.get(path, ()))))
             sessions = {}
             for path in increments:
                 # Cargo incremental/<crate-hash>/s-<session>/{objects,*.bin}.
@@ -599,19 +664,26 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                 if set(paths) != {path for path in entries if path.is_file()}:
                     continue
                 groups.append((sorted(paths), True, max(inventory[path].st_mtime_ns for path in paths),
-                               int(newest[session.parent][1] == session)))
+                               int(newest[session.parent][1] == session),
+                               frozenset().union(*(needed.get(path, ()) for path in paths))))
             # Hottest sessions remain useful until cold caches cannot meet pressure.
-            groups.sort(key=lambda group: (group[3], group[2], str(group[0][0])))
+            # An object an older executable names sorts after it, never alone first.
+            groups.sort(key=lambda group: (
+                group[3], max([group[2], *(inventory[path].st_mtime_ns for path in group[4])]),
+                bool(group[4]), str(group[0][0])))
             receipt['removable_groups'] = len(groups)
             selected, projected_free, projected_total, projected_incremental = [], dict(free), total, incremental
-            projection = _CacheLinks(inventory, increments)
-            for paths, is_incremental, age, _ in groups:
+            projection, chosen = _CacheLinks(inventory, increments), set()
+            for paths, is_incremental, _, _, after in groups:
                 device = str(inventory[paths[0]].st_dev)
                 if (projected_total <= policy.cache_bytes and
                         (not is_incremental or projected_incremental <= policy.incremental_bytes)
                         and projected_free[device] >= policy.min_free_bytes):
                     continue
+                if not after <= chosen:
+                    continue
                 selected.append((paths, is_incremental))
+                chosen.update(paths)
                 for path in paths:
                     released, incremental_released = projection.remove(path)
                     projected_total -= released
@@ -631,7 +703,7 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                     raise ValueError(f'Debug dependency changed during inspection: {path}')
             # Preflight every eligible fallback too: APFS clones/snapshots can
             # reclaim less than allocated bytes, requiring further cold entries.
-            candidate_paths = {path for paths, _, _, _ in groups for path in paths}
+            candidate_paths = {path for paths, *_ in groups for path in paths}
             # Every known alias participates in preflight, including required debug
             # paths which must survive removal of a sibling incremental alias.
             alias_paths = {alias for path in candidate_paths
@@ -648,12 +720,15 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
             if not dry_run:
                 receipt['selected_files'] = []
                 remaining_total, remaining_incremental, checked_at = total, incremental, 0.0
-                for paths, is_incremental, _, _ in groups:
+                removed = set()
+                for paths, is_incremental, _, _, after in groups:
                     device = inventory[paths[0]].st_dev
                     actual_free = shutil.disk_usage(devices[device]).free
                     if (remaining_total <= policy.cache_bytes and
                             (not is_incremental or remaining_incremental <= policy.incremental_bytes)
                             and actual_free >= policy.min_free_bytes):
+                        continue
+                    if not after <= removed:
                         continue
                     if time.monotonic() - checked_at >= 1:
                         if build_processes():
@@ -679,6 +754,9 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                                 raise ValueError(f'Compiler cache changed before unlink: {alias}')
                         prior = candidates[path]
                         path.unlink()
+                        removed.add(path)
+                        # An older executable and its objects are inspected inputs.
+                        watched.pop(path, None)
                         receipt['removed_files'].append(str(path))
                         released, incremental_released = links.remove(path)
                         receipt['removed_allocated_bytes'] += released

@@ -1182,6 +1182,13 @@ fn advance_one_simulation_frame(
                         .electric_bolts
                         .create(birth);
                 }
+                LifecycleOutput::RadiationBeamCreated(birth) => {
+                    state
+                        .match_state
+                        .match_presentation
+                        .radiation_beams
+                        .create(birth);
+                }
                 LifecycleOutput::LineTrailConstructed { stable_id, style } => {
                     let presentation = &mut state.match_state.match_presentation;
                     presentation.line_trails.attach(

@@ -52,6 +52,8 @@ class MapObservationTests(unittest.TestCase):
         self.effect_frames = {}
         self.laser_frames = {}
         self.electric_frames = {}
+        self.radiation_frames = {}
+        self.radiation_draws = {}
         self.bomb_frames = {}
         self.crate_frames = {}
         self.input_frames = {}
@@ -144,6 +146,8 @@ class MapObservationTests(unittest.TestCase):
                 frames[-1]['lasers'] = deepcopy(self.laser_frames.get(step, self.laser_snapshot()))
             if observation._observes_electric_step(self.profile, step):
                 frames[-1]['electric_bolts'] = deepcopy(self.electric_frames.get(step, self.electric_snapshot()))
+            if self.profile.get('observe_radiation_beams', False):
+                frames[-1]['radiation_beams'] = deepcopy(self.radiation_frames.get(step, self.radiation_snapshot()))
             if self.profile.get('observe_bombs', False):
                 frames[-1]['bombs'] = deepcopy(self.bomb_frames.get(step, {'carriers': [], 'records': []}))
             if self.profile.get('observe_crates', False):
@@ -171,6 +175,13 @@ class MapObservationTests(unittest.TestCase):
                             'simulation_tick': step, 'binary_frame': step,
                             'effects': deepcopy(self.electric_frames.get(step, self.electric_snapshot()))}
                            for index, step in enumerate(draw_steps)]}
+        if self.profile.get('observe_radiation_beams', False):
+            manifest['observations']['radiation_beam_draws'] = {
+                'policy': 'radiation-beam-after-each-tactical-composite-v1',
+                'frames': [{'ordinal': index, 'completed_steps': step,
+                            'simulation_tick': step, 'binary_frame': step,
+                            'beams': deepcopy(self.radiation_draws.get(step, self.radiation_snapshot()))}
+                           for index, step in enumerate(range(1, ticks + 1) if ticks else [0])]}
         if 'observe_types' in self.profile:
             manifest['observations']['type_filter'] = deepcopy(self.profile['observe_types'])
         if 'gestures' in self.profile:
@@ -2452,6 +2463,150 @@ class MapObservationTests(unittest.TestCase):
                 'live': [], 'lights': [], 'particle_systems': [], 'native_id_cursor': 1000,
                 'rng': {name: {'disabled': 0, 'index_a': 0, 'index_b': 103, 'words': [0] * 250}
                         for name in ('main', 'scenario', 'mapgen')}}
+
+    @staticmethod
+    def radiation_snapshot(populated=False):
+        # Protocol fixture only, never native numeric or lifetime goldens.
+        if not populated:
+            return {'live': [], 'composites': [], 'segments': []}
+        return {'live': [{'birth_frame': 7, 'from': [256, 256, 0], 'to': [768, 256, 0],
+                          'z_adjust': -32, 'color': [0, 255, 0], 'duration': 15,
+                          'amplitude_bits': 0x4044000000000000, 'progress': 14,
+                          'spacing': 10, 'length_bits': 0x4080000000000000}],
+                'composites': [{'birth_frame': 7, 'progress_before': 13, 'progress_after': 14,
+                                'expired': False, 'segments': 1}],
+                'segments': [{'from': [-1, 32], 'to': [2, 34], 'z_adjust': [-32, -2], 'rgb565': 2016}]}
+
+    def test_radiation_observer_keeps_logic_and_actual_composite_snapshots_separate(self):
+        self.scripted_profile()
+        self.profile['observe_radiation_beams'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        logic = self.radiation_snapshot(True)
+        self.radiation_frames[2] = logic
+        draw = self.radiation_snapshot(True)
+        draw['live'].clear()
+        draw['composites'][0].update(progress_before=14, progress_after=15, expired=True)
+        self.radiation_draws[2] = draw
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertEqual(observed['frames'][2]['radiation_beams'], logic)
+        self.assertEqual(observed['radiation_beam_draws']['frames'][1]['beams'], draw)
+        self.assertTrue(draw['segments'])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.output = self.root / 'missing-radiation-composite'
+        self.change = lambda m: m['observations']['radiation_beam_draws']['frames'].pop()
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'INVALID')
+        self.assertTrue(any('each requested composite' in error for error in report['errors']), report['errors'])
+
+    def test_radiation_flag_is_strict_and_opt_out_preserves_old_policy_rows(self):
+        self.scripted_profile()
+        for schema in (observation.PROFILE_V2, observation.PROFILE_V3):
+            for enabled in (False, True):
+                observation._profile_extensions(dict(self.profile, schema_version=schema,
+                                                       observe_radiation_beams=enabled))
+        for enabled in (False, True):
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_radiation_beams=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_radiation_beams=value))
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_radiation_beams=True), {}, **prior)
+        self.profile['observe_radiation_beams'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertNotIn('radiation_beam_draws', observed)
+        self.assertTrue(all('radiation_beams' not in frame for frame in observed['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_radiation_composites_ignore_electric_sampling_whitelist(self):
+        self.scripted_profile()
+        self.profile.update(observe_radiation_beams=True, observe_electric_bolts=True,
+                            observe_electric_bolt_steps=[0, 2])
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            for actor in actors:
+                actor['prism'] = ({'support_count': 0, 'pending': None,
+                                   'rearm': {'start': -1, 'duration': 0, 'remaining': 0}}
+                                  if actor['category'] == 'Structure' else None)
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertEqual([row['completed_steps'] for row in observed['electric_bolt_draws']['frames']], [2])
+        self.assertEqual([row['completed_steps'] for row in observed['radiation_beam_draws']['frames']], [1, 2, 3])
+
+    def test_unrequested_radiation_observations_are_rejected(self):
+        self.scripted_profile()
+        self.profile['observe_radiation_beams'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        for index, change in enumerate((
+                lambda m: m['observations']['frames'][0].update(radiation_beams=self.radiation_snapshot()),
+                lambda m: m['observations'].update(radiation_beam_draws={
+                    'policy': 'radiation-beam-after-each-tactical-composite-v1', 'frames': []}))):
+            self.output = self.root / f'unrequested-radiation-{index}'
+            self.change = change
+            report = self.run_capture()
+            self.assertEqual(report['status'], 'INVALID', report['errors'])
+
+    def test_radiation_repeated_same_logic_frame_retains_expiry_and_geometry(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_radiation_beams=True, ticks=0)
+        rows = []
+        for index in range(3):
+            snapshot = self.radiation_snapshot(True)
+            if index == 2:
+                snapshot['live'].clear()
+                snapshot['composites'][0].update(progress_before=14, progress_after=15, expired=True)
+            rows.append({'ordinal': index, 'completed_steps': 0, 'simulation_tick': 0,
+                         'binary_frame': 0, 'beams': snapshot})
+        value = {'policy': 'radiation-beam-after-each-tactical-composite-v1', 'frames': rows}
+        self.assertEqual(observation._radiation_beam_draws(value, self.profile, [], 2), 11)
+        with self.assertRaises(ValidationError):
+            observation._radiation_beam_draws(value, self.profile, [], 0)
+        value['frames'][2]['binary_frame'] = 1
+        with self.assertRaises(ValidationError):
+            observation._radiation_beam_draws(value, self.profile, [], 2)
+
+    def test_radiation_snapshot_shapes_bits_and_actual_segment_tally_are_strict(self):
+        self.assertEqual(observation._radiation_beams(self.radiation_snapshot(), 'beams'), 1)
+        self.assertEqual(observation._radiation_beams(self.radiation_snapshot(True), 'beams'), 4)
+        for group, key, value in (('live', 'amplitude_bits', 1 << 64), ('live', 'length_bits', True),
+                                 ('live', 'progress', 1 << 31), ('live', 'from', [1, 2]),
+                                 ('live', 'color', [0, 0, 256]), ('live', 'duration', True),
+                                 ('composites', 'expired', 1), ('composites', 'segments', 2),
+                                 ('segments', 'rgb565', 65536), ('segments', 'z_adjust', [0, True]),
+                                 ('segments', 'blend', 'add')):
+            row = self.radiation_snapshot(True)
+            row[group][0][key] = value
+            with self.subTest(group=group, key=key), self.assertRaises(ValidationError):
+                observation._radiation_beams(row, 'beams')
+        row = self.radiation_snapshot(True)
+        row['live'][0]['length_bits'] = None
+        observation._radiation_beams(row, 'beams')
+        del row['composites'][0]['progress_before']
+        with self.assertRaises(ValidationError):
+            observation._radiation_beams(row, 'beams')
+
+    def test_radiation_logic_and_composite_rows_share_aggregate_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_radiation_beams=True, ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.radiation_frames[0] = self.radiation_snapshot(True)
+        self.radiation_draws[0] = self.radiation_snapshot(True)
+        for budget, status in ((7, 'INVALID'), (8, 'VALID')):
+            self.output = self.root / f'radiation-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
 
     def test_electric_observations_preserve_owner_ids_and_all_rng_words(self):
         self.scripted_profile()

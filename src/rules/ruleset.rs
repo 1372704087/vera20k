@@ -2741,7 +2741,9 @@ impl Default for RadiationRules {
             level_factor: 0.2,
             light_factor: sim_from_f32(0.1),
             tint_factor: sim_from_f32(1.0),
-            color: (0, 255, 0),
+            // Rules665663 zeroes EBX;6677EF/F5/FB seed RGB from BL.
+            //66CF70 retains these bytes when RadColor is absent.
+            color: (0, 0, 0),
             site_warhead: "RadSite".to_string(),
         }
     }

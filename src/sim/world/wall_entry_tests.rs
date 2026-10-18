@@ -5,11 +5,15 @@
 //! (`0x00480CB0`) write during play.
 
 use super::*;
+
+#[path = "wall_replacement_retail_tests.rs"]
+mod replacement_retail_tests;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::overlay_grid::damage_wall_overlay_with_terrain;
 use crate::sim::rng::SimRng;
+use crate::sim::world::FrameEffects;
 use crate::sim::world::entry_test_fixture;
 
 /// Wall overlays `O2` (stone, `DamageLevels=3`) and `O3` (wooden), the wall
@@ -133,7 +137,8 @@ fn a_wall_built_in_play_refuses_a_mover_that_cannot_shoot_it() {
         &registry,
         wall,
         (16, 15),
-        owner
+        owner,
+        FrameEffects::default(),
     ));
     // Unarmed: Infantry `0x0051C1EB`, Unit `0x0073F48F`.
     for id in [ENGINEER, TRUCK] {
@@ -916,7 +921,13 @@ fn assert_retail_wall_history(native_path: &'static str, wall_name: &str, direct
                     placement["cell"][1].as_u64().unwrap() as u16,
                 );
                 assert!(crate::sim::production::stamp_wall_with_autofill(
-                    sim, rules, registry, wall_type, coordinate, owner,
+                    sim,
+                    rules,
+                    registry,
+                    wall_type,
+                    coordinate,
+                    owner,
+                    FrameEffects::default(),
                 ));
                 for change in placement["changed"].as_array().unwrap() {
                     assert_cell(sim, &change["after"], &neighbor_domain);

@@ -474,12 +474,12 @@ impl Simulation {
             Ok(()) => Ok(FindPathResult::Route),
             Err(refusal) => {
                 if let CoreRefusal::VeraOnly(reason) = refusal {
-                    //Residual: a VERA-only search refusal (BridgeOnlyGoal,
-                    //the compatibility zone graph, a hierarchy cell without
-                    //native topology) has no native counterpart; it takes the
-                    //native NULL-core continuation below instead of aborting
-                    //the frame. Trigger: a goal or corridor those adapters
-                    //refuse. Effect: the Foot stops (Guard/AreaGuard) where
+                    //Residual: a VERA-only search refusal (the compatibility
+                    //zone graph, a hierarchy cell without native topology)
+                    //has no native counterpart; it takes the native NULL-core
+                    //continuation below instead of aborting the frame.
+                    //Trigger: a goal or corridor those adapters refuse.
+                    //Effect: the Foot stops (Guard/AreaGuard) where
                     //AStar42C900 might have routed.
                     log::debug!("Find_Path core: VERA-only refusal {reason} for {id}");
                 }
@@ -625,9 +625,6 @@ impl Simulation {
             }
             Err(MovePathFailure::Search(Search::CompatibilityZoneRejected)) => {
                 Ok(Err(CoreRefusal::VeraOnly("CompatibilityZoneRejected")))
-            }
-            Err(MovePathFailure::BridgeOnlyGoal) => {
-                Ok(Err(CoreRefusal::VeraOnly("BridgeOnlyGoal")))
             }
             Err(MovePathFailure::MissingGrid) => {
                 Err("Find_Path core requires PathGrid; no native failure inferred".into())

@@ -755,6 +755,11 @@ pub struct ObjectType {
     /// sale starts packing up (`BuildingClass::Mission_Selling` stage 1, `0x0044A85B`).
     /// No retail type sets it.
     pub packup_sound: Option<String>,
+    /// `EnterTransportSound=` — `TechnoTypeClass+0x564`, read at
+    /// `0x007133FC` through ReadString128 and `VocClass::FindByName`.
+    /// `TechnoClass::AddPassenger @ 0x00710670` plays it at the transport's
+    /// Location once a passenger is in its cargo.
+    pub enter_transport_sound: Option<String>,
     /// `LeaveTransportSound=` — `TechnoTypeClass+0x568`. Read in
     /// `TechnoTypeClass::ReadINI` right after `EnterTransportSound=`
     /// (`+0x564`, key push at `0x00713432`); played by
@@ -2843,6 +2848,9 @@ impl ObjectType {
             enter_water_sound: None,
             leave_water_sound: None,
             packup_sound: section.read_name("PackupSound", 0x80).map(str::to_owned),
+            enter_transport_sound: section
+                .read_name("EnterTransportSound", 0x80)
+                .map(str::to_owned),
             leave_transport_sound: section
                 .read_name("LeaveTransportSound", 0x80)
                 .map(str::to_owned),

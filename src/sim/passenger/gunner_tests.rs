@@ -780,3 +780,48 @@ mod temporal;
 
 #[path = "gunner_temporal_oracle_tests.rs"]
 mod temporal_oracle;
+
+/// Infantry PerCellProcess51A46E reaches vt+0x394 AddPassenger710670, which
+/// plays the stock FV's EnterTransportSound=IFVTransform at the IFV's Location
+/// through Voc750E20 once the passenger is in the cargo.
+#[test]
+fn retail_boarding_plays_the_transports_enter_transport_sound() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, grid) = arena(rules);
+    let ifv = sim.spawn_object("FV", OWNER, 16, 16, 64, rules).unwrap();
+    let passenger = sim.spawn_object("E1", OWNER, 16, 15, 64, rules).unwrap();
+    assert!(sim.apply_command(
+        OWNER,
+        &Command::EnterTransport {
+            passenger_id: passenger,
+            transport_id: ifv,
+        },
+        Some(rules)
+    ));
+    let location =
+        crate::sim::movement::ground_pose::position_world_coord(&entity(&sim, ifv).position);
+    sim.sound_events.clear();
+    for _ in 0..180 {
+        sim.advance_tick(&[], Some(rules), Some(&grid), None, 33);
+        if entity(&sim, passenger).passenger_role.is_inside_transport() {
+            break;
+        }
+    }
+    let played: Vec<_> = sim
+        .sound_events
+        .iter()
+        .filter_map(|event| match event {
+            crate::sim::world::SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate,
+                flags,
+            } if sound_id == "IFVTransform" => Some((*coordinate, *flags)),
+            _ => None,
+        })
+        .collect();
+    assert_boarded(&sim, ifv, passenger);
+    assert_eq!(played, [(location, 0)]);
+}

@@ -240,6 +240,18 @@ pub(crate) mod tests {
         width: i32,
         height: i32,
     ) -> RectPx {
+        executed_child_window_for_side(dialog, control, width, height, 0)
+    }
+
+    /// As [`executed_child_window`] for a case whose relayout depends on the
+    /// campaign side (`0x103`'s `0x72B` override).
+    pub(crate) fn executed_child_window_for_side(
+        dialog: u16,
+        control: u16,
+        width: i32,
+        height: i32,
+        side: u8,
+    ) -> RectPx {
         let fixture: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/storage_oracle/shell_relayout.json",
         ))
@@ -249,9 +261,14 @@ pub(crate) mod tests {
             .unwrap()
             .iter()
             .find(|case| {
-                case["dialog_id"] == dialog && case["width"] == width && case["height"] == height
+                case["dialog_id"] == dialog
+                    && case["width"] == width
+                    && case["height"] == height
+                    && case["side"] == side
             })
-            .unwrap_or_else(|| panic!("no relayout of {dialog:#x} at {width}x{height}"));
+            .unwrap_or_else(|| {
+                panic!("no relayout of {dialog:#x} at {width}x{height} side {side}")
+            });
         let child = case["children"]
             .as_array()
             .unwrap()

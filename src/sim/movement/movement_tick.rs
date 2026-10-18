@@ -36,7 +36,6 @@ use crate::sim::touch_log::Touched;
 
 use super::bump_crush;
 use super::locomotor::MovementLayer;
-use super::movement_path::supports_layered_bridge_pathing;
 use super::movement_step;
 use super::{MovementTickStats, MoverSnapshot, PathfindingContext};
 #[cfg(any(test, feature = "test-support"))]
@@ -47,7 +46,7 @@ use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 /// the data available across the mutable/immutable borrow boundary.
 ///
 /// VERA-only: a per-visit copy of the mover's class, locomotor, SpeedType,
-/// MovementZone, crusher flags and bridge and playfield facts. Nothing writes
+/// MovementZone, crusher flags and playfield facts. Nothing writes
 /// it back; the entity's records stay the source of truth.
 pub(super) fn snapshot_mover(
     entities: &EntityStore,
@@ -65,7 +64,6 @@ pub(super) fn snapshot_mover(
             .unwrap_or(MovementZone::Normal),
         omni_crusher: e.mover_facts.omni_crusher(),
         regular_crusher: e.mover_facts.regular_crusher(),
-        on_bridge: e.on_bridge(),
         locomotor: e.locomotor.clone(),
         allow_zone_hierarchy: playfield_bounds.is_none() || e.in_playfield(),
     })
@@ -237,20 +235,12 @@ impl FootPathRequest {
             MovementLayer::Ground
         };
         let goal = ((goal.x / 256) as u16, (goal.y / 256) as u16);
-        let layered = snap
-            .locomotor
-            .as_ref()
-            .zip(ctx.path_grid)
-            .is_some_and(|(loco, grid)| {
-                supports_layered_bridge_pathing(loco, grid, snap.on_bridge)
-            });
         debug_assert!(
             ctx.blocker_neighbor_counts.is_some() == ctx.path_grid.is_some(),
             "path build on a pass that skipped the blocker plane; see pass_may_build_paths"
         );
         super::movement_path::find_move_path(
             ctx,
-            layered,
             start,
             layer,
             goal,

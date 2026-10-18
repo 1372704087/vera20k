@@ -777,6 +777,10 @@ pub struct GeneralRules {
     pub attack_cursor_on_disguise: bool,
     /// `[General] DefaultMirageDisguises=` selection pool, in source order.
     pub default_mirage_disguises: Vec<String>,
+    /// General AlliedDisguise/SovietDisguise/ThirdDisguise, retained by the
+    /// native scalar reader66FB94..66FBEB. Infantry GetDisguise522640 uses
+    /// the current player's side, independently of the actor's owner.
+    pub(crate) infantry_disguises: [Option<String>; 3],
     /// General SecretInfantry/SecretUnits/SecretBuildings, retained native identities.
     secret_lab_choices: [Vec<String>; 3],
     /// `[General] InfantryBlinkDisguiseTime=` reveal duration in frames.
@@ -1338,6 +1342,11 @@ pub struct GeneralRules {
     /// AudioVisual/SinkingSound -> Rules+208 (6699C8); constructor665940
     /// stores -1. Used only when the sinking type has no resolved sound.
     pub sinking_sound: Option<String>,
+    /// `[AudioVisual] ScoreAnimSound=` (retail `ScoreEmblemSoundLoop`): the
+    /// looping cue `Dialog0x103__DlgProc` starts when the slide-in completes
+    /// (`0x006C93A0..0x006C93D4`, `VocClass__PlayGlobal` with the Rules ID),
+    /// stopped by Continue and by dialog destruction. None = no cue.
+    pub score_anim_sound: Option<String>,
     /// Rules+6C8 ctor665FE2=-1; AudioVisual Construction at66A97F..66A9B7
     /// uses ReadString128/Find7514D0 and keeps the prior index on invalid input.
     pub construction_sound: Option<String>,
@@ -1523,6 +1532,15 @@ pub struct GeneralRules {
     pub allied_crew: Option<String>,
     pub soviet_crew: Option<String>,
     pub third_crew: Option<String>,
+    /// `AlliedDisguise=`/`SovietDisguise=`/`ThirdDisguise=` (Rules
+    /// `+0xD58/+0xD5C/+0xD60`, read through the same InfantryType reference
+    /// reader `0x0067BAC0` at `0x0066FBA1..0x0066FBEB`): what a
+    /// `CanDisguise=`/`PermaDisguise=` object of each side starts wearing
+    /// (`TechnoClass::Init_Managers`, `0x006F423F..0x006F4271`). Stock E1,
+    /// E2 and INIT.
+    pub allied_disguise: Option<String>,
+    pub soviet_disguise: Option<String>,
+    pub third_disguise: Option<String>,
     pub technician: Option<String>,
     pub engineer_infantry: Option<String>,
     /// Rules+17F8: constructor667793 initializes1.0f; General671DF7
@@ -2267,6 +2285,7 @@ impl Default for GeneralRules {
             ],
             attack_cursor_on_disguise: false,
             default_mirage_disguises: Vec::new(),
+            infantry_disguises: Default::default(),
             secret_lab_choices: Default::default(),
             infantry_blink_disguise_time: 0,
             tree_targeting: false,
@@ -2389,6 +2408,7 @@ impl Default for GeneralRules {
             impact_water_sound: None,
             impact_land_sound: None,
             sinking_sound: None,
+            score_anim_sound: None,
             construction_sound: None,
             building_repaired_sound: None,
             bomb_ticking_sound: None,
@@ -2428,6 +2448,9 @@ impl Default for GeneralRules {
             allied_crew: None,
             soviet_crew: None,
             third_crew: None,
+            allied_disguise: None,
+            soviet_disguise: None,
+            third_disguise: None,
             technician: None,
             engineer_infantry: None,
             engineer_capture_level: NativeF32Bits::ONE,
@@ -2910,6 +2933,11 @@ impl GeneralRules {
         self.gui_close_sound.as_deref()
     }
 
+    /// Resolved campaign score emblem loop, `[AudioVisual] ScoreAnimSound=`.
+    pub fn score_anim_sound(&self) -> Option<&str> {
+        self.score_anim_sound.as_deref()
+    }
+
     /// Drive4B3A65, Ship6A30B4 and Foot/Walk's timer producers retain the
     /// configured double until FLD/FMUL900/ftol7C5F00. In particular, authored
     /// decimal .01 is parsed through float by ReadDouble5283D0 and converts to
@@ -3294,6 +3322,7 @@ impl GeneralRules {
             // Filled from the native ordered TerrainType list owner after
             // processing, including allocation/none-token/retention semantics.
             default_mirage_disguises: Vec::new(),
+            infantry_disguises: Default::default(),
             secret_lab_choices: Default::default(),
             // Rules671D80: signed ReadInt, constructor665650 defaults0.
             infantry_blink_disguise_time: general.read_int("InfantryBlinkDisguiseTime", 0),
@@ -3501,6 +3530,7 @@ impl GeneralRules {
                 .map(str::to_owned),
             // Constructor -1 until the fixed SOUNDMD catalog resolves it.
             sinking_sound: None,
+            score_anim_sound: None,
             construction_sound: None,
             building_repaired_sound: None,
             bomb_ticking_sound,
@@ -3584,6 +3614,9 @@ impl GeneralRules {
             allied_crew: general.read_name("AlliedCrew", 0x80).map(str::to_owned),
             soviet_crew: general.read_name("SovietCrew", 0x80).map(str::to_owned),
             third_crew: general.read_name("ThirdCrew", 0x80).map(str::to_owned),
+            allied_disguise: general.read_name("AlliedDisguise", 0x80).map(str::to_owned),
+            soviet_disguise: general.read_name("SovietDisguise", 0x80).map(str::to_owned),
+            third_disguise: general.read_name("ThirdDisguise", 0x80).map(str::to_owned),
             technician: general.read_name("Technician", 0x80).map(str::to_owned),
             engineer_infantry: general.read_name("Engineer", 0x80).map(str::to_owned),
             engineer_capture_level: general
@@ -4093,6 +4126,7 @@ impl RuleSet {
         rules.general.anim_to_infantry = processed.anim_to_infantry().to_vec();
         rules.general.secret_lab_choices = processed.secret_lab_choices().clone();
         rules.general.default_mirage_disguises = processed.default_mirage_disguises().to_vec();
+        rules.general.infantry_disguises = processed.infantry_disguises().clone();
         rules.bridge_rules.explosions = processed.bridge_explosions().to_vec();
         rules.general.gravity = processed.gravity();
         rules.general.wind_direction = processed.wind_direction();
@@ -4381,6 +4415,9 @@ impl RuleSet {
         self.general.sinking_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SinkingSound"));
+        self.general.score_anim_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "ScoreAnimSound"));
         self.general.construction_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "Construction"));
@@ -5508,7 +5545,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v20".hash(&mut hasher);
+        b"rules-simulation-config-v21".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5557,6 +5594,7 @@ impl RuleSet {
             self.general.drop_zone_radius.hash(&mut hasher);
         }
         self.general.default_mirage_disguises.hash(&mut hasher);
+        self.general.infantry_disguises.hash(&mut hasher);
         if self
             .general
             .secret_lab_choices

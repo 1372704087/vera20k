@@ -1254,9 +1254,10 @@ fn astar_hierarchy_marker_follows_the_marked_straight_path() {
     let marked_zones = MarkedZones::from_iter([1, 2, 3, 4]);
     let blocker_counts = BlockerNeighborCounts::new(4, 1);
 
-    let path = find_path_marker(
+    let path = find_layered_path_marker(
         &grid,
         (0, 0),
+        MovementLayer::Ground,
         (3, 0),
         Some(HierarchyGate {
             level0_zones: &level0_zones,

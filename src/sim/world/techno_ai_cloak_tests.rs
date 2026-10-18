@@ -1109,3 +1109,67 @@ fn the_sensors_neighbour_pick_is_nearest_to_the_cell_origin_not_lowest_id() {
         );
     }
 }
+
+/// CloakingTick6FBC0B..6FBC32: completing the cloak makes a computer's Unit
+/// Scatter(null, 1, 0), which picks a nearby cell and sets its destination;
+/// the same completion leaves a human-owned sub where it is.
+#[test]
+fn completing_the_cloak_scatters_only_a_computer_owned_unit() {
+    // A ground locomotor: the shared fixture's SUB has none, and Scatter
+    // refuses an active Teleport locomotor.
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nCloakingStages=9\nCloakDelay=.02\n\
+         [VehicleTypes]\n0=SUB\n\
+         [SUB]\nStrength=600\nSpeed=4\nCloakable=yes\nCloakingSpeed=1\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
+    ))
+    .expect("ground cloak rules");
+    let mut sim = Simulation::with_seed(0xC10A_C002);
+    for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
+        let house = sim.interner.intern(name);
+        sim.houses.insert(
+            house,
+            crate::sim::house_state::HouseState::new(house, side, None, human, 0, 10),
+        );
+        sim.session.house_order.push(house);
+    }
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+    let human = sim
+        .spawn_object_at_height("SUB", "Americans", 10, 10, 0, 0, &rules)
+        .unwrap();
+    let computer = sim
+        .spawn_object_at_height("SUB", "Russians", 20, 20, 0, 0, &rules)
+        .unwrap();
+    let state = |sim: &Simulation, id| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .cloak
+            .as_ref()
+            .unwrap()
+            .state()
+    };
+    let nav = |sim: &Simulation, id| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .navigation
+            .nav_com()
+            .is_some()
+    };
+    for _ in 0..30 {
+        assert!(!nav(&sim, computer), "no NavCom before the completion");
+        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
+        if state(&sim, computer) == 2 {
+            break;
+        }
+    }
+    assert_eq!((state(&sim, human), state(&sim, computer)), (2, 2));
+    assert!(!nav(&sim, human));
+    assert!(
+        nav(&sim, computer),
+        "the computer's sub scatters on completion"
+    );
+}

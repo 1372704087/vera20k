@@ -1158,6 +1158,28 @@ pub(crate) fn process_boarding_passenger(
             pax.passenger_role
                 .set_inside_transport(transport_id, transport_open_topped);
         }
+        // The transport arms reach vt+0x394 `TechnoClass::AddPassenger @
+        // 0x00710670` (Infantry `0x0051A46E`, Unit `0x0073A740`): after
+        // CargoClass::AddPassenger, the transport type's EnterTransportSound=
+        // plays at the transport's Location (`VocClass::PlayAtCoord @
+        // 0x00750E20`, flags 0). The building arms add through Cargo alone.
+        // Infantry's arm sets InOpenTransport (`0x0051A45E`) first and Unit's
+        // (`0x0073A75D`) after; the setter below plays no sound.
+        if !building_arm
+            && let Some(transport) = sim.substrate.entities.get(transport_id)
+            && let Some(sound_id) = sim
+                .object_type(transport.type_ref(), rules)
+                .and_then(|object| object.enter_transport_sound.clone())
+        {
+            let coordinate =
+                crate::sim::movement::ground_pose::position_world_coord(&transport.position);
+            sim.sound_events.push(SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate,
+                flags: 0,
+            });
+            effects.flush_sound(sim, Some(rules));
+        }
         if let Some((sound_id, coordinate)) = bio_reactor_entry_sound {
             sim.sound_events.push(SimSoundEvent::voc_at_world_coord(
                 sound_id,

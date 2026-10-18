@@ -201,9 +201,10 @@ fn tube_hierarchy_generated_records_connect_full_and_local_precheck() {
         bridges.native_zone_source_size(),
     );
     let counts = super::super::BlockerNeighborCounts::new(width, height);
-    let route = super::super::zone_search::find_path_zoned_marker(
+    let route = super::super::zone_search::find_layered_path_zoned_marker(
         &path,
         (16, 32),
+        crate::sim::movement::locomotor::MovementLayer::Ground,
         (48, 32),
         Some(&zone_grid),
         MovementZone::Normal,
@@ -214,11 +215,11 @@ fn tube_hierarchy_generated_records_connect_full_and_local_precheck() {
         true,
         None,
     )
-    .expect("generated Tube graph reaches live flat route selection");
+    .expect("generated Tube graph reaches live route selection");
     assert!(
         route
             .windows(2)
-            .any(|pair| pair[0].0.abs_diff(pair[1].0) > 1),
+            .any(|pair| pair[0].rx.abs_diff(pair[1].rx) > 1),
         "the class barrier is crossed by the Tube path transition"
     );
     for level in 0..3 {

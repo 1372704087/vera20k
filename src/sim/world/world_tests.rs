@@ -5818,11 +5818,11 @@ fn test_real_ship_move_command_can_path_under_bridge_when_too_big() {
 }
 
 /// Pins a ship's route end to end: the Move order, the Ship's first Process
-/// and the flat search with the live zone grid and blocker plane. The island
-/// leaves one channel, so the route cannot follow the straight line. A Water
-/// movement zone leaves the ladder at its first rung (no reduced precheck), so
-/// this pins the route, not the zone rungs; `zone_search_tests` covers those.
-/// The route is today's Rust result, a regression pin, not a native capture.
+/// and the Foot search with the live zone grid and blocker plane. The island
+/// leaves one channel, so the route cannot follow the straight line. The Water
+/// row takes the whole zone ladder (`0x0042C900`), so the A* runs inside its
+/// precheck corridor; `zone_search_tests` covers the rungs. The route is
+/// today's Rust result, a regression pin, not a native capture.
 #[test]
 fn a_ship_order_routes_around_an_island_through_the_live_search() {
     use crate::map::resolved_terrain::zone_class;
@@ -5889,7 +5889,7 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
         path,
         vec![
             (1, 3),
-            (2, 4),
+            (1, 4),
             (2, 5),
             (3, 6),
             (4, 6),

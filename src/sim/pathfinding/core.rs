@@ -794,6 +794,9 @@ pub fn astar_search(
     // Original429A90..429B5A widens signed levels before adding the bridge
     // offset. The goal's raw structural flag selects its height even when
     // its eventual Foot admission refuses it (the blocked-goal tail still runs).
+    // Residual: the Aircraft (WhatAmI 2) arms at 0x00429AF9/0x00429B2A, which
+    // keep the plain level at both ends, are not ported; no Aircraft reaches
+    // FootClass::Find_Path, this search's one production caller.
     let start_cell = grid.cell(start.0, start.1).unwrap_or(&DEFAULT_BLOCKED_CELL);
     let goal_cell = grid.cell(goal.0, goal.1).unwrap_or(&DEFAULT_BLOCKED_CELL);
     let (start_height, goal_height) = initial_search_heights(start_cell, start_layer, goal_cell);
@@ -2035,30 +2038,6 @@ pub fn find_path(grid: &PathGrid, start: (u16, u16), goal: (u16, u16)) -> Option
     )
     .ok()?;
     Some(steps.into_iter().map(|s| (s.rx, s.ry)).collect())
-}
-
-pub(crate) fn find_path_marker(
-    grid: &PathGrid,
-    start: (u16, u16),
-    goal: (u16, u16),
-    hierarchy_gate: Option<HierarchyGate<'_>>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    marker_overlay: Option<&SearchMarkerOverlay>,
-    facts: MoverSearchFacts<'_>,
-) -> Result<Vec<LayeredPathStep>, PathSearchFailure> {
-    astar_search(
-        grid,
-        start,
-        MovementLayer::Ground,
-        goal,
-        &AStarOptions {
-            hierarchy_gate,
-            marker_overlay,
-            urgency: facts.urgency,
-            resolved_terrain,
-            ..AStarOptions::new(facts.foot_entry)
-        },
-    )
 }
 
 /// Resolve a gamemd foundation name into pathfinding footprint dimensions.

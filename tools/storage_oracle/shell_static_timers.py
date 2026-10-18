@@ -15,7 +15,8 @@ rows' name, Kills, Losses, Built and Score cells, template order):
 - ``602490`` kind-1 classifier (``60AA60`` sends ``0x4EE`` to every accepted child
   at the shell SHOW completion),
 - ``600CA0`` kind-1 timer interval, ``6015E0`` step, ``601D20`` highlight range,
-- ``603240`` kind-4 startup timer (``60A9E2``).
+- ``603240`` kind-4 startup timer (``60A9E2``), ``6033F0`` kind-4 animation
+  interval (``0x4D3`` start).
 
 Only the record table, GetDlgCtrlID and the no-session predicate are supplied.
 """
@@ -46,6 +47,7 @@ GETTERS = {
     "step": 0x6015E0,
     "range": 0x601D20,
     "kind4_startup_ms": 0x603240,
+    "kind4_interval_ms": 0x6033F0,
 }
 DIALOGS = (0xE2, 0x100, 0x101, 0x129, 0xD5, 0x102, 0xB7, 0x6B, 0x105)
 CONTROLS = (0x694, 0x695, 0x71C)
@@ -53,6 +55,12 @@ SKIRMISH_DIALOG = 0x102
 # RT_DIALOG 0x102's game type and map name statics.
 SKIRMISH_STATICS = (0x6EC, 0x5A8)
 SCORE_DIALOG = 0x108
+# RT_DIALOG 0x103: the title, status line, time/rank/kill statics and the
+# kind-4 campaign-emblem static 0x72B.
+CAMPAIGN_SCORE_DIALOG = 0x103
+CAMPAIGN_SCORE_STATICS = (
+    0x694, 0x695, 0x6EF, 0x6F0, 0x6F1, 0x6F2, 0x6F3, 0x6F4, 0x69F, 0x6F6, 0x72B,
+)
 # RT_DIALOG 0x108: Game 0x6D2, the headers, the per-row cells (the proc's
 # table at 0x0082FD5C: name, Kills, Losses, Built, Score) and Time 0x3EA.
 SCORE_TABLE = (
@@ -137,6 +145,10 @@ def generate():
     pairs = [(dialog_id, control_id) for dialog_id in DIALOGS for control_id in CONTROLS]
     pairs += [(SKIRMISH_DIALOG, control_id) for control_id in SKIRMISH_STATICS]
     pairs += [(SCORE_DIALOG, control_id) for control_id in CONTROLS + SCORE_TABLE]
+    pairs += [
+        (CAMPAIGN_SCORE_DIALOG, control_id)
+        for control_id in CAMPAIGN_SCORE_STATICS
+    ]
     cases = []
     for dialog_id, control_id in pairs:
         case = {"dialog_id": dialog_id, "control_id": control_id}
@@ -149,11 +161,12 @@ def generate():
 if __name__ == "__main__":
     finish_vectors(generate, Path(__file__).with_suffix(".json"),
                    provenance=lambda: provenance(
-        scope="Complete original kind-1 classifier/interval/step/range getters and the kind-4 startup timer for 0x694/0x695/0x71C in nine shell dialogs and the score dialog 0x108, plus 0x102's 0x6EC/0x5A8 and 0x108's 47 table statics",
+        scope="Complete original kind-1 classifier/interval/step/range getters, the kind-4 startup timer and the kind-4 animation interval for 0x694/0x695/0x71C in nine shell dialogs and the score dialog 0x108, plus 0x102's 0x6EC/0x5A8, 0x108's 47 table statics and campaign score 0x103's heading, status line, time/rank/kill statics and kind-4 emblem 0x72B",
         assumptions=[
             "Pre-match shell: the network-session predicate 69BBE0 returns false",
             "The parent dialog's record is found by the original lookup loop in a supplied one-bucket table; record fields other than HWND, next and dialog id stay zero",
             "Values are the getters' returns; which statics a dialog creates, their painting and message order are established separately by instruction reading",
+            "The reference was regenerated with the supported Steam image 3e81a617...; its code addresses and file-backed section contents match the historical 1cdd1180... image (tools/native_oracle.md), and the pre-existing cases' values are unchanged",
         ],
         substitutions=[
             "Record-table hash function pointer [AC1B18] returns bucket 0",

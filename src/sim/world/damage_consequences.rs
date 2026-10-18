@@ -40,6 +40,7 @@ impl DamageCommitReceipt {
 }
 
 impl DamageConsequences {
+    #[cfg(test)]
     pub(super) fn finish_navigation(&mut self, cells: Vec<(u16, u16)>) {
         self.terrain_navigation_changed_cells = cells;
     }
@@ -90,15 +91,17 @@ impl DamageConsequences {
         }
     }
 
+    /// The receiver fixture's combat pass result, whose radiation and death
+    /// sounds the pass already delivered.
+    #[cfg(test)]
     pub(crate) fn ordinary(
         mut effects: DeathEffects,
         under_attack_events: Vec<UnderAttackEvent>,
         terrain_navigation_changed_cells: Vec<(u16, u16)>,
         fire_events: Vec<SimFireEvent>,
     ) -> Self {
-        // Ordinary radiation and death sounds already crossed their earlier
-        // receiver barriers. Disabled fixture sinks formerly discarded them;
-        // carrying the accumulator whole must not replay those leftovers here.
+        // Disabled fixture sinks formerly discarded them; carrying the
+        // accumulator whole must not replay those leftovers here.
         effects.rad_detonations.clear();
         effects.death_sounds.clear();
         Self::live_fire(
@@ -109,9 +112,9 @@ impl DamageConsequences {
         )
     }
 
-    /// A shot committed inside its actor's Logic visit. No earlier global
-    /// combat phase has delivered its radiation/death sounds; preserve those
-    /// alongside the same ordinary fire-event and effect delivery owner.
+    /// A shot committed inside its actor's Logic visit, its radiation and
+    /// death sounds delivered with the same ordinary fire-event and effect
+    /// delivery owner.
     pub(crate) fn live_fire(
         mut effects: DeathEffects,
         under_attack_events: Vec<UnderAttackEvent>,
@@ -242,7 +245,9 @@ pub(crate) fn admit_explosion_effect(
     fx: crate::sim::combat::ExplosionEffect,
 ) {
     match fx.death {
-        Some(spawn) => world.admit_death_anim(rules, fx.shp_name, spawn),
+        Some(spawn) => {
+            world.admit_death_anim(rules, fx.shp_name, spawn);
+        }
         None => {
             world.spawn_combat_explosion_anim(
                 rules,

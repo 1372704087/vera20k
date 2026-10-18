@@ -274,15 +274,8 @@ const INFANTRY_MUTATE_INF_DEATH: u8 = 9;
 /// paratrooper shot in its fall, where Do_Action refuses every death
 /// sequence (`0x0051D722`), explodes and is UnInit.
 ///
-/// RESIDUAL: with an `InfDeath=8` warhead (retail `Virus` and `VirusGas`, by
-/// the production reader) native first builds InfantryVirus at the Location,
-/// spawns one gas particle of its `SpawnsParticle=` type there into
-/// GasCloudSys (`0x0062E430`) and deletes the anim (`0x0051837E..0x0051842C`);
-/// VERA ports no gas particles (`AnimClass::Middle`'s RESIDUAL). Trigger: a
-/// Virus shot or gas kill on a falling paratrooper. Effect: no gas puff over
-/// its explosion, and the draws of both constructions are skipped: the
-/// particle's draws Scenario Random once (`0x0062B842` or `0x0062B870`) and
-/// again for a type whose `+0x314` is 1 (`0x0062B7F2`). Frequency: rare.
+/// InfDeath8 first emits the same temporary-anim single particle as the
+/// animal branch (51837E..51842C), before the ordinary explosion.
 const PARADROP_INF_DEATH: u8 = INFANTRY_EXPLODE_INF_DEATH;
 
 /// The arm of `InfantryClass::ReceiveDamage`'s death ladder (`0x00517FA0`)
@@ -302,6 +295,44 @@ enum InfantryDeathArm {
 }
 
 impl Simulation {
+    /// Infantry51851E..5185C6 (also Paradrop51837E): construct InfantryVirus,
+    /// spawn its explicit SpawnsParticle once, then scalar-delete the temporary
+    /// animation. This is distinct from the human death animation's Middle.
+    fn emit_inline_virus_particle(
+        &mut self,
+        rules: &RuleSet,
+        location: crate::sim::anim_class::AnimWorldCoord,
+    ) {
+        let Some(name) = rules.general.infantry_death_anim(VIRUS_INF_DEATH) else {
+            return;
+        };
+        let type_id = self.interner.intern(name);
+        let Some(anim) = self.admit_death_anim(
+            rules,
+            type_id,
+            crate::sim::combat::destruction_effects::DeathAnimSpawn::at(location, 0),
+        ) else {
+            return;
+        };
+        if let Some(kind) = self
+            .anim(anim)
+            .and_then(|anim| {
+                rules
+                    .art()
+                    .anim_runtime_config(self.interner.resolve(anim.type_id))
+            })
+            .and_then(|config| config.spawns_particle.as_deref())
+            .and_then(|name| rules.p_type_id_by_name(name))
+        {
+            self.spawn_gas_particle(
+                kind,
+                glam::IVec3::new(location.x, location.y, location.z),
+                rules,
+            );
+        }
+        self.scalar_delete_anim(anim);
+    }
+
     /// The arm that takes infantryman `entity` when a warhead with
     /// `inf_death` kills it, in the ladder's order:
     /// low DropAsBomb over water; [`InfantryDeathArm::JumpJetExplode`] for a
@@ -325,15 +356,6 @@ impl Simulation {
     /// `Cyborg=`. The preceding low DropAsBomb water arm is ported here
     /// (`0x005181B5..0x005182AF`; original `tools.native_inspect` instructions).
     ///
-    /// RESIDUAL: a `NotHuman=` infantryman killed with InfDeath 8 natively
-    /// also builds InfantryVirus at its Location, spawns one gas particle
-    /// of its `SpawnsParticle=` type there into GasCloudSys (`0x0062E430`)
-    /// and deletes the anim (`0x00518515..0x005185C6`), the Paradrop arm's
-    /// sequence; VERA ports no gas particles (`AnimClass::Middle`'s
-    /// RESIDUAL). Trigger: a Virus or VirusGas kill of a dog or another
-    /// animal. Effect: no gas puff over its Die1, and the anim's and the
-    /// particle's Scenario draws are skipped (as [`PARADROP_INF_DEATH`]
-    /// records). Frequency: rare.
     fn infantry_death_arm(
         &self,
         entity: &crate::sim::game_entity::GameEntity,
@@ -453,13 +475,6 @@ impl Simulation {
     /// the death arm's, and its death sequence or removal overwrites the Doing
     /// and cell-entry byte they write.
     ///
-    /// Infantry fire and direct mission FireAt now commit in the shooter's
-    /// Logic visit. RESIDUAL (other firing lanes): a shot still delivered by
-    /// the frame-end combat pass after every object's turn can engage the
-    /// Rocketeer's crash latch one frame after native when that shooter was
-    /// ahead in Logic order. The fall and landing's Scenario draws then move
-    /// by a frame. Frequency follows kills through those deferred lanes.
-    ///
     /// Each exact-zero callback in the fall reaches the shared immediate
     /// RecordKill702D40 owner again. Retained attribution does not suppress a
     /// later native callback or defer its House statistics until UnInit.
@@ -514,7 +529,13 @@ impl Simulation {
                 self.resolved_terrain.as_ref(),
             ),
         };
-        let recipe = match self.infantry_death_arm(entity, inf_death, rules) {
+        let arm = self.infantry_death_arm(entity, inf_death, rules);
+        if inf_death == VIRUS_INF_DEATH
+            && matches!(arm, InfantryDeathArm::Table(PARADROP_INF_DEATH))
+        {
+            self.emit_inline_virus_particle(rules, location);
+        }
+        let recipe = match arm {
             InfantryDeathArm::WaterSplash(raw_location) => {
                 location = raw_location;
                 ReceiverDeathRecipe::WaterSplash
@@ -528,6 +549,9 @@ impl Simulation {
             }
             InfantryDeathArm::NotHuman => {
                 self.begin_infantry_death_sequence(id, InfantryDeathSequence::Die1, rules, effects);
+                if inf_death == VIRUS_INF_DEATH {
+                    self.emit_inline_virus_particle(rules, location);
+                }
                 ReceiverDeathRecipe::Sequence
             }
             InfantryDeathArm::Table(INFANTRY_MUTATE_INF_DEATH) => {

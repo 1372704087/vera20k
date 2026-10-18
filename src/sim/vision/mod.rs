@@ -608,7 +608,7 @@ pub(crate) struct GapGeneratorSource {
 /// What a fire check (GetFireError and its range and line-of-fire questions)
 /// reads of the houses and their fog: the ally graph
 /// (`Simulation::house_alliances`) and the sensor counts, borrowed live
-/// ([`FogState::fire_view`]) or from a [`FireFogCopy`].
+/// ([`FogState::fire_view`]).
 #[derive(Clone, Copy)]
 pub(crate) struct FireFog<'a> {
     pub(crate) alliances: &'a HouseAllianceMap,
@@ -649,26 +649,6 @@ fn sensor_counted(
         .get(&house)
         .and_then(|counters| counters.get(index))
         .is_some_and(|count| *count > 0)
-}
-
-/// A [`FireFog`]'s parts copied ([`FogState::fire_copy`]), for fire checks
-/// that ask the fog as a phase found it after the phase has changed it.
-pub(crate) struct FireFogCopy {
-    alliances: HouseAllianceMap,
-    sensors_by_house: BTreeMap<InternedId, Vec<i16>>,
-    width: u16,
-    height: u16,
-}
-
-impl FireFogCopy {
-    pub(crate) fn view(&self) -> FireFog<'_> {
-        FireFog {
-            alliances: &self.alliances,
-            sensors_by_house: &self.sensors_by_house,
-            width: self.width,
-            height: self.height,
-        }
-    }
 }
 
 /// Global fog/shroud state keyed by owner name.
@@ -836,21 +816,14 @@ impl FogState {
             .is_some_and(|source| source.latched)
     }
 
-    /// An inactive source cache belongs to this owner until an explicit
-    /// native reveal event updates it. A frame must never relatch it.
-    pub(crate) fn source_cache_is_inactive(&self, id: u64, owner: InternedId) -> bool {
-        let mut found = false;
-        for (_, source) in self
-            .sight_admissions
-            .range(source_keys(id))
-            .filter(|(_, source)| source.owner == owner)
-        {
-            found = true;
-            if source.latched {
-                return false;
-            }
-        }
-        found
+    /// Source `id`'s admissions into `into`, which the fog pass reuses.
+    pub(crate) fn read_source_admissions(&self, id: u64, into: &mut SourceAdmissions) {
+        into.0.clear();
+        into.0.extend(
+            self.sight_admissions
+                .range(source_keys(id))
+                .map(|(&(_, viewer), source)| (viewer, source.owner, source.latched)),
+        );
     }
 
     /// Destructor cleanup of cached254/260 and alternate derived indexes.
@@ -1274,16 +1247,6 @@ impl FogState {
         FireFog {
             alliances,
             sensors_by_house: &self.sensors_by_house,
-            width: self.width,
-            height: self.height,
-        }
-    }
-
-    /// A copy of what a fire check reads of this fog and the ally graph.
-    pub(crate) fn fire_copy(&self, alliances: &HouseAllianceMap) -> FireFogCopy {
-        FireFogCopy {
-            alliances: alliances.clone(),
-            sensors_by_house: self.sensors_by_house.clone(),
             width: self.width,
             height: self.height,
         }
@@ -2018,26 +1981,29 @@ pub(crate) fn entity_sight_geometry(
     }
 }
 
-/// Whether source `id`'s retained admissions are exactly one per viewer of
-/// `viewers` (in key order), each revealed for `owner`. Then its footprints
-/// stand until a reveal event moves them.
-pub(crate) fn retained_sight_covers(
-    fog: &FogState,
-    id: u64,
-    owner: InternedId,
-    viewers: &[InternedId],
-) -> bool {
-    let mut retained = fog
-        .sight_admissions
-        .range(source_keys(id))
-        .filter(|(_, source)| source.latched);
-    viewers.iter().all(|&viewer| {
-        retained
-            .next()
-            .is_some_and(|(&(_, retained_viewer), admission)| {
-                retained_viewer == viewer && admission.owner == owner
-            })
-    }) && retained.next().is_none()
+/// One source's admissions as the fog pass reads them, in viewer order:
+/// (viewer, owner revealed for, latched) ([`FogState::read_source_admissions`]).
+#[derive(Debug, Default)]
+pub(crate) struct SourceAdmissions(Vec<(InternedId, InternedId, bool)>);
+
+impl SourceAdmissions {
+    /// An inactive source cache belongs to this owner until an explicit
+    /// native reveal event updates it. A frame must never relatch it.
+    pub(crate) fn cache_is_inactive(&self, owner: InternedId) -> bool {
+        let mut owned = self.0.iter().filter(|&&(_, by, _)| by == owner).peekable();
+        owned.peek().is_some() && owned.all(|&(_, _, latched)| !latched)
+    }
+
+    /// Whether the retained admissions are exactly one per viewer of
+    /// `viewers` (in key order), each revealed for `owner`. Then the source's
+    /// footprints stand until a reveal event moves them.
+    pub(crate) fn retained_cover(&self, owner: InternedId, viewers: &[InternedId]) -> bool {
+        self.0
+            .iter()
+            .filter(|&&(_, _, latched)| latched)
+            .map(|&(viewer, by, _)| (viewer, by))
+            .eq(viewers.iter().map(|&viewer| (viewer, owner)))
+    }
 }
 
 /// Every admission key of one source, by its stable id.

@@ -2222,7 +2222,6 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
             100,
             &[10, 20],
             &BTreeSet::new(),
-            &Default::default(),
             &[detonation],
             crate::sim::world::FrameEffects::default(),
         );
@@ -2423,7 +2422,6 @@ fn gsi_04_11_bullet_ore_reduction_precedes_outer_crater_anim_start() {
         100,
         &[],
         &BTreeSet::new(),
-        &Default::default(),
         &[detonation],
         crate::sim::world::FrameEffects::default(),
     );

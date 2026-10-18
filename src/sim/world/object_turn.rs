@@ -53,7 +53,6 @@ mod per_cell_object_turn_tests;
 pub(super) struct LiveObjectPassOutcome {
     pub destroyed_structure: bool,
     pub bridge_state_changed: bool,
-    pub tube_turn_owned_ids: BTreeSet<u64>,
     ownership_changed: bool,
 }
 
@@ -75,7 +74,6 @@ pub(super) struct ObjectTurnOutcome {
     movement: movement::MovementTickStats,
     destroyed_structure: bool,
     bridge_state_changed: bool,
-    tube_owned: bool,
     ownership_changed: bool,
 }
 
@@ -748,9 +746,6 @@ impl Simulation {
             outcome.destroyed_structure |= turn.destroyed_structure;
             outcome.bridge_state_changed |= turn.bridge_state_changed;
             outcome.ownership_changed |= turn.ownership_changed;
-            if turn.tube_owned {
-                outcome.tube_turn_owned_ids.insert(stable_id);
-            }
             Ok(())
         });
         self.finish_batched_path_searches();
@@ -966,7 +961,6 @@ impl Simulation {
         // neither AI reads `+0x684` after its FootClass::AI call, so the
         // Foot and class tails run.
         if tube_active_at_entry {
-            outcome.tube_owned = true;
             return Ok(outcome);
         }
 

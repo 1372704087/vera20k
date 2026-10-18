@@ -606,7 +606,7 @@ impl Simulation {
             .get_mut(id)
             .and_then(|entity| entity.building_art.anim_slots[usize::from(slot)].take());
         if let Some(old) = old {
-            self.scalar_delete_building_anim(old);
+            self.scalar_delete_anim(old);
         }
     }
 

@@ -1844,10 +1844,18 @@ impl Simulation {
                 };
                 (losses as i32) >= condition.value
             }
-            9 | 10 | 11 | 55 | 56 => {
+            3 | 5 | 9 | 10 | 11 | 55 | 56 => {
+                // Steam3e81a617..08600,71EC9A/71F0E1/71F0FB:3 requires
+                // its own raised kind and clear A8ED6B before reading244;
+                // 5 skips that gate and reads1F4. Both use the existing
+                // House notifications. In particular, do not invent a3
+                // raise from Engineer capture or translate a House event8.
+                if condition.kind == 3 && (input.kind != 3 || self.buildup_bypass_active()) {
+                    return false;
+                }
                 //71F069 ->502D30: Event.value selects a Country's first
-                //registered House, independently of the incoming House or
-                //raised event. No matching House reaches the AL1 tail; this
+                //registered House independently of the incoming House. After
+                //the above gate, no matching House reaches the AL1 tail; this
                 //does not write persistence or the Type-owned Event+54.
                 //The private HouseTracking owner preserves separate signed
                 //Unit/Infantry totals and the tracked Building scalar.
@@ -1871,6 +1879,8 @@ impl Simulation {
                     self.houses
                         .get(&owner)
                         .is_none_or(|house| match condition.kind {
+                            3 => house.building_capture_notified(),
+                            5 => house.discovered_by_current_house(),
                             9 => house.tracking.units_destroyed(),
                             10 => house.tracking.buildings() <= 0,
                             11 => house.tracking.all_destroyed(),
@@ -3036,9 +3046,10 @@ impl Simulation {
                 //Unsigned kind-1 falls through6DFDDD with the Execute
                 //entry's AL1. ALL01 has nine authored no-op tail records.
             }
-            3 => {
-                //6DEA97 ->6E45E0 writes only selected House+1EE. The
-                //retained live selector owns8997 and Country/Player lookup.
+            3 | 13 => {
+                //3:6DEA97 ->6E45E0 writes only selected House+1EE;
+                //13:6DEB18 ->same selector writes only +1EF at6DEB41.
+                //The retained live selector owns8997 and Country/Player lookup.
                 let (Some(live), Some(rules), Some(value)) = (context.live_index, rules, value)
                 else {
                     return false;
@@ -3047,7 +3058,11 @@ impl Simulation {
                     return false;
                 };
                 if let Some(house) = self.houses.get_mut(&owner) {
-                    house.enable_scripted_production();
+                    if action.kind == 13 {
+                        house.enable_scripted_autocreate();
+                    } else {
+                        house.enable_scripted_production();
+                    }
                 }
             }
             10 => {
@@ -3350,6 +3365,43 @@ impl Simulation {
                     _ => unreachable!(),
                 };
                 self.house_blowup(owner, subset, rules, overlay_registry, frame_effects);
+            }
+            37 => {
+                // Active Execute37 6DE136..6DE17A: resolve the selected
+                // House through the same live6E45E0 owner, then MakeAlly
+                // incoming->selected and selected->incoming, in that order.
+                // Both calls ignore CanAlly's refusal; Execute still AL1.
+                let (Some(live), Some(owner), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(selected) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                self.make_ally(owner, selected, rules, overlay_registry, frame_effects);
+                self.make_ally(selected, owner, rules, overlay_registry, frame_effects);
+            }
+            123 | 124 => {
+                // Actual active table entries6DFA0B/6DFA38 dispatch
+                // 6E0CA0/6E0D00 ->House50D290/50D2D0. A live Trigger is
+                // required even for a literal Country;8997 uses retained House.
+                let (Some(live), Some(owner), Some(value), Some(rules)) =
+                    (context.live_index, context.incoming_house, value, rules)
+                else {
+                    return false;
+                };
+                let Some(selected) = self.live_action_house(live, value, rules) else {
+                    return false;
+                };
+                self.control_house_buildings(
+                    owner,
+                    selected,
+                    action.kind == 124,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
             }
             36 => {
                 let (Some(live), Some(owner), Some(value), Some(rules)) =
@@ -3749,9 +3801,10 @@ impl Simulation {
                     frame_effects,
                 );
             }
-            76 => {
-                // 0x006DF34F: a null incoming House returns success without even
-                // reading +0x90. Otherwise only the existing +0x565C owner changes.
+            35 => {
+                // Execute35 6DE1DC..6DE203 uses the incoming House, not
+                // the live selector. A null House succeeds without writes;
+                // only its existing superweapon-target owner changes.
                 let Some(owner) = context.incoming_house else {
                     return true;
                 };
@@ -3759,7 +3812,27 @@ impl Simulation {
                 let Some(house) = self.houses.get_mut(&owner) else {
                     return false;
                 };
-                house.team_creation.set_trigger_ratio(value);
+                house.set_preferred_super_weapon_target_kind(value);
+            }
+            76..=79 => {
+                // Active76..79 at6DF34F/379/3A3/3CD: a null incoming House
+                // succeeds without reading +90. Each stores that signed dword
+                // in its existing House owner: +565C/5660/5664/5668 respectively.
+                // No immediate selection, timer reset, RNG draw or detach.
+                let Some(owner) = context.incoming_house else {
+                    return true;
+                };
+                let Some(value) = value else { return false };
+                let Some(house) = self.houses.get_mut(&owner) else {
+                    return false;
+                };
+                match action.kind {
+                    76 => house.team_creation.set_trigger_ratio(value),
+                    77 => house.set_aircraft_team_ratio(value),
+                    78 => house.set_infantry_team_ratio(value),
+                    79 => house.set_unit_team_ratio(value),
+                    _ => unreachable!(),
+                }
             }
             8 => {
                 let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
@@ -3984,8 +4057,9 @@ impl Simulation {
                 };
                 self.set_object_type_tech_level(action.inline_type_name(), value, rules);
             }
-            ACTION_SET_SUPER_CHARGE_PERCENTAGE | 132..=134 => {
-                // Execute1296E42D0,1326E4320,1336E4360 and1346E43A0 select
+            33 | 34 | ACTION_SET_SUPER_CHARGE_PERCENTAGE | 132..=134 => {
+                // Execute33/34 (6DE925/6DE98E),1296E42D0,1326E4320,
+                //1336E4360 and1346E43A0 select
                 // the incoming House's Super-array ordinal (+90). Only129
                 // has grant/percentage gates.132 writes +48 as the override;
                 //133 clears it without restarting the current countdown;
@@ -4019,6 +4093,15 @@ impl Simulation {
                     return false;
                 };
                 match action.kind {
+                    33 | 34 => {
+                        return crate::sim::superweapon::trigger_grant_super(
+                            self,
+                            rules,
+                            owner,
+                            type_id,
+                            action.kind == 33,
+                        );
+                    }
                     132 => instance.set_recharge_time(action.auxiliary_value()),
                     133 => instance.reset_recharge_time(),
                     134 => crate::sim::superweapon::reset_super(self, rules, owner, name),
@@ -4083,6 +4166,36 @@ impl Simulation {
                     return false;
                 };
                 crate::sim::superweapon::lightning_storm::create_cloud_bolt(self, rules, cell);
+            }
+            44 => {
+                // Active YR Execute6DED1C..6DED52 calls LightningStorm,
+                // despite the legacy IonStorm name. IsActive53A100 tests
+                // only the active byte; a countdown still admits this call.
+                // Start539EB0 gets +90 duration, Rules+1794 deferment, the
+                // zero EmptyCell (initializer6DCF10), and NULL House.
+                if crate::sim::superweapon::lightning_storm::raging(self) {
+                    return false;
+                }
+                let (Some(rules), Some(duration)) = (rules, value) else {
+                    return false;
+                };
+                crate::sim::superweapon::lightning_storm::start(
+                    self,
+                    rules,
+                    duration,
+                    rules.general.lightning_deferment,
+                    (0, 0),
+                    None,
+                );
+            }
+            45 => {
+                // Execute6DED61..6DED7C refuses an inactive/counting-down
+                // storm; Stop53A090 merely requests its eventual end. No
+                // immediate cloud deletion, timer write, RNG draw or detach.
+                if !crate::sim::superweapon::lightning_storm::raging(self) {
+                    return false;
+                }
+                crate::sim::superweapon::lightning_storm::request_end(self);
             }
             102 => {
                 // 6DD9EC..6DDAB8: the waypoint's signed centre/Ground/bridge
@@ -4230,6 +4343,10 @@ mod native_tests;
 mod superweapon_state_tests;
 
 #[cfg(test)]
+#[path = "trigger_runtime_superweapon_grant_tests.rs"]
+mod superweapon_grant_tests;
+
+#[cfg(test)]
 #[path = "trigger_runtime_defense_target_tests.rs"]
 mod defense_target_tests;
 
@@ -4266,6 +4383,10 @@ mod crate_tests;
 mod build_type_tests;
 
 #[cfg(test)]
+#[path = "trigger_runtime_house_notification_tests.rs"]
+mod house_notification_tests;
+
+#[cfg(test)]
 #[path = "trigger_runtime_wakeup_tests.rs"]
 mod wakeup_tests;
 
@@ -4276,6 +4397,10 @@ mod chrono_reinforcement_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_lightning_tests.rs"]
 mod lightning_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_house_directive_tests.rs"]
+mod house_directive_tests;
 
 #[cfg(test)]
 #[path = "trigger_runtime_explosion_tests.rs"]

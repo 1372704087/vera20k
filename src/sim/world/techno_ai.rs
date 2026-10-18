@@ -365,11 +365,22 @@ impl Simulation {
         }
         if self.substrate.particle_systems.contains_key(id) {
             if let Some(rules) = rules {
-                crate::sim::particles::system_ai::tick_particle_system(self, rules, id);
+                crate::sim::particles::system_ai::tick_particle_system(
+                    self,
+                    rules,
+                    id,
+                    super::UninitContext::new(Some(rules), ctx.overlay_registry)
+                        .with_effects(ctx.effects),
+                );
             }
             return outcome;
         }
-        if self.production.terrain_objects.contains_key(&id) {
+        // One stable id allocator numbers every store, so an entity is no
+        // terrain object: its hashed lookup spares the commonest turn the
+        // terrain map's.
+        if !self.substrate.entities.contains(id)
+            && self.production.terrain_objects.contains_key(&id)
+        {
             // TerrainClass::AI @ 0x0071C730 calls ObjectClass::AI first
             // (`0x0071C738`).
             self.object_ai_sounds(id, rules, ctx.effects);
@@ -495,6 +506,8 @@ impl Simulation {
                 )
                 .expect("projectile remained present for its Logic slot");
             let terminal = !result.expired.is_empty() || !result.detonations.is_empty();
+            // A rules-less fixture dispatch has no receiver, so its
+            // detonations are not committed.
             if let Some(rules) = rules {
                 // The rest of a `NUKE` impact precedes the slot's detonations.
                 for &impact in result.nuke_impacts() {
@@ -506,11 +519,6 @@ impl Simulation {
                     &result.detonations,
                     ctx.effects,
                 );
-            } else {
-                // Rules-less fixture dispatch has no authoritative receiver
-                // contract. Production always commits at the Bullet slot.
-                self.pending_projectile_detonations
-                    .extend(result.detonations);
             }
             if terminal {
                 let retired = self.retire_non_entity_object(
@@ -535,19 +543,16 @@ impl Simulation {
             if result.uninitialized {
                 self.clear_active_wave_link(id);
             }
-            if let Some(request) = request {
-                if let Some(rules) = rules {
-                    self.commit_logic_wave_damage_request(
-                        rules,
-                        ctx.overlay_registry,
-                        &request,
-                        ctx.effects,
-                    );
-                } else {
-                    // Rules-less fixture dispatch retains the former buffer;
-                    // production Wave AI commits before lifetime retirement.
-                    self.pending_wave_damage_requests.push(request);
-                }
+            // As for a Bullet, a rules-less fixture dispatch commits nothing.
+            if let Some(request) = request
+                && let Some(rules) = rules
+            {
+                self.commit_logic_wave_damage_request(
+                    rules,
+                    ctx.overlay_registry,
+                    &request,
+                    ctx.effects,
+                );
             }
             if !result.alive {
                 let retired = self.retire_non_entity_object(
@@ -1006,11 +1011,12 @@ fn techno_ai_shell(
                 return;
             }
             // MissionClass::AI, inside this slot and before Fly Process
-            // (FootClass::AI4DA530).
+            // (FootClass::AI4DA530). A Mission_Attack strike fires here.
             if let Some(rules) = rules
-                && crate::sim::aircraft::dispatch_mission(sim, id, rules, ctx)
+                && let Some(receipt) = crate::sim::aircraft::dispatch_mission(sim, id, rules, ctx)
             {
-                sim.fire_requests.aircraft.insert(id);
+                outcome.bridge_state_changed |= receipt.bridge_state_changed;
+                outcome.destroyed_structure |= receipt.structure_destroyed;
             }
             passive_acquire_step(sim, id, rules, ctx);
             if !techno_after_acquisition(sim, id, rules, ctx, outcome) {
@@ -6167,7 +6173,12 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
             .get_mut(system_id)
             .unwrap()
             .done_spawning = true;
-        crate::sim::particles::system_ai::tick_particle_system(&mut sim, &rules, system_id);
+        crate::sim::particles::system_ai::tick_particle_system(
+            &mut sim,
+            &rules,
+            system_id,
+            crate::sim::world::UninitContext::with_rules(&rules),
+        );
         assert_eq!(spark_system(&sim, 1), None);
         assert!(sim.particle_systems().get(system_id).unwrap().in_limbo());
         sim.process_pending_delete();

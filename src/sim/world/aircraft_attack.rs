@@ -2,8 +2,8 @@
 //! dispatch, in live actor order: states 0/1/3's fire-location search,
 //! approach steering and destination transactions, and state 10's exit
 //! (`aircraft::attack_mission::exit_visit`). State 1 consumes Scenario RNG;
-//! state 3 returns a one-tick delay. States 4..9 run in the combat phase
-//! (`combat::aircraft_release`).
+//! state 3 returns a one-tick delay. States 4..9 run through the receiver
+//! (`combat::aircraft_release`), in the same dispatch.
 use super::{FrameEffects, Simulation};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -179,19 +179,6 @@ impl Simulation {
         } else {
             3
         }
-    }
-
-    /// [`attack_mission::strike_leaves`], taken here because VERA's combat
-    /// phase visits only an object that holds a target: whether the combat
-    /// phase runs the strike visit, else the aircraft leaves for state 10.
-    /// `AircraftClass::Mission_Attack @ 0x00417FE0`'s strike-state test of TarCom (`+0x2B4`)
-    /// and Ammo (`+0x2FC`, state 4 at `0x004182A3`).
-    pub(crate) fn aircraft_strikes(&self, id: u64, state: u8) -> bool {
-        let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
-        let attack = entity.attack_target.target();
-        let target = crate::sim::combat::target_present(attack, self);
-        let ammo = entity.ammo().map_or(-1, |a| a.current());
-        attack.is_some() && !attack_mission::strike_leaves(state, target, ammo)
     }
 
     /// State 10 (`0x00418BEC`) after the entry prefix.

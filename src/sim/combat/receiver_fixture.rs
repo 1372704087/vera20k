@@ -890,7 +890,6 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 }
                 world.fixture_building_visit(id, rules, overlay_registry);
             }
-            let fire_requests = std::mem::take(&mut world.fire_requests);
             let mut result = world_fire::tick_combat(
                 world,
                 run,
@@ -899,7 +898,6 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 tick_ms,
                 live_order,
                 fire_suppressed,
-                &fire_requests,
                 projectile_detonations,
             );
             result

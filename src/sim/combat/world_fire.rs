@@ -1800,10 +1800,9 @@ pub(super) fn emit_admitted_fire(
     // Logic vector behind this shot's bullet.
     if let Some(event) = out.fire_events.last().cloned() {
         crate::sim::world::damage_consequences::admit_muzzle_anim(world, rules, &event);
-        // Sonic6FF470 precedes the independent later-effect ladder. Use
-        // GetFLH's shot local, not the Dropping-adjusted report/muzzle source.
+        // Sonic6FF470 precedes the independent later-effect ladder.
         if weapon.is_sonic && callbacks_enabled(world) {
-            world.commit_fired_wave(rules, &event, fire.coord, 0);
+            world.commit_fired_wave(rules, &event, 0);
         }
     }
     // 6FF4CC..6FF54B: successful FireAt only, after burst advance and before
@@ -1826,7 +1825,7 @@ pub(super) fn emit_admitted_fire(
         && callbacks_enabled(world)
         && let Some(event) = out.fire_events.last().cloned()
     {
-        world.commit_fired_wave(rules, &event, fire.coord, 3);
+        world.commit_fired_wave(rules, &event, 3);
     }
     // `0x006FF656`: DecreaseAmmo (vt+0x390). Only an aircraft holds Ammo here,
     // and `AircraftClass`'s slot is a bare RET (`0x0041B900`).

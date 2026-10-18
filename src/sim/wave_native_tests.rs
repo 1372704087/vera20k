@@ -349,3 +349,100 @@ fn sonic_damage_request_uses_the_native_b4_bridge_plane() {
         );
     }
 }
+
+#[test]
+fn original_fire_at_births_match_the_production_magnetic_commit() {
+    // Each row is one original FireAt tail (0x006FF5F5..0x006FF656) for the
+    // retained TELE/MTNK pose: the constructor (target coordinate first,
+    // launch source second) and its immediate Update_Wave.
+    let map = crate::test_fixture::checkout_root()
+        .join("tools/procedural_drawing_oracle/magnetic_wave/ordinary-tele-magnetic.map");
+    let Some(retail) =
+        crate::rules::retail_ini_fixture::retail_battle_rules_for_map(map.to_str().unwrap())
+    else {
+        return;
+    };
+    let rules = &retail.rules;
+    for row in corpus()["birth_rows"].as_array().unwrap() {
+        let input = &row["input"];
+        let mut sim = crate::sim::arena_fixture::rival_arena_with_size(rules, 0x1269, 64);
+        sim.intern_rule_type_ids(rules);
+        sim.resolve_type_handles(rules);
+        let source = sim
+            .spawn_object("TELE", "Americans", 44, 48, 0, rules)
+            .unwrap();
+        let target = sim
+            .spawn_object("MTNK", "Russians", 50, 48, 0, rules)
+            .unwrap();
+        for (id, key) in [(source, "source"), (target, "target")] {
+            let location = crate::sim::movement::ground_pose::object_location(
+                sim.substrate.entities.get(id).unwrap(),
+                sim.resolved_terrain.as_ref(),
+            );
+            assert_eq!(
+                ProjectileCoord::new(location.x, location.y, location.z),
+                coord(&input[key])
+            );
+        }
+        let heading = integer(&input["heading"]) as u16;
+        let firer = sim.substrate.entities.get_mut(source).unwrap();
+        // The harness sets both of the firer's facings (+0x388, +0x3A0).
+        firer.body_facing =
+            crate::sim::movement::FacingClass::with_rate_of(heading, &firer.body_facing);
+        if let Some(barrel) = firer.barrel_facing.as_mut() {
+            *barrel = crate::sim::movement::FacingClass::with_rate_of(heading, barrel);
+        }
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(target)));
+        let firer = sim.substrate.entities.get(source).unwrap();
+        let object = sim.interner.object_type(firer.type_ref(), rules).unwrap();
+        let fire = crate::sim::combat::fire_coord::fire_coordinate(
+            &sim,
+            rules,
+            &crate::sim::combat::fire_coord::FireSource::of_entity(firer),
+            object,
+            0,
+            0,
+            crate::rules::flh::Flh::default(),
+        );
+        assert_eq!(fire.coord, coord(&input["source_flh"]), "GetFLH");
+        let mut event = crate::sim::world::SimFireEvent::for_test(source);
+        event.target = TargetKind::Entity(target);
+        event.fire_coord = fire.coord;
+        sim.commit_fired_wave(rules, &event, 3);
+        let wave = sim.waves.get(sim.active_wave_id(source).unwrap()).unwrap();
+        assert_state(wave, &row["after"], true);
+    }
+}
+
+#[test]
+fn original_update_reverses_only_a_unit_target() {
+    let terrain = crate::map::resolved_terrain::test_flat_ground_grid(80);
+    // The first birth's Wave, updated as the held MTNK is lifted.
+    let mut wave = from_native(&corpus()["birth_rows"][0]["after"]);
+    for row in corpus()["tracking_rows"].as_array().unwrap() {
+        let terminal = wave.update_geometry_and_cells(context(&row["input"]), Some(&terrain));
+        assert_state(&wave, &row["after"], !terminal);
+    }
+    // A Cell target (What_Am_I != Unit) keeps the owner's GetFLH first.
+    let row = &corpus()["nonunit_rows"][0];
+    let input = &row["input"];
+    let cell = TargetKind::Cell(50, 48);
+    let mut wave = Wave::new_owned(
+        3,
+        1,
+        cell,
+        coord(&input["constructor_source"]),
+        coord(&input["constructor_target"]),
+    );
+    let context = WaveUpdateContext {
+        owner_position: Some(coord(&input["source"])),
+        owner_fire_coordinate: Some(coord(&input["source_flh"])),
+        owner_current_target: Some(cell),
+        target_position: Some(coord(&input["target_center"])),
+        target_is_unit: false,
+    };
+    let terminal = wave.initialize(context, Some(&terrain));
+    assert_state(&wave, &row["after"], !terminal);
+}

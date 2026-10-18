@@ -129,6 +129,9 @@ impl Simulation {
                 return owner_position;
             };
             let object = self.interner.object_type(entity.type_ref(), rules)?;
+            // GetFLH(0, null) still mirrors by the owner's current burst
+            // parity (+0x3B8, `0x006F3C82`), as FireAt's own call does.
+            let burst_index = (entity.weapon_burst.index() & 1) as u8;
             Some(
                 crate::sim::combat::fire_coord::fire_coordinate(
                     self,
@@ -136,7 +139,7 @@ impl Simulation {
                     &crate::sim::combat::fire_coord::FireSource::of_entity(entity),
                     object,
                     0,
-                    0,
+                    burst_index,
                     crate::rules::flh::Flh::default(),
                 )
                 .coord,

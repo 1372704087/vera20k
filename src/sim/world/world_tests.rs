@@ -3380,7 +3380,7 @@ fn sonic_tail_order_test_rules() -> RuleSet {
 
 fn admit_test_wave(sim: &mut Simulation, rules: &RuleSet, event: &SimFireEvent) {
     let wave = sim
-        .prepare_fired_wave(rules, event, event.fire_coord, 0)
+        .prepare_fired_wave(rules, event, 0)
         .expect("wave prepared");
     sim.admit_fired_wave(event.attacker_id, wave, rules);
 }
@@ -3507,10 +3507,12 @@ fn a_sonic_wave_aims_at_a_buildings_foundation_centre() {
     let event = sonic_fire_event(&mut sim, &rules, firer_id, target_id);
     let centre = 10 * 256 + 128 + 256;
 
+    // FireAt passes the target coordinate as the constructor's first argument.
     let wave = sim
-        .prepare_fired_wave(&rules, &event, event.fire_coord, 0)
+        .prepare_fired_wave(&rules, &event, 0)
         .expect("a Sonic weapon");
-    assert_eq!((wave.target.x, wave.target.y), (centre, centre));
+    assert_eq!((wave.source.x, wave.source.y), (centre, centre));
+    assert_eq!(wave.target, event.fire_coord);
 
     admit_test_wave(&mut sim, &rules, &event);
     let wave_id = sim.active_wave_links[&firer_id];
@@ -3539,11 +3541,9 @@ fn target_coord_offset_moves_initial_wave_endpoint_but_not_tracking() {
         None,
     );
     let event = sonic_fire_event(&mut sim, &rules, dolphin, yard);
-    let wave = sim
-        .prepare_fired_wave(&rules, &event, event.fire_coord, 0)
-        .unwrap();
+    let wave = sim.prepare_fired_wave(&rules, &event, 0).unwrap();
     assert_eq!(
-        wave.target,
+        wave.source,
         crate::sim::projectile::ProjectileCoord::new(centre.x + 300, centre.y + 200, centre.z,)
     );
     admit_test_wave(&mut sim, &rules, &event);

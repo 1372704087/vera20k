@@ -62,5 +62,5 @@
     "object_destructor": "0x005F3B80"
   },
   "replay_command": "python -m tools.procedural_drawing_oracle.magnetic_wave",
-  "payload_sha256": "52e6b2d36a8dccd41fb2fdfad465f516739fc5f4aacca07ef915a9a8090f7ad1"
+  "payload_sha256": "52625fbcea23ded9695e40f204c7feb57a7e51ae4a9eaa2231c64e91f6054c17"
 }

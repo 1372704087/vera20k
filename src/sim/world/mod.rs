@@ -2217,7 +2217,6 @@ impl Simulation {
         &mut self,
         rules: &RuleSet,
         event: &SimFireEvent,
-        shot_coordinate: crate::sim::projectile::ProjectileCoord,
         wave_type: u8,
     ) {
         #[cfg(any(test, feature = "test-support"))]
@@ -2225,7 +2224,7 @@ impl Simulation {
             attacker_id: event.attacker_id,
             scenario_rng_state: self.scenario_rng.state(),
         });
-        if let Some(wave) = self.prepare_fired_wave(rules, event, shot_coordinate, wave_type) {
+        if let Some(wave) = self.prepare_fired_wave(rules, event, wave_type) {
             self.admit_fired_wave(event.attacker_id, wave, rules);
         }
     }
@@ -2236,7 +2235,6 @@ impl Simulation {
         &self,
         rules: &RuleSet,
         event: &SimFireEvent,
-        shot_coordinate: crate::sim::projectile::ProjectileCoord,
         wave_type: u8,
     ) -> Option<crate::sim::wave::Wave> {
         debug_assert!(matches!(wave_type, 0 | 3));
@@ -2252,14 +2250,16 @@ impl Simulation {
             }
             crate::sim::combat::TargetKind::Cell(rx, ry) => self.wave_cell_target_position(rx, ry),
         };
-        // FireAt6FE268 resolves this local once through the selected GetFLH.
-        // Sonic6FF470 and Magnetic6FF647 pass that same shot coordinate.
+        // Sonic 0x006FF465 and Magnetic 0x006FF63C pass the constructor
+        // &[ESP+0x88], this target coordinate (0x006FE204), first and
+        // &[ESP+0x44], the launch source (`event.fire_coord`: GetFLH or a
+        // Dropping projectile's GetCoords), second.
         let wave = crate::sim::wave::Wave::new_owned(
             wave_type,
             event.attacker_id,
             event.target,
-            shot_coordinate,
             target,
+            event.fire_coord,
         );
         Some(wave)
     }

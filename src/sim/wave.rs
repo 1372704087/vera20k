@@ -169,10 +169,14 @@ pub struct Wave {
     pub wave_type: u8,
     pub owner_id: Option<u64>,
     pub target_ref: Option<TargetKind>,
-    /// Geometry's first endpoint (native +0xB4). For a magnetic Unit target,
-    /// Update_Wave reverses the arguments, so this is the held Unit's centre.
+    /// Geometry's first endpoint (native +0xB4); the Wave's Location follows
+    /// it (vt+0x1B4). FireAt's constructor seeds it with the target
+    /// coordinate. Update_Wave then stores the owner's GetFLH here, except
+    /// for a magnetic Unit target, which keeps the held Unit's centre.
     pub source: ProjectileCoord,
-    /// Geometry's second endpoint (+0xC0), including its native +50 Z.
+    /// Geometry's second endpoint (+0xC0), including its native +50 Z: the
+    /// launch source at birth, then the target (or the owner's GetFLH for a
+    /// magnetic Unit target).
     pub target: ProjectileCoord,
     pub edge_geometry: WaveEdgeGeometry,
     pub active_geometry: bool,
@@ -202,17 +206,19 @@ impl Wave {
         [self.owner_id, target]
     }
 
-    /// gamemd-derived: `WaveClass::Constructor @ 0x0075E950`.
-    pub const fn new(wave_type: u8, source: ProjectileCoord, target: ProjectileCoord) -> Self {
+    /// gamemd-derived: `WaveClass::Constructor @ 0x0075E950`. `first` and
+    /// `second` are its two coordinate arguments, the geometry's +0xB4 and
+    /// +0xC0 seeds.
+    pub const fn new(wave_type: u8, first: ProjectileCoord, second: ProjectileCoord) -> Self {
         Self {
             id: 0,
             in_logic_vector: false,
             wave_type,
             owner_id: None,
             target_ref: None,
-            source,
-            target,
-            edge_geometry: WaveEdgeGeometry::collapsed(source, target),
+            source: first,
+            target: second,
+            edge_geometry: WaveEdgeGeometry::collapsed(first, second),
             active_geometry: true,
             decaying: false,
             lifetime: Self::DEFAULT_LIFETIME,
@@ -229,10 +235,10 @@ impl Wave {
         wave_type: u8,
         owner_id: u64,
         target_ref: TargetKind,
-        source: ProjectileCoord,
-        target: ProjectileCoord,
+        first: ProjectileCoord,
+        second: ProjectileCoord,
     ) -> Self {
-        let mut wave = Self::new(wave_type, source, target);
+        let mut wave = Self::new(wave_type, first, second);
         wave.owner_id = Some(owner_id);
         wave.target_ref = Some(target_ref);
         wave

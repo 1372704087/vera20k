@@ -254,7 +254,7 @@ class UnitInputs(BulletReader):
             bytes(u.mem_read(p, self.allocation_spans[p]['requested_bytes'])))
             for kind, objects in (('unit_type', self.types), ('weapon', self.weapons))
             for name, p in objects.items()]
-        self.default_controls = self.defaults()
+        self.defaults()  # Reader self-check; Rust reads no default rows.
         for label, pointer, before in physical_before:
             unchanged(u, pointer, before, 'default controls: readonly ' + label)
         self.false_weapon = self.invoke(0x772FA0, self.cstring('C32ConstructorFalse'))
@@ -815,7 +815,7 @@ class WaveMachine(prism.LaserPixels):
         p = self.read32(self.source + 0x324)
         assert p in self.registered() and len(self.registered()) == count_before + 1
         self.wave_pointers.append(p)
-        self.geometry_arguments[p] = (3, muzzle, target)
+        self.geometry_arguments[p] = (3, target, muzzle)
         after_source = bytearray(u.mem_read(self.source, 0x1000))
         after_source[0x324:0x328] = actors_before[0][0x324:0x328]
         assert bytes(after_source) == actors_before[0]
@@ -829,8 +829,10 @@ class WaveMachine(prism.LaserPixels):
 
     def fire_tail(self, weapon, muzzle, target, *, required=()):
         u = self.u
-        u.mem_write(SP + 0x44, words(*target))
-        u.mem_write(SP + 0x88, words(*muzzle))
+        # FireAt's launch-source (GetFLH, 0x6FE274) and target-coordinate
+        # (0x6FE204) locals; 0x6FF63C passes &+0x88 first, &+0x44 second.
+        u.mem_write(SP + 0x44, words(*muzzle))
+        u.mem_write(SP + 0x88, words(*target))
         u.mem_write(SP, words(native.RET_MAGIC))
         u.reg_write(UC_X86_REG_ESP, SP)
         u.reg_write(UC_X86_REG_ESI, self.source)
@@ -1228,6 +1230,21 @@ def require_direction_coverage(rows):
                 problem='unchanged Mag raster selection did not cover all eight sectors', rows=raster_cases)
 
 
+RASTER_INPUT_FIELDS = ('name', 'format', 'size', 'pitch_words', 'clip', 'z_origin_y',
+                       'background_words', 'z_words', 'alpha_words')
+RASTER_OPERATION_FIELDS = ('point', 'source', 'candidate_z', 'brightness', 'distance_index',
+                           'sine_index', 'source_word', 'destination_word')
+
+
+def consumed_raster(row):
+    """The raster fields the Rust raster/GPU tests read; the rest stay in the VM."""
+    return dict(input={key: row['input'][key] for key in RASTER_INPUT_FIELDS},
+                draws=row['draws'], after=row['after'],
+                operations=[{key: op[key] for key in RASTER_OPERATION_FIELDS}
+                            for op in row['operations']],
+                rng_before=row['rng_before'], rng_after=row['rng_after'])
+
+
 def generate():
     root = assets_root()
     map_path = Path(os.environ.get('VERA20K_MAGNETIC_WAVE_MAP', str(RETAINED_MAP)))
@@ -1239,17 +1256,21 @@ def generate():
         p, row = machine.birth(heading)
         births.append(row)
         birth_pointers.append(p)
-    admission_rows = machine.admission_controls()
-    machine.set_pose()
+    machine.admission_controls()  # Gate self-check; Rust reads no admission rows.
+    nonunit_pose = machine.set_pose()
     cell = machine.cells[50, 48]
     machine.u.mem_write(machine.source + 0x2B4, words(cell))
     target_out = machine.alloc(12)
     machine.invoke(machine.read32(machine.read32(cell) + 0x58), cell, (target_out,))
     cell_target = ints(machine.u, target_out, 3)
-    _cell_wave, cell_initial = machine.construct(3, machine.flh(), cell_target,
+    source_flh = machine.flh()
+    # FireAt's constructor order: the target coordinate, then the launch source.
+    _cell_wave, cell_initial = machine.construct(3, cell_target, source_flh,
                                                target_pointer=cell, name='cell_nonunit_tracking')
     nonunit_row = dict(input=dict(name='cell_nonunit_tracking', target_cell=[50, 48],
-        target_kind='Cell', external_owner_target='supplied Cell pointer'),
+        target_kind='Cell', external_owner_target='supplied Cell pointer',
+        source=nonunit_pose['source'], source_flh=source_flh, target_center=cell_target,
+        constructor_source=cell_target, constructor_target=source_flh),
         initial_geometry=cell_initial, after=wave_state(machine.u, _cell_wave), calls=machine.records)
     machine.set_pose()
     tracking = []
@@ -1323,8 +1344,9 @@ def generate():
                       for plane in (rally.PIXELS, machine.z_pixels, rally.ALPHA)}
     tactical_before = bytes(machine.u.mem_read(rally.TACTICAL + 0xB0, 8))
     id_before = machine.read32(machine.scenario + 0x214)
-    pointer_rows = machine.pointer_controls(p)
-    retirement = machine.retire(p)
+    # Callback and destructor self-checks; Rust reads neither result.
+    machine.pointer_controls(p)
+    machine.retire(p)
     for q, before in raster_wave_before.items():
         unchanged(machine.u, q, before, 'retirement: independent raster Wave')
     for actor, before in actor_before.items():
@@ -1368,9 +1390,9 @@ def generate():
     raster_rows.append(machine.raster([degenerate], name='zero_xy_geometry'))
     lookup_rows = machine.lookup_controls(q)
     machine.check()
+    raster_rows = [consumed_raster(row) for row in raster_rows]
     assert physical_inputs_before == identities(root, map_path), 'physical input drift'
     return dict(schema_version=1, native_sha256=native.image_sha256(), inputs=donor.inputs,
-        default_controls=donor.default_controls, admission_rows=admission_rows,
         tables=machine.tables,
         numeric_constants=dict(step_f32_le_hex=bytes(machine.u.mem_read(0x7F6BB0, 4)).hex(),
             snap_f64_le_hex=bytes(machine.u.mem_read(0x7F6DE8, 8)).hex(),
@@ -1383,11 +1405,8 @@ def generate():
                 **continuation_pose, **continuation_context),
             history=history, supplied_release='clear owner+2B4 after visit82; no native Move/lift execution', fade=fade),
             *type0_lifecycles],
-        pointer_rows=pointer_rows, retirement=retirement, raster_rows=raster_rows,
-        platform_boundaries=dict(reader=donor.inputs['platform_boundaries'],
-            wave=machine.transport_calls, retirement=machine.events),
-        rng_before=machine.rng_initial, rng_after=machine.trace.states(),
-        guards=dict(original_text_and_vtables=True, no_rng=True, physical_inputs_unchanged=True))
+        raster_rows=raster_rows,
+        rng_before=machine.rng_initial, rng_after=machine.trace.states())
 
 
 def metadata():

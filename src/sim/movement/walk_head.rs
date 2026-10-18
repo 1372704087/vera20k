@@ -481,7 +481,7 @@ mod tests {
                 layer,
                 input,
                 i["priority"].as_bool().unwrap(),
-                i["gate"] == 2,
+                super::super::bump_crush::GroundGate::Recorded(i["gate"] == 2),
                 &mut rng,
             );
             let z = super::super::ground_pose::ground_surface_z_at(
@@ -1007,14 +1007,17 @@ pub(super) fn select_step_head_at(
     } else {
         MovementLayer::Ground
     };
-    let gate_open = super::bump_crush::native_ground_gate_open(
-        raw, occupancy, entities, rules, interner, raw_key, layer,
-    );
+    let gate = super::bump_crush::GroundGate::Live {
+        occupancy,
+        entities,
+        rules,
+        interner,
+    };
     //75C541..75C562 stores PlaceInfantryInCell's answer as the head; a
     //failed placement answers the empty coordinate, so the head is dropped
     //and 75C5C5 Marks current.
     let Some(slot) = super::bump_crush::place_infantry_in_native_cell(
-        raw, raw_key, layer, input, priority, gate_open, rng,
+        raw, raw_key, layer, input, priority, gate, rng,
     ) else {
         if let Some(loco) = entities.get_mut(id).and_then(|e| e.locomotor.as_mut()) {
             loco.set_step_head(None);

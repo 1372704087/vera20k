@@ -726,22 +726,18 @@ impl crate::sim::world::Simulation {
                     }
                 });
                 let cells = NativeCellQuery::canonical(self.resolved_terrain.as_ref().unwrap());
-                let gate_open = super::bump_crush::native_ground_gate_open(
-                    &self.substrate.raw_cell_occupation,
-                    &self.substrate.occupancy,
-                    &self.substrate.entities,
-                    Some(rules),
-                    &self.interner,
-                    key,
-                    layer,
-                );
                 let slot = super::bump_crush::place_infantry_in_native_cell(
                     &self.substrate.raw_cell_occupation,
                     key,
                     layer,
                     input,
                     priority,
-                    gate_open,
+                    super::bump_crush::GroundGate::Live {
+                        occupancy: &self.substrate.occupancy,
+                        entities: &self.substrate.entities,
+                        rules: Some(rules),
+                        interner: &self.interner,
+                    },
                     &mut self.scenario_rng,
                 );
                 // Cell481180 samples floor at the original input after selection;

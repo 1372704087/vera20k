@@ -745,12 +745,19 @@ mod tests {
     #[test]
     fn an_open_gates_cell_admits_an_infantry_sublocation() {
         let (mut sim, rules) = fixture();
+        sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(
+            32,
+            32,
+            crate::map::resolved_terrain::test_loader_clear_cell,
+        ));
+        // The ground object bit a landed aircraft's Mark_Put (0x005F60A0)
+        // leaves on the Gate's cell.
         sim.substrate.raw_cell_occupation.mark_ground(
             10,
             10,
             crate::sim::cell_kernel::INFANTRY_OCCUPATION_OBJECT_BIT,
         );
-        let pick = |sim: &mut Simulation| {
+        let pick = |sim: &mut Simulation, x: i32, y: i32| {
             crate::sim::movement::bump_crush::pick_infantry_sublocation(
                 sim.resolved_terrain.as_ref(),
                 &sim.substrate.raw_cell_occupation,
@@ -760,18 +767,37 @@ mod tests {
                 &sim.interner,
                 &mut sim.scenario_rng,
                 crate::sim::components::DriveCoord {
-                    x: 10 * 256 + 200,
-                    y: 10 * 256 + 40,
+                    x: 10 * 256 + x,
+                    y: 10 * 256 + y,
                     z: 0,
                 },
             )
         };
-        assert_eq!(pick(&mut sim), None, "a closed Gate's cell refuses");
+        let rng = sim.scenario_rng.logical_state();
+        assert_eq!(
+            pick(&mut sim, 200, 40),
+            None,
+            "a closed Gate's cell refuses"
+        );
+        assert_eq!(pick(&mut sim, 128, 128), None);
+        assert_eq!(
+            sim.scenario_rng.logical_state(),
+            rng,
+            "0x00481298 refuses before the centre row draw"
+        );
         request_gate_open_for_cell(&mut sim, (10, 10), 1, &rules);
         let gate = sim.substrate.entities.get_mut(100).unwrap();
         gate.open_door(0, 0);
         gate.advance_door(0);
         assert!(sim.substrate.entities.get(100).unwrap().is_open_gate());
-        assert_eq!(pick(&mut sim), Some((2, false)));
+        let rng = sim.scenario_rng.logical_state();
+        assert_eq!(pick(&mut sim, 200, 40), Some((2, false)));
+        assert_eq!(sim.scenario_rng.logical_state(), rng, "NE draws nothing");
+        assert!(pick(&mut sim, 128, 128).is_some());
+        assert_ne!(
+            sim.scenario_rng.logical_state(),
+            rng,
+            "an admitted centre request draws its row (0x0048138A)"
+        );
     }
 }

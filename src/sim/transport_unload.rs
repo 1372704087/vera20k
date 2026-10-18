@@ -562,7 +562,7 @@ fn eject_head_passenger(
 /// removes the cargo head before scanning, restores that same head on any
 /// failed search/Unlimbo, then takes the shared Unload rate epilogue. The
 /// source is the supported Steam `gamemd.exe` body `0x0044D880..0x0044DC84`;
-/// infantry placement delegates to `MapClass::PlaceInfantryInCell
+/// infantry placement delegates to `MapClass::PickInfantrySublocation
 /// @ 0x004ACA10` and the existing `CellClass::PlaceInfantryInCell @
 /// 0x00481180` owner.
 ///

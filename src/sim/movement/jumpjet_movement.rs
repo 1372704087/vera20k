@@ -401,7 +401,7 @@ impl JumpjetRuntime {
     }
 }
 
-/// 54D6D0's Infantry (RTTI15) receiver: 4ACA10
+/// 54D6D0's arm for an owner that is null or not a Unit (`0x0054D6D9..E7`): 4ACA10
 /// ([`super::bump_crush::pick_infantry_sublocation`]) selects the actual raw
 /// subcell, then ground height is sampled AGAIN at the returned XY. The
 /// second sample matters on slopes. No raw reservation is written here.

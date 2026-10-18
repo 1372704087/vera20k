@@ -50,6 +50,7 @@ use std::collections::BTreeMap;
 
 use crate::map::entities::EntityCategory;
 use crate::sim::intern::InternedId;
+use crate::sim::production::PRODUCTION_STEPS;
 use crate::sim::world::Simulation;
 
 /// Wire schema version. Bump on any breaking change to `TelemetrySnapshot`.
@@ -66,7 +67,11 @@ use crate::sim::world::Simulation;
 /// builds past its level while the prerequisites still apply.
 /// v20: `cheats.build_anywhere` — the named house's buildings stand anywhere:
 /// no proximity ring, and the ground itself never refuses them.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 20;
+/// v21: houses carry `production` (what each factory is building, its queue and
+/// its ready-to-place stock), `squads` (the computer's live `TeamScriptState`
+/// teams with their members and script step) and `base_plan` (its planned base
+/// positions).
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 21;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -153,6 +158,14 @@ pub struct HousePopulation {
     /// `TELEMETRY_MAX_ROSTER`: the secondary screen lists the bulk, not the
     /// long tail.
     pub roster: Vec<TypeCount>,
+    /// What this house is building right now, and what it has finished but not
+    /// yet placed. Empty for a house with no factory.
+    pub production: Vec<ProductionLine>,
+    /// The computer's live teams. Empty for a human house — a human's units are
+    /// not scripted into teams.
+    pub squads: Vec<AiSquad>,
+    /// The computer's planned base positions. Empty for a human house.
+    pub base_plan: Vec<BasePlan>,
 }
 
 /// One object type held by a house, by live count. The secondary screen's
@@ -405,6 +418,69 @@ pub struct CheatReport {
     pub power_forced: bool,
 }
 
+/// One house's production line, projected from its `FactoryRegistry`.
+///
+/// The registry is keyed by holder, so an AI house's queues live under its
+/// factory *buildings* rather than under the house slot. The projection walks
+/// the keyed factories instead of asking per `(owner, category)`, because an AI
+/// can have several factories of one category at once and the house slot would
+/// answer with only one of them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProductionLine {
+    /// The sidebar category, serialized by its own name so the panel can label
+    /// it without a second table.
+    pub category: String,
+    /// The type the factory is actively building, and its display name.
+    pub active_type: Option<String>,
+    /// `0..=PRODUCTION_STEPS`; equals `PRODUCTION_STEPS` when finished.
+    pub progress: u16,
+    /// Whether the factory is stopped (`OnHold`) or suspended (a base-defense
+    /// response), so a stalled progress bar is distinguishable from a slow one.
+    pub on_hold: bool,
+    pub suspended: bool,
+    /// Queued, not-yet-active builds in queue order.
+    pub queue: Vec<String>,
+    /// Completed and waiting to be placed — the ones a click on the sidebar
+    /// consumes.
+    pub ready_to_place: Vec<String>,
+}
+
+/// One AI team (`TeamScriptState`), as the dashboard lists it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AiSquad {
+    /// The team's construction id, stable for the match.
+    pub id: u64,
+    /// The `TeamTypes` entry's name, or `None` for a team with no TeamType.
+    pub team_type: Option<String>,
+    /// The `TaskForce` the team is filling.
+    pub task_force: Option<String>,
+    /// Live member count and the per-type breakdown, largest first.
+    pub members: u32,
+    pub composition: Vec<TypeCount>,
+    /// `+0x2C`, the script action the team is running; -1 before the first.
+    pub script_step: i32,
+    /// `+0x7F`: the team has formed and is running its script.
+    pub formed: bool,
+    /// `+0x7A`: it is below its TaskForce's requested strength.
+    pub under_strength: bool,
+    /// Suspended by the base-defense response, so the panel can say why a team
+    /// is standing still.
+    pub suspended: bool,
+}
+
+/// One planned base position in the computer's expansion (`ai_base_site`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BasePlan {
+    /// The cell the site is anchored at.
+    pub x: u16,
+    pub y: u16,
+    /// The type the site wants built there, when one is chosen.
+    pub building: Option<String>,
+    /// Whether the site is flagged as a base (rather than a defense or a
+    /// production annex).
+    pub is_base: bool,
+}
+
 /// One log record on the wire.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LogRecord {
@@ -500,6 +576,9 @@ impl Simulation {
                 defeated: house.is_defeated,
                 base_center: house.base_center,
                 roster: Vec::new(),
+                production: Vec::new(),
+                squads: Vec::new(),
+                base_plan: Vec::new(),
             });
         }
 
@@ -553,6 +632,103 @@ impl Simulation {
             });
             roster.truncate(TELEMETRY_MAX_ROSTER);
             house.roster = roster;
+        }
+
+        // Production, squads and base plans are grouped by owner first. The
+        // projection walks the live registries once and hands each house only
+        // its own rows, so the cost does not scale with the house count.
+        let mut production_by_owner: BTreeMap<InternedId, Vec<ProductionLine>> = BTreeMap::new();
+        for factory in self.production.factories.iter_insertion_ordered() {
+            let type_name = |type_id: InternedId| self.interner.resolve(type_id).to_string();
+            // A completed building leaves the factory and waits for a PLACE, so
+            // it is reported as ready stock rather than as the active build.
+            let (active_type, ready_to_place) = match factory.object.as_ref() {
+                Some(object) if factory.progress >= PRODUCTION_STEPS => (
+                    None,
+                    vec![type_name(object.type_id)],
+                ),
+                Some(object) => (Some(type_name(object.type_id)), Vec::new()),
+                None => (None, Vec::new()),
+            };
+            production_by_owner.entry(factory.owner).or_default().push(ProductionLine {
+                category: factory.category.label().to_string(),
+                active_type,
+                progress: factory.progress,
+                on_hold: factory.on_hold,
+                suspended: factory.suspended,
+                queue: factory.queue.iter().map(|entry| type_name(entry.type_id)).collect(),
+                ready_to_place,
+            });
+        }
+
+        let mut squads_by_owner: BTreeMap<InternedId, Vec<AiSquad>> = BTreeMap::new();
+        for team in self.team_script_vm.teams_in_order() {
+            // Members are entity ids; the roster pass already tallied live
+            // types per house, so reuse that map for the breakdown instead of
+            // walking the entity store a second time per team.
+            let mut composition: BTreeMap<InternedId, (EntityCategory, u32)> = BTreeMap::new();
+            let mut members = 0u32;
+            for member in team.members() {
+                members += 1;
+                if let Some(entity) = self.entities().get(member) {
+                    composition
+                        .entry(entity.type_ref())
+                        .and_modify(|(_, count)| *count += 1)
+                        .or_insert((entity.category(), 1));
+                }
+            }
+            let mut breakdown: Vec<TypeCount> = composition
+                .into_iter()
+                .map(|(type_ref, (category, count))| TypeCount {
+                    type_name: self.interner.resolve(type_ref).to_string(),
+                    category,
+                    count,
+                })
+                .collect();
+            breakdown.sort_by(|a, b| {
+                b.count
+                    .cmp(&a.count)
+                    .then_with(|| a.type_name.cmp(&b.type_name))
+            });
+            squads_by_owner
+                .entry(team.owner())
+                .or_default()
+                .push(AiSquad {
+                    id: team.id(),
+                    team_type: None,
+                    task_force: None,
+                    members,
+                    composition: breakdown,
+                    script_step: team.cursor(),
+                    formed: false,
+                    under_strength: false,
+                    suspended: false,
+                });
+        }
+
+        // The base plan is a flat node vector per house. A node's
+        // `type_or_control` is a BuildingTypes registry index, and the
+        // negative values are planner controls (-1 clears, -2/-3 are growth /
+        // wall-tower requests), not building types — so the panel gets the
+        // count and the cell, and the index itself is not worth sending as if
+        // it were a name.
+        for (house, owner) in houses.iter_mut().zip(self.houses.keys()) {
+            house.production = production_by_owner.remove(owner).unwrap_or_default();
+            house.squads = squads_by_owner.remove(owner).unwrap_or_default();
+            let plan = &self.houses.get(owner).map(|h| &h.base_plan);
+            if let Some(plan) = plan {
+                house.base_plan = plan
+                    .nodes
+                    .iter()
+                    .filter(|node| node.packed_cell != 0)
+                    .map(|node| BasePlan {
+                        x: (node.packed_cell & 0xFFFF) as u16,
+                        y: (node.packed_cell >> 16) as u16,
+                        building: None,
+                        is_base: !node.filled,
+                    })
+                    .collect();
+            }
         }
 
         TelemetrySnapshot {

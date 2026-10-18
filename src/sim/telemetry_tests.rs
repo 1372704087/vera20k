@@ -150,6 +150,96 @@ fn house_rows_carry_economy_and_roster() {
 }
 
 #[test]
+fn production_rows_report_the_active_build_its_queue_and_ready_stock() {
+    use crate::sim::production::PRODUCTION_STEPS;
+    use crate::sim::production::ProductionCategory;
+
+    let rules = vehicle_rules();
+    let mut sim = Simulation::with_seed(53);
+    let americans = sim.interner.intern("Americans");
+    let soviets = sim.interner.intern("Soviets");
+    sim.houses.insert(
+        americans,
+        HouseState::new(americans, 0, None, true, 1000, 10),
+    );
+    sim.houses
+        .insert(soviets, HouseState::new(soviets, 1, None, false, 1000, 10));
+    sim.spawn_object_limbo_at_height("ACTOR", "Americans", 3, 3, 0, 0, &rules)
+        .expect("vehicle spawn");
+
+    let actor = sim.interner.intern("ACTOR");
+    // Two factories for one house: the projection groups by owner, not by
+    // category, so both must appear rather than one shadowing the other.
+    sim.production
+        .factories
+        .test_enqueue_kernel(americans, ProductionCategory::Infantry, actor, 0, 100);
+    sim.production
+        .factories
+        .test_enqueue_kernel(americans, ProductionCategory::Vehicle, actor, 1, 100);
+    // A different house's factory must land on that house's row.
+    sim.production
+        .factories
+        .test_enqueue_kernel(soviets, ProductionCategory::Infantry, actor, 2, 100);
+
+    let snapshot = sim.telemetry_snapshot();
+    let row = house_row(&snapshot, "Americans");
+    assert_eq!(
+        row.production.len(),
+        2,
+        "both of this house's factories are reported"
+    );
+    let infantry = row
+        .production
+        .iter()
+        .find(|line| line.category == "Infantry")
+        .expect("the infantry line");
+    assert_eq!(infantry.active_type.as_deref(), Some("ACTOR"));
+    assert!(
+        infantry.progress < PRODUCTION_STEPS,
+        "a fresh enqueue has not completed"
+    );
+
+    // Finishing the build moves the type out of `active_type` and into the
+    // ready-to-place stock: that is the state a player can act on, and the
+    // panel has to show it as such rather than as a full progress bar.
+    sim.production
+        .factories
+        .test_factory_mut(americans, ProductionCategory::Infantry)
+        .unwrap()
+        .progress = PRODUCTION_STEPS;
+    let snapshot = sim.telemetry_snapshot();
+    let infantry = house_row(&snapshot, "Americans")
+        .production
+        .iter()
+        .find(|line| line.category == "Infantry")
+        .cloned()
+        .expect("the infantry line");
+    assert_eq!(infantry.active_type, None);
+    assert_eq!(infantry.ready_to_place, vec!["ACTOR".to_string()]);
+
+    assert_eq!(
+        house_row(&snapshot, "Soviets").production.len(),
+        1,
+        "each house's row carries only its own factories"
+    );
+}
+
+#[test]
+fn a_house_with_no_factory_reports_no_production() {
+    let mut sim = Simulation::with_seed(59);
+    let americans = sim.interner.intern("Americans");
+    sim.houses.insert(
+        americans,
+        HouseState::new(americans, 0, None, true, 1000, 10),
+    );
+    let snapshot = sim.telemetry_snapshot();
+    let row = house_row(&snapshot, "Americans");
+    assert!(row.production.is_empty());
+    assert!(row.squads.is_empty());
+    assert!(row.base_plan.is_empty());
+}
+
+#[test]
 fn spots_carry_world_positions_and_owner_indices() {
     // The diagnostic insert keeps its requested cell (unlike the limbo
     // spawn, whose native CoordStruct default is (0,0) off-map).

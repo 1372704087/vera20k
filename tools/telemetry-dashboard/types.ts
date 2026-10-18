@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -44,6 +44,49 @@ export interface HousePopulation {
   base_center: [number, number] | null;
   /** Live roster, largest first, capped at 16 types. */
   roster: TypeCount[];
+  /** What this house is building right now (schema v21). */
+  production: ProductionLine[];
+  /** The computer's live teams; empty for a human house. */
+  squads: AiSquad[];
+  /** The computer's planned base positions; empty for a human house. */
+  base_plan: BasePlanNodeReport[];
+}
+
+/** One factory's line, projected from the registry. An AI house has one entry
+ *  per factory, so several may share a category. */
+export interface ProductionLine {
+  category: string;
+  /** The type being built now; null when idle or finished-but-unplaced. */
+  active_type: string | null;
+  /** 0..54; equals 54 when the build has completed. */
+  progress: number;
+  on_hold: boolean;
+  suspended: boolean;
+  queue: string[];
+  /** Completed and waiting for a placement click. */
+  ready_to_place: string[];
+}
+
+/** One AI team (`TeamScriptState`). */
+export interface AiSquad {
+  id: number;
+  team_type: string | null;
+  task_force: string | null;
+  members: number;
+  composition: TypeCount[];
+  script_step: number;
+  formed: boolean;
+  under_strength: boolean;
+  suspended: boolean;
+}
+
+/** One planned base position. The engine's node holds a registry index, not a
+ *  name, so only the cell and whether it is still outstanding are reported. */
+export interface BasePlanNodeReport {
+  x: number;
+  y: number;
+  building: string | null;
+  is_base: boolean;
 }
 
 /** One object type held by a house, by live count. */

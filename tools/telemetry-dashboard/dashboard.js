@@ -1867,6 +1867,141 @@ function renderHouseModal() {
             bar.append(seg);
         }
     }
+    // What the house is building. A factory that has finished and is waiting for
+    // a placement click is the interesting state, so it reads as its own line
+    // rather than as a full progress bar that stopped at the end.
+    const production = document.getElementById("house-modal-production");
+    if (production) {
+        production.textContent = "";
+        if (house.production.length === 0) {
+            production.appendChild(emptyRow(t("dp.noProduction")));
+        }
+        else {
+            for (const line of house.production) {
+                const row = document.createElement("div");
+                row.className = "prod-row";
+                const cat = document.createElement("span");
+                cat.className = "prod-cat";
+                cat.textContent = t(`prod.${line.category.toLowerCase()}`);
+                const name = document.createElement("span");
+                name.className = "prod-name";
+                name.textContent = line.active_type ?? "—";
+                name.title = line.active_type ?? "";
+                // One bar per factory, scaled by the engine's own 54-step progress so
+                // the reading matches what the sidebar cameo shows.
+                const gauge = document.createElement("span");
+                gauge.className = "prod-gauge";
+                const fill = document.createElement("i");
+                fill.style.width = `${Math.min(100, (line.progress / TELEMETRY_PRODUCTION_STEPS) * 100)}%`;
+                fill.style.background = color;
+                gauge.append(fill);
+                const state = document.createElement("span");
+                state.className = "prod-state";
+                if (line.suspended)
+                    state.textContent = t("prod.suspended");
+                else if (line.on_hold)
+                    state.textContent = t("prod.onHold");
+                else if (line.ready_to_place.length > 0)
+                    state.textContent = t("prod.ready");
+                else if (line.queue.length > 0)
+                    state.textContent = t("prod.queued", { n: line.queue.length });
+                else
+                    state.textContent = "";
+                row.append(cat, name, gauge, state);
+                if (line.ready_to_place.length > 0) {
+                    row.classList.add("ready");
+                    const pending = document.createElement("em");
+                    pending.className = "prod-pending";
+                    pending.textContent = line.ready_to_place.join(" · ");
+                    pending.title = line.ready_to_place.join(", ");
+                    row.append(pending);
+                }
+                production.append(row);
+            }
+        }
+    }
+    const squads = document.getElementById("house-modal-squads");
+    if (squads) {
+        squads.textContent = "";
+        if (house.squads.length === 0) {
+            const empty = document.createElement("li");
+            empty.className = "empty";
+            empty.textContent = t("dp.noSquads");
+            squads.append(empty);
+        }
+        else {
+            for (const squad of house.squads) {
+                const head = document.createElement("li");
+                head.className = "roster-group";
+                const label = squad.team_type ??
+                    (squad.task_force ? squad.task_force : t("dp.squadUnnamed", { n: squad.id }));
+                head.innerHTML =
+                    `<span>${label}</span>` +
+                        `<em>${squad.members}</em>`;
+                squads.append(head);
+                // The composition is what says what the team is actually made of; the
+                // step and the flags say why it may be standing still.
+                if (squad.suspended) {
+                    const note = document.createElement("li");
+                    note.className = "squad-note";
+                    note.textContent = t("prod.suspended");
+                    squads.append(note);
+                }
+                else if (!squad.formed) {
+                    const note = document.createElement("li");
+                    note.className = "squad-note";
+                    note.textContent = t("dp.squadForming");
+                    squads.append(note);
+                }
+                for (const entry of squad.composition) {
+                    const row = document.createElement("li");
+                    const count = document.createElement("span");
+                    count.className = "cnt";
+                    count.textContent = fmt(entry.count, 0);
+                    const type = document.createElement("span");
+                    type.className = "tname";
+                    type.textContent = entry.type_name;
+                    type.title = entry.type_name;
+                    const category = document.createElement("span");
+                    category.className = "cat";
+                    category.style.color = DETAIL_CATEGORY_COLOR[entry.category] ?? "var(--dim)";
+                    category.textContent = t(detailCategoryKey(entry.category));
+                    row.append(count, type, category);
+                    squads.append(row);
+                }
+            }
+        }
+    }
+    const basePlan = document.getElementById("house-modal-baseplan");
+    if (basePlan) {
+        basePlan.textContent = "";
+        const outstanding = house.base_plan.filter((node) => node.is_base);
+        if (house.base_plan.length === 0) {
+            basePlan.appendChild(emptyRow(t("dp.noBasePlan")));
+        }
+        else {
+            const note = document.createElement("p");
+            note.className = "note baseplan-note";
+            // The engine's node carries a BuildingTypes registry index, not a name,
+            // so the panel reports how much of the plan is outstanding and where —
+            // and says so rather than inventing building names.
+            note.textContent = t("dp.basePlanCount", {
+                n: outstanding.length,
+                m: house.base_plan.length,
+            });
+            basePlan.append(note);
+            const wrap = document.createElement("div");
+            wrap.className = "baseplan-cells";
+            for (const node of house.base_plan) {
+                const cell = document.createElement("span");
+                cell.className = node.is_base ? "cell pending" : "cell";
+                cell.textContent = `${node.x},${node.y}`;
+                cell.title = node.is_base ? t("dp.basePlanPending") : t("dp.basePlanDone");
+                wrap.append(cell);
+            }
+            basePlan.append(wrap);
+        }
+    }
     // The whole roster, grouped by category so a long list reads as four short
     // blocks instead of one sorted column. The engine caps the list at 16 types;
     // saying so here is better than letting a reader assume 16 is the whole
@@ -1929,6 +2064,16 @@ function renderHouseModal() {
 /** The engine's per-house roster ceiling (`TELEMETRY_MAX_ROSTER`). Mirrored
  *  here because the modal has to say when a house is sitting at the cap. */
 const TELEMETRY_ROSTER_CAP = 16;
+/** The engine's production steps (`PRODUCTION_STEPS`): a factory's progress
+ *  runs 0..=54. Mirrored so the gauge scales the way the sidebar cameo does. */
+const TELEMETRY_PRODUCTION_STEPS = 54;
+/** A "nothing here" line for the modal's block-level sections. */
+function emptyRow(text) {
+    const row = document.createElement("p");
+    row.className = "empty-row";
+    row.textContent = text;
+    return row;
+}
 /** Full detail-wall refresh. Drawing only — `onmessage` owns the sampling,
  *  so a switch-time redraw never injects a phantom history point. */
 function renderDetail(snapshot) {

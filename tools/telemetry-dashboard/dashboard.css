@@ -1188,3 +1188,49 @@
     font-family: ui-monospace, Consolas, monospace; color: #a9d8ee;
   }
   .house-modal .roster .empty { color: var(--dim); border-bottom: 0; }
+
+  /* Production lines: category, what is being built, a 54-step gauge and the
+     state. A factory holding a finished building is highlighted, because a
+     completed-but-unplaced building is the one the player can act on. */
+  .prod-list { display: flex; flex-direction: column; gap: 4px; }
+  .prod-row {
+    display: grid;
+    grid-template-columns: 68px minmax(90px, 150px) 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 4px 6px; font-size: 11.5px;
+    background: rgba(0, 40, 70, 0.24); border: 1px solid var(--line);
+  }
+  .prod-row.ready { border-color: rgba(40, 240, 255, 0.4); background: rgba(0, 70, 100, 0.34); }
+  .prod-cat {
+    color: var(--dim); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prod-name {
+    color: #a9d8ee; font-family: ui-monospace, Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prod-gauge {
+    height: 6px; background: rgba(0, 30, 60, 0.7); border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .prod-gauge i { display: block; height: 100%; }
+  .prod-state { color: var(--dim); font-size: 10.5px; white-space: nowrap; }
+  .prod-pending {
+    grid-column: 2 / -1; font-style: normal; font-size: 10.5px; color: var(--cyan);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .empty-row { margin: 0; color: var(--dim); font-size: 11px; }
+
+  .house-modal .roster .squad-note { color: var(--amber); font-size: 10.5px; }
+  .house-modal .roster .cat { flex: none; font-size: 10px; color: var(--dim); }
+
+  .baseplan { display: flex; flex-direction: column; gap: 6px; }
+  .baseplan-note { margin: 0; }
+  .baseplan-cells { display: flex; flex-wrap: wrap; gap: 4px; }
+  .baseplan-cells .cell {
+    padding: 2px 6px; font-size: 10px; font-variant-numeric: tabular-nums;
+    color: var(--dim); border: 1px solid var(--line); background: rgba(0, 40, 70, 0.28);
+  }
+  .baseplan-cells .cell.pending {
+    color: #a9d8ee; border-color: rgba(40, 240, 255, 0.3);
+  }

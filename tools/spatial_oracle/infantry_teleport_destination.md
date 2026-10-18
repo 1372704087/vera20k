@@ -81,7 +81,8 @@ not native gameplay goldens. Legacy supplied warp-effect fixtures retain their
 active class and keep the effect in a suspended instance, rather than replacing
 the class whose original body the fixture compares.
 
-Coverage remains bounded. Unit/CMIN keeps its prior centre-resolver adapter;
+Coverage remains bounded. Unit/CMIN resolves through ResolveDestination's Unit
+arm, against the cmin_dock `assign_destination` rows;
 the historical Cell controls exclude object/FNPC destinations and Chronosphere
 class admission, reservation and cleanup. The retained Relocate Process still
 uses its cell-distance delay adapter; ChronoDelay now samples a global-frame

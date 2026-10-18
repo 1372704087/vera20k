@@ -173,45 +173,20 @@ const ORDINARY_SELECTION_ACTION_LINE_POLICY: SelectionActionLinePolicy =
 const TYPE_SELECT_TAP_ACTION_LINE_POLICY: SelectionActionLinePolicy =
     SelectionActionLinePolicy::Preserve;
 
-/// Resolve the ordinary tactical action before TypeSelect is allowed to modify
-/// a selection/toggle click. Non-held Shift keeps its established toggle path;
-/// while TypeSelect is held, Shift attack/move actions still resolve first.
+/// Ask the context action before applying selection/TypeSelect. Raw Shift
+/// cannot bypass WhatAction: Ctrl+Shift cancels the selection modifier, and
+/// Shift over bare ground is still Move (Techno700706..70071B/700B03).
+/// The context owner returns a selection click for Shift over an object.
 fn route_click_action_before_type_select<T>(
     action: SelectAction,
-    shift: bool,
-    type_select_held: bool,
     resolve_context_order: impl FnOnce(f32, f32) -> Option<T>,
 ) -> ClickActionRoute<T> {
     let SelectAction::Click(sx, sy) = action else {
         return ClickActionRoute::Selection;
     };
-    if shift && !type_select_held {
-        return ClickActionRoute::Selection;
-    }
     resolve_context_order(sx, sy)
         .map(ClickActionRoute::ContextOrder)
         .unwrap_or(ClickActionRoute::Selection)
-}
-
-/// No selected object can send a click order (`click_order_receivers`), so
-/// DetermineAction's best object is berserk: `SelectBestObjectForAction`
-/// ranks a berserk object below every other (`0x00535435`).
-fn every_selected_object_is_berserk(state: &AppState) -> bool {
-    let Some(sim) = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .map(|rt| &rt.simulation)
-    else {
-        return false;
-    };
-    let selection = selected_stable_ids_in_order(
-        Some(sim),
-        state.rules(),
-        &state.match_state.input.selection_order,
-        state.match_state.input.selection_order_pending,
-    );
-    !selection.is_empty() && sim.click_order_receivers(&selection).is_empty()
 }
 
 /// Tactical-viewport mouse body (routed here when the full-tactical ClickRegion
@@ -353,23 +328,12 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                 // selection/toggle. Ground move, attack, and every other
                 // context action keep their ordinary priority while T is held.
                 let type_select_held = state.match_state.input.type_select.held();
-                // Shift toggles selection through What_Action's Shift arm
-                // (`0x00700082`). A berserk best object answers 0 before it
-                // (`0x006FFEC9`), so when every selected object is berserk a
-                // Shift click resolves like any other click.
-                let shift_selects = shift && !every_selected_object_is_berserk(state);
                 if matches!(
-                    route_click_action_before_type_select(
-                        action,
-                        shift_selects,
-                        type_select_held,
-                        |sx, sy| {
-                            // A resolved context dispatch consumes the click
-                            // even when its receiver admits no command.
-                            try_queue_context_order_at_screen_point(state, sx, sy, true)
-                                .then_some(())
-                        },
-                    ),
+                    route_click_action_before_type_select(action, |sx, sy| {
+                        // A resolved context dispatch consumes the click
+                        // even when its receiver admits no command.
+                        try_queue_context_order_at_screen_point(state, sx, sy, true).then_some(())
+                    },),
                     ClickActionRoute::ContextOrder(())
                 ) {
                     return;
@@ -3280,7 +3244,7 @@ mod deploy_key_tests {
         let aircraft = spawn("AIRCRAFT");
         let infantry = spawn("GI");
         let mut cargo = PassengerCargo::new(5, 0);
-        cargo.board(999, 1);
+        cargo.board_forced_chain(&[(999, 1)]);
         sim.entities_mut()
             .get_mut(transport)
             .unwrap()
@@ -3338,7 +3302,7 @@ mod deploy_key_tests {
             .spawn_object("YAPOWR", "Americans", 10, 10, 0, &rules)
             .expect("Bio Reactor builds");
         let mut cargo = PassengerCargo::new(5, 0);
-        cargo.board(99, 1);
+        cargo.board_forced_chain(&[(99, 1)]);
         sim.entities_mut().get_mut(reactor).unwrap().passenger_role =
             PassengerRole::transport(cargo);
 
@@ -5024,5 +4988,39 @@ mod modifier_tests {
         assert!(!ctrl_shift.only_shift());
         assert!(!ctrl_shift.only_alt());
         assert!(ctrl_shift.dev_chord());
+    }
+}
+
+#[cfg(test)]
+mod context_click_route_tests {
+    use super::*;
+
+    #[test]
+    fn click_modifiers_are_resolved_before_selection() {
+        // This boundary previously skipped the resolver for every raw Shift
+        // click, including Ctrl+Shift attack-move and Shift ground Move.
+        let mut resolved = 0;
+        let route =
+            route_click_action_before_type_select(SelectAction::Click(12.0, 34.0), |x, y| {
+                resolved += 1;
+                assert_eq!((x, y), (12.0, 34.0));
+                Some("admitted context action")
+            });
+        assert_eq!(resolved, 1);
+        assert_eq!(
+            route,
+            ClickActionRoute::ContextOrder("admitted context action")
+        );
+        let selection =
+            route_click_action_before_type_select::<()>(SelectAction::Click(12.0, 34.0), |_, _| {
+                None
+            });
+        assert_eq!(selection, ClickActionRoute::Selection);
+        assert_eq!(
+            route_click_action_before_type_select::<()>(SelectAction::None, |_, _| panic!(
+                "a box/empty selection action is not a context click"
+            )),
+            ClickActionRoute::Selection
+        );
     }
 }

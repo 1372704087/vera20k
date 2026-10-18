@@ -650,7 +650,7 @@ pub(crate) mod tests {
         building.passenger_role =
             PassengerRole::transport(crate::sim::passenger::PassengerCargo::new(5, 1));
         if let Some(cargo) = building.passenger_role.cargo_mut() {
-            assert!(cargo.board(passenger_id, 1));
+            cargo.board_forced_chain(&[(passenger_id, 1)]);
         }
         sim.substrate.entities.insert(building);
         assert!(matches!(
@@ -878,7 +878,7 @@ pub(crate) mod tests {
                     .passenger_role
                     .cargo_mut()
                     .unwrap();
-                assert!(cargo.board(22, 1));
+                cargo.board_forced_chain(&[(22, 1)]);
                 cargo.garrison_fire_index = 4;
             }
             for id in [21, 22] {
@@ -995,16 +995,14 @@ pub(crate) mod tests {
         let mut sim = garrison_map(&rules);
         insert_captured_player_owned_garrison(&mut sim, &rules, 20, 21);
         insert_hidden_passenger(&mut sim, 22, 20, "Neutral");
-        assert!(
-            sim.substrate
-                .entities
-                .get_mut(20)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(22, 1)
-        );
+        sim.substrate
+            .entities
+            .get_mut(20)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(22, 1)]);
         // A supplied rejection of Rust's Reveal dependency, corresponding to
         // the original procedure's failed-last-Unlimbo control. This does not
         // claim native placement would produce the same rejection condition.

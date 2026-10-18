@@ -19,6 +19,7 @@ use crate::sim::world::FrameEffects;
 #[path = "jumpjet_flight.rs"]
 pub mod jumpjet_flight;
 
+use crate::sim::cell_kernel::{WorldCoordinate, cell_center};
 use crate::sim::components::DriveCoord;
 use crate::sim::world::Simulation;
 use crate::util::lepton::lepton_to_cell_packed;
@@ -128,10 +129,6 @@ pub(crate) trait JumpjetOrderHost {
 /// landing admission (`0x0054C6C5..0x0054C6D9`) make.
 pub(crate) fn owner_mission_is_enter(owner: &crate::sim::game_entity::GameEntity) -> bool {
     owner.mission.queued().raw() == 7 || owner.mission.effective().raw() == 7
-}
-
-fn cell_centre(cell: (i16, i16)) -> [i32; 2] {
-    [i32::from(cell.0) * 256 + 128, i32::from(cell.1) * 256 + 128]
 }
 
 /// `0x0054D6D0`'s Unit arm: the `GetCoords` centre of the cell the coordinate
@@ -330,8 +327,7 @@ impl JumpjetRuntime {
             host.move_search(seed, alt, true)
         }
         .unwrap_or((0, 0));
-        let [x, y] = cell_centre(cell);
-        let centre = DriveCoord { x, y, z: 0 };
+        let centre = DriveCoord::from(cell_center(cell.into(), 0));
         let adjusted = if unit {
             Some(unit_destination(centre, host))
         } else {
@@ -372,7 +368,7 @@ impl JumpjetRuntime {
         let Some(cell) = host.stop_search(coord_cell(here)) else {
             return StopOutcome::SearchFailed;
         };
-        let [x, y] = cell_centre(cell);
+        let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
         let mut z = host.floor_height([x, y]);
         if host.cell_high_bridge([x, y]) {
             z = z.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
@@ -536,7 +532,9 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
         )
     }
     fn cell_coords(&self, xy: [i32; 2]) -> [i32; 2] {
-        cell_centre(self.terrain().native_cell_coord(self.cell_identity(xy)))
+        let cell = self.terrain().native_cell_coord(self.cell_identity(xy));
+        let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
+        [x, y]
     }
     fn floor_height(&self, xy: [i32; 2]) -> i32 {
         super::ground_pose::ground_surface_z_at(xy, false, Some(self.terrain()), None).unwrap_or(0)
@@ -898,7 +896,9 @@ mod tests {
             (!self.fail).then_some((10, 10))
         }
         fn cell_coords(&self, xy: [i32; 2]) -> [i32; 2] {
-            cell_centre((lepton_to_cell_packed(xy[0]), lepton_to_cell_packed(xy[1])))
+            let cell = (lepton_to_cell_packed(xy[0]), lepton_to_cell_packed(xy[1]));
+            let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
+            [x, y]
         }
         fn floor_height(&self, xy: [i32; 2]) -> i32 {
             super::super::ground_pose::ground_surface_z_at(xy, false, Some(self.terrain), None)

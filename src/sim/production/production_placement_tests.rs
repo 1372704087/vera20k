@@ -3469,7 +3469,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     if let Some(t) = sim.substrate.entities.get_mut(30)
         && let Some(c) = t.passenger_role.cargo_mut()
     {
-        c.board(31, 1);
+        c.board_forced_chain(&[(31, 1)]);
     }
     // Accepted Building AddOccupant52298D refreshes after the append.
     sim.refresh_spatial_threat(30, &rules, None);

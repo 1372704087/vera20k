@@ -4400,8 +4400,8 @@ mod passenger_cargo_hash_tests {
         let mut sim = Simulation::new();
         let mut carrier = GameEntity::test_default(1, "BFRT", "Allied", 5, 5);
         let mut cargo = PassengerCargo::new(5, 0);
-        cargo.board_forced(10, first_size);
-        cargo.board_forced(11, second_size);
+        cargo.board_forced_chain(&[(10, first_size)]);
+        cargo.board_forced_chain(&[(11, second_size)]);
         carrier.passenger_role = PassengerRole::transport(cargo);
         sim.substrate.entities.insert(carrier);
         sim

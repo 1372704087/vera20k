@@ -94,7 +94,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         sim.substrate.entities.get_mut(2).unwrap().passenger_role =
             PassengerRole::inside_for_test(1, false);
         let mut cargo = PassengerCargo::new(1, 0);
-        cargo.board_forced(2, 1);
+        cargo.board_forced_chain(&[(2, 1)]);
         sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     }
     let entity = sim.substrate.entities.get_mut(1).unwrap();

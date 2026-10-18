@@ -21,6 +21,8 @@ pub(crate) use map_reveal::MapTransition;
 mod planes;
 use planes::PlaneWrite;
 pub use planes::Planes;
+mod reveal_viewers;
+pub(crate) use reveal_viewers::RevealViewers;
 mod shroud_knowledge;
 pub use cell_reveal::SHROUD_EDGE_LUT;
 #[cfg(test)]

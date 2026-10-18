@@ -1177,10 +1177,11 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                         );
                         sim.entities_mut().insert(passenger);
                         assert!(
-                            cargo.board(passenger_id, passenger_type.size),
+                            cargo.can_accept(passenger_type.size),
                             "{} cargo prior for {name}",
                             row["name"]
                         );
+                        cargo.board_forced_chain(&[(passenger_id, passenger_type.size)]);
                     }
                     if actor["unload"].as_bool().unwrap_or(false)
                         && let Some(head) = cargo.passengers().first().copied()

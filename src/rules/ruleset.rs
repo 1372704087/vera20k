@@ -5524,7 +5524,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v21".hash(&mut hasher);
+        b"rules-simulation-config-v22".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5614,6 +5614,37 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        // The ordered Rules processor retains these references through
+        // missing keys and later passes (Image +1F8, DeathWeapon +D18,
+        // DeploysInto +404, OccupyWeapon +E04, EliteOccupyWeapon +E20,
+        // ShrapnelWeapon +2B4, SuperWeapon WeaponType +9C).
+        b"retained-type-references-v1".hash(&mut hasher);
+        self.object_list
+            .iter()
+            .map(|object| {
+                (
+                    (object.category, object.id.to_ascii_uppercase()),
+                    (
+                        &object.image,
+                        &object.death_weapon,
+                        &object.deploys_into,
+                        &object.occupy_weapon,
+                        &object.elite_occupy_weapon,
+                    ),
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        self.projectiles
+            .iter()
+            .map(|(id, projectile)| (id.to_ascii_uppercase(), &projectile.shrapnel_weapon))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        self.super_weapons
+            .iter()
+            .map(|(id, super_weapon)| (id.to_ascii_uppercase(), &super_weapon.weapon_type))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
         self.general.missile_rot_var.to_bits().hash(&mut hasher);
         self.general.safety_altitude.hash(&mut hasher);
         self.general.line_trail_color_override.hash(&mut hasher);
@@ -5647,6 +5678,7 @@ impl RuleSet {
                             &weapon.projectile,
                             weapon.damage,
                             &weapon.warhead,
+                            weapon.range_leptons,
                         ),
                         (
                             weapon.is_laser,
@@ -10757,6 +10789,56 @@ Projectile=Invisible
             first.simulation_config_hash(),
             second.simulation_config_hash()
         );
+    }
+
+    /// The ordered processor retains each reference and the weapon range
+    /// through missing keys and later passes, so equal current text can carry
+    /// different values. Each one is part of the identity.
+    #[test]
+    fn simulation_config_hash_covers_retained_references_and_range() {
+        fn unit(rules: &mut RuleSet) -> &mut ObjectType {
+            rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.id == "UNIT")
+                .unwrap()
+        }
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n\
+             [GUN]\nRange=5\nProjectile=SHOT\n[SHOT]\n\
+             [SuperWeaponTypes]\n0=NUKE\n[NUKE]\nType=MultiMissile\n",
+        ))
+        .unwrap();
+        let base = rules.simulation_config_hash();
+        let edits: [(&str, fn(&mut RuleSet)); 8] = [
+            ("Image", |rules| unit(rules).image = "OTHER".into()),
+            ("DeathWeapon", |rules| {
+                unit(rules).death_weapon = Some("GUN".into());
+            }),
+            ("DeploysInto", |rules| {
+                unit(rules).deploys_into = Some("GUN".into());
+            }),
+            ("OccupyWeapon", |rules| {
+                unit(rules).occupy_weapon = Some("GUN".into());
+            }),
+            ("EliteOccupyWeapon", |rules| {
+                unit(rules).elite_occupy_weapon = Some("GUN".into());
+            }),
+            ("Range", |rules| {
+                rules.weapons.get_mut("GUN").unwrap().range_leptons = 1;
+            }),
+            ("ShrapnelWeapon", |rules| {
+                rules.projectiles.get_mut("SHOT").unwrap().shrapnel_weapon = Some("GUN".into());
+            }),
+            ("WeaponType", |rules| {
+                rules.super_weapons.get_mut("NUKE").unwrap().weapon_type = Some("GUN".into());
+            }),
+        ];
+        for (key, edit) in edits {
+            let mut changed = rules.clone();
+            edit(&mut changed);
+            assert_ne!(changed.simulation_config_hash(), base, "{key}");
+        }
     }
 
     #[test]

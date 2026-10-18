@@ -866,9 +866,14 @@ impl FogState {
     /// Destructor cleanup of cached254/260 and alternate derived indexes.
     /// Native UnInit/Limbo must have released their live contributions first.
     pub(crate) fn forget_sight_source(&mut self, id: u64) {
-        self.sight_admissions.retain(|&(source, _), _| source != id);
-        self.alternate_sight_admissions
-            .retain(|&(source, _), _| source != id);
+        for admissions in [
+            &mut self.sight_admissions,
+            &mut self.alternate_sight_admissions,
+        ] {
+            while let Some((&key, _)) = admissions.range(source_keys(id)).next() {
+                admissions.remove(&key);
+            }
+        }
     }
 
     /// Rebuild the derived current-sight projection without emitting another

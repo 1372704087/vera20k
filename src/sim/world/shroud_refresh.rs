@@ -1510,6 +1510,12 @@ impl Simulation {
         for id in removed {
             self.release_object_sight_with_context(id, context);
         }
+        // An owner's viewers depend only on the owner, the fog planes, the
+        // ally graph and the interner, so each owner is asked once. Planes
+        // and interned names only grow, and only a walk's callbacks can change
+        // the ally graph: a growth or a walk forgets the answers.
+        let mut viewers_of = std::collections::BTreeMap::new();
+        let mut asked_with = (self.fog.by_owner.len(), self.interner.len());
         //IDs alone cross callbacks. Requery the live object at every turn.
         for id in self.substrate.entities.keys_sorted() {
             let Some(entity) = self
@@ -1520,17 +1526,36 @@ impl Simulation {
             else {
                 continue;
             };
-            if self.fog.source_cache_is_inactive(id, entity.owner()) {
+            let owner = entity.owner();
+            if self.fog.source_cache_is_inactive(id, owner) {
                 continue;
             }
-            let viewers = vision::direct_reveal_viewers(
-                &self.fog,
-                &self.house_alliances,
-                entity.owner(),
-                config,
-                &self.interner,
+            let inputs = (self.fog.by_owner.len(), self.interner.len());
+            if inputs != asked_with {
+                viewers_of.clear();
+                asked_with = inputs;
+            }
+            let viewers = viewers_of.entry(owner).or_insert_with(|| {
+                vision::direct_reveal_viewers(
+                    &self.fog,
+                    &self.house_alliances,
+                    owner,
+                    config,
+                    &self.interner,
+                )
+            });
+            debug_assert_eq!(
+                *viewers,
+                vision::direct_reveal_viewers(
+                    &self.fog,
+                    &self.house_alliances,
+                    owner,
+                    config,
+                    &self.interner,
+                ),
+                "an owner's remembered reveal viewers are current"
             );
-            if vision::retained_sight_covers(&self.fog, id, entity.owner(), &viewers) {
+            if vision::retained_sight_covers(&self.fog, id, owner, viewers) {
                 if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                     self.fog.mark_retained_sight(id);
                 }
@@ -1538,6 +1563,7 @@ impl Simulation {
                 self.release_object_sight_with_context(id, context);
                 let heights = self.sight_height_grid(config);
                 self.update_object_sight_in_view(id, 0, None, config, heights.levels(), context);
+                viewers_of.clear();
             }
         }
         self.fog.mark_cleared_cells();

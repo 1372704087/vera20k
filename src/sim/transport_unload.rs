@@ -17,7 +17,7 @@
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::find_nearby_cell::PassabilityArgs;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -438,14 +438,17 @@ fn eject_head_passenger(
                 let cell = sim
                     .object_type(passenger.type_ref(), rules)
                     .and_then(|object| {
-                        sim.nearby_location_cell(
+                        sim.nearby_passable_cell(
                             (i32::from(exit.0), i32::from(exit.1)),
-                            PassabilityArgs {
-                                speed_type: object.speed_type,
-                                required_zone_id: None,
-                                movement_zone: MovementZone::Normal,
-                                bridge_aware_zone: false,
-                            },
+                            NearbyArgs::plain(
+                                PassabilityArgs {
+                                    speed_type: object.speed_type,
+                                    required_zone_id: None,
+                                    movement_zone: MovementZone::Normal,
+                                    bridge_aware_zone: false,
+                                },
+                                NearbyFootprint::SINGLE,
+                            ),
                         )
                     })
                     .unwrap_or(exit);
@@ -811,7 +814,10 @@ pub(crate) fn unit_mission_unload(
                     movement_zone: MovementZone::Normal,
                     bridge_aware_zone: false,
                 };
-                if let Some(cell) = sim.nearby_location_cell(seed, wheel_land) {
+                if let Some(cell) = sim.nearby_passable_cell(
+                    seed,
+                    NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
+                ) {
                     // `Set_Destination` only — the committed selector stays
                     // Unload and state 0 re-runs once the drive has ended.
                     if let Err(cause) = sim.assign_destination_represented(

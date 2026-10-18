@@ -28,6 +28,7 @@ use crate::sim::base_plan_generation::{preflight_recalc, recalc_base_plan};
 use crate::sim::combat::Health;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::{GameEntity, GeneratedTechnoInit, TechnoConstructorInit};
 use crate::sim::intern::InternedId;
 use crate::sim::production::{self, ProductionCategory};
@@ -1419,14 +1420,17 @@ impl Simulation {
                 // The shared FNPC owner preserves candidate order and frame
                 // choice and consumes no RNG. No 703590 getter substitutions.
                 let at = self
-                    .nearby_location_cell(
+                    .nearby_passable_cell(
                         (location.x / 256, location.y / 256),
-                        crate::sim::find_nearby_cell::PassabilityArgs {
-                            speed_type: object.speed_type,
-                            required_zone_id: None,
-                            movement_zone: MovementZone::Normal,
-                            bridge_aware_zone: false,
-                        },
+                        NearbyArgs::plain(
+                            PassabilityArgs {
+                                speed_type: object.speed_type,
+                                required_zone_id: None,
+                                movement_zone: MovementZone::Normal,
+                                bridge_aware_zone: false,
+                            },
+                            NearbyFootprint::SINGLE,
+                        ),
                     )
                     // Original FNPC's failed output is Cell::Empty, and this
                     // caller still performs its Map lookup and Unlimbo.

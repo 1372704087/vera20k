@@ -1116,8 +1116,7 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<(u16, u16)> {
         use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
-            find_nearby_passable_cell_with_options, map_owned_radius_cap,
+            NearbyArgs, NearbyFootprint, NearbySearchOptions, PassabilityArgs,
         };
         let owner = self.substrate.entities.get(master)?;
         let object = self.object_type(owner.type_ref(), rules)?;
@@ -1138,17 +1137,9 @@ impl Simulation {
                 search.zone_check_bridge,
             )
         })?;
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
-        let grid = self.path_grid_snapshot();
-        let found = find_nearby_passable_cell_with_options(
+        let found = self.nearby_passable_cell(
             search.seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
+            NearbyArgs {
                 passability: PassabilityArgs {
                     speed_type: search.speed_type,
                     // A DWORD -1 disables the comparison; FNPC turns a raw
@@ -1161,20 +1152,11 @@ impl Simulation {
                 allow_bridge_cells: search.allow_bridge_cells,
                 check_height: search.check_height,
                 check_occupancy: search.check_occupancy,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
                 target_cell: Some(search.target),
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
+                options: NearbySearchOptions {
+                    reject_any_overlay: search.reject_any_overlay,
+                },
             },
-            NearbySearchOptions {
-                reject_any_overlay: search.reject_any_overlay,
-            },
-            self.session.binary_frame,
         )?;
         Some((
             found.0 + u16::from(foundation.0 > 2),

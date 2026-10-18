@@ -1120,14 +1120,12 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
     // `forced_track_end_requests_its_own_cell_in_the_same_process` covers
     // that continuation.
     assert_eq!(drive.head_to(), None);
-    assert_eq!(drive.occupation_head_to(), None);
     assert!(!drive.track_valid());
     assert_eq!(drive.track().turn_index(), -1);
     assert_eq!(drive.track().cursor(), 0);
     assert_eq!(
-        sim.substrate
-            .cell_occupation
-            .vehicle_bits(13, 12, MovementLayer::Ground),
+        sim.substrate.raw_cell_occupation.ground_bits(13, 12)
+            & crate::sim::occupancy::VEHICLE_OCCUPATION_BIT,
         crate::sim::occupancy::VEHICLE_OCCUPATION_BIT
     );
 }
@@ -1217,9 +1215,8 @@ fn test_blocked_repath_preserves_locomotor_destination_beyond_segment_end() {
     assert_eq!(route.last(), Some(&(24, 2)));
 }
 
-/// Build a minimal Drive LocomotorState for layered-pathfinding tests. Required
-/// because the layered A* branch in find_move_path is only entered when the
-/// mover has a Drive/Walk locomotor; `test_default` leaves locomotor=None.
+/// Build a minimal Drive LocomotorState for Drive movement tests;
+/// `test_default` leaves locomotor=None.
 fn make_drive_loco_for_test() -> crate::sim::movement::locomotor::LocomotorState {
     crate::sim::movement::locomotor::LocomotorState::for_test_kind(
         crate::rules::locomotor_type::LocomotorKind::Drive,

@@ -186,11 +186,10 @@ pub(super) struct MoverSnapshot {
     pub movement_zone: MovementZone,
     pub omni_crusher: bool,
     pub regular_crusher: bool,
-    pub on_bridge: bool,
     pub locomotor: Option<locomotor::LocomotorState>,
     /// Native AStar hierarchy admission reads the stored TechnoClass+0x3D5
-    /// byte. False under live MapClass authority bypasses hierarchy and uses
-    /// flat A*; headless fixtures without authority retain hierarchy.
+    /// byte. False under live MapClass authority bypasses hierarchy and runs
+    /// the plain cell A*; headless fixtures without authority retain hierarchy.
     pub allow_zone_hierarchy: bool,
 }
 
@@ -260,8 +259,6 @@ pub(crate) fn tick_movement_with_grid(
     lifecycle_requests: &mut Vec<LifecycleRequest>,
 ) -> MovementTickStats {
     let mut sound_events: Vec<crate::sim::world::SimSoundEvent> = Vec::new();
-    let mut cell_occupation =
-        crate::sim::occupancy::CellOccupationGrid::rebuild(entities, occupancy);
     let mut raw_cell_occupation = crate::sim::occupancy::RawCellOccupationGrid::new();
     tick_movement_with_grids(
         entities,
@@ -269,7 +266,6 @@ pub(crate) fn tick_movement_with_grid(
         path_grid,
         alliances,
         occupancy,
-        &mut cell_occupation,
         &mut raw_cell_occupation,
         rng,
         sim_tick,

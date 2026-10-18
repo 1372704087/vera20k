@@ -597,7 +597,7 @@ impl Simulation {
             self.set_unit_null_destination(id, Some(rules), None, frame_effects);
             return false;
         }
-        super::navcom::foot_stop_moving(actor);
+        actor.navigation.stop_moving();
         self.unit_enter_idle_mode(id, Some(rules), false, frame_effects)
     }
 
@@ -617,7 +617,7 @@ impl Simulation {
         if actor.navigation.nav_queue().is_empty() {
             self.set_unit_null_destination(id, rules, None, frame_effects);
         } else {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
             self.unit_enter_idle_mode(id, rules, false, frame_effects);
         }
     }
@@ -699,7 +699,7 @@ impl Simulation {
             return;
         }
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
         }
         self.assign_destination_represented(
             id,
@@ -843,7 +843,7 @@ impl Simulation {
         //741A96..741ACD, after the same-NavCom guard: deployment refuses
         // through Foot4DF0D0, which clears NavCom, not locomotor movement.
         if deployment_refuses_destination(actor) {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
             return false;
         }
         let is_harvester = self
@@ -1522,7 +1522,7 @@ impl Simulation {
             actor.setter_force_reassign.raised = false;
             //741A96..741ACD; same native owner as the non-null setter.
             if deployment_refuses_destination(actor) {
-                super::navcom::foot_stop_moving(actor);
+                actor.navigation.stop_moving();
                 return false;
             }
         }

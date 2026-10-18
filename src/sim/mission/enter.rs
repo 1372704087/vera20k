@@ -159,7 +159,7 @@ fn teleporter_reassign(
     }
     let nav = entity.navigation.nav_com();
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        crate::sim::movement::foot_stop_moving(entity);
+        entity.navigation.stop_moving();
     }
     let _ = sim.assign_destination_represented(id, nav, Some(rules), registry, effects);
 }

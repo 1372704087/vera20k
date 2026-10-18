@@ -603,7 +603,7 @@ fn foot_stop_preserves_queue() {
     entity
         .navigation
         .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(12, 8)));
-    super::super::navcom::foot_stop_moving(entity);
+    entity.navigation.stop_moving();
     assert_eq!(entity.navigation.path_replay, replay_fixture());
 }
 
@@ -688,7 +688,7 @@ fn foot_queue_operations_match_original_memory_witnesses() {
                 if operation.ends_with("two") { 2 } else { 1 },
             );
         } else if operation == "foot_stop" {
-            super::super::navcom::foot_stop_moving(entity);
+            entity.navigation.stop_moving();
         } else if operation == "drive_end" {
             assert!(sim.try_end_piggyback(1, None));
         } else {

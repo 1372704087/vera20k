@@ -2763,6 +2763,98 @@ class MapObservationTests(unittest.TestCase):
         self.assertTrue(all('bombs' not in frame and 'fire' not in frame['actors'][0]
                             for frame in report['capture']['observations']['frames']))
 
+    @staticmethod
+    def temporal_state():
+        return {'has_link': True, 'warp_target': 9, 'chain_head': None,
+                'boarding_transport': None, 'inside_transport': None,
+                'cargo': {'count': 2, 'passengers': [11, 8]}}
+
+    def test_temporal_snapshots_and_shared_fire_readback_survive_sealed_recheck(self):
+        self.scripted_profile()
+        self.profile['observe_temporal'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            actors[0].update(temporal=self.temporal_state(), fire=self.fire_state())
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertTrue(all(frame['actors'][0]['temporal'] == self.temporal_state()
+                            and frame['actors'][0]['fire'] == self.fire_state()
+                            and 'bombs' not in frame for frame in frames))
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    def test_temporal_opt_in_preserves_opt_out_rows_and_requires_current_policy(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_temporal=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_temporal=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_temporal=value))
+        actor = dict(self.actor(), temporal=self.temporal_state(), fire=self.fire_state())
+        observation._actor(actor, 'actor', temporal=True)
+        observation._actor(actor, 'actor', temporal=True, bombs=True)
+        for missing in ('fire', 'temporal'):
+            incomplete = dict(actor)
+            del incomplete[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValidationError):
+                observation._actor(incomplete, 'actor', temporal=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_temporal=True), {}, **prior)
+        # The extension is additive inside v8. False has the exact historical
+        # actor shape, so old policy fixtures need no inferred Temporal fields.
+        self.profile['observe_temporal'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('temporal' not in frame['actors'][0]
+                            and 'fire' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_temporal_snapshot_keeps_independent_queries_and_checks_shapes(self):
+        self.assertEqual(observation._temporal(self.temporal_state(), 'temporal'), 3)
+        row = dict(self.temporal_state(), has_link=False, warp_target=9,
+                   chain_head=10, boarding_transport=12,
+                   inside_transport={'transport': 13, 'open_topped': True},
+                   cargo={'count': 99, 'passengers': [11, 8]})
+        self.assertEqual(observation._temporal(row, 'temporal'), 3)
+        self.assertEqual(observation._temporal(dict(row, cargo=None), 'temporal'), 1)
+        for key, value in (('has_link', 1), ('warp_target', 0), ('chain_head', True),
+                           ('boarding_transport', 1 << 64),
+                           ('cargo', {'count': 0, 'passengers': [True]}),
+                           ('inside_transport', {'transport': 8, 'open_topped': 1})):
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._temporal(dict(row, **{key: value}), 'temporal')
+        for cargo in ({'count': -1, 'passengers': []}, {'count': 1, 'passengers': None},
+                      {'count': 1, 'passengers': [0]}, {'count': 1, 'passengers': [], 'extra': 0}):
+            with self.subTest(cargo=cargo), self.assertRaises(ValidationError):
+                observation._temporal(dict(row, cargo=cargo), 'temporal')
+        with self.assertRaises(ValidationError):
+            observation._temporal(dict(row, extra=0), 'temporal')
+
+    def test_temporal_cargo_uses_shared_aggregate_sample_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_temporal=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), temporal=self.temporal_state(), fire=self.fire_state())]
+        # One actor, one House, one Temporal snapshot and two cargo entries.
+        for budget, status in ((4, 'INVALID'), (5, 'VALID')):
+            self.output = self.root / f'temporal-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
+
     def test_electric_and_bomb_observations_keep_both_actor_extensions(self):
         self.scripted_profile()
         self.profile.update(observe_electric_bolts=True, observe_bombs=True)

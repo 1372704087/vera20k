@@ -1050,7 +1050,8 @@ fn fireat_get_rof(
 /// `TechnoClass::GetROF` (vt+0x318) of the object `snap` describes, for
 /// `rof_weapon` at `burst_index` with the `live` particle systems it holds:
 /// FireAt's shot ([`fireat_get_rof`]) and the C4 plant's `GetROF(1)`
-/// (`sim::c4_plant`).
+/// (`sim::c4_plant`), also the receiving gunner's GetROF7/0
+/// (`sim::passenger`).
 pub(crate) fn snapshot_get_rof(
     world: &mut Simulation,
     rules: &RuleSet,

@@ -91,7 +91,8 @@ PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
-                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_spawns', 'observe_crates',
+                              'observe_electric_bolt_steps', 'observe_bombs', 'observe_temporal',
+                              'observe_spawns', 'observe_crates',
                               'observe_audio', 'allow_load_segments',
                               'observe_tooltips',
                               'camera_cell', 'cursor_position', 'terrain_cells',
@@ -629,7 +630,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
         raise ValidationError('profile.observe_action_line_inputs must be a boolean')
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
-    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_spawns',
+    for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_temporal', 'observe_spawns',
                 'observe_crates', 'observe_tooltips'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
@@ -1392,6 +1393,34 @@ def _fire(value: Any, label: str) -> None:
         _bounded_int(rearm[key], f'{label}.rearm.{key}', -(1 << 31), (1 << 31) - 1)
 
 
+def _temporal(value: Any, label: str) -> int:
+    row = require_object(value, label)
+    require_exact_keys(row, ('has_link', 'warp_target', 'chain_head', 'boarding_transport',
+                             'inside_transport', 'cargo'), label)
+    if type(row['has_link']) is not bool:
+        raise ValidationError(f'{label}.has_link must be boolean')
+    for key in ('warp_target', 'chain_head', 'boarding_transport'):
+        if row[key] is not None:
+            _bounded_int(row[key], f'{label}.{key}', 1, (1 << 64) - 1)
+    if row['inside_transport'] is not None:
+        inside = require_object(row['inside_transport'], f'{label}.inside_transport')
+        require_exact_keys(inside, ('transport', 'open_topped'), f'{label}.inside_transport')
+        _bounded_int(inside['transport'], f'{label}.inside_transport.transport', 1, (1 << 64) - 1)
+        if type(inside['open_topped']) is not bool:
+            raise ValidationError(f'{label}.inside_transport.open_topped must be boolean')
+    passengers = []
+    if row['cargo'] is not None:
+        cargo = require_object(row['cargo'], f'{label}.cargo')
+        require_exact_keys(cargo, ('count', 'passengers'), f'{label}.cargo')
+        _bounded_int(cargo['count'], f'{label}.cargo.count', 0, (1 << 32) - 1)
+        passengers = require_array(cargo['passengers'], f'{label}.cargo.passengers')
+        for index, identity in enumerate(passengers):
+            _bounded_int(identity, f'{label}.cargo.passengers[{index}]', 1, (1 << 64) - 1)
+    # Preserve independent owner reads and native cargo order. Consistency
+    # between count, membership and links is an analysis assertion, not a fixup.
+    return 1 + len(passengers)
+
+
 def _spawns(value: Any, label: str) -> int:
     if value is None:
         return 0
@@ -1433,7 +1462,7 @@ def _spawns(value: Any, label: str) -> int:
 def _actor(value: Any, label: str, *, building_state: bool = True,
            docking_state: bool = True, walk_state: bool = True,
            action_line_inputs: bool = False, disguise_inputs: bool = False,
-           lasers: bool = False, bombs: bool = False, spawns: bool = False,
+           lasers: bool = False, bombs: bool = False, temporal: bool = False, spawns: bool = False,
            damage_smoke: bool = False) -> tuple[int, str]:
     actor = require_object(value, label)
     require_exact_keys(actor, ('stable_id', 'owner', 'type_id', 'category', 'cell',
@@ -1455,7 +1484,8 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('disguise_inputs',) if disguise_inputs else ()),
                               *(('prism',) if lasers else ()),
                               *(('damage_smoke_system_id',) if damage_smoke and 'damage_smoke_system_id' in actor else ()),
-                              *(('fire',) if bombs else ()),
+                              *(('fire',) if bombs or temporal else ()),
+                              *(('temporal',) if temporal else ()),
                               *(('spawns',) if spawns else ()),
                               *(('miner', 'radio') if docking_state else ())), label)
     identity = _bounded_int(actor['stable_id'], f'{label}.stable_id', 1, (1 << 64) - 1)
@@ -1473,8 +1503,10 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
         _prism(actor['prism'], category, f'{label}.prism')
     if damage_smoke and actor.get('damage_smoke_system_id') is not None:
         _bounded_int(actor['damage_smoke_system_id'], f'{label}.damage_smoke_system_id', 1, (1 << 64) - 1)
-    if bombs:
+    if bombs or temporal:
         _fire(actor['fire'], f'{label}.fire')
+    if temporal:
+        _temporal(actor['temporal'], f'{label}.temporal')
     if spawns:
         _spawns(actor['spawns'], f'{label}.spawns')
     if docking_state:
@@ -2501,6 +2533,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     gesture_input = 'gestures' in profile
     sidebar = 'observe_sidebar_steps' in profile
     effects = _observes_effects(profile)
+    if profile.get('observe_temporal', False) and not (walk_state and disk_laser_state):
+        raise ValidationError('Temporal observations require the current v8 observation policy')
     if effects and not walk_state:
         raise ValidationError('effect observations require the current observation policy')
     if (gesture_input or sidebar) and not walk_state:
@@ -2600,6 +2634,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                      disguise_inputs=profile.get('observe_disguise_inputs', False),
                                      lasers=profile.get('observe_lasers', False) or profile.get('observe_electric_bolts', False),
                                      bombs=profile.get('observe_bombs', False),
+                                     temporal=profile.get('observe_temporal', False),
                                      spawns=profile.get('observe_spawns', False),
                                      damage_smoke=profile.get('observe_electric_bolts', False))
             if identity <= previous_id:
@@ -2652,6 +2687,10 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         if profile.get('observe_spawns', False):
             sample_count += sum(1 + len(actor['spawns']['slots']) for actor in actors
                                 if actor['spawns'] is not None)
+        if profile.get('observe_temporal', False):
+            sample_count += sum(1 + len(actor['temporal']['cargo']['passengers'])
+                                if actor['temporal']['cargo'] is not None else 1
+                                for actor in actors)
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
     if profile.get('observe_electric_bolts', False):

@@ -481,6 +481,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_bombs: Option<bool>,
+    /// Read the existing Temporal and passenger owners with retained FireAt state.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_temporal: Option<bool>,
     /// Read the existing spawn manager's ordered pool and count queries.
     #[serde(
         default,
@@ -578,6 +585,7 @@ impl MapCaptureProfile {
                     && self.observe_electric_bolts.is_none()
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
+                    && self.observe_temporal.is_none()
                     && self.observe_spawns.is_none()
                     && self.observe_crates.is_none()
                     && self.camera_cell.is_none()
@@ -1928,6 +1936,35 @@ fn fire_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) ->
             "remaining": entity.rearm_timer.remaining(frame)}})
 }
 
+fn temporal_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
+    // Independent immutable owner queries: diagnostics neither transfer a
+    // link nor infer a carrier relation from a cargo entry (or vice versa).
+    let cargo = entity.passenger_role.cargo().map(|cargo| {
+        let passengers: Vec<_> = cargo
+            .passengers()
+            .iter()
+            .take(MAX_OBSERVATION_SAMPLES + 1)
+            .copied()
+            .collect();
+        json!({"count": cargo.count(), "passengers": passengers})
+    });
+    let inside = entity.passenger_role.inside_transport().map(
+        |(transport, open_topped)| json!({"transport": transport, "open_topped": open_topped}),
+    );
+    json!({"has_link": entity.temporal.has_link(),
+        "warp_target": entity.temporal.warp_target(),
+        "chain_head": entity.temporal.chain_head(),
+        "boarding_transport": entity.passenger_role.boarding_transport_id(),
+        "inside_transport": inside, "cargo": cargo})
+}
+
+fn temporal_sample_count(snapshot: &Value) -> usize {
+    usize::from(!snapshot.is_null())
+        + snapshot["cargo"]["passengers"]
+            .as_array()
+            .map_or(0, Vec::len)
+}
+
 fn spawn_observation(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
@@ -2474,6 +2511,9 @@ impl MapObservation {
                                 .map_or(0, Vec::len),
                         )
                         .and_then(|count| count.checked_add(spawn_sample_count(&actor["spawns"])))
+                        .and_then(|count| {
+                            count.checked_add(temporal_sample_count(&actor["temporal"]))
+                        })
                 })
             })
             .and_then(|count| count.checked_add(frame.houses.len()))
@@ -2663,8 +2703,7 @@ impl TacticalCaptureSession {
         state.diag.use_map_presentation_clock()?;
         state.match_state.input.cursor_x = 0.0;
         state.match_state.input.cursor_y = 0.0;
-        let now_ms =
-            crate::app::match_runtime::frame_pacer::wall_clock_ms();
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state.platform.frame_pacer.reanchor(now_ms);
         Ok(())
     }
@@ -3609,8 +3648,11 @@ impl TacticalCaptureSession {
                 if profile.observe_electric_bolts == Some(true) {
                     observation["damage_smoke_system_id"] = json!(entity.damage_smoke_system_id);
                 }
-                if profile.observe_bombs == Some(true) {
+                if profile.observe_bombs == Some(true) || profile.observe_temporal == Some(true) {
                     observation["fire"] = fire_observation(entity, sim.session.binary_frame as i32);
+                }
+                if profile.observe_temporal == Some(true) {
+                    observation["temporal"] = temporal_observation(entity);
                 }
                 if profile.observe_spawns == Some(true) {
                     observation["spawns"] =
@@ -4463,6 +4505,64 @@ mod tests {
     }
 
     #[test]
+    fn temporal_snapshots_read_public_owners_without_advancing_state() {
+        use crate::rules::retail_ini_fixture::retail_battle_rules;
+        use crate::sim::{temporal::TemporalState, world::Simulation};
+
+        let Some(retail) = retail_battle_rules() else {
+            return;
+        };
+        let mut sim = Simulation::new();
+        let fv = sim
+            .spawn_object_at_height("FV", "Player", 10, 10, 0, 0, &retail.rules)
+            .unwrap();
+        let cleg = sim
+            .spawn_object_at_height("CLEG", "Player", 10, 9, 0, 0, &retail.rules)
+            .unwrap();
+        let other = sim
+            .spawn_object_at_height("E1", "Player", 9, 10, 0, 0, &retail.rules)
+            .unwrap();
+        let victim = sim
+            .spawn_object_at_height("HTNK", "Computer1", 11, 10, 0, 0, &retail.rules)
+            .unwrap();
+        // A diagnostic fixture exercises independent cargo order and the
+        // existing target-head fixture, without modelling gunner callbacks.
+        let cargo = sim
+            .substrate
+            .entities
+            .get_mut(fv)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap();
+        cargo.board_forced(cleg, 1);
+        cargo.board_forced(other, 1);
+        sim.substrate.entities.get_mut(victim).unwrap().temporal =
+            TemporalState::warped_by_for_test(cleg);
+        let hash = sim.state_hash();
+        let rng = sim.rng_state();
+        let snapshot = temporal_observation(sim.substrate.entities.get(fv).unwrap());
+        assert_eq!(
+            snapshot,
+            json!({"has_link": false, "warp_target": null, "chain_head": null,
+                "boarding_transport": null, "inside_transport": null,
+                "cargo": {"count": 2, "passengers": [other, cleg]}})
+        );
+        assert_eq!(temporal_sample_count(&snapshot), 3);
+        assert_eq!(temporal_sample_count(&Value::Null), 0);
+        assert_eq!(
+            temporal_observation(sim.substrate.entities.get(cleg).unwrap()),
+            json!({"has_link": true, "warp_target": null, "chain_head": null,
+                "boarding_transport": null, "inside_transport": null, "cargo": null})
+        );
+        let target = temporal_observation(sim.substrate.entities.get(victim).unwrap());
+        assert_eq!(target["has_link"], false);
+        assert_eq!(target["chain_head"], cleg);
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+
+    #[test]
     fn spawn_snapshots_preserve_current_type_and_ordered_pool_without_advancing_state() {
         use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
         use crate::sim::{
@@ -4995,6 +5095,9 @@ mod tests {
         legacy.observe_bombs = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
+        legacy.observe_temporal = Some(false);
+        assert!(legacy.validate().is_err());
+        let mut legacy = example();
         legacy.observe_spawns = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
@@ -5029,6 +5132,7 @@ mod tests {
         modern["observe_electric_bolts"] = json!(true);
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
+        modern["observe_temporal"] = json!(true);
         modern["observe_spawns"] = json!(true);
         modern["observe_crates"] = json!(true);
         modern["cursor_position"] = json!([720, 556]);
@@ -5053,6 +5157,7 @@ mod tests {
             "observe_electric_bolts",
             "observe_electric_bolt_steps",
             "observe_bombs",
+            "observe_temporal",
             "observe_spawns",
             "observe_crates",
             "camera_cell",
@@ -5071,10 +5176,15 @@ mod tests {
         }
         modern["observe_action_line_inputs"] = json!(false);
         modern["observe_spawns"] = json!(false);
+        modern["observe_temporal"] = json!(false);
         let disabled: MapCaptureProfile = serde_json::from_value(modern.clone()).unwrap();
         disabled.validate().unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap(), modern);
-        for key in ["observe_action_line_inputs", "observe_spawns"] {
+        for key in [
+            "observe_action_line_inputs",
+            "observe_spawns",
+            "observe_temporal",
+        ] {
             for value in [json!(0), json!(1), json!("true"), json!([])] {
                 let mut invalid = modern.clone();
                 invalid[key] = value;

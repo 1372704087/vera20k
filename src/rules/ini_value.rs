@@ -283,6 +283,16 @@ impl IniSection {
         self.fold_rules_values(key, default, parse_read_int)
     }
 
+    /// Campaign `Read_Time @ 0x0052A760`: the stored map text is parsed with
+    /// `sscanf("%02d:%02d:%02d")` into three zero-initialized ints, then
+    /// converted to Scenario clock ticks. A missing key keeps its current
+    /// field; malformed or partial text leaves unassigned components at zero.
+    /// Native conversion is `(hours * 3600 + minutes * 60 + seconds) * 60` and
+    /// has no range clamp. Arithmetic wraps like the native 32-bit fields.
+    pub fn read_campaign_score_time(&self, key: &str, default: i32) -> i32 {
+        self.fold_rules_values(key, default, |_, raw| parse_campaign_score_time(raw))
+    }
+
     /// ReadBool (P6, P18): `toupper(first char)` in {'1','T','Y'}=true,
     /// {'0','F','N'}=false, else default. `on`/`off` (first char 'o') -> default.
     /// Present-empty (no first char) -> default.
@@ -795,6 +805,52 @@ fn parse_read_int(default: i32, raw: &str) -> i32 {
     parse_read_int_value(raw).unwrap_or(default)
 }
 
+fn parse_campaign_score_time(raw: &str) -> i32 {
+    let bytes = raw.as_bytes();
+    let mut cursor = 0;
+    let mut parts = [0i32; 3];
+    for index in 0..3 {
+        let Some((value, next)) = scan_decimal_i32_width(bytes, cursor, 2) else {
+            break;
+        };
+        parts[index] = value;
+        cursor = next;
+        if index != 2 {
+            if bytes.get(cursor) != Some(&b':') {
+                break;
+            }
+            cursor += 1;
+        }
+    }
+    parts[0]
+        .wrapping_mul(3_600)
+        .wrapping_add(parts[1].wrapping_mul(60))
+        .wrapping_add(parts[2])
+        .wrapping_mul(60)
+}
+
+fn scan_decimal_i32_width(bytes: &[u8], mut cursor: usize, width: usize) -> Option<(i32, usize)> {
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+    let start = cursor;
+    if bytes
+        .get(cursor)
+        .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+    {
+        cursor += 1;
+    }
+    let digit_start = cursor;
+    while cursor < bytes.len() && cursor - start < width && bytes[cursor].is_ascii_digit() {
+        cursor += 1;
+    }
+    if cursor == digit_start {
+        return None;
+    }
+    let token = std::str::from_utf8(&bytes[start..cursor]).ok()?;
+    Some((token.parse().ok()?, cursor))
+}
+
 /// Source bytes `INIClass__ReadCommaHexUTF16` copies before trimming: the
 /// `strncpy(0x5000)` at `0x00529097` is terminated at `0x4FFF`.
 const COMMA_HEX_ENCODED_BYTES: usize = 0x4fff;
@@ -1279,6 +1335,20 @@ mod tests {
         let ini = sec("[S]\nA=0x1A\n");
         // atoi("0x1A") = 0 (stops at 'x'); $/h branches don't fire.
         assert_eq!(ini.section("S").unwrap().read_int("A", -9), 0);
+    }
+
+    #[test]
+    fn campaign_read_time_matches_native_sscanf_and_clock_ticks() {
+        let ini = sec(
+            "[S]\nFull=01:02:03\nPartial=12:3\nBad=not a time\nLong=123:45:67\nNegative=-1:02:03\n",
+        );
+        let section = ini.section("S").unwrap();
+        assert_eq!(section.read_campaign_score_time("Missing", 0xE10), 0xE10);
+        assert_eq!(section.read_campaign_score_time("Full", 0), 223_380);
+        assert_eq!(section.read_campaign_score_time("Partial", 99), 2_602_800);
+        assert_eq!(section.read_campaign_score_time("Bad", 99), 0);
+        assert_eq!(section.read_campaign_score_time("Long", 0), 2_592_000);
+        assert_eq!(section.read_campaign_score_time("Negative", 0), -208_620);
     }
 
     #[test]

@@ -169,8 +169,16 @@ impl ScenarioElapsedClock {
 
     /// Stop the clock and return the signed, truncating score-dialog seconds.
     pub(crate) fn stop(&mut self, now_ms: u64) -> i32 {
+        self.stop_buckets(now_ms) / SCORE_BUCKETS_PER_SECOND
+    }
+
+    /// Stop the clock and return the raw signed Scenario+0x61C accumulator.
+    /// The campaign score writer compares each raw counter after signed
+    /// division by 60 (`0x006C9231..33`), so callers that choose a result must
+    /// retain this value through that comparison.
+    pub(crate) fn stop_buckets(&mut self, now_ms: u64) -> i32 {
         self.pause(now_ms);
-        self.elapsed_seconds(now_ms)
+        self.accumulated_buckets as i32
     }
 
     /// Forget any prior match and leave the clock disarmed.
@@ -179,6 +187,7 @@ impl ScenarioElapsedClock {
     }
 
     /// Sample the retail raw accumulator without changing clock state.
+    #[cfg(test)]
     fn elapsed_buckets(&self, now_ms: u64) -> u32 {
         self.accumulated_buckets
             .wrapping_add(if self.start_bucket != ELAPSED_CLOCK_STOPPED {
@@ -191,6 +200,7 @@ impl ScenarioElapsedClock {
     /// gamemd provenance: Score elapsed-time formatting; verified
     /// ScoreDialog__WndProc @ 0x005C9B10 reads ScenarioClass+0x614/+0x61C,
     /// treats the wrapped accumulator as signed, and divides it by 60.
+    #[cfg(test)]
     pub(crate) fn elapsed_seconds(&self, now_ms: u64) -> i32 {
         (self.elapsed_buckets(now_ms) as i32) / SCORE_BUCKETS_PER_SECOND
     }

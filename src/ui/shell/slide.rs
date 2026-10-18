@@ -112,6 +112,9 @@ pub(crate) struct SlideDialogSpec {
     pub map_button: bool,
     /// Record `+0xD5`: the top panel, whose warning display moves last.
     pub top_panel: bool,
+    /// Campaign score `0x103`/`0xBC7`: the compositor draws SCRT frames then
+    /// SCRBK instead of a top panel. These dialogs have no `+0xD5`/`+0xD6`.
+    pub campaign_score: bool,
 }
 
 impl SlideDialogSpec {
@@ -123,6 +126,7 @@ impl SlideDialogSpec {
             bottom_button: self.bottom_button,
             map_button: self.map_button,
             top_panel: self.top_panel,
+            campaign_score: self.campaign_score,
         }
     }
 }
@@ -142,7 +146,9 @@ impl SlideDialogSpec {
 /// (Choose Map): Use Map and Create Random Map (`0x6C5`, `0x583`, counted
 /// even while disabled), Cancel (`0x5C0`), the top panel (`+0xD5`,
 /// `0x00622915`) and no map button. `0x108` (Score): only Continue
-/// (`0x6D1`, the bottom list's `0x00609A71`); no top-list button.
+/// (`0x6D1`, the bottom list's `0x00609A71`); no top-list button. `0x103`
+/// (campaign StandaloneScore): only Continue (`0x423`), and its compositor
+/// draws SCRT then SCRBK (`+0xD7`, `0x006229CE`).
 pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
     SlideDialogSpec {
         dialog_id: 0x00E2,
@@ -150,6 +156,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0100,
@@ -157,6 +164,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0101,
@@ -164,6 +172,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0129,
@@ -171,6 +180,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0102,
@@ -178,6 +188,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: true,
         top_panel: true,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0094,
@@ -185,6 +196,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x00B7,
@@ -192,6 +204,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x00D5,
@@ -199,6 +212,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x010E,
@@ -206,6 +220,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x00A3,
@@ -213,6 +228,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x006B,
@@ -220,6 +236,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: true,
+        campaign_score: false,
     },
     SlideDialogSpec {
         dialog_id: 0x0108,
@@ -227,6 +244,18 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: false,
+        campaign_score: false,
+    },
+    // Campaign victory StandaloneScore `0x103`: only Continue (`0x423`) in
+    // the bottom list, no top-list buttons and record flags +0xD5..+0xD7 =
+    // 0/0/1 (`0x0062290E..0x006229CE`).
+    SlideDialogSpec {
+        dialog_id: 0x0103,
+        top_buttons: 0,
+        bottom_button: true,
+        map_button: false,
+        top_panel: false,
+        campaign_score: true,
     },
     // The random-map dialog: Use Map, Load, Save and Delete Map, Cancel, and
     // the top panel (`0x0062290E`).
@@ -236,6 +265,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         bottom_button: true,
         map_button: false,
         top_panel: true,
+        campaign_score: false,
     },
 ];
 
@@ -277,6 +307,8 @@ pub(crate) struct SlideColumn {
     pub bottom_button: bool,
     pub map_button: bool,
     pub top_panel: bool,
+    /// Campaign score's SCRT/SCRBK compositor (see `SlideDialogSpec`).
+    pub campaign_score: bool,
 }
 
 /// One SDBTNANM draw of the slide engine: the panel tile row (0 = the first
@@ -297,6 +329,12 @@ pub(crate) enum PanelArt {
     /// SDMPBTN.SHP one tile above the column: 0 = the map button in place,
     /// 6 = only its rail left.
     MapButton(usize),
+    /// Campaign score `SCRT` frame at the dialog origin (+80 at 800+).
+    Scrt(usize),
+    /// Campaign score `SCRBK` at the dialog origin. `0x72E9F0` already painted
+    /// it under the dialog, so a renderer needs no second draw; the fixture
+    /// still records the native call for the slide-out tail.
+    ScrBackdrop,
 }
 
 /// Top-left of a column row's SDBTNANM frame `shape_w` wide: right-aligned
@@ -324,6 +362,8 @@ pub(crate) fn panel_art_origin(
             panel.tile.x + panel.tile.w - shape_w,
             panel.tile.y + panel.tile.h - shape_h,
         ),
+        // Campaign score art is placed from the dialog origin, not the panel.
+        PanelArt::Scrt(_) | PanelArt::ScrBackdrop => (0, 0),
     }
 }
 
@@ -375,6 +415,21 @@ impl SlideColumn {
     pub(crate) fn panel_art(self, tick: u32, direction: WaveDirection) -> Vec<PanelArt> {
         let entering = direction == WaveDirection::SlideIn;
         let tick = tick as i32;
+        // Campaign score `0x103`/`0xBC7`: the compositor draws the SCRT
+        // shutter 5..0 on SHOW and 0..5 on CLOSE, then falls back to SCRBK at
+        // the dialog origin for the rest of the teardown
+        // (`tools/storage_oracle/shell_slide_engine.json`).
+        if self.campaign_score {
+            return if entering {
+                vec![PanelArt::Scrt(
+                    (WAVE_RAMP_STEPS - 1 - tick.min(WAVE_RAMP_STEPS - 1)) as usize,
+                )]
+            } else if tick < WAVE_RAMP_STEPS {
+                vec![PanelArt::Scrt(tick as usize)]
+            } else {
+                vec![PanelArt::ScrBackdrop]
+            };
+        }
         let map = self.map_button.then(|| {
             let frame = match (entering, tick < WAVE_RAMP_STEPS) {
                 (true, true) => 6 - tick,
@@ -801,12 +856,31 @@ mod tests {
 
     fn art_at(screen: (i32, i32), art: PanelArt) -> (String, i64, i64, i64) {
         let panel = geom::right_panel_rects(screen.0, screen.1);
-        let (name, frame, (w, h)) = match art {
-            PanelArt::Sdtp(frame) => ("SDTP", frame, SDTP_SIZE),
-            PanelArt::Warning(frame) => ("SDWRNTMP", frame, SDWRNTMP_SIZE),
-            PanelArt::MapButton(frame) => ("SDMPBTN", frame, SDMPBTN_SIZE),
+        let (name, frame, (x, y)) = match art {
+            PanelArt::Sdtp(frame) => {
+                let origin = panel_art_origin(panel, art, SDTP_SIZE.0, SDTP_SIZE.1);
+                ("SDTP", frame, origin)
+            }
+            PanelArt::Warning(frame) => {
+                let origin = panel_art_origin(panel, art, SDWRNTMP_SIZE.0, SDWRNTMP_SIZE.1);
+                ("SDWRNTMP", frame, origin)
+            }
+            PanelArt::MapButton(frame) => {
+                let origin = panel_art_origin(panel, art, SDMPBTN_SIZE.0, SDMPBTN_SIZE.1);
+                ("SDMPBTN", frame, origin)
+            }
+            // `RadarBackground 0x0072E920`: SCRT at the dialog origin, plus
+            // 0x50 from 800 pixels; SCRBK stays at the dialog origin.
+            PanelArt::Scrt(frame) => {
+                let (ox, oy) = geom::dialog_origin(screen.0, screen.1);
+                let x = ox + if screen.0 >= 800 { 80 } else { 0 };
+                ("xSCRT", frame, (x, oy))
+            }
+            PanelArt::ScrBackdrop => {
+                let (ox, oy) = geom::dialog_origin(screen.0, screen.1);
+                ("xSCRBK", 0, (ox, oy))
+            }
         };
-        let (x, y) = panel_art_origin(panel, art, w, h);
         (name.into(), frame as i64, i64::from(x), i64::from(y))
     }
 
@@ -820,7 +894,7 @@ mod tests {
         ))
         .unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 72);
+        assert_eq!(cases.len(), 78);
         for case in cases {
             let dialog = case["dialog"].as_str().unwrap();
             let dialog_id = u16::from_str_radix(dialog.trim_start_matches("0x"), 16).unwrap();

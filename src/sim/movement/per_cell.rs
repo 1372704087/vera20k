@@ -604,7 +604,7 @@ impl Simulation {
                 self.set_unit_destination(id, NavTargetRef::from(archive), rules, true, effects);
             } else {
                 if let Some(unit) = self.substrate.entities.get_mut(id) {
-                    super::navcom::foot_stop_moving(unit);
+                    unit.navigation.stop_moving();
                 }
                 //73AAC8..73AADB: no QueueMission, Process or EnterIdle. Unit's
                 // null Scatter receiver cannot produce the Infantry error path.

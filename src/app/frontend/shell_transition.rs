@@ -70,6 +70,8 @@ pub(crate) enum ShellSlideKind {
     ChooseMap,
     /// Dialog 0x108 — the score screen after a skirmish game.
     Score,
+    /// Dialog 0x103 — campaign victory StandaloneScore.
+    CampaignScore,
     /// Dialog 0x105 — Choose Map's random-map dialog.
     RandomMap,
 }
@@ -92,6 +94,7 @@ impl ShellSlideKind {
             ShellSlideKind::Keyboard => 0x00A3,
             ShellSlideKind::ChooseMap => 0x006B,
             ShellSlideKind::Score => 0x0108,
+            ShellSlideKind::CampaignScore => 0x0103,
             ShellSlideKind::RandomMap => 0x0105,
         })
     }
@@ -108,6 +111,18 @@ impl ShellSlideKind {
 
 /// Right-panel tile rows at the current surface size (`[0x00B0FA20]`).
 fn panel_rows(state: &AppState) -> u32 {
+    // A fitted shell paints the scaled 800x600 column, so its slide must use
+    // the authored 9 tile rows even when the live window is too short for
+    // `right_panel_rects(window)` to reach the same count. Retail 640/800
+    // keep the live window's own rows.
+    if crate::app::frontend::shell_layout::fills_window(state) {
+        return crate::ui::shell::geom::right_panel_rects(
+            crate::ui::shell::geom::SHELL_BASE_W,
+            crate::ui::shell::geom::SHELL_BASE_H,
+        )
+        .tile_count
+        .max(1) as u32;
+    }
     let config = &state.renderer.gpu.config;
     crate::ui::shell::geom::right_panel_rects(config.width as i32, config.height as i32)
         .tile_count
@@ -166,6 +181,9 @@ pub(crate) enum ShellExitThen {
     /// Score Continue (result 1, `0x005CA06C`): `0x108` slides out, the
     /// match ends and PrepareSession resumes the shell.
     ScoreContinue,
+    /// Campaign victory Continue (`0x423`, result 1): `0x103` slides out
+    /// before GameExit::Victory continues the campaign.
+    CampaignScoreContinue,
     /// A Westwood Online action: `0x10E` closes before the WOLAPI object
     /// fails to load and `TXT_APIMISSING` shows.
     WolApiMissing,
@@ -191,6 +209,7 @@ impl ShellExitThen {
             Self::RandomMapUse | Self::RandomMapCancel => ShellSlideKind::RandomMap,
             Self::WolBack | Self::WolApiMissing => ShellSlideKind::WolWelcome,
             Self::ScoreContinue => ShellSlideKind::Score,
+            Self::CampaignScoreContinue => ShellSlideKind::CampaignScore,
         }
     }
 }
@@ -355,6 +374,9 @@ enum ShellWaveCompletion {
     RandomMap,
     /// Score `0x108`: the heading, the status line and the table start.
     Score,
+    /// Campaign victory `0x103`: its ten kind-1 statics start and the kind-4
+    /// emblem timer/sound begin on the same SHOW completion (`0x4EC`).
+    CampaignScore,
 }
 
 /// Render-agnostic reducer for dialog-instance, entry-wave, and title state.
@@ -461,6 +483,7 @@ impl<'a> ShellLifecycleReducer<'a> {
             ShellSlideKind::ChooseMap => ShellWaveCompletion::ChooseMap,
             ShellSlideKind::RandomMap => ShellWaveCompletion::RandomMap,
             ShellSlideKind::Score => ShellWaveCompletion::Score,
+            ShellSlideKind::CampaignScore => ShellWaveCompletion::CampaignScore,
         })
     }
 
@@ -602,9 +625,17 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
     use crate::ui::game_screen::GameScreen;
     // The score dialog runs after the game, before the shell resumes.
     if matches!(state.frontend.screen, GameScreen::MissionResult { .. }) {
-        return (crate::app::App::score_shell_active(state)
-            && crate::ui::shell::slide::is_slide_eligible(ShellSlideKind::Score.dialog_id()))
-        .then_some(ShellSlideKind::Score);
+        if crate::app::App::score_shell_active(state) {
+            return crate::ui::shell::slide::is_slide_eligible(ShellSlideKind::Score.dialog_id())
+                .then_some(ShellSlideKind::Score);
+        }
+        if crate::app::App::campaign_score_shell_active(state) {
+            return crate::ui::shell::slide::is_slide_eligible(
+                ShellSlideKind::CampaignScore.dialog_id(),
+            )
+            .then_some(ShellSlideKind::CampaignScore);
+        }
+        return None;
     }
     if state.frontend.screen != GameScreen::MainMenu {
         return None;
@@ -867,6 +898,13 @@ pub(crate) fn render_shell_first_paint_slide(
             encoder,
             destination,
         )?,
+        ShellSlideKind::CampaignScore => {
+            crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
+                state,
+                encoder,
+                destination,
+            )?
+        }
         ShellSlideKind::SinglePlayer | ShellSlideKind::MoviesAndCredits => matches!(
             crate::app::frontend::menu_page_render::render_active_menu_page(
                 state,
@@ -948,6 +986,27 @@ pub(crate) fn render_shell_first_paint_slide(
                 page.start_reveals(now);
             }
         }
+        // 0x103's SHOW completion (`0x4EC` on the dialog) starts every kind-1
+        // static and, after playing ScoreAnimSound, the 0x72B kind-4 timer.
+        Some(ShellWaveCompletion::CampaignScore) => {
+            let now = Instant::now();
+            let frames = state
+                .frontend
+                .campaign_score_art
+                .as_ref()
+                .and_then(|art| art.scra.as_ref())
+                .map_or(0, |strip| strip.frames.len());
+            let sound = state
+                .rules()
+                .and_then(|rules| rules.general.score_anim_sound())
+                .map(str::to_owned);
+            if let Some(page) = state.frontend.campaign_score_page.as_mut() {
+                page.start_presentation(frames, now);
+            }
+            if let Some(sound) = sound {
+                crate::app::App::play_campaign_score_anim_sound(state, Some(&sound));
+            }
+        }
         None => {}
     }
 
@@ -961,6 +1020,16 @@ mod tests {
     use super::*;
     use crate::ui::shell::static_reveal::{Kind1PaintWindow, Kind1StaticReveal};
     use std::time::Duration;
+
+    #[test]
+    fn campaign_score_owns_dialog_0x103_and_its_teardown_result() {
+        assert_eq!(ShellSlideKind::CampaignScore.dialog_id(), DialogId(0x0103));
+        assert_eq!(
+            ShellExitThen::CampaignScoreContinue.dialog(),
+            ShellSlideKind::CampaignScore
+        );
+        assert!(crate::ui::shell::slide::is_slide_eligible(DialogId(0x0103)));
+    }
 
     #[test]
     fn teardown_slides_only_for_the_steadily_shown_dialog() {

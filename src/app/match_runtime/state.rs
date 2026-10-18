@@ -26,6 +26,8 @@ pub(crate) struct MatchState {
     /// no load/install path can silently drop an unflushed segment.
     pub(crate) match_diagnostics: crate::app::match_diagnostics::MatchDiagnosticsState,
     pub(crate) map_basic: BasicSection,
+    /// Parsed `[Ranking]` values used by the campaign victory page.
+    pub(crate) map_ranking: crate::map::ranking::RankingSection,
     /// Exact source whose bytes produced the active parsed map.
     pub(crate) loaded_map_source: Option<crate::map::source::LoadedMapSource>,
     /// Deterministic digest of the parsed source map INI. `None` only for

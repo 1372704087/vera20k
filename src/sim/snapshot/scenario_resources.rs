@@ -127,6 +127,7 @@ pub struct SavedMapMetadata {
     #[serde(with = "source_identity")]
     source: crate::map::source::LoadedMapSource,
     basic: crate::map::basic::BasicSection,
+    ranking: crate::map::ranking::RankingSection,
     terrain_objects: Vec<crate::map::overlay::TerrainObject>,
     house_roster: crate::map::houses::HouseRoster,
     house_colors: crate::map::houses::HouseColorMap,
@@ -149,6 +150,7 @@ impl SavedMapMetadata {
         map_hash: u64,
         source: &crate::map::source::LoadedMapSource,
         basic: &crate::map::basic::BasicSection,
+        ranking: &crate::map::ranking::RankingSection,
         terrain_objects: &[crate::map::overlay::TerrainObject],
         house_roster: &crate::map::houses::HouseRoster,
         house_colors: &crate::map::houses::HouseColorMap,
@@ -161,6 +163,7 @@ impl SavedMapMetadata {
             map_hash,
             source: source.clone(),
             basic: basic.clone(),
+            ranking: ranking.clone(),
             terrain_objects: terrain_objects.to_vec(),
             house_roster: house_roster.clone(),
             house_colors: house_colors.clone(),
@@ -179,6 +182,9 @@ impl SavedMapMetadata {
     }
     pub fn basic(&self) -> &crate::map::basic::BasicSection {
         &self.basic
+    }
+    pub fn ranking(&self) -> &crate::map::ranking::RankingSection {
+        &self.ranking
     }
     pub fn terrain_objects(&self) -> &[crate::map::overlay::TerrainObject] {
         &self.terrain_objects
@@ -271,6 +277,7 @@ mod tests {
             SavedMapMetadata::capture(
                 123,
                 &source,
+                &Default::default(),
                 &Default::default(),
                 &[],
                 &Default::default(),

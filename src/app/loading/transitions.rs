@@ -57,6 +57,7 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             },
             map_hash: None,
             basic: BasicSection::default(),
+            ranking: crate::map::ranking::RankingSection::default(),
             terrain_grid: None,
             resolved_terrain: None,
             simulation: None,
@@ -106,6 +107,7 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
 /// gameplay authority: its source values belong to the loaded map/resources.
 pub(crate) struct MapPresentationInputs {
     pub(crate) basic: BasicSection,
+    pub(crate) ranking: crate::map::ranking::RankingSection,
     pub(crate) source: crate::map::source::LoadedMapSource,
     pub(crate) map_hash: Option<u64>,
     pub(crate) terrain_grid: Option<crate::map::terrain::TerrainGrid>,
@@ -130,6 +132,7 @@ pub(crate) fn install_world_presentation(
     assets: init::PresentationLoadAssets,
 ) {
     state.match_state.map_basic = map.basic;
+    state.match_state.map_ranking = map.ranking;
     state.match_state.loaded_map_source = Some(map.source);
     state.match_state.loaded_map_hash = map.map_hash;
     state.match_state.match_presentation.terrain_grid = map.terrain_grid;
@@ -398,6 +401,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         state,
         MapPresentationInputs {
             basic: result.scenario.basic,
+            ranking: result.scenario.ranking,
             source: result.scenario.map_source,
             map_hash: result.scenario.map_hash,
             terrain_grid: result.scenario.terrain_grid,

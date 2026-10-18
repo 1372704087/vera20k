@@ -1509,6 +1509,7 @@ pub struct ScenarioLoadInputs {
     /// Digest of the parsed source map INI used for strict save compatibility.
     pub(crate) map_hash: Option<u64>,
     pub basic: BasicSection,
+    pub ranking: crate::map::ranking::RankingSection,
     pub terrain_grid: Option<TerrainGrid>,
     pub resolved_terrain: Option<ResolvedTerrainGrid>,
     pub simulation: Option<Simulation>,
@@ -3406,6 +3407,7 @@ pub(crate) fn load_map_from_initial(
             map_source,
             map_hash,
             basic: map_data.basic,
+            ranking: map_data.ranking,
             terrain_grid: Some(grid),
             resolved_terrain: Some(resolved_terrain),
             simulation,

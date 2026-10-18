@@ -60,6 +60,12 @@ pub(crate) enum CanBuild {
     AtLimit,
 }
 
+
+/// The top of the declared tech band. `object_type` reads `TechLevel=` with a
+/// default of 255, so an absent key lands far above this; an explicit `-1` is
+/// the separate civilian sentinel. Both are "outside the band".
+const MAX_TECH_LEVEL: i32 = 10;
+
 /// `HouseClass::CanBuild @ 0x004F7870` for house `owner` and type `obj`.
 ///
 /// With `skip_tech` (the first flag), only the build limit is asked
@@ -95,12 +101,23 @@ pub(crate) fn can_build(
     skip_tech: bool,
     count_in_production: bool,
 ) -> CanBuild {
-    // Trainer "all tech": for the named house every gate below is bypassed and
-    // only the build limit is asked — the same arm the engine itself uses for
-    // a type whose tech it has no answer for. Doing it here rather than at each
-    // caller means the strip, the sidebar, the production spawn and the AI's
-    // unit choice all agree on one answer.
-    let skip_tech = skip_tech || (sim.cheats.tech_all && sim.cheats.applies_to(owner));
+    // Trainer, resolved once. Both switches drop the prerequisite arm: a base
+    // that owns a barracks can build everything a barracks could ever make,
+    // without first owning the radar or the battle lab. What separates them is
+    // the band's edge — all-tech stops at the top of the declared levels,
+    // tech-boost keeps going.
+    let trainer = sim.cheats.applies_to(owner)
+        && (sim.cheats.tech_all || sim.cheats.tech_boost);
+    if trainer {
+        // `TechLevel=-1` is the civilian sentinel and an absent key defaults to
+        // 255 (`object_type`); both sit outside the declared band. All-tech
+        // stops at the band's top, tech-boost keeps going past it.
+        let out_of_band = obj.tech_level == -1 || obj.tech_level > MAX_TECH_LEVEL;
+        if out_of_band && !sim.cheats.tech_boost {
+            return CanBuild::No;
+        }
+        return build_limit(sim, owner, obj, count_in_production);
+    }
     if skip_tech {
         return build_limit(sim, owner, obj, count_in_production);
     }
@@ -119,6 +136,7 @@ pub(crate) fn can_build(
     }
     // `0x004F7976..0x004F79E2`: each `RequiresStolen*Tech=` needs the
     // house's stolen-tech byte, which a spy's BuildTech infiltration sets.
+    //
     if obj.tech_level == -1 || !house.has_stolen_tech_for(obj) {
         return CanBuild::No;
     }
@@ -143,15 +161,7 @@ pub(crate) fn can_build(
     {
         return CanBuild::No;
     }
-    // Trainer "tech boost": the house may build past its own tech level. The
-    // prerequisite arm below still runs — that is the whole difference from
-    // the all-tech switch, which bypasses this and everything after it.
-    let tech_cap = if sim.cheats.tech_boost && sim.cheats.applies_to(owner) {
-        i32::MAX
-    } else {
-        house.tech_level
-    };
-    if obj.tech_level > tech_cap {
+    if obj.tech_level > house.tech_level {
         return CanBuild::No;
     }
     if !house.is_controlled_by_human(sim.session.game_mode_nonzero) {

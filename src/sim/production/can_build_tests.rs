@@ -317,100 +317,95 @@ fn retail_slave_miner_meets_proc_and_docks_limit_harriers() {
     assert!(check_build_limit(&sim, rules, americans, orca));
 }
 
-#[test]
-fn all_tech_bypasses_the_tech_level_gate_for_the_named_house() {
-    // A type two tech levels above the house: refused normally, admitted with
-    // the trainer's switch, and the build limit is still asked.
-    let ini = IniFile::from_str(
-        "[InfantryTypes]\n0=E1\n1=GHOST\n\n[E1]\nTechLevel=1\n\n[GHOST]\nTechLevel=9\n",
-    );
-    let rules = RuleSet::from_ini(&ini).expect("test rules");
+/// The five types the band tests need: one in band, one above the house's
+/// level, one that also wants a prerequisite, one with no `TechLevel=` at all
+/// (the 255 default) and one on the -1 civilian sentinel.
+const BAND_INI: &str = "[InfantryTypes]\n0=E1\n1=GHOST\n2=SPY\n3=CIV\n4=CSHOP\n\n\
+                        [E1]\nTechLevel=1\n\n[GHOST]\nTechLevel=9\n\n\
+                        [SPY]\nTechLevel=9\nPrerequisite=RADAR\n\n[CIV]\n\n\
+                        [CSHOP]\nTechLevel=-1\n";
+
+/// A human house at tech level 1 with the band's types on the fixture
+/// interner, plus one foreign house to prove the switches are scoped.
+fn band_fixture() -> (Simulation, InternedId, InternedId, RuleSet) {
+    let rules = RuleSet::from_ini(&IniFile::from_str(BAND_INI)).expect("band rules");
     let mut sim = Simulation::new();
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     let owner = sim.interner.intern("H0");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
-    );
-    let ghost = rules.object("GHOST").expect("GHOST type");
+    let other = sim.interner.intern("H1");
+    for id in [owner, other] {
+        let mut house = crate::sim::house_state::HouseState::new(id, 0, None, true, 0, 1);
+        house.player_control = true;
+        sim.houses.insert(id, house);
+    }
+    (sim, owner, other, rules)
+}
 
-    assert_eq!(
-        can_build(&sim, &rules, owner, ghost, false, false),
-        CanBuild::No,
-        "tech level 9 against a house at 1"
-    );
+fn band_answer(sim: &Simulation, rules: &RuleSet, owner: InternedId, type_id: &str) -> CanBuild {
+    can_build(sim, rules, owner, rules.object(type_id).expect("band type"), false, false)
+}
+
+#[test]
+fn all_tech_opens_the_band_without_prerequisites() {
+    let (mut sim, owner, other, rules) = band_fixture();
+    assert_eq!(band_answer(&sim, &rules, owner, "E1"), CanBuild::Yes);
+    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::No, "9 above a level-1 house");
+    assert_eq!(band_answer(&sim, &rules, owner, "SPY"), CanBuild::No, "no radar on the map");
+    assert_eq!(band_answer(&sim, &rules, owner, "CIV"), CanBuild::No, "no TechLevel means 255");
+    assert_eq!(band_answer(&sim, &rules, owner, "CSHOP"), CanBuild::No, "-1 is the sentinel");
 
     sim.set_cheats(crate::sim::cheats::Cheats::switches(
         &crate::sim::cheats::CheatFlags { tech_all: true, ..Default::default() },
     ));
-    assert_ne!(
-        can_build(&sim, &rules, owner, ghost, false, false),
-        CanBuild::No,
-        "the switch opens it"
-    );
-
-    // Another house keeps its own gates: the switch is scoped, not global.
-    let other = sim.interner.intern("H1");
-    sim.houses.insert(
-        other,
-        crate::sim::house_state::HouseState::new(other, 0, None, true, 0, 1),
+    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::Yes, "the band is open");
+    assert_eq!(
+        band_answer(&sim, &rules, owner, "SPY"),
+        CanBuild::Yes,
+        "and the prerequisite no longer stands"
     );
     assert_eq!(
-        can_build(&sim, &rules, other, ghost, false, false),
+        band_answer(&sim, &rules, owner, "CIV"),
         CanBuild::No,
-        "the enemy's tech tree is untouched"
+        "255 is outside the band, and all tech stops at its top"
+    );
+    assert_eq!(
+        band_answer(&sim, &rules, owner, "CSHOP"),
+        CanBuild::No,
+        "the civilian sentinel stays shut"
+    );
+    assert_eq!(
+        band_answer(&sim, &rules, other, "GHOST"),
+        CanBuild::No,
+        "another house is untouched"
     );
 }
 
 #[test]
-fn tech_boost_lifts_only_the_level_cap_and_keeps_the_prerequisites() {
-    // The difference between the two switches, in one test: the boost lets the
-    // house build past its level, but a Prerequisite= it does not have still
-    // refuses — the all-tech switch is what drops that.
-    let ini = IniFile::from_str(
-        "[InfantryTypes]\n0=E1\n1=GHOST\n2=SPY\n\n[E1]\nTechLevel=1\n\n\
-         [GHOST]\nTechLevel=9\n\n[SPY]\nTechLevel=9\nPrerequisite=RADAR\n",
-    );
-    let rules = RuleSet::from_ini(&ini).expect("test rules");
-    let mut sim = Simulation::new();
-    sim.intern_rule_type_ids(&rules);
-    sim.resolve_type_handles(&rules);
-    let owner = sim.interner.intern("H0");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
-    );
-    let ghost = rules.object("GHOST").expect("GHOST type");
-    let spy = rules.object("SPY").expect("SPY type");
-
-    // Baseline: both refuse — GHOST on level, SPY on level and on its radar.
-    assert_eq!(can_build(&sim, &rules, owner, ghost, false, false), CanBuild::No);
-    assert_eq!(can_build(&sim, &rules, owner, spy, false, false), CanBuild::No);
-
-    // The boost opens the level gate…
+fn tech_boost_opens_what_sits_outside_the_band() {
+    let (mut sim, owner, other, rules) = band_fixture();
     sim.set_cheats(crate::sim::cheats::Cheats::switches(
         &crate::sim::cheats::CheatFlags { tech_boost: true, ..Default::default() },
     ));
-    assert_ne!(
-        can_build(&sim, &rules, owner, ghost, false, false),
-        CanBuild::No,
-        "past its level is allowed now"
-    );
-    // …and leaves the prerequisite standing.
+    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::Yes, "in band anyway");
     assert_eq!(
-        can_build(&sim, &rules, owner, spy, false, false),
-        CanBuild::No,
-        "no radar building, still refused"
+        band_answer(&sim, &rules, owner, "SPY"),
+        CanBuild::Yes,
+        "no prerequisite either"
     );
-
-    // All tech drops that last gate too.
-    sim.set_cheats(crate::sim::cheats::Cheats::switches(
-        &crate::sim::cheats::CheatFlags { tech_all: true, ..Default::default() },
-    ));
-    assert_ne!(
-        can_build(&sim, &rules, owner, spy, false, false),
+    assert_eq!(
+        band_answer(&sim, &rules, owner, "CIV"),
+        CanBuild::Yes,
+        "the 255 default is reachable now"
+    );
+    assert_eq!(
+        band_answer(&sim, &rules, owner, "CSHOP"),
+        CanBuild::Yes,
+        "and so is the -1 sentinel"
+    );
+    assert_eq!(
+        band_answer(&sim, &rules, other, "CIV"),
         CanBuild::No,
-        "all tech ignores the prerequisite as well"
+        "another house is untouched"
     );
 }

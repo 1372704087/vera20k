@@ -54,6 +54,27 @@ pub(crate) fn default_order_voice_event(
     })
 }
 
+/// ClickedMission's Unload arm (`0x006FFD3A`): VoiceDeploy through its one
+/// owner, `TechnoClass::VoiceDeploy @ 0x00708E00`. A Building's self action
+/// queues its event without ClickedMission
+/// (`BuildingClass::ClickedAction_Object @ 0x00443450`), so it is silent.
+pub(crate) fn deploy_order_voice_event(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    entity_id: u64,
+    voices_enabled: bool,
+) -> Option<GameSoundEvent> {
+    if sim.entities().get(entity_id)?.category() == crate::map::entities::EntityCategory::Structure
+    {
+        return None;
+    }
+    let sound_id = sim.deploy_voice_request(rules, entity_id, voices_enabled)?;
+    Some(GameSoundEvent::UnitVoiceRequested {
+        speaker_id: entity_id,
+        sound_id: sound_id.to_string(),
+    })
+}
+
 /// Append each already-admitted event in producer order, including multi-cue
 /// events. Simulation owns feedback admission and its Main draws at damage
 /// time; this adapter never advances a random stream.
@@ -1154,6 +1175,31 @@ mod tests {
              [AudioVisual]\nBaseUnderAttackSound=Siren\n",
         ))
         .unwrap()
+    }
+
+    /// A retail Slave Miner's self-click deploy speaks `VoiceDeploy=`
+    /// through ClickedMission's Unload arm; muted voices and a Building's
+    /// self action (its deployed refinery) speak nothing.
+    #[test]
+    fn a_self_click_deploy_speaks_voice_deploy_for_foot_objects_only() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = retail.rules;
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x6FFD3A);
+        let miner = sim
+            .spawn_object("SMIN", "Americans", 10, 10, 0, &rules)
+            .expect("SMIN spawns");
+        let refinery = sim
+            .spawn_object("YAREFN", "Americans", 20, 20, 0, &rules)
+            .expect("YAREFN spawns");
+        assert!(matches!(
+            deploy_order_voice_event(&mut sim, &rules, miner, true),
+            Some(GameSoundEvent::UnitVoiceRequested { speaker_id, ref sound_id })
+                if speaker_id == miner && sound_id == "SlaveMinerDeployVoice"
+        ));
+        assert!(deploy_order_voice_event(&mut sim, &rules, miner, false).is_none());
+        assert!(deploy_order_voice_event(&mut sim, &rules, refinery, true).is_none());
     }
 
     #[test]

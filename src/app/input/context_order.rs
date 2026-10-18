@@ -713,6 +713,13 @@ fn order_voice_key(command: &Command) -> Option<&'static str> {
         // Sabotage and area guard have no dedicated slot, so retail takes the
         // default branch and speaks a VoiceSpecialAttack line.
         Command::PlantC4 { .. } | Command::Guard { .. } => Some("VoiceSpecialAttack"),
+        // A Foot self-click's deploy, unload or deploy-fire is the Unload
+        // mission (`FootClass::ClickedAction_Object @ 0x004D74E0` actions
+        // 4/0x34/0x38; `AircraftClass @ 0x00417BD0` action 4), whose
+        // ClickedMission arm speaks VoiceDeploy (vt+0x36C, `0x006FFD3A`).
+        Command::DeployMcv { .. }
+        | Command::ToggleInfantryDeploy { .. }
+        | Command::UnloadPassengers { .. } => Some("VoiceDeploy"),
         _ => None,
     }
 }
@@ -814,6 +821,19 @@ fn emit_entity_order_voice(
     voice_field: &str,
     target: Option<TargetKind>,
 ) {
+    if voice_field == "VoiceDeploy" {
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut()
+            && let Some(event) = crate::app::match_runtime::sound_dispatch::deploy_order_voice_event(
+                &mut runtime.simulation,
+                &runtime.resources.rules,
+                speaker_id,
+                state.match_state.input.selection_voice_enabled,
+            )
+        {
+            state.match_state.match_audio.sound_events.push(event);
+        }
+        return;
+    }
     if voice_field == "VoiceSpecialAttack" {
         if let Some(runtime) = state.match_state.sim_runtime.as_mut()
             && let Some(event) =
@@ -3798,6 +3818,14 @@ mod tests {
     /// with no dedicated slot fall to the VoiceSpecialAttack default branch.
     #[test]
     fn order_voice_key_follows_the_committed_mission() {
+        // A self-click's deploy, unload or deploy-fire is the Unload mission.
+        for command in [
+            Command::DeployMcv { entity_id: 1 },
+            Command::ToggleInfantryDeploy { entity_id: 1 },
+            Command::UnloadPassengers { transport_id: 1 },
+        ] {
+            assert_eq!(order_voice_key(&command), Some("VoiceDeploy"));
+        }
         assert_eq!(
             order_voice_key(&Command::Move {
                 entity_id: 1,

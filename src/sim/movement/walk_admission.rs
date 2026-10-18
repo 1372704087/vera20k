@@ -181,7 +181,7 @@ impl Simulation {
                     .ok_or("retired Walk gate owner")?
                     .navigation
                     .path_runtime
-                    .set_retries_left(super::PATH_STUCK_INIT);
+                    .set_retries_left(crate::sim::components::FootPathRuntime::RETRY_RELOAD);
                 Ok(None)
             }
             4 | 5 => {
@@ -658,7 +658,7 @@ mod tests {
             sim.find_blocking_object(tree, crate::sim::movement::locomotor::MovementLayer::Ground,),
             Some(super::BlockingObject::Terrain(900))
         ));
-        let candidate = crate::sim::movement::foot_path::cell_centre((11, 10));
+        let candidate = crate::sim::components::DriveCoord::cell(11, 10, 0);
 
         let retry = sim
             .replay_walk_admission_response(id, false, candidate, 5, &rules, Some(&registry))

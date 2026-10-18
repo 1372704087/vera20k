@@ -20,13 +20,24 @@ impl HasEngineer {
 
 impl Simulation {
     /// Building452480 / ChangeOwner4484C6: this differs from Type.Powered
-    /// constructor policy. Toggle existing slot Powered flags only.
-    fn set_building_stuff_enabled(&mut self, id: u64, enabled: bool, rules: &RuleSet) {
+    /// constructor policy. Light614 and powered-slot pause share this owner;
+    /// DisableStuff also removes an active gap immediately, before the later
+    /// operational visit. Dormant LaserFencePost/CloakGenerator tails still
+    /// require their separate, currently unported mechanisms.
+    pub(crate) fn set_building_stuff_enabled(&mut self, id: u64, enabled: bool, rules: &RuleSet) {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
         entity.building_art.stuff_enabled = enabled;
         let slots = entity.building_art.anim_slots;
+        let gap = self
+            .interner
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| object.gap_generator);
+        self.set_building_light_active(id, enabled);
+        if !enabled && gap {
+            self.remove_building_gap(id);
+        }
         for (slot, anim_id) in slots.into_iter().enumerate() {
             if self
                 .building_anim_power_flags(id, slot as u8, rules)
@@ -175,6 +186,7 @@ mod tests {
                     structure_upgrades: [None, None, None],
                     structure_ai_sellable: false,
                     structure_ai_repairable: false,
+                    structure_online: true,
                     trigger_tag: None,
                 }],
                 Some(&rules),
@@ -294,15 +306,13 @@ mod tests {
             .get_mut(passenger)
             .unwrap()
             .passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(id, false);
-        assert!(
-            sim.entities_mut()
-                .get_mut(id)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(passenger, 1)
-        );
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(passenger, 1)]);
         tick(&mut sim, &rules);
         let occupied = sim.entities().get(id).unwrap().building_art.anim_slots[4].unwrap();
         assert!(sim.anim(empty).is_none());

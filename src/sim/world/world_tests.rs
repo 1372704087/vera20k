@@ -52,6 +52,7 @@ fn make_test_entity(type_id: &str, category: EntityCategory) -> MapEntity {
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
         trigger_tag: None,
     }
 }
@@ -2124,7 +2125,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         let enemy = sim.interner.intern("Soviet");
 
         let mut cargo = crate::sim::passenger::PassengerCargo::new(2, 1);
-        assert!(cargo.board(11, 1));
+        cargo.board_forced_chain(&[(11, 1)]);
         let mut carrier = GameEntity::test_default(10, "BOOMER", "Soviet", 8, 5);
         carrier.set_owner_for_test(enemy);
         carrier.set_type_ref_for_test(sim.interner.intern("BOOMER"));
@@ -6223,8 +6224,13 @@ fn item83_fresh_selection_rejects_warp_out_but_keeps_preexisting_selection() {
         .expect("spawn second MTNK");
     assert!(sim.try_select_object(tank, UninitContext::new(Some(&rules), None)));
     // BeingWarpedOut (`+0x270`): a Temporal chain's head.
-    sim.substrate.entities.get_mut(tank).unwrap().temporal =
-        crate::sim::temporal::TemporalState::warped_by_for_test(wingman);
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            wingman,
+        ));
 
     assert!(
         sim.substrate
@@ -6954,6 +6960,7 @@ fn move_event_issuer_does_not_replace_actor_owner() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            structure_online: true,
             trigger_tag: None,
         }],
         None,
@@ -7235,6 +7242,7 @@ fn attack_move_fight(rules: &RuleSet) -> Simulation {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             },
             MapEntity {
@@ -7254,6 +7262,7 @@ fn attack_move_fight(rules: &RuleSet) -> Simulation {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             },
         ],
@@ -9095,12 +9104,13 @@ const REPORTED_SUSTAINED_OVERLAP_TICKS: usize = 31;
 /// comes within half a cell for even one tick, the tightest approach anywhere
 /// being 180 leptons on `group_move_short_range` and 181 on
 /// `group_move_eight_to_one_cell` and `column_of_four`. The bound is one
-/// post-scatter wait span (`bump_crush::POST_SCATTER_WAIT_FRAMES` = 10), the
-/// shortest window in which a legitimate pass-by resolves itself. That is 10
-/// ticks of headroom over the measured 0 and it refuses 18 ticks before the
-/// known-bad 28.
+/// blocked-retry span (`FootPathRuntime::RETRY_RELOAD` = 10, which Drive's
+/// blocked label stores into `Foot+0x64C` at `0x004B3285`, straight after its
+/// `Scatter_Objects` call at `0x004B327D`), the shortest window in which a
+/// legitimate pass-by resolves itself. That is 10 ticks of headroom over the
+/// measured 0 and it refuses 18 ticks before the known-bad 28.
 const SUSTAINED_OVERLAP_TICK_BOUND: usize =
-    crate::sim::movement::bump_crush::POST_SCATTER_WAIT_FRAMES as usize;
+    crate::sim::components::FootPathRuntime::RETRY_RELOAD as usize;
 
 /// Per-tick separation record for a set of movers.
 ///

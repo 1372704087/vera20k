@@ -511,7 +511,13 @@ fn area_isolation_dispatches(
             .substrate
             .entities
             .get(event.target_id)
-            .is_some_and(|target| has_active_area_invulnerability(target, current_tick))
+            // 0x00489A4F: vt+0x160 IsIronCurtained (0x0041BF40).
+            .is_some_and(|target| {
+                crate::sim::superweapon::invulnerability::is_invulnerable(
+                    target.invulnerability.as_ref(),
+                    current_tick as u32,
+                )
+            })
 }
 
 /// `Apply_area_damage @ 0x00489280`'s per-record dispatch gates
@@ -2094,6 +2100,7 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
     .with_installed_weapon(Some(world.interner.intern(&weapon.id)));
     if let Some(bullet) = super::FiredBullet::launched(
         world,
+        rules,
         native_unique_id,
         detonation.source_id,
         detonation.target,

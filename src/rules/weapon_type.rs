@@ -28,8 +28,7 @@ use crate::util::fixed_math::{SimFixed, sim_from_f32};
 /// which spawns a projectile carrying a warhead. The warhead determines
 /// actual damage based on the target's armor type.
 ///
-/// All 63 fields from the original WeaponTypeClass (verified from
-/// decompilation of WeaponTypeClass::ReadINI at 0x772080).
+/// Fields read by the original WeaponTypeClass::ReadINI at 0x772080.
 #[derive(Debug, Clone)]
 pub struct WeaponType {
     // ── Core fields ──────────────────────────────────────────────────
@@ -77,6 +76,10 @@ pub struct WeaponType {
     /// firer to a human victim (FireAt `0x006FF66C`). Retail turns it off on
     /// the sniper, Virus, disguise and Mirage weapons.
     pub reveal_on_fire: bool,
+    /// Infantry WhatAction51EA80: Attack becomes action64 (C4 cursor).
+    pub sabotage_cursor: bool,
+    /// Infantry WhatAction51EAD2: eligible buildings show action71 (air strike).
+    pub mig_attack_cursor: bool,
 
     // ── Int fields ───────────────────────────────────────────────────
     /// Ambient damage dealt to units standing near the weapon's owner (+0x98).
@@ -224,6 +227,10 @@ impl WeaponType {
             // Constructor 1 (`0x00771DBB`); ReadINI passes it as the default
             // (`0x00772182..0x00772196`).
             reveal_on_fire: section.read_bool("RevealOnFire", true),
+            // Constructor771DC8/771DCE zero +139/+13A; ReadINI7721BD..7721E4
+            // passes the retained bytes to the native boolean reader5295F0.
+            sabotage_cursor: section.read_bool("SabotageCursor", false),
+            mig_attack_cursor: section.read_bool("MigAttackCursor", false),
 
             // Int fields
             ambient_damage: section.read_int("AmbientDamage", 0),

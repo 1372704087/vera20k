@@ -2784,11 +2784,13 @@ mod tests {
             );
             let mut cargo = PassengerCargo::new(capacity.max(0) as u32, limit as u32);
             for (index, entry) in input["cargo_sizes"].as_array().unwrap().iter().enumerate() {
-                cargo.board_forced(10 + index as u64, entry.as_u64().unwrap() as u32);
+                cargo.board_forced_chain(&[(10 + index as u64, entry.as_u64().unwrap() as u32)]);
             }
             carrier.passenger_role = PassengerRole::transport(cargo);
             if input["warped"].as_bool().unwrap_or(false) {
-                carrier.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(99);
+                carrier.set_temporal_for_test(
+                    crate::sim::temporal::TemporalState::warped_by_for_test(99),
+                );
             }
             sim.substrate.entities.insert(carrier);
             let passenger_type = sim.intern("E1");

@@ -491,7 +491,7 @@ pub(crate) fn minimap_camera_target(
             view.simulation(),
             &runtime.resources.rules,
             view.resolved_terrain()?,
-            view.playfield_map_size()?,
+            view.simulation().map_size_diamond()?,
         ))
     });
     let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);

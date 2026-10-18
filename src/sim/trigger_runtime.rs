@@ -3107,8 +3107,12 @@ impl Simulation {
                 };
                 let mut matched = false;
                 let mut ordinal = 0;
-                while ordinal < self.substrate.entities.techno_registry_len() {
-                    let id = self.substrate.entities.techno_registry_at(ordinal).unwrap();
+                while ordinal < self.substrate.entities.building_registry_len() {
+                    let id = self
+                        .substrate
+                        .entities
+                        .building_registry_at(ordinal)
+                        .unwrap();
                     let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
                         entity.category() == crate::map::entities::EntityCategory::Structure
                             && entity.lifecycle.object_alive()
@@ -3124,6 +3128,40 @@ impl Simulation {
                             overlay_registry,
                             frame_effects,
                         );
+                        matched = true;
+                    }
+                    ordinal += 1;
+                }
+                return matched;
+            }
+            61 | 62 => {
+                // Execute6DDF65/6DDFD9: live BuildingClass array order,
+                // ObjectAlive+90, Marked+74, !Limbo81 and TagContains6E5380.
+                // Receipt is true once the callee is invoked, even a no-op.
+                let (Some(live), Some(rules)) = (context.live_index, rules) else {
+                    return false;
+                };
+                let online = action.kind == 62;
+                let mut matched = false;
+                let mut ordinal = 0;
+                while ordinal < self.substrate.entities.building_registry_len() {
+                    let id = self
+                        .substrate
+                        .entities
+                        .building_registry_at(ordinal)
+                        .unwrap();
+                    let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
+                        entity.lifecycle.object_alive()
+                            && entity.lifecycle.cell_marked()
+                            && !entity.lifecycle.in_limbo()
+                            && entity.building_online() != online
+                    });
+                    if eligible && self.tag_contains_live_trigger(TagAttachment::Object(id), live) {
+                        if online {
+                            self.go_building_online(id, rules, frame_effects);
+                        } else {
+                            self.go_building_offline(id, rules, frame_effects);
+                        }
                         matched = true;
                     }
                     ordinal += 1;
@@ -3855,6 +3893,14 @@ impl Simulation {
                 };
                 return self.trigger_play_anim_at_waypoint(rules, index, waypoint as i32);
             }
+            58 => {
+                let (Some(rules), Some(intensity), Some(waypoint)) =
+                    (rules, value, action.waypoint_index)
+                else {
+                    return false;
+                };
+                return self.trigger_meteor_shower(rules, intensity, waypoint as i32);
+            }
             42 => {
                 let (Some(rules), Some(index), Some(waypoint)) =
                     (rules, value, action.waypoint_index)
@@ -3879,6 +3925,24 @@ impl Simulation {
                     return false;
                 };
                 return self.trigger_nuke_strike(rules, waypoint as i32);
+            }
+            96 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return self.trigger_chemical_strike(rules, waypoint as i32);
+            }
+            109 => {
+                let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
+                    return false;
+                };
+                return crate::sim::superweapon::iron_curtain::at_waypoint(
+                    self,
+                    rules,
+                    waypoint as i32,
+                    overlay_registry,
+                    frame_effects,
+                );
             }
             46 | 47 => {
                 let locked = action.kind == 46;
@@ -4416,6 +4480,10 @@ mod chrono_reinforcement_tests;
 mod lightning_tests;
 
 #[cfg(test)]
+#[path = "trigger_runtime_building_power_tests.rs"]
+mod building_power_tests;
+
+#[cfg(test)]
 #[path = "trigger_runtime_house_directive_tests.rs"]
 mod house_directive_tests;
 
@@ -4454,3 +4522,83 @@ mod ambient_event_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_nuke_tests.rs"]
 mod nuke_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_direct_strike_tests.rs"]
+mod direct_strike_tests;
+
+#[cfg(test)]
+mod meteor_action_tests {
+    use super::*;
+    use crate::sim::anim_class::meteor_tests::{formed_rules, formed_sim};
+    #[test]
+    fn counted_action58_uses_literal_intensity_and_tail_waypoint_through_live_dispatch() {
+        let rules = formed_rules("");
+        let actions = crate::map::actions::parse_actions(
+            &crate::rules::ini_parser::IniFile::from_str("[Actions]\nCUE=1,58,0,0,0,0,0,0,H\n"),
+        );
+        let entry = actions["CUE"].entries[0].clone();
+        assert_eq!(entry.literal_value(), Some(0));
+        assert_eq!(entry.waypoint_index, Some(7));
+        assert_eq!(
+            crate::map::actions::trigger_anim_class_roots(&rules, &actions),
+            ["METLARGE", "METSMALL"]
+        );
+        let mut sim = formed_sim(31, 2);
+        sim.session
+            .install_waypoints(&std::collections::HashMap::from([(
+                7,
+                crate::map::waypoints::Waypoint {
+                    index: 7,
+                    rx: 40,
+                    ry: 40,
+                },
+            )]));
+        let mut direct = formed_sim(31, 2);
+        direct
+            .session
+            .install_waypoints(&std::collections::HashMap::from([(
+                7,
+                crate::map::waypoints::Waypoint {
+                    index: 7,
+                    rx: 40,
+                    ry: 40,
+                },
+            )]));
+        let action = RuntimeDefinitions::default().resolve_action(entry, None, None);
+        let mut effects = Vec::new();
+        assert!(sim.apply_live_trigger_action(
+            &action,
+            TriggerActionContext {
+                live_index: None,
+                incoming_house: None,
+                input: TagEventInput::default()
+            },
+            &mut effects,
+            Some(&rules),
+            None,
+            crate::sim::world::FrameEffects::empty()
+        ));
+        assert!(direct.trigger_meteor_shower(&rules, 0, 7));
+        assert_eq!(sim.state_hash(), direct.state_hash());
+        assert!(effects.is_empty());
+        assert_eq!(sim.anims().count(), direct.anims().count());
+        //A same-named ART body cannot allocate the missing native type.
+        let mut missing = formed_rules("");
+        missing.anim_type_names.clear();
+        assert!(crate::map::actions::trigger_anim_class_roots(&missing, &actions).is_empty());
+        let mut invalid = formed_sim(31, 2);
+        invalid
+            .session
+            .install_waypoints(&std::collections::HashMap::from([(
+                7,
+                crate::map::waypoints::Waypoint {
+                    index: 7,
+                    rx: 40,
+                    ry: 40,
+                },
+            )]));
+        assert!(!invalid.trigger_meteor_shower(&missing, 0, 7));
+        assert_eq!(invalid.anims().count(), 0);
+    }
+}

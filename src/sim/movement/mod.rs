@@ -49,6 +49,7 @@ use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::rng::SimRng;
+#[cfg(any(test, feature = "test-support"))]
 use crate::util::fixed_math::facing_from_delta_int;
 
 // --- Internal submodules ---
@@ -163,33 +164,6 @@ pub(crate) use navcom::{
 pub(crate) use movement_tick::tick_movement_with_grids;
 
 // ---------------------------------------------------------------------------
-// Constants — shared across movement submodules via `super::`
-// ---------------------------------------------------------------------------
-
-/// Initial path retry counter before giving up (`Foot+0x64C`, init 10).
-///
-/// The mechanism is real and this constant is right: `Process_Movement` reads
-/// `[ECX+0x64C]` at `0x004B2DC8`, and on `> 0` decrements and stores it back
-/// (`0x004B2DD2`/`0x004B2DD3`) before continuing; on `<= 0` it clears the drive
-/// coord, calls `FootClass::Stop_Moving` plus vtable `+0x480`/`+0x484`, and
-/// plays the blocked voice at `Foot+0x68A`. So it *is* decremented and it *does*
-/// end the move at zero.
-///
-/// Recorded difference: **what decrements it.** Native decrements it on every
-/// pass through the generic blocked label `LAB_004B3282` — reached from
-/// `Is_Cell_In_Playfield == 0`, from code 3, from `code != 6` and from two
-/// code-6 sub-failures — and the same label is where the literal 10 is stored.
-/// VERA decrements per failed repath instead. The escalation clock is a
-/// separate record: `Foot+0x668` = frame, `Foot+0x66C`, and `Foot+0x670` =
-/// `Rules+0x1768`, stored only on the `Foot+0x6B7 == 0` transition of the code-2
-/// arm — which contains no `Scatter_Objects` call at all. Trigger: a unit
-/// blocked long enough to exhaust the counter. Player effect: the give-up point
-/// arrives after a different number of ticks than retail's. Frequency: every
-/// traffic jam, many times a minute once a base has armour queuing. Downstream
-/// risk: the two clocks are separate fields and must stay separate.
-const PATH_STUCK_INIT: u32 = 10;
-
-// ---------------------------------------------------------------------------
 // Types — shared across movement submodules
 // ---------------------------------------------------------------------------
 
@@ -243,6 +217,7 @@ impl MovementTickStats {
 ///
 /// Computed directions use the high byte of the native 65,534-scale word;
 /// authored quarter-turn values remain distinct.
+#[cfg(any(test, feature = "test-support"))]
 pub fn facing_from_delta(dx: i32, dy: i32) -> u8 {
     facing_from_delta_int(dx, dy)
 }

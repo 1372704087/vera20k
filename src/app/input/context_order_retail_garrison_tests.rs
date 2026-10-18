@@ -114,7 +114,16 @@ fn retail_gi_group_boards_a_4x4_garrison_from_its_far_side() {
         Some(rules),
     );
     assert_eq!(
-        capability_cursor_for_hover(&runtime.simulation, &gis, best, &hover, Some(rules), None),
+        capability_cursor_for_hover(
+            &runtime.simulation,
+            &gis,
+            best,
+            &hover,
+            Some(rules),
+            None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
+        ),
         CursorFeedbackKind::Enter
     );
     let orders = transport_entry_orders(&runtime.simulation, rules, &gis, castle);

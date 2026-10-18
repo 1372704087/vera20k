@@ -220,7 +220,7 @@ fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
         let request = FootPathRequest::track(
             &sim.substrate.entities,
             tank,
-            cell_centre((11, 10)),
+            DriveCoord::cell(11, 10, 0),
             0,
             sim.playfield_bounds,
         )

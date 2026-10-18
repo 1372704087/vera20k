@@ -5005,10 +5005,13 @@ mod tests {
             .passenger_role
             .cargo_mut()
             .unwrap();
-        cargo.board_forced(cleg, 1);
-        cargo.board_forced(other, 1);
-        sim.substrate.entities.get_mut(victim).unwrap().temporal =
-            TemporalState::warped_by_for_test(cleg);
+        cargo.board_forced_chain(&[(cleg, 1)]);
+        cargo.board_forced_chain(&[(other, 1)]);
+        sim.substrate
+            .entities
+            .get_mut(victim)
+            .unwrap()
+            .set_temporal_for_test(TemporalState::warped_by_for_test(cleg));
         let hash = sim.state_hash();
         let rng = sim.rng_state();
         let snapshot = temporal_observation(sim.substrate.entities.get(fv).unwrap());

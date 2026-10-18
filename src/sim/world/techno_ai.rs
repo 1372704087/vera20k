@@ -472,10 +472,7 @@ impl Simulation {
                 overlays: overlay_grid,
                 overlay_registry: ctx.overlay_registry,
                 rules,
-                map_size: self
-                    .playfield_bounds
-                    .zip(self.playfield_size_height)
-                    .map(|(bounds, height)| (bounds.base, height)),
+                map_size: self.map_size_diamond(),
             };
             let nuke_ball_type =
                 || rules.is_some_and(crate::sim::superweapon::nuke::nuke_ball_type);
@@ -2765,6 +2762,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            structure_online: true,
         }
     }
 
@@ -3658,7 +3656,7 @@ mod tests {
         assert_eq!(
             spawned.passive_acquire_mission(),
             MissionType::Sticky,
-            "`holds_until_retasked` must let the authored selector beat the derived Guard"
+            "the authored Sticky selector must beat the derived Guard"
         );
         for _ in 0..90 {
             let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);

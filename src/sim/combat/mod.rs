@@ -155,9 +155,8 @@ use projectile_delivery::{
 };
 use receiver_call::{
     BuildingReceivePrelude, ResolvedReceiveDamage, apply_building_receive_prelude,
-    area_near_center_ic_isolation_armed, has_active_area_invulnerability,
-    near_center_ic_isolation_armed, postmortem_duration_for_event, receiver_anger_delta,
-    resolve_receive_damage,
+    area_near_center_ic_isolation_armed, near_center_ic_isolation_armed,
+    postmortem_duration_for_event, receiver_anger_delta, resolve_receive_damage,
 };
 use shrapnel::emit_projectile_shrapnel;
 use techno_death::{ConcreteDeathSmudgePlan, append_selected_death_sounds, throw_debris_for_death};
@@ -231,7 +230,9 @@ use crate::sim::terrain_object::TerrainAreaReceiveResult;
 use crate::sim::terrain_object::TerrainAreaState;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::vision::FogState;
-use crate::sim::world::{FireOriginSnapshot, SimFireEvent, SimSoundEvent, Simulation};
+#[cfg(any(test, feature = "test-support"))]
+use crate::sim::world::FireOriginSnapshot;
+use crate::sim::world::{SimFireEvent, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53};

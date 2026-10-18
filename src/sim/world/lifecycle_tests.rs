@@ -562,7 +562,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
             .type_facts
             .set_foundation_for_test("2x2".to_string());
         let mut cargo = PassengerCargo::new(5, 1);
-        assert!(cargo.board(passenger_id, 1));
+        cargo.board_forced_chain(&[(passenger_id, 1)]);
         building.passenger_role = PassengerRole::transport(cargo);
     }
     assert!(matches!(
@@ -746,6 +746,7 @@ fn common_raw_request(rx: u16, ry: u16, z: u8, sub_x: i32, sub_y: i32) -> Reveal
     }
 }
 
+/// A retail Clear cell at `level`, optionally under a structural bridge deck.
 pub fn common_raw_terrain_cell(
     rx: u16,
     ry: u16,
@@ -774,7 +775,7 @@ pub fn common_raw_terrain_cell(
             level
         },
         bridge_facts,
-        ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
+        ..crate::map::resolved_terrain::test_retail_clear_cell(rx, ry)
     }
 }
 
@@ -793,6 +794,7 @@ pub(super) fn install_common_raw_terrain(
         })
         .collect();
     let mut terrain = ResolvedTerrainGrid::from_cells(width, height, cells);
+    terrain.set_land_speed_rules_for_test(&crate::map::resolved_terrain::test_retail_clear_rules());
     terrain.bind_shared_cell_dummy(sim.shared_cell_dummy.clone());
     sim.bridge_state = Some(
         crate::sim::bridge_state::BridgeRuntimeState::from_resolved_terrain(&terrain, true, 1500),
@@ -1182,6 +1184,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
     };
     assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1);
     let map_entity = sim
@@ -3364,8 +3367,8 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
     insert_entity(&mut sim, 3, EntityCategory::Infantry);
     let _ = sim.reveal(1);
     let mut cargo = PassengerCargo::new(5, 1);
-    cargo.board_forced(2, 1);
-    cargo.board_forced(3, 1);
+    cargo.board_forced_chain(&[(2, 1)]);
+    cargo.board_forced_chain(&[(3, 1)]);
     sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     sim.substrate.entities.get_mut(2).unwrap().passenger_role =
         PassengerRole::inside_for_test(1, false);
@@ -3424,10 +3427,10 @@ fn nested_transport_uninit_keeps_inner_cargo_until_its_recursive_transaction() {
     insert_entity(&mut sim, 3, EntityCategory::Infantry);
     let _ = sim.reveal(1);
     let mut outer = PassengerCargo::new(12, 6);
-    outer.board_forced(2, 3);
+    outer.board_forced_chain(&[(2, 3)]);
     sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(outer);
     let mut inner = PassengerCargo::new(5, 2);
-    inner.board_forced(3, 1);
+    inner.board_forced_chain(&[(3, 1)]);
     let entity = sim.substrate.entities.get_mut(2).unwrap();
     entity.passenger_role = PassengerRole::transport(inner);
     entity.passenger_role.set_inside_transport(1, false);
@@ -3489,7 +3492,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             parent.lifecycle.set_object_alive_for_test(alive);
             parent.health.set_for_test(health);
             let mut cargo = PassengerCargo::new(5, 2);
-            cargo.board_forced(3, 1);
+            cargo.board_forced_chain(&[(3, 1)]);
             let entity = sim.substrate.entities.get_mut(2).unwrap();
             entity.passenger_role = PassengerRole::transport(cargo);
             if inside {
@@ -4550,8 +4553,8 @@ fn expiring_mixed_size_passenger_updates_transport_total_exactly() {
     insert_entity(&mut sim, 2, EntityCategory::Infantry);
     insert_entity(&mut sim, 3, EntityCategory::Infantry);
     let mut cargo = PassengerCargo::new(5, 0);
-    cargo.board_forced(2, 3);
-    cargo.board_forced(3, 1);
+    cargo.board_forced_chain(&[(2, 3)]);
+    cargo.board_forced_chain(&[(3, 1)]);
     sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     sim.substrate.entities.get_mut(2).unwrap().passenger_role =
         PassengerRole::inside_for_test(1, false);
@@ -6621,7 +6624,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
             .set_foundation_for_test("2x2".to_string());
         building.health.set_for_test(10);
         let mut cargo = PassengerCargo::new(5, 1);
-        assert!(cargo.board(passenger_id, 1));
+        cargo.board_forced_chain(&[(passenger_id, 1)]);
         building.passenger_role = PassengerRole::transport(cargo);
     }
     assert!(matches!(

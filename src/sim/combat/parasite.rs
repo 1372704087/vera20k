@@ -23,7 +23,8 @@
 //! Forced releases ported: Sonic hits, third-party damage suppression and
 //! heals (FootClass::ReceiveDamage `0x004D7330`), repair-depot steps (Radio
 //! 0x1C `0x006F4D70`), Iron Curtain (FootClass::IronCurtain `0x004DEAE0`) and
-//! the Teleport warp step (`0x007195BF`). Victim restrictions ported: transport
+//! the Teleport warp step (`0x007195BF`), and Grinder entry (`0x0073A13E`).
+//! Victim restrictions ported: transport
 //! loading, tank bunkers, DeploysInto, retaliation against the eater.
 //!
 //! Every release unlimbos the owner through the class Unlimbo
@@ -65,8 +66,6 @@
 //!   Miner's warp: 180 frames). Effect: such a released owner can be given a
 //!   new destination at once. Frequency: rare. Risk: movement timing only.
 //!   Owner: those locomotors' ports.
-//! - Grinder (UnitClass::PerCellProcess `0x0073A13E..0x0073A181`): credits the
-//!   eater's refund, then suppression 50 + ExitUnit. VERA has no grinding.
 //! - Sonic weapons may target an allied infected Foot (What_Action_OnObject
 //!   `0x00700377`); the Sonic hit already ejects any eater (`0x004D7345`), but
 //!   the order needs the cursor/command legality VERA does not port yet.
@@ -728,7 +727,7 @@ impl Simulation {
         } else {
             victim_cell
         };
-        let cell = if self.cell_clear_for(requested, speed_type, movement_zone, rules) {
+        let cell = if self.cell_clear_for(requested, speed_type, movement_zone) {
             Some(requested)
         } else {
             self.techno_nearby_location(victim, None, rules)
@@ -1075,18 +1074,16 @@ impl Simulation {
         })
     }
 
-    /// `CellClass::IsClearToMove @ 0x004834A0` with (SpeedType, 0, 0, zone,
-    /// MovementZone, -1, 1) after `GetZoneID(cell, MovementZone, 0)`.
+    /// [`check_cell_passability`](crate::sim::cell_rect::check_cell_passability)
+    /// (`0x0062A61F`) with (SpeedType, 0, 0, zone, MovementZone, -1, 1),
+    /// where zone is `GetZoneID(cell, MovementZone, 0)` (`0x0062A5CF..0x0062A61E`).
     fn cell_clear_for(
         &self,
         cell: (i16, i16),
         speed_type: crate::rules::locomotor_type::SpeedType,
         movement_zone: crate::rules::locomotor_type::MovementZone,
-        rules: &RuleSet,
     ) -> bool {
-        use crate::sim::cell_rect::{
-            IsClearToMoveResult, LiveCellPassabilityQuery, evaluate_live_cell_passability,
-        };
+        use crate::sim::cell_rect::{CellPassabilityArgs, CellRef, check_cell_passability};
         let (Some(terrain), Some(zones)) =
             (self.resolved_terrain.as_ref(), self.zone_grid.as_ref())
         else {
@@ -1096,33 +1093,20 @@ impl Simulation {
         let Some(terrain_cell) = terrain.cell(target.0, target.1) else {
             return false;
         };
-        let requested = zones.get_zone_id_native(terrain, target, movement_zone, false);
-        let actual =
-            zones.get_zone_id_native(terrain, target, movement_zone, self.cell_has_bridge(cell));
-        let land = rules
-            .terrain_rules
-            .semantics_for_land_type(terrain_cell.yr_cell_land_type)
-            .and_then(|row| row.cost_for_speed_type(speed_type))
-            .is_some_and(|cost| cost > 0);
-        let grid = self.path_grid_snapshot();
-        matches!(
-            evaluate_live_cell_passability(LiveCellPassabilityQuery {
-                target,
+        check_cell_passability(
+            &CellRef::Real(terrain_cell),
+            CellPassabilityArgs {
                 speed_type,
-                movement_zone,
-                // `0x004834A0` compares the full GetZoneID DWORDs.
-                requested_zone: requested,
-                actual_zone: actual.unwrap_or(u32::MAX),
-                requested_layer: None,
                 ignore_infantry: false,
                 ignore_vehicles: false,
-                land_passable: land,
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-            }),
-            IsClearToMoveResult::Clear { .. } | IsClearToMoveResult::ClearWinged
+                zone: zones.get_zone_id_native(terrain, target, movement_zone, false),
+                movement_zone,
+                level: None,
+                is_bridge: true,
+            },
+            &self.cell_passability_map(),
         )
+        .admits()
     }
 
     /// Unlimbo(coord, dir) (vt+0xD8) for a released or returning owner: the

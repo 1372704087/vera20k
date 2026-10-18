@@ -133,6 +133,7 @@ impl PassengerCargo {
     }
 
     /// `SizeLimit=`; 0 admits any size.
+    #[cfg(test)]
     pub fn size_limit(&self) -> u32 {
         self.size_limit
     }
@@ -185,16 +186,6 @@ impl PassengerCargo {
         self.count() < self.capacity && (self.size_limit == 0 || passenger_size <= self.size_limit)
     }
 
-    /// Add a passenger at the list head (`CargoClass::AddPassenger @
-    /// 0x004733A0` prepends). Returns false if full or too large.
-    pub fn board(&mut self, stable_id: u64, passenger_size: u32) -> bool {
-        if !self.can_accept(passenger_size) {
-            return false;
-        }
-        self.board_forced(stable_id, passenger_size);
-        true
-    }
-
     /// Append a garrison occupant: `Occupants.AddItem` in
     /// `AddGarrisonOccupant` (`0x0052293B..0x0052297C`). The vector grows
     /// past `MaxNumberOccupants=`; `CanBeOccupiedBy`'s count test is the
@@ -205,23 +196,15 @@ impl PassengerCargo {
         self.total_size += passenger_size;
     }
 
-    /// Add a passenger without normal transport capacity/size gates.
-    ///
-    /// CargoClass::AddPassenger4733A0 also uses this after a successful radio
-    /// admission, whose total-size gate must not be replaced by a count gate.
-    /// Standard paradrop superweapon loading uses CargoClass::AddPassenger on
-    /// limbo-created infantry; it is driven by `*ParaDropNum`, not by PDPLANE's
-    /// `Passengers=` or `SizeLimit=`.
-    pub fn board_forced(&mut self, stable_id: u64, passenger_size: u32) {
-        self.board_forced_chain(&[(stable_id, passenger_size)]);
-    }
-
     /// Cargo4733A0 attaches an existing Foot+30 chain ahead of the old head.
     /// Full reinforcement65DF88 supplies a whole reverse-construction chain;
     /// single radio/paradrop admissions use the same storage operation.
+    /// AddPassenger tests neither count nor size: radio admission's total-size
+    /// gate and paradrop's `*ParaDropNum` (not PDPLANE's `Passengers=` or
+    /// `SizeLimit=`) belong to those callers.
     /// Class Limbo belongs to Simulation::add_cargo_passenger_chain before
     /// this splice. Known Foot IDs replace native raw link/AbstractFlags reads.
-    pub(crate) fn board_forced_chain(&mut self, head_first: &[(u64, u32)]) {
+    pub fn board_forced_chain(&mut self, head_first: &[(u64, u32)]) {
         self.passengers
             .splice(0..0, head_first.iter().map(|&(id, _)| id));
         self.passenger_sizes

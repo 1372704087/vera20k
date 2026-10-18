@@ -60,6 +60,27 @@ def run(case, continuation=None):
     u.mem_write(0xA8ECC8,dwords(1));u.mem_write(0xA8ECBC,dwords(COORD+0x100));u.mem_write(COORD+0x100,dwords(ACTOR))
     for addr,key in ((0xA8EC00,17),(0xA8EC04,17),(0xA8EBF8,18),(0xA8EBFC,18),(0xA8EC08,16),(0xA8EC0C,16)):
         u.mem_write(addr,dwords(key))
+    if case.get('cursor_contract'):
+        # Original type tables and empty House waypoint containers are inputs
+        # to the new modifier controls. Legacy cases never queried these.
+        u.mem_write(TYPE,dwords(0x7F6218))
+        u.mem_write(TARGET_TYPE,dwords(0x7F6218))
+        # Explicit non-WaterSet tile: the uninitialized WaterSet singleton is
+        # zero, so a zero-filled TileIndex would offer a water attack.
+        u.mem_write(CELL+0x38,dwords(2))
+        if case.get('unarmed'):
+            u.mem_write(TYPE+0x898,dwords(0))
+        if case.get('mixed_unarmed_selection'):
+            member,member_type=SCRATCH+0x2C000,SCRATCH+0x2D000
+            u.mem_write(member,dwords(UNIT_VT))
+            u.mem_write(member+0x14,dwords(5))
+            u.mem_write(member+0x6C4,dwords(member_type))
+            u.mem_write(member_type,dwords(0x7F6218))
+            u.mem_write(COORD+0x100,dwords(ACTOR,member))
+            u.mem_write(0xA8ECC8,dwords(2))
+        waypoints=SCRATCH+0x2B000
+        for index in range(12):
+            u.mem_write(HOUSE+0x210+index*4,dwords(waypoints+index*0x40))
     u.mem_write(COORD,struct.pack('<hh',30,30));u.mem_write(CELL,dwords(0x7E4EEC));u.mem_write(CELL+0x24,struct.pack('<hh',30,30));u.mem_write(CELL+0x50,dwords(-1))
     u.mem_write(CELL+0x44,dwords(-1))
     u.mem_write(SLOT,dwords(WEAPON));u.mem_write(WEAPON+0xA0,dwords(PROJECTILE));u.mem_write(WEAPON+0xAC,dwords(WARHEAD));u.mem_write(WEAPON+0xB4,dwords(1280))
@@ -150,7 +171,8 @@ def run(case, continuation=None):
     u.hook_add(UC_HOOK_CODE,hook)
     before=hashlib.sha256(bytes(u.mem_read(0x401000,0x3E0000))).hexdigest()
     techno_only=case.get('techno_only',False)
-    u.mem_write(SP,dwords(RET_MAGIC,*((TARGET,0) if techno_only else (COORD,TARGET if case['route']=='object' else 0,0))));u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_ECX,ACTOR if techno_only else 0x87F7E8)
+    object_target=(ACTOR if case.get('self_target') else TARGET) if case['route']=='object' else 0
+    u.mem_write(SP,dwords(RET_MAGIC,*((object_target,0) if techno_only else (COORD,object_target,int(case.get('mouse_over',False))))));u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_ECX,ACTOR if techno_only else 0x87F7E8)
     required=[0x6FFEC0] if techno_only else [0x692610,0x73FD50 if case['route']=='object' else 0x7404B0,0x6FFEC0 if case['route']=='object' else 0x700600]
     try:run_checked(u,0x6FFEC0 if techno_only else 0x692610,RET_MAGIC,count=100000,required_addresses=required)
     except Exception as e:raise RuntimeError(f'{case}: {e}; trail={trail}; trace={trace}') from e
@@ -177,7 +199,7 @@ def run(case, continuation=None):
     u.mem_write(0xB0FE58,b'\x00')  # persistent attack-move toggle absent
     u.mem_write(0xA8ECC8,dwords(case.get('display_selected_count',1)))
     assert bytes(u.mem_read(COORD,4)) != bytes(u.mem_read(0x8A03F8,4))
-    u.mem_write(SP+0x20,dwords(RET_MAGIC,COORD,0,TARGET if case['route']=='object' else 0,action,0))
+    u.mem_write(SP+0x20,dwords(RET_MAGIC,COORD,0,object_target,action,0))
     u.reg_write(UC_X86_REG_ESP,SP+0x20);u.reg_write(UC_X86_REG_ECX,receiver)
     required=[0x4AAE90,0x70F0B0,0x4AB449]
     if case['route']=='cell': required += [0x4AAFC9,0x4AAFEC,0x4AAFF1]

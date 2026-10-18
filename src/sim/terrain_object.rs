@@ -11,6 +11,7 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_object_type::TerrainObjectType;
 use crate::rules::warhead_type::WarheadType;
+use crate::sim::cell_kernel::{WorldCoordinate, cell_center};
 use crate::sim::combat::{armor_index, damage};
 use crate::sim::intern::{InternedId, StringInterner};
 use crate::sim::occupancy::RawCellOccupationGrid;
@@ -77,7 +78,7 @@ impl TerrainObjectState {
         snow_theater: bool,
         terrain: Option<&ResolvedTerrainGrid>,
     ) -> Self {
-        let [x, y] = terrain_cell_center(cell);
+        let WorldCoordinate { x, y, .. } = cell_center((cell.0 as i16, cell.1 as i16).into(), 0);
         // Terrain ctor71BC4A..71BC76 passes centered signed XY and Z0;
         // Object Unlimbo5F4F9C dispatches TerrainType71E0D0 before the raw
         // coordinate write5F6940. The type callback retains max(0, ground).
@@ -103,7 +104,8 @@ impl TerrainObjectState {
     /// Terrain VT7F522C+48 inherits Object GetCoords5F65A0. Its XY is
     /// the authored cell center; Z is the coordinate retained at construction.
     pub fn world_coord(&self) -> crate::sim::projectile::ProjectileCoord {
-        let [x, y] = terrain_cell_center(self.cell());
+        let (rx, ry) = self.cell();
+        let WorldCoordinate { x, y, .. } = cell_center((rx as i16, ry as i16).into(), 0);
         crate::sim::projectile::ProjectileCoord::new(x, y, self.world_z_leptons)
     }
 
@@ -205,14 +207,7 @@ impl TerrainObjectState {
     }
 }
 
-fn terrain_cell_center(cell: (u16, u16)) -> [i32; 2] {
-    use crate::util::lepton::{CELL_CENTER_LEPTON_I32, LEPTONS_PER_CELL_I32};
-    [
-        i32::from(cell.0 as i16) * LEPTONS_PER_CELL_I32 + CELL_CENTER_LEPTON_I32,
-        i32::from(cell.1 as i16) * LEPTONS_PER_CELL_I32 + CELL_CENTER_LEPTON_I32,
-    ]
-}
-
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerrainDamageResult {
     Ignored,

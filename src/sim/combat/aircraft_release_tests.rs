@@ -75,7 +75,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     ));
     if passenger {
         let mut cargo = crate::sim::passenger::PassengerCargo::new(8, 0);
-        cargo.board_forced(2, 1);
+        cargo.board_forced_chain(&[(2, 1)]);
         entity.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     }
     sim.substrate.entities.insert(entity);

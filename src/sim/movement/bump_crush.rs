@@ -688,15 +688,6 @@ pub fn select_crush_victims(
 // `CellClass::Scatter_Objects`, its dispatch gate and the class Scatter
 // receivers live in `movement::scatter` and `movement::infantry_scatter`.
 
-/// Frames a blocked mover waits after telling the cell to scatter.
-///
-/// The drive locomotor writes the literal 10 into the mover's wait field
-/// immediately after its `Scatter_Objects(force = 1)` call, and the head of the
-/// next `Process_Movement` decrements it and skips the move while it is
-/// positive. This is a hardcoded constant, **not** `[AI] BlockagePathDelay`,
-/// which is a different (60-frame) timer with a different consumer.
-pub const POST_SCATTER_WAIT_FRAMES: i32 = 10;
-
 // The full-infantry-cell force-scatter helpers used to live here and are gone
 // with the clause that called them: the three-infantry-bit test is real but the
 // block around it is dominated by a radio-tether byte VERA does not model, and

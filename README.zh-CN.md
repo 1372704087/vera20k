@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20k 横幅" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20K 横幅" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <strong>简体中文</strong> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -10,13 +10,13 @@
   <img src="https://img.shields.io/badge/QQ%E7%BE%A4-1097193563-1EBAFC?style=flat&amp;logo=qq&amp;logoColor=white" alt="QQ 群" height="20" align="middle">
 </p>
 
-# VERA20k
+# VERA20K
 
-VERA20k 是一个由社区主导、对原版引擎 `gamemd.exe` 进行重写的项目。它使用原版游戏文件，因此你需要自行准备一份《红色警戒2：尤里的复仇》。
+VERA20K 是一个由社区主导、对原版引擎 `gamemd.exe` 进行重写的项目。它使用原版游戏文件，因此你需要自行准备一份《红色警戒2：尤里的复仇》。
 
-VERA20k 由玩家打造、为玩家而做，项目的方向由玩家说了算。
+VERA20K 由玩家打造、为玩家而做，项目的方向由玩家说了算。
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k 遭遇战设置界面和游戏画面" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K 遭遇战设置界面和游戏画面" width="100%">
 
 ## 项目目标
 
@@ -61,7 +61,7 @@ VERA20k 由玩家打造、为玩家而做，项目的方向由玩家说了算。
   `xcode-select --install`；Debian 和 Ubuntu 上运行 `sudo apt install build-essential libasound2-dev pkg-config`。
 - **显卡：** 支持 Vulkan、DirectX 12 或 Metal 的 GPU。
 
-VERA20k 已在 Windows、Linux 和 macOS 上运行游玩过。
+VERA20K 已在 Windows、Linux 和 macOS 上运行游玩过。
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -79,7 +79,7 @@ cargo run --release --bin vera20k
 <!-- Chinese-only section: intentionally absent from README.md and the other translations. -->
 ## 致中国玩家和开发者
 
-VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警玩家群体与世界各地的玩家联系在一起，让大家可以一起对战。
+VERA20K 的开发者都是你们的朋友。我们希望把庞大的中国红警玩家群体与世界各地的玩家联系在一起，让大家可以一起对战。
 
 我们非常希望中国的开发者和玩家加入进来，和我们一起开发、一起游玩！
 欢迎在 GitHub 上[提交 issue](https://github.com/YuriPlanet/vera20k/issues)，或者来 [Discord](https://discord.gg/kmjRUn5m5F) 或 QQ 群（群号 1097193563）找我们。
@@ -96,7 +96,7 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 
 ## 支持项目
 
-<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="通过 PayPal 支持 VERA20k" height="40"></a>
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="通过 PayPal 支持 VERA20K" height="40"></a>
 
 所有收到的捐款都将根据
 [TIBTRE 贡献账本](https://github.com/YuriPlanet/tibtre-ledger)分配给贡献者。
@@ -111,6 +111,6 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 
 本项目采用 [GPLv3](LICENSE-GPL) 许可证。本仓库不包含游戏文件。
 Command & Conquer 和 Red Alert 是 Electronic Arts Inc. 的商标，截图中的游戏美术资源归 Electronic Arts 所有。
-VERA20k 与 Electronic Arts 无隶属关系，也未获其认可。
+VERA20K 与 Electronic Arts 无隶属关系，也未获其认可。
 
 本文件译自 [README.md](README.md)，请与英文版保持同步。

@@ -158,7 +158,7 @@ fn absorb(sim: &mut Simulation, rules: &RuleSet, building: u64, count: usize) {
             .passenger_role
             .cargo_mut()
             .unwrap()
-            .board_forced(id, 1);
+            .board_forced_chain(&[(id, 1)]);
     }
 }
 

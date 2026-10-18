@@ -1428,6 +1428,7 @@ impl ArtRegistry {
                         pending.extend(config.trailer_anim.iter().cloned());
                         pending.extend(config.bounce_anim.iter().cloned());
                         pending.extend(config.expire_anim.iter().cloned());
+                        pending.extend(config.spawns.iter().cloned());
                     }
                     self.scheduler_anim_types.insert(name);
                 }
@@ -1535,6 +1536,10 @@ impl ArtRegistry {
             }
             if let Some(expire) = config.expire_anim {
                 pending.push_back(expire);
+            }
+            //AnimAI423F37..423FC4 constructs landing children as AnimClass.
+            if let Some(child) = config.spawns {
+                pending.push_back(child);
             }
         }
 

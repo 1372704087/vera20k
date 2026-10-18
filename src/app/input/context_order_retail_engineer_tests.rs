@@ -40,8 +40,16 @@ fn building_orders(
         sim.engineer_building_action(engineer, building, rules),
         Some(EngineerBuildingAction::Repair(repairable))
     );
-    let feedback =
-        capability_cursor_for_hover(sim, &original_selection, best, &hover, Some(rules), None);
+    let feedback = capability_cursor_for_hover(
+        sim,
+        &original_selection,
+        best,
+        &hover,
+        Some(rules),
+        None,
+        crate::app::input::context_order::OrderModifier::Normal,
+        false,
+    );
     assert_eq!(feedback, CursorFeedbackKind::RepairAction(repairable));
     assert_eq!(
         cursor_id_for_feedback(feedback),

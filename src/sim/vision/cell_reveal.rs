@@ -559,6 +559,29 @@ impl OwnerVisibility {
 /// be isolated so diagnostics cannot stamp the retained shared Dummy.
 #[cfg(any(test, feature = "test-support"))]
 impl FogState {
+    pub(crate) fn assert_sight_projection_consistent(&self, cells: Option<&NativeCellQuery<'_>>) {
+        for (&(id, viewer), admission) in &self.sight_admissions {
+            if !admission.latched {
+                continue;
+            }
+            let vis = &self.by_owner[&viewer];
+            for &cell in &admission.cells {
+                let key = vis.visibility_cell(cell, cells);
+                let (ground, _) = vis.map_cell_parts(key);
+                assert_eq!(
+                    ground & (GROUND_VISIBLE | GROUND_OPEN),
+                    GROUND_VISIBLE | GROUND_OPEN,
+                    "source {id}: footprint cell {cell:?} lost its ground bits"
+                );
+            }
+        }
+        for vis in self.by_owner.values() {
+            vis.assert_tracked();
+        }
+    }
+}
+
+impl FogState {
     /// Display::GrowShroud4ACAC0, Steam gamemd3e81a617..08600. Both
     /// passes scan the fixed512-square map in y-major order, admitting only
     /// In_Bounds568300. Capture every8&&!10 cell before any neighbor loses10.
@@ -638,29 +661,6 @@ impl FogState {
         }
     }
 
-    pub(crate) fn assert_sight_projection_consistent(&self, cells: Option<&NativeCellQuery<'_>>) {
-        for (&(id, viewer), admission) in &self.sight_admissions {
-            if !admission.latched {
-                continue;
-            }
-            let vis = &self.by_owner[&viewer];
-            for &cell in &admission.cells {
-                let key = vis.visibility_cell(cell, cells);
-                let (ground, _) = vis.map_cell_parts(key);
-                assert_eq!(
-                    ground & (GROUND_VISIBLE | GROUND_OPEN),
-                    GROUND_VISIBLE | GROUND_OPEN,
-                    "source {id}: footprint cell {cell:?} lost its ground bits"
-                );
-            }
-        }
-        for vis in self.by_owner.values() {
-            vis.assert_tracked();
-        }
-    }
-}
-
-impl FogState {
     /// Original Map567F70's cell receiver: only counter==0 is concealed.
     /// Negative sustained sight and positive shroud/gap counters survive;
     /// pending20, cache bits/frames and gap count are untouched.

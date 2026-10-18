@@ -83,7 +83,6 @@ fn view(
         0,
         None,
         &[],
-        &[],
         options,
         &[],
         None,
@@ -643,7 +642,7 @@ fn building_production_darkens_other_cameos_until_cancelled() {
         false,
     ));
     projection.reconcile_factory_links(&sim, owner);
-    projection.refresh_cameo_availability(&sim, &rules, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     let items = &projection.view().unwrap().items;
     assert!(
         items
@@ -665,7 +664,7 @@ fn building_production_darkens_other_cameos_until_cancelled() {
         "Americans",
         crate::sim::production::ProductionCategory::Building,
     ));
-    projection.refresh_cameo_availability(&sim, &rules, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert!(
         projection
             .view()
@@ -709,7 +708,7 @@ fn building_production_darkens_other_cameos_until_cancelled() {
         for output in &frame.lifecycle_outputs {
             projection.apply_lifecycle_output(output, Some(owner));
         }
-        projection.refresh_cameo_availability(&sim, &rules, owner);
+        projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
         if projection
             .view()
             .unwrap()
@@ -743,7 +742,7 @@ fn building_production_darkens_other_cameos_until_cancelled() {
         crate::sim::world::FrameEffects::default(),
     ));
     projection.reconcile_factory_links(&sim, owner);
-    projection.refresh_cameo_availability(&sim, &rules, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert!(
         projection
             .view()
@@ -869,7 +868,7 @@ fn busy_strip_draw_matches_native_pending_and_linked_controls() {
         let tab = SidebarTab::all()[control["tab"].as_u64().unwrap() as usize];
         let drawn = view(&sim, &options, &projection, tab, 2400.0);
         projection.replace_view(Some(drawn));
-        projection.refresh_cameo_availability(&sim, &rules, owner);
+        projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
         for expected in control["entries"].as_array().unwrap() {
             let name = expected["type"].as_str().unwrap();
             let item = projection
@@ -889,7 +888,7 @@ fn busy_strip_draw_matches_native_pending_and_linked_controls() {
         if tab == SidebarTab::Building && state != "idle" {
             let drawn = view(&sim, &options, &projection, SidebarTab::Defense, 2400.0);
             projection.replace_view(Some(drawn));
-            projection.refresh_cameo_availability(&sim, &rules, owner);
+            projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
             assert!(
                 projection
                     .view()
@@ -937,12 +936,13 @@ fn a_retained_cameo_darkens_on_the_frame_its_restriction_appears() {
     };
     let drawn = view(&sim, &options, &projection, SidebarTab::Defense, 2400.0);
     projection.replace_view(Some(drawn));
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert_eq!(drawn_state(&projection, "GACSPH"), (true, false));
 
     // The house builds the one Chronosphere its `BuildLimit=1` allows.
     sim.spawn_object("GACSPH", "Americans", 30, 4, 0, &rules)
         .expect("place the Chronosphere");
-    projection.refresh_cameo_availability(&sim, &rules, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert_eq!(
         drawn_state(&projection, "GACSPH"),
         (false, true),
@@ -951,10 +951,11 @@ fn a_retained_cameo_darkens_on_the_frame_its_restriction_appears() {
 
     let drawn = view(&sim, &options, &projection, SidebarTab::Infantry, 2400.0);
     projection.replace_view(Some(drawn));
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert_eq!(drawn_state(&projection, "TANY"), (true, false));
     sim.spawn_object("TANY", "Americans", 4, 20, 0, &rules)
         .expect("place Tanya");
-    projection.refresh_cameo_availability(&sim, &rules, owner);
+    projection.refresh_cameo_draw_state(&sim, &rules, owner, None);
     assert_eq!(
         drawn_state(&projection, "TANY"),
         (false, true),

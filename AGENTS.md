@@ -217,6 +217,9 @@ directly to `main`. Publication requires user/goal authority; PRs target `main`.
 Integrate promptly when authorized. Owners resolve conflicts and revalidate.
 Preserve unique/local data; use `sync` for complex cleanup.
 
+After each fetch, fast-forward `<main-checkout>` (`merge --ff-only origin/main`) when it is on
+`main` without tracked changes or a Cargo run; sessions load this contract from it.
+
 Choose validation appropriate to the change, considering native fidelity, connected
 production behavior and protection against regressions.
 

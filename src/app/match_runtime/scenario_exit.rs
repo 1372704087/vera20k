@@ -285,7 +285,10 @@ impl ScenarioExitCascade {
                 stop_audio: true,
                 after_stop: matches!(
                     self.destination.as_ref(),
-                    Some(ScenarioExitDestination::Score { .. })
+                    Some(
+                        ScenarioExitDestination::Score { .. }
+                            | ScenarioExitDestination::CampaignScore { .. }
+                    )
                 )
                 .then_some(ScenarioExitAudioAction::PlayTheme("SCORE")),
                 finished: true,
@@ -363,6 +366,7 @@ mod tests {
         use crate::sim::house_state::HouseOutcomeKind::{Defeat, Victory};
 
         let campaign_model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+            side: 0,
             par_time: "00:00:10".into(),
             your_time: "00:00:09".into(),
             enemies_destroyed: "8".into(),
@@ -454,6 +458,34 @@ mod tests {
         assert!(matches!(
             exit.take_destination(),
             Some(ScenarioExitDestination::Score { .. })
+        ));
+    }
+
+    #[test]
+    fn campaign_score_destination_starts_the_same_score_theme() {
+        // Dialog 0x103's WM_INIT (`0x006C92F6`) plays ThemeClass "SCORE", so
+        // the campaign page is not silent while only 0x108 was wired here.
+        let model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+            side: 0,
+            ..Default::default()
+        };
+        let mut exit = ScenarioExitCascade::start(
+            15,
+            ScenarioExitDestination::CampaignScore {
+                title: "won".into(),
+                detail: "done".into(),
+                model,
+            },
+        );
+        let done = exit.tick(1_016, false);
+        assert!(done.stop_audio && done.finished);
+        assert_eq!(
+            done.after_stop,
+            Some(ScenarioExitAudioAction::PlayTheme("SCORE"))
+        );
+        assert!(matches!(
+            exit.take_destination(),
+            Some(ScenarioExitDestination::CampaignScore { .. })
         ));
     }
 

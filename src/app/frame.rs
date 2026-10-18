@@ -594,7 +594,14 @@ impl App {
                 // trigger-driven campaign end) carry no model and keep the
                 // non-art card.
                 let score_rendered = if Self::campaign_score_shell_active(state) {
-                    crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
+                    matches!(
+                        crate::app::frontend::shell_transition::render_shell_first_paint_slide(
+                            state,
+                            &mut encoder,
+                            &output.texture,
+                        )?,
+                        crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered { .. }
+                    ) || crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
                         state,
                         &mut encoder,
                         &output.texture,

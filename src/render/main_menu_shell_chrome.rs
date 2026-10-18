@@ -414,30 +414,33 @@ pub struct CampaignScoreFrameStrip {
     pub frames: Vec<MainMenuShellChromeEntry>,
 }
 
-/// Art owned by the campaign victory dialog `0x103`: the full-screen SCRBK and
-/// the SCRA sequence installed into its kind-4 static control `0x72B`.
+/// Art owned by the campaign victory dialog `0x103`: the SCRBK background,
+/// panel composition SCRT, and the SCRA sequence installed into kind-4 static
+/// control `0x72B`.
 pub struct CampaignScoreArt {
     pub texture: BatchTexture,
     pub background: MainMenuShellChromeEntry,
+    /// Every frame from the side/resolution-specific campaign score panel SHP.
+    pub scrt: Option<CampaignScoreFrameStrip>,
     /// Native side/width selection's SCRA shape (44 campaign-emblem frames).
     pub scra: Option<CampaignScoreFrameStrip>,
 }
 
-/// Campaign StandaloneScore background and SCRA names selected by side and
-/// native width branch (`0x72D300`/`0x72D460`): width exactly 640 chooses
-/// small; every other width chooses medium. `Scenario+0x34B8` supplies side.
+/// Campaign StandaloneScore asset names selected by side and native width
+/// branch (`0x72D300`/`0x72D460`): width exactly 640 chooses small; every
+/// other width chooses medium. `Scenario+0x34B8` supplies side.
 pub fn campaign_score_art_names(
     side: u8,
     screen_w: u32,
-) -> (&'static str, &'static str, &'static str) {
+) -> (&'static str, &'static str, &'static str, &'static str) {
     let small = screen_w == 640;
     match side {
-        0 if small => ("ASCRBKSM.SHP", "ASCRASM.SHP", "ASCORE.PAL"),
-        0 => ("ASCRBKMD.SHP", "ASCRAMD.SHP", "ASCORE.PAL"),
-        1 if small => ("SSCRBKSM.SHP", "SSCRASM.SHP", "SSCORE.PAL"),
-        1 => ("SSCRBKMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL"),
-        _ if small => ("SSCRBKSM.SHP", "SSCRASM.SHP", "YSCORE.PAL"),
-        _ => ("SYCRBKMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL"),
+        0 if small => ("ASCRBKSM.SHP", "ASCRTSM.SHP", "ASCRASM.SHP", "ASCORE.PAL"),
+        0 => ("ASCRBKMD.SHP", "ASCRTMD.SHP", "ASCRAMD.SHP", "ASCORE.PAL"),
+        1 if small => ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "SSCORE.PAL"),
+        1 => ("SSCRBKMD.SHP", "SSCRTMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL"),
+        _ if small => ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "YSCORE.PAL"),
+        _ => ("SYCRBKMD.SHP", "SYCRTMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL"),
     }
 }
 
@@ -448,16 +451,19 @@ pub fn build_campaign_score_art(
     side: u8,
     screen_w: u32,
 ) -> Option<CampaignScoreArt> {
-    let (background_name, scra_name, palette_name) = campaign_score_art_names(side, screen_w);
+    let (background_name, scrt_name, scra_name, palette_name) =
+        campaign_score_art_names(side, screen_w);
     let palette = load_named_palette(assets, palette_name)?;
     let background = render_shp_entry(assets, background_name, &palette, 0, None)?;
     let (texture, mut entries) = pack_entries(gpu, batch, &[background])?;
-    // Keep the animated SCRA strip in a separate atlas so its frames remain
-    // addressable by the native kind-4 static's frame index.
+    // SCRT and SCRA are distinct native SHPs. Keep their strips in separate
+    // atlases so every frame remains independently addressable.
+    let scrt = build_campaign_score_frame_strip(gpu, batch, assets, &palette, scrt_name);
     let scra = build_campaign_score_frame_strip(gpu, batch, assets, &palette, scra_name);
     Some(CampaignScoreArt {
         texture,
         background: entries.pop()?,
+        scrt,
         scra,
     })
 }
@@ -879,19 +885,19 @@ mod tests {
     fn campaign_score_art_uses_standalone_side_tables_and_native_width_branch() {
         assert_eq!(
             campaign_score_art_names(0, 640),
-            ("ASCRBKSM.SHP", "ASCRASM.SHP", "ASCORE.PAL")
+            ("ASCRBKSM.SHP", "ASCRTSM.SHP", "ASCRASM.SHP", "ASCORE.PAL")
         );
         assert_eq!(
             campaign_score_art_names(1, 800),
-            ("SSCRBKMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL")
+            ("SSCRBKMD.SHP", "SSCRTMD.SHP", "SSCRAMD.SHP", "SSCORE.PAL")
         );
         assert_eq!(
             campaign_score_art_names(2, 640),
-            ("SSCRBKSM.SHP", "SSCRASM.SHP", "YSCORE.PAL")
+            ("SSCRBKSM.SHP", "SSCRTSM.SHP", "SSCRASM.SHP", "YSCORE.PAL")
         );
         assert_eq!(
             campaign_score_art_names(2, 800),
-            ("SYCRBKMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL")
+            ("SYCRBKMD.SHP", "SYCRTMD.SHP", "SYCRAMD.SHP", "YSCORE.PAL")
         );
     }
 

@@ -119,6 +119,7 @@ struct CampaignAnimationSequence {
 /// are display examples only and establish no native parity.
 fn synthetic_campaign_score_model() -> CampaignScoreScreenModel {
     CampaignScoreScreenModel {
+        side: 0,
         par_time: "00:10:00".into(),
         your_time: "00:08:31".into(),
         enemies_destroyed: "17".into(),
@@ -278,17 +279,19 @@ impl CampaignScoreCapture {
                 );
                 click_campaign_continue(state)?;
                 ensure!(
-                    state.frontend.campaign_score_page.is_none()
-                        && state.frontend.campaign_score_art.is_none(),
-                    "Continue did not release campaign score page and art"
+                    crate::app::frontend::shell_transition::shell_exit_wave(
+                        state,
+                        crate::app::frontend::shell_transition::ShellSlideKind::CampaignScore,
+                    )
+                    .is_some(),
+                    "Continue did not start the 0x103 teardown slide"
                 );
                 animation.phase = CampaignAnimationPhase::WaitingForMainMenu;
                 self.route.push(json!({
                     "dialog": 0x103,
                     "frame": frame,
-                    "action": "Continue closed page and released campaign score art",
-                    "page_released": true,
-                    "art_released": true,
+                    "action": "Continue started the 0x103 teardown slide",
+                    "teardown_slide": true,
                 }));
             }
             CampaignAnimationPhase::WaitingForMainMenu => {
@@ -371,12 +374,16 @@ impl CampaignScoreCapture {
             rendered == PresentedShell::Score && App::campaign_score_shell_active(state),
             "campaign animation sample was requested outside rendered dialog 0x103"
         );
-        let emblem_frame = state
+        let Some(emblem_frame) = state
             .frontend
             .campaign_score_page
             .as_ref()
             .and_then(|page| page.emblem_animation_frame())
-            .context("campaign animation sample has no loaded SCRA frame")?;
+        else {
+            // 0x103 starts the kind-4 timer on its SHOW completion (0x4EC),
+            // after the entry slide; a reopened frame is sampled afterward.
+            return Ok(false);
+        };
         if animation.phase == CampaignAnimationPhase::WaitingForNextFrame {
             let first = animation
                 .samples
@@ -394,12 +401,7 @@ impl CampaignScoreCapture {
         }
         let epoch = epoch.context("campaign animation sample has no page epoch")?;
         let elapsed_ms = Instant::now().saturating_duration_since(epoch).as_millis();
-        let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
-        let layout = if crate::app::frontend::shell_layout::fills_window(state) {
-            CampaignScoreLayout::compute_responsive_layout(width, height)
-        } else {
-            CampaignScoreLayout::compute_layout(width, height)
-        };
+        let layout = campaign_score_layout(state);
         let roi = layout
             .control_rect(SCORE_ART_REGION_STATIC)
             .context("campaign score layout has no SCRA control ROI")?;
@@ -625,13 +627,17 @@ impl CampaignScoreCapture {
     }
 }
 
-fn click_campaign_continue(state: &mut AppState) -> Result<()> {
+fn campaign_score_layout(state: &AppState) -> CampaignScoreLayout {
     let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
-    let layout = if crate::app::frontend::shell_layout::fills_window(state) {
-        CampaignScoreLayout::compute_responsive_layout(width, height)
-    } else {
-        CampaignScoreLayout::compute_layout(width, height)
-    };
+    let fills_window = crate::app::frontend::shell_layout::fills_window(state);
+    state.frontend.campaign_score_page.as_ref().map_or_else(
+        || CampaignScoreLayout::compute_layout(width, height),
+        |page| page.layout(width, height, fills_window),
+    )
+}
+
+fn click_campaign_continue(state: &mut AppState) -> Result<()> {
+    let layout = campaign_score_layout(state);
     let button = layout.continue_button;
     state.match_state.input.cursor_x = (button.x + button.w / 2) as f32;
     state.match_state.input.cursor_y = (button.y + button.h / 2) as f32;
@@ -643,8 +649,12 @@ fn click_campaign_continue(state: &mut AppState) -> Result<()> {
     );
     App::handle_campaign_score_mouse_up(state);
     ensure!(
-        state.frontend.campaign_score_page.is_none() && state.frontend.campaign_score_art.is_none(),
-        "campaign Continue probe did not release dialog 0x103 state"
+        crate::app::frontend::shell_transition::shell_exit_wave(
+            state,
+            crate::app::frontend::shell_transition::ShellSlideKind::CampaignScore,
+        )
+        .is_some(),
+        "campaign Continue probe did not start dialog 0x103's teardown slide"
     );
     Ok(())
 }

@@ -1338,6 +1338,11 @@ pub struct GeneralRules {
     /// AudioVisual/SinkingSound -> Rules+208 (6699C8); constructor665940
     /// stores -1. Used only when the sinking type has no resolved sound.
     pub sinking_sound: Option<String>,
+    /// `[AudioVisual] ScoreAnimSound=` (retail `ScoreEmblemSoundLoop`): the
+    /// looping cue `Dialog0x103__DlgProc` starts when the slide-in completes
+    /// (`0x006C93A0..0x006C93D4`, `VocClass__PlayGlobal` with the Rules ID),
+    /// stopped by Continue and by dialog destruction. None = no cue.
+    pub score_anim_sound: Option<String>,
     /// Rules+6C8 ctor665FE2=-1; AudioVisual Construction at66A97F..66A9B7
     /// uses ReadString128/Find7514D0 and keeps the prior index on invalid input.
     pub construction_sound: Option<String>,
@@ -2405,6 +2410,7 @@ impl Default for GeneralRules {
             impact_water_sound: None,
             impact_land_sound: None,
             sinking_sound: None,
+            score_anim_sound: None,
             construction_sound: None,
             building_repaired_sound: None,
             bomb_ticking_sound: None,
@@ -2918,6 +2924,11 @@ impl GeneralRules {
     /// Resolved command-bar close cue used by SidebarInput6D0860.
     pub fn gui_close_sound(&self) -> Option<&str> {
         self.gui_close_sound.as_deref()
+    }
+
+    /// Resolved campaign score emblem loop, `[AudioVisual] ScoreAnimSound=`.
+    pub fn score_anim_sound(&self) -> Option<&str> {
+        self.score_anim_sound.as_deref()
     }
 
     /// Drive4B3A65, Ship6A30B4 and Foot/Walk's timer producers retain the
@@ -3582,6 +3593,7 @@ impl GeneralRules {
                 .map(str::to_owned),
             // Constructor -1 until the fixed SOUNDMD catalog resolves it.
             sinking_sound: None,
+            score_anim_sound: None,
             construction_sound: None,
             building_repaired_sound: None,
             bomb_ticking_sound,
@@ -4434,6 +4446,9 @@ impl RuleSet {
         self.general.sinking_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SinkingSound"));
+        self.general.score_anim_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "ScoreAnimSound"));
         self.general.construction_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "Construction"));

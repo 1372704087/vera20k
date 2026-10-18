@@ -231,7 +231,10 @@ pub(crate) fn active_page_title_text(
                 .unwrap_or_default();
         }
         // These dialogs set their headings themselves.
-        ShellSlideKind::MainMenu | ShellSlideKind::Skirmish | ShellSlideKind::Score => {
+        ShellSlideKind::MainMenu
+        | ShellSlideKind::Skirmish
+        | ShellSlideKind::Score
+        | ShellSlideKind::CampaignScore => {
             return String::new();
         }
     };

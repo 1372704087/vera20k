@@ -39,6 +39,10 @@ use crate::ui::shell::slide::{ColumnDraw, column_draw_origin};
 pub const PARENT_BACKGROUND_DEPTH: f32 = 0.00098;
 pub const MOVIE_DEPTH: f32 = 0.00095;
 pub const CHROME_DEPTH: f32 = 0.00085;
+/// Dialog-owned background art painted over the shell chrome but behind its
+/// static children: campaign score's `SCRT` panel. Native WM_PAINT draws
+/// `RightPanel__Draw` then `RadarBackground`; the score statics follow.
+pub const DIALOG_BACKGROUND_DEPTH: f32 = 0.00084;
 /// Image statics drawn over the right-panel chrome (the `0x71C` monitor).
 pub const STATIC_IMAGE_DEPTH: f32 = 0.00083;
 pub const BUTTON_DEPTH: f32 = 0.00080;
@@ -910,12 +914,15 @@ mod tests {
         let window = layout
             .control_rect(crate::ui::campaign_score_shell::SCORE_ART_REGION_STATIC)
             .expect("campaign score art static");
+        // 0x00608500 sizes the 0x72B window to the SCRA frame exactly, so the
+        // kind-4 draw fills it without centering or clipping.
+        assert_eq!(window, RectPx::new(104, 142, 424, 220));
         let sprite = paint_kind4_static(fake_entry(424.0, 220.0), window, ShellScale::RETAIL)
             .expect("kind-4 SCRA frame");
 
-        assert_eq!(sprite.position, [window.x as f32, (window.y + 4) as f32]);
-        assert_eq!(sprite.size, [423.0, 220.0]);
-        assert_eq!(sprite.uv_size, [423.0 / 424.0, 1.0]);
+        assert_eq!(sprite.position, [104.0, 142.0]);
+        assert_eq!(sprite.size, [424.0, 220.0]);
+        assert_eq!(sprite.uv_size, [1.0, 1.0]);
     }
 
     fn btn(pressed: bool, hovered: bool) -> PaintButton {

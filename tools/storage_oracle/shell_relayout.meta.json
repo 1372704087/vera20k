@@ -1,17 +1,19 @@
 {
   "schema_version": 1,
-  "native_sha256": "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c",
+  "native_sha256": "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600",
   "unicorn_binding": "2.1.4",
   "unicorn_core": [
     2,
     1,
     33621247
   ],
-  "scope": "The WM_INITDIALOG child relayout (0x0060AAB0, 0x0060C540, 0x0060C4A0 -> 0x0060C0C0 and its placement helpers) of 0x102, 0x6B, 0x105 and 0x108 at 640x480, 800x600 and 1024x768, after 0x0072EC70",
+  "scope": "The WM_INITDIALOG child relayout (0x0060AAB0, 0x0060C540, 0x0060C4A0 -> 0x0060C0C0 and its placement helpers) of 0x102, 0x6B, 0x105, 0x108 and campaign score 0x103 (allies and the Soviet/Yuri side branch) at 640x480, 800x600 and 1024x768, after 0x0072EC70",
   "assumptions": [
     "Children start at the 6x13 dialog-base-unit conversion of their RT_DIALOG template (MulDiv rounding) one pixel wider and taller, the runtime window size measured in retail captures; the conversion itself is Windows code and not executed",
     "The dialog is at (0, 0); no game is suspended behind the shell and the session globals are zero (no network session)",
-    "Record +0x68 (the class code the subclass installer stores) is Button 0, Static 2, anything else 0xB"
+    "Record +0x68 (the class code the subclass installer stores) is Button 0, Static 2, anything else 0xB",
+    "0x103's 0x72B override reads Scenario+0x34B8; the fixture supplies a zeroed Scenario with that dword set to the case's side, 0 for allies and 1 for the Soviet/Yuri branch",
+    "The reference was regenerated with the supported Steam image 3e81a617...; its code addresses and file-backed section contents match the historical 1cdd1180... image (tools/native_oracle.md), and the pre-existing cases' children are unchanged"
   ],
   "substitutions": [
     "user32 window calls are served by a window model of the dialog and its children; any other import faults",
@@ -26,5 +28,6 @@
     "relayout": "0x0060C4A0",
     "child_relayout": "0x0060C0C0"
   },
-  "payload_sha256": "4e2d3fe9cc108a5a2dd66b1f8222b4bce90f52c969e2b0172a8032964dc342d9"
+  "replay_command": "python -m tools.storage_oracle.shell_relayout",
+  "payload_sha256": "f39d8ef7839227ca28e64f3c79c52f455dd0be56264652a23e7ba1f7983ab90d"
 }

@@ -211,11 +211,25 @@ fn build_campaign_score_screen_model(
             .map(|house| (house.player_control, house.stats.kills()))
             .collect::<Vec<_>>()
     });
+    let side = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .simulation
+                .session
+                .current_house
+                .and_then(|owner| runtime.simulation.houses.get(&owner))
+                .map(|house| house.side_index)
+        })
+        .unwrap_or(0);
     build_campaign_score_screen_model_from_sources(
         elapsed_score_ticks,
         difficulty,
         &state.match_state.map_ranking,
         houses.unwrap_or_default(),
+        side,
         |key| resolve_campaign_score_label(state, key),
     )
 }
@@ -225,9 +239,13 @@ fn build_campaign_score_screen_model_from_sources(
     difficulty: i32,
     ranking: &crate::map::ranking::RankingSection,
     houses: impl IntoIterator<Item = (bool, u32)>,
+    side: u8,
     mut resolve_label: impl FnMut(&str) -> String,
 ) -> crate::ui::campaign_score_shell::CampaignScoreScreenModel {
-    let mut model = crate::ui::campaign_score_shell::CampaignScoreScreenModel::default();
+    let mut model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+        side,
+        ..Default::default()
+    };
     let elapsed_score_seconds = elapsed_score_ticks / 60;
     model.your_time = format_campaign_score_time(elapsed_score_seconds);
     let par_score_ticks = ranking.par_time_for_difficulty(difficulty);
@@ -303,7 +321,7 @@ mod campaign_score_model_tests {
         // Scenario+0x60C raw 2 selects ParTimeHard. Elapsed=959 and Par=900
         // both divide to the same native 60-tick bucket, so this is UnderPar.
         let equal_bucket =
-            build_campaign_score_screen_model_from_sources(959, 2, &ranking, houses, resolve);
+            build_campaign_score_screen_model_from_sources(959, 2, &ranking, houses, 0, resolve);
         assert_eq!(equal_bucket.par_time, "00:00:15");
         assert_eq!(equal_bucket.your_time, "00:00:15");
         assert_eq!(equal_bucket.rank, "Gold");
@@ -311,7 +329,7 @@ mod campaign_score_model_tests {
         assert_eq!(equal_bucket.enemies_destroyed, "10");
 
         let over_bucket =
-            build_campaign_score_screen_model_from_sources(960, 2, &ranking, houses, |key| {
+            build_campaign_score_screen_model_from_sources(960, 2, &ranking, houses, 0, |key| {
                 csf.text(key).into_owned()
             });
         assert_eq!(over_bucket.your_time, "00:00:16");

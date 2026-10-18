@@ -768,6 +768,8 @@ pub(super) fn push_slide_panel_art(
             PanelArt::Sdtp(_) => atlas.right_panel_top_highlight_sdtp_frame1,
             PanelArt::Warning(frame) => atlas.sd_warning_frames.get(frame).copied().flatten(),
             PanelArt::MapButton(frame) => atlas.sd_map_button_frames.get(frame).copied().flatten(),
+            // Campaign score art is composited by its own renderer.
+            PanelArt::Scrt(_) | PanelArt::ScrBackdrop => None,
         };
         let Some(entry) = entry else {
             continue;

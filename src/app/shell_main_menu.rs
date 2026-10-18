@@ -303,19 +303,7 @@ impl App {
 
         state.frontend.score_page = None;
         state.frontend.score_art = None;
-        let side = state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .and_then(|runtime| {
-                runtime
-                    .simulation
-                    .session
-                    .current_house
-                    .and_then(|owner| runtime.simulation.houses.get(&owner))
-                    .map(|house| house.side_index)
-            })
-            .unwrap_or(0);
+        let side = model.side;
         state.frontend.campaign_score_art = state.process_assets.manager().and_then(|assets| {
             crate::render::main_menu_shell_chrome::build_campaign_score_art(
                 &state.renderer.gpu,
@@ -339,15 +327,7 @@ impl App {
             enemies_destroyed_label: resolve_csf(state, "GUI:HeadsTaken").into_owned(),
         };
         let now = Instant::now();
-        let mut page = CampaignScorePage::open(model, texts, now);
-        let emblem_frames = state
-            .frontend
-            .campaign_score_art
-            .as_ref()
-            .and_then(|art| art.scra.as_ref())
-            .map_or(0, |strip| strip.frames.len());
-        page.start_emblem_animation(emblem_frames, now);
-        page.start_reveals(now);
+        let page = CampaignScorePage::open(model, texts, now);
         state.frontend.campaign_score_page = Some(page);
         state.frontend.shell_first_paint_slide = None;
         state.frontend.screen = GameScreen::MissionResult { title, detail };
@@ -433,13 +413,11 @@ impl App {
         state: &AppState,
     ) -> crate::ui::campaign_score_shell::CampaignScoreLayout {
         let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
-        if crate::app::frontend::shell_layout::fills_window(state) {
-            crate::ui::campaign_score_shell::CampaignScoreLayout::compute_responsive_layout(
-                width, height,
-            )
-        } else {
-            crate::ui::campaign_score_shell::CampaignScoreLayout::compute_layout(width, height)
-        }
+        let fills_window = crate::app::frontend::shell_layout::fills_window(state);
+        state.frontend.campaign_score_page.as_ref().map_or_else(
+            || crate::ui::campaign_score_shell::CampaignScoreLayout::compute_layout(width, height),
+            |page| page.layout(width, height, fills_window),
+        )
     }
 
     fn campaign_score_input(
@@ -500,8 +478,8 @@ impl App {
         }
     }
 
-    /// Native `0x103` Continue advances the campaign from GameExit::Victory;
-    /// its button result isn't a `0x108` slide result.
+    /// Native `0x103` Continue (`0x423`, result 1) tears the dialog down with
+    /// its slide before GameExit::Victory advances the campaign.
     pub(super) fn handle_campaign_score_mouse_up(state: &mut AppState) {
         let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
         if state
@@ -510,7 +488,12 @@ impl App {
             .on_pointer_up(x, y, &press_feed)
             == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
         {
-            Self::leave_mission_result_screen(state);
+            // `0x423` ends the global VocHandle before the result returns.
+            Self::stop_campaign_score_anim_sound(state);
+            Self::leave_shell_dialog(
+                state,
+                crate::app::frontend::shell_transition::ShellExitThen::CampaignScoreContinue,
+            );
         }
     }
 
@@ -518,6 +501,9 @@ impl App {
     /// while its simulation is still alive, hand the scenario stream back to the
     /// offline shell, retaining the runtime and presentation resources.
     pub(super) fn leave_mission_result_screen(state: &mut AppState) {
+        // WM_DESTROY ends 0x103's global VocHandle even when no Continue
+        // command did; the stop is idempotent.
+        Self::stop_campaign_score_anim_sound(state);
         // A won campaign mission continues in GameExit::Victory instead of
         // returning to the shell; read it before the teardown below.
         let campaign_victory = Self::take_campaign_victory(state);
@@ -1201,6 +1187,7 @@ impl App {
             ShellExitThen::RandomMapCancel => Self::cancel_random_map_setup(state),
             ShellExitThen::WolBack => Self::return_from_wol(state),
             ShellExitThen::ScoreContinue => Self::leave_mission_result_screen(state),
+            ShellExitThen::CampaignScoreContinue => Self::leave_mission_result_screen(state),
             ShellExitThen::WolApiMissing => Self::commit_wol_api_missing(state),
         }
     }
@@ -1243,6 +1230,41 @@ impl App {
             return;
         };
         sfx.play_sound(sound_id, catalog.sounds());
+    }
+
+    /// `Dialog0x103__DlgProc`'s global `VocHandle` at `0x00B0BF28`: 0x4EC
+    /// starts the looping `ScoreAnimSound`; Continue and WM_DESTROY end it.
+    /// `HandleOwner::Global` is the process-global VocHandle kind, unused by
+    /// other VERA cues.
+    const CAMPAIGN_SCORE_ANIM_HANDLE: u32 = 0;
+
+    pub(crate) fn play_campaign_score_anim_sound(state: &mut AppState, sound_id: Option<&str>) {
+        let Some(sound_id) = sound_id else {
+            return;
+        };
+        // 0x4EC runs `VocHandle__StopAndClear` before the new PlayGlobal, so a
+        // repeated SHOW completion cannot stack two loops on the handle.
+        Self::stop_campaign_score_anim_sound(state);
+        let (Some(sfx), Some(catalog)) = (
+            &mut state.audio.sfx_player,
+            state.process_assets.audio_catalog(),
+        ) else {
+            return;
+        };
+        sfx.play_animation_sound_spatial(
+            crate::audio::arbiter::HandleOwner::Global(Self::CAMPAIGN_SCORE_ANIM_HANDLE),
+            sound_id,
+            crate::audio::sfx::SpatialGain::CENTRED_FULL,
+            catalog.sounds(),
+        );
+    }
+
+    pub(crate) fn stop_campaign_score_anim_sound(state: &mut AppState) {
+        if let Some(sfx) = state.audio.sfx_player.as_mut() {
+            sfx.stop_animation_sound(crate::audio::arbiter::HandleOwner::Global(
+                Self::CAMPAIGN_SCORE_ANIM_HANDLE,
+            ));
+        }
     }
 
     pub(super) fn handle_single_player_shell_action(

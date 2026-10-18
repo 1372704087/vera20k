@@ -2327,9 +2327,10 @@ function renderHouseModal(): void {
         const label =
           squad.team_type ??
           (squad.task_force ? squad.task_force : t("dp.squadUnnamed", { n: squad.id }));
-        // The forming/suspended flag belongs on the team's own line, at the
-        // right. As a row beneath the header it read as a separate entry, and
-        // its 10.5px amber was easy to miss against the roster.
+        // The forming/suspended flag rides at the right of the team's own line
+        // and the member count stays with its name: as a row beneath the header
+        // the flag read as a separate entry, and after the count it read as
+        // part of the number.
         const flag = squad.suspended
           ? t("prod.suspended")
           : !squad.formed
@@ -2337,8 +2338,8 @@ function renderHouseModal(): void {
             : "";
         head.innerHTML =
           `<span>${label}</span>` +
-          (flag ? `<i class="squad-flag">${flag}</i>` : "") +
-          `<em>${squad.members}</em>`;
+          `<em>${squad.members}</em>` +
+          (flag ? `<i class="squad-flag">${flag}</i>` : "");
         squads.append(head);
         for (const entry of squad.composition) {
           const row = document.createElement("li");
@@ -2413,7 +2414,7 @@ function renderHouseModal(): void {
         const head = document.createElement("li");
         head.className = "roster-group";
         head.innerHTML =
-          `<i style="background:${DETAIL_CATEGORY_COLOR[category] ?? DETAIL_ORPHAN_COLOR}"></i>` +
+          `<i class="cat-dot" style="background:${DETAIL_CATEGORY_COLOR[category] ?? DETAIL_ORPHAN_COLOR}"></i>` +
           `<span>${t(detailCategoryKey(category))}</span>` +
           `<em>${entries.reduce((sum, entry) => sum + entry.count, 0)}</em>`;
         list.append(head);

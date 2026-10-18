@@ -266,6 +266,7 @@ pub(super) fn build_radar_object_update(
     houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
     local_owner: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     full_visibility: bool,
     game_mode_nonzero: bool,
     rules: Option<&RuleSet>,
@@ -339,7 +340,11 @@ pub(super) fn build_radar_object_update(
         || local_owner.is_some_and(|local_owner| {
             entity.owner() == local_owner
                 || interner.is_some_and(|interner| {
-                    fog.is_friendly_id(local_owner, entity.owner(), interner)
+                    crate::map::houses::are_houses_friendly(
+                        alliances,
+                        interner.resolve(local_owner),
+                        interner.resolve(entity.owner()),
+                    )
                 })
         });
     let effective_type_invisible =
@@ -510,6 +515,7 @@ mod tests {
             &BTreeMap::new(),
             None,
             &FogState::default(),
+            &Default::default(),
             true,
             false,
             None,
@@ -549,6 +555,7 @@ mod tests {
                 &sim.houses,
                 None,
                 &sim.fog,
+                &sim.house_alliances,
                 true,
                 false,
                 Some(&rules),
@@ -884,6 +891,7 @@ mod tests {
             &houses,
             Some(local),
             &fog,
+            &Default::default(),
             false,
             true,
             Some(&rules),

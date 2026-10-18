@@ -207,61 +207,13 @@ pub(crate) fn greatest_threat_for_entity(
         scan_mission: mask,
         ..build_attacker_snapshot(entity, TargetKind::Entity(0), None)
     };
-    acquire_best_target(
+    super::greatest_threat::greatest_threat(
         entities,
         occupancy,
         rules,
         interner,
         &snapshot,
         obj,
-        fog,
-        terrain,
-        require_playfield_membership,
-        zone_grid,
-        los,
-        fire_world,
-        scan_coord,
-    )
-}
-
-/// `TechnoClass::Greatest_Threat @ 0x006F8DF0` — pick the best hostile target
-/// for one attacker snapshot. Returns the winning candidate's stable entity id.
-///
-/// The walk, the per-cell single-candidate rule, the gate ladder and the
-/// weighted score all live in [`super::greatest_threat`]; this is the adapter
-/// the acquisition and retarget call sites already speak to.
-///
-/// This replaces VERA's own `(distance², threat_class, stable_id)` nearest-first
-/// key, which had no native counterpart: gamemd scores each candidate and keeps
-/// the maximum, walking outward one cell ring at a time and stopping early once
-/// something has been found. The consequences a player sees are that value now
-/// beats proximity — a Grizzly on Guard shoots the engineer walking past instead
-/// of the wall segment beside it, because the wall is refused outright and the
-/// engineer scores highest — and that a base defence with several attackers in
-/// reach commits to the one in the innermost band rather than the nearest by
-/// Euclidean distance.
-pub(crate) fn acquire_best_target(
-    entities: &EntityStore,
-    occupancy: &crate::sim::occupancy::OccupancyGrid,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    attacker: &AttackerSnapshot,
-    attacker_obj: &ObjectType,
-    fog: Option<&FogState>,
-    terrain: Option<&ResolvedTerrainGrid>,
-    require_playfield_membership: bool,
-    zone_grid: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
-    los: super::line_of_fire::LineOfFireInputs<'_>,
-    fire_world: Option<&crate::sim::world::Simulation>,
-    scan_coord: Option<[i32; 3]>,
-) -> super::greatest_threat::ThreatScanOutcome {
-    super::greatest_threat::greatest_threat(
-        entities,
-        occupancy,
-        rules,
-        interner,
-        attacker,
-        attacker_obj,
         fog,
         terrain,
         require_playfield_membership,
@@ -441,7 +393,7 @@ pub(crate) fn should_retaliate(
         world,
         rules,
         overlay_registry: None,
-        fog: Some(world.fog.fire_view()),
+        fog: Some(world.fog.fire_view(&world.house_alliances)),
         firer: victim,
         obj: victim_type,
         target: Some(TargetKind::Entity(source_id)),

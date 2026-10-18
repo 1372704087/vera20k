@@ -6267,6 +6267,7 @@ impl Simulation {
     fn apply_active_vision_structures(&mut self, effects: &ActiveVisionStructures) {
         vision::materialize_gap_generator_sources(
             &mut self.fog,
+            &self.house_alliances,
             &effects.gap_generators,
             &self.interner,
         );

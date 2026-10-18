@@ -129,9 +129,10 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
             hierarchy_goal: (2, 0),
             endpoints_in_playfield: true,
         };
-        let result = find_flat_path_after_entry(
+        let result = find_layered_path_after_entry(
             &grid,
             (0, 0),
+            MovementLayer::Ground,
             (2, 0),
             &entry,
             Some(&zones),
@@ -459,7 +460,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
 }
 
 #[test]
-fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
+fn tube_hierarchy_gate_uses_raw_invalid_labels_and_goal_bridge_flag() {
     let mut grid = PathGrid::new(2, 2);
     grid.set_cell_for_test(0, 0, 4, false, false);
     grid.set_cell_for_test(1, 0, 0, true, true);
@@ -505,9 +506,10 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
     zones.set_hierarchy(level0_hierarchy(vec![1; 4], 2, 2, &[]));
     let counts = BlockerNeighborCounts::new(2, 2);
     let route = |zones: &ZoneGrid, terrain: &ResolvedTerrainGrid| {
-        find_path_zoned_marker(
+        find_layered_path_zoned_marker(
             &grid,
             (0, 0),
+            MovementLayer::Ground,
             (1, 0),
             Some(zones),
             MovementZone::Normal,
@@ -572,7 +574,7 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
     assert_eq!(
         route(&zones, &terrain).is_some(),
         expected_admission(2, 2),
-        "flat goal Flags0x100 must select the redirected raw zone"
+        "goal Flags0x100 must select the redirected raw zone"
     );
     terrain.cell_mut(1, 0).unwrap().bridge_facts.raw_flags = 0;
     assert_eq!(
@@ -798,24 +800,6 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
             assert!(terrain.cell(hole.0, hole.1).is_none());
             dummy.stamp_coord(1234, -2345);
             assert!(
-                find_path_zoned_marker(
-                    &grid,
-                    hole,
-                    hole,
-                    Some(&zones),
-                    MovementZone::Normal,
-                    Some(MovementZone::Normal),
-                    Some(&terrain),
-                    None,
-                    None,
-                    false,
-                    None
-                )
-                .is_none()
-            );
-            assert_eq!(dummy.snapshot().coord, (4, 4));
-            dummy.stamp_coord(1234, -2345);
-            assert!(
                 find_layered_path_zoned_marker(
                     &grid,
                     hole,
@@ -835,4 +819,67 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
             assert_eq!(dummy.snapshot().coord, (4, 4));
         }
     }
+}
+
+/// `AStar_pathfind_search` (`0x0042C900`) takes the row from the type's
+/// `MovementZone=` (`+0x5B4`, `0x0042C963..0x0042C96D`) and compares the raw
+/// labels at `0x0042CB22` for every row: nothing there exempts Water or
+/// WaterBeach. Two water cells split by land carry different labels in both
+/// rows, so the search returns NULL before the cell A*; the Fly row, which
+/// joins them, searches.
+#[test]
+fn water_rows_reject_split_labels_before_the_cell_astar() {
+    let terrain = super::super::zone_map_tests::terrain_from_zone_classes(
+        3,
+        1,
+        &[zone_class::WATER, zone_class::GROUND, zone_class::WATER],
+        &[0; 3],
+    );
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    let zones =
+        ZoneGrid::build_with_native_bridge_geometry(&grid, &terrain, &[], 3, 1, Some((3, 1)));
+    let counts = BlockerNeighborCounts::new(3, 1);
+    let search = |mz| {
+        find_layered_path_zoned_marker_detailed(
+            &grid,
+            (0, 0),
+            MovementLayer::Ground,
+            (2, 0),
+            Some(&zones),
+            mz,
+            Some(mz),
+            Some(&terrain),
+            None,
+            Some(&counts),
+            MoverSearchFacts {
+                urgency: 0,
+                foot_entry: &super::super::WalkableEntry::new(&grid),
+            },
+            true,
+            None,
+        )
+        .map(|path| path.len())
+    };
+    for mz in [MovementZone::Water, MovementZone::WaterBeach] {
+        let label = |cell| {
+            zones
+                .get_zone_id_native(&terrain, cell, mz, false)
+                .expect("raw label")
+        };
+        assert_ne!(
+            label((0, 0)),
+            label((2, 0)),
+            "{mz:?}: land splits the water"
+        );
+        assert_eq!(
+            search(mz),
+            Err(PathSearchFailure::NativeEntryRejected),
+            "{mz:?}: 0x0042CB22 refuses before the cell A*"
+        );
+    }
+    assert_eq!(
+        search(MovementZone::Fly),
+        Ok(3),
+        "the Fly row joins the water and searches"
+    );
 }

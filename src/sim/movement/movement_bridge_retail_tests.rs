@@ -1780,10 +1780,11 @@ fn tank_crosses_hills_high_bridge_at_deck_height() {
     drive_across_high_bridge("Hills.mmx", "MTNK", true);
 }
 
-/// Matrix row T1-01. The Robot Tank is a **Hover** locomotor, and until
-/// `supports_layered_bridge_pathing` (`movement_path.rs`) admitted Hover it was
-/// excluded from the layered path builder, received the flat fallback path whose
-/// `path_layers` are `Ground` on every node including the deck cells, and was
+/// Matrix row T1-01. The Robot Tank is a **Hover** locomotor, and until a
+/// locomotor whitelist (since removed: every Find_Path runs one search) admitted
+/// Hover it was excluded from the layered path builder, received the flat
+/// fallback path whose `path_layers` are `Ground` on every node including the
+/// deck cells, and was
 /// then refused at the crossing loop's terrain test — which read the riverbed
 /// under the span. The order was never dropped, so it drove into the abutment
 /// and was snapped back to cell centre indefinitely.
@@ -3576,6 +3577,46 @@ fn hover_tank_ordered_under_bay_of_pigs_high_bridge_crosses_all_four_ground_lane
         return;
     };
     judge_under_span_run(&run, "ROBO", "BayOPigs.mmx");
+    assert_eq!(run.start_cell, (108, 143));
+    assert_eq!(run.cut.under_b, Some((115, 143)));
+    assert_eq!(
+        run.cut.band,
+        vec![(110, 143), (111, 143), (112, 143), (113, 143)]
+    );
+    assert!(
+        run.order_accepted,
+        "ordinary Move beneath the span must be accepted"
+    );
+    assert_eq!(run.rows.last().map(|row| row.cell), run.cut.under_b);
+    assert!(
+        run.deck_frames().is_empty(),
+        "the route must stay beneath the deck"
+    );
+    let under_cells: std::collections::BTreeSet<_> =
+        run.under_frames().iter().map(|row| row.cell).collect();
+    for cell in &run.cut.band {
+        assert!(
+            under_cells.contains(cell),
+            "under-span route skipped lane {cell:?}"
+        );
+    }
+}
+
+/// A Ship under the same `BayOPigs.mmx` span. `DEST` is `MovementZone=Water`,
+/// a row `AStar_pathfind_search` (`0x0042C900`) gates like any other: raw
+/// labels (`0x0042CB22`), then `Zone_precheck` (`0x0042C290`) and its
+/// corridor. The river is one Water zone beneath the deck, so the ordinary
+/// Move is admitted and the route crosses every lane at the riverbed's height.
+/// A Rust movement regression on retail data, not a native capture.
+#[test]
+#[ignore = "requires a retail RA2/YR install (RA2_DIR or config.toml)"]
+fn ship_ordered_under_bay_of_pigs_high_bridge_crosses_all_four_lanes() {
+    if retail_dir().is_none() {
+        return;
+    }
+    let run = order_under_high_span("BayOPigs.mmx", "DEST")
+        .expect("DEST must spawn on the riverbed beside the BayOPigs span");
+    judge_under_span_run(&run, "DEST", "BayOPigs.mmx");
     assert_eq!(run.start_cell, (108, 143));
     assert_eq!(run.cut.under_b, Some((115, 143)));
     assert_eq!(

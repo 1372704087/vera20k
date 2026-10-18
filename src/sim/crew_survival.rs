@@ -729,8 +729,14 @@ impl Simulation {
             MissionType::Hunt
         };
         self.queue_crew_mission(id, mission);
-        if selected_by_player && let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.selection.select();
+        if selected_by_player {
+            // `0x0073835E`: Select (vt+0x14C) with the voice latch set, as
+            // every Logic pass leaves it.
+            self.techno_select(
+                id,
+                true,
+                UninitContext::new(Some(rules), registry).with_effects(effects),
+            );
         }
     }
 
@@ -948,11 +954,14 @@ impl Simulation {
                     None => sim.queue_crew_mission(passenger, MissionType::Hunt),
                 }
             }
-            // `0x00738174..0x00738180`: Select (vtable `+0x14C`).
-            if dying.selected_by_player
-                && let Some(entity) = sim.substrate.entities.get_mut(passenger)
-            {
-                entity.selection.select();
+            // `0x00738174..0x00738180`: Select (vtable `+0x14C`), voice latch
+            // set.
+            if dying.selected_by_player {
+                sim.techno_select(
+                    passenger,
+                    true,
+                    UninitContext::new(Some(rules), registry).with_effects(effects),
+                );
             }
         });
     }

@@ -6,9 +6,10 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::line_of_fire::LineOfFireInputs;
 use crate::sim::combat::{ScanMission, TargetKind};
 use crate::sim::mission::{MissionId, MissionType};
+use crate::util::save_codec;
 
 fn eligible_air_target(sim: &Simulation, rules: &RuleSet, aegis: u64) -> Option<u64> {
-    crate::sim::combat::acquire_best_target_for_entity(
+    crate::sim::combat::combat_targeting::greatest_threat_for_entity(
         &sim.substrate.entities,
         sim.occupancy(),
         rules,
@@ -403,10 +404,10 @@ fn distributed_runtime_serde_clone_and_hash_preserve_order_scores_and_history() 
     let source = scene.sim.substrate.entities.get_mut(scene.aegis).unwrap();
     source.replace_distributed_fire_candidates(entries.clone());
     source.remember_distributed_fire_target(TargetKind::Entity(scene.targets[0]));
-    let bytes = bincode::serialize(source).unwrap();
-    let restored: GameEntity = bincode::deserialize(&bytes).unwrap();
-    assert_eq!(bincode::serialize(&restored).unwrap(), bytes);
-    assert_eq!(bincode::serialize(&source.clone()).unwrap(), bytes);
+    let bytes = save_codec::serialize(source).unwrap();
+    let restored: GameEntity = save_codec::deserialize(&bytes).unwrap();
+    assert_eq!(save_codec::serialize(&restored).unwrap(), bytes);
+    assert_eq!(save_codec::serialize(&source.clone()).unwrap(), bytes);
     let hash = scene.sim.state_hash();
     for changed in [
         vec![entries[1], entries[0]],
@@ -550,7 +551,6 @@ fn distributed_scan_preserves_retained_bucket_order_across_reentry_and_movement(
             scene.aegis,
             ScanMission::Guard,
             None,
-            crate::sim::combat::acquire_best_target_for_entity,
         );
         scene
             .sim
@@ -775,14 +775,9 @@ fn distributed_collection_flat_entry_clears_but_class_early_return_preserves() {
     let source = scene.sim.substrate.entities.get_mut(scene.aegis).unwrap();
     source.replace_distributed_fire_candidates(vec![entry]);
     source.remember_distributed_fire_target(target);
-    scene.sim.greatest_threat_represented(
-        &scene.rules,
-        None,
-        scene.aegis,
-        ScanMission::Hunt,
-        None,
-        crate::sim::combat::combat_targeting::greatest_threat_for_entity,
-    );
+    scene
+        .sim
+        .greatest_threat_represented(&scene.rules, None, scene.aegis, ScanMission::Hunt, None);
     let source = scene.sim.substrate.entities.get(scene.aegis).unwrap();
     assert!(
         source.distributed_fire_candidates().is_empty(),
@@ -844,14 +839,7 @@ fn distributed_collection_flat_entry_clears_but_class_early_return_preserves() {
         "native unarmed Infantry class override returns before base"
     );
     assert_eq!(
-        sim.greatest_threat_represented(
-            &rules,
-            None,
-            cow,
-            ScanMission::Guard,
-            None,
-            crate::sim::combat::combat_targeting::greatest_threat_for_entity
-        ),
+        sim.greatest_threat_represented(&rules, None, cow, ScanMission::Guard, None),
         None
     );
     let actor = sim.substrate.entities.get(cow).unwrap();

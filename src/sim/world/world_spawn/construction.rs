@@ -257,6 +257,26 @@ impl Simulation {
                 &mut self.interner,
                 self.session.binary_frame,
             );
+            // 0x006F41FE..0x006F4271: a CanDisguise=/PermaDisguise= type (stock
+            // SPY) starts disguised as its owner, wearing the Rules disguise
+            // of the owner's side (House+0x1E8: 0, 1, else Third).
+            if obj.can_disguise
+                && obj.perma_disguise
+                && let Some(side) = self.houses.get(&ge.owner()).map(|h| h.side_index)
+            {
+                let worn = match side {
+                    0 => &rules.general.allied_disguise,
+                    1 => &rules.general.soviet_disguise,
+                    _ => &rules.general.third_disguise,
+                }
+                .as_deref()
+                .map(|name| self.interner.intern(name));
+                let owner = ge.owner();
+                let frame = self.session.binary_frame;
+                ge.disguise
+                    .get_or_insert_with(|| crate::sim::cloak_disguise::DisguiseRuntime::new(frame))
+                    .wear_from_construction(worn, owner);
+            }
         }
         // After the managers, InitFromType makes the object veteran
         // (`SetVeteran(1)`, `0x00750090`) where its house's spies entered a
@@ -679,3 +699,7 @@ fn should_construct_locomotor(category: EntityCategory, object: &ObjectType) -> 
             EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
         ) && matches!(object.locomotor, LocomotorKind::Drive | LocomotorKind::Ship))
 }
+
+#[cfg(test)]
+#[path = "perma_disguise_tests.rs"]
+mod perma_disguise_tests;

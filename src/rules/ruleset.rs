@@ -1523,6 +1523,15 @@ pub struct GeneralRules {
     pub allied_crew: Option<String>,
     pub soviet_crew: Option<String>,
     pub third_crew: Option<String>,
+    /// `AlliedDisguise=`/`SovietDisguise=`/`ThirdDisguise=` (Rules
+    /// `+0xD58/+0xD5C/+0xD60`, read through the same InfantryType reference
+    /// reader `0x0067BAC0` at `0x0066FBA1..0x0066FBEB`): what a
+    /// `CanDisguise=`/`PermaDisguise=` object of each side starts wearing
+    /// (`TechnoClass::Init_Managers`, `0x006F423F..0x006F4271`). Stock E1,
+    /// E2 and INIT.
+    pub allied_disguise: Option<String>,
+    pub soviet_disguise: Option<String>,
+    pub third_disguise: Option<String>,
     pub technician: Option<String>,
     pub engineer_infantry: Option<String>,
     /// Rules+17F8: constructor667793 initializes1.0f; General671DF7
@@ -2428,6 +2437,9 @@ impl Default for GeneralRules {
             allied_crew: None,
             soviet_crew: None,
             third_crew: None,
+            allied_disguise: None,
+            soviet_disguise: None,
+            third_disguise: None,
             technician: None,
             engineer_infantry: None,
             engineer_capture_level: NativeF32Bits::ONE,
@@ -3584,6 +3596,9 @@ impl GeneralRules {
             allied_crew: general.read_name("AlliedCrew", 0x80).map(str::to_owned),
             soviet_crew: general.read_name("SovietCrew", 0x80).map(str::to_owned),
             third_crew: general.read_name("ThirdCrew", 0x80).map(str::to_owned),
+            allied_disguise: general.read_name("AlliedDisguise", 0x80).map(str::to_owned),
+            soviet_disguise: general.read_name("SovietDisguise", 0x80).map(str::to_owned),
+            third_disguise: general.read_name("ThirdDisguise", 0x80).map(str::to_owned),
             technician: general.read_name("Technician", 0x80).map(str::to_owned),
             engineer_infantry: general.read_name("Engineer", 0x80).map(str::to_owned),
             engineer_capture_level: general

@@ -5820,8 +5820,10 @@ mod tests {
         assert!(!active.initialize(
             WaveUpdateContext {
                 owner_position: Some(active_source),
+                owner_fire_coordinate: Some(active_source),
                 owner_current_target: Some(active_target),
                 target_position: Some(active_endpoint),
+                target_is_unit: false,
             },
             None,
         ));
@@ -5830,8 +5832,10 @@ mod tests {
         let _ = active.advance(
             WaveUpdateContext {
                 owner_position: Some(active_source),
+                owner_fire_coordinate: Some(active_source),
                 owner_current_target: Some(active_target),
                 target_position: Some(moved_endpoint),
+                target_is_unit: false,
             },
             None,
         );

@@ -3380,20 +3380,37 @@ fn sonic_tail_order_test_rules() -> RuleSet {
 
 fn admit_test_wave(sim: &mut Simulation, rules: &RuleSet, event: &SimFireEvent) {
     let wave = sim
-        .prepare_fired_wave(
-            rules,
-            event,
-            &sim.substrate.entities,
-            &sim.interner,
-            sim.resolved_terrain.as_ref(),
-        )
+        .prepare_fired_wave(rules, event, event.fire_coord, 0)
         .expect("wave prepared");
-    let terrain = sim.resolved_terrain.take();
-    sim.admit_fired_wave(event.attacker_id, wave, terrain.as_ref());
-    sim.resolved_terrain = terrain;
+    sim.admit_fired_wave(event.attacker_id, wave, rules);
 }
 
-fn sonic_fire_event(sim: &mut Simulation, attacker_id: u64, target_id: u64) -> SimFireEvent {
+fn sonic_fire_event(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    attacker_id: u64,
+    target_id: u64,
+) -> SimFireEvent {
+    let entity = sim.substrate.entities.get_mut(attacker_id).unwrap();
+    // These fixtures supply a successful FireAt caller, whose TarCom is
+    // already admitted. Preserve the explicit Cell-target fixture.
+    if entity.attack_target.target().is_none() {
+        entity
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(target_id)));
+    }
+    let entity = sim.substrate.entities.get(attacker_id).unwrap();
+    let object = sim.interner.object_type(entity.type_ref(), rules).unwrap();
+    let fire_coord = crate::sim::combat::fire_coord::fire_coordinate(
+        sim,
+        rules,
+        &crate::sim::combat::fire_coord::FireSource::of_entity(entity),
+        object,
+        0,
+        0,
+        crate::rules::flh::Flh::default(),
+    )
+    .coord;
     SimFireEvent {
         attacker_id,
         attacker_type_ref: sim.interner.intern("DLPH"),
@@ -3411,7 +3428,7 @@ fn sonic_fire_event(sim: &mut Simulation, attacker_id: u64, target_id: u64) -> S
         },
         target: crate::sim::combat::TargetKind::Entity(target_id),
         report_sound_id: None,
-        fire_coord: crate::sim::projectile::ProjectileCoord::new(0, 0, 0),
+        fire_coord,
         fire_offset_y: 0,
         muzzle_anim: None,
         occupied_building: false,
@@ -3439,9 +3456,15 @@ fn sonic_constructor_dead_pointer_link_lives_until_deferred_delete_at_239() {
     target.position.set_sub_y_for_test(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
-    let event = sonic_fire_event(&mut sim, firer_id, target_id);
+    let event = sonic_fire_event(&mut sim, &rules, firer_id, target_id);
 
+    let cursor = sim.native_identity_cursor();
     admit_test_wave(&mut sim, &rules, &event);
+    assert_eq!(
+        sim.native_identity_cursor(),
+        cursor,
+        "short ctor abort precedes CreateID"
+    );
 
     let wave_id = *sim
         .active_wave_links
@@ -3481,24 +3504,18 @@ fn a_sonic_wave_aims_at_a_buildings_foundation_centre() {
     target.type_facts.set_foundation_for_test("3x3".to_string());
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
-    let event = sonic_fire_event(&mut sim, firer_id, target_id);
+    let event = sonic_fire_event(&mut sim, &rules, firer_id, target_id);
     let centre = 10 * 256 + 128 + 256;
 
     let wave = sim
-        .prepare_fired_wave(
-            &rules,
-            &event,
-            &sim.substrate.entities,
-            &sim.interner,
-            sim.resolved_terrain.as_ref(),
-        )
+        .prepare_fired_wave(&rules, &event, event.fire_coord, 0)
         .expect("a Sonic weapon");
     assert_eq!((wave.target.x, wave.target.y), (centre, centre));
 
     admit_test_wave(&mut sim, &rules, &event);
     let wave_id = sim.active_wave_links[&firer_id];
     let tracked = sim
-        .wave_update_context(wave_id)
+        .wave_update_context(sim.waves.get(wave_id).unwrap(), Some(&rules))
         .target_position
         .expect("the target lives");
     assert_eq!((tracked.x, tracked.y), (centre, centre));
@@ -3521,9 +3538,9 @@ fn target_coord_offset_moves_initial_wave_endpoint_but_not_tracking() {
         sim.substrate.entities.get(yard).unwrap(),
         None,
     );
-    let event = sonic_fire_event(&mut sim, dolphin, yard);
+    let event = sonic_fire_event(&mut sim, &rules, dolphin, yard);
     let wave = sim
-        .prepare_fired_wave(&rules, &event, &sim.substrate.entities, &sim.interner, None)
+        .prepare_fired_wave(&rules, &event, event.fire_coord, 0)
         .unwrap();
     assert_eq!(
         wave.target,
@@ -3532,7 +3549,8 @@ fn target_coord_offset_moves_initial_wave_endpoint_but_not_tracking() {
     admit_test_wave(&mut sim, &rules, &event);
     let id = sim.active_wave_links[&dolphin];
     assert_eq!(
-        sim.wave_update_context(id).target_position,
+        sim.wave_update_context(sim.waves.get(id).unwrap(), Some(&rules))
+            .target_position,
         Some(crate::sim::projectile::ProjectileCoord::new(
             centre.x, centre.y, centre.z
         ))
@@ -3559,9 +3577,19 @@ fn sonic_constructor_at_240_registers_then_runs_at_same_pass_tail() {
     target.position.set_sub_y_for_test(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
-    let event = sonic_fire_event(&mut sim, firer_id, target_id);
+    let event = sonic_fire_event(&mut sim, &rules, firer_id, target_id);
 
+    let cursor = sim.native_identity_cursor().unwrap();
     admit_test_wave(&mut sim, &rules, &event);
+    let native = &crate::test_fixture::json("tools/procedural_drawing_oracle/magnetic_wave.json")["birth_rows"]
+        [0];
+    let delta = (native["id_after"].as_u64().unwrap() as u32)
+        .wrapping_sub(native["id_before"].as_u64().unwrap() as u32);
+    assert_eq!(
+        sim.native_identity_cursor(),
+        Some(cursor.wrapping_add(delta)),
+        "admitted Wave spends the original CreateID count through the Scenario owner"
+    );
 
     let wave_id = *sim
         .active_wave_links
@@ -3609,7 +3637,7 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
         .set_for_test(Some(TargetKind::Cell(u16::MAX, 7)));
     sim.substrate.entities.insert(firer);
 
-    let mut event = sonic_fire_event(&mut sim, firer_id, u64::MAX);
+    let mut event = sonic_fire_event(&mut sim, &rules, firer_id, u64::MAX);
     event.target = crate::sim::combat::TargetKind::Cell(u16::MAX, 7);
     admit_test_wave(&mut sim, &rules, &event);
 
@@ -3626,7 +3654,7 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
     assert_eq!(process_dummy.snapshot().coord, (-1, 7));
 
     process_dummy.stamp_coord(-9, -9);
-    let context = sim.wave_update_context(wave_id);
+    let context = sim.wave_update_context(sim.waves.get(wave_id).unwrap(), Some(&rules));
     assert_eq!(process_dummy.snapshot().coord, (-1, 7));
     assert_eq!(
         context.target_position,

@@ -167,8 +167,16 @@ fn retail_engineer_ifv_offers_normal_repair_cursor_on_damaged_friend() {
         kind: HoverTargetKind::FriendlyUnit,
         stable_id: tank,
     };
-    let feedback =
-        capability_cursor_for_hover(&sim, &[ifv], Some(ifv), &hover, Some(&retail.rules), None);
+    let feedback = capability_cursor_for_hover(
+        &sim,
+        &[ifv],
+        Some(ifv),
+        &hover,
+        Some(&retail.rules),
+        None,
+        crate::app::input::context_order::OrderModifier::Normal,
+        false,
+    );
     assert_eq!(feedback, CursorFeedbackKind::RepairAction(true));
     assert_eq!(cursor_id_for_feedback(feedback), Some(CursorId::Repair));
     assert_eq!(
@@ -209,7 +217,16 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
         stable_id: tank,
     };
     let prior = sim.state_hash();
-    let feedback = capability_cursor_for_hover(&sim, &[ifv], Some(ifv), &hover, Some(rules), None);
+    let feedback = capability_cursor_for_hover(
+        &sim,
+        &[ifv],
+        Some(ifv),
+        &hover,
+        Some(rules),
+        None,
+        crate::app::input::context_order::OrderModifier::Normal,
+        false,
+    );
     assert_eq!(feedback, CursorFeedbackKind::RepairAction(true));
     assert_eq!(cursor_id_for_feedback(feedback), Some(CursorId::Repair));
     // DetermineAction still answers Repair29, which dispatches (the click is

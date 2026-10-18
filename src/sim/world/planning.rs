@@ -931,24 +931,34 @@ impl Simulation {
             })
     }
 
+    /// The last node of `actor`'s remaining path: its token's node vector at
+    /// count-1 (`+0x8`, `+0x14`), with no loop wrap.
+    fn planning_tail_node(&self, actor: u64) -> Option<&PlanningNode> {
+        let id = self.planning.paths.get(&actor)?.nodes.last()?;
+        self.planning.nodes.get(id)
+    }
+
+    /// The members `TechnoClass::PlayPlanningSelectionVoices @ 0x00637840`
+    /// walks after `actor`'s Select (`0x006FC020`): its tail node's members
+    /// in encounter order (node `+0x4`, `+0x10`), whatever their owner.
+    pub fn planning_tail_members(&self, actor: u64) -> Vec<u64> {
+        self.planning_tail_node(actor)
+            .map(|node| node.live_members.values().copied().collect())
+            .unwrap_or_default()
+    }
+
     /// Connect639740 expands each selected actor's tail group in encounter
     /// order. A selected actor without a path contributes only itself.
     pub fn planning_connect_actors(&self, owner: InternedId, selected: &[u64]) -> Vec<u64> {
         let mut actors = Vec::new();
         let mut seen = BTreeSet::new();
         for &actor in selected {
-            let tail = self
-                .planning
-                .paths
-                .get(&actor)
-                .filter(|_| {
-                    self.substrate
-                        .entities
-                        .get(actor)
-                        .is_some_and(|entity| entity.owner() == owner)
-                })
-                .and_then(|path| path.nodes.last())
-                .and_then(|id| self.planning.nodes.get(id));
+            let tail = self.planning_tail_node(actor).filter(|_| {
+                self.substrate
+                    .entities
+                    .get(actor)
+                    .is_some_and(|entity| entity.owner() == owner)
+            });
             if let Some(node) = tail {
                 for &member in node.live_members.values() {
                     if seen.insert(member) {

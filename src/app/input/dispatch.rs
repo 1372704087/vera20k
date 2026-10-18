@@ -201,6 +201,9 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
     match button {
         MouseButton::Left => {
             if btn_state.is_pressed() {
+                if crate::app::input::planning_mode::refuse_press_at_cursor(state) {
+                    return;
+                }
                 // gamemd takes the mouse capture on the press edge whether or
                 // not the band drag arms: the modal gates live inside the
                 // drag-arm helper 0x004AC310, not around the capture. The

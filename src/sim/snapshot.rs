@@ -1137,7 +1137,8 @@ use crate::sim::world::Simulation;
 // footprints; only the removed vehicle-occupation index read them. The raw
 // ground/deck bytes remain the occupation record.
 // 419 -> 420: retain Infantry+6D8 Psycho independently of Techno Berserk.
-const SNAPSHOT_VERSION: u32 = 420;
+// 420 -> 421: process Rules state retains General.TalkBubbleTime.
+const SNAPSHOT_VERSION: u32 = 421;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4857,7 +4858,8 @@ mod tests {
         // 417 -> 418: campaign score map-rank presentation metadata.
         // 418 -> 419: the Drive/Ship occupation footprints are gone.
         // 419 -> 420: Infantry Psycho latch independent of Techno Berserk.
-        assert_eq!(super::SNAPSHOT_VERSION, 420);
+        // 420 -> 421: process Rules retain TalkBubbleTime.
+        assert_eq!(super::SNAPSHOT_VERSION, 421);
     }
 
     #[test]

@@ -395,6 +395,8 @@ pub struct GeneralRules {
     /// writes15; ReadGeneral671DB2..671DCC passes the prior signed value to
     /// ReadInteger5276D0 and stores it unchanged, without a clamp.
     pub max_waypoint_path_length: i32,
+    /// General.TalkBubbleTime, Rules+1800; ctor6677A3=300 wall-clock buckets.
+    pub talk_bubble_time: i32,
     /// `[General] FlashFrameTime=`, Rules `+0x88`: the constructor's 7
     /// (`0x00665711`), read by ReadInteger at `0x00671981` without a clamp.
     /// The radar combat flash's toggle period.
@@ -2163,6 +2165,7 @@ impl Default for GeneralRules {
     fn default() -> Self {
         Self {
             max_waypoint_path_length: 15,
+            talk_bubble_time: 300,
             flash_frame_time: 7,
             radar_combat_flash_time: 21,
             detail: DetailRules::default(),
@@ -3094,6 +3097,7 @@ impl GeneralRules {
         // `WARPOUT` — matching gamemd's behaviour.
         let parse_anim_name =
             |key: &str, default: &str| -> String { general.read_string(key, default, 0x80) };
+        let talk_bubble_time = general.read_talk_bubble_time(defaults.talk_bubble_time);
         let mut infantry_death_anims = defaults.infantry_death_anims.clone();
         for (index, key, fallback) in [
             (3, "InfantryExplode", "S_BANG34"),
@@ -3388,6 +3392,7 @@ impl GeneralRules {
             crate_promote_sound: audio_visual
                 .read_name("CratePromoteSound", 0x80)
                 .map(str::to_owned),
+            talk_bubble_time,
             elite_flash_timer: audio_visual.read_int("EliteFlashTimer", defaults.elite_flash_timer),
             idle_action_frequency: audio_visual
                 .read_double("IdleActionFrequency", defaults.idle_action_frequency),
@@ -4145,6 +4150,7 @@ impl RuleSet {
         rules.general.wind_direction = processed.wind_direction();
         rules.general.difficulty_rows = *processed.difficulty_rows();
         rules.general.detail = processed.detail();
+        rules.general.talk_bubble_time = processed.talk_bubble_time();
         let (ambient_rate, ambient_step) = processed.ambient_change_inputs();
         (
             rules.general.ambient_change_rate_nonzero,

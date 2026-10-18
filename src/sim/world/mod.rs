@@ -1328,6 +1328,10 @@ pub struct Simulation {
     pub dynamic_terrain_cells:
         BTreeMap<(u16, u16), crate::map::resolved_terrain::DynamicTerrainCellState>,
     pub bridge_state: Option<BridgeRuntimeState>,
+    /// Resident Map+D4 ordered collapse coordinates. Independent of optional
+    /// geometry so even standalone fallout/save retains its native publication.
+    /// The bridge damage controller owns its mutations and synchronous drain.
+    pending_bridge_collapses: bridge_orchestrator::PendingBridgeCells,
     /// Per-cell mutable overlay state (ore density, wall damage, bridge frames).
     /// Seeded from map [OverlayPack] at init, mutated during gameplay.
     pub overlay_grid: Option<crate::sim::overlay_grid::OverlayGrid>,
@@ -3469,6 +3473,7 @@ impl Simulation {
             real_cell_bridge_flags_0x1180: RealCellBridgeFlags0x1180::default(),
             dynamic_terrain_cells: BTreeMap::new(),
             bridge_state: None,
+            pending_bridge_collapses: Default::default(),
             overlay_grid: None,
             crate_authority: crate::sim::crates::CrateAuthority::default(),
             smudge_grid: None,

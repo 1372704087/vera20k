@@ -85,7 +85,7 @@ MAX_OBSERVATION_SAMPLES = 100_000
 MAX_RECEIPT_BYTES = 128 * 1024 * 1024
 ORDER_VARIANTS = frozenset(('Select', 'Move', 'Stop', 'Attack', 'ForceAttack', 'Guard',
                             'DeployMcv', 'ForceAttackCell', 'CaptureBuilding', 'ToggleRepair',
-                            'EnterTransport', 'UnloadPassengers', 'RepairAtDepot', 'SellBuilding', 'SetRally',
+                            'EnterTransport', 'UnloadPassengers', 'RepairAtDepot', 'SellBuilding', 'SetRally', 'PlantC4',
                             'LaunchSuperWeapon', 'TogglePrimaryFactory'))
 PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',

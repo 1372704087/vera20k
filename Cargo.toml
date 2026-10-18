@@ -45,15 +45,24 @@ required-features = ["tools-ui"]
 [[bin]]
 name = "telemetry-serve"
 path = "src/bin/telemetry-serve.rs"
+required-features = ["telemetry-dashboard"]
 
 [features]
-# Development builds carry the Ctrl+Shift dev chord. The release workflow builds
-# with `--no-default-features`, so shipped binaries do not.
-default = ["dev-overlays"]
+# Development builds carry the Ctrl+Shift dev chord and the browser dashboard.
+# The release workflow builds with `--no-default-features`, so shipped binaries
+# carry neither.
+default = ["dev-overlays", "telemetry-dashboard"]
 # The Ctrl+Shift dev chord: renderer-native diagnostic overlays (grid, heightmap,
 # pathgrid, inspector, fog), the debug pause and quicksave/quickload. Captures
 # rely on it (literal Ctrl+Shift+M/N quicksave/quickload). It needs no egui.
 dev-overlays = ["vera20k-core/dev-overlays"]
+# The browser dashboard transport: the HTTP/WebSocket server, the inbound
+# command path that drives the debug switches and the trainer, and the snapshot
+# assembly they publish. Unlike `dev-overlays` this also gates the trainer, so
+# a build without it carries no route from a socket into simulation state —
+# `sim::cheats` stays compiled in because production, power, damage and
+# placement read it inline, but nothing can write it.
+telemetry-dashboard = []
 # Standalone asset/video tools; this does not enable the engine overlay.
 tools-ui = ["dep:eframe", "dep:rfd"]
 

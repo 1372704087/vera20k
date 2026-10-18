@@ -104,19 +104,27 @@ pub fn write_match_report(state: &crate::app::AppState) -> Option<PathBuf> {
     Some(path)
 }
 
+/// Where reports land: the dashboard's own directory when this build serves
+/// one, so the browser can link a report without knowing its timestamp;
+/// otherwise beside the working directory.
+fn report_root(state: &crate::app::AppState) -> PathBuf {
+    #[cfg(feature = "telemetry-dashboard")]
+    if let Some(server) = state.diag.telemetry_server.as_ref() {
+        return server.web_root().to_path_buf();
+    }
+    #[cfg(not(feature = "telemetry-dashboard"))]
+    let _ = state;
+    PathBuf::from(".")
+}
+
 fn report_path(state: &crate::app::AppState, tick: u64) -> Option<PathBuf> {
-    let root = state
-        .diag
-        .telemetry_server
-        .as_ref()
-        .map(|server| server.web_root().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.as_secs())
         .unwrap_or_default();
     Some(
-        root.join("reports")
+        report_root(state)
+            .join("reports")
             .join(format!("frame-report-tick{tick}-{stamp}.html")),
     )
 }

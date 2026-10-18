@@ -34,3 +34,11 @@ jobs:
       # Reports warnings without failing.
       - name: Clippy (libraries and binaries)
         run: cargo clippy --workspace --lib --bins
+      # The configuration the release actually ships. `--no-default-features`
+      # drops both `dev-overlays` and the dashboard transport, and no other job
+      # builds that combination, so a gated-out item left referenced somewhere
+      # would first fail in a release. Scoped to `-p vera20k` to match
+      # release.yml; `--bins` skips `telemetry-serve`, which now requires the
+      # feature.
+      - name: Clippy (shipped configuration)
+        run: cargo clippy -p vera20k --lib --bins --no-default-features

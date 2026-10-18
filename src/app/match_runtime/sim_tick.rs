@@ -649,7 +649,9 @@ fn advance_in_game_runtime_mode(
     // frame's decision — including unpause (which otherwise never runs the
     // simulation pass again) and frame step (which the decision below reads).
     // Same toggles as the Ctrl+Shift chord, so the two input paths cannot
-    // drift.
+    // drift. Absent with the dashboard: no build that cannot serve one has a
+    // route from a socket into these toggles.
+    #[cfg(feature = "telemetry-dashboard")]
     crate::app::telemetry_command::drain_and_apply(state);
     let frame_stepping = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
         && state.diag.debug_frame_step_requested;
@@ -715,6 +717,7 @@ fn advance_in_game_runtime_mode(
         }
         // A frame step commits a tick that the cadence gate may skip, and the
         // paused runtime will not publish again — echo it now.
+        #[cfg(feature = "telemetry-dashboard")]
         if frame_stepping {
             crate::app::telemetry_capture::publish_now(state);
         }
@@ -1277,6 +1280,7 @@ fn advance_one_simulation_frame(
         // the 45 Hz sim step), read-only capture beside the runtime. The
         // snapshot serializes once here; the server fans that string out
         // without ever blocking this thread.
+        #[cfg(feature = "telemetry-dashboard")]
         if let Some(tick) = census_tick
             && tick % 4 == 0
             && let Some(server) = state.diag.telemetry_server.as_ref()

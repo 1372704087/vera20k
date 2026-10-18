@@ -71,9 +71,16 @@ pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
 mod state;
+// The whole browser-dashboard stack, behind one feature: without it a build
+// carries no listener, no inbound command path and therefore no route from a
+// socket into the trainer. See `telemetry-dashboard` in the workspace manifest.
+#[cfg(feature = "telemetry-dashboard")]
 pub mod telemetry; // public façade for the telemetry server and timing ring
+#[cfg(feature = "telemetry-dashboard")]
 pub(crate) mod telemetry_capture; // dashboard snapshot assembly (incl. egui panel port)
+#[cfg(feature = "telemetry-dashboard")]
 pub(crate) mod telemetry_command; // browser switches → app-state debug toggles
+#[cfg(feature = "telemetry-dashboard")]
 pub(crate) mod telemetry_server; // browser dashboard transport (WebSocket + static files)
 pub(crate) mod types;
 mod window_icon;

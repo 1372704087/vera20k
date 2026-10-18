@@ -705,18 +705,10 @@ impl App {
 
         // The dashboard transport is process-scoped diagnostics state: it
         // starts only when the environment names an address, and never
-        // perturbs the run it watches.
-        state.diag.telemetry_server = match crate::app::telemetry_server::start_from_env() {
-            Some(Ok(server)) => {
-                log::info!("telemetry dashboard at http://{}", server.addr());
-                Some(server)
-            }
-            Some(Err(error)) => {
-                log::error!("{error}");
-                None
-            }
-            None => None,
-        };
+        // perturbs the run it watches. Builds without the feature carry no
+        // listener at all — see `telemetry-dashboard` in the workspace
+        // manifest.
+        attach_dashboard(&mut state);
 
         if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
             // The developer shortcut carries an authored-map sandbox through
@@ -760,6 +752,27 @@ impl App {
         Ok(state)
     }
 }
+
+/// Bind the browser dashboard's transport, if this build has one and the
+/// environment names an address for it. A pair rather than one `#[cfg]`
+/// statement because the assignment it performs cannot carry an attribute.
+#[cfg(feature = "telemetry-dashboard")]
+fn attach_dashboard(state: &mut crate::app::AppState) {
+    state.diag.telemetry_server = match crate::app::telemetry_server::start_from_env() {
+        Some(Ok(server)) => {
+            log::info!("telemetry dashboard at http://{}", server.addr());
+            Some(server)
+        }
+        Some(Err(error)) => {
+            log::error!("{error}");
+            None
+        }
+        None => None,
+    };
+}
+
+#[cfg(not(feature = "telemetry-dashboard"))]
+fn attach_dashboard(_state: &mut crate::app::AppState) {}
 
 /// `RA2_QUICKPLAY=<map>`: VERA-internal authored-map sandbox using the legacy
 /// Battle loader, with one local house and no generated opponents or forces.

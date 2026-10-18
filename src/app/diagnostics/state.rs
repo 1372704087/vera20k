@@ -95,7 +95,9 @@ impl FrameTimer {
         (mean_ns as f64 / 1_000_000.0) as f32
     }
 
-    /// FPS derived from the mean frame time, or 0 if no samples.
+    /// FPS derived from the mean frame time, or 0 if no samples. Read only to
+    /// fill the dashboard's timing block.
+    #[cfg(feature = "telemetry-dashboard")]
     pub(crate) fn fps(&self) -> f32 {
         let ms = self.frame_ms_mean();
         if ms <= 0.0 { 0.0 } else { 1000.0 / ms }
@@ -136,11 +138,14 @@ pub(crate) struct DiagnosticsState {
     pub(crate) render_timing: RenderTimingMeter,
     /// CPU / memory / thread sampling for the dashboard. Process-wide and
     /// never reset per match: CPU share is a delta between readings, so a
-    /// per-match reset would report a full core's worth of "new" work.
+    /// per-match reset would report a full core's worth of "new" work. Read
+    /// only when the dashboard assembles a snapshot.
+    #[cfg(feature = "telemetry-dashboard")]
     pub(crate) process_stats: crate::app::process_stats::ProcessStatsSampler,
     /// Browser dashboard transport, while `VERA_TELEMETRY_ADDR` is set.
     /// App-owned: publishing snapshots never blocks or perturbs the
     /// simulation, and dropping this owner stops the server.
+    #[cfg(feature = "telemetry-dashboard")]
     pub(crate) telemetry_server: Option<crate::app::telemetry_server::TelemetryServer>,
 }
 
@@ -171,7 +176,9 @@ impl DiagnosticsState {
             parity_digest_sink,
             frame_timer: FrameTimer::new(),
             render_timing: RenderTimingMeter::default(),
+            #[cfg(feature = "telemetry-dashboard")]
             process_stats: Default::default(),
+            #[cfg(feature = "telemetry-dashboard")]
             telemetry_server: None,
         }
     }

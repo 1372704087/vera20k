@@ -2292,6 +2292,7 @@ impl ObjectType {
 
     /// Base weapon-array slot 1 (`TechnoTypeClass+0x8B4`), gamemd's `Secondary`
     /// field. `Secondary=` or `Weapon2=`, same storage.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn secondary(&self) -> Option<&str> {
         self.weapon_at(WEAPON_SLOT_SECONDARY)
     }
@@ -2323,6 +2324,7 @@ impl ObjectType {
     /// `ElitePrimary` field: `ElitePrimary=` or `EliteWeapon1=`. Replaces
     /// [`Self::primary`] when the unit is at Elite tier (veterancy >= 200) and
     /// this slot names a weapon; Veteran tier (100..199) does NOT swap.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn elite_primary(&self) -> Option<&str> {
         self.elite_weapon_at(WEAPON_SLOT_PRIMARY)
     }
@@ -2330,6 +2332,7 @@ impl ObjectType {
     /// Elite weapon-array slot 1 (`TechnoTypeClass+0xAB0`), gamemd's
     /// `EliteSecondary` field: `EliteSecondary=` or `EliteWeapon2=`. Replaces
     /// [`Self::secondary`] at Elite tier under the same rule.
+    #[cfg(test)]
     pub fn elite_secondary(&self) -> Option<&str> {
         self.elite_weapon_at(WEAPON_SLOT_SECONDARY)
     }

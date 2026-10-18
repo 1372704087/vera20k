@@ -213,6 +213,7 @@ impl SearchMarkerOverlay {
         }
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
@@ -1187,19 +1188,16 @@ pub struct PathCell {
 /// sub-cell allocator picks a free slot. Stock `rulesmd.ini` gives 56 of 60
 /// temperate terrain types `TemperateOccupationBits=4` (a single bit), so most
 /// tree cells hold two infantry; only `=7` closes the cell.
+#[cfg(test)]
 pub const INFANTRY_SUBCELL_MASK: u8 = 0x1C;
 
 /// Whether a terrain object with these cell-plane bits closes the cell to infantry.
+#[cfg(test)]
 fn terrain_object_blocks_infantry(cell_bits: u8) -> bool {
     cell_bits & INFANTRY_SUBCELL_MASK == INFANTRY_SUBCELL_MASK
 }
 
 impl PathCell {
-    pub fn is_elevated_bridge_cell(&self) -> bool {
-        self.bridge_deck_level_if_any()
-            .is_some_and(|deck| deck > self.ground_level)
-    }
-
     pub fn bridge_deck_level_if_any(&self) -> Option<u8> {
         self.bridge_walkable.then_some(self.bridge_deck_level)
     }
@@ -1212,6 +1210,7 @@ impl PathCell {
         self.ground_level as i8 as i16
     }
 
+    #[cfg(test)]
     pub fn effective_cell_z_for_layer(&self, layer: MovementLayer) -> u8 {
         match layer {
             MovementLayer::Bridge => self.bridge_deck_level_if_any().unwrap_or(self.ground_level),
@@ -1223,6 +1222,7 @@ impl PathCell {
 }
 
 /// Default ground-only cell: walkable, no bridges, level 0.
+#[cfg(any(test, feature = "test-support"))]
 const DEFAULT_WALKABLE_CELL: PathCell = PathCell {
     ground_walkable: true,
     bridge_walkable: false,
@@ -1390,6 +1390,7 @@ fn project_terrain_path_cell(
 
 impl PathGrid {
     /// Create a new grid where all cells are ground-walkable with no bridges.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(width: u16, height: u16) -> Self {
         let size = width as usize * height as usize;
         Self::with_cells(
@@ -1470,6 +1471,7 @@ impl PathGrid {
     /// to infantry when its mask fills every functional sub-cell. Any other
     /// blocking clause (cliff, overlay, `ground_walk_blocked`, destroyed bridge)
     /// still blocks.
+    #[cfg(test)]
     pub fn is_walkable_for_infantry(&self, x: u16, y: u16) -> bool {
         if x >= self.width || y >= self.height {
             return false;

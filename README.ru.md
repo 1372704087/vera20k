@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="Заглавное изображение VERA20k" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="Заглавное изображение VERA20K" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <strong>Русский</strong> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -10,16 +10,16 @@
   <img src="https://img.shields.io/badge/QQ_группа-1097193563-1EBAFC?style=flat&amp;logo=qq&amp;logoColor=white" alt="QQ-группа" height="20" align="middle">
 </p>
 
-# VERA20k
+# VERA20K
 
-VERA20k — новая реализация оригинального движка `gamemd.exe`, которую развивает сообщество.
+VERA20K — новая реализация оригинального движка `gamemd.exe`, которую развивает сообщество.
 Она использует оригинальные файлы игры, поэтому тебе понадобится собственная копия
 Red Alert 2: Yuri's Revenge.
 
-VERA20k делают игроки для игроков, и последнее слово в том, куда движется проект, остаётся за
+VERA20K делают игроки для игроков, и последнее слово в том, куда движется проект, остаётся за
 игроками.
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k: настройки схватки и кадр из игры" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K: настройки схватки и кадр из игры" width="100%">
 
 ## Цели проекта
 
@@ -67,7 +67,7 @@ VERA20k делают игроки для игроков, и последнее �
   `sudo apt install build-essential libasound2-dev pkg-config`.
 - **Графика:** видеокарта с поддержкой Vulkan, DirectX 12 или Metal.
 
-В VERA20k уже играли на Windows, Linux и macOS.
+В VERA20K уже играли на Windows, Linux и macOS.
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -97,7 +97,7 @@ Ghidra, затем переносят его поведение на Rust и п�
 
 ## Поддержка проекта
 
-<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Поддержать VERA20k через PayPal" height="40"></a>
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Поддержать VERA20K через PayPal" height="40"></a>
 
 Все полученные пожертвования
 распределяются между участниками проекта согласно
@@ -114,7 +114,7 @@ Phobos и многим другим.
 
 Проект распространяется под лицензией [GPLv3](LICENSE-GPL). В этом репозитории нет файлов игры.
 Command & Conquer и Red Alert — товарные знаки Electronic Arts Inc., а на скриншотах показана
-игровая графика, принадлежащая Electronic Arts. VERA20k не связан с Electronic Arts и
+игровая графика, принадлежащая Electronic Arts. VERA20K не связан с Electronic Arts и
 не одобрен компанией.
 
 Перевод [README.md](README.md); поддерживайте его в соответствии с английской версией.

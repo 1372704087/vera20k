@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="ภาพหน้าปก VERA20k" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="ภาพหน้าปก VERA20K" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <strong>ไทย</strong> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -10,14 +10,14 @@
   <img src="https://img.shields.io/badge/QQ_group-1097193563-1EBAFC?style=flat&amp;logo=qq&amp;logoColor=white" alt="กลุ่ม QQ" height="20" align="middle">
 </p>
 
-# VERA20k
+# VERA20K
 
-VERA20k คือโครงการที่ขับเคลื่อนโดยชุมชนเพื่อเขียนเอนจินเกมต้นฉบับ `gamemd.exe` ขึ้นใหม่
+VERA20K คือโครงการที่ขับเคลื่อนโดยชุมชนเพื่อเขียนเอนจินเกมต้นฉบับ `gamemd.exe` ขึ้นใหม่
 โดยใช้ไฟล์จากเกมต้นฉบับ คุณจึงต้องมี Red Alert 2: Yuri's Revenge ของตัวเอง
 
-VERA20k สร้างโดยเกมเมอร์ เพื่อเกมเมอร์ และเกมเมอร์คือผู้ตัดสินใจขั้นสุดท้ายว่าโครงการจะไปในทิศทางใด
+VERA20K สร้างโดยเกมเมอร์ เพื่อเกมเมอร์ และเกมเมอร์คือผู้ตัดสินใจขั้นสุดท้ายว่าโครงการจะไปในทิศทางใด
 
-<img src="docs/images/vera20k-screenshots.png" alt="หน้าตั้งค่าการต่อสู้และภาพขณะเล่น VERA20k" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="หน้าตั้งค่าการต่อสู้และภาพขณะเล่น VERA20K" width="100%">
 
 ## เป้าหมายของโครงการ
 
@@ -63,7 +63,7 @@ VERA20k สร้างโดยเกมเมอร์ เพื่อเก�
   บน macOS รัน `xcode-select --install` บน Debian และ Ubuntu รัน `sudo apt install build-essential libasound2-dev pkg-config`
 - **กราฟิก:** GPU ที่รองรับ Vulkan, DirectX 12 หรือ Metal
 
-มีการเล่น VERA20k บน Windows, Linux และ macOS แล้ว
+มีการเล่น VERA20K บน Windows, Linux และ macOS แล้ว
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -92,7 +92,7 @@ cargo run --release --bin vera20k
 
 ## สนับสนุนโครงการ
 
-<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="สนับสนุน VERA20k ผ่าน PayPal" height="40"></a>
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="สนับสนุน VERA20K ผ่าน PayPal" height="40"></a>
 
 เงินบริจาคทั้งหมดที่ได้รับจะจัดสรรให้
 ผู้มีส่วนร่วมตาม[บัญชีบันทึกผลงาน TIBTRE](https://github.com/YuriPlanet/tibtre-ledger)
@@ -109,6 +109,6 @@ Command & Conquer และ Red Alert ภายใต้ GPL, World-Altering Edi
 เผยแพร่ภายใต้สัญญาอนุญาต [GPLv3](LICENSE-GPL) ที่เก็บโค้ดนี้ไม่มีไฟล์เกม
 Command & Conquer และ Red Alert เป็นเครื่องหมายการค้าของ Electronic Arts Inc.
 ภาพหน้าจอแสดงงานภาพจากเกมที่เป็นของ Electronic Arts
-VERA20k ไม่มีความเกี่ยวข้องกับ Electronic Arts และไม่ได้รับการรับรองจาก Electronic Arts
+VERA20K ไม่มีความเกี่ยวข้องกับ Electronic Arts และไม่ได้รับการรับรองจาก Electronic Arts
 
 แปลจาก [README.md](README.md) โปรดปรับปรุงให้ตรงกับฉบับภาษาอังกฤษเสมอ

@@ -1148,7 +1148,11 @@ mod tests {
             (1u32, CursorId::Move),
             (2, CursorId::NoMove),
             (9, CursorId::Enter),
+            (4, CursorId::Deploy),
             (16, CursorId::Demolish),
+            (30, CursorId::NoDeploy),
+            (64, CursorId::Demolish),
+            (71, CursorId::AirStrike),
             (53, CursorId::IvanBomb),
             (57, CursorId::Disarm),
         ] {

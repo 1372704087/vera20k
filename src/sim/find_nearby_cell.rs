@@ -713,6 +713,12 @@ impl crate::sim::world::Simulation {
         seed: (i32, i32),
         args: NearbyArgs,
     ) -> Option<(u16, u16)> {
+        #[cfg(test)]
+        if let Some(answer) =
+            crate::sim::movement::fresh_oracle_seam::supplied_nearby_cell(seed, args)
+        {
+            return answer;
+        }
         let (width, height) = self.map_size_diamond()?;
         find_nearby_passable_cell_with_options(
             seed,

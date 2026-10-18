@@ -565,9 +565,9 @@ impl Simulation {
     /// bounded factory/depot modes: basic-factory-exit-geometry-research.
     ///
     /// Callers: the group spread (`0x0064D52F`), the team centre
-    /// (`0x006EAEE0`) and Jumpjet State 4 (`0x0054C66D`). Each decides what
-    /// an answer VERA cannot read (`Err`) means for it; native has no such
-    /// state.
+    /// (`0x006EAEE0`), Jumpjet State 4 (`0x0054C66D`) and Teleport's Unit arm
+    /// (`0x0071911D`). Each decides what an answer VERA cannot read (`Err`)
+    /// means for it; native has no such state. Teleport refuses the request.
     pub(crate) fn mover_can_enter(
         &self,
         id: u64,

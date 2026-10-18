@@ -250,16 +250,14 @@ fn scene(input: &Value) -> Scene {
         );
         sim.substrate.entities.get_mut(id).unwrap().passenger_role =
             PassengerRole::inside_for_test(transport, input["open_topped"] == true);
-        assert!(
-            sim.substrate
-                .entities
-                .get_mut(transport)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(id, 1)
-        );
+        sim.substrate
+            .entities
+            .get_mut(transport)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(id, 1)]);
         if input["open_topped"] == true {
             assert!(sim.register_open_topped_passenger(id));
             // A target to drop: Assign_Target(NULL) is the only writer here.

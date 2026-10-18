@@ -13,6 +13,7 @@
 //! - Part of sim/.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+use crate::sim::cell_kernel::{CellCoordinate, WorldCoordinate, cell_center};
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::fixed_math::SimFixed;
@@ -215,14 +216,22 @@ pub struct DriveCoord {
 }
 
 impl DriveCoord {
-    const CELL_LEPTONS: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
-    const CELL_CENTER: i32 = crate::util::lepton::CELL_CENTER_LEPTON_I32;
-
+    /// Cell (rx, ry)'s centre ([`cell_center`]) at height `z`.
     pub fn cell(rx: u16, ry: u16, z: i32) -> Self {
+        let cell = CellCoordinate {
+            x: i32::from(rx),
+            y: i32::from(ry),
+        };
+        cell_center(cell, z).into()
+    }
+}
+
+impl From<WorldCoordinate> for DriveCoord {
+    fn from(point: WorldCoordinate) -> Self {
         Self {
-            x: i32::from(rx) * Self::CELL_LEPTONS + Self::CELL_CENTER,
-            y: i32::from(ry) * Self::CELL_LEPTONS + Self::CELL_CENTER,
-            z,
+            x: point.x,
+            y: point.y,
+            z: point.z,
         }
     }
 }

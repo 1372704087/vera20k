@@ -1110,7 +1110,8 @@ use crate::sim::world::Simulation;
 // them from mutable human flags or country after loading.
 // 401 -> 402: retained DiskLaser bodies and Rules+28C charge-up reference.
 // 402 -> 403: resident Map+D4 ordered pending bridge-collapse coordinates.
-const SNAPSHOT_VERSION: u32 = 403;
+// 403 -> 404: retained House+310 capacity and Building Storage type input.
+const SNAPSHOT_VERSION: u32 = 404;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4807,7 +4808,8 @@ mod tests {
         // 400 -> 401: retained native House names and their array binding.
         // 401 -> 402: retain delayed DiskLaser bodies and Rules charge-up.
         // 402 -> 403: retain pending Map+D4 collapse coordinates/order.
-        assert_eq!(super::SNAPSHOT_VERSION, 403);
+        // 403 -> 404: retain House capacity and future Building Storage input.
+        assert_eq!(super::SNAPSHOT_VERSION, 404);
     }
 
     #[test]

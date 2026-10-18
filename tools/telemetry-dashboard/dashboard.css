@@ -3,6 +3,10 @@
      state. `--gb` is the frost radius and stays small on purpose: past about
      10px the backdrop stops reading as stars and collapses into a wash. */
   :root {
+    /* Nothing here tells the browser this is a dark page, so every native part
+       — the log level's option list, scrollbars, text selection — came up in
+       light colours over our near-white ink. */
+    color-scheme: dark;
     --bg: #070b18;
     /* The lit top of the backdrop gradient, and the two heading inks. The export
        canvases read these same tokens (see `exportPalette` in dashboard.ts), so
@@ -936,6 +940,17 @@
   }
   .log-search { flex: 1; min-width: 120px; }
   .log-search::placeholder { color: #6f88a8; }
+  /* The option list is drawn by the browser, not by us. `color-scheme: dark`
+     gets it out of white-on-white; these carry the panel's own navy so the
+     open list reads as part of the card. */
+  .log-select option {
+    background: #0e1730;
+    color: var(--text);
+  }
+  .log-select option:checked {
+    background: rgba(111, 183, 255, 0.28);
+    color: var(--strong);
+  }
   .log-follow {
     display: flex;
     align-items: center;

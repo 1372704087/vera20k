@@ -15,13 +15,17 @@ mod campaign_house_bootstrap_tests;
 mod scenario_house_name_retail_tests;
 
 #[cfg(test)]
+#[path = "scenario_launch_identity_retail_tests.rs"]
+mod scenario_launch_identity_retail_tests;
+
+#[cfg(test)]
 #[path = "scenario_special_money_retail_tests.rs"]
 mod scenario_special_money_retail_tests;
 
 use std::collections::HashMap;
 
 use crate::map::entities::EntityCategory;
-use crate::map::houses::HouseRoster;
+use crate::map::houses::{HouseRoster, normalize_house_name};
 use crate::map::map_file::{MapFile, MapHeader};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::waypoints::Waypoint;
@@ -1515,14 +1519,15 @@ pub fn normalized_launch_slots(session: &SkirmishLaunchSession) -> Vec<Normalize
     // session.player_name and preserve every noncolliding compatibility key.
     // `Player` cannot match Neutral/Special or any generated ComputerN key.
     // Evidence: docs/research/PHASE3_CURRENT_HOUSE_IDENTITY_GHIDRA_REPORT.md.
+    // Allocate against the same key projection used by diplomacy readers
+    // and writers. A display handle such as ` Computer2 ` must not acquire
+    // that AI's team bits through the graph's trimmed, case-folded key.
+    let player_key = normalize_house_name(&session.player_name);
     let name_collides = ["Neutral", "Special"]
         .iter()
-        .any(|name| session.player_name.eq_ignore_ascii_case(name))
-        || (1..=session.opponents.len()).any(|index| {
-            session
-                .player_name
-                .eq_ignore_ascii_case(&format!("Computer{index}"))
-        });
+        .any(|name| player_key == normalize_house_name(name))
+        || (1..=session.opponents.len())
+            .any(|index| player_key == normalize_house_name(&format!("Computer{index}")));
     let local_owner_name = if name_collides {
         "Player"
     } else {
@@ -1728,10 +1733,6 @@ pub fn apply_skirmish_ai_opening_credits(sim: &mut Simulation, rules: &RuleSet) 
     }
 }
 
-fn normalize_house_key(name: &str) -> String {
-    name.trim().to_ascii_uppercase()
-}
-
 pub fn launch_alliance_map(
     house_roster: &HouseRoster,
     slots: &[NormalizedSkirmishSlot],
@@ -1740,7 +1741,7 @@ pub fn launch_alliance_map(
     let mut alliances = house_roster.alliance_map();
     for slot in slots {
         alliances
-            .entry(normalize_house_key(&slot.owner_name))
+            .entry(normalize_house_name(&slot.owner_name))
             .or_default();
     }
     for left in slots {
@@ -1751,8 +1752,8 @@ pub fn launch_alliance_map(
             if left.owner_name == right.owner_name || right.team != LaunchTeam::Team(team) {
                 continue;
             }
-            let left_key = normalize_house_key(&left.owner_name);
-            let right_key = normalize_house_key(&right.owner_name);
+            let left_key = normalize_house_name(&left.owner_name);
+            let right_key = normalize_house_name(&right.owner_name);
             alliances
                 .entry(left_key.clone())
                 .or_default()
@@ -1766,8 +1767,8 @@ pub fn launch_alliance_map(
                 if left.owner_name == right.owner_name || left.is_human != right.is_human {
                     continue;
                 }
-                let left_key = normalize_house_key(&left.owner_name);
-                let right_key = normalize_house_key(&right.owner_name);
+                let left_key = normalize_house_name(&left.owner_name);
+                let right_key = normalize_house_name(&right.owner_name);
                 alliances
                     .entry(left_key.clone())
                     .or_default()

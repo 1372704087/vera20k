@@ -105,7 +105,9 @@ pub(in crate::sim) use self::factory_lifecycle::{
 #[cfg(any(test, feature = "test-support"))]
 pub(in crate::sim) use self::production_queue::exit_produced_object;
 pub(crate) use self::production_tech::factory_category_for_building;
-pub(crate) use self::wall_placement::stamp_wall_with_autofill;
+pub(crate) use self::wall_placement::{
+    autofill_walls, linked_overlay_id as linked_wall_overlay_id, mark_wall,
+};
 
 #[cfg(test)]
 #[path = "production_tests.rs"]

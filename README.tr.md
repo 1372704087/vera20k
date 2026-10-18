@@ -99,12 +99,14 @@ Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20k'yi PayPal üzerinden destekleyin" height="40"></a>
 
-Alınan tüm bağışlar,
-[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
-bulunanlara dağıtılır.
+Tüm bağışlar katkıda bulunanlar içindir ve
+[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre dağıtılır. Bu
+yalnızca iyi niyetli bir amaçtır, hukuki bir yükümlülük değildir: bağış bir hediyedir ve hiç
+kimse bundan dolayı projeye, proje yürütücülerine ya da onların terekesine veya mirasçılarına
+karşı hukuki bir hak elde etmez.
 
-Katkıda bulunanlara ödemeler PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
-Bitcoin üzerinden yapılır.
+Ödemeler yapılırsa PayPal, UnionPay (Çin), Alipay, Vipps, SEPA banka havalesi veya
+Bitcoin üzerinden gönderilir.
 
 ## Teşekkürler ve yasal bilgiler
 

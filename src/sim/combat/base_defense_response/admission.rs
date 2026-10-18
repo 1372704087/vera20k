@@ -118,7 +118,7 @@ pub(super) fn candidate_admitted(
         world: sim,
         rules,
         overlay_registry: None,
-        fog: Some(sim.fog.fire_view()),
+        fog: Some(sim.fog.fire_view(&sim.house_alliances)),
         firer: candidate,
         obj: candidate_object,
         target: Some(TargetKind::Entity(attacker_id)),

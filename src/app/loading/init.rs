@@ -783,7 +783,9 @@ mod map_wall_owner_candidate_tests {
         sim.session.lighting.current_ambient = 90;
         lights.refresh(&terrain, &sim, 2);
         sim.set_building_light_active(41, false);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         assert!(!sim.lighting_sources.pending.is_empty());
         sim.radiation.apply_detonation(
             RadDetonation {
@@ -1025,7 +1027,9 @@ mod map_wall_owner_candidate_tests {
         fatal_lamp_stage(&mut sim, &rules, 41);
         sim.session.lighting.current_ambient = 30;
         sim.session.lighting.target_ambient = 30;
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         let mut rt = crate::sim::runtime::SimRuntime::from_simulation(sim);
         rt.resources.rules = rules;
         let frame = rt
@@ -1121,7 +1125,9 @@ mod map_wall_owner_candidate_tests {
             &mut sim.lighting_sources.pending,
         );
         sim.session.lighting.current_ambient = 250;
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         sim.set_building_light_active(41, true);
         sim.radiation.apply_detonation(
             radiation,
@@ -1188,8 +1194,18 @@ mod map_wall_owner_candidate_tests {
             Some((&terrain, &sim)),
         );
         let original_key = lights.grid().cell_light_at((4, 5)).unwrap().rgb_key;
+        //555E50 reads the live storm flag when constructing a new Convert;
+        // selecting a scenario profile alone does not create that condition.
+        let owner = sim.interner.intern("LightingFixture");
+        sim.lightning_storm =
+            crate::sim::superweapon::lightning_storm::LightningStorm::raging_for_test(
+                owner,
+                (0, 0),
+            );
         sim.session.lighting.select(ScenarioLightingProfile::Ion);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         seed_live_lamp(&mut sim, &rules);
         apply_lighting_events(&mut lights, &terrain, &mut sim);
         let normal_cell = lights.grid().cell_light_at((4, 5)).unwrap().clone();
@@ -1212,8 +1228,11 @@ mod map_wall_owner_candidate_tests {
             PaletteLight::new([200, 900, 400], rows, normal_cell.common_scalar, false)
         );
         let ion_tint = lights.grid().body_tint_at((4, 5), 0);
+        sim.lightning_storm = Default::default();
         sim.session.lighting.select(ScenarioLightingProfile::Normal);
-        sim.publish_global_lighting();
+        sim.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::from_scenario(
+            &sim.session.lighting,
+        ));
         apply_lighting_events(&mut lights, &terrain, &mut sim);
         let restored = lights.grid().cell_light_at((4, 5)).unwrap();
         assert_eq!(restored.rgb_key, normal_cell.rgb_key);
@@ -1849,7 +1868,7 @@ impl MapLoadInitial {
         let match_launch_descriptor = fresh_parts.launch;
         let scenario_prefix_plan = fresh_parts.scenario_prefix;
         let source_seed = match &map_source {
-            LoadedMapSource::Generated { seed_name } => seed_name.clone(),
+            LoadedMapSource::Generated { seed_name, .. } => seed_name.clone(),
             other => panic!("random-map lifecycle fixture loaded {other:?}"),
         };
         let mut waypoints: Vec<_> = map_data
@@ -2318,13 +2337,22 @@ pub(crate) fn load_map_initial_with_assets(
         .or(quickplay_seed);
     if let Some(seed_name) = seed_selection.as_deref() {
         let mut options = crate::map::rmg::RmgOptions::default();
-        match std::fs::read(ra2_dir.join(seed_name)) {
-            Ok(bytes) => match crate::rules::ini_parser::IniFile::from_bytes(&bytes) {
-                Ok(ini) => options.apply_sed(&ini),
-                Err(err) => {
-                    log::warn!("random map: {seed_name} is not valid INI ({err}); using defaults")
+        let seed_path = ra2_dir.join(seed_name);
+        let mut seed_source = None;
+        match std::fs::read(&seed_path) {
+            Ok(bytes) => {
+                seed_source = Some(
+                    crate::map::source::GeneratedSeedSource::from_consumed_bytes(seed_path, &bytes),
+                );
+                match crate::rules::ini_parser::IniFile::from_bytes(&bytes) {
+                    Ok(ini) => options.apply_sed(&ini),
+                    Err(err) => {
+                        log::warn!(
+                            "random map: {seed_name} is not valid INI ({err}); using defaults"
+                        )
+                    }
                 }
-            },
+            }
             // Missing seed file is not fatal: the original's options object
             // keeps its constructor defaults when a key (or the file) is absent.
             Err(err) => log::warn!("random map: cannot read {seed_name} ({err}); using defaults"),
@@ -2392,6 +2420,7 @@ pub(crate) fn load_map_initial_with_assets(
             map_data: generated.map_file,
             map_source: LoadedMapSource::Generated {
                 seed_name: seed_name.to_string(),
+                seed_source,
             },
             mapgen_rng_continuation: Some(mapgen_rng_continuation),
             retained_process_mapgen: None,

@@ -616,8 +616,9 @@ pub(crate) struct GapGeneratorSource {
 }
 
 /// What a fire check (GetFireError and its range and line-of-fire questions)
-/// reads of a [`FogState`]: its alliance copy and its sensor counts, borrowed
-/// from a live fog ([`FogState::fire_view`]) or from a [`FireFogCopy`].
+/// reads of the houses and their fog: the ally graph
+/// (`Simulation::house_alliances`) and the sensor counts, borrowed live
+/// ([`FogState::fire_view`]) or from a [`FireFogCopy`].
 #[derive(Clone, Copy)]
 pub(crate) struct FireFog<'a> {
     pub(crate) alliances: &'a HouseAllianceMap,
@@ -630,15 +631,34 @@ impl FireFog<'_> {
     /// Whether `house` holds a sensor count on cell (`rx`, `ry`)
     /// ([`FogState::has_sensor_for_house`]).
     pub(crate) fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
-        if rx >= self.width || ry >= self.height {
-            return false;
-        }
-        let index = usize::from(ry) * usize::from(self.width) + usize::from(rx);
-        self.sensors_by_house
-            .get(&house)
-            .and_then(|counters| counters.get(index))
-            .is_some_and(|count| *count > 0)
+        sensor_counted(
+            self.sensors_by_house,
+            self.width,
+            self.height,
+            house,
+            rx,
+            ry,
+        )
     }
+}
+
+/// Whether `house`'s sensor count on cell (`rx`, `ry`) is positive.
+fn sensor_counted(
+    sensors_by_house: &BTreeMap<InternedId, Vec<i16>>,
+    width: u16,
+    height: u16,
+    house: InternedId,
+    rx: u16,
+    ry: u16,
+) -> bool {
+    if rx >= width || ry >= height {
+        return false;
+    }
+    let index = usize::from(ry) * usize::from(width) + usize::from(rx);
+    sensors_by_house
+        .get(&house)
+        .and_then(|counters| counters.get(index))
+        .is_some_and(|count| *count > 0)
 }
 
 /// A [`FireFog`]'s parts copied ([`FogState::fire_copy`]), for fire checks
@@ -671,7 +691,6 @@ pub struct FogState {
     pub width: u16,
     pub height: u16,
     pub by_owner: BTreeMap<InternedId, OwnerVisibility>,
-    pub alliances: HouseAllianceMap,
     /// One native source cache per logical viewer. Inactive entries retain
     /// cached254/260 after250 is cleared, until actual object teardown.
     pub(crate) sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
@@ -1245,23 +1264,30 @@ impl FogState {
     }
 
     pub fn has_sensor_for_house(&self, house: InternedId, rx: u16, ry: u16) -> bool {
-        self.fire_view().has_sensor_for_house(house, rx, ry)
+        sensor_counted(
+            &self.sensors_by_house,
+            self.width,
+            self.height,
+            house,
+            rx,
+            ry,
+        )
     }
 
-    /// What a fire check reads of this fog.
-    pub(crate) fn fire_view(&self) -> FireFog<'_> {
+    /// What a fire check reads of this fog and the houses' ally graph.
+    pub(crate) fn fire_view<'a>(&'a self, alliances: &'a HouseAllianceMap) -> FireFog<'a> {
         FireFog {
-            alliances: &self.alliances,
+            alliances,
             sensors_by_house: &self.sensors_by_house,
             width: self.width,
             height: self.height,
         }
     }
 
-    /// A copy of what a fire check reads of this fog.
-    pub(crate) fn fire_copy(&self) -> FireFogCopy {
+    /// A copy of what a fire check reads of this fog and the ally graph.
+    pub(crate) fn fire_copy(&self, alliances: &HouseAllianceMap) -> FireFogCopy {
         FireFogCopy {
-            alliances: self.alliances.clone(),
+            alliances: alliances.clone(),
             sensors_by_house: self.sensors_by_house.clone(),
             width: self.width,
             height: self.height,
@@ -1428,16 +1454,6 @@ impl FogState {
         self.by_owner
             .get(&owner)
             .is_some_and(|s| s.is_gap_fog(rx, ry))
-    }
-
-    /// Returns true if two owners should be treated as friendly.
-    pub fn is_friendly(&self, a: &str, b: &str) -> bool {
-        are_houses_friendly(&self.alliances, a, b)
-    }
-
-    /// Returns true if two interned owners should be treated as friendly.
-    pub fn is_friendly_id(&self, a: InternedId, b: InternedId, interner: &StringInterner) -> bool {
-        a == b || are_houses_friendly(&self.alliances, interner.resolve(a), interner.resolve(b))
     }
 
     /// Shroud `owner`'s whole buffer again for fog-only fixtures, re-admitting
@@ -1766,7 +1782,6 @@ impl FogState {
         &mut self,
         entities: &EntityStore,
         path_grid: Option<&PathGrid>,
-        alliances: &HouseAllianceMap,
     ) -> std::collections::BTreeSet<InternedId> {
         // Construction-seeded session bounds are authoritative; the lazy
         // derivation stays only as the fallback for fixture sims built without a
@@ -1804,8 +1819,6 @@ impl FogState {
                 }
             }
         }
-
-        self.alliances = alliances.clone();
 
         untracked
     }
@@ -2565,6 +2578,7 @@ fn fire_reveal_cells(fog: &mut FogState, owner: InternedId, cells: Vec<(u16, u16
 /// or whose name `admits` passes; ascending, without repeats.
 fn reveal_candidates(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     interner: &StringInterner,
     with_owner: bool,
@@ -2579,7 +2593,7 @@ fn reveal_candidates(
         .collect();
     // An alliance entry's house is the interned name itself; `owner` is
     // already in when `with_owner` keeps it.
-    for (house, allies) in &fog.alliances {
+    for (house, allies) in alliances {
         for name in std::iter::once(house).chain(allies) {
             if admits(name)
                 && let Some(id) = interner.get(name)
@@ -2602,40 +2616,43 @@ fn reveal_candidates(
 /// of its index, `0x00567AC1..0x00567ADB`) is mapped too, allied or not;
 /// VERA keeps no radar-spy bits.
 pub(crate) fn reveal_admits(
-    fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     viewer: InternedId,
     config: &VisionConfig,
     interner: &StringInterner,
 ) -> bool {
-    viewer == owner || ally_reveal_test(fog, owner, config, interner)(interner.resolve(viewer))
+    viewer == owner
+        || ally_reveal_test(alliances, owner, config, interner)(interner.resolve(viewer))
 }
 
 /// [`reveal_admits`]'s allied arm for one `owner`, to ask of many viewers by
 /// name: `AllyReveal=` and `owner`'s IsAlliedWith ([`allied_viewers`]).
 fn ally_reveal_test<'a>(
-    fog: &'a FogState,
+    alliances: &'a HouseAllianceMap,
     owner: InternedId,
     config: &'a VisionConfig,
     interner: &'a StringInterner,
 ) -> impl Fn(&str) -> bool + 'a {
-    let allied = crate::map::houses::ally_test(&fog.alliances, interner.resolve(owner));
+    let allied = crate::map::houses::ally_test(alliances, interner.resolve(owner));
     move |viewer| config.ally_reveal && allied(viewer)
 }
 
 /// The maps a reveal by `owner` writes ([`reveal_admits`]).
 pub(crate) fn direct_reveal_viewers(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     config: &VisionConfig,
     interner: &StringInterner,
 ) -> Vec<InternedId> {
     reveal_candidates(
         fog,
+        alliances,
         owner,
         interner,
         true,
-        ally_reveal_test(fog, owner, config, interner),
+        ally_reveal_test(alliances, owner, config, interner),
     )
 }
 
@@ -2644,11 +2661,12 @@ pub(crate) fn direct_reveal_viewers(
 /// (`+0x5788`), one-way; a house is its own ally.
 pub(crate) fn allied_viewers(
     fog: &FogState,
+    alliances: &HouseAllianceMap,
     owner: InternedId,
     interner: &StringInterner,
 ) -> Vec<InternedId> {
-    let allied = crate::map::houses::ally_test(&fog.alliances, interner.resolve(owner));
-    reveal_candidates(fog, owner, interner, false, allied)
+    let allied = crate::map::houses::ally_test(alliances, interner.resolve(owner));
+    reveal_candidates(fog, alliances, owner, interner, false, allied)
 }
 
 /// Materialize active SpySat house latches by marking every synthetic-grid cell
@@ -2691,6 +2709,7 @@ pub fn apply_spy_sat(
 #[cfg(any(test, feature = "test-support"))]
 pub fn apply_gap_generators(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[(InternedId, u16, u16, i32)],
     interner: &StringInterner,
 ) {
@@ -2705,17 +2724,19 @@ pub fn apply_gap_generators(
             radius,
         })
         .collect();
-    apply_gap_generator_sources(fog, &sources, interner);
+    apply_gap_generator_sources(fog, alliances, &sources, interner);
 }
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn apply_gap_generator_sources(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[GapGeneratorSource],
     interner: &StringInterner,
 ) {
     apply_gap_generator_sources_with_spy_sat(
         fog,
+        alliances,
         gap_generators,
         interner,
         &std::collections::BTreeSet::new(),
@@ -2725,6 +2746,7 @@ pub(crate) fn apply_gap_generator_sources(
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn apply_gap_generator_sources_with_spy_sat(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     gap_generators: &[GapGeneratorSource],
     interner: &StringInterner,
     spy_sat_active_owners: &std::collections::BTreeSet<InternedId>,
@@ -2743,7 +2765,7 @@ pub(crate) fn apply_gap_generator_sources_with_spy_sat(
                 continue;
             }
             if !are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(generator.owner),
                 interner.resolve(viewer),
             ) {
@@ -2798,6 +2820,7 @@ fn gap_footprint(generator: GapGeneratorSource, width: usize, height: usize) -> 
 /// this ledger owns which viewer cell writes that deposit contributed.
 pub(crate) fn publish_gap_generator_event(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     viewer: InternedId,
     source: GapGeneratorSource,
     active: bool,
@@ -2813,7 +2836,7 @@ pub(crate) fn publish_gap_generator_event(
         let receipts = fog.gap_sources.entry(viewer).or_default();
         if active {
             if !are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(source.owner),
                 interner.resolve(viewer),
             ) && receipts.insert(source)
@@ -2855,6 +2878,7 @@ pub(crate) fn publish_gap_generator_event(
 /// Friendly Cell13C remains the existing boolean fog projection.
 pub(crate) fn materialize_gap_generator_sources(
     fog: &mut FogState,
+    alliances: &HouseAllianceMap,
     sources: &BTreeMap<InternedId, Vec<GapGeneratorSource>>,
     interner: &StringInterner,
 ) {
@@ -2870,7 +2894,7 @@ pub(crate) fn materialize_gap_generator_sources(
         vis.clear_gap_fog();
         for &source in sources.get(&viewer).into_iter().flatten() {
             if are_houses_friendly(
-                &fog.alliances,
+                alliances,
                 interner.resolve(source.owner),
                 interner.resolve(viewer),
             ) {

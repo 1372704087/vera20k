@@ -203,6 +203,7 @@ impl Simulation {
             let heights = self.sight_height_grid(&config);
             let viewers = crate::sim::vision::direct_reveal_viewers(
                 &self.fog,
+                &self.house_alliances,
                 owner,
                 &config,
                 &self.interner,

@@ -243,7 +243,6 @@ impl Simulation {
             ry: entity.position.ry(),
             radius,
         };
-        self.fog.alliances = self.house_alliances.clone();
         // A normal scenario constructs its viewer Houses before Technos.
         self.fog
             .by_owner
@@ -256,6 +255,7 @@ impl Simulation {
             .collect();
         vision::publish_gap_generator_event(
             &mut self.fog,
+            &self.house_alliances,
             viewer,
             source,
             active,

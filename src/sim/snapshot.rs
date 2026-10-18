@@ -1112,7 +1112,10 @@ use crate::sim::world::Simulation;
 // 402 -> 403: resident Map+D4 ordered pending bridge-collapse coordinates.
 // 403 -> 404: retained House+310 capacity and Building Storage type input.
 // 404 -> 405: retained Rules+1866 ChronoBeamColor in saved processed rules.
-const SNAPSHOT_VERSION: u32 = 405;
+// 405 -> 406: preserve live Action71/72 ambient Rules inputs across saves.
+// 406 -> 407: FogState no longer saves a copy of the House ally graph; the
+// saved Simulation::house_alliances is the only one.
+const SNAPSHOT_VERSION: u32 = 407;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4811,7 +4814,9 @@ mod tests {
         // 402 -> 403: retain pending Map+D4 collapse coordinates/order.
         // 403 -> 404: retain House capacity and future Building Storage input.
         // 404 -> 405: retain AudioVisual ChronoBeamColor in processed rules.
-        assert_eq!(super::SNAPSHOT_VERSION, 405);
+        // 405 -> 406: live ambient Rules writes from Action71/72.
+        // 406 -> 407: the fog's copy of the ally graph is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 407);
     }
 
     #[test]
@@ -6602,7 +6607,12 @@ mod tests {
         house.map_is_clear = true;
         sim.houses.insert(owner, house);
         sim.fog.reveal_all_for_owner(owner);
-        crate::sim::vision::apply_gap_generators(&mut sim.fog, &[(gapper, 6, 6, 2)], &sim.interner);
+        crate::sim::vision::apply_gap_generators(
+            &mut sim.fog,
+            &sim.house_alliances,
+            &[(gapper, 6, 6, 2)],
+            &sim.interner,
+        );
         assert!(sim.fog.is_cell_revealed(owner, 0, 0));
         assert!(!sim.fog.is_cell_revealed(owner, 6, 6));
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate

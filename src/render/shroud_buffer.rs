@@ -628,7 +628,12 @@ mod tests {
         let interner = intern::test_interner();
         let mut fog = fog_16();
         explored_block(&mut fog, owner);
-        apply_gap_generators(&mut fog, &[(owner, 6, 6, 2)], &interner);
+        apply_gap_generators(
+            &mut fog,
+            &Default::default(),
+            &[(owner, 6, 6, 2)],
+            &interner,
+        );
 
         assert!(
             fog.is_cell_gap_fog(owner, 6, 6),
@@ -649,7 +654,12 @@ mod tests {
         let interner = intern::test_interner();
         let mut fog = fog_16();
         explored_block(&mut fog, victim);
-        apply_gap_generators(&mut fog, &[(gapper, 6, 6, 2)], &interner);
+        apply_gap_generators(
+            &mut fog,
+            &Default::default(),
+            &[(gapper, 6, 6, 2)],
+            &interner,
+        );
 
         assert_eq!(
             cell_fill(&fog, victim, 6, 6, &SHROUD_EDGE_LUT),

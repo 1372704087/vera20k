@@ -350,7 +350,6 @@ fn test_allied_visibility_is_shared() {
     );
     // The viewer plane already holds the direct ally's published knowledge.
     assert!(fog.is_cell_visible(intern::test_intern("Alliance"), 4, 4));
-    assert!(fog.is_friendly("Alliance", "Americans"));
 }
 
 // -- Sight cap tests --
@@ -730,7 +729,12 @@ fn test_gap_generator_preserves_admitted_enemy_sight() {
     // Allied gap generator at (12, 10) with radius 5.
     let americans_id = intern::test_intern("Americans");
     let interner = ti();
-    apply_gap_generators(&mut fog, &[(americans_id, 12, 10, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(americans_id, 12, 10, 5)],
+        &interner,
+    );
 
     // Original current_sight keeps the admitted negative counter open even
     // inside a hostile gap. Merely knowing the cell would not protect it.
@@ -750,7 +754,12 @@ fn test_gap_generator_does_not_suppress_friendly() {
     // Gap generator owned by Americans — should NOT suppress American vision.
     let americans_id = intern::test_intern("Americans");
     let interner = ti();
-    apply_gap_generators(&mut fog, &[(americans_id, 10, 10, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(americans_id, 10, 10, 5)],
+        &interner,
+    );
     assert!(fog.is_cell_visible(intern::test_intern("Americans"), 10, 10));
 }
 
@@ -767,7 +776,12 @@ fn gsi_04_18_hostile_gap_erases_map_knowledge_until_current_sight_returns() {
     fog.mark_visible_for_owner(viewer, 16, 16);
     assert!(fog.is_cell_revealed(viewer, 16, 16));
 
-    apply_gap_generators(&mut fog, &[(gapper, 16, 16, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 16, 16, 5)],
+        &interner,
+    );
     assert!(!fog.is_cell_visible(viewer, 16, 16));
     assert!(!fog.is_cell_revealed(viewer, 16, 16));
     assert!(fog.is_cell_gap_covered(viewer, 16, 16));
@@ -776,7 +790,7 @@ fn gsi_04_18_hostile_gap_erases_map_knowledge_until_current_sight_returns() {
         .get_mut(&viewer)
         .expect("viewer plane")
         .clear_all_visible();
-    apply_gap_generators(&mut fog, &[], &interner);
+    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &[], &interner);
     assert!(!fog.is_cell_gap_covered(viewer, 16, 16));
     assert!(
         !fog.is_cell_revealed(viewer, 16, 16),
@@ -800,7 +814,12 @@ fn gsi_04_18_spy_sat_repeat_is_not_a_new_map_reveal_event() {
     };
 
     apply_spy_sat(&mut fog, &[viewer], &interner);
-    apply_gap_generators(&mut fog, &[(gapper, 16, 16, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 16, 16, 5)],
+        &interner,
+    );
     assert!(!fog.is_cell_revealed(viewer, 16, 16));
 
     fog.by_owner
@@ -812,14 +831,24 @@ fn gsi_04_18_spy_sat_repeat_is_not_a_new_map_reveal_event() {
         !fog.is_cell_revealed(viewer, 16, 16),
         "577D90 House240 guard: passive visible-clear did not remove the gap or reset the map latch"
     );
-    apply_gap_generators(&mut fog, &[(gapper, 16, 16, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 16, 16, 5)],
+        &interner,
+    );
     assert!(
         !fog.is_cell_revealed(viewer, 16, 16),
         "the active hostile gap remains the final writer"
     );
 
     fog.mark_visible_for_owner(gapper, 16, 16);
-    apply_gap_generators(&mut fog, &[(gapper, 16, 16, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 16, 16, 5)],
+        &interner,
+    );
     assert!(fog.is_cell_visible(gapper, 16, 16));
     assert!(fog.is_cell_revealed(gapper, 16, 16));
     assert!(fog.is_cell_gap_fog(gapper, 16, 16));
@@ -1091,7 +1120,12 @@ fn test_gap_generator_sets_gap_covered_flag() {
     // American gap generator at (12, 10) with radius 5.
     let americans_id = intern::test_intern("Americans");
     let interner = ti();
-    apply_gap_generators(&mut fog, &[(americans_id, 12, 10, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(americans_id, 12, 10, 5)],
+        &interner,
+    );
 
     // Cell should now be gap-covered AND not visible for Soviet.
     assert!(fog.is_cell_gap_covered(intern::test_intern("Soviet"), 12, 10));
@@ -1112,7 +1146,12 @@ fn test_gap_covered_not_set_for_friendly() {
     // Gap owned by Americans — should NOT gap-cover American cells.
     let americans_id = intern::test_intern("Americans");
     let interner = ti();
-    apply_gap_generators(&mut fog, &[(americans_id, 10, 10, 5)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(americans_id, 10, 10, 5)],
+        &interner,
+    );
 
     assert!(!fog.is_cell_gap_covered(intern::test_intern("Americans"), 10, 10));
 }
@@ -1301,7 +1340,12 @@ fn gap_radius_uses_strict_radius_plus_one_squared() {
     // Pre-reveal a cell so suppression is observable (also creates the enemy grid).
     fog.mark_visible_for_owner(enemy, 30, 40);
     // No alliance entries => enemy is hostile to gapper.
-    apply_gap_generators(&mut fog, &[(gapper, 30, 30, 10)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 30, 30, 10)],
+        &interner,
+    );
 
     assert!(fog.is_cell_gap_covered(enemy, 32, 40)); // dx=2,dy=10 -> 104 < 121
     assert!(!fog.is_cell_gap_covered(enemy, 30, 41)); // dx=0,dy=11 -> 121 not < 121
@@ -1321,7 +1365,12 @@ fn gap_marks_friendly_viewer_as_fog_not_covered() {
         ..Default::default()
     };
     fog.mark_visible_for_owner(gapper, 30, 35);
-    apply_gap_generators(&mut fog, &[(gapper, 30, 30, 10)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 30, 30, 10)],
+        &interner,
+    );
 
     assert!(fog.is_cell_gap_fog(gapper, 30, 35)); // friendly => fog
     assert!(!fog.is_cell_gap_covered(gapper, 30, 35)); // not black
@@ -1341,14 +1390,19 @@ fn gap_coverage_clears_when_no_generator_present() {
         ..Default::default()
     };
     fog.mark_visible_for_owner(enemy, 30, 35);
-    apply_gap_generators(&mut fog, &[(gapper, 30, 30, 10)], &interner);
+    apply_gap_generators(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &[(gapper, 30, 30, 10)],
+        &interner,
+    );
     assert!(fog.is_cell_gap_covered(enemy, 30, 35));
 
     // New tick: clear_all_visible drops the gap flags; no generator => stays clear.
     if let Some(vis) = fog.by_owner.get_mut(&enemy) {
         vis.clear_all_visible();
     }
-    apply_gap_generators(&mut fog, &[], &interner);
+    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &[], &interner);
     assert!(!fog.is_cell_gap_covered(enemy, 30, 35));
 }
 
@@ -1919,14 +1973,14 @@ fn shroud_current_sight_matches_original_native_sequences() {
                         count -= 1;
                     }
                     fog = std::mem::take(&mut sight_world.fog);
-                    apply_gap_generators(&mut fog, &gaps, &interner);
+                    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &gaps, &interner);
                 }
                 "unshroud" => reveal_radius(&mut fog, owner, 10, 10, 2),
                 "map_reveal_bulk" => fog.reveal_all_for_owner(owner),
                 "map_reset_bulk" => fog.reset_explored_for_owner(owner),
                 "gap" => {
                     gaps.push((gapper, 10, 10, 3));
-                    apply_gap_generators(&mut fog, &gaps, &interner);
+                    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &gaps, &interner);
                 }
                 "remove" | "remove_mapclear" => {
                     gaps.pop();
@@ -1947,7 +2001,11 @@ fn shroud_current_sight_matches_original_native_sequences() {
                         Default::default()
                     };
                     apply_gap_generator_sources_with_spy_sat(
-                        &mut fog, &sources, &interner, &map_clear,
+                        &mut fog,
+                        &HouseAllianceMap::new(),
+                        &sources,
+                        &interner,
+                        &map_clear,
                     );
                 }
                 frame if frame.starts_with("frame") => {
@@ -2019,12 +2077,12 @@ fn shroud_current_sight_allied_gap_and_pending_survive_serialization() {
         &interner,
         None,
     );
-    apply_gap_generators(&mut fog, &[(gapper, 10, 10, 3)], &interner);
+    apply_gap_generators(&mut fog, &alliances, &[(gapper, 10, 10, 3)], &interner);
     assert!(fog.is_cell_visible(owner, 10, 10));
     assert!(!fog.is_cell_gap_covered(owner, 10, 10));
     let encoded = bincode::serialize(&fog).unwrap();
     let mut restored: FogState = bincode::deserialize(&encoded).unwrap();
-    apply_gap_generators(&mut restored, &[(gapper, 10, 10, 3)], &interner);
+    apply_gap_generators(&mut restored, &alliances, &[(gapper, 10, 10, 3)], &interner);
     assert!(restored.is_cell_revealed(owner, 10, 10));
     store.remove(1);
     fixture_frame(
@@ -2039,10 +2097,10 @@ fn shroud_current_sight_allied_gap_and_pending_survive_serialization() {
         &interner,
         None,
     );
-    apply_gap_generators(&mut restored, &[(gapper, 10, 10, 3)], &interner);
+    apply_gap_generators(&mut restored, &alliances, &[(gapper, 10, 10, 3)], &interner);
     let encoded = bincode::serialize(&restored).unwrap();
     let mut restored: FogState = bincode::deserialize(&encoded).unwrap();
-    apply_gap_generators(&mut restored, &[], &interner); // Removal does not cancel native pending20.
+    apply_gap_generators(&mut restored, &alliances, &[], &interner); // Removal does not cancel native pending20.
     restored.flush_pending_gap_conceal(119);
     assert!(restored.is_cell_revealed(owner, 10, 10));
     restored.flush_pending_gap_conceal(120);
@@ -2079,10 +2137,20 @@ fn shroud_current_sight_provenance_changes_future_conceal_and_hash() {
     }
     let sight = std::mem::replace(&mut sim.fog, mapped);
     assert_ne!(sim.state_hash(), sight_hash);
-    apply_gap_generators(&mut sim.fog, &[(gapper, 10, 10, 3)], &sim.interner);
+    apply_gap_generators(
+        &mut sim.fog,
+        &sim.house_alliances,
+        &[(gapper, 10, 10, 3)],
+        &sim.interner,
+    );
     assert!(!sim.fog.is_cell_revealed(owner, 10, 10));
     sim.fog = sight;
-    apply_gap_generators(&mut sim.fog, &[(gapper, 10, 10, 3)], &sim.interner);
+    apply_gap_generators(
+        &mut sim.fog,
+        &sim.house_alliances,
+        &[(gapper, 10, 10, 3)],
+        &sim.interner,
+    );
     assert!(sim.fog.is_cell_revealed(owner, 10, 10));
 }
 
@@ -2129,7 +2197,7 @@ fn shroud_current_sight_direct_allies_do_not_reexport_immunity() {
         None,
     );
     for _ in 0..3 {
-        apply_gap_generators(&mut fog, &[(hostile, 10, 10, 3)], &interner);
+        apply_gap_generators(&mut fog, &alliances, &[(hostile, 10, 10, 3)], &interner);
         assert!(!fog.is_cell_gap_covered(b, 10, 10));
         assert!(
             fog.is_cell_gap_covered(c, 10, 10),
@@ -2138,7 +2206,7 @@ fn shroud_current_sight_direct_allies_do_not_reexport_immunity() {
         assert!(!fog.is_cell_visible(c, 10, 10));
         assert!(!fog.is_cell_revealed(c, 10, 10));
     }
-    apply_gap_generators(&mut fog, &[], &interner);
+    apply_gap_generators(&mut fog, &alliances, &[], &interner);
     assert!(!fog.is_cell_visible(c, 10, 10));
     assert!(!fog.is_cell_revealed(c, 10, 10));
     assert!(!fog.is_cell_gap_covered(c, 10, 10));
@@ -2197,10 +2265,10 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
     refresh(&mut sight_world, &mut fog, &store);
     let first = [(gapper, 10, 10, 3)];
     let both = [(gapper, 10, 10, 3), (gapper, 10, 10, 3)];
-    apply_gap_generators(&mut fog, &first, &interner);
+    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &first, &interner);
     store.remove(1);
     refresh(&mut sight_world, &mut fog, &store);
-    apply_gap_generators(&mut fog, &both, &interner);
+    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &both, &interner);
     assert!(fog.is_cell_gap_covered(owner, 10, 10));
     spawn_with_vision(&mut store, 1, "Americans", 10, 10, 2);
     fixture_source_event(
@@ -2219,7 +2287,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
     let mut fog: FogState = bincode::deserialize(&bincode::serialize(&fog).unwrap()).unwrap();
     for _ in 0..3 {
         refresh(&mut sight_world, &mut fog, &store);
-        apply_gap_generators(&mut fog, &both, &interner);
+        apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &both, &interner);
     }
     fog.flush_pending_gap_conceal(120);
     assert!(
@@ -2227,7 +2295,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
         "original second-gap/return retains pending despite negative counter"
     );
     refresh(&mut sight_world, &mut fog, &store);
-    apply_gap_generators(&mut fog, &both, &interner);
+    apply_gap_generators(&mut fog, &HouseAllianceMap::new(), &both, &interner);
     assert!(
         !fog.is_cell_revealed(owner, 10, 10),
         "unchanged source cannot reopen after the sweep"

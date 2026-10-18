@@ -1117,7 +1117,8 @@ use crate::sim::world::Simulation;
 // saved Simulation::house_alliances is the only one.
 // 407 -> 408: a saved Wave's endpoints, corners and direction follow
 // FireAt's constructor order and GetFLH, and its fades keep double precision.
-const SNAPSHOT_VERSION: u32 = 408;
+// 408 -> 409: retain ordered DropZoneAnim/DropZoneRadius in saved Rules resources.
+const SNAPSHOT_VERSION: u32 = 409;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4819,7 +4820,8 @@ mod tests {
         // 405 -> 406: live ambient Rules writes from Action71/72.
         // 406 -> 407: the fog's copy of the ally graph is gone.
         // 407 -> 408: Wave geometry follows FireAt's constructor order.
-        assert_eq!(super::SNAPSHOT_VERSION, 408);
+        // 408 -> 409: ordered DropZone inputs in saved Rules resources.
+        assert_eq!(super::SNAPSHOT_VERSION, 409);
     }
 
     #[test]

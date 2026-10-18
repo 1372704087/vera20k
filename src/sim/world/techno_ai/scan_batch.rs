@@ -17,7 +17,7 @@
 //! reaches Greatest_Threat this frame as the world stands, and with which
 //! mask and coordinate ([`Simulation::scan_ahead`]: the Area Guard or Hunt
 //! handler's scan, which runs first in a turn, else the targeting slot's),
-//! and runs their Greatest_Threat (`0x006F8DF0`, through the gated entry) on
+//! and runs their Greatest_Threat (`0x006F8DF0`, through the `+0x3C4` override) on
 //! worker threads against that frame-start world. At the object's turn a scan with
 //! that mask and coordinate takes the answer in place of its own
 //! Greatest_Threat when the object still stands as it did ([`ScannerKey`])
@@ -226,14 +226,7 @@ impl Simulation {
                     return None;
                 }
                 let (mask, scan_coord) = world.scan_ahead(id, entity, rules, overlay_registry)?;
-                let outcome = world.threat_scan(
-                    rules,
-                    overlay_registry,
-                    id,
-                    mask,
-                    scan_coord,
-                    crate::sim::combat::acquire_best_target_for_entity,
-                );
+                let outcome = world.threat_scan(rules, overlay_registry, id, mask, scan_coord);
                 let pick_house = outcome
                     .target()
                     .and_then(|pick| world.substrate.entities.get(pick))
@@ -331,7 +324,7 @@ impl Simulation {
     }
 
     /// The answer to `id`'s Greatest_Threat with `mask` around `scan_coord`
-    /// (`None`: its own coordinate) through the gated entry, when this pass
+    /// (`None`: its own coordinate) through the `+0x3C4` override, when this pass
     /// made one for that scan, the object still stands as it did, and its
     /// pick, if any, is unreleased, has the owner and the standing with the
     /// scanner's house it had, and GetFireError (vt+0x3C0 for SelectWeapon's

@@ -1764,7 +1764,6 @@ fn evaluate_foot_rescue(
                 id,
                 crate::sim::combat::ScanMission::Hunt,
                 Some(point),
-                crate::sim::combat::combat_targeting::greatest_threat_for_entity,
             )
         });
         if let (Some(point), Some(pick)) = (point, pick)
@@ -2542,7 +2541,6 @@ fn infantry_deployed_attack_reacquire(
         id,
         crate::sim::combat::ScanMission::Guard,
         None,
-        crate::sim::combat::combat_targeting::greatest_threat_for_entity,
     );
     // `0x0051F38A..0x0051F39D`: Assign_Target(pick) when a target is held or
     // one was found. It writes no `+0x50C`, so the setter leaves the flag

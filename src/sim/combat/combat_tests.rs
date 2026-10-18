@@ -1440,16 +1440,8 @@ fn retail_berserk_gi_targets_its_own_house() {
     let ally = sim
         .spawn_object("E1", "Russians", 11, 10, 0, &rules)
         .unwrap();
-    let scan = |sim: &mut Simulation, mask| {
-        sim.greatest_threat_represented(
-            &rules,
-            None,
-            gi,
-            mask,
-            None,
-            crate::sim::combat::combat_targeting::greatest_threat_for_entity,
-        )
-    };
+    let scan =
+        |sim: &mut Simulation, mask| sim.greatest_threat_represented(&rules, None, gi, mask, None);
     let masks = [ScanMission::Guard, ScanMission::Hunt];
     for mask in masks {
         assert_eq!(scan(&mut sim, mask), None, "calm, {mask:?}");
@@ -1498,16 +1490,8 @@ fn retail_gi_scan_asks_only_its_own_house_about_allies() {
             &rules,
         );
     };
-    let scan = |sim: &mut Simulation, mask| {
-        sim.greatest_threat_represented(
-            &rules,
-            None,
-            gi,
-            mask,
-            None,
-            crate::sim::combat::combat_targeting::greatest_threat_for_entity,
-        )
-    };
+    let scan =
+        |sim: &mut Simulation, mask| sim.greatest_threat_represented(&rules, None, gi, mask, None);
     let masks = [ScanMission::Guard, ScanMission::Hunt];
     one_way(&mut sim, "Americans", "Russians");
     for mask in masks {
@@ -6295,7 +6279,7 @@ fn gsi_08_01_a_shared_cell_offers_only_its_list_head() {
     fog.mark_visible_for_owner(test_intern("Americans"), 7, 5);
     let occupancy = mark_fixture_entities(&mut store);
     // `TechnoClass::Greatest_Threat @ 0x006F8DF0` with the passive mask.
-    let pick = acquire_best_target_for_entity(
+    let pick = crate::sim::combat::combat_targeting::greatest_threat_for_entity(
         &store,
         &occupancy,
         &rules,
@@ -6337,7 +6321,7 @@ fn gsi_08_01_unarmed_building_loses_to_a_tank_at_equal_distance() {
     fog.mark_visible_for_owner(test_intern("Americans"), 7, 5);
     let occupancy = mark_fixture_entities(&mut store);
     // `TechnoClass::Greatest_Threat @ 0x006F8DF0` with the passive mask.
-    let pick = acquire_best_target_for_entity(
+    let pick = crate::sim::combat::combat_targeting::greatest_threat_for_entity(
         &store,
         &occupancy,
         &rules,

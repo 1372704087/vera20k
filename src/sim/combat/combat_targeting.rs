@@ -97,8 +97,15 @@ pub(crate) struct AttackerSnapshot {
     pub building_shot: Option<super::BuildingShot>,
 }
 
-/// Acquire the best currently valid target for one attacker entity.
-/// Reports the target and whether the concrete dispatch reached Foot.
+/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, for every
+/// caller: `TechnoClass::Retaliate_And_Scan @ 0x00709820` (vt+0x39C for every
+/// class, Aircraft included) and the direct calls (team script action 0 at
+/// `0x006ED15E`, the aircraft's own Mission_Hunt). Neither `Greatest_Threat`
+/// nor `Retaliate_And_Scan` tests ammo or `Is_Armed`: the passive block's gate
+/// asks `CanAcquireTarget @ 0x007091D0`, whose `Is_Armed` has no ammo term,
+/// Foot Mission_Hunt and Mission_AreaGuard scan without either, and Aircraft
+/// Mission_Hunt (`0x00414A80`) checks its ammo before its own scans. Reports
+/// the target and whether the concrete dispatch reached Foot.
 ///
 /// `terrain` is threaded through for the 3D InRange check; when `None`
 /// (headless tests, no map loaded), the range check falls back to the
@@ -122,65 +129,6 @@ pub(crate) struct AttackerSnapshot {
 ///
 /// `zone_grid` is `MapClass`'s per-movement-zone connectivity, which mask 0 uses
 /// to refuse candidates its own movement zone cannot reach.
-pub(crate) fn acquire_best_target_for_entity(
-    entities: &EntityStore,
-    occupancy: &crate::sim::occupancy::OccupancyGrid,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    attacker_id: u64,
-    fog: Option<&FogState>,
-    terrain: Option<&ResolvedTerrainGrid>,
-    require_playfield_membership: bool,
-    mask: ScanMission,
-    zone_grid: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
-    los: super::line_of_fire::LineOfFireInputs<'_>,
-    fire_world: Option<&crate::sim::world::Simulation>,
-    scan_coord: Option<[i32; 3]>,
-) -> super::greatest_threat::ThreatScanOutcome {
-    let Some(entity) = entities.get(attacker_id) else {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    };
-    // Aircraft with 0 ammo should not acquire new targets — need to reload.
-    if entity.category() == EntityCategory::Aircraft
-        && let Some(ammo) = entity.ammo()
-        && ammo.current() == 0
-    {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    }
-    let Some(obj) = interner.object_type(entity.type_ref(), rules) else {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    };
-    // Native `TechnoClass::Greatest_Threat @ 0x006F8DF0` has no weapon
-    // early-out of its own; the armed requirement sits upstream in
-    // `TechnoClass::CanAcquireTarget @ 0x007091D0`, whose last term is
-    // `Is_Armed` (vtable `+0x2AC`). This is the same predicate, kept here
-    // because VERA's acquisition entry is also reached from the order and
-    // deployed-reacquire paths. It must NOT read `Primary=`: a `TurretCount>0`
-    // type never parses that key (`TechnoTypeClass::ReadINI @ 0x007128B2`), so
-    // `[SREF]` and `[YAGGUN]` were classified unarmed and could never acquire.
-    if !super::combat_weapon::is_armed(entity, obj) {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    }
-    greatest_threat_for_entity(
-        entities,
-        occupancy,
-        rules,
-        interner,
-        attacker_id,
-        fog,
-        terrain,
-        require_playfield_membership,
-        mask,
-        zone_grid,
-        los,
-        fire_world,
-        scan_coord,
-    )
-}
-
-/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, without
-/// the passive block's gates: team script action 0 calls the override
-/// directly (`0x006ED15E`).
 pub(crate) fn greatest_threat_for_entity(
     entities: &EntityStore,
     occupancy: &crate::sim::occupancy::OccupancyGrid,

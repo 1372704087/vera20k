@@ -1136,7 +1136,9 @@ use crate::sim::world::Simulation;
 // 418 -> 419: Drive and Ship no longer save head-to and handoff occupation
 // footprints; only the removed vehicle-occupation index read them. The raw
 // ground/deck bytes remain the occupation record.
-const SNAPSHOT_VERSION: u32 = 419;
+// 419 -> 420: processed TechnoTypes retain their per-pass weapon block and
+// ParticleSystemTypes their HoldsWhat binding in saved Rules resources.
+const SNAPSHOT_VERSION: u32 = 420;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4855,7 +4857,8 @@ mod tests {
         // 416 -> 417: control-node line timers and ordered line settings.
         // 417 -> 418: campaign score map-rank presentation metadata.
         // 418 -> 419: the Drive/Ship occupation footprints are gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 419);
+        // 419 -> 420: retained weapon blocks and HoldsWhat bindings.
+        assert_eq!(super::SNAPSHOT_VERSION, 420);
     }
 
     #[test]
@@ -8950,13 +8953,16 @@ mod tests {
         use crate::rules::ruleset::RuleSet;
         use crate::sim::game_entity::GameEntity;
 
-        let rules = RuleSet::from_ini(&IniFile::from_str(
-            "[InfantryTypes]\n\
-             [VehicleTypes]\n0=TEST\n\
-             [AircraftTypes]\n\
-             [BuildingTypes]\n\
-             [TEST]\nMoveSound=VMove\n",
-        ))
+        let rules = RuleSet::from_ini_with_sounds_for_test(
+            &IniFile::from_str(
+                "[InfantryTypes]\n\
+                 [VehicleTypes]\n0=TEST\n\
+                 [AircraftTypes]\n\
+                 [BuildingTypes]\n\
+                 [TEST]\nMoveSound=VMove\n",
+            ),
+            &["VMove"],
+        )
         .expect("move-sound rules");
         let mut sim = Simulation::new();
         sim.session.map_name = "MOVESOUND.MAP".to_string();

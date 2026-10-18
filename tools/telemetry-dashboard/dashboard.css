@@ -156,13 +156,26 @@
     text-shadow: 0 0 12px rgba(111, 183, 255, 0.4);
     margin-left: 2px;
   }
-  #status { display: flex; align-items: center; gap: 6px; color: var(--dim); white-space: nowrap; }
+  /* The connection pill. The green tint is the live state, so it has to come
+     and go with it — a permanently green pill would read "streaming" while the
+     socket was down. */
+  #status {
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    padding: 4px 10px; border-radius: 999px; font-size: 11.5px;
+    color: var(--dim); background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+  }
+  #status.open {
+    color: #9df0cd;
+    background: rgba(84, 232, 176, 0.10);
+    border-color: rgba(84, 232, 176, 0.32);
+  }
   #dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: var(--red);
+    color: var(--red); background: currentColor;
     box-shadow: 0 0 9px currentColor;
   }
-  #dot.open { background: var(--green); animation: pulse 2.4s ease-in-out infinite; }
+  #dot.open { color: var(--green); animation: pulse 2.4s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
   #lang { display: flex; gap: 3px; margin-left: 12px; }
   #lang button {

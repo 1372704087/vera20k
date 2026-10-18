@@ -2629,12 +2629,20 @@ function renderReport() {
 let statusOpen = false;
 let statusOverride = null;
 let everConnected = false;
+/** Snapshots seen since the last second closed, and the rate that second made. */
+let snapTicks = 0;
+let snapHz = 0;
 function renderStatus() {
+    // The pill's colour is the connection state, so the state class goes on the
+    // pill itself and not only on the dot inside it.
+    document.getElementById("status").classList.toggle("open", statusOpen);
     document.getElementById("dot").classList.toggle("open", statusOpen);
     document.getElementById("statustext").textContent =
         statusOverride ??
             (statusOpen
-                ? t("status.live")
+                ? snapHz > 0
+                    ? t("status.liveHz", { n: snapHz })
+                    : t("status.live")
                 : everConnected
                     ? t("status.reconnecting")
                     : t("status.connecting"));
@@ -2668,6 +2676,7 @@ function connect() {
             return;
         }
         lastSnapshot = snapshot;
+        snapTicks += 1;
         acceptLogs(snapshot.logs);
         syncCheats(snapshot.cheats);
         setStatus(true);
@@ -2781,6 +2790,14 @@ window.addEventListener("resize", () => {
     if (currentView === "detail" && lastSnapshot)
         renderDetail(lastSnapshot);
 });
+// One-second window on the push rate. A 1s period is already past every
+// hidden-tab timer clamp, so the reading stays true when the tab is in the
+// background.
+window.setInterval(() => {
+    snapHz = snapTicks;
+    snapTicks = 0;
+    renderStatus();
+}, 1000);
 connect();
 /** Read-only handle for the screenshot harness: headless browsers refuse
  *  downloads, so this is the only way to assert on the generated report. It

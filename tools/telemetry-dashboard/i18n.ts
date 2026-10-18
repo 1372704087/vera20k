@@ -28,6 +28,7 @@ const en: Record<string, string> = {
 
   "status.connecting": "connecting",
   "status.live": "live",
+  "status.liveHz": "live {n} Hz",
   "status.reconnecting": "reconnecting",
   "status.unsupported": "schema v{v} unsupported",
 
@@ -346,6 +347,7 @@ const zh: Record<string, string> = {
 
   "status.connecting": "连接中",
   "status.live": "实时",
+  "status.liveHz": "实时 {n} Hz",
   "status.reconnecting": "重连中",
   "status.unsupported": "协议 v{v} 不支持",
 
@@ -665,6 +667,7 @@ const de: Record<string, string> = {
 
   "status.connecting": "verbinde",
   "status.live": "live",
+  "status.liveHz": "live {n} Hz",
   "status.reconnecting": "verbinde neu",
   "status.unsupported": "Schema v{v} nicht unterstützt",
 
@@ -983,6 +986,7 @@ const fr: Record<string, string> = {
 
   "status.connecting": "connexion",
   "status.live": "en direct",
+  "status.liveHz": "en direct {n} Hz",
   "status.reconnecting": "reconnexion",
   "status.unsupported": "schéma v{v} non pris en charge",
 

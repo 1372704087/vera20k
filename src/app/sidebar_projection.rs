@@ -1,8 +1,11 @@
 //! Retained, app-owned projection for the in-game sidebar.
 //!
-//! Presentation consumers only read `current_view`. Mutations happen at the
-//! explicit simulation, input, resize, and match-replacement transitions that
-//! rebuild the projection.
+//! Presentation consumers only read `current_view`. Membership, order and
+//! layout change at the explicit simulation, input, resize, and
+//! match-replacement transitions that rebuild the projection. The one per-frame
+//! write is [`SidebarProjectionState::refresh_cameo_availability`]: original
+//! `StripClass::Draw` asks each entry's availability while drawing, so those
+//! two drawing inputs follow the simulation between rebuilds.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,6 +33,9 @@ pub(crate) struct SidebarProjectionState {
     /// Retained native strip order, keyed to the local house. `None` is the
     /// scenario-init window (`[0xA8E7AC] != 0`), where insertions are silent.
     cameos: Option<(InternedId, CameoStrips)>,
+    /// A saved strip replacement must bind its buttons before its first
+    /// refreshed view. Cleared by that reconciliation or a fresh seed/reset.
+    pending_tab_initialization: bool,
     /// Pending local House4F92E2 handoff. Rendering refreshes comparison and
     /// drawing inputs every frame, but does not manufacture a House +1FC pass.
     pending_cameo_recheck: Option<InternedId>,
@@ -73,6 +79,7 @@ impl SidebarProjectionState {
     pub(crate) fn replace_view(&mut self, view: Option<SidebarView>) {
         if view.is_none() {
             self.cameos = None;
+            self.pending_tab_initialization = false;
             self.pending_cameo_recheck = None;
             self.pending_cameo_additions.clear();
             self.factory_links.clear();
@@ -87,6 +94,7 @@ impl SidebarProjectionState {
     /// different pre-placed base never reads as freshly inserted cameos.
     pub(crate) fn reset_cameo_seed(&mut self) {
         self.cameos = None;
+        self.pending_tab_initialization = false;
         self.pending_cameo_recheck = None;
         self.pending_cameo_additions.clear();
         self.factory_links.clear();
@@ -126,13 +134,17 @@ impl SidebarProjectionState {
         } else {
             seed_additions
         };
-        let reconciled = self
+        let mut reconciled = self
             .cameos
             .as_mut()
             .expect("cameos initialized")
             .1
             .reconcile(current, visible_rows, recalculate_builds, additions);
         self.pending_cameo_additions.clear();
+        if !initialized || self.pending_tab_initialization {
+            reconciled = reconciled.with_initialized_tabs(self.cameo_strips());
+            self.pending_tab_initialization = false;
+        }
         if initialized {
             reconciled
         } else {
@@ -145,6 +157,13 @@ impl SidebarProjectionState {
             .cameos
             .as_ref()
             .is_some_and(|(previous, _)| *previous == owner)
+    }
+
+    /// The local House4F92E2 handoff is waiting for the projection's strip
+    /// pass. Rendering consumes it in the frame that produced it, rather than
+    /// leaving membership behind until an unrelated input rebuilds.
+    pub(crate) fn cameo_recheck_pending(&self) -> bool {
+        self.pending_cameo_recheck.is_some()
     }
 
     /// Mouse Save 5BE6D0 writes the display object, including each strip's
@@ -167,6 +186,7 @@ impl SidebarProjectionState {
     }
 
     pub(crate) fn restore_order(&mut self, saved: Option<PreparedSidebarOrder>) {
+        self.pending_tab_initialization = saved.is_some();
         match saved {
             Some(saved) => {
                 self.cameos = Some((saved.owner, saved.strips));
@@ -268,6 +288,112 @@ impl SidebarProjectionState {
                 .then_some(LifecycleOutput::BuildingProductionAbandoned { owner })
             }
             _ => None,
+        }
+    }
+
+    /// Refresh the retained cameos' draw-time inputs
+    /// ([`crate::sim::production::cameo_draw_state`]) from the live simulation
+    /// without recomputing membership. Native `StripClass::Draw @ 0x006A9540`
+    /// asks `FindFactory(1, 1, 1)`, `CanBuild(type, 0, 0)` and `CheckBuildLimit`
+    /// again for every entry it draws, so a restriction that appears or clears
+    /// between two House rechecks must reach the very next frame. A retained
+    /// Factory link still clears the overlay (`0x006A98D3`).
+    ///
+    /// The view build supplies these two fields for a fresh projection; this
+    /// query is the same owner asked again, not a second decision.
+    pub(crate) fn refresh_cameo_availability(
+        &mut self,
+        sim: &crate::sim::world::Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        owner: InternedId,
+    ) {
+        let linked: Vec<InternedId> = self
+            .factory_links
+            .keys()
+            .copied()
+            .filter(|&type_id| self.cameo_factory(sim, owner, type_id).is_some())
+            .collect();
+        // The retained strip owns request words, including local clicks that
+        // have not reached a Factory yet. Use that same owner as input/save.
+        let pending: Vec<_> = self
+            .cameos
+            .as_ref()
+            .filter(|(house, _)| *house == owner)
+            .into_iter()
+            .flat_map(|(_, strips)| strips.requested_ids())
+            .filter_map(|id| match id {
+                CameoId::Object(type_id) => {
+                    self.cameo_request(type_id).map(|state| (type_id, state))
+                }
+                CameoId::SuperWeapon(_) => None,
+            })
+            .collect();
+        let statuses = self.factory_statuses(sim, owner);
+        // StripDraw6A95C8..6A95E9 scans the whole retained strip, including
+        // offscreen entries. Draw6A978C gates only BuildingType cameos; the
+        // other strips permit queueing. Derive the dispatched request from
+        // its live Factory product, so expiry/cancellation releases the strip
+        // even while an old cameo retains its foreign Factory link.
+        // Executed controls: tools/sidebar_oracle/draw_availability.json.
+        let mut busy = [false; 4];
+        if let Some((house, strips)) = &self.cameos
+            && *house == owner
+        {
+            for (tab, entries) in strips.saved_identities().iter().enumerate() {
+                busy[tab] = entries.iter().any(|id| match id {
+                    CameoId::Object(type_id) => {
+                        pending.iter().any(|(id, _)| id == type_id)
+                            || self
+                                .cameo_factory(sim, owner, *type_id)
+                                .is_some_and(|factory| factory.object.is_some())
+                    }
+                    _ => false,
+                });
+            }
+        }
+        let Some(view) = self.current_view.as_mut() else {
+            return;
+        };
+        for item in &mut view.items {
+            // A super weapon's cameo darkens from its SuperClass readiness,
+            // not from a build factory.
+            if item.is_superweapon {
+                continue;
+            }
+            let (Some(type_id), Some(object)) =
+                (sim.interner.get(&item.type_id), rules.object(&item.type_id))
+            else {
+                continue;
+            };
+            let draw = crate::sim::production::cameo_draw_state(sim, rules, owner, object);
+            let tab = crate::ui::sidebar::SidebarTab::for_category(
+                crate::sim::production::category_for_object(object),
+            );
+            let strip_blocks = object.category
+                == crate::rules::object_type::ObjectCategory::Building
+                && busy[tab.tab_index()];
+            let pending_state = pending
+                .iter()
+                .find_map(|(id, state)| (*id == type_id).then_some(*state));
+            let pending_running = pending_state == Some(CameoRequestState::Started);
+            // Request2 darkens even an Infantry/Vehicle source until its
+            // Factory arrives. A live link still overrides (Draw6A98D3).
+            item.enabled = linked.contains(&type_id)
+                || pending_running
+                || (pending_state.is_none() && draw.enabled && !strip_blocks);
+            item.at_build_limit = draw.at_build_limit;
+            // Draw reads the linked Factory stage/hold/completion every frame
+            // too. Updating only availability would leave the build clock and
+            // Ready/Hold text stale until another input rebuilt the view.
+            let status = statuses.iter().find(|status| status.type_id == type_id);
+            item.progress = status
+                .map_or(0.0, |status| {
+                    f32::from(status.progress) / f32::from(crate::sim::production::PRODUCTION_STEPS)
+                })
+                .clamp(0.0, 1.0);
+            item.is_ready = status.is_some_and(|status| status.is_ready);
+            item.is_building_this_type = status.is_some_and(|status| status.is_building);
+            item.is_on_hold = status.is_some_and(|status| status.is_on_hold);
         }
     }
 

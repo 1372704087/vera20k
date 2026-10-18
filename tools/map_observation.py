@@ -83,7 +83,7 @@ PROFILE_V2 = 'vera20k.map-observation-profile.v2'
 PROFILE_V3 = 'vera20k.map-observation-profile.v3'
 MAX_OBSERVATION_SAMPLES = 100_000
 MAX_RECEIPT_BYTES = 128 * 1024 * 1024
-ORDER_VARIANTS = frozenset(('Select', 'Move', 'Stop', 'Attack', 'ForceAttack', 'Guard',
+ORDER_VARIANTS = frozenset(('Select', 'Move', 'Stop', 'Attack', 'Guard',
                             'DeployMcv', 'ForceAttackCell', 'CaptureBuilding', 'ToggleRepair',
                             'EnterTransport', 'UnloadPassengers', 'RepairAtDepot', 'SellBuilding', 'SetRally', 'PlantC4',
                             'LaunchSuperWeapon', 'TogglePrimaryFactory'))
@@ -91,6 +91,7 @@ PRODUCTION_VARIANTS = frozenset(('QueueProduction', 'PlaceReadyBuilding'))
 EXTENSION_FIELDS = frozenset(('commands', 'gestures', 'observe_owners', 'observe_types',
                               'observe_projectiles', 'observe_anim_types', 'observe_action_line_inputs',
                               'observe_disguise_inputs', 'observe_lasers', 'observe_electric_bolts',
+                              'observe_radiation_beams',
                               'observe_electric_bolt_steps', 'observe_bombs', 'observe_temporal',
                               'observe_cloak',
                               'observe_spawns', 'observe_crates',
@@ -632,7 +633,7 @@ def _profile_extensions(profile: Mapping[str, Any], *, production_commands: bool
     if 'observe_disguise_inputs' in profile and type(profile['observe_disguise_inputs']) is not bool:
         raise ValidationError('profile.observe_disguise_inputs must be a boolean')
     for key in ('observe_lasers', 'observe_electric_bolts', 'observe_bombs', 'observe_temporal',
-                'observe_cloak', 'observe_spawns',
+                'observe_cloak', 'observe_radiation_beams', 'observe_spawns',
                 'observe_crates', 'observe_tooltips'):
         if key in profile and type(profile[key]) is not bool:
             raise ValidationError(f'profile.{key} must be a boolean')
@@ -1320,31 +1321,42 @@ def _particle_draws(value: Any, label: str) -> int:
     return len(rows)
 
 
-def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
-    label = 'observations.electric_bolt_draws'
+def _composite_observation_rows(value: Any, label: str, profile: Mapping[str, Any],
+                                segments: list, tail_draws: int, *, policy: str,
+                                snapshot_key: str, steps: list[int] | None = None,
+                                optional_keys: tuple[str, ...] = ()):
+    """One clock/envelope validator for actual effect-composite observations."""
     receipt = require_object(value, label)
     require_exact_keys(receipt, ('policy', 'frames'), label)
-    policy = ('electric-bolt-after-requested-tactical-composite-v2'
-              if 'observe_electric_bolt_steps' in profile else 'electric-bolt-after-each-tactical-composite-v1')
     require_value(receipt['policy'], policy, f'{label}.policy')
     frames = require_array(receipt['frames'], f'{label}.frames')
-    steps = [step for step in range(1, profile['ticks'] + 1) if _observes_electric_step(profile, step)]
-    if profile['ticks'] == 0 and _observes_electric_step(profile, 0):
-        steps.append(0)
-    if _observes_electric_step(profile, profile['ticks']):
-        steps.extend([profile['ticks']] * tail_draws)
-    if len(frames) != len(steps):
-        raise ValidationError('electric bolt draw observations must include each requested composite and audio-tail draw')
-    count = 0
+    if steps is None:
+        steps = list(range(1, profile['ticks'] + 1)) or [0]
+    repeats = tail_draws if steps and steps[-1] == profile['ticks'] else 0
+    if len(frames) != len(steps) + repeats:
+        raise ValidationError(f'{label} must include each requested composite and audio-tail draw')
     for index, value in enumerate(frames):
         at = f'{label}.frames[{index}]'
         row = require_object(value, at)
-        require_exact_keys(row, ('ordinal', 'completed_steps', 'simulation_tick', 'binary_frame', 'effects',
-                                *(('particle_draws',) if 'particle_draws' in row else ())), at)
-        step = steps[index]
+        require_exact_keys(row, ('ordinal', 'completed_steps', 'simulation_tick', 'binary_frame', snapshot_key,
+                                 *(key for key in optional_keys if key in row)), at)
+        step = steps[index] if index < len(steps) else profile['ticks']
         tick, frame = _segment_clock(step, segments)
         for key, expected in (('ordinal', index), ('completed_steps', step), ('simulation_tick', tick), ('binary_frame', frame)):
             require_value(row[key], expected, f'{at}.{key}')
+        yield row, at
+
+
+def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
+    label = 'observations.electric_bolt_draws'
+    policy = ('electric-bolt-after-requested-tactical-composite-v2'
+              if 'observe_electric_bolt_steps' in profile else 'electric-bolt-after-each-tactical-composite-v1')
+    steps = [step for step in range(1, profile['ticks'] + 1) if _observes_electric_step(profile, step)]
+    if profile['ticks'] == 0 and _observes_electric_step(profile, 0):
+        steps.append(0)
+    count = 0
+    for row, at in _composite_observation_rows(value, label, profile, segments, tail_draws,
+            policy=policy, snapshot_key='effects', steps=steps, optional_keys=('particle_draws',)):
         count += _electric_bolts(row['effects'], f'{at}.effects')
         if 'particle_draws' in row:
             count += _particle_draws(row['particle_draws'], f'{at}.particle_draws')
@@ -1362,6 +1374,65 @@ def _electric_bolt_draws(value: Any, profile: Mapping[str, Any], segments: list,
                                       ('display_layer', particle['display_layer'])):
                     require_value(piece[key], expected, f'{at}.particle_draws.{key}')
     return count
+
+
+def _radiation_beams(value: Any, label: str) -> int:
+    snapshot = require_object(value, label)
+    require_exact_keys(snapshot, ('live', 'composites', 'segments'), label)
+
+    def vector(value, at, size, minimum, maximum):
+        values = require_array(value, at)
+        if len(values) != size:
+            raise ValidationError(f'{at} must contain {size} integers')
+        for index, component in enumerate(values):
+            _bounded_int(component, f'{at}[{index}]', minimum, maximum)
+
+    live = require_array(snapshot['live'], f'{label}.live')
+    for index, value in enumerate(live):
+        at = f'{label}.live[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('birth_frame', 'from', 'to', 'z_adjust', 'color', 'duration',
+                                 'amplitude_bits', 'progress', 'spacing', 'length_bits'), at)
+        for key in ('birth_frame', 'z_adjust', 'duration', 'progress', 'spacing'):
+            _bounded_int(row[key], f'{at}.{key}', -(1 << 31), (1 << 31) - 1)
+        for key in ('from', 'to'):
+            vector(row[key], f'{at}.{key}', 3, -(1 << 31), (1 << 31) - 1)
+        vector(row['color'], f'{at}.color', 3, 0, 255)
+        _bounded_int(row['amplitude_bits'], f'{at}.amplitude_bits', 0, (1 << 64) - 1)
+        if row['length_bits'] is not None:
+            _bounded_int(row['length_bits'], f'{at}.length_bits', 0, (1 << 64) - 1)
+    composites = require_array(snapshot['composites'], f'{label}.composites')
+    segment_count = 0
+    for index, value in enumerate(composites):
+        at = f'{label}.composites[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('birth_frame', 'progress_before', 'progress_after', 'expired', 'segments'), at)
+        for key in ('birth_frame', 'progress_before', 'progress_after'):
+            _bounded_int(row[key], f'{at}.{key}', -(1 << 31), (1 << 31) - 1)
+        if type(row['expired']) is not bool:
+            raise ValidationError(f'{at}.expired must be boolean')
+        segment_count += _bounded_int(row['segments'], f'{at}.segments', 0, (1 << 64) - 1)
+    pieces = require_array(snapshot['segments'], f'{label}.segments')
+    for index, value in enumerate(pieces):
+        at = f'{label}.segments[{index}]'
+        row = require_object(value, at)
+        require_exact_keys(row, ('from', 'to', 'z_adjust', 'rgb565'), at)
+        for key in ('from', 'to', 'z_adjust'):
+            vector(row[key], f'{at}.{key}', 2, -(1 << 31), (1 << 31) - 1)
+        _bounded_int(row['rgb565'], f'{at}.rgb565', 0, (1 << 16) - 1)
+    require_value(segment_count, len(pieces), f'{label}.composite segment tally')
+    # No progress, lifetime, spacing or geometry is recomputed by validation.
+    return 1 + len(live) + len(composites) + len(pieces)
+
+
+def _radiation_beam_draws(value: Any, profile: Mapping[str, Any], segments: list, tail_draws: int) -> int:
+    count = 0
+    for row, at in _composite_observation_rows(value, 'observations.radiation_beam_draws', profile,
+            segments, tail_draws, policy='radiation-beam-after-each-tactical-composite-v1', snapshot_key='beams'):
+        count += _radiation_beams(row['beams'], f'{at}.beams')
+    return count
+
+
 def _bombs(value: Any, label: str) -> int:
     snapshot = require_object(value, label)
     require_exact_keys(snapshot, ('carriers', 'records'), label)
@@ -2019,11 +2090,65 @@ def _sidebar_frames(value: Any, profile: Mapping[str, Any]) -> int:
     return count
 
 
+def _command_bar_thumb_state(value: Any, label: str) -> None:
+    state = require_object(value, label)
+    require_exact_keys(state, ('closed', 'pressed', 'sticky', 'gadget_id', 'rect', 'disabled',
+                               'current_house', 'side_index', 'local_player_defeated',
+                               'input_locked', 'has_lost', 'exit_ready', 'left_held'), label)
+    for key in ('closed', 'pressed', 'sticky', 'disabled', 'local_player_defeated',
+                'input_locked', 'left_held'):
+        if type(state[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be boolean')
+    for key in ('has_lost', 'exit_ready'):
+        if state[key] is not None and type(state[key]) is not bool:
+            raise ValidationError(f'{label}.{key} must be boolean or null')
+    _bounded_int(state['gadget_id'], f'{label}.gadget_id', 0, (1 << 16) - 1)
+    if state['side_index'] is not None:
+        _bounded_int(state['side_index'], f'{label}.side_index', 0, (1 << 8) - 1)
+    if state['current_house'] is not None:
+        require_string(state['current_house'], f'{label}.current_house')
+    rect = require_array(state['rect'], f'{label}.rect')
+    if len(rect) != 4:
+        raise ValidationError(f'{label}.rect must contain four integer components')
+    for index, component in enumerate(rect):
+        _bounded_int(component, f'{label}.rect[{index}]', -(1 << 31), (1 << 31) - 1)
+
+
+def _command_bar_thumb(value: Any, label: str) -> int:
+    thumb = require_object(value, label)
+    require_exact_keys(thumb, ('before', 'press', 'release', 'after'), label)
+    samples = 4
+    for phase in ('before', 'after'):
+        _command_bar_thumb_state(thumb[phase], f'{label}.{phase}')
+    for phase in ('press', 'release'):
+        edge_label = f'{label}.{phase}'
+        edge = require_object(thumb[phase], edge_label)
+        require_exact_keys(edge, ('state', 'dispatch'), edge_label)
+        _command_bar_thumb_state(edge['state'], f'{edge_label}.state')
+        if edge['dispatch'] is not None:
+            dispatch_label = f'{edge_label}.dispatch'
+            dispatch = require_object(edge['dispatch'], dispatch_label)
+            require_exact_keys(dispatch, ('masked_flags', 'modifier', 'key_after', 'action_result'), dispatch_label)
+            for key, bits in (('masked_flags', 16), ('modifier', 8), ('key_after', 16), ('action_result', 32)):
+                _bounded_int(dispatch[key], f'{dispatch_label}.{key}', 0, (1 << bits) - 1)
+            samples += 1
+    # The driver restores physical input even when the Scenario guard prevents
+    # gadget entry. These are input observations, not expected bar outcomes.
+    for phase, state in (('before', thumb['before']), ('release.state', thumb['release']['state']),
+                         ('after', thumb['after'])):
+        require_value(state['left_held'], False, f'{label}.{phase}.left_held')
+    require_value(thumb['press']['state']['left_held'], True, f'{label}.press.state.left_held')
+    return samples
+
+
 def _command_bar_gesture(value: Any, command: str, label: str, extent: tuple[int, int]) -> int:
     receipt = require_object(value, label)
-    require_exact_keys(receipt, ('command', 'slot', 'gadget_id', 'rect', 'resolved_position'), label)
+    thumb = command == 'Thumb'
+    require_exact_keys(receipt, ('command', 'gadget_id', 'rect', 'resolved_position',
+                                 *(('thumb',) if thumb else ('slot',))), label)
     require_value(receipt['command'], command, f'{label}.command')
-    _bounded_int(receipt['slot'], f'{label}.slot', 0, extent[0] - 1)
+    if not thumb:
+        _bounded_int(receipt['slot'], f'{label}.slot', 0, extent[0] - 1)
     _bounded_int(receipt['gadget_id'], f'{label}.gadget_id', 1, (1 << 16) - 1)
     rect = require_array(receipt['rect'], f'{label}.rect')
     if (len(rect) != 4 or any(type(part) not in (int, float) or not math.isfinite(part) for part in rect)
@@ -2035,7 +2160,7 @@ def _command_bar_gesture(value: Any, command: str, label: str, extent: tuple[int
     expected = [math.floor(value) for value in center]
     _screen_point(receipt['resolved_position'], f'{label}.resolved_position', extent)
     _require_equal(receipt['resolved_position'], expected, f'{label}.resolved_position')
-    return 1
+    return 1 + (_command_bar_thumb(receipt['thumb'], f'{label}.thumb') if thumb else 0)
 
 
 def _is_quickload(gesture: Mapping[str, Any]) -> bool:
@@ -2384,7 +2509,19 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
         gesture_extent = ((profile['width'], profile['height'])
                           if minimap else extent)
         _gesture(row['gesture'], f'{row_label}.gesture', gesture_extent)
-        for key, expected in (('left_press_captured', not keyboard and not right), ('neutral_input_restored', True),
+        if command_bar:
+            sample_count += _command_bar_gesture(row['command_bar'], request['gesture']['command'],
+                f'{row_label}.command_bar', (profile['width'], profile['height']))
+        if command_bar and request['gesture']['command'] == 'Thumb' and row['left_press_captured'] is False:
+            thumb = row['command_bar']['thumb']
+            states = (thumb['before'], thumb['press']['state'], thumb['release']['state'], thumb['after'])
+            if (not all(state['input_locked'] for state in states[:3])
+                    or any(thumb[phase]['dispatch'] is not None for phase in ('press', 'release'))
+                    or any(state['closed'] != states[0]['closed'] for state in states[1:])):
+                raise ValidationError(f'{row_label}.left_press_captured may be false only for an unchanged locked Thumb')
+        else:
+            require_value(row['left_press_captured'], not keyboard and not right, f'{row_label}.left_press_captured')
+        for key, expected in (('neutral_input_restored', True),
                               ('band_box_before_release', request['gesture']['kind'] == 'drag')):
             require_value(row[key], expected, f'{row_label}.{key}')
         if right:
@@ -2412,9 +2549,6 @@ def _gesture_observations(value: Any, profile: Mapping[str, Any], segments=()) -
         if sidebar:
             sample_count += _sidebar_gesture(row['sidebar'], request['gesture']['target'],
                 f'{row_label}.sidebar', (profile['width'], profile['height']))
-        if command_bar:
-            sample_count += _command_bar_gesture(row['command_bar'], request['gesture']['command'],
-                f'{row_label}.command_bar', (profile['width'], profile['height']))
         if keyboard:
             key_label = f'{row_label}.keyboard'
             receipt = require_object(row['keyboard'], key_label)
@@ -2543,8 +2677,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     gesture_input = 'gestures' in profile
     sidebar = 'observe_sidebar_steps' in profile
     effects = _observes_effects(profile)
-    if (profile.get('observe_temporal', False) or profile.get('observe_cloak', False)) and not (walk_state and disk_laser_state):
-        raise ValidationError('Temporal/cloak observations require the current v8 observation policy')
+    if any(profile.get(key, False) for key in ('observe_temporal', 'observe_cloak', 'observe_radiation_beams')) and not (walk_state and disk_laser_state):
+        raise ValidationError('requested owner observations require the current v8 observation policy')
     if effects and not walk_state:
         raise ValidationError('effect observations require the current observation policy')
     if (gesture_input or sidebar) and not walk_state:
@@ -2552,6 +2686,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
     require_exact_keys(observations, ('policy', 'owners', 'commands', 'frames',
                                      *(('audio',) if 'observe_audio' in profile else ()),
                                      *(('electric_bolt_draws',) if profile.get('observe_electric_bolts', False) else ()),
+                                     *(('radiation_beam_draws',) if profile.get('observe_radiation_beams', False) else ()),
                                      *(('load_segments',) if profile.get('allow_load_segments', False) else ()),
                                      *(('gesture_input',) if gesture_input else ()),
                                      *(('sidebar',) if sidebar else ()),
@@ -2617,6 +2752,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                  *(('effects',) if effects else ()),
                                  *(('lasers',) if profile.get('observe_lasers', False) else ()),
                                  *(('electric_bolts',) if _observes_electric_step(profile, step) else ()),
+                                 *(('radiation_beams',) if profile.get('observe_radiation_beams', False) else ()),
                                  *(('bombs',) if profile.get('observe_bombs', False) else ()),
                                  *(('crates',) if profile.get('observe_crates', False) else ()),
                                  *(('audio_state',) if 'observe_audio' in profile else ()),
@@ -2677,6 +2813,8 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
                                     disk_laser_state=walk_state and disk_laser_state)
         if _observes_electric_step(profile, step):
             sample_count += _electric_bolts(row['electric_bolts'], f'{row_label}.electric_bolts')
+        if profile.get('observe_radiation_beams', False):
+            sample_count += _radiation_beams(row['radiation_beams'], f'{row_label}.radiation_beams')
         if profile.get('observe_bombs', False):
             sample_count += _bombs(row['bombs'], f'{row_label}.bombs')
         if profile.get('observe_crates', False):
@@ -2708,6 +2846,11 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
             raise ValidationError('observations exceeds its retained sample budget')
     if profile.get('observe_electric_bolts', False):
         sample_count += _electric_bolt_draws(observations['electric_bolt_draws'], profile, segments,
+                                             observations.get('audio', {}).get('tail_draw_count', 0))
+        if sample_count > MAX_OBSERVATION_SAMPLES:
+            raise ValidationError('observations exceeds its retained sample budget')
+    if profile.get('observe_radiation_beams', False):
+        sample_count += _radiation_beam_draws(observations['radiation_beam_draws'], profile, segments,
                                              observations.get('audio', {}).get('tail_draw_count', 0))
         if sample_count > MAX_OBSERVATION_SAMPLES:
             raise ValidationError('observations exceeds its retained sample budget')
@@ -2822,19 +2965,35 @@ def validate_capture(directory: Path, profile: Mapping[str, Any],
         require_value(startup.get(key), expected, f'startup.{key}')
     _integer(startup, 'correlation', 1)
     source = require_object(manifest.get('map_source'), 'map_source')
-    require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
-    _integer(source, 'payload_len', 1)
-    if source.get('kind') == 'loose':
-        path = require_string(source.get('path'), 'map_source.path')
-        if not path:
-            raise ValidationError('empty map source path')
-    elif source.get('kind') == 'mix':
-        for name in ('logical_name', 'source_archive'):
-            if not require_string(source.get(name), f'map_source.{name}'):
-                raise ValidationError(f'empty map_source.{name}')
-        require_int(source.get('entry_id'), 'map_source.entry_id')
+    if source.get('kind') == 'generated':
+        # These are consumed .SED bytes, not bytes of an authored/generated map.
+        # Name-only legacy Generated sources cannot certify a sealed capture.
+        seed_name = require_string(source.get('seed_name'), 'map_source.seed_name')
+        launch = require_object(profile.get('launch'), 'profile.launch')
+        map_name = require_string(launch.get('selected_map_file'),
+                                  'profile.launch.selected_map_file')
+        require_value(seed_name, map_name, 'map_source.seed_name')
+        if not seed_name.lower().endswith('.sed'):
+            raise ValidationError('map_source.seed_name must end in .SED')
+        seed_source = require_object(source.get('seed_source'), 'map_source.seed_source')
+        require_sha256(seed_source.get('source_sha256'), 'map_source.seed_source.source_sha256')
+        _integer(seed_source, 'payload_len', 1)
+        if not require_string(seed_source.get('path'), 'map_source.seed_source.path'):
+            raise ValidationError('empty map_source.seed_source.path')
     else:
-        raise ValidationError('map source must be loaded loose or MIX bytes')
+        require_sha256(source.get('source_sha256'), 'map_source.source_sha256')
+        _integer(source, 'payload_len', 1)
+        if source.get('kind') == 'loose':
+            path = require_string(source.get('path'), 'map_source.path')
+            if not path:
+                raise ValidationError('empty map source path')
+        elif source.get('kind') == 'mix':
+            for name in ('logical_name', 'source_archive'):
+                if not require_string(source.get(name), f'map_source.{name}'):
+                    raise ValidationError(f'empty map_source.{name}')
+            require_int(source.get('entry_id'), 'map_source.entry_id')
+        else:
+            raise ValidationError('map source must be loaded loose, MIX, or consumed .SED bytes')
     lifecycle = require_object(manifest.get('lifecycle'), 'lifecycle')
     for key, expected in (('window_hidden', True), ('window_focused', False),
                           ('focus_violations', 0), ('input_violations', 0)):

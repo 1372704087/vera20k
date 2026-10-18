@@ -129,7 +129,8 @@ pub(crate) fn hover_target_at_point(
         let dx = sx - world_x;
         let dy = sy - world_y;
         let dist_sq = dx * dx + dy * dy;
-        let is_friendly = sim.fog.is_friendly(local_owner, owner_str);
+        let is_friendly =
+            crate::map::houses::are_houses_friendly(&sim.house_alliances, local_owner, owner_str);
         let kind = if is_friendly {
             if is_structure {
                 HoverTargetKind::FriendlyStructure
@@ -362,7 +363,7 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
 pub(crate) fn band_rect_contains_drawn_object(
     entities: &EntityStore,
     encounter_order: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -432,7 +433,7 @@ pub(crate) fn pick_admits_object(
 /// fog state at all (the sandbox full-visibility switch) everything is drawn,
 /// where the eligibility gate falls back to an owner test.
 fn is_drawn_for_local_owner(
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     entity_owner: &str,
     entity: &crate::sim::game_entity::GameEntity,
@@ -441,11 +442,11 @@ fn is_drawn_for_local_owner(
     let Some(local_owner) = local_owner else {
         return true;
     };
-    let Some(fog) = fog else {
+    let Some((fog, alliances)) = fog else {
         // Sandbox full visibility: everything is drawn.
         return true;
     };
-    if fog.is_friendly(local_owner, entity_owner) {
+    if crate::map::houses::are_houses_friendly(alliances, local_owner, entity_owner) {
         return true;
     }
     let owner_id = local_owner_id.unwrap_or_default();
@@ -471,7 +472,7 @@ pub(crate) fn compute_box_selection_snapshot(
     preflight_order: &[u64],
     encounter_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -506,7 +507,7 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     preflight_order: &[u64],
     encounter_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -534,7 +535,7 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     let candidates = entities_in_rect(
         entities,
         encounter_order,
-        fog,
+        fog.map(|(fog, _)| fog),
         local_owner,
         min_x,
         min_y,
@@ -573,7 +574,7 @@ pub(crate) fn compute_type_select_tap_with_playfield(
     screen_order: &[u64],
     map_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
     interner: Option<&crate::sim::intern::StringInterner>,
@@ -684,7 +685,7 @@ fn type_select_candidates(
     entities: &EntityStore,
     source_order: &[u64],
     seeds: &[InternedId],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
     interner: Option<&crate::sim::intern::StringInterner>,
@@ -1414,7 +1415,7 @@ mod tests {
         assert_eq!(selection.select, [1]);
         assert!(sim.apply_command(
             "Americans",
-            &Command::ForceAttack {
+            &Command::Attack {
                 attacker_id: selection.select[0],
                 target_id: 3,
             },

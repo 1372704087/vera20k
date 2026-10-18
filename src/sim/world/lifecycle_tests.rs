@@ -2007,7 +2007,8 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert!(
@@ -2047,7 +2048,8 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
@@ -2092,7 +2094,8 @@ fn gsi_05_05_fly_takeoff_commits_absolute_z_after_remove_process() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     let altitude = crate::sim::movement::air_movement::current_fly_height(
@@ -2139,7 +2142,8 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
@@ -2238,7 +2242,8 @@ fn gsi_05_05_mapless_fly_uses_dummy_ground_then_bridge_height() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         sim.substrate
@@ -2295,7 +2300,8 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     assert_eq!(
         sim.substrate
             .entities
@@ -2322,7 +2328,8 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let crossed = sim.substrate.entities.get(20).unwrap();
     assert_ne!(crossed.air_spatial_bucket(), shared_bucket);
     assert!(crossed.air_spatial_enter_order() > second_order);
@@ -7122,7 +7129,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     sim.admit_wave(wave_id, wave);
     sim.active_wave_links.insert(owner_id, wave_id);
 
-    let represented = sim.wave_update_context(wave_id);
+    let represented = sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None);
     assert_eq!(
         represented.target_position,
         Some(ProjectileCoord::new(4 * 256 + 128, 128, 0)),
@@ -7141,7 +7148,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     assert_eq!(wave.owner_id, Some(owner_id));
     assert_eq!(wave.target_ref, None, "UnInit synchronously expires +0xAC");
     assert_eq!(sim.active_wave_links.get(&owner_id), Some(&wave_id));
-    let expired = sim.wave_update_context(wave_id);
+    let expired = sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None);
     assert_eq!(expired.target_position, None);
     let _ = sim
         .waves
@@ -7197,7 +7204,9 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
         wave_z: 0,
     };
     assert!(
-        sim.wave_update_context(wave_id).owner_position.is_some(),
+        sim.wave_update_context(sim.waves.get(wave_id).unwrap(), None)
+            .owner_position
+            .is_some(),
         "the dying-but-represented owner still supplies live Wave coordinates",
     );
     assert_eq!(sim.active_wave_links.get(&owner_id), Some(&wave_id));
@@ -9049,7 +9058,8 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let e = sim.substrate.entities.get(1).unwrap();
     assert_eq!(e.position.exact_z_leptons(), Some(731));
     assert_eq!(sim.foot_navigation_coordinate(1).unwrap().z, 731);
@@ -9085,6 +9095,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
     assert!(
         direct
             .tick_jumpjet_cruise_one(1, None, None, crate::sim::world::FrameEffects::default())
+            .unwrap()
             .is_some()
     );
     let expected = direct
@@ -9100,12 +9111,14 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         "stationary native hold retains raw owner Z"
     );
     let mut wrapped = fixture();
-    wrapped.tick_air_movement_with_cell_lists_one(
-        1,
-        None,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
+    wrapped
+        .tick_air_movement_with_cell_lists_one(
+            1,
+            None,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
     assert_eq!(
         wrapped
             .substrate
@@ -9168,7 +9181,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         assert_eq!((entity.position.rx(), entity.position.ry()), (2, 2));
         let moved_z = entity.position.exact_z_leptons().unwrap();
@@ -9206,12 +9220,14 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             for instance in [&mut sim, &mut restored] {
                 instance.session.tick = frame;
                 instance.session.binary_frame = frame as u32;
-                instance.tick_air_movement_with_cell_lists_one(
-                    1,
-                    Some(&rules),
-                    None,
-                    crate::sim::world::FrameEffects::default(),
-                );
+                instance
+                    .tick_air_movement_with_cell_lists_one(
+                        1,
+                        Some(&rules),
+                        None,
+                        crate::sim::world::FrameEffects::default(),
+                    )
+                    .unwrap();
             }
             assert_eq!(restored.state_hash(), sim.state_hash());
             let entity = sim.substrate.entities.get(1).unwrap();
@@ -9513,7 +9529,8 @@ fn jumpjet_process_compares_live_layer_queries_not_cached_registration() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
 
     // A real changed query re-submits even if cached membership is absent.
@@ -9598,6 +9615,7 @@ fn unlimbo_levels_then_aims_the_barrel_elevation() {
             .cell_mut(4, 4)
             .unwrap();
         cell.speed_costs.track = Some(100);
+        cell.speed_costs.wheel = Some(100);
         cell.base_speed_costs = cell.speed_costs;
         let id = sim
             .spawn_object(type_id, "Americans", 4, 4, 0, &rules)

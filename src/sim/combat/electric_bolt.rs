@@ -23,7 +23,9 @@ pub(crate) fn fired(
     target: super::TargetKind,
     fired_weapon: &crate::rules::weapon_type::WeaponType,
 ) {
-    if fired_weapon.is_laser || !fired_weapon.is_electric_bolt {
+    if super::world_fire::fire_at_effect(fired_weapon)
+        != super::world_fire::FireAtEffect::ElectricBolt
+    {
         return;
     }
     let Some(source) = world.substrate.entities.get(source_id) else {
@@ -41,7 +43,7 @@ pub(crate) fn fired(
         world,
         &world.interner,
         world.resolved_terrain.as_ref(),
-        Some(&world.fog.alliances),
+        Some(&world.house_alliances),
     ) else {
         return;
     };
@@ -79,7 +81,12 @@ pub(crate) fn create(
     let Some(source) = world.substrate.entities.get(source_id) else {
         return;
     };
-    let z_adjust = super::fire_coord::effect_z_adjust(world, source, from);
+    let z_adjust = super::fire_coord::effect_z_adjust(
+        world,
+        source,
+        from,
+        super::fire_coord::EffectDepthProjection::ClampedBuilding,
+    );
     let Some(to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
         return;
     };

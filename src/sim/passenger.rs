@@ -601,7 +601,7 @@ pub fn can_enter_transport(
         // Infantry51ED10 asks the actor's alliance before issuing the radio;
         // Unit7375AD then independently asks the receiver's alliance.
         return crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.fog.alliances),
+            Some(&sim.house_alliances),
             &sim.interner,
             passenger.owner(),
             transport.owner(),

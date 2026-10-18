@@ -48,8 +48,6 @@
 //! - The IsToDie path (`Flag_To_Die @ 0x004FC980`: DESTRUCT, REMOVEPLAYER, a
 //!   last human's EXIT) has no VERA producer; offline skirmish cannot reach
 //!   it.
-//! - The trigger-held original owner (`+0x2CC`/`+0x2E0`,
-//!   HouseClass::TransferUnitsTo) is not ported.
 //! - MPlayer_Defeated's capture-the-flag cleanup (Flag_Remove `0x004FBE40` at
 //!   `0x004FC112..0x004FC15E`, Scenario flag `0x10`) and the Harvester-Truce
 //!   UnInit loop (`0x004FC163`, Scenario flag `0x800`) are not ported; their
@@ -65,9 +63,10 @@
 //!   saved/closed6D1660 but restored4FC591→6D1610 on the common sole-human
 //!   terminal path, so its retained open state is unchanged. Wider multiplayer
 //!   close/restore paths remain outside this chain. Session+300 already guards
-//!   band-box/type/navigation selection; remaining UI readers include beacon,
-//!   cheer and taunt (`0x00731A30`, `0x00730F30`, `0x0053636C`), the sidebar tab
-//!   (`0x006D08F5`), `RadarClass::SetRadarMode` (`0x00656CCC`), MakeAlly's
+//!   band-box/type/navigation selection, Cheer input and the command-bar
+//!   opener (`0x006D08F5`). Its F0 close remains allowed. Remaining UI readers
+//!   include beacon and taunt (`0x00731A30`, `0x0053636C`),
+//!   `RadarClass::SetRadarMode` (`0x00656CCC`), MakeAlly's
 //!   alliance line (`0x004F9E49`) and the dialog and session readers
 //!   (`0x004F1534`, `0x00657F4A`, `0x0078D52A`, `0x004E20BA`, `0x004F10FD`,
 //!   `0x0055EE60` and others). Trigger: the local player is defeated. Effect:
@@ -558,8 +557,9 @@ impl Simulation {
     /// flag, which only [`Self::mplayer_defeated`] sets. Its readers here are
     /// the House radar recheck (`0x004F84FB`), the Lightning Storm's outages
     /// (`0x00539FE0`), the superweapon EVA lines (`0x004468DA`, `0x006CCCF0`
-    /// and the other `SuperClass::Launch` cases), selection navigation and
-    /// local planning command admission (`0x00731A50`).
+    /// and the other `SuperClass::Launch` cases), selection navigation,
+    /// AllToCheer input (`0x00730F30`), the command-bar opener (`0x006D08F5`)
+    /// and local planning admission (`0x00731A50`).
     pub fn local_player_defeated(&self) -> bool {
         self.session
             .current_house
@@ -675,8 +675,8 @@ impl Simulation {
 
     /// TechnoGetOriginalOwner70F820: MindControlledBy's CaptureManager is
     /// read before the current Owner. No manager node means native NULL.
-    /// The trigger-transfer+2CC/+2E0 producer remains an explicit module
-    /// residual; ordinary ChangeOwner/Engineer capture does not set that latch.
+    /// Trigger transfers retain +2CC/+2E0 independently; an ordinary capture
+    /// clears +2E0 without clearing +2CC, so this can legitimately return None.
     pub(crate) fn techno_original_owner(&self, id: u64) -> Option<InternedId> {
         let entity = self.substrate.entities.get(id)?;
         if let Some(controller) = entity.mind_control.controller() {
@@ -686,6 +686,8 @@ impl Simulation {
                 .capture_manager
                 .as_ref()?
                 .original_owner(id)
+        } else if entity.mind_control.house_controller().is_some() {
+            entity.mind_control.house_original_owner()
         } else {
             Some(entity.owner())
         }

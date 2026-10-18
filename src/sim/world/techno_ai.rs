@@ -88,29 +88,34 @@ impl ObjectAiOutcome {
 }
 
 impl Simulation {
+    /// The existing Techno+324 link, including its native dying/deferred
+    /// interval. Readers must not reconstruct it from the Wave registry.
+    pub fn active_wave_id(&self, owner_id: u64) -> Option<u64> {
+        self.active_wave_links.get(&owner_id).copied()
+    }
+
     pub(crate) fn clear_active_wave_link(&mut self, wave_id: u64) {
         self.active_wave_links
             .retain(|_, linked_wave_id| *linked_wave_id != wave_id);
     }
 
-    pub(crate) fn wave_update_context(&self, wave_id: u64) -> crate::sim::wave::WaveUpdateContext {
+    pub(crate) fn wave_update_context(
+        &self,
+        wave: &crate::sim::wave::Wave,
+        rules: Option<&RuleSet>,
+    ) -> crate::sim::wave::WaveUpdateContext {
         use crate::sim::combat::TargetKind;
         use crate::sim::projectile::ProjectileCoord;
 
-        let Some(wave) = self.waves.get(wave_id) else {
-            return crate::sim::wave::WaveUpdateContext {
-                owner_position: None,
-                owner_current_target: None,
-                target_position: None,
-            };
-        };
         // WaveClass keeps raw owner/target pointers through the represented
         // dying interval. Only PointerExpired makes either identity null.
         let owner = wave
             .owner_id
             .and_then(|owner_id| self.substrate.entities.get(owner_id));
-        // The tracking distance reads the owner's Location (`0x00762BB4`).
-        // RESIDUAL: the geometry takes its FLH instead (vt+0xB0, `0x00762D49`).
+        // The tracking distance reads Location (`0x00762BB4`), independently
+        // of the GetFLH(0, null) geometry call (`0x00762AF0`). The ordinary
+        // production host supplies its current rules; rules-less test worlds
+        // retain their Location-only compatibility boundary.
         let owner_position = owner.map(|entity| {
             let location = crate::sim::movement::ground_pose::object_location(
                 entity,
@@ -119,6 +124,27 @@ impl Simulation {
             ProjectileCoord::new(location.x, location.y, location.z)
         });
         let owner_current_target = owner.and_then(|entity| entity.attack_target.target());
+        let owner_fire_coordinate = owner.and_then(|entity| {
+            let Some(rules) = rules else {
+                return owner_position;
+            };
+            let object = self.interner.object_type(entity.type_ref(), rules)?;
+            // GetFLH(0, null) still mirrors by the owner's current burst
+            // parity (+0x3B8, `0x006F3C82`), as FireAt's own call does.
+            let burst_index = (entity.weapon_burst.index() & 1) as u8;
+            Some(
+                crate::sim::combat::fire_coord::fire_coordinate(
+                    self,
+                    rules,
+                    &crate::sim::combat::fire_coord::FireSource::of_entity(entity),
+                    object,
+                    0,
+                    burst_index,
+                    crate::rules::flh::Flh::default(),
+                )
+                .coord,
+            )
+        });
         // The target's vt+0x58 (`0x00762BD1`, `0x00762D2C`), which an object
         // forwards to its GetCoords (`0x00410540`).
         let target_position = match wave.target_ref {
@@ -133,10 +159,20 @@ impl Simulation {
             Some(TargetKind::Cell(rx, ry)) => Some(self.wave_cell_target_position(rx, ry)),
             None => None,
         };
+        let target_is_unit = match wave.target_ref {
+            Some(TargetKind::Entity(id)) => self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.category() == EntityCategory::Unit),
+            _ => false,
+        };
         crate::sim::wave::WaveUpdateContext {
             owner_position,
+            owner_fire_coordinate,
             owner_current_target,
             target_position,
+            target_is_unit,
         }
     }
 }
@@ -339,7 +375,12 @@ impl Simulation {
             }
             return outcome;
         }
-        if self.production.terrain_objects.contains_key(&id) {
+        // One stable id allocator numbers every store, so an entity is no
+        // terrain object: its hashed lookup spares the commonest turn the
+        // terrain map's.
+        if !self.substrate.entities.contains(id)
+            && self.production.terrain_objects.contains_key(&id)
+        {
             // TerrainClass::AI @ 0x0071C730 calls ObjectClass::AI first
             // (`0x0071C738`).
             self.object_ai_sounds(id, rules, ctx.effects);
@@ -493,7 +534,8 @@ impl Simulation {
             return outcome;
         }
         if self.waves.get(id).is_some() {
-            let context = self.wave_update_context(id);
+            let context =
+                self.wave_update_context(self.waves.get(id).expect("represented Wave"), rules);
             let terrain = self.resolved_terrain.as_ref();
             let (request, result) = self
                 .waves
@@ -739,9 +781,7 @@ fn techno_ai_shell(
             if !mission_counter_step(sim, id, rules, ctx, outcome) {
                 return;
             }
-            if let Some(rules) = rules
-                && mission_handlers_run(sim, id)
-            {
+            if let Some(rules) = rules {
                 outcome.bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
             }
             passive_acquire_step(sim, id, rules, ctx);
@@ -979,7 +1019,6 @@ fn techno_ai_shell(
             // MissionClass::AI, inside this slot and before Fly Process
             // (FootClass::AI4DA530).
             if let Some(rules) = rules
-                && mission_handlers_run(sim, id)
                 && crate::sim::aircraft::dispatch_mission(sim, id, rules, ctx)
             {
                 sim.fire_requests.aircraft.insert(id);
@@ -1241,10 +1280,11 @@ fn drop_unsensed_cloaked_target_step(
         return;
     }
     let target_cell = (target.position.rx(), target.position.ry());
-    if sim
-        .fog
-        .is_friendly(&owner_str, sim.interner.resolve(target.owner()))
-    {
+    if crate::map::houses::are_houses_friendly(
+        &sim.house_alliances,
+        &owner_str,
+        sim.interner.resolve(target.owner()),
+    ) {
         return;
     }
     if sim
@@ -1299,26 +1339,17 @@ fn mission_counter_step(
 /// answers true (`0x006FA23C`) and again after the bomb and the managers
 /// (`0x006FA735`), and `UnitClass::AI` before its fire update (`0x007365BB`).
 /// A crashing wreck and an authored zero-HP building keep it at Health 0:
-/// neither may skip its terminal AI by deriving this flag from Health. The
-/// separate Mission5B30A7 gate below still requires positive Health.
+/// neither may skip its terminal AI by deriving this flag from Health.
+/// `MissionClass::AI`'s gate ([`GameEntity::mission_handler_due`]) still
+/// requires positive Health.
 ///
 /// [`GameEntity::is_object_alive`]: crate::sim::game_entity::GameEntity::is_object_alive
+/// [`GameEntity::mission_handler_due`]: crate::sim::game_entity::GameEntity::mission_handler_due
 pub(crate) fn ai_alive(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
         .is_some_and(|entity| entity.is_object_alive())
-}
-
-/// `MissionClass::AI @ 0x005B3060`'s last gate before a mission handler: Health
-/// above zero (`0x005B30A7`, signed). A crashing wreck is alive at Health 0, so
-/// its Techno AI runs but no handler does and its dispatch timer is not
-/// rewritten.
-fn mission_handlers_run(sim: &Simulation, id: u64) -> bool {
-    sim.substrate
-        .entities
-        .get(id)
-        .is_some_and(|entity| entity.health.current() > 0)
 }
 
 /// `TechnoClass::AI_Update`'s leading common steps, in native order: the
@@ -1658,7 +1689,7 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     };
     if !combat_weapon::is_ally_by_object(
-        Some(&sim.fog.alliances),
+        Some(&sim.house_alliances),
         &sim.interner,
         house,
         target.owner(),
@@ -1876,9 +1907,7 @@ fn unit_techno_bracket(
     // timer-gated, ending with the verified post-handler epilogue write
     // (start = current frame, delay = handler return). One committed-selector
     // match routes Harvest, Attack and the other represented Foot handlers.
-    if mission_handlers_run(sim, id)
-        && let Some(rules) = rules
-    {
+    if let Some(rules) = rules {
         outcome.bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
     }
     // `UnitClass::AI @ 0x007361A9..0x007361E9`: a draining Floating Disc
@@ -1960,7 +1989,9 @@ mod tests {
     use crate::sim::game_entity::GameEntity;
     use crate::sim::mission::leaf::MissionLeafState;
     use crate::sim::mission::state::MissionTestFixture;
-    use crate::sim::mission::{MissionCom, MissionDispatchTimer, MissionId, MissionType};
+    use crate::sim::mission::{
+        MISSION_STUB_FRAMES, MissionCom, MissionDispatchTimer, MissionId, MissionType,
+    };
     use crate::sim::movement::locomotor::LocomotorState;
     use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
     use crate::sim::snapshot::GameSnapshot;
@@ -1986,13 +2017,25 @@ mod tests {
                 retained,
             ),
         );
-        assert_eq!(sim.wave_update_context(3).target_position, Some(retained));
+        assert_eq!(
+            sim.wave_update_context(sim.waves.get(3).unwrap(), None)
+                .target_position,
+            Some(retained)
+        );
         let tree = sim.production.terrain_objects.get_mut(&2).unwrap();
         tree.health = 0;
         tree.lifecycle = TerrainObjectLifecycle::Limbo;
-        assert_eq!(sim.wave_update_context(3).target_position, Some(retained));
+        assert_eq!(
+            sim.wave_update_context(sim.waves.get(3).unwrap(), None)
+                .target_position,
+            Some(retained)
+        );
         sim.waves.pointer_expired(3, 2);
-        assert_eq!(sim.wave_update_context(3).target_position, None);
+        assert_eq!(
+            sim.wave_update_context(sim.waves.get(3).unwrap(), None)
+                .target_position,
+            None
+        );
     }
 
     /// Build a test entity of a specific category (`test_default` makes a Unit).
@@ -5120,7 +5163,7 @@ mod tests {
 
             assert_eq!(
                 dispatch_timer_of(&sim, 1),
-                MissionDispatchTimer::from_raw(0, BASE_MISSION_HANDLER_FRAMES),
+                MissionDispatchTimer::from_raw(0, MISSION_STUB_FRAMES),
                 "{category:?} on {mission:?} must re-arm the base handler's flat delay"
             );
             assert_eq!(

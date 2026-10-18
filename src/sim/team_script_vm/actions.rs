@@ -17,8 +17,8 @@
 //! `deploy` rows (actions 14, 43, 8 and 9) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 37, 39, 40, 42, 43,
-//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 61, 62, 63 and 64 are not ported. A team
+//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 30, 37, 39, 40, 42, 43,
+//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63 and 64 are not ported. A team
 //!   that reaches one stays on it, as a native handler that has not
 //!   finished does, and records the first as its refusal; the rest of its
 //!   update runs. Trigger: none of the 163 retail AIMD TeamTypes reaches
@@ -68,8 +68,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::ScanMission;
 use crate::sim::combat::fire_error::FireError;
+use crate::sim::combat::{ScanMission, quarry_mask};
 use crate::sim::components::NavTargetRef;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
@@ -132,6 +132,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 20
             | 21
             | 24
+            | 30
             | 37
             | 39
             | 40
@@ -147,6 +148,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 57
             | 58
             | 59
+            | 60
             | 61
             | 62
             | 63
@@ -555,6 +557,23 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            // Original gamemd1cdd1180,6E9FEC ->6E99E1..6E99FD
+            // (tools/native_inspect): House+250=4, then Team+80=1.
+            // Argument/first are unused; the existing House Strategy timer
+            // decides when FireSale/Hunt runs. No direct RNG/timer/detach.
+            30 => {
+                let owner = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .map(TeamScriptState::owner);
+                if let Some(house) = owner.and_then(|owner| self.houses.get_mut(&owner)) {
+                    house.strategy_emergency.set_state_four();
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
             43 => self.team_action_wait_until_loaded(team_id, rules),
             46 => self.team_action_attack_enemy_building(
                 team_id,
@@ -615,16 +634,17 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            // `0x006E9DF9..0x006E9E3D` (60),
             // `0x006E9E3E..0x006E9E82` (61), `0x006E9E83..0x006E9EC7` (62)
             // and `0x006E9EC8..` (63): each member, in list order, seeks a
-            // tank bunker (Foot vt+0x344, [`Self::foot_enter_tank_bunker`]),
+            // grinder (vt+0x33C), tank bunker (Foot vt+0x344),
             // a Bio Reactor (vt+0x340, [`Self::foot_enter_bio_reactor`]) or
             // an occupiable building (vt+0x348,
             // [`Self::foot_enter_battle_bunker`]); one that finds one leaves
             // the team (`Remove_Member(member, -1, 1)`, `0x006E9E69`,
             // `0x006E9EAE`, `0x006E9EF3`). The action is finished at once,
             // also with no member (`0x006E953E`).
-            61..=63 => {
+            60..=63 => {
                 let members: Vec<u64> = self
                     .team_script_vm
                     .teams
@@ -633,6 +653,7 @@ impl Simulation {
                     .unwrap_or_default();
                 for member in members {
                     let found = match action.action_id {
+                        60 => self.foot_enter_grinder(member, rules, registry, frame_effects),
                         61 => self.foot_enter_tank_bunker(member, rules, registry, frame_effects),
                         62 => self.foot_enter_bio_reactor(member, rules, registry, frame_effects),
                         _ => self.foot_enter_battle_bunker(member, rules, registry, frame_effects),
@@ -1340,8 +1361,9 @@ impl Simulation {
 
     /// The member with the highest `LeadershipRating=` (signed, the first in
     /// list order on a tie) among the live joined members, else the head
-    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`).
-    pub(super) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
+    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`), also the
+    /// shared GetLeader6EC3D0 called by House50D170.
+    pub(crate) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
         let team = self.team_script_vm.teams.get(&team_id)?;
         let mut leader = team.members.first()?.id;
         let mut best = -1i32;
@@ -2582,23 +2604,6 @@ pub(super) fn safe_distance_cell(from: [i32; 2], facing: u16, safe_distance: i32
         i32::from((point[0] / 256) as i16),
         i32::from((point[1] / 256) as i16),
     )
-}
-
-/// `Quarry_To_Threat @ 0x00645BB0` (table `0x00645BF8`): script action 0's
-/// quarry as a `Greatest_Threat` mask; 0 outside `2..=11`.
-pub(super) const fn quarry_mask(quarry: i32) -> u32 {
-    match quarry {
-        2 => 0x20,
-        3 => 0x40,
-        4 => 0x8,
-        5 => 0x10,
-        6 => 0x1000,
-        7 => 0x2000,
-        9 => 0x800,
-        10 => 0x8000,
-        11 => 0x10000,
-        _ => 0,
-    }
 }
 
 /// A member's shared live ammunition (`+0x2FC`). A component-only fixture

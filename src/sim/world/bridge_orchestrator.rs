@@ -128,7 +128,7 @@ pub(crate) fn damage_at_waypoint(
     let warhead_id = sim.interner.intern(&rules.bridge_warheads.c4_name);
     let mut changed = false;
     for (dx, dy) in [(0, 0), (85, 85), (-85, 85), (85, -85), (-85, -85)] {
-        let [x, y, z] = sim.trigger_waypoint_coord(waypoint)?;
+        let [x, y, z] = sim.trigger_waypoint_location(waypoint)?;
         changed |= apply_area_damage(
             sim,
             rules,
@@ -142,8 +142,8 @@ pub(crate) fn damage_at_waypoint(
     }
     // IsWaypointValid68BD80 gates only the tail, after all five area visits.
     // The retained unset coordinate is zero; the shared session bounds the index.
-    if let Some(cell) = sim.session.waypoint_cell(waypoint)
-        && cell != (0, 0)
+    if sim.session.waypoint_is_valid(waypoint)
+        && let Some(cell) = sim.session.waypoint_cell(waypoint)
     {
         let mut drivers = BridgeDamageDrivers::new(sim, rules, overlay_registry, frame_effects);
         for _ in 0..4 {

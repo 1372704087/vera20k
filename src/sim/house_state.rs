@@ -243,8 +243,9 @@ impl HouseStrategyEmergencyState {
         self.last_attacker_house_index
     }
 
-    /// Trigger action9 writes only House+250=4 at6DEAFF; the existing
-    /// strategy timer and its eventual FireSale/Hunt remain untouched.
+    /// Trigger action9 (6DEAFF) and Team script30 (6E99E5) write only
+    /// House+250=4; the existing strategy timer and eventual FireSale/Hunt
+    /// remain untouched.
     pub(crate) fn set_state_four(&mut self) {
         self.mode = 4;
     }
@@ -611,8 +612,8 @@ pub struct HouseState {
     /// House+244: Engineer PerCell519F4F records that this House has had a
     /// building captured. Constructor4F577D clears it, and the original
     /// TEvent Evaluate71F0E1 reads it for event kind3 (tables71F328/71F350).
-    /// There is no clearing writer. Live Tag/TEvent polling remains a separate
-    /// trigger mechanism; retaining this prerequisite does not implement it.
+    /// There is no clearing writer. TEvent3 also retains its native raised-kind
+    /// gate: the ordinary House event8 poll alone does not satisfy it.
     #[serde(default)]
     building_capture_notified: bool,
     /// Last type ArrayIndex in each ObjectCategory registry (not a count).
@@ -659,8 +660,7 @@ pub struct HouseState {
     /// House+1F4: first discovery of this House's foreign object by PlayerPtr.
     /// Constructor4F5716 clears it; TechnoDiscovered6F4A25 sets it and no
     /// clearing writer exists. TEvent71F0FB reads it for event kind5, after
-    /// resolving the House by its CountryType index through502D30. Live
-    /// Tag/TEvent evaluation remains a separate trigger mechanism.
+    /// resolving the House by its CountryType index through502D30.
     /// Native House CRC502D60 omits1F4. Like Techno41A/B/C this is a
     /// client-relative retained observation and is excluded from peer hashing.
     #[serde(default)]
@@ -751,14 +751,14 @@ pub struct HouseState {
     #[serde(default)]
     spatial_threat: crate::sim::house_threat::HouseSpatialThreat,
     #[serde(default)]
-    super_weapon_cells: HouseSuperWeaponCells,
+    super_weapon_targets: HouseSuperWeaponTargets,
 }
 
-/// The super weapon cells a House keeps: where its nuclear missile flies
+/// The super weapon targeting state a House keeps: where its nuclear missile flies
 /// (`HouseClass+0x5784`), its scripted offensive target (`+0x54F0`) and its
 /// last super weapon alert (`+0x54F4` cell, `+0x54FC` frame).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct HouseSuperWeaponCells {
+struct HouseSuperWeaponTargets {
     /// `+0x5784` NukeTarget: `SuperClass::Launch`'s MultiMissile arm stores
     /// the target cell (`0x006CDDC4`) and the silo's Mission_Missile reads
     /// it for the warning anim and the missile (`0x0044C9DC`, `0x0044CAA9`).
@@ -773,21 +773,30 @@ struct HouseSuperWeaponCells {
     /// @ 0x005098F0` aims its ForceShield there (`0x00509A6D..0x00509A9B`)
     /// while the alert is younger than `[General] AISuperDefenseFrames=`
     /// (`superweapon::ai_fire`). Constructor (0, 0) (`0x004F5A8F`); trigger
-    /// actions also write it (`0x0050DA20`, `0x0050DA50`), which VERA does not
-    /// run.
+    /// actions140/141 also write it (`0x0050DA20`, `0x0050DA50`).
     defense_cell: (u16, u16),
     /// `+0x54FC`: the frame of that alert (`0x004FB0C9`); constructor -100
     /// (`0x004F5AB1`).
     defense_frame: i32,
+    /// House+54EC: constructor4F5A77 writes1; active Execute35 stores the
+    /// signed Action+90 at6DE1F1. AI target pickers read it independently of
+    /// the scripted target cell. Steam gamemd3e81a617..08600.
+    #[serde(default = "default_super_target_kind")]
+    preferred_kind: i32,
 }
 
-impl Default for HouseSuperWeaponCells {
+const fn default_super_target_kind() -> i32 {
+    1
+}
+
+impl Default for HouseSuperWeaponTargets {
     fn default() -> Self {
         Self {
             nuke_target: (0, 0),
             preferred_target: (0, 0),
             defense_cell: (0, 0),
             defense_frame: -100,
+            preferred_kind: default_super_target_kind(),
         }
     }
 }
@@ -1035,6 +1044,22 @@ impl HouseState {
         ]
     }
 
+    /// Active Execute77/78/79 stores the full signed Action+90 at
+    /// 6DF38E/6DF3B8/6DF3E2 (Steam gamemd 3e81a617..08600). These are the
+    /// existing ReadScenarioINI500B40 fields +5660/+5664/+5668, independent
+    /// of the live AI-trigger selector's +565C ratio. No timer or RNG write.
+    pub(crate) fn set_aircraft_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_aircraft = value;
+    }
+
+    pub(crate) fn set_infantry_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_infantry = value;
+    }
+
+    pub(crate) fn set_unit_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_units = value;
+    }
+
     pub(crate) fn hash_scenario_parameters(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         if self.scenario_parameters != HouseScenarioParameters::default() {
@@ -1098,52 +1123,73 @@ impl HouseState {
 
     /// The cell the house's nuclear missile flies to (`HouseClass+0x5784`).
     pub(crate) fn nuke_target(&self) -> (u16, u16) {
-        self.super_weapon_cells.nuke_target
+        self.super_weapon_targets.nuke_target
     }
 
     /// `SuperClass::Launch 0x006CDDC4`: the MultiMissile arm's target.
     pub(crate) fn set_nuke_target(&mut self, cell: (u16, u16)) {
-        self.super_weapon_cells.nuke_target = cell;
+        self.super_weapon_targets.nuke_target = cell;
+    }
+
+    /// House+54EC, separate from the scripted offensive target cell.
+    pub(crate) fn preferred_super_weapon_target_kind(&self) -> i32 {
+        self.super_weapon_targets.preferred_kind
+    }
+
+    /// Execute35 at6DE1F1 stores the full signed dword without clamping,
+    /// starting a timer, drawing RNG or changing an already launched Super.
+    pub(crate) fn set_preferred_super_weapon_target_kind(&mut self, value: i32) {
+        self.super_weapon_targets.preferred_kind = value;
     }
 
     /// House+54F0, shared by AI superweapon target consumers.
     pub(crate) fn preferred_super_weapon_target(&self) -> (u16, u16) {
-        self.super_weapon_cells.preferred_target
+        self.super_weapon_targets.preferred_target
     }
 
     /// House50DA00, reached by TAction1356E43E0. The action rejects an
     /// empty waypoint; this owner stores its packed cell without map clamps.
     /// Identity/controls: tools/spatial_oracle/trigger_superweapon_state.meta.json.
     pub(crate) fn set_preferred_super_weapon_target(&mut self, cell: (u16, u16)) {
-        self.super_weapon_cells.preferred_target = cell;
+        self.super_weapon_targets.preferred_target = cell;
     }
 
     /// House50DA10, reached by TAction1366E4440, copies the initialized
     /// empty cell A8EF98. No timer, RNG, object pointer or detach is involved.
     pub(crate) fn clear_preferred_super_weapon_target(&mut self) {
-        self.super_weapon_cells.preferred_target = (0, 0);
+        self.super_weapon_targets.preferred_target = (0, 0);
     }
 
     /// The last super weapon alert's defence cell and frame (`+0x54F4`,
     /// `+0x54FC`).
     pub(crate) fn super_weapon_defense(&self) -> ((u16, u16), i32) {
         (
-            self.super_weapon_cells.defense_cell,
-            self.super_weapon_cells.defense_frame,
+            self.super_weapon_targets.defense_cell,
+            self.super_weapon_targets.defense_frame,
         )
     }
 
-    /// The launch alert's stores (`0x004FB0BD`, `0x004FB0C9`).
+    /// The launch alert's stores (`0x004FB0BD`, `0x004FB0C9`), also made by
+    /// House50DA20 from TAction1406E4460 with the current binary frame.
     pub(crate) fn alert_super_weapon_defense(&mut self, cell: (u16, u16), frame: i32) {
-        self.super_weapon_cells.defense_cell = cell;
-        self.super_weapon_cells.defense_frame = frame;
+        self.super_weapon_targets.defense_cell = cell;
+        self.super_weapon_targets.defense_frame = frame;
+    }
+
+    /// House50DA50, reached by TAction1416E44C0: clear the alert and restore
+    /// its constructor frame (-100). Original Steam gamemd3e81a617..08600,
+    /// instruction reading. Native also clears +54F8, which currently retains
+    /// its constructor zero here (ai_fire's secondary-cell residual).
+    pub(crate) fn clear_super_weapon_defense(&mut self) {
+        self.super_weapon_targets.defense_cell = (0, 0);
+        self.super_weapon_targets.defense_frame = -100;
     }
 
     /// Folded only off the constructor values, so houses that never saw a
     /// super weapon hash as earlier schemas did.
-    pub(crate) fn hash_super_weapon_cells(&self, hasher: &mut impl std::hash::Hasher) {
-        let cells = &self.super_weapon_cells;
-        let default = HouseSuperWeaponCells::default();
+    pub(crate) fn hash_super_weapon_targets(&self, hasher: &mut impl std::hash::Hasher) {
+        let cells = &self.super_weapon_targets;
+        let default = HouseSuperWeaponTargets::default();
         if cells.nuke_target != default.nuke_target
             || cells.defense_cell != default.defense_cell
             || cells.defense_frame != default.defense_frame
@@ -1153,6 +1199,10 @@ impl HouseState {
             std::hash::Hash::hash(&cells.nuke_target, hasher);
             std::hash::Hash::hash(&cells.defense_cell, hasher);
             std::hash::Hash::hash(&cells.defense_frame, hasher);
+        }
+        if cells.preferred_kind != default.preferred_kind {
+            std::hash::Hash::hash(b"house-super-target-kind-v1", hasher);
+            std::hash::Hash::hash(&cells.preferred_kind, hasher);
         }
         if cells.preferred_target != default.preferred_target {
             std::hash::Hash::hash(b"house-preferred-super-target-v377", hasher);
@@ -1165,7 +1215,6 @@ impl HouseState {
     }
 
     /// Retained input to original TEvent kind3, not current building ownership.
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn building_capture_notified(&self) -> bool {
         self.building_capture_notified
     }
@@ -1309,7 +1358,6 @@ impl HouseState {
         self.discovered_by_current_house = true;
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn discovered_by_current_house(&self) -> bool {
         self.discovered_by_current_house
     }
@@ -1561,6 +1609,14 @@ impl HouseState {
         self.ai_activation.ai_triggers_active = active;
     }
 
+    /// Execute30 at 0x006DE206 tests Action+0x90's low byte, then writes 1/0 to
+    /// House+0x1F3. Production/autocreate/AI-trigger latches stay independent.
+    pub(crate) fn set_auto_base_building_from_trigger(&mut self, value: i32) -> bool {
+        let enabled = value as u8 != 0;
+        self.ai_activation.auto_base_building = enabled;
+        enabled
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_ai_activation_for_test(&mut self, latches: HouseAiActivationLatches) {
         self.ai_activation = latches;
@@ -1581,6 +1637,13 @@ impl HouseState {
     /// AutocreateAllowed/AITriggersActive/AutoBaseBuilding sibling latch.
     pub(crate) fn enable_scripted_production(&mut self) {
         self.ai_activation.production = true;
+    }
+
+    /// Execute13 6DEB18 -> shared House selector6E45E0 ->6DEB41 writes
+    /// only House+1EF=1 (Steam gamemd 3e81a617..08600). This neither
+    /// co-enables the other activation bytes nor immediately creates a team.
+    pub(crate) fn enable_scripted_autocreate(&mut self) {
+        self.ai_activation.autocreate_allowed = true;
     }
 
     /// Run the early `HouseClass__Update` AI-activation transition.
@@ -1764,7 +1827,7 @@ impl HouseState {
             repair_start_latch: false,
             repair_latch_timer: CdTimer::started(0, 0),
             spatial_threat: Default::default(),
-            super_weapon_cells: HouseSuperWeaponCells::default(),
+            super_weapon_targets: HouseSuperWeaponTargets::default(),
         }
     }
 }

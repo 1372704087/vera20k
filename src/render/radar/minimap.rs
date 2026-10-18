@@ -366,6 +366,7 @@ impl MinimapRenderer {
         sim_tick: u64,
         local_owner: Option<InternedId>,
         fog: &FogState,
+        alliances: &crate::map::houses::HouseAllianceMap,
         full_visibility: bool,
         game_mode_nonzero: bool,
         rules: Option<&RuleSet>,
@@ -513,6 +514,7 @@ impl MinimapRenderer {
                     houses,
                     local_owner,
                     fog,
+                    alliances,
                     full_visibility,
                     game_mode_nonzero,
                     rules,
@@ -535,6 +537,7 @@ impl MinimapRenderer {
                 houses,
                 local_owner,
                 fog,
+                alliances,
                 full_visibility,
                 game_mode_nonzero,
                 rules,
@@ -570,6 +573,7 @@ impl MinimapRenderer {
                 houses,
                 local_owner,
                 fog,
+                alliances,
                 full_visibility,
                 game_mode_nonzero,
                 rules,
@@ -586,7 +590,7 @@ impl MinimapRenderer {
                 entity.owner() == observer
                     || interner.is_some_and(|interner| {
                         crate::map::houses::is_allied_with(
-                            &fog.alliances,
+                            alliances,
                             interner.resolve(entity.owner()),
                             interner.resolve(observer),
                         )

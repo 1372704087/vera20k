@@ -149,7 +149,7 @@ pub(crate) fn tick_particle_system(
     // past zero and never triggers it, exactly as here.
     sys.lifetime = sys.lifetime.wrapping_sub(1);
     if sys.lifetime == 0 {
-        sys.done_spawning = true;
+        sys.mark_done_spawning();
     }
 
     // `alive && this[+0xF8] && particle_count == 0`, from the same function.

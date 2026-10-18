@@ -213,7 +213,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
             .unwrap()
             .navigation
             .nav_com(),
-        Some(crate::sim::components::NavTargetRef::Building { id: hut }),
+        Some(crate::sim::components::NavTargetRef::object(hut)),
         "the real order publishes Foot NavCom before head selection"
     );
     let mut saw_boundary_before_completion = false;
@@ -1672,7 +1672,8 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                 None,
                 None,
                 crate::sim::world::FrameEffects::default(),
-            );
+            )
+            .unwrap();
             assert_eq!(
                 sim.substrate
                     .entities

@@ -5,6 +5,7 @@
 //! this module never depends on render, UI, sidebar, audio, or net.
 
 use crate::map::entities::EntityCategory;
+use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::{CellRect, resolve_reservation_real_cell, scan_cell_rect};
 use crate::sim::combat::TargetKind;
@@ -452,6 +453,20 @@ impl Simulation {
         self.object_placement_scope_depth != 0
     }
 
+    /// Crate validation4A18F0 saves A8E7AC, clears it at4A190B, and
+    /// restores it on both success4A1A7D and refusal4A1A8E. Its callbacks
+    /// therefore use ordinary admission even inside an initial-object scope.
+    /// Source: original gamemd; crate_pickup and wall-autofill callers.
+    pub(crate) fn without_object_placement_scope<R>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let prior = std::mem::take(&mut self.object_placement_scope_depth);
+        let result = operation(self);
+        self.object_placement_scope_depth = prior;
+        result
+    }
+
     /// Raise VERA's analog of native `0xA8ED6B` around `operation`: an initial
     /// building Unlimbo inside it takes Enter_Idle_Mode's Idle arm
     /// (`0x0044D6A0`) and stands finished, with no build-up. Native sets the
@@ -568,7 +583,12 @@ pub enum RevealFailure {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RevealOutcome {
-    Revealed { logic_registered: bool },
+    Revealed {
+        logic_registered: bool,
+    },
+    /// Building440580's wall arm succeeded and already UnInit'd the
+    /// constructor. It remains in limbo until the shared deferred drain.
+    Consumed,
     AlreadyRevealed,
     Failed(RevealFailure),
 }
@@ -659,6 +679,8 @@ pub enum LifecycleOutput {
     /// Copied LaserDraw54FE60 birth; no source/target pointer to detach.
     LaserCreated(crate::sim::combat::laser::LaserBirth),
     ElectricBoltCreated(crate::sim::combat::electric_bolt::ElectricBoltBirth),
+    /// SpawnRadBeam6FD620 modes0/1 copy endpoints into a Tactical-lived effect.
+    RadiationBeamCreated(crate::sim::combat::radiation_beam::RadiationBeamBirth),
     /// ObjectUnlimbo5F517A/5F5207 constructs and attaches a presentation trail.
     LineTrailConstructed {
         stable_id: u64,
@@ -813,8 +835,9 @@ pub enum LifecycleTestEvent {
         scenario_rng_state: u64,
     },
     /// The FireAt transaction has committed every receiver/effect owned by
-    /// this shot. Wave registration happens at this boundary, but the new
-    /// Logic tail must not dispatch until all later pre-existing callbacks.
+    /// this shot, including a Wave it registered (Sonic `0x006FF470`, MagBeam
+    /// `0x006FF647`); that Wave's Logic tail must not dispatch until all later
+    /// pre-existing callbacks.
     CombatFireEffectsCommitted {
         attacker_id: u64,
         scenario_rng_state: u64,
@@ -2416,7 +2439,8 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
-    ) -> crate::sim::movement::air_movement::AirMovementTickStats {
+    ) -> Result<crate::sim::movement::air_movement::AirMovementTickStats, super::FrameAdvanceError>
+    {
         use crate::rules::locomotor_type::LocomotorKind;
         use crate::sim::movement::locomotor::MovementLayer;
 
@@ -2433,7 +2457,7 @@ impl Simulation {
                     })
             });
         if fly {
-            return self.fly_process(stable_id, rules, registry, effects);
+            return Ok(self.fly_process(stable_id, rules, registry, effects));
         }
         let jumpjet_layer_before = self
             .substrate
@@ -2448,17 +2472,17 @@ impl Simulation {
             .and_then(|_| self.entity_display_layer(stable_id, rules));
         // A cruising Jumpjet runs the native Update/State3 body
         // (`world::jumpjet_cruise`).
-        let stats = match self.tick_jumpjet_cruise_one(stable_id, rules, registry, effects) {
+        let stats = match self.tick_jumpjet_cruise_one(stable_id, rules, registry, effects)? {
             // State 5's impact notice UnInits the wreck, so `Process`'s layer
             // tail finds it dead (`0x0054B16C`); the object turn commits it.
-            Some(stats) if stats.impact => return stats,
+            Some(stats) if stats.impact => return Ok(stats),
             Some(stats) => stats,
             None => crate::sim::movement::air_movement::AirMovementTickStats::default(),
         };
         if let Some(before) = jumpjet_layer_before {
             self.complete_jumpjet_display_process(stable_id, before, rules);
         }
-        stats
+        Ok(stats)
     }
 
     /// Fly4CCB40 ->4CD2A0 after4CD600's movement/height Mark pair.
@@ -3719,20 +3743,25 @@ impl Simulation {
     /// centre, on a building that is not a `Helipad=`, is sent RUN_AWAY (0x17),
     /// so a War Miner on a destroyed refinery's pad leaves its unload for
     /// Harvest (`radio::receive`), then clears its Unit+0x500 pending entry
-    /// (`0x004425AA`). RESIDUAL: the other arm — a nearer contact, or any
-    /// contact of a helipad, takes the C4 kill (`vt+0x16C` with `Rules+0xFA8`,
-    /// `0x004425B6..0x004425EE`), not wired (units at a building's centre and
-    /// aircraft docked on a destroyed helipad survive).
+    /// (`0x004425AA`). A nearer contact, or any contact of a helipad, takes
+    /// `Strength * 10` C4 damage (`0x004425B6..0x004425EE`), with no source
+    /// and both receiver flags set. Execute each receiver synchronously in
+    /// the caller's transaction: its death effects may alter later contacts.
+    /// Evidence: retail gamemd.exe instructions, inspect with
+    /// `python -m tools.native_inspect disasm 0x442511 --bytes 0xf7`.
     pub(crate) fn building_now_dead_contacts(
         &mut self,
         building_id: u64,
         contacts: &[u64],
-        rules: Option<&RuleSet>,
-        effects: FrameEffects<'_>,
+        rules: &RuleSet,
+        overlay_registry: Option<&OverlayTypeRegistry>,
+        run: &mut crate::sim::combat::world_receiver::ReceiverRun<'_>,
+    ) -> (
+        crate::sim::combat::DeathEffects,
+        Vec<crate::sim::combat::UnderAttackEvent>,
     ) {
-        let Some(rules) = rules else {
-            return;
-        };
+        let mut death_effects = crate::sim::combat::DeathEffects::default();
+        let mut under_attack_events = Vec::new();
         // `0x00442532`/`0x00442543`: both ends are GetCoords (vt+0x48).
         let Some((centre, helipad)) = self.substrate.entities.get(building_id).and_then(|b| {
             let object = self.object_type(b.type_ref(), rules)?;
@@ -3749,7 +3778,7 @@ impl Simulation {
                 object.helipad,
             ))
         }) else {
-            return;
+            return (death_effects, under_attack_events);
         };
         for &contact in contacts {
             let Some(at) = self.substrate.entities.get(contact).map(|c| {
@@ -3780,14 +3809,47 @@ impl Simulation {
                     crate::sim::radio::RadioMessage::RunAway,
                     crate::sim::radio::RadioPayload::default(),
                     Some(rules),
-                    effects,
+                    run.effects(),
                 );
                 if let Some(unit) = self.substrate.entities.get_mut(contact) {
                     // `0x004425AA`, after RUN_AWAY returns.
                     unit.pending_entry.clear();
                 }
+            } else {
+                //4425BA gets the contact's type, not its current Health.
+                //LEA/SHL at4425CC..4425D4 are wrapping i32 arithmetic.
+                let Some(damage) = self.substrate.entities.get(contact).and_then(|entity| {
+                    self.object_type(entity.type_ref(), rules)
+                        .map(|object| object.strength.wrapping_mul(10))
+                }) else {
+                    continue;
+                };
+                let warhead = self.interner.intern(&rules.bridge_warheads.c4_name);
+                let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                    contact,
+                    damage,
+                    0,
+                    crate::sim::combat::RAD_NO_ATTACKER,
+                    None,
+                    warhead,
+                    crate::sim::combat::ReceiverCallFlags {
+                        ignore_defenses: true,
+                        arg6: true,
+                    },
+                );
+                let (nested, mut pings) = crate::sim::combat::world_receiver::commit_entities(
+                    self,
+                    run,
+                    &[event],
+                    Some(false),
+                    rules,
+                    overlay_registry,
+                );
+                death_effects.append(nested);
+                under_attack_events.append(&mut pings);
             }
         }
+        (death_effects, under_attack_events)
     }
 
     /// The Stun of TechnoClass::ReceiveDamage's death arm (`0x00702210`),

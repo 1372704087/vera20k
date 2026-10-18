@@ -252,7 +252,7 @@ pub(crate) fn can_load(
         return CanLoad::Answer(RadioResponse::None);
     };
     if !crate::sim::combat::combat_weapon::is_ally_by_object(
-        Some(&sim.fog.alliances),
+        Some(&sim.house_alliances),
         &sim.interner,
         building.owner(),
         unit.owner(),
@@ -773,7 +773,7 @@ pub(crate) fn unit_can_enter_radio(
     };
     if transport_type.passengers == 0
         || !crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.fog.alliances),
+            Some(&sim.house_alliances),
             &sim.interner,
             transport.owner(),
             passenger.owner(),
@@ -1747,7 +1747,7 @@ fn radio_hello(sim: &mut Simulation, receiver: u64, sender: Option<u64>) -> Radi
     }
     let ally = |asker, other| {
         crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.fog.alliances),
+            Some(&sim.house_alliances),
             &sim.interner,
             asker,
             other,
@@ -2760,13 +2760,11 @@ mod tests {
             let own = sim.intern("Americans");
             let other = sim.intern("Russians");
             if input["allied"].as_bool().unwrap_or(false) {
-                sim.fog
-                    .alliances
+                sim.house_alliances
                     .insert("AMERICANS".into(), ["RUSSIANS".into()].into());
             }
             if input["reverse_allied"].as_bool().unwrap_or(false) {
-                sim.fog
-                    .alliances
+                sim.house_alliances
                     .insert("RUSSIANS".into(), ["AMERICANS".into()].into());
             }
             let carrier_type = sim.intern("TRAN");

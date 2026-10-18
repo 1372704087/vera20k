@@ -54,29 +54,16 @@ fn selected_order(store: &EntityStore) -> Vec<u64> {
         .collect()
 }
 
-fn allied_fog_with_visible_cells(
-    local_owner: &str,
-    allied_owner: &str,
-    visible_cells: &[(u16, u16)],
-) -> FogState {
-    let mut alliances = HouseAllianceMap::default();
-    let allied_names = BTreeSet::from([
-        local_owner.to_ascii_uppercase(),
-        allied_owner.to_ascii_uppercase(),
-    ]);
-    alliances.insert(local_owner.to_ascii_uppercase(), allied_names.clone());
-    alliances.insert(allied_owner.to_ascii_uppercase(), allied_names);
-
+fn fog_with_visible_cells(owner: &str, visible_cells: &[(u16, u16)]) -> FogState {
     let mut by_owner = BTreeMap::new();
     let mut visibility = crate::sim::vision::OwnerVisibility::new(64, 64);
     for &(rx, ry) in visible_cells {
         visibility.mark_visible(rx, ry);
     }
-    by_owner.insert(crate::sim::intern::test_intern(allied_owner), visibility);
+    by_owner.insert(crate::sim::intern::test_intern(owner), visibility);
 
     let mut fog = FogState::new(64, 64);
     fog.by_owner = by_owner;
-    fog.alliances = alliances;
     fog
 }
 
@@ -386,7 +373,6 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
     );
     let mut fog = FogState::new(64, 64);
     fog.by_owner = by_owner;
-    fog.alliances = alliances;
 
     // One store per case, both populated before the interner snapshot is taken
     // (it is a clone of the shared test interner, so every name has to be in it).
@@ -402,7 +388,7 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
         !band_rect_contains_drawn_object(
             &unit_only,
             &encounter_order(&unit_only),
-            Some(&fog),
+            Some((&fog, &alliances)),
             Some("Americans"),
             rect.0,
             rect.1,
@@ -416,7 +402,7 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
         band_rect_contains_drawn_object(
             &building_only,
             &encounter_order(&building_only),
-            Some(&fog),
+            Some((&fog, &alliances)),
             Some("Americans"),
             rect.0,
             rect.1,
@@ -546,7 +532,7 @@ fn test_click_selection_allows_visible_allied_units_for_local_owner() {
     store.insert(entity);
     let (cx, cy) = screen_of(&store, 7);
 
-    let fog = allied_fog_with_visible_cells("Americans", "British", &[(11, 10)]);
+    let fog = fog_with_visible_cells("British", &[(11, 10)]);
 
     let empty_heights: BTreeMap<(u16, u16), u8> = BTreeMap::new();
     let snapshot = compute_click_selection_snapshot(

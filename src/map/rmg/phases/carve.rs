@@ -22,6 +22,10 @@
 //!   starts and tiberium read those ids.
 //! - **The end blocks come from a different tileset base than the stepped
 //!   edge.** Conflating them stamps plausible-looking wrong tiles.
+//!   End blocks read `SlopeSetPieces`/`DAT_00ABC1F8`; stepped tiles read
+//!   `RampBase`/`DAT_00ABC1D8`. Original ReadInt545776 uses default−1,
+//!   and publication545E1D/545E26 resolves the ordinal to a cumulative base.
+//!   Source: `tools/rules_oracle/theater_general_reader.{py,json,md}`.
 //!
 //! Driven by `carve_driver`, which runs on the two island map types.
 
@@ -43,13 +47,6 @@ pub struct CarveCtx<'a> {
     pub blocks: &'a dyn TileBlocks,
     pub rng: &'a mut RmgRng,
     pub playfield: &'a Playfield,
-    /// Tileset base for the two blocks stamped at a ramp's ends.
-    ///
-    /// Supplied by the caller rather than read off `TileIds`: in the original
-    /// this is a global whose writer has not been traced, so there is no
-    /// justified theater key to resolve it from yet. Threading it in keeps the
-    /// unknown at the boundary instead of inventing a mapping.
-    pub ramp_end_block: i32,
 }
 
 /// The two plateaus a carve joins.
@@ -76,17 +73,23 @@ const FLAT_RUN_TILE_OFFSET: i32 = 3;
 
 /// Stamp a tile block, writing every sub-tile that the block defines.
 ///
+/// Original5A6C10 copies the TMP subtile, identity, optional height and slope
+/// into Cell11A/38/11B/11C, then the scratch region. Its actual material comes
+/// from the theater-owned bases described above; no RNG is drawn here.
+///
 /// The unconditional stamper: unlike the shore tiler's, it asks nothing about
 /// what is already in the cell. A `level_base` of `None` leaves the cell's
 /// level alone — the low-bridge deck uses that; a ramp never does.
 pub(crate) fn stamp_iso_block(
-    ctx: &mut CarveCtx<'_>,
+    grid: &mut RmgGrid,
+    scratch: &mut RmgScratch,
+    blocks: &dyn TileBlocks,
     tile: i32,
     origin: (i32, i32),
     scratch_id: i32,
     level_base: Option<u8>,
 ) {
-    let Some(block) = ctx.blocks.block(tile) else {
+    let Some(block) = blocks.block(tile) else {
         // Unknown block: the original stamps nothing and says nothing.
         return;
     };
@@ -94,21 +97,21 @@ pub(crate) fn stamp_iso_block(
     for row in 0..block.height {
         for col in 0..block.width {
             let (x, y) = (origin.0 + col, origin.1 + row);
-            if !ctx.scratch.in_diamond(x, y) {
+            if !scratch.in_diamond(x, y) {
                 continue;
             }
             let index = (block.width * row + col) as usize;
             let Some(sub) = block.subtiles.get(index).copied().flatten() else {
                 continue;
             };
-            let cell = ctx.grid.cell_native_mut(x, y);
+            let cell = grid.cell_native_mut(x, y);
             cell.sub_tile = index as u8;
             cell.tile = tile;
             if let Some(base) = level_base {
                 cell.level = sub.height.wrapping_add(base).wrapping_sub(4);
             }
             cell.slope = sub.slope;
-            ctx.scratch.get_mut(x, y).region = scratch_id;
+            scratch.get_mut(x, y).region = scratch_id;
         }
     }
 }
@@ -197,10 +200,20 @@ pub fn carve_straight_ramp_clear_south(
 
     // The two end blocks. Consecutive tiles from the ramp-end base, which is
     // NOT the base the stepped edge below uses.
-    let end_base = ctx.ramp_end_block;
-    stamp_iso_block(ctx, end_base, a, regions.lower_region, Some(regions.level));
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
+        end_base,
+        a,
+        regions.lower_region,
+        Some(regions.level),
+    );
+    stamp_iso_block(
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 1,
         (b.0 - 2, b.1),
         regions.lower_region,
@@ -341,16 +354,20 @@ pub fn carve_straight_ramp_clear_east(
 
     // The next pair of end-block tiles after the east-west routine's, not the
     // same two.
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 2,
         (a.0, a.1 - 2),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 3,
         b,
         regions.lower_region,
@@ -481,23 +498,29 @@ pub fn carve_straight_ramp_clear_north(
         regions.level,
     );
 
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 4,
         (b.0, b.1 - 3),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 5,
         (a.0 - 2, a.1 - 3),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 6,
         (a.0 - 1, a.1 - 1),
         regions.lower_region,
@@ -629,23 +652,29 @@ pub fn carve_straight_ramp_clear_west(
         regions.level,
     );
 
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 7,
         (a.0 - 3, a.1),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 8,
         (b.0 - 3, b.1 - 2),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 9,
         (b.0 - 1, b.1 - 1),
         regions.lower_region,
@@ -793,16 +822,20 @@ pub fn carve_corner_ramp(
         regions.level,
     );
 
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 2,
         (a.0, a.1 - 2),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 4,
         (b.0, b.1 - 3),
         regions.lower_region,
@@ -916,14 +949,22 @@ pub fn carve_corner_ramp_reflected(
         regions.level,
     );
 
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     for (tile, origin) in [
         (end_base + 5, (a.0 - 2, a.1 - 3)),
         (end_base + 6, (a.0 - 1, a.1 - 1)),
         (end_base + 8, (b.0 - 3, b.1 - 2)),
         (end_base + 9, (b.0 - 1, b.1 - 1)),
     ] {
-        stamp_iso_block(ctx, tile, origin, regions.lower_region, Some(regions.level));
+        stamp_iso_block(
+            ctx.grid,
+            ctx.scratch,
+            ctx.blocks,
+            tile,
+            origin,
+            regions.lower_region,
+            Some(regions.level),
+        );
     }
 
     // The diagonal, then the two approaches. One face lower than the other
@@ -1031,16 +1072,20 @@ pub fn carve_corner_ramp_north_east(
         regions.level,
     );
 
-    let end_base = ctx.ramp_end_block;
+    let end_base = ctx.ids.slope_set_pieces;
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 7,
         (a.0 - 3, a.1),
         regions.lower_region,
         Some(regions.level),
     );
     stamp_iso_block(
-        ctx,
+        ctx.grid,
+        ctx.scratch,
+        ctx.blocks,
         end_base + 1,
         (b.0 - 2, b.1),
         regions.lower_region,
@@ -1242,7 +1287,7 @@ pub fn try_carve_connector_at_cell(
 mod tests {
     use super::*;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
     use std::cell::RefCell;
 
     const REGION: i32 = 7;
@@ -1286,6 +1331,7 @@ mod tests {
             clear: 0,
             ramp_base: 200,
             ramp_smooth: 220,
+            slope_set_pieces: END_BASE,
             rough: -1,
             sand: -1,
             green: 100,
@@ -1301,7 +1347,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -1347,7 +1393,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: END_BASE,
         };
         assert!(carve_straight_ramp_clear_south(
             &mut ctx,
@@ -1387,7 +1432,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: END_BASE,
         };
         assert!(carve_straight_ramp_clear_south(
             &mut ctx,
@@ -1420,7 +1464,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: END_BASE,
             };
             assert!(carve_straight_ramp_clear_south(
                 &mut ctx,
@@ -1469,7 +1512,6 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 playfield: &playfield,
-                ramp_end_block: END_BASE,
             };
             assert!(
                 !carve_straight_ramp_clear_south(&mut ctx, regions(), (40, 50), b),
@@ -1508,7 +1550,6 @@ mod tests {
             blocks: &blocks,
             rng: &mut rng,
             playfield: &playfield,
-            ramp_end_block: END_BASE,
         };
         assert!(carve_straight_ramp_clear_south(
             &mut ctx,
@@ -1544,7 +1585,6 @@ mod tests {
                 blocks: &$blocks,
                 rng: &mut $rng,
                 playfield: &$pf,
-                ramp_end_block: END_BASE,
             }
         };
     }

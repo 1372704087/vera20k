@@ -208,6 +208,7 @@ pub(crate) fn build_shp_instances(
             local_owner.as_deref(),
             local_owner_id,
             &sim.fog,
+            &sim.house_alliances,
             ignore_visibility,
             sim.session.binary_frame,
             super::units::house_color_to_remap_row(hc),
@@ -455,7 +456,6 @@ pub(crate) fn build_shp_instances(
         );
         let selected_palette_light = crate::app::presentation::lighting::body_palette_light(
             state.match_state.match_presentation.lighting.grid(),
-            &sim.session.lighting,
             (pos.rx(), pos.ry()),
             extra_light,
         );
@@ -467,7 +467,6 @@ pub(crate) fn build_shp_instances(
                 .and_then(|r| r.art().resolve_metadata_entry(type_str, image));
             crate::app::presentation::lighting::building_palette_light(
                 state.match_state.match_presentation.lighting.grid(),
-                &sim.session.lighting,
                 (pos.rx(), pos.ry()),
                 art,
                 is_building_up || is_building_down,
@@ -1027,12 +1026,8 @@ pub(crate) fn build_building_anim_instances(
         let tint = grid.building_body_tint_at(cell);
         let extra_light =
             crate::app::presentation::lighting::body_extra_light(building, rules, sim, terrain);
-        let selected_palette = crate::app::presentation::lighting::body_palette_light(
-            grid,
-            &sim.session.lighting,
-            cell,
-            extra_light,
-        );
+        let selected_palette =
+            crate::app::presentation::lighting::body_palette_light(grid, cell, extra_light);
         emit_building_anims(
             objects,
             order,
@@ -1044,7 +1039,6 @@ pub(crate) fn build_building_anim_instances(
             tint,
             selected_palette,
             grid,
-            &sim.session.lighting,
             cell,
             sim,
             building,
@@ -1068,7 +1062,6 @@ fn emit_building_anims(
     tint: [f32; 3],
     attached_palette: crate::render::palette_light::PaletteLight,
     light_grid: &crate::map::lighting::CellLightGrid,
-    scenario: &crate::sim::scenario_session::ScenarioLightingState,
     cell: (u16, u16),
     sim: &crate::sim::world::Simulation,
     building: &crate::sim::game_entity::GameEntity,
@@ -1189,11 +1182,7 @@ fn emit_building_anims(
             (
                 tint,
                 crate::app::presentation::lighting::anim_palette_light(
-                    light_grid,
-                    Some(scenario),
-                    cell,
-                    config,
-                    false,
+                    light_grid, cell, config, false,
                 ),
             )
         };

@@ -256,7 +256,7 @@ fn original_early_fire_error_retains_cell_between_temporal_and_lifted_gates() {
             world: &sim,
             rules: &rules,
             overlay_registry: None,
-            fog: Some(sim.fog.fire_view()),
+            fog: Some(sim.fog.fire_view(&sim.house_alliances)),
             firer: sim.substrate.entities.get(1).unwrap(),
             obj: rules.object("TANK").unwrap(),
             target: Some(TargetKind::Entity(2)),

@@ -3,7 +3,8 @@
 //!
 //! Mirrors the original engine fixing one per-match RNG seed before any
 //! setup-phase draw, then seeding the scenario and main streams identically.
-//! Data flows one-way app→sim; this module depends only on sim/ siblings.
+//! Initialization flows app→sim. Scene retirement returns live ambient Rules
+//! writes to the process owner before its next scenario read.
 
 use std::collections::BTreeMap;
 use std::hash::Hash;
@@ -12,6 +13,7 @@ use crate::sim::game_options::GameOptions;
 use crate::sim::house_state::HouseDifficulty;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
+use crate::util::native_x87::{MaskedX87Chop53, NativeF32Bits, NativeF64Bits};
 
 #[path = "scenario_countdown.rs"]
 mod countdown;
@@ -174,7 +176,8 @@ impl NukeFlash {
 /// Persistent ScenarioClass-style authority for global lighting transitions.
 ///
 /// The per-cell grid remains an app-derived cache. Only the profile inputs,
-/// mutable scalar/target, selection, and signed frame timer belong to lockstep.
+/// mutable scalar/target, live ambient inputs, selection and signed frame timer
+/// belong to lockstep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioLightingState {
     pub normal: ScenarioLightProfileUnits,
@@ -194,6 +197,10 @@ pub struct ScenarioLightingState {
     /// nuke flash runs.
     nuke_change_rate: i32,
     nuke_flash: NukeFlash,
+    /// Live Rules+1668/+1670 writes from Execute72/71. The immutable RuleSet
+    /// supplies untouched inputs; retirement returns writes to the process
+    /// Rules owner before its next prefix/read/reset sequence.
+    ambient_change_overrides: [Option<NativeF64Bits>; 2],
 }
 
 impl ScenarioLightingState {
@@ -218,6 +225,7 @@ impl ScenarioLightingState {
             transition_timer: CdTimer::started(0, 0),
             nuke_change_rate,
             nuke_flash: NukeFlash::OFF,
+            ambient_change_overrides: [None; 2],
         }
     }
 
@@ -346,6 +354,21 @@ impl ScenarioLightingState {
         self.target_ambient = self.profile(profile).ambient_percent;
     }
 
+    /// Execute1426E2E60 /1436E2EB0 /1446E2F00 retains the raw signed
+    /// percentage at3534/3538/353C. RecalcLighting takes all three normal
+    /// percentages times10 with32-bit wrapping, independently of the selected
+    /// alternate profile. Original Steam gamemd3e81a617..08600;30 executed
+    /// controls cover the reader, call arguments and post-call field stores.
+    pub(crate) fn retint_normal_component(&mut self, component: usize, value: i32) -> [i32; 3] {
+        match component {
+            0 => self.normal.red_percent = value,
+            1 => self.normal.green_percent = value,
+            2 => self.normal.blue_percent = value,
+            _ => unreachable!("RGB component comes from action142..=144"),
+        }
+        self.normal.alternate_rgb()
+    }
+
     /// Execute73 inline6DF292..6DF2D1 writes the ordinary ambient even
     /// during a storm, but changes the current target only outside a raging
     /// storm. This does not select a profile or restart/advance the fade.
@@ -355,6 +378,49 @@ impl ScenarioLightingState {
         if !storm_active {
             self.target_ambient = value;
         }
+    }
+
+    /// Execute71@6DF250 and72@6DF271 load +90 as binary32, not as an
+    /// integer value, and store binary64 to Rules+1670/+1668. The existing
+    /// integer action reader remains authoritative. No timer/RNG/detach or
+    /// immediate relight occurs. Steam gamemd3e81a617..08600, original
+    /// constructor/read/Execute and Logic controls in the nearby tests.
+    pub(crate) fn set_ambient_change_input(&mut self, rate: bool, bits: i32) {
+        self.ambient_change_overrides[usize::from(!rate)] =
+            Some(MaskedX87Chop53::store_f64_masked_chop(
+                MaskedX87Chop53::load_f32(NativeF32Bits::from_bits(bits as u32)),
+            ));
+    }
+
+    /// Alternate intervals still use the normal rate's zero gate and this
+    /// shared step, as Logic55B351/55B447 require.
+    pub(crate) fn ambient_change_terms(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> (bool, i32, i32) {
+        let [rate, step] = self.ambient_change_overrides;
+        if rate.is_none() && step.is_none() {
+            return (
+                rules.general.ambient_change_rate_nonzero,
+                rules.general.ambient_change_interval_frames,
+                rules.general.ambient_change_step,
+            );
+        }
+        let (nonzero, interval, delta) = crate::rules::ruleset::ambient_change_terms(
+            f64::from_bits(rate.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+            f64::from_bits(step.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+        );
+        (
+            rate.map_or(rules.general.ambient_change_rate_nonzero, |_| nonzero),
+            rate.map_or(rules.general.ambient_change_interval_frames, |_| interval),
+            step.map_or(rules.general.ambient_change_step, |_| delta),
+        )
+    }
+
+    /// Return live Rules scalar writes only once the outgoing scene has
+    /// stopped. Unlike TechnoTypes these survive the native Type reset.
+    pub fn retire_ambient_change_inputs(&mut self) -> [Option<NativeF64Bits>; 2] {
+        std::mem::take(&mut self.ambient_change_overrides)
     }
 
     /// RecalcLighting's RGB for the selected profile (`0x0053AD00`): the
@@ -642,6 +708,12 @@ impl ScenarioSession {
             .then(|| self.waypoints.get(&index).copied().unwrap_or((0, 0)))
     }
 
+    /// Scenario IsWaypointValid68BD80: a bounded slot whose packed pair is
+    /// different from the initialized empty cell B05458=(0,0).
+    pub(crate) fn waypoint_is_valid(&self, index: i32) -> bool {
+        self.waypoint_cell(index).is_some_and(|cell| cell != (0, 0))
+    }
+
     pub fn first_multiplayer_start(&self) -> Option<crate::map::waypoints::Waypoint> {
         self.waypoints
             .range(crate::map::waypoints::MULTIPLAYER_START_WAYPOINTS)
@@ -862,6 +934,10 @@ impl ScenarioSession {
             0x3578u16.hash(hasher);
             lighting.nuke_change_rate.hash(hasher);
             lighting.nuke_flash.hash(hasher);
+        }
+        if lighting.ambient_change_overrides != [None; 2] {
+            0x1668u16.hash(hasher);
+            lighting.ambient_change_overrides.hash(hasher);
         }
     }
 

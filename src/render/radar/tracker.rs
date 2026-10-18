@@ -127,6 +127,7 @@ pub(super) fn radar_pixel_candidate_eligible(
     houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
     local_owner: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     full_visibility: bool,
     game_mode_nonzero: bool,
     rules: Option<&RuleSet>,
@@ -141,8 +142,13 @@ pub(super) fn radar_pixel_candidate_eligible(
 
     if let Some(local_owner) = local_owner {
         let friendly = entity.owner() == local_owner
-            || interner
-                .is_some_and(|interner| fog.is_friendly_id(local_owner, entity.owner(), interner));
+            || interner.is_some_and(|interner| {
+                crate::map::houses::are_houses_friendly(
+                    alliances,
+                    interner.resolve(local_owner),
+                    interner.resolve(entity.owner()),
+                )
+            });
         if !full_visibility {
             let (rx, ry) = projection
                 .pixel_to_cell(entry.x, entry.y)

@@ -88,7 +88,8 @@ pub(crate) fn advance_sidebar_credits_after_frame(
         .push(crate::audio::events::GameSoundEvent::CreditTick { sound_id });
 }
 
-/// Apply one reconcile pass's native tab transitions.
+/// Apply one reconcile pass's native initialization/AddCameo/Recalculate
+/// transitions. Sidebar Init6A5411 disables empty buttons on the first pass.
 ///
 /// AddCameo 6A6472 enables the button of the strip that just accepted an
 /// entry; Recalculate 6AA6xx disables the button of the strip it emptied, and
@@ -374,6 +375,43 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         .match_presentation
         .sidebar_projection
         .replace_view(Some(view));
+    // A rebuilt view starts from the update-time answers; keep the drawn ones
+    // authoritative from its first frame on.
+    refresh_sidebar_cameo_availability(state);
+}
+
+/// The per-frame part of the projection: the retained cameos' `StripDraw`
+/// unavailability inputs, taken from the live simulation. `StripClass::Draw @
+/// 0x006A9540` asks `FindFactory(1, 1, 1)`, `CanBuild(type, 0, 0)` and
+/// `CheckBuildLimit` for every entry it draws, so a restriction that appears or
+/// clears between two House rechecks must reach the very next frame. Membership
+/// and the House pass stay with [`refresh_sidebar_projection`].
+pub(crate) fn refresh_sidebar_cameo_availability(state: &mut AppState) {
+    // Without a current House the projection's owner comes from the sandbox
+    // guess, whose resolution scans every entity and each candidate's build
+    // options. That debug path keeps its update-time values.
+    if state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_none_or(|runtime| runtime.simulation.session.current_house.is_none())
+    {
+        return;
+    }
+    let owner_name = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    let AppState { match_state, .. } = state;
+    let Some(runtime) = match_state.sim_runtime.as_ref() else {
+        return;
+    };
+    let owner = runtime
+        .simulation
+        .interner
+        .get(&owner_name)
+        .unwrap_or_default();
+    match_state
+        .match_presentation
+        .sidebar_projection
+        .refresh_cameo_availability(&runtime.simulation, &runtime.resources.rules, owner);
 }
 
 // ---------------------------------------------------------------------------
@@ -810,6 +848,138 @@ mod tests {
     use crate::ui::sidebar::cameo_order::{Cameo, CameoId, CameoKey, CameoStrips};
     use crate::ui::sidebar::gadget_flash::SidebarGadgetState;
 
+    #[test]
+    fn native_tab_initialization_disables_empty_strips() {
+        let native = crate::test_fixture::json("tools/sidebar_oracle/geometry.json");
+        for control in native["tab_initialization"].as_array().unwrap() {
+            let mut active = SidebarTab::Building;
+            let mut gadgets = SidebarGadgetState::default();
+            for (index, before) in control["disabled_before"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+            {
+                gadgets.set_tab_disabled(index, before.as_bool().unwrap());
+            }
+            let mut projection = crate::app::sidebar_projection::SidebarProjectionState::default();
+            let reconciled = projection.reconcile_cameos(Default::default(), &[], 3, &[]);
+            super::apply_cameo_transitions(reconciled.transitions(), &mut active, &mut gadgets);
+            for (index, after) in control["disabled_after"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+            {
+                assert_eq!(gadgets.tab_disabled[index], after.as_bool().unwrap());
+                assert_eq!(
+                    gadgets.tab_flashes[index].disabled,
+                    after.as_bool().unwrap()
+                );
+                assert_eq!(gadgets.tab_frame(index, false), 2);
+                assert_eq!(gadgets.tab_frame(index, true), 2);
+            }
+        }
+    }
+
+    #[test]
+    fn restored_populated_tabs_replace_outgoing_disabled_state() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[Countries]\n0=Americans\n[Americans]\nSide=GDI\n\
+                 [InfantryTypes]\n0=E1\n[E1]\nCost=100\nTechLevel=1\nOwner=Americans\n",
+            ))
+            .unwrap();
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.intern("Americans");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, true, 1000, 10));
+        sim.session.current_house = Some(owner);
+        let infantry = sim.interner.get("E1").unwrap();
+        let cameo = Cameo {
+            id: CameoId::Object(infantry),
+            tab: SidebarTab::Infantry,
+            available: true,
+            key: CameoKey::Techno {
+                own_side: true,
+                considered_aircraft: false,
+                naval: false,
+                tech_level: 1,
+                cost: 100,
+                name: "E1".into(),
+            },
+        };
+        let mut saved = crate::app::sidebar_projection::SidebarProjectionState::default();
+        saved.reconcile_cameos(owner, &[cameo.clone()], 3, &[infantry]);
+        let order = saved.saved_order().unwrap();
+        let mut outgoing = crate::app::sidebar_projection::SidebarProjectionState::default();
+        let mut active = SidebarTab::Building;
+        let mut gadgets = SidebarGadgetState::default();
+        gadgets.set_tab_disabled(SidebarTab::Infantry.tab_index(), true);
+        let prepared =
+            crate::app::sidebar_projection::prepare_saved_order(Some(order.clone()), &sim, &rules)
+                .unwrap();
+        outgoing.restore_order(prepared);
+        let reconciled = outgoing.reconcile_cameos(owner, &[cameo], 3, &[]);
+        super::apply_cameo_transitions(reconciled.transitions(), &mut active, &mut gadgets);
+        assert_eq!(gadgets.tab_disabled, [true, true, false, true]);
+        assert_eq!(outgoing.saved_order().unwrap().strips(), order.strips());
+        assert!(
+            !reconciled.build_inserted(),
+            "saved entries are not new additions"
+        );
+    }
+
+    #[test]
+    fn seeded_sidebar_enables_only_populated_strips_and_resets_next_scenario() {
+        let mut interner = StringInterner::new();
+        let owner = interner.intern("Americans");
+        let replacement_owner = interner.intern("Russians");
+        let id = interner.intern("TESTCAMEO");
+        for tab in SidebarTab::all() {
+            let cameo = Cameo {
+                id: CameoId::Object(id),
+                tab,
+                available: true,
+                key: CameoKey::Techno {
+                    own_side: true,
+                    considered_aircraft: false,
+                    naval: false,
+                    tech_level: 1,
+                    cost: 100,
+                    name: "Test Cameo".to_string(),
+                },
+            };
+            let mut projection = crate::app::sidebar_projection::SidebarProjectionState::default();
+            let mut active = SidebarTab::Building;
+            let mut gadgets = SidebarGadgetState::default();
+            let reconciled = projection.reconcile_cameos(owner, &[cameo], 3, &[id]);
+            super::apply_cameo_transitions(reconciled.transitions(), &mut active, &mut gadgets);
+            assert_eq!(active, tab);
+            for candidate in SidebarTab::all() {
+                assert_eq!(
+                    gadgets.tab_disabled[candidate.tab_index()],
+                    candidate != tab
+                );
+            }
+
+            // Installing a new scenario discards strips; empty tabs must not
+            // retain the previous match's enabled buttons.
+            projection.reset_cameo_seed();
+            let reconciled = projection.reconcile_cameos(owner, &[], 3, &[]);
+            super::apply_cameo_transitions(reconciled.transitions(), &mut active, &mut gadgets);
+            assert_eq!(gadgets.tab_disabled, [true; 4]);
+
+            // The sandbox's local-house replacement also starts fresh strips.
+            gadgets.set_tab_disabled(tab.tab_index(), false);
+            let reconciled = projection.reconcile_cameos(replacement_owner, &[], 3, &[]);
+            super::apply_cameo_transitions(reconciled.transitions(), &mut active, &mut gadgets);
+            assert_eq!(gadgets.tab_disabled, [true; 4]);
+        }
+    }
+
     /// The two native relocation transitions, applied to the retained tab.
     ///
     /// Recalculate 6A68AF..6A6930 and AddCameo 6A6432 both scan strips 0..3,
@@ -924,8 +1094,9 @@ mod tests {
                 },
             },
         ];
-        let mut strips = CameoStrips::default();
-        let reconciled = strips.reconcile_fixture(&candidates, 3, true);
+        let mut projection = crate::app::sidebar_projection::SidebarProjectionState::default();
+        let reconciled =
+            projection.reconcile_cameos(Default::default(), &candidates, 3, &[infantry]);
         let mut active = SidebarTab::Building;
         let mut gadgets = SidebarGadgetState::default();
 
@@ -936,6 +1107,7 @@ mod tests {
             SidebarTab::Infantry,
             "the later Defense superweapon is added after the Infantry tab was selected"
         );
+        assert_eq!(gadgets.tab_disabled, [true, false, false, true]);
     }
 
     /// Retail rules and art: whose cameo `TechnoTypeClass::GetCameo`

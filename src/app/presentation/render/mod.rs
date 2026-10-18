@@ -26,6 +26,8 @@ mod build_instances;
 #[cfg(test)]
 mod building_bracket_gpu_tests;
 mod draw_passes;
+#[cfg(test)]
+mod magnetic_wave_gpu_tests;
 mod object_extras;
 #[cfg(test)]
 mod placement_gpu_tests;
@@ -350,6 +352,8 @@ pub(crate) fn render_game(
         sim.and_then(|sim| sim.projectiles.get(id))
             .map(|bullet| bullet.position)
     });
+    let frame_rate = presentation.detail.borrow().frame_rate();
+    presentation.radiation_beams.composite(frame_rate, viewport);
     let shroud = presentation.shroud_buffer.as_ref();
     let sandbox = state.match_state.sandbox_full_visibility;
     let mut alpha = |point: [i32; 2]| {
@@ -380,6 +384,7 @@ pub(crate) fn render_game(
             .copied()
             .map(crate::render::surface_line::SurfaceDraw::Line),
         segments,
+        presentation.radiation_beams.draws(),
         &radials,
         viewport,
         |color| {
@@ -407,6 +412,7 @@ pub(crate) fn render_game(
                     lines.iter().copied(),
                     &[],
                     &[],
+                    &[],
                     viewport,
                     |_| false,
                     &mut alpha,
@@ -425,6 +431,7 @@ pub(crate) fn render_game(
                         .iter()
                         .copied()
                         .map(crate::render::surface_line::SurfaceDraw::Line),
+                    &[],
                     &[],
                     &[],
                     viewport,

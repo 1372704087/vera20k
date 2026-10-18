@@ -134,6 +134,7 @@ fn admitted_techno_observer(
         local_owner,
         local_owner_id,
         &sim.fog,
+        &sim.house_alliances,
         false,
         sim.session.binary_frame,
         0,

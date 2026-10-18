@@ -586,7 +586,6 @@ fn retail_sov01_make_enemy_reaches_the_shared_diplomacy_owner() {
     ));
     assert!(!sim.house_alliances["RUSSIANS"].contains("ARABS"));
     assert!(!sim.house_alliances["ARABS"].contains("RUSSIANS"));
-    assert_eq!(sim.fog.alliances, sim.house_alliances);
     assert_eq!(sim.session.current_house, Some(russians));
 }
 
@@ -1287,6 +1286,17 @@ pub(super) fn event_ingress_fixture() -> (
     crate::rules::overlay_types::OverlayTypeRegistry,
     [crate::sim::intern::InternedId; 3],
 ) {
+    event_ingress_fixture_with_rules("")
+}
+
+pub(super) fn event_ingress_fixture_with_rules(
+    extra_rules: &str,
+) -> (
+    Simulation,
+    crate::rules::ruleset::RuleSet,
+    crate::rules::overlay_types::OverlayTypeRegistry,
+    [crate::sim::intern::InternedId; 3],
+) {
     let mut countries = String::from("[Countries]\n");
     for index in 0..8 {
         countries.push_str(&format!("{index}=Country{index}\n"));
@@ -1297,6 +1307,7 @@ pub(super) fn event_ingress_fixture() -> (
     countries.push_str(
         "[VehicleTypes]\n0=TAGUNIT\n[TAGUNIT]\nStrength=100\nSpeed=5\nSpeedType=Track\nMovementZone=Normal\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
     );
+    countries.push_str(extra_rules);
     let (mut sim, rules, overlays) =
         crate::sim::world::entry_test_fixture::fixture_with_rules(&countries);
     let houses = std::array::from_fn(|index| {
@@ -1742,9 +1753,10 @@ fn entered_cell_retains_the_actual_duplicate_country_house_for_8997_actions() {
     assert_eq!(sim.live_action_house(live, 9001, &rules), None);
     // ChangeOwner's null-killer Unit E0 callback744720 raises48/29 before
     // the retained PerCell tail59; see unit_record_kill_ native-prefix checks.
+    // Techno6F5115 then raises34 on the still-attached object Tag.
     assert_eq!(
         sim.trigger_runtime.dispatch_trace,
-        [(tag, 1), (tag, 48), (tag, 29), (tag, 59)]
+        [(tag, 1), (tag, 48), (tag, 29), (tag, 59), (tag, 34)]
     );
 }
 

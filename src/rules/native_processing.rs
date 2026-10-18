@@ -10,9 +10,10 @@ use crate::rules::crate_rules::{CrateRules, CrateRulesAccumulator};
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
+use crate::rules::locomotor_type::SpeedType;
 
 use crate::rules::missile_spawn::MissileSpawnRules;
-use crate::rules::object_type::{InfantryPips, ObjectCategory};
+use crate::rules::object_type::{InfantryInfiltration, InfantryPips, ObjectCategory};
 use crate::rules::powerups::{PowerupTable, PowerupsAccumulator};
 use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequisites};
 use crate::rules::projectile_type::ProjectileArtState;
@@ -563,6 +564,18 @@ impl ProcessedRulesLayers {
             .map(|member| (member.native_stored_id.as_str(), &member.unit_shp))
     }
 
+    /// UnitType+67C after the last admitted Rules body; an unread type keeps
+    /// constructor -1. Missing sections and missing SpeedType keys differ.
+    pub(crate) fn unit_speed_type_states(&self) -> impl Iterator<Item = (&str, SpeedType)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Vehicle)
+            .into_iter()
+            .flatten()
+            .map(|member| (member.native_stored_id.as_str(), member.unit_speed_type))
+    }
+
     /// TechnoType +810/+814 state after the reached generic and FV readers.
     /// The FV pairs have literal defaults and overlapping writes, so merged
     /// source keys cannot reconstruct this process-resident result.
@@ -606,6 +619,25 @@ impl ProcessedRulesLayers {
             .into_iter()
             .flatten()
             .map(|member| (member.native_stored_id.as_str(), member.infantry_pips))
+    }
+
+    /// Infantry52466E's postprocessed flags, including a prior role's latch
+    /// when a later pass omits Infiltrate while clearing the role itself.
+    pub(crate) fn infantry_infiltration_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, InfantryInfiltration)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Infantry)
+            .into_iter()
+            .flatten()
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    member.infantry_infiltration,
+                )
+            })
     }
 
     /// Native715320 recopies the turret controls on every reached rules pass.
@@ -839,6 +871,17 @@ impl ProcessedRulesLayers {
             .rules_patrol_scan_minutes
     }
 
+    /// Rules+147C/+14BC after ordered General/AudioVisual reads. Original
+    /// ctor665650 and read blocks66E5D5/66B385 establish null/1024 defaults,
+    /// empty retention and exact-case keys; the existing factory owns identity.
+    pub(crate) fn drop_zone_controls(&self) -> (Option<&str>, i32) {
+        let state = self.native_type_construction_trace.registry_state();
+        (
+            state.rules_drop_zone_anim.as_deref(),
+            state.rules_drop_zone_radius,
+        )
+    }
+
     /// `[General] PrismType=` (Rules `+0x498`), the stored ID of its type.
     pub(crate) fn prism_type(&self) -> Option<&str> {
         self.native_type_construction_trace
@@ -911,6 +954,14 @@ impl ProcessedRulesLayers {
             state.rules_safety_altitude,
             state.rules_line_trail_override,
         )
+    }
+
+    /// Rules+1866, retained by AudioVisual66B7A7..66B7D2 through the
+    /// current-RGB default of ReadColorRGB474B50.
+    pub(crate) fn chrono_beam_color(&self) -> [u8; 3] {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_chrono_beam_color
     }
 
     /// RulesClass's retained ObjectAI fall-rate limits, with and without a
@@ -1149,9 +1200,12 @@ pub(crate) struct NativeRulesRegistryState {
     rules_survivor_divisors: [i32; 3],
     rules_maximum_cheer_rate: i32,
     rules_line_trail_override: [u8; 3],
+    rules_chrono_beam_color: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_patrol_scan_minutes: NativeF64Bits,
     rules_prism_type: Option<String>,
+    rules_drop_zone_anim: Option<String>,
+    rules_drop_zone_radius: i32,
     rules_prerequisite_proc_alternate: Option<String>,
     /// The six `[General] Prerequisite*` lists (Rules `+0x358..+0x3E4`), in
     /// [`PrerequisiteGroup::ALL`] order.
@@ -1185,10 +1239,14 @@ impl Default for NativeRulesRegistryState {
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
             rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_line_trail_override: [0; 3],
+            // Rules665650 clears +1866/+1867/+1868 at66785E/667864/66786A.
+            rules_chrono_beam_color: [0; 3],
             rules_prism_support: PrismSupportRules::default(),
             rules_patrol_scan_minutes: crate::rules::ruleset::GeneralRules::default()
                 .patrol_scan_minutes,
             rules_prism_type: None,
+            rules_drop_zone_anim: None,
+            rules_drop_zone_radius: 1024,
             rules_prerequisite_proc_alternate: None,
             rules_prerequisite_lists: Default::default(),
             rules_building_types: GeneralBuildingTypes::default(),
@@ -1269,6 +1327,20 @@ impl NativeRulesRegistryState {
         Ok(())
     }
 
+    /// Runtime Execute72/71 writes become retained defaults for later
+    /// AudioVisual reads. Reset6686C0 deletes Types, not these Rules scalars.
+    pub(crate) fn consume_outgoing_ambient_change_inputs(
+        &mut self,
+        inputs: [Option<NativeF64Bits>; 2],
+    ) {
+        if let Some(rate) = inputs[0] {
+            self.rules_ambient_change_rate = rate;
+        }
+        if let Some(step) = inputs[1] {
+            self.rules_ambient_change_step = step;
+        }
+    }
+
     pub(crate) fn anim_type_art_read_states(&self) -> impl Iterator<Item = (&str, bool)> {
         self.families
             .get(&RulesTypeFamily::Animation)
@@ -1340,6 +1412,7 @@ impl NativeRulesRegistryState {
             rules_ambient_change_step: self.rules_ambient_change_step,
             rules_difficulty_rows: self.rules_difficulty_rows,
             rules_gravity: self.rules_gravity,
+            rules_drop_zone_radius: self.rules_drop_zone_radius,
             rules_wind_direction: self.rules_wind_direction,
             rules_missile_rot_var: self.rules_missile_rot_var,
             rules_safety_altitude: self.rules_safety_altitude,
@@ -1348,6 +1421,7 @@ impl NativeRulesRegistryState {
             rules_survivor_divisors: self.rules_survivor_divisors,
             rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
             rules_line_trail_override: self.rules_line_trail_override,
+            rules_chrono_beam_color: self.rules_chrono_beam_color,
             rules_prism_support: self.rules_prism_support,
             rules_patrol_scan_minutes: self.rules_patrol_scan_minutes,
             // Plain index vectors, so RulesClass keeps them; the next pass
@@ -1513,6 +1587,8 @@ struct ProcessedType {
     secret_lab: crate::rules::secret_lab::SecretLabRules,
     /// Unit ctor747167..7471B2 and reached fixed-ART reader7477C1..747AAE.
     unit_shp: crate::rules::shp_vehicle_sequence::UnitShpReadState,
+    /// Unit7470D7 ctor -1 and7476D3..74770B retained default/read sequence.
+    unit_speed_type: SpeedType,
     /// TechnoType ctor71136F/711781, generic flag read71287E and FV pair
     /// reads747BBD..747E90, retained across every reached Rules pass.
     gunner_turrets: GunnerTurrets,
@@ -1520,6 +1596,8 @@ struct ProcessedType {
     /// Missing type sections skip the whole reader; missing keys do not.
     #[serde(default)]
     infantry_pips: InfantryPips,
+    #[serde(default)]
+    infantry_infiltration: InfantryInfiltration,
     recoil: crate::rules::recoil::RecoilConfig,
     airstrike: crate::rules::airstrike::AirstrikeSettings,
     /// TechnoType constructor711134 and current-default ReadInt7147B4.
@@ -1564,8 +1642,10 @@ impl ProcessedType {
             building_target_coord_offset: [0; 3],
             secret_lab: Default::default(),
             unit_shp: Default::default(),
+            unit_speed_type: SpeedType::Invalid,
             gunner_turrets: GunnerTurrets::default(),
             infantry_pips: InfantryPips::default(),
+            infantry_infiltration: InfantryInfiltration::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
             airstrike: crate::rules::airstrike::AirstrikeSettings::default(),
             radial_fire_segments: 0,
@@ -1604,9 +1684,12 @@ struct RulesPassProcessor {
     rules_survivor_divisors: [i32; 3],
     rules_maximum_cheer_rate: i32,
     rules_line_trail_override: [u8; 3],
+    rules_chrono_beam_color: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_patrol_scan_minutes: NativeF64Bits,
     rules_prism_type: Option<String>,
+    rules_drop_zone_anim: Option<String>,
+    rules_drop_zone_radius: i32,
     rules_prerequisite_proc_alternate: Option<String>,
     rules_prerequisite_lists: [Vec<Prerequisite>; 6],
     rules_building_types: GeneralBuildingTypes,
@@ -1646,10 +1729,13 @@ impl Default for RulesPassProcessor {
             rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_line_trail_override: NativeRulesRegistryState::default()
                 .rules_line_trail_override,
+            rules_chrono_beam_color: NativeRulesRegistryState::default().rules_chrono_beam_color,
             rules_prism_support: PrismSupportRules::default(),
             rules_patrol_scan_minutes: crate::rules::ruleset::GeneralRules::default()
                 .patrol_scan_minutes,
             rules_prism_type: None,
+            rules_drop_zone_anim: None,
+            rules_drop_zone_radius: NativeRulesRegistryState::default().rules_drop_zone_radius,
             rules_prerequisite_proc_alternate: None,
             rules_prerequisite_lists: Default::default(),
             rules_building_types: GeneralBuildingTypes::default(),
@@ -1680,9 +1766,12 @@ impl RulesPassProcessor {
             rules_survivor_divisors: registry_state.rules_survivor_divisors,
             rules_maximum_cheer_rate: registry_state.rules_maximum_cheer_rate,
             rules_line_trail_override: registry_state.rules_line_trail_override,
+            rules_chrono_beam_color: registry_state.rules_chrono_beam_color,
             rules_prism_support: registry_state.rules_prism_support,
             rules_patrol_scan_minutes: registry_state.rules_patrol_scan_minutes,
             rules_prism_type: registry_state.rules_prism_type,
+            rules_drop_zone_anim: registry_state.rules_drop_zone_anim,
+            rules_drop_zone_radius: registry_state.rules_drop_zone_radius,
             rules_prerequisite_proc_alternate: registry_state.rules_prerequisite_proc_alternate,
             rules_prerequisite_lists: registry_state.rules_prerequisite_lists,
             rules_building_types: registry_state.rules_building_types,
@@ -2188,6 +2277,7 @@ impl RulesPassProcessor {
                     | "WeatherConBoltExplosion"
                     | "WeaponNullifyAnim"
                     | "PrismType"
+                    | "DropZoneAnim"
                     | "PrerequisiteProcAlternate"
                     | "GDIGateOne"
                     | "GDIGateTwo"
@@ -2215,6 +2305,9 @@ impl RulesPassProcessor {
                             self.select_anim.weather_con_bolt_explosion = resolved;
                         }
                         "WeaponNullifyAnim" => self.select_anim.weapon_nullify_anim = resolved,
+                        "DropZoneAnim" => {
+                            self.rules_drop_zone_anim = Some(resolved).filter(|id| !id.is_empty());
+                        }
                         "PrismType" => {
                             self.rules_prism_type = Some(resolved).filter(|id| !id.is_empty());
                         }
@@ -2489,9 +2582,9 @@ impl RulesPassProcessor {
                         family.object_category().expect("TechnoType family"),
                     );
                 if family == RulesTypeFamily::Infantry {
-                    self.families.get_mut(&family).unwrap()[index]
-                        .infantry_pips
-                        .apply_pass(&raw);
+                    let member = &mut self.families.get_mut(&family).unwrap()[index];
+                    member.infantry_pips.apply_pass(&raw);
+                    member.infantry_infiltration.apply_pass(&raw);
                 }
                 match family {
                     RulesTypeFamily::Building => {
@@ -2562,6 +2655,10 @@ impl RulesPassProcessor {
                         );
                     }
                     RulesTypeFamily::Vehicle => {
+                        let member = &mut self.families.get_mut(&family).unwrap()[index];
+                        member.unit_speed_type = member
+                            .unit_speed_type
+                            .read_vehicle_pass(&raw, effective.read_bool("Crusher", false));
                         // Object5F933B retains the Image buffer+1F8; Unit7477C1
                         // uses that section without a type-name fallback. The
                         // existing reached-body projection retains Image/Turret
@@ -2984,6 +3081,10 @@ impl RulesPassProcessor {
         // Original 66920D..669258 reads these first, including the cold
         // startup's same AudioVisual call before any complete Process.
         self.rules_detail = self.rules_detail.read_pass(section);
+        // AudioVisual66B385..66B39E: ReadRange474620, current +14BC default.
+        // Rules6672FF constructs1024 leptons; literal -1 retains the prior.
+        self.rules_drop_zone_radius =
+            section.read_range("DropZoneRadius", self.rules_drop_zone_radius);
         // Full AudioVisual6691E0's 66B3C4 read uses the retained signed dword
         // default. Cold startup52D132 calls the same reader before Process.
         self.rules_gravity = section.read_int("Gravity", self.rules_gravity);
@@ -3001,6 +3102,11 @@ impl RulesPassProcessor {
             self.rules_line_trail_override,
             None,
         );
+        // AudioVisual66B7A7..66B7D2 reads this next, even without General.
+        // Its default is the current unsigned RGB; complete scans narrow to
+        // bytes. Incomplete scans retain ini_value's deterministic safe policy.
+        self.rules_chrono_beam_color =
+            section.read_color_rgb("ChronoBeamColor", self.rules_chrono_beam_color, None);
         self.rules_color_add_selectors.read_pass(section);
         for key in ["DropPodPuff", "VeinAttack", "Dig", "AtmosphereEntry"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
@@ -3183,9 +3289,12 @@ impl RulesPassProcessor {
                     rules_survivor_divisors: self.rules_survivor_divisors,
                     rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
                     rules_line_trail_override: self.rules_line_trail_override,
+                    rules_chrono_beam_color: self.rules_chrono_beam_color,
                     rules_prism_support: self.rules_prism_support,
                     rules_patrol_scan_minutes: self.rules_patrol_scan_minutes,
                     rules_prism_type: self.rules_prism_type,
+                    rules_drop_zone_anim: self.rules_drop_zone_anim,
+                    rules_drop_zone_radius: self.rules_drop_zone_radius,
                     rules_prerequisite_proc_alternate: self.rules_prerequisite_proc_alternate,
                     rules_prerequisite_lists: self.rules_prerequisite_lists,
                     rules_building_types: self.rules_building_types,
@@ -3235,3 +3344,7 @@ mod select_anim_rules_tests;
 #[cfg(test)]
 #[path = "approach_rules_tests.rs"]
 mod approach_rules_tests;
+
+#[cfg(test)]
+#[path = "chrono_beam_rules_tests.rs"]
+mod chrono_beam_rules_tests;

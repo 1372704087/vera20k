@@ -134,6 +134,8 @@ pub use planning::{PlanningBadgeKind, PlanningDrawSegment};
 mod selection_voice;
 pub(crate) mod techno_ai_cloak;
 pub(crate) mod unit_post;
+#[cfg(test)]
+mod wall_autofill_oracle_tests;
 mod world_commands;
 mod world_hash;
 mod world_orders;
@@ -228,7 +230,7 @@ use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::house_state::HouseState;
 use crate::sim::house_strategy;
-use crate::sim::intern::{InternedId, StringInterner};
+use crate::sim::intern::InternedId;
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
@@ -2211,20 +2213,14 @@ impl Simulation {
         .bridge_state_changed
     }
 
-    pub(crate) fn commit_fired_wave(&mut self, rules: &RuleSet, event: &SimFireEvent) {
-        #[cfg(any(test, feature = "test-support"))]
-        self.trace_lifecycle_for_test(LifecycleTestEvent::CombatFireEffectsCommitted {
-            attacker_id: event.attacker_id,
-            scenario_rng_state: self.scenario_rng.state(),
-        });
-        if let Some(wave) = self.prepare_fired_wave(
-            rules,
-            event,
-            &self.substrate.entities,
-            &self.interner,
-            self.resolved_terrain.as_ref(),
-        ) {
-            self.admit_fired_wave(event.attacker_id, wave, None);
+    pub(crate) fn commit_fired_wave(
+        &mut self,
+        rules: &RuleSet,
+        event: &SimFireEvent,
+        wave_type: u8,
+    ) {
+        if let Some(wave) = self.prepare_fired_wave(rules, event, wave_type) {
+            self.admit_fired_wave(event.attacker_id, wave, rules);
         }
     }
 
@@ -2234,18 +2230,9 @@ impl Simulation {
         &self,
         rules: &RuleSet,
         event: &SimFireEvent,
-        entities: &EntityStore,
-        interner: &StringInterner,
-        terrain: Option<&ResolvedTerrainGrid>,
+        wave_type: u8,
     ) -> Option<crate::sim::wave::Wave> {
-        let weapon = rules.weapon(interner.resolve(event.weapon_id))?;
-        let wave_type = if weapon.is_sonic {
-            0
-        } else if weapon.is_mag_beam {
-            3
-        } else {
-            return None;
-        };
+        debug_assert!(matches!(wave_type, 0 | 3));
         let target = match event.target {
             // FireAt aims at the target's vt+0xA4 (`0x006FE1EE`), including
             // a Building's TargetCoordOffset. Wave AI later reads +58 instead.
@@ -2256,34 +2243,18 @@ impl Simulation {
                     event.target.projectile_target(self),
                 )?
             }
-            crate::sim::combat::TargetKind::Cell(rx, ry) => {
-                self.wave_cell_target_position_in(terrain, rx, ry)
-            }
+            crate::sim::combat::TargetKind::Cell(rx, ry) => self.wave_cell_target_position(rx, ry),
         };
-        // RESIDUAL: native passes the firer's FLH (vt+0xB0, `0x006FE268`), not
-        // its Location, as the wave's other end.
-        let source = entities
-            .get(event.attacker_id)
-            .map(|entity| {
-                let location = crate::sim::movement::ground_pose::object_location(entity, terrain);
-                ProjectileCoord::new(location.x, location.y, location.z)
-            })
-            .unwrap_or_else(|| {
-                ProjectileCoord::new(
-                    i32::from(event.origin_snapshot.rx) * 256
-                        + event.origin_snapshot.sub_x.to_num::<i32>(),
-                    i32::from(event.origin_snapshot.ry) * 256
-                        + event.origin_snapshot.sub_y.to_num::<i32>(),
-                    i32::from(event.origin_snapshot.z)
-                        * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
-                )
-            });
+        // Sonic 0x006FF465 and Magnetic 0x006FF63C pass the constructor
+        // &[ESP+0x88], this target coordinate (0x006FE204), first and
+        // &[ESP+0x44], the launch source (`event.fire_coord`: GetFLH or a
+        // Dropping projectile's GetCoords), second.
         let wave = crate::sim::wave::Wave::new_owned(
             wave_type,
             event.attacker_id,
             event.target,
-            source,
             target,
+            event.fire_coord,
         );
         Some(wave)
     }
@@ -2294,7 +2265,7 @@ impl Simulation {
         &mut self,
         attacker_id: u64,
         mut wave: crate::sim::wave::Wave,
-        terrain: Option<&ResolvedTerrainGrid>,
+        rules: &RuleSet,
     ) {
         let stable_id = self.allocate_stable_id();
         if !wave.constructor_distance_is_live() {
@@ -2307,14 +2278,20 @@ impl Simulation {
             debug_assert!(retired);
             return;
         }
-        let context = crate::sim::wave::WaveUpdateContext {
-            owner_position: Some(wave.source),
-            owner_current_target: wave.target_ref,
-            target_position: Some(wave.target),
-        };
-        let _terminal = wave.initialize(context, terrain.or(self.resolved_terrain.as_ref()));
+        // 75EAA4 calls Create_ID410230 only after the short-distance abort.
+        // The Scenario-owned cursor is separate from Rust's stable handle;
+        // this chain has no consumer of the Wave's numeric ID itself.
+        self.next_native_runtime_id();
+        // Constructor75E950 runs an immediate Update_Wave762AF0, including
+        // current target+58 and GetFLH(0), before the first Logic AI visit.
+        let context = self.wave_update_context(&wave, Some(rules));
+        let terminal = wave.initialize(context, self.resolved_terrain.as_ref());
         self.admit_wave(stable_id, wave);
         self.active_wave_links.insert(attacker_id, stable_id);
+        if terminal {
+            let retired = self.retire_non_entity_object(stable_id, UninitContext::default());
+            debug_assert!(retired);
+        }
     }
 
     /// Compatibility continuation for emissions from the remaining global
@@ -2516,7 +2493,7 @@ impl Simulation {
                             // (`0x00737CB6..0x00737D2E`) before it touches
                             // the shared damage.
                             let post_object_damage =
-                                if self.unit_inside_war_factory(target_id, rules) {
+                                if self.unit_in_contact_war_factory(target_id, rules) {
                                     None
                                 } else {
                                     crate::sim::combat::wave_post_object_damage(
@@ -3694,6 +3671,38 @@ impl Simulation {
         self.flush_smudge_dirty();
     }
 
+    /// Execute59 at6DE313 uses +90 as a waypoint, not the +44 tail or an
+    /// amount. Map57B790..57B860 tests121 offsets with sqrtApprox/ftol and
+    /// always reduces the unchanged centre pointer, never the candidate.
+    /// Seven original executions (Steam3e81a617..08600, real and Dummy,
+    /// signed extremes) each observed109 ordered calls480A80(receiver,1).
+    /// Packed subtraction leaves offsets independent of the centre, so reuse
+    /// that constant count without adding another floating distance kernel.
+    pub(crate) fn trigger_reduce_tiberium_at_waypoint(
+        &mut self,
+        waypoint: i32,
+        rules: &RuleSet,
+        overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    ) -> bool {
+        let Some(cell) = self.session.waypoint_cell(waypoint) else {
+            return false;
+        };
+        if self.resolved_terrain.is_none() || self.overlay_grid.is_none() {
+            return false;
+        }
+        // Keep every call, including after depletion. The shared owner
+        // performs each native lookup and owns RNG/queues/radar/cleanup.
+        for _ in 0..109 {
+            self.reduce_tiberium_at_with_native_context(
+                (cell.0 as u16, cell.1 as u16),
+                1,
+                Some(rules),
+                Some(overlay_registry),
+            );
+        }
+        true
+    }
+
     pub(crate) fn reduce_tiberium_at_with_native_context<A: Into<i32>>(
         &mut self,
         cell: (u16, u16),
@@ -3827,6 +3836,8 @@ impl Simulation {
     /// chrono screen's test (`0x0055B39B`) shares the nuke arm. Original
     /// controls: superweapon_oracle.json/ambient_step, chrono=1.
     pub(crate) fn tick_scenario_lighting_transition(&mut self, rules: &RuleSet) {
+        let (rate_nonzero, normal_interval, ambient_step) =
+            self.session.lighting.ambient_change_terms(rules);
         let interval_frames = if self.session.lighting.nuke_flash_running()
             || self.session.chrono_screen().active()
         {
@@ -3834,15 +3845,16 @@ impl Simulation {
         } else if crate::sim::superweapon::psychic_dominator::active(self) {
             self.session.lighting.dominator_change_rate
         } else {
-            rules.general.ambient_change_interval_frames
+            normal_interval
         };
         if self.session.lighting.advance_transition_if_due(
             self.session.binary_frame,
-            rules.general.ambient_change_rate_nonzero,
+            rate_nonzero,
             interval_frames,
-            rules.general.ambient_change_step,
+            ambient_step,
         ) {
-            self.publish_global_lighting();
+            //55B4C6 refreshes Cell scalars without calling palette53AD00.
+            self.publish_global_lighting(crate::sim::light_sources::PaletteUpdate::Preserve);
         }
     }
 
@@ -5377,6 +5389,13 @@ impl Simulation {
         if on_map {
             self.house_added_to_game(stable_id);
         }
+        // TechnoChangeOwner7017A0 clears only the trigger-held original
+        // House; the controlling House+2CC survives an ordinary capture.
+        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+            entity
+                .mind_control
+                .clear_house_original_owner_on_owner_change();
+        }
         if build_const_eligible
             && let Some(house) = self.houses.get_mut(&new_owner)
             && !house.build_const_order.contains(&stable_id)
@@ -5712,13 +5731,9 @@ impl Simulation {
             return;
         }
         let in_factory_contact = self.substrate.entities.get(stable_id).is_some_and(|e| {
-            e.radio_contacts.iter_live().any(|other| {
-                self.substrate
-                    .entities
-                    .get(other)
-                    .and_then(|b| self.object_type(b.type_ref(), rules))
-                    .is_some_and(|obj| obj.weapons_factory)
-            })
+            e.radio_contacts
+                .iter_live()
+                .any(|other| self.is_weapons_factory(other, rules))
         });
         if in_factory_contact {
             return;
@@ -6230,6 +6245,7 @@ impl Simulation {
     fn apply_active_vision_structures(&mut self, effects: &ActiveVisionStructures) {
         vision::materialize_gap_generator_sources(
             &mut self.fog,
+            &self.house_alliances,
             &effects.gap_generators,
             &self.interner,
         );

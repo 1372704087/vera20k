@@ -160,7 +160,8 @@ enum MapGesture {
         )]
         button: Option<MapMouseButton>,
     },
-    /// Resolve a loaded command-bar control and send ordinary mouse edges.
+    /// Resolve a loaded command-bar control (or its diagnostic-only Thumb
+    /// target) and send ordinary mouse edges.
     CommandBar {
         command: String,
     },
@@ -466,6 +467,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_electric_bolts: Option<bool>,
+    /// Copy the live radiation registry and actual last-composite line work.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_radiation_beams: Option<bool>,
     /// Optional committed-step whitelist for the same effect snapshots and
     /// composite observations. Absence retains every historical boundary.
     #[serde(
@@ -590,6 +598,7 @@ impl MapCaptureProfile {
                     && self.observe_disguise_inputs.is_none()
                     && self.observe_lasers.is_none()
                     && self.observe_electric_bolts.is_none()
+                    && self.observe_radiation_beams.is_none()
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
                     && self.observe_temporal.is_none()
@@ -652,7 +661,6 @@ impl MapCaptureProfile {
                         | Command::Move { .. }
                         | Command::Stop { .. }
                         | Command::Attack { .. }
-                        | Command::ForceAttack { .. }
                         | Command::Guard { .. }
                         | Command::DeployMcv { .. }
                         | Command::SetRally { .. }
@@ -956,6 +964,7 @@ pub(super) struct MapObservation {
     rule_types: Vec<Value>,
     draws: Vec<MapDrawTime>,
     electric_bolt_draws: Vec<MapElectricBoltDrawObservation>,
+    radiation_beam_draws: Vec<MapRadiationBeamDrawObservation>,
     commands: Vec<MapCommandReceipt>,
     gestures: Vec<MapGestureReceipt>,
     keyboard_bindings: Vec<MapKeyboardBinding>,
@@ -1584,6 +1593,9 @@ fn control_center(rect: [f32; 4], disabled: bool, extent: [u32; 2]) -> Result<[u
 }
 
 fn command_bar_index(command: &str) -> Result<usize> {
+    if command == "Thumb" {
+        return Ok(11);
+    }
     crate::ui::sidebar::command_bar::COMMAND_NAMES
         .iter()
         .position(|name| *name == command)
@@ -1593,24 +1605,174 @@ fn command_bar_index(command: &str) -> Result<usize> {
 #[derive(Debug, Serialize)]
 struct MapCommandBarGestureReceipt {
     command: String,
-    slot: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot: Option<usize>,
     gadget_id: u16,
     rect: [f32; 4],
     resolved_position: [u32; 2],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thumb: Option<MapCommandBarThumbReceipt>,
+}
+
+/// Passive snapshots of the existing owners, only for a requested thumb
+/// gesture. No observation writes House, bar, input or driver state.
+#[derive(Debug, Serialize)]
+struct MapCommandBarThumbState {
+    closed: bool,
+    pressed: bool,
+    sticky: bool,
+    left_held: bool,
+    gadget_id: u16,
+    rect: [i32; 4],
+    disabled: bool,
+    current_house: Option<String>,
+    side_index: Option<u8>,
+    local_player_defeated: bool,
+    input_locked: bool,
+    has_lost: Option<bool>,
+    exit_ready: Option<bool>,
+}
+
+impl MapCommandBarThumbState {
+    fn capture(state: &AppState, handle: crate::ui::gadget::GadgetHandle) -> Result<Self> {
+        let presentation = &state.match_state.match_presentation;
+        let gadgets = &presentation.in_game_gadgets;
+        let gadget = gadgets
+            .list
+            .get(handle)
+            .context("thumb control disappeared")?;
+        let crate::ui::gadget::list::GadgetBehavior::Button(button) = gadget.behavior else {
+            bail!("thumb control is not a button");
+        };
+        let sim = &state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("thumb observation requires a simulation")?
+            .simulation;
+        let owner = sim.session.current_house();
+        let house = owner.and_then(|owner| sim.houses.get(&owner));
+        Ok(Self {
+            closed: presentation.sidebar_gadget_state.command_bar_closed,
+            pressed: button.is_pressed,
+            sticky: gadgets.focus.sticky == Some(handle),
+            left_held: state.match_state.input.tactical_mouse.left_held(),
+            gadget_id: gadget.id,
+            rect: [gadget.rect.x, gadget.rect.y, gadget.rect.w, gadget.rect.h],
+            disabled: gadget.is_disabled,
+            current_house: owner.map(|owner| sim.interner.resolve(owner).to_owned()),
+            side_index: house.map(|house| house.side_index),
+            local_player_defeated: sim.local_player_defeated(),
+            input_locked: sim.session.input_locked(),
+            has_lost: house.map(|house| house.has_lost()),
+            exit_ready: house
+                .and_then(|house| house.outcome())
+                .map(|outcome| outcome.exit_ready),
+        })
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct MapCommandBarDispatchObservation {
+    masked_flags: u16,
+    modifier: u8,
+    key_after: u16,
+    action_result: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct MapCommandBarThumbEdge {
+    state: MapCommandBarThumbState,
+    dispatch: Option<MapCommandBarDispatchObservation>,
+}
+
+impl MapCommandBarThumbEdge {
+    fn capture(state: &AppState, handle: crate::ui::gadget::GadgetHandle) -> Result<Self> {
+        let snapshot = MapCommandBarThumbState::capture(state, handle)?;
+        // Both ordinary input ingress and the gadget handler return before
+        // ticking while Scenario input is locked. Do not mistake retained
+        // output from an earlier tick for a dispatch of this blocked edge.
+        let dispatch = (!snapshot.input_locked)
+            .then(|| {
+                state
+                    .match_state
+                    .match_presentation
+                    .in_game_gadgets
+                    .out
+                    .dispatches
+                    .iter()
+                    .rev()
+                    .find(|record| record.handle == handle)
+                    .map(|record| MapCommandBarDispatchObservation {
+                        masked_flags: record.masked_flags,
+                        modifier: record.modifier,
+                        key_after: record.key_after,
+                        action_result: record.action_result,
+                    })
+            })
+            .flatten();
+        Ok(Self {
+            state: snapshot,
+            dispatch,
+        })
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct MapCommandBarThumbReceipt {
+    before: MapCommandBarThumbState,
+    press: Option<MapCommandBarThumbEdge>,
+    release: Option<MapCommandBarThumbEdge>,
+    after: Option<MapCommandBarThumbState>,
 }
 
 impl MapCommandBarGestureReceipt {
+    fn sample_count(&self) -> usize {
+        1 + self.thumb.as_ref().map_or(0, |thumb| {
+            1 + usize::from(thumb.press.is_some())
+                + usize::from(thumb.release.is_some())
+                + usize::from(thumb.after.is_some())
+                + usize::from(
+                    thumb
+                        .press
+                        .as_ref()
+                        .is_some_and(|edge| edge.dispatch.is_some()),
+                )
+                + usize::from(
+                    thumb
+                        .release
+                        .as_ref()
+                        .is_some_and(|edge| edge.dispatch.is_some()),
+                )
+        })
+    }
+
     fn capture(state: &AppState, command: &str) -> Result<(Self, crate::ui::gadget::GadgetHandle)> {
         let (layout, slots) =
             crate::app::presentation::sidebar_build::command_bar::layout_and_slots(state)
                 .context("command-bar layout is absent")?;
-        Self::resolve(
+        let (mut receipt, handle) = Self::resolve(
             command,
             layout,
             &slots,
             &state.match_state.match_presentation.in_game_gadgets,
             [state.render_width(), state.render_height()],
-        )
+        )?;
+        if command == "Thumb" {
+            ensure!(
+                state.frontend.screen == crate::ui::game_screen::GameScreen::InGame
+                    && !state.match_state.paused()
+                    && state.frontend.keyboard_dialog.is_none(),
+                "thumb gesture requires ordinary unpaused in-game input"
+            );
+            receipt.thumb = Some(MapCommandBarThumbReceipt {
+                before: MapCommandBarThumbState::capture(state, handle)?,
+                press: None,
+                release: None,
+                after: None,
+            });
+        }
+        Ok((receipt, handle))
     }
 
     fn resolve(
@@ -1621,13 +1783,22 @@ impl MapCommandBarGestureReceipt {
         extent: [u32; 2],
     ) -> Result<(Self, crate::ui::gadget::GadgetHandle)> {
         let command_index = command_bar_index(command)?;
-        let slot = slots
-            .iter()
-            .position(|entry| *entry == Some(command_index))
-            .context("requested command is absent from the loaded command bar")?;
-        let layout_rect = layout
-            .slot(slot)
-            .context("requested command-bar slot is closed or clipped")?;
+        let slot = if command_index == 11 {
+            None
+        } else {
+            Some(
+                slots
+                    .iter()
+                    .position(|entry| *entry == Some(command_index))
+                    .context("requested command is absent from the loaded command bar")?,
+            )
+        };
+        let layout_rect = match slot {
+            Some(slot) => layout
+                .slot(slot)
+                .context("requested command-bar slot is closed or clipped")?,
+            None => layout.left_cap,
+        };
         let handle = gadgets
             .command_bar
             .context("command-bar controls are absent")?[command_index];
@@ -1648,6 +1819,7 @@ impl MapCommandBarGestureReceipt {
                 gadget_id: gadget.id,
                 rect,
                 resolved_position,
+                thumb: None,
             },
             handle,
         ))
@@ -2079,6 +2251,65 @@ impl MapLaserObservation {
     }
 }
 
+/// Copied owner output, including expired beams' last actual geometry. No
+/// diagnostic projection or extra Tactical-composite visit participates.
+#[derive(Debug, Serialize)]
+struct MapRadiationBeamObservation {
+    live: Vec<crate::app::presentation::radiation_beams::BeamObservation>,
+    composites: Vec<Value>,
+    segments: Vec<Value>,
+}
+
+impl MapRadiationBeamObservation {
+    fn capture(beams: &crate::app::presentation::radiation_beams::RadiationBeams) -> Result<Self> {
+        use crate::render::surface_line::{SurfaceDraw, SurfaceLineBlend};
+
+        let live = beams.observation();
+        ensure!(
+            1 + live.len() + beams.composites().len() + beams.draws().len()
+                <= MAX_OBSERVATION_SAMPLES,
+            "radiation beam observation exceeds sample budget"
+        );
+        let composites = beams
+            .composites()
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let segments = beams
+            .draws()
+            .iter()
+            .map(|draw| {
+                let SurfaceDraw::Line(line) = draw else {
+                    bail!("radiation beam observer expected an actual surface line")
+                };
+                let SurfaceLineBlend::Replace(word) = line.blend else {
+                    bail!("radiation beam observer expected packed replacement color")
+                };
+                Ok(json!({"from": line.from, "to": line.to,
+                    "z_adjust": line.z_adjust, "rgb565": word}))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            live,
+            composites,
+            segments,
+        })
+    }
+
+    fn sample_count(&self) -> usize {
+        1 + self.live.len() + self.composites.len() + self.segments.len()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct MapRadiationBeamDrawObservation {
+    ordinal: usize,
+    completed_steps: u64,
+    simulation_tick: u64,
+    binary_frame: u32,
+    beams: MapRadiationBeamObservation,
+}
+
 /// Read-only boundaries of the actual effect owners. Full logical RNG words
 /// permit native continuation comparisons; observations never consume a draw.
 #[derive(Debug, Serialize)]
@@ -2320,6 +2551,8 @@ struct MapFrameObservation {
     #[serde(skip_serializing_if = "Option::is_none")]
     electric_bolts: Option<MapElectricBoltObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    radiation_beams: Option<MapRadiationBeamObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bombs: Option<crate::sim::bomb::BombObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crates: Option<Vec<MapCrateSlotObservation>>,
@@ -2474,6 +2707,11 @@ impl MapObservation {
             observations["electric_bolt_draws"] =
                 json!({"policy": policy, "frames": self.electric_bolt_draws});
         }
+        if profile.observe_radiation_beams == Some(true) {
+            observations["radiation_beam_draws"] = json!({
+                "policy": "radiation-beam-after-each-tactical-composite-v1",
+                "frames": self.radiation_beam_draws});
+        }
         if profile.observe_audio.is_some() {
             observations["audio"] = json!(self.audio);
         }
@@ -2590,6 +2828,14 @@ impl MapObservation {
                         .electric_bolts
                         .as_ref()
                         .map_or(0, MapElectricBoltObservation::sample_count),
+                )
+            })
+            .and_then(|count| {
+                count.checked_add(
+                    frame
+                        .radiation_beams
+                        .as_ref()
+                        .map_or(0, MapRadiationBeamObservation::sample_count),
                 )
             })
             .context("actor observation sample count overflow")?;
@@ -2896,8 +3142,13 @@ impl TacticalCaptureSession {
                     source,
                     crate::map::source::LoadedMapSource::Loose { .. }
                         | crate::map::source::LoadedMapSource::Mix { .. }
+                ) || matches!(
+                    source,
+                    crate::map::source::LoadedMapSource::Generated {
+                        seed_source: Some(seed_source), ..
+                    } if seed_source.payload_len > 0
                 ),
-                "map observation requires consumed loose or MIX map bytes"
+                "map observation requires consumed map or nonempty seed-file bytes"
             );
             self.map_source_evidence = Some(serde_json::to_value(source)?);
             // The production load transition has now installed its tactical
@@ -3156,12 +3407,18 @@ impl TacticalCaptureSession {
                     MapGesture::Sidebar { .. } => Some(MapSidebarObservation::capture(state)?),
                     _ => None,
                 };
-                let command_bar = match &scheduled.gesture {
+                let mut command_bar = match &scheduled.gesture {
                     MapGesture::CommandBar { command } => {
                         Some(MapCommandBarGestureReceipt::capture(state, command)?)
                     }
                     _ => None,
                 };
+                let locked_thumb = command_bar.as_ref().is_some_and(|(receipt, _)| {
+                    receipt
+                        .thumb
+                        .as_ref()
+                        .is_some_and(|thumb| thumb.before.input_locked)
+                });
                 let (from, to, sidebar_slot) = match &scheduled.gesture {
                     MapGesture::MinimapObject { entity_id } => {
                         let position = crate::app::presentation::sidebar_render::minimap_object_click_position(state, *entity_id)
@@ -3230,13 +3487,19 @@ impl TacticalCaptureSession {
                     });
                 }
                 button(state, ElementState::Pressed);
+                if let Some((receipt, handle)) = &mut command_bar
+                    && let Some(thumb) = &mut receipt.thumb
+                {
+                    thumb.press = Some(MapCommandBarThumbEdge::capture(state, *handle)?);
+                }
                 let mouse = &state.match_state.input.tactical_mouse;
                 let gadgets = &state.match_state.match_presentation.in_game_gadgets;
                 // A consumed gadget press still reaches the shared physical
                 // button owner; only tactical capture depends on its route.
                 let physical_press_observed =
                     mouse.left_held() == !right && mouse.right_held() == right;
-                let press_captured = physical_press_observed
+                let press_captured = !locked_thumb
+                    && physical_press_observed
                     && if matches!(
                         scheduled.gesture,
                         MapGesture::Sidebar { .. } | MapGesture::CommandBar { .. }
@@ -3279,9 +3542,19 @@ impl TacticalCaptureSession {
                 let band_box_before_release =
                     state.match_state.input.selection_state.is_band_box_active();
                 button(state, ElementState::Released);
+                if let Some((receipt, handle)) = &mut command_bar
+                    && let Some(thumb) = &mut receipt.thumb
+                {
+                    thumb.release = Some(MapCommandBarThumbEdge::capture(state, *handle)?);
+                }
                 move_cursor(state, neutral);
+                if let Some((receipt, handle)) = &mut command_bar
+                    && let Some(thumb) = &mut receipt.thumb
+                {
+                    thumb.after = Some(MapCommandBarThumbState::capture(state, *handle)?);
+                }
                 ensure!(
-                    press_captured,
+                    press_captured || locked_thumb,
                     "gesture mouse press did not reach its retained input target"
                 );
                 let sidebar = sidebar_before
@@ -3392,7 +3665,13 @@ impl TacticalCaptureSession {
                 .checked_add(before.sample_count())
                 .and_then(|count| count.checked_add(after.sample_count()))
                 .and_then(|count| count.checked_add(queued_commands.len()))
-                .and_then(|count| count.checked_add(usize::from(command_bar.is_some())))
+                .and_then(|count| {
+                    count.checked_add(
+                        command_bar
+                            .as_ref()
+                            .map_or(0, MapCommandBarGestureReceipt::sample_count),
+                    )
+                })
                 .and_then(|count| count.checked_add(usize::from(minimap.is_some())))
                 .and_then(|count| {
                     count.checked_add(sidebar.as_ref().map_or(0, |receipt| {
@@ -3845,6 +4124,13 @@ impl TacticalCaptureSession {
                 .observes_electric_step(self.exact_step_receipts.len() as u64)
                 .then(|| MapElectricBoltObservation::capture(state))
                 .transpose()?,
+            radiation_beams: (profile.observe_radiation_beams == Some(true))
+                .then(|| {
+                    MapRadiationBeamObservation::capture(
+                        &state.match_state.match_presentation.radiation_beams,
+                    )
+                })
+                .transpose()?,
             bombs: (profile.observe_bombs == Some(true))
                 .then(|| sim.bomb_observation(MAX_OBSERVATION_SAMPLES + 1)),
             crates: (profile.observe_crates == Some(true))
@@ -3918,6 +4204,13 @@ impl TacticalCaptureSession {
             .observes_electric_step(step)
             .then(|| MapElectricBoltObservation::capture(state))
             .transpose()?;
+        let radiation = (profile.observe_radiation_beams == Some(true))
+            .then(|| {
+                MapRadiationBeamObservation::capture(
+                    &state.match_state.match_presentation.radiation_beams,
+                )
+            })
+            .transpose()?;
         let map = self.map_state_mut()?;
         if let Some(effects) = electric {
             map.sample_count = map
@@ -3938,6 +4231,24 @@ impl TacticalCaptureSession {
                     binary_frame: sim.session.binary_frame,
                     effects,
                     particle_draws: output.particle_draws.clone(),
+                });
+        }
+        if let Some(beams) = radiation {
+            map.sample_count = map
+                .sample_count
+                .checked_add(beams.sample_count())
+                .context("radiation beam draw observation count overflow")?;
+            ensure!(
+                map.sample_count <= MAX_OBSERVATION_SAMPLES,
+                "radiation beam draw observation exceeds sample budget"
+            );
+            map.radiation_beam_draws
+                .push(MapRadiationBeamDrawObservation {
+                    ordinal: map.radiation_beam_draws.len(),
+                    completed_steps: step,
+                    simulation_tick: sim.session.tick,
+                    binary_frame: sim.session.binary_frame,
+                    beams,
                 });
         }
         if map.audio_tail_started.is_some() && map.draws.len() == requested.max(1) as usize {
@@ -4294,6 +4605,7 @@ mod tests {
                     input: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: None,
                     crates: None,
                     audio_state: Some(audio.clone()),
@@ -4546,6 +4858,80 @@ mod tests {
     }
 
     #[test]
+    fn radiation_observer_preserves_composite_progress_geometry_hash_and_rng() {
+        use crate::app::presentation::radiation_beams::RadiationBeams;
+        use crate::render::surface_line::{SurfaceDraw, SurfaceLineBlend, SurfaceLineViewport};
+        use crate::sim::{
+            combat::radiation_beam::RadiationBeamBirth, projectile::ProjectileCoord,
+            world::Simulation,
+        };
+        use crate::util::native_x87::NativeF64Bits;
+
+        let sim = Simulation::new();
+        let hash = sim.state_hash();
+        let rng = sim.rng_state();
+        let mut beams = RadiationBeams::default();
+        beams.create(RadiationBeamBirth {
+            frame: 7,
+            from: ProjectileCoord::new(256, 256, 0),
+            to: ProjectileCoord::new(768, 256, 0),
+            z_adjust: -32,
+            color: [0, 255, 0],
+            duration: 15,
+            amplitude: NativeF64Bits::from_bits(40.0_f64.to_bits()),
+        });
+        let initial =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert_eq!(initial["live"][0]["progress"], 0);
+        assert!(initial["live"][0]["length_bits"].is_null());
+        let viewport = SurfaceLineViewport {
+            camera: [0, 0],
+            clip: [0, 0, 2048, 2048],
+            z_origin_y: 0,
+            zoom: 1.0,
+        };
+        // Actual presentation composites advance this owner without any Logic
+        // tick. Numeric/native goldens belong to the renderer's own tests.
+        for _ in 0..14 {
+            beams.composite(60, viewport);
+        }
+        let draws = beams.draws().to_vec();
+        assert!(!draws.is_empty());
+        let retained = serde_json::to_value(beams.observation()).unwrap();
+        let snapshot =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert_eq!(snapshot["live"][0]["progress"], 14);
+        assert_eq!(snapshot["composites"][0]["progress_after"], 14);
+        let SurfaceDraw::Line(line) = draws[0] else {
+            panic!("expected actual beam line")
+        };
+        let SurfaceLineBlend::Replace(word) = line.blend else {
+            panic!("expected packed beam color")
+        };
+        assert_eq!(
+            snapshot["segments"][0],
+            json!({
+            "from": line.from, "to": line.to, "z_adjust": line.z_adjust, "rgb565": word})
+        );
+        assert_eq!(
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap(),
+            snapshot
+        );
+        assert_eq!(serde_json::to_value(beams.observation()).unwrap(), retained);
+        assert_eq!(beams.draws(), draws.as_slice());
+        beams.composite(60, viewport);
+        let expired =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert!(expired["live"].as_array().unwrap().is_empty());
+        assert_eq!(expired["composites"][0]["progress_before"], 14);
+        assert_eq!(expired["composites"][0]["progress_after"], 15);
+        assert_eq!(expired["composites"][0]["expired"], true);
+        assert!(!expired["segments"].as_array().unwrap().is_empty());
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+
+    #[test]
     fn cloak_runtime_snapshot_reads_timers_and_membership_without_advancing_state() {
         use crate::rules::retail_ini_fixture::retail_battle_rules;
         use crate::sim::cloak_disguise::CloakTickFacts;
@@ -4769,6 +5155,7 @@ mod tests {
                     effects: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: None,
                     crates: None,
                     input: None,
@@ -4819,6 +5206,7 @@ mod tests {
                     effects: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: Some(snapshot),
                     crates: None,
                     input: None,
@@ -4913,6 +5301,7 @@ mod tests {
                         input: None,
                         lasers: None,
                         electric_bolts: None,
+                        radiation_beams: None,
                         bombs: None,
                         crates: None,
                         audio_state: None,
@@ -5173,6 +5562,9 @@ mod tests {
         legacy.observe_electric_bolts = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
+        legacy.observe_radiation_beams = Some(false);
+        assert!(legacy.validate().is_err());
+        let mut legacy = example();
         legacy.observe_electric_bolt_steps = Some(vec![0]);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
@@ -5217,6 +5609,7 @@ mod tests {
         modern["observe_disguise_inputs"] = json!(true);
         modern["observe_lasers"] = json!(true);
         modern["observe_electric_bolts"] = json!(true);
+        modern["observe_radiation_beams"] = json!(true);
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
         modern["observe_temporal"] = json!(true);
@@ -5243,6 +5636,7 @@ mod tests {
             "observe_disguise_inputs",
             "observe_lasers",
             "observe_electric_bolts",
+            "observe_radiation_beams",
             "observe_electric_bolt_steps",
             "observe_bombs",
             "observe_temporal",
@@ -5267,6 +5661,7 @@ mod tests {
         modern["observe_spawns"] = json!(false);
         modern["observe_temporal"] = json!(false);
         modern["observe_cloak"] = json!(false);
+        modern["observe_radiation_beams"] = json!(false);
         let disabled: MapCaptureProfile = serde_json::from_value(modern.clone()).unwrap();
         disabled.validate().unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap(), modern);
@@ -5275,6 +5670,7 @@ mod tests {
             "observe_spawns",
             "observe_temporal",
             "observe_cloak",
+            "observe_radiation_beams",
         ] {
             for value in [json!(0), json!(1), json!("true"), json!([])] {
                 let mut invalid = modern.clone();
@@ -5637,6 +6033,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -5776,13 +6173,16 @@ mod tests {
             let handle = gadgets.list.add_tail(GadgetSpec::button(
                 if i == index {
                     GadgetRect::new(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32)
+                } else if i == 11 {
+                    let rect = layout.left_cap;
+                    GadgetRect::new(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32)
                 } else {
                     GadgetRect::new(0, 0, 0, 0)
                 },
-                0xD6 + i as u16,
+                if i == 11 { 0xF0 } else { 0xD6 + i as u16 },
                 ToggleKind::Plain,
             ));
-            gadgets.list.get_mut(handle).unwrap().is_disabled = i != index;
+            gadgets.list.get_mut(handle).unwrap().is_disabled = i != index && i != 11;
             handle
         }));
         (layout, slots, gadgets)
@@ -5794,7 +6194,7 @@ mod tests {
         let (receipt, handle) =
             MapCommandBarGestureReceipt::resolve("Guard", layout, &slots, &gadgets, [800, 600])
                 .unwrap();
-        assert_eq!(receipt.slot, 1);
+        assert_eq!(receipt.slot, Some(1));
         assert_eq!(
             handle,
             gadgets.command_bar.unwrap()[command_bar_index("Guard").unwrap()]
@@ -5819,6 +6219,51 @@ mod tests {
             MapCommandBarGestureReceipt::resolve("Guard", layout, &slots, &gadgets, [800, 600])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn command_bar_thumb_uses_current_cap_without_inventing_a_button_list_slot() {
+        use crate::ui::gadget::GadgetRect;
+        for open in [true, false] {
+            let (_, slots, mut gadgets) = command_bar_fixture();
+            let layout = crate::ui::sidebar::command_bar::CommandBarLayout::new(
+                [800, 600],
+                168,
+                [28, 32],
+                [52, 32],
+                [28, 32],
+                open,
+            )
+            .unwrap();
+            let handle = gadgets.command_bar.unwrap()[11];
+            let gadget = gadgets.list.get_mut(handle).unwrap();
+            let rect = layout.left_cap;
+            gadget.rect =
+                GadgetRect::new(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+            gadget.id = if open { 0xF0 } else { 0xF1 };
+            let (receipt, observed_handle) =
+                MapCommandBarGestureReceipt::resolve("Thumb", layout, &slots, &gadgets, [800, 600])
+                    .unwrap();
+            assert_eq!(observed_handle, handle);
+            assert_eq!(receipt.slot, None);
+            assert_eq!(receipt.gadget_id, if open { 0xF0 } else { 0xF1 });
+            assert_eq!(
+                receipt.resolved_position,
+                if open { [18, 584] } else { [590, 584] }
+            );
+            let value = serde_json::to_value(receipt).unwrap();
+            assert!(value.get("slot").is_none());
+            assert!(
+                value.get("thumb").is_none(),
+                "pure resolution supplies no House observation"
+            );
+            gadgets.list.get_mut(handle).unwrap().is_disabled = true;
+            assert!(MapCommandBarGestureReceipt::resolve(
+                "Thumb", layout, &slots, &gadgets, [800, 600],
+            ).is_err());
+        }
+        assert_eq!(crate::ui::sidebar::command_bar::COMMAND_NAMES.len(), 11);
+        assert!(command_bar_index("thumb").is_err());
     }
 
     #[test]
@@ -6086,6 +6531,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -6108,6 +6554,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -6344,6 +6791,7 @@ mod tests {
             input: None,
             lasers: None,
             electric_bolts: None,
+            radiation_beams: None,
             bombs: None,
             crates: None,
             audio_state: None,
@@ -6435,95 +6883,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn nuclear_missile_example_launches_the_charged_silo_at_the_neutral_tanks() {
-        let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
-            "tools/map_observation.nuclear-missile.example.json",
-        ))
-        .unwrap();
-        profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
-        // The silo's Super charges for 9000 frames from the first step; the
-        // id is the one its `observe_super_weapons` row reports.
-        let [command] = profile.commands() else {
-            panic!("one launch");
-        };
-        assert_eq!(command.issue_after_step, 9010);
-        assert!(matches!(
-            command.payload,
-            Command::LaunchSuperWeapon {
-                target_rx: 41,
-                target_ry: 63,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn iron_curtain_example_curtains_a_tank_under_fire() {
-        use crate::map::entities::EntityCategory;
-        use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
-        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
-
-        let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
-            "tools/map_observation.iron-curtain.example.json",
-        ))
-        .unwrap();
-        profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
-        // Resolve the example's named actors and weapon through the same owner
-        // as input scheduling, independently of entity/interner allocation order.
-        let rules = RuleSet::from_ini(&IniFile::from_str(
-            "[VehicleTypes]\n0=HTNK\n[HTNK]\nStrength=400\n\
-             [SuperWeaponTypes]\n0=IronCurtainSpecial\n\
-             [IronCurtainSpecial]\nType=IronCurtain\n",
-        ))
-        .unwrap();
-        let mut sim = Simulation::new();
-        sim.interner.intern("earlier-loaded-type");
-        sim.intern_rule_type_ids(&rules);
-        let owner = sim.interner.intern("VERA-OBSERVER");
-        let type_ref = sim.interner.get("HTNK").unwrap();
-        for (id, ry) in [(71, 54), (93, 58)] {
-            let mut entity = GameEntity::new_at_frame_zero_for_test(
-                id,
-                44,
-                ry,
-                0,
-                0,
-                owner,
-                Health::new(400),
-                type_ref,
-                EntityCategory::Unit,
-                0,
-                4,
-                true,
-            );
-            entity.lifecycle.set_in_limbo_for_test(false);
-            sim.entities_mut().insert(entity);
+    /// A skirmish never admits the human's authored Structures (`0x0044F8CB`),
+    /// so a computer scene's observer orders only build its base the native
+    /// way: deploy the starting MCV and place ordinary production.
+    fn assert_observer_only_builds(profile: &MapCaptureProfile) {
+        for command in profile.commands() {
+            assert_eq!(command.owner, "VERA-OBSERVER");
+            assert!(matches!(
+                command.payload,
+                Command::DeployMcv { .. }
+                    | Command::QueueProduction { .. }
+                    | Command::PlaceReadyBuilding { .. }
+            ));
         }
-        let [attack, launch] = profile.commands() else {
-            panic!("an attack and a launch");
-        };
-        assert_eq!(
-            (attack.issue_after_step, launch.issue_after_step),
-            (4440, 4510)
-        );
-        assert_eq!(
-            attack.resolve(&sim, &rules).unwrap().0,
-            Command::ForceAttack {
-                attacker_id: 93,
-                target_id: 71
-            }
-        );
-        assert_eq!(
-            launch.resolve(&sim, &rules).unwrap().0,
-            Command::LaunchSuperWeapon {
-                sw_type_id: sim.interner.get("IronCurtainSpecial").unwrap(),
-                target_rx: 44,
-                target_ry: 54,
-            }
-        );
     }
 
     #[test]
@@ -6533,9 +6905,17 @@ mod tests {
         ))
         .unwrap();
         profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
-        // The computer's Strategy tick fires its charged silo.
-        assert!(profile.commands().is_empty());
+        // Every observed House's twelve Super rows would spend the sample
+        // budget long before the 9000-frame charge; the yard's health shows
+        // the strike.
+        assert_eq!(profile.observe_super_weapons, None);
+        // The observer deploys its starting MCV into the targeted yard; the
+        // computer's Strategy tick fires its charged silo.
+        let [deploy] = profile.commands() else {
+            panic!("one deploy");
+        };
+        assert_eq!(deploy.issue_after_step, 0);
+        assert!(matches!(deploy.payload, Command::DeployMcv { .. }));
     }
 
     #[test]
@@ -6545,7 +6925,7 @@ mod tests {
         ))
         .unwrap();
         profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
+        assert_eq!(profile.observe_super_weapons, None);
         // The computer's Strategy tick aims its charged Dominator.
         assert!(profile.commands().is_empty());
     }
@@ -6559,9 +6939,9 @@ mod tests {
             let profile: MapCaptureProfile =
                 serde_json::from_str(crate::test_fixture::text(path)).unwrap();
             profile.validate().unwrap();
-            assert_eq!(profile.observe_super_weapons, Some(true));
+            assert_eq!(profile.observe_super_weapons, None);
             // A computer team's script fires the charged Super.
-            assert!(profile.commands().is_empty());
+            assert_observer_only_builds(&profile);
         }
     }
 
@@ -6580,70 +6960,10 @@ mod tests {
                 profile.launch.opponents[0].difficulty,
                 crate::skirmish_launch::AiDifficulty::Normal
             );
-            // A computer team's script orders the spawners' attacks.
-            assert!(profile.commands().is_empty());
+            // A computer team's script orders the spawners' attacks on the
+            // targets the observer builds.
+            assert_observer_only_builds(&profile);
         }
-    }
-
-    #[test]
-    fn computer_force_shield_example_answers_the_observers_nuke() {
-        let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
-            "tools/map_observation.ai-force-shield.example.json",
-        ))
-        .unwrap();
-        profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
-        // The observer's nuke on the computer's yard alerts the computer,
-        // whose Strategy tick fires its charged Force Shield there.
-        let [command] = profile.commands() else {
-            panic!("one launch");
-        };
-        assert_eq!(command.issue_after_step, 9010);
-        assert!(matches!(
-            command.payload,
-            Command::LaunchSuperWeapon {
-                target_rx: 56,
-                target_ry: 56,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn chronosphere_example_warps_the_source_block_with_a_tactical_click() {
-        let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
-            "tools/map_observation.chronosphere.example.json",
-        ))
-        .unwrap();
-        profile.validate().unwrap();
-        assert_eq!(profile.observe_super_weapons, Some(true));
-        // The Chronosphere charges for 6300 frames from the first step; its
-        // launch selects the Chrono Warp, and the click at the view's centre
-        // (`camera_cell`) fires it.
-        let [command] = profile.commands() else {
-            panic!("one launch");
-        };
-        assert_eq!(command.issue_after_step, 6310);
-        assert!(matches!(
-            command.payload,
-            Command::LaunchSuperWeapon {
-                target_rx: 41,
-                target_ry: 63,
-                ..
-            }
-        ));
-        let [gesture] = profile.gestures() else {
-            panic!("one click");
-        };
-        assert_eq!(gesture.issue_after_step, 6320);
-        assert!(matches!(
-            gesture.gesture,
-            MapGesture::Click {
-                position: [316, 284],
-                button: None
-            }
-        ));
-        assert_eq!(profile.camera_cell, Some([45, 55]));
     }
 
     #[test]

@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -31,6 +31,9 @@ export interface HousePopulation {
   color: [number, number, number] | null;
   /** Live cash balance. */
   credits: number;
+  power_output: number;
+  power_drain: number;
+  low_power: boolean;
   /** Running total spent. */
   spent: number;
   /** House score: deposits, kills and captures. */
@@ -199,6 +202,8 @@ export interface CheatReport {
   reveal_map: boolean;
   /** The house the switches act on, resolved; null before they are used. */
   owner: string | null;
+  /** True while the power switch is overriding a real deficit. */
+  power_forced: boolean;
 }
 
 /** One log record on the wire (schema v15). */

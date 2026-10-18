@@ -59,7 +59,9 @@ use crate::sim::world::Simulation;
 /// v14: `render` — the per-phase breakdown of one in-game render.
 /// v15: `logs` — incremental log records for the dashboard's log view.
 /// v16: `cheats` — the trainer switches, so a panel reload cannot desync.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 16;
+/// v17: houses carry their live power reading, and `cheats.power_forced` says
+/// whether the power switch is actually overriding a deficit.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 17;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -127,6 +129,12 @@ pub struct HousePopulation {
     pub color: Option<[u8; 3]>,
     /// Live cash balance (native house `+0x30C`).
     pub credits: i32,
+    /// Health-scaled power output this house's buildings produce.
+    pub power_output: i32,
+    /// Full-rated power drain they consume.
+    pub power_drain: i32,
+    /// Whether the house is currently in low power (native `House+577B`).
+    pub low_power: bool,
     /// Running total taken by `Spend_Money` (native house `+0x2DC`).
     pub spent: i32,
     /// House score (native house `+0x54E8`): deposits, kills and captures.
@@ -380,6 +388,10 @@ pub struct CheatReport {
     /// a switch is on; the panel shows it so "who is this helping" is never a
     /// guess.
     pub owner: Option<String>,
+    /// True while the power switch is overriding a real deficit. False on a
+    /// base that is already fully powered — the switch is on but has nothing
+    /// to do, and the panel has to be able to say so.
+    pub power_forced: bool,
 }
 
 /// One log record on the wire.
@@ -466,6 +478,12 @@ impl Simulation {
                 // The app resolves the launch session's [Colors] scheme.
                 color: None,
                 credits: house.economy.credits(),
+                power_output: self.power_states.get(owner).map_or(0, |power| power.total_output),
+                power_drain: self.power_states.get(owner).map_or(0, |power| power.total_drain),
+                low_power: self
+                    .power_states
+                    .get(owner)
+                    .is_some_and(|power| power.is_low_power),
                 spent: house.economy.spent_credits(),
                 score: house.economy.score(),
                 defeated: house.is_defeated,
@@ -550,6 +568,7 @@ impl Simulation {
                 damage_scale: self.cheats.damage_scale,
                 reveal_map: self.cheats.reveal_map,
                 owner: self.cheats.owner.map(|owner| self.interner.resolve(owner).to_string()),
+                power_forced: self.cheats.power_forced,
             },
         }
     }

@@ -4921,7 +4921,7 @@ impl Simulation {
     /// House4F844B..4F8506: assess dirty power, rewrite all owned Factory
     /// rates without touching timers, then refresh the radar projection.
     /// Numeric/order evidence: the engineer-repair native consumer packet.
-    fn assess_house_derived_state(&mut self, owner: InternedId, rules: &RuleSet) {
+    pub(crate) fn assess_house_derived_state(&mut self, owner: InternedId, rules: &RuleSet) {
         if !self.houses.contains_key(&owner) {
             return;
         }
@@ -4941,8 +4941,17 @@ impl Simulation {
         // the dirty pass cannot overwrite it, and whether or not one ran.
         if self.cheats.infinite_power && self.cheats.applies_to(owner) {
             let state = self.power_states.entry(owner).or_default();
-            state.total_output = state.total_output.max(state.total_drain.max(1));
-            state.is_low_power = false;
+            if state.has_full_power() {
+                // Nothing to fix, and nothing to fake: a base that is already
+                // powered must keep the numbers the assessment produced.
+                self.cheats.power_forced = false;
+            } else {
+                state.total_output = state.total_output.max(state.total_drain);
+                state.is_low_power = false;
+                self.cheats.power_forced = true;
+            }
+        } else if self.cheats.applies_to(owner) {
+            self.cheats.power_forced = false;
         }
         if assessed {
             production::refresh_factory_rates_for_house(self, rules, owner);

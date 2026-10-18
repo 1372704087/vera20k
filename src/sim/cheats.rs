@@ -63,6 +63,11 @@ pub struct Cheats {
     /// The house the switches apply to. `None` until the app names one; the
     /// first `apply_cheats` falls back to the local player-control house.
     pub owner: Option<InternedId>,
+    /// True on the frames where the power switch actually had to override a
+    /// real deficit. A base that is already fully powered leaves it false —
+    /// which is the state a reader has to be able to tell apart from "the
+    /// switch is doing something".
+    pub power_forced: bool,
     /// Pending one-shot actions, a bitmask of [`action`].
     pending: u8,
 }
@@ -91,6 +96,7 @@ impl Cheats {
             damage_scale,
             reveal_map,
             owner: None,
+            power_forced: false,
             pending: 0,
         }
     }
@@ -369,6 +375,119 @@ mod tests {
         // need a simulation borrow while it holds the entity store.
         let cheats = sim.cheats;
         assert_eq!(cheats.damage_multiplier(), 10);
+    }
+
+    /// The power types the engine's own power fixtures use: a 200-output
+    /// generator and a 75-drain consumer.
+    fn power_rules() -> crate::rules::ruleset::RuleSet {
+        let ini = crate::rules::ini_parser::IniFile::from_str(
+            "\
+[BuildingTypes]
+0=GAPOWR
+1=TESLA
+
+[GAPOWR]
+Power=200
+Strength=600
+Powered=no
+
+[TESLA]
+Power=-75
+Strength=400
+Powered=yes
+",
+        );
+        crate::rules::ruleset::RuleSet::from_ini(&ini).expect("power test rules")
+    }
+
+    fn building(sim: &mut Simulation, id: u64, type_ref: &str) {
+        use crate::map::entities::EntityCategory;
+        use crate::sim::combat::Health;
+        use crate::sim::game_entity::GameEntity;
+        let mut entity = GameEntity::test_default_of_category(
+            id,
+            type_ref,
+            "Allies",
+            10,
+            10,
+            EntityCategory::Structure,
+        );
+        entity.health = Health::new(600);
+        entity.lifecycle.set_in_limbo_for_test(false);
+        entity.lifecycle.set_cell_marked(true);
+        sim.entities_mut().insert(entity);
+    }
+
+    /// A house owning the given buildings, on the interner the test fixtures
+    /// intern into — the entities' ids only resolve inside that one.
+    fn house_with_buildings(buildings: &[(u64, &str)]) -> (Simulation, InternedId) {
+        let mut sim = Simulation::new();
+        for &(id, type_ref) in buildings {
+            building(&mut sim, id, type_ref);
+        }
+        sim.interner = crate::sim::intern::test_interner();
+        let owner = sim.interner.intern("Allies");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        (sim, owner)
+    }
+
+    #[test]
+    fn infinite_power_lifts_a_real_deficit_and_says_so() {
+        let (mut sim, owner) =
+            house_with_buildings(&[(1, "GAPOWR"), (2, "TESLA"), (3, "TESLA"), (4, "TESLA")]);
+        let rules = power_rules();
+        sim.invalidate_house_power(owner, true);
+        sim.assess_house_derived_state(owner, &rules);
+
+        assert!(
+            !sim.power_states[&owner].has_full_power(),
+            "200 output against 225 drain is a deficit"
+        );
+        assert!(sim.power_states[&owner].is_low_power);
+        assert!(!sim.cheats.power_forced, "nothing has asked for anything yet");
+
+        sim.set_cheats(Cheats::switches(false, 0, true, false, false, 1, false));
+        sim.assess_house_derived_state(owner, &rules);
+
+        assert!(sim.power_states[&owner].has_full_power(), "the switch lifts it");
+        assert!(!sim.power_states[&owner].is_low_power);
+        assert!(sim.cheats.power_forced, "the panel must be able to say it acted");
+        let consumer = sim.entities().get(2).expect("consumer building");
+        assert!(
+            crate::sim::power_system::is_building_powered(
+                &sim.power_states,
+                &rules,
+                consumer,
+                &sim.interner,
+            ),
+            "a powered consumer is what the low-power penalty gates"
+        );
+
+        // Switching off restores the deficit rather than leaving the forced
+        // totals behind.
+        sim.set_cheats(Cheats::switches(false, 0, false, false, false, 1, false));
+        sim.invalidate_house_power(owner, true);
+        sim.assess_house_derived_state(owner, &rules);
+        assert!(
+            !sim.power_states[&owner].has_full_power(),
+            "the real deficit is back"
+        );
+        assert!(!sim.cheats.power_forced);
+    }
+
+    #[test]
+    fn a_fully_powered_base_leaves_the_switch_nothing_to_do() {
+        let (mut sim, owner) = house_with_buildings(&[(1, "GAPOWR")]);
+        let rules = power_rules();
+        sim.set_cheats(Cheats::switches(false, 0, true, false, false, 1, false));
+        sim.assess_house_derived_state(owner, &rules);
+
+        assert!(sim.power_states[&owner].has_full_power());
+        assert!(
+            !sim.cheats.power_forced,
+            "a base with no deficit must not claim the switch is working"
+        );
     }
 
     #[test]

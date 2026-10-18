@@ -2004,6 +2004,25 @@ function syncCheats(report) {
             const wallet = house ? ` · ${t("cheat.wallet")} ${thousands(house.credits)}` : "";
             owner.textContent = `${t("cheat.owner")} ${report.owner}${wallet}`;
         }
+        // The power reading is the only way to tell "the switch is doing its job"
+        // from "the base was already powered and there was nothing to do".
+        const power = document.getElementById("cheat-power");
+        if (power) {
+            const house = lastSnapshot?.houses.find((row) => row.name === report.owner);
+            if (!house) {
+                power.textContent = "";
+            }
+            else {
+                const state = report.power_forced
+                    ? t("cheat.powerForced")
+                    : house.low_power
+                        ? t("cheat.powerLow")
+                        : t("cheat.powerOk");
+                power.textContent =
+                    `${t("cheat.power")} ${thousands(house.power_output)} / ${thousands(house.power_drain)}` +
+                        ` · ${state}`;
+            }
+        }
         // An empty line above the cards reads as a rendering fault.
         owner.hidden = !report.owner;
     }

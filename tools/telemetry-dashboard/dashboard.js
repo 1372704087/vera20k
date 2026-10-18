@@ -25,7 +25,6 @@ const TOGGLE_SWITCHES = [
     { name: "terrain_costs", key: "sw.terrainCosts", flag: "terrain_costs" },
     { name: "heightmap", key: "sw.heightmap", flag: "heightmap" },
     { name: "cell_grid", key: "sw.cellGrid", flag: "cell_grid" },
-    { name: "fog", key: "sw.fog", flag: "fog" },
     { name: "unit_inspector", key: "sw.inspector", flag: "unit_inspector" },
     { name: "debug_pause", key: "sw.pause", flag: "paused" },
 ];

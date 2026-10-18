@@ -138,18 +138,6 @@ fn apply(state: &mut AppState, command: DebugCommand) {
                     }
                 );
             }
-            DebugSwitch::Fog => {
-                state.match_state.sandbox_full_visibility =
-                    !state.match_state.sandbox_full_visibility;
-                log::info!(
-                    "Fog of war (web): {}",
-                    if state.match_state.sandbox_full_visibility {
-                        "OFF (full visibility)"
-                    } else {
-                        "ON"
-                    }
-                );
-            }
             DebugSwitch::UnitInspector => dispatch::toggle_unit_inspector(state),
             DebugSwitch::DebugPause => dispatch::toggle_debug_pause(state),
         },

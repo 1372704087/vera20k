@@ -45,6 +45,11 @@ pub enum CheatAction {
 }
 
 /// The overlays the dashboard may switch (the Ctrl+Shift chord's targets).
+///
+/// Fog of war is deliberately absent: the trainer's `reveal_map` switch owns
+/// the shroud (`sandbox_full_visibility`), and the `^+V` / F10 chord routes
+/// through the trainer so both controls read the same fact. A second web
+/// toggle would only be able to disagree with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DebugSwitch {
@@ -54,8 +59,6 @@ pub enum DebugSwitch {
     Heightmap,
     /// Cell grid, blue = terrain / yellow = overlay (`^+L`).
     CellGrid,
-    /// Fog of war (`^+V` / F10). The flag is the fog itself, not visibility.
-    Fog,
     /// Per-entity debug event logging (`^+X`).
     UnitInspector,
     /// Debug pause (`^+J`).

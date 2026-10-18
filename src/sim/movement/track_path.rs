@@ -1170,11 +1170,18 @@ impl Simulation {
                     // the Chrono Warp's Teleport takes any destination's
                     // coordinate (`0x004D9628`).
                     let coord = coord.expect("accepted Move_To captures target +4C");
-                    self.teleport_move_to(id, coord, rules, is_harvester, None, frame_effects)
-                        .unwrap_or_else(|error| {
-                            log::debug!("Unit Teleport MoveTo {id}: {error}");
-                            false
-                        })
+                    self.teleport_move_to(
+                        id,
+                        coord,
+                        rules,
+                        is_harvester,
+                        frame_effects.overlay_registry(),
+                        frame_effects,
+                    )
+                    .unwrap_or_else(|error| {
+                        log::debug!("Unit Teleport MoveTo {id}: {error}");
+                        false
+                    })
                 }
                 _ => false,
             }

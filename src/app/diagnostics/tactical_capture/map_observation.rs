@@ -466,6 +466,13 @@ pub(crate) struct MapCaptureProfile {
         skip_serializing_if = "Option::is_none"
     )]
     observe_electric_bolts: Option<bool>,
+    /// Copy the live radiation registry and actual last-composite line work.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    observe_radiation_beams: Option<bool>,
     /// Optional committed-step whitelist for the same effect snapshots and
     /// composite observations. Absence retains every historical boundary.
     #[serde(
@@ -590,6 +597,7 @@ impl MapCaptureProfile {
                     && self.observe_disguise_inputs.is_none()
                     && self.observe_lasers.is_none()
                     && self.observe_electric_bolts.is_none()
+                    && self.observe_radiation_beams.is_none()
                     && self.observe_electric_bolt_steps.is_none()
                     && self.observe_bombs.is_none()
                     && self.observe_temporal.is_none()
@@ -956,6 +964,7 @@ pub(super) struct MapObservation {
     rule_types: Vec<Value>,
     draws: Vec<MapDrawTime>,
     electric_bolt_draws: Vec<MapElectricBoltDrawObservation>,
+    radiation_beam_draws: Vec<MapRadiationBeamDrawObservation>,
     commands: Vec<MapCommandReceipt>,
     gestures: Vec<MapGestureReceipt>,
     keyboard_bindings: Vec<MapKeyboardBinding>,
@@ -2079,6 +2088,65 @@ impl MapLaserObservation {
     }
 }
 
+/// Copied owner output, including expired beams' last actual geometry. No
+/// diagnostic projection or extra Tactical-composite visit participates.
+#[derive(Debug, Serialize)]
+struct MapRadiationBeamObservation {
+    live: Vec<crate::app::presentation::radiation_beams::BeamObservation>,
+    composites: Vec<Value>,
+    segments: Vec<Value>,
+}
+
+impl MapRadiationBeamObservation {
+    fn capture(beams: &crate::app::presentation::radiation_beams::RadiationBeams) -> Result<Self> {
+        use crate::render::surface_line::{SurfaceDraw, SurfaceLineBlend};
+
+        let live = beams.observation();
+        ensure!(
+            1 + live.len() + beams.composites().len() + beams.draws().len()
+                <= MAX_OBSERVATION_SAMPLES,
+            "radiation beam observation exceeds sample budget"
+        );
+        let composites = beams
+            .composites()
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let segments = beams
+            .draws()
+            .iter()
+            .map(|draw| {
+                let SurfaceDraw::Line(line) = draw else {
+                    bail!("radiation beam observer expected an actual surface line")
+                };
+                let SurfaceLineBlend::Replace(word) = line.blend else {
+                    bail!("radiation beam observer expected packed replacement color")
+                };
+                Ok(json!({"from": line.from, "to": line.to,
+                    "z_adjust": line.z_adjust, "rgb565": word}))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            live,
+            composites,
+            segments,
+        })
+    }
+
+    fn sample_count(&self) -> usize {
+        1 + self.live.len() + self.composites.len() + self.segments.len()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct MapRadiationBeamDrawObservation {
+    ordinal: usize,
+    completed_steps: u64,
+    simulation_tick: u64,
+    binary_frame: u32,
+    beams: MapRadiationBeamObservation,
+}
+
 /// Read-only boundaries of the actual effect owners. Full logical RNG words
 /// permit native continuation comparisons; observations never consume a draw.
 #[derive(Debug, Serialize)]
@@ -2320,6 +2388,8 @@ struct MapFrameObservation {
     #[serde(skip_serializing_if = "Option::is_none")]
     electric_bolts: Option<MapElectricBoltObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    radiation_beams: Option<MapRadiationBeamObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bombs: Option<crate::sim::bomb::BombObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crates: Option<Vec<MapCrateSlotObservation>>,
@@ -2474,6 +2544,11 @@ impl MapObservation {
             observations["electric_bolt_draws"] =
                 json!({"policy": policy, "frames": self.electric_bolt_draws});
         }
+        if profile.observe_radiation_beams == Some(true) {
+            observations["radiation_beam_draws"] = json!({
+                "policy": "radiation-beam-after-each-tactical-composite-v1",
+                "frames": self.radiation_beam_draws});
+        }
         if profile.observe_audio.is_some() {
             observations["audio"] = json!(self.audio);
         }
@@ -2590,6 +2665,14 @@ impl MapObservation {
                         .electric_bolts
                         .as_ref()
                         .map_or(0, MapElectricBoltObservation::sample_count),
+                )
+            })
+            .and_then(|count| {
+                count.checked_add(
+                    frame
+                        .radiation_beams
+                        .as_ref()
+                        .map_or(0, MapRadiationBeamObservation::sample_count),
                 )
             })
             .context("actor observation sample count overflow")?;
@@ -3845,6 +3928,13 @@ impl TacticalCaptureSession {
                 .observes_electric_step(self.exact_step_receipts.len() as u64)
                 .then(|| MapElectricBoltObservation::capture(state))
                 .transpose()?,
+            radiation_beams: (profile.observe_radiation_beams == Some(true))
+                .then(|| {
+                    MapRadiationBeamObservation::capture(
+                        &state.match_state.match_presentation.radiation_beams,
+                    )
+                })
+                .transpose()?,
             bombs: (profile.observe_bombs == Some(true))
                 .then(|| sim.bomb_observation(MAX_OBSERVATION_SAMPLES + 1)),
             crates: (profile.observe_crates == Some(true))
@@ -3918,6 +4008,13 @@ impl TacticalCaptureSession {
             .observes_electric_step(step)
             .then(|| MapElectricBoltObservation::capture(state))
             .transpose()?;
+        let radiation = (profile.observe_radiation_beams == Some(true))
+            .then(|| {
+                MapRadiationBeamObservation::capture(
+                    &state.match_state.match_presentation.radiation_beams,
+                )
+            })
+            .transpose()?;
         let map = self.map_state_mut()?;
         if let Some(effects) = electric {
             map.sample_count = map
@@ -3938,6 +4035,24 @@ impl TacticalCaptureSession {
                     binary_frame: sim.session.binary_frame,
                     effects,
                     particle_draws: output.particle_draws.clone(),
+                });
+        }
+        if let Some(beams) = radiation {
+            map.sample_count = map
+                .sample_count
+                .checked_add(beams.sample_count())
+                .context("radiation beam draw observation count overflow")?;
+            ensure!(
+                map.sample_count <= MAX_OBSERVATION_SAMPLES,
+                "radiation beam draw observation exceeds sample budget"
+            );
+            map.radiation_beam_draws
+                .push(MapRadiationBeamDrawObservation {
+                    ordinal: map.radiation_beam_draws.len(),
+                    completed_steps: step,
+                    simulation_tick: sim.session.tick,
+                    binary_frame: sim.session.binary_frame,
+                    beams,
                 });
         }
         if map.audio_tail_started.is_some() && map.draws.len() == requested.max(1) as usize {
@@ -4294,6 +4409,7 @@ mod tests {
                     input: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: None,
                     crates: None,
                     audio_state: Some(audio.clone()),
@@ -4546,6 +4662,80 @@ mod tests {
     }
 
     #[test]
+    fn radiation_observer_preserves_composite_progress_geometry_hash_and_rng() {
+        use crate::app::presentation::radiation_beams::RadiationBeams;
+        use crate::render::surface_line::{SurfaceDraw, SurfaceLineBlend, SurfaceLineViewport};
+        use crate::sim::{
+            combat::radiation_beam::RadiationBeamBirth, projectile::ProjectileCoord,
+            world::Simulation,
+        };
+        use crate::util::native_x87::NativeF64Bits;
+
+        let sim = Simulation::new();
+        let hash = sim.state_hash();
+        let rng = sim.rng_state();
+        let mut beams = RadiationBeams::default();
+        beams.create(RadiationBeamBirth {
+            frame: 7,
+            from: ProjectileCoord::new(256, 256, 0),
+            to: ProjectileCoord::new(768, 256, 0),
+            z_adjust: -32,
+            color: [0, 255, 0],
+            duration: 15,
+            amplitude: NativeF64Bits::from_bits(40.0_f64.to_bits()),
+        });
+        let initial =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert_eq!(initial["live"][0]["progress"], 0);
+        assert!(initial["live"][0]["length_bits"].is_null());
+        let viewport = SurfaceLineViewport {
+            camera: [0, 0],
+            clip: [0, 0, 2048, 2048],
+            z_origin_y: 0,
+            zoom: 1.0,
+        };
+        // Actual presentation composites advance this owner without any Logic
+        // tick. Numeric/native goldens belong to the renderer's own tests.
+        for _ in 0..14 {
+            beams.composite(60, viewport);
+        }
+        let draws = beams.draws().to_vec();
+        assert!(!draws.is_empty());
+        let retained = serde_json::to_value(beams.observation()).unwrap();
+        let snapshot =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert_eq!(snapshot["live"][0]["progress"], 14);
+        assert_eq!(snapshot["composites"][0]["progress_after"], 14);
+        let SurfaceDraw::Line(line) = draws[0] else {
+            panic!("expected actual beam line")
+        };
+        let SurfaceLineBlend::Replace(word) = line.blend else {
+            panic!("expected packed beam color")
+        };
+        assert_eq!(
+            snapshot["segments"][0],
+            json!({
+            "from": line.from, "to": line.to, "z_adjust": line.z_adjust, "rgb565": word})
+        );
+        assert_eq!(
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap(),
+            snapshot
+        );
+        assert_eq!(serde_json::to_value(beams.observation()).unwrap(), retained);
+        assert_eq!(beams.draws(), draws.as_slice());
+        beams.composite(60, viewport);
+        let expired =
+            serde_json::to_value(MapRadiationBeamObservation::capture(&beams).unwrap()).unwrap();
+        assert!(expired["live"].as_array().unwrap().is_empty());
+        assert_eq!(expired["composites"][0]["progress_before"], 14);
+        assert_eq!(expired["composites"][0]["progress_after"], 15);
+        assert_eq!(expired["composites"][0]["expired"], true);
+        assert!(!expired["segments"].as_array().unwrap().is_empty());
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+
+    #[test]
     fn cloak_runtime_snapshot_reads_timers_and_membership_without_advancing_state() {
         use crate::rules::retail_ini_fixture::retail_battle_rules;
         use crate::sim::cloak_disguise::CloakTickFacts;
@@ -4769,6 +4959,7 @@ mod tests {
                     effects: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: None,
                     crates: None,
                     input: None,
@@ -4819,6 +5010,7 @@ mod tests {
                     effects: None,
                     lasers: None,
                     electric_bolts: None,
+                    radiation_beams: None,
                     bombs: Some(snapshot),
                     crates: None,
                     input: None,
@@ -4913,6 +5105,7 @@ mod tests {
                         input: None,
                         lasers: None,
                         electric_bolts: None,
+                        radiation_beams: None,
                         bombs: None,
                         crates: None,
                         audio_state: None,
@@ -5173,6 +5366,9 @@ mod tests {
         legacy.observe_electric_bolts = Some(false);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
+        legacy.observe_radiation_beams = Some(false);
+        assert!(legacy.validate().is_err());
+        let mut legacy = example();
         legacy.observe_electric_bolt_steps = Some(vec![0]);
         assert!(legacy.validate().is_err());
         let mut legacy = example();
@@ -5217,6 +5413,7 @@ mod tests {
         modern["observe_disguise_inputs"] = json!(true);
         modern["observe_lasers"] = json!(true);
         modern["observe_electric_bolts"] = json!(true);
+        modern["observe_radiation_beams"] = json!(true);
         modern["observe_electric_bolt_steps"] = json!([0]);
         modern["observe_bombs"] = json!(true);
         modern["observe_temporal"] = json!(true);
@@ -5243,6 +5440,7 @@ mod tests {
             "observe_disguise_inputs",
             "observe_lasers",
             "observe_electric_bolts",
+            "observe_radiation_beams",
             "observe_electric_bolt_steps",
             "observe_bombs",
             "observe_temporal",
@@ -5267,6 +5465,7 @@ mod tests {
         modern["observe_spawns"] = json!(false);
         modern["observe_temporal"] = json!(false);
         modern["observe_cloak"] = json!(false);
+        modern["observe_radiation_beams"] = json!(false);
         let disabled: MapCaptureProfile = serde_json::from_value(modern.clone()).unwrap();
         disabled.validate().unwrap();
         assert_eq!(serde_json::to_value(disabled).unwrap(), modern);
@@ -5275,6 +5474,7 @@ mod tests {
             "observe_spawns",
             "observe_temporal",
             "observe_cloak",
+            "observe_radiation_beams",
         ] {
             for value in [json!(0), json!(1), json!("true"), json!([])] {
                 let mut invalid = modern.clone();
@@ -5637,6 +5837,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -6086,6 +6287,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -6108,6 +6310,7 @@ mod tests {
                 input: None,
                 lasers: None,
                 electric_bolts: None,
+                radiation_beams: None,
                 bombs: None,
                 crates: None,
                 audio_state: None,
@@ -6344,6 +6547,7 @@ mod tests {
             input: None,
             lasers: None,
             electric_bolts: None,
+            radiation_beams: None,
             bombs: None,
             crates: None,
             audio_state: None,

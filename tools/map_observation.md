@@ -302,6 +302,35 @@ rows describe the post-composite registry: the last submitted geometry of an
 expiring bolt is absent from its retained live vector. False/absent adds no
 fields; v1 and present null/nonboolean values are rejected.
 
+Optional v2/v3 `observe_radiation_beams: true` adds `radiation_beams` at L0
+and each committed Logic boundary, plus `radiation_beam_draws` with policy
+`radiation-beam-after-each-tactical-composite-v1`. Every actual map render is
+sampled after the production composite, including repeated audio-tail renders
+with no Logic advance. This does not depend on the electric-bolt flag or its
+step whitelist. Each draw row retains ordinal, completed steps, simulation tick,
+binary frame and `beams`. The ordinary map presentation clock remains unchanged.
+
+Both snapshots contain `live`, `composites` and `segments`. `live` copies birth
+frame, world-lepton endpoints, Z adjustment, RGB color, duration, amplitude bits,
+current progress/spacing and nullable cached length bits from the existing beam
+owner. `composites` copies the last actual per-beam progress-before/after, expiry
+and segment-count records. `segments` copies the exact submitted line endpoints
+in logical screen pixels, their two signed Z adjustments, and packed replacement
+`rgb565` words from that composite. The observer performs no projection, color
+conversion, progress advancement, birth, RNG draw or extra composite. Logic
+snapshots may still hold work from the previous draw; the separate draw rows
+identify the actual consumption boundary. An expired beam can be absent from
+`live` while its final composite record and visible segments remain recorded.
+
+The selected mode0/kind1 birth lasts 15 Tactical composites, not 15 Logic ticks.
+The validator checks receipt shape, clock coverage and the submitted segment
+tally; it does not reconstruct native lifetime or geometry. Count one snapshot
+plus every live, composite and segment row against the shared 100000-sample
+budget. Absent/false emits no new fields and preserves historical payloads.
+True requires current child/wrapper v8; v1 rejects any presence and present
+null/nonboolean flags are invalid. This telemetry does not certify native
+frame/color parity or the unselected radiation-beam family.
+
 Optional v2 `observe_bombs: true` adds `bombs` at L0 and each committed frame.
 The bomb owner independently reads its sorted carrier index and the carried
 records: carrier and planter stable IDs, planter House, and signed start/end

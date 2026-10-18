@@ -870,7 +870,8 @@ fn ground_force_fixture(human: bool) -> (Simulation, RuleSet, u64, [u64; 3]) {
     let text = "[InfantryTypes]\n0=E1\n[AircraftTypes]\n[VehicleTypes]\n0=AMCV\n1=MTNK\n\
          [BuildingTypes]\n0=YARD\n[AI]\nBuildConst=YARD\n\
          [AMCV]\nStrength=1000\nSpeed=5\nROT=5\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\nDeploysInto=YARD\n\
-         [MTNK]\nStrength=400\nSpeed=6\nROT=5\n[E1]\nStrength=125\nSpeed=4\n\
+         [MTNK]\nStrength=400\nSpeed=6\nROT=5\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [E1]\nStrength=125\nSpeed=4\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n\
          [YARD]\nStrength=1000\nConstructionYard=yes\nDeployFacing=4\n\
          [Hunt]\nRate=0.016\n[Guard]\nRate=0.016\n[Unload]\nRate=0.016\n[Clear]\nBuildable=yes\n";
     let rules = RuleSet::from_ini_with_fixed_art_for_test(

@@ -122,6 +122,7 @@ pub(crate) fn build_target_line_instances(
     house_colors: &HouseColorMap,
     wall_ms: u32,
     viewport: TacticalViewport,
+    mut after_entity: Option<&mut dyn FnMut(u64, &mut Vec<SpriteInstance>)>,
 ) -> Vec<SpriteInstance> {
     // Tactical6D4729 and6D4793 use the same planning gate; the action-line
     //option/timer gates only Foot4DC060, not CaptureManager relationships.
@@ -146,7 +147,7 @@ pub(crate) fn build_target_line_instances(
     let mut control = rules
         .map(|rules| super::control_links::prepare(sim, rules, house_colors, wall_ms, viewport))
         .unwrap_or_default();
-    if colors.is_none() && control.is_empty() {
+    if colors.is_none() && control.is_empty() && after_entity.is_none() {
         return Vec::new();
     }
     let cells = sim.resolved_terrain.as_ref().map(NativeCellQuery::isolated);
@@ -165,8 +166,11 @@ pub(crate) fn build_target_line_instances(
             }
         })
     };
-    if !control.is_empty() {
-        //6D4750 ->6D47BF/6D47F6 within EACH Techno visit. Resolving all
+    // Tactical6D4750 walks the construction-ordered Techno array, not the
+    // CurrentObjects selection vector or the Logic active-object order.
+    // EntityStore's monotonic stable IDs retain that represented order.
+    if !control.is_empty() || after_entity.is_some() {
+        //6D4750 ->6D47BF/6D47F6 ->6D47FB within EACH Techno visit. Resolving all
         //action lines before relationships would reverse cross-object overlaps.
         let mut instances = Vec::new();
         for entity in sim.entities().values() {
@@ -181,6 +185,9 @@ pub(crate) fn build_target_line_instances(
             }
             if let Some(lines) = control.remove(&entity.stable_id()) {
                 instances.extend(lines);
+            }
+            if let Some(callback) = after_entity.as_mut() {
+                callback(entity.stable_id(), &mut instances);
             }
         }
         return instances;
@@ -728,6 +735,56 @@ mod tests {
     }
 
     #[test]
+    fn relationship_interleave_visits_technos_when_action_lines_are_disabled_but_not_planning() {
+        let sim = sim_with_selected_unit_that_has_attack_and_move();
+        let mut state = TargetLineState::default();
+        state.set_unit_action_lines_enabled(false);
+        let mut visits = Vec::new();
+        let mut callback = |id, instances: &mut Vec<SpriteInstance>| {
+            assert!(instances.is_empty());
+            visits.push(id);
+        };
+        assert!(
+            build_target_line_instances(
+                &state,
+                false,
+                Some(&sim),
+                None,
+                None,
+                &HouseColorMap::new(),
+                0,
+                test_viewport(),
+                Some(&mut callback)
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            visits,
+            sim.entities()
+                .iter_sorted()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        );
+        visits.clear();
+        let mut callback = |id, _: &mut Vec<SpriteInstance>| visits.push(id);
+        assert!(
+            build_target_line_instances(
+                &state,
+                true,
+                Some(&sim),
+                None,
+                None,
+                &HouseColorMap::new(),
+                0,
+                test_viewport(),
+                Some(&mut callback)
+            )
+            .is_empty()
+        );
+        assert!(visits.is_empty());
+    }
+
+    #[test]
     fn unit_action_lines_option_disables_selected_timer() {
         let mut state = active_line_state_for_tick(100);
         state.set_unit_action_lines_enabled(false);
@@ -800,7 +857,8 @@ mod tests {
                 None,
                 &HouseColorMap::new(),
                 0,
-                test_viewport()
+                test_viewport(),
+                None,
             )
             .is_empty()
         );
@@ -829,7 +887,8 @@ mod tests {
                 None,
                 &HouseColorMap::new(),
                 0,
-                test_viewport()
+                test_viewport(),
+                None,
             )
             .is_empty()
         );

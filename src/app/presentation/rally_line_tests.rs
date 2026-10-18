@@ -915,6 +915,7 @@ fn production_rally_workload_timing() {
                 &HouseColorMap::new(),
                 0,
                 view,
+                None,
             );
             let build_ms = begin.elapsed().as_secs_f64() * 1000.;
             assert_eq!(!actual.is_empty(), active && selected);

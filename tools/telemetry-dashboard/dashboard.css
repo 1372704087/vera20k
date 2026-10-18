@@ -1324,16 +1324,23 @@
   .house-modal-card { max-width: min(94vw, 1240px); }
   .house-modal-card header { align-items: center; }
   .house-modal-card .tags { display: flex; gap: 6px; }
-  /* The squads are a second table, not another block in the house's story. In
-     the single column they got whatever sliver was left under the base plan,
-     which is where the team header squeezed "组建中" into one character per
-     line; beside it they take the card's whole height. */
-  .house-modal-body { display: flex; align-items: stretch; gap: 20px; }
+  /* The squads are a second table, not another block in the house's story, so
+     they get their own column once the card is wide enough to keep the main
+     one readable. One column is the default on purpose: the split is what has
+     to earn its room, so a stylesheet that only half applies degrades to the
+     tall single column instead of squeezing every heading to one character. */
+  .house-modal-body { display: flex; flex-direction: column; gap: 10px; }
   .hm-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .hm-main { flex: 1 1 auto; }
-  .hm-squads {
-    flex: 0 0 clamp(300px, 30vw, 460px);
-    padding-left: 20px; border-left: 1px solid var(--line);
+  @media (min-width: 960px) {
+    .house-modal-body { flex-direction: row; align-items: stretch; gap: 20px; }
+    .hm-squads {
+      flex: 0 0 clamp(300px, 30vw, 460px);
+      padding-left: 20px; border-left: 1px solid var(--line);
+    }
+    /* Three classes: the shared list rule below caps the roster at 46vh, and
+       the squad column has to lift that cap from further up the file. */
+    .house-modal .hm-squads .roster { flex: 1 1 auto; min-height: 0; max-height: none; }
   }
   .house-modal-econ { display: flex; align-items: center; gap: 14px; }
   .house-modal-econ .spark { flex: none; width: 200px; height: 46px; }
@@ -1346,7 +1353,6 @@
     list-style: none; margin: 0; padding: 0;
     max-height: min(46vh, 420px); overflow-y: auto;
   }
-  .hm-squads .roster { flex: 1 1 auto; min-height: 0; max-height: none; }
   .house-modal .roster li {
     display: flex; align-items: baseline; gap: 8px;
     padding: 2px 0; font-size: 11.5px;
@@ -1464,17 +1470,4 @@
        what made the title and the tabs overlap. */
     #profile-panel > h2 { padding-right: 0; }
     #profile-panel > .pager { position: static; margin-bottom: 8px; }
-  }
-
-  /* ================================================== narrow house modal ==== */
-  /* Below this the squad track leaves the main column too narrow to read its
-     own tables, so the squads drop under the roster and take the shared
-     scroll cap back. Last in the file: it has to beat the rules above it. */
-  @media (max-width: 860px) {
-    .house-modal-body { flex-direction: column; }
-    .hm-squads {
-      flex: none; padding-left: 0; border-left: 0;
-      padding-top: 10px; border-top: 1px solid var(--line);
-    }
-    .hm-squads .roster { flex: none; max-height: min(46vh, 420px); }
   }

@@ -41,7 +41,7 @@ import {
 const CHART_WINDOW = 240;
 
 /** The three walls the header tabs pick between. */
-type AppView = "wall" | "detail" | "report" | "logs" | "cheats";
+type AppView = "wall" | "detail" | "report" | "logs";
 
 let map3d: Map3D | null = null;
 /** Latest snapshot, kept so a language switch can re-render every panel. */
@@ -2051,17 +2051,14 @@ function setupViews(): void {
     document.getElementById("view-detail")?.classList.toggle("on", view === "detail");
     document.getElementById("view-report")?.classList.toggle("on", view === "report");
     document.getElementById("view-logs")?.classList.toggle("on", view === "logs");
-    document.getElementById("view-cheats")?.classList.toggle("on", view === "cheats");
     if (view === "detail" && lastSnapshot) renderDetail(lastSnapshot);
     if (view === "report") renderReport();
     if (view === "logs") rebuildLogView();
-    if (view === "cheats") syncCheats(lastSnapshot?.cheats);
   };
   document.getElementById("view-wall")?.addEventListener("click", () => show("wall"));
   document.getElementById("view-detail")?.addEventListener("click", () => show("detail"));
   document.getElementById("view-report")?.addEventListener("click", () => show("report"));
   document.getElementById("view-logs")?.addEventListener("click", () => show("logs"));
-  document.getElementById("view-cheats")?.addEventListener("click", () => show("cheats"));
   bindCheats();
   document.getElementById("log-pause")?.addEventListener("click", toggleLogPause);
   document.getElementById("log-clear")?.addEventListener("click", clearLogs);
@@ -2288,7 +2285,9 @@ function syncCheats(report: CheatReport | null | undefined): void {
   }
   const damage = cheatInput("#cheat-damage");
   if (damage && document.activeElement !== damage) {
-    damage.value = String(report.damage_scale);
+    // The engine stores 0 for "never set"; the panel speaks 1 = off, because
+    // "damage ×0" reads like it disables the weapons.
+    damage.value = String(Math.max(1, report.damage_scale));
   }
   const owner = document.getElementById("cheat-owner");
   if (owner) {
@@ -2301,6 +2300,8 @@ function syncCheats(report: CheatReport | null | undefined): void {
       const wallet = house ? ` · ${t("cheat.wallet")} ${thousands(house.credits)}` : "";
       owner.textContent = `${t("cheat.owner")} ${report.owner}${wallet}`;
     }
+    // An empty line above the cards reads as a rendering fault.
+    owner.hidden = !report.owner;
   }
   markCheatChip();
 }
@@ -2553,7 +2554,10 @@ function setupMenu(): void {
     menu.classList.toggle("open", visible);
     menu.setAttribute("aria-hidden", String(!visible));
   };
-  openButton?.addEventListener("click", () => show(true));
+  openButton?.addEventListener("click", () => {
+    syncCheats(lastSnapshot?.cheats);
+    show(true);
+  });
   closeButton?.addEventListener("click", () => show(false));
   menu.addEventListener("click", (event) => {
     // Only the backdrop itself (not the panel) dismisses.

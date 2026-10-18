@@ -49,10 +49,6 @@
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h8"/></svg>
       <span data-i18n="nav.logs">logs</span>
     </button>
-    <button id="view-cheats" class="nav-item" data-view="cheats">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1.5 3.5 9h3l-1 5.5L12 7H8.6z"/></svg>
-      <span data-i18n="nav.cheats">trainer</span>
-    </button>
   </nav>
 
   <div class="head-meta">
@@ -262,75 +258,7 @@
   </section>
 </main>
 
-<main id="cheats" class="cheats">
-  <section class="panel">
-    <h2><span data-i18n="cheat.title">作弊菜单</span>
-      <span id="cheat-owner" class="cheat-owner"></span>
-      <button id="cheat-reset" class="panel-btn" type="button" data-i18n="cheat.reset">全部关闭</button>
-    </h2>
-    <p class="hint" data-i18n="cheat.hint">只影响当前对局，不写入存档</p>
-    <div class="cheat-grid">
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.economy">经济</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.infiniteMoney">无限金钱</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="infinite_money">
-        </label>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.moneyTarget">金钱下限</span>
-          <input id="cheat-money" class="cheat-num" type="number" min="0" max="9999999" step="1000" value="999999">
-        </label>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.infinitePower">无限电力</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="infinite_power">
-        </label>
-      </section>
 
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.build">建造</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.instantBuild">瞬间建造</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="instant_build">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.instantBuildNote">建造进度直接拉满，仍按造价扣钱</p>
-        <div class="cheat-actions">
-          <button id="cheat-supers" class="cheat-btn" type="button" data-i18n="cheat.supers">超级武器就绪</button>
-        </div>
-      </section>
-
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.combat">战斗</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.invincible">无敌</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="invincible">
-        </label>
-        <div class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.damageScale">伤害倍率</span>
-          <input id="cheat-damage" class="cheat-num" type="number" min="1" max="65535" step="1" value="1">
-        </div>
-        <div class="cheat-presets">
-          <button class="cheat-chip" type="button" data-scale="1">×1</button>
-          <button class="cheat-chip" type="button" data-scale="10">×10</button>
-          <button class="cheat-chip" type="button" data-scale="100">×100</button>
-          <button class="cheat-chip" type="button" data-scale="9999" data-i18n="cheat.oneHit">一击必杀</button>
-        </div>
-        <div class="cheat-actions">
-          <button id="cheat-heal" class="cheat-btn" type="button" data-i18n="cheat.heal">治疗全部</button>
-          <button id="cheat-veteran" class="cheat-btn" type="button" data-i18n="cheat.veteran">全体升级</button>
-        </div>
-      </section>
-
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.map">地图</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.reveal">全图视野</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="reveal_map">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.revealNote">关掉迷雾绘制，也能点选雾里的目标</p>
-      </section>
-    </div>
-  </section>
-</main>
 
 <div id="shot-modal" class="shot-modal" hidden>
   <div class="shot-card" role="dialog" aria-modal="true" aria-label="phase ledger snapshot">
@@ -357,6 +285,74 @@
     <section>
       <h2 data-i18n="sec.switches">debug switches</h2>
       <div id="switches"></div>
+    </section>
+    <section>
+      <div class="menu-sec-head">
+        <h2 data-i18n="cheat.title">作弊菜单</h2>
+        <button id="cheat-reset" class="switch" type="button" data-i18n="cheat.reset">全部关闭</button>
+      </div>
+      <p class="note" id="cheat-owner"></p>
+      <div class="cheat-grid">
+      <section class="cheat-card">
+      <h3 data-i18n="cheat.economy">经济</h3>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.infiniteMoney">无限金钱</span>
+        <input type="checkbox" class="cheat-switch" data-cheat="infinite_money">
+      </label>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.moneyTarget">金钱下限</span>
+        <input id="cheat-money" class="cheat-num" type="number" min="0" max="9999999" step="1000" value="999999">
+      </label>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.infinitePower">无限电力</span>
+        <input type="checkbox" class="cheat-switch" data-cheat="infinite_power">
+      </label>
+      </section>
+
+      <section class="cheat-card">
+      <h3 data-i18n="cheat.build">建造</h3>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.instantBuild">瞬间建造</span>
+        <input type="checkbox" class="cheat-switch" data-cheat="instant_build">
+      </label>
+      <p class="cheat-note" data-i18n="cheat.instantBuildNote">建造进度直接拉满，仍按造价扣钱</p>
+      <div class="cheat-actions">
+        <button id="cheat-supers" class="cheat-btn" type="button" data-i18n="cheat.supers">超级武器就绪</button>
+      </div>
+      </section>
+
+      <section class="cheat-card">
+      <h3 data-i18n="cheat.combat">战斗</h3>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.invincible">无敌</span>
+        <input type="checkbox" class="cheat-switch" data-cheat="invincible">
+      </label>
+      <div class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.damageScale">伤害倍率</span>
+        <input id="cheat-damage" class="cheat-num" type="number" min="1" max="65535" step="1" value="1">
+      </div>
+      <div class="cheat-presets">
+        <button class="cheat-chip" type="button" data-scale="1">×1</button>
+        <button class="cheat-chip" type="button" data-scale="10">×10</button>
+        <button class="cheat-chip" type="button" data-scale="100">×100</button>
+        <button class="cheat-chip" type="button" data-scale="9999" data-i18n="cheat.oneHit">一击必杀</button>
+      </div>
+      <div class="cheat-actions">
+        <button id="cheat-heal" class="cheat-btn" type="button" data-i18n="cheat.heal">治疗全部</button>
+        <button id="cheat-veteran" class="cheat-btn" type="button" data-i18n="cheat.veteran">全体升级</button>
+      </div>
+      </section>
+
+      <section class="cheat-card">
+      <h3 data-i18n="cheat.map">地图</h3>
+      <label class="cheat-row">
+        <span class="cheat-label" data-i18n="cheat.reveal">全图视野</span>
+        <input type="checkbox" class="cheat-switch" data-cheat="reveal_map">
+      </label>
+      <p class="cheat-note" data-i18n="cheat.revealNote">关掉迷雾绘制，也能点选雾里的目标</p>
+      </section>
+    </div>
+      <div class="note" data-i18n="cheat.hint">只影响当前对局，不写入存档</div>
     </section>
     <section>
       <h2 data-i18n="sec.keys">hotkeys (F1)</h2>

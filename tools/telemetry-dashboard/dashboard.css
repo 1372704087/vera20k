@@ -610,8 +610,7 @@
   body[data-view="wall"] main:not(#wall),
   body[data-view="detail"] main:not(#detail),
   body[data-view="report"] main:not(#report),
-  body[data-view="logs"] main:not(#logs),
-  body[data-view="cheats"] main:not(#cheats) { display: none; }
+  body[data-view="logs"] main:not(#logs) { display: none; }
 
   /* ===================================================== player detail wall */
   main.detail {
@@ -840,16 +839,15 @@
   .log-row.lv5 .lv, .log-row.lv5 .msg { color: #5b7b90; }
 
   /* ====================================================== trainer panel */
-  main.cheats {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-    padding: 10px 12px 12px;
-    min-height: 0;
-    overflow-y: auto;
-    align-content: start;
+  /* The trainer is a drawer section, not a wall: compact cards, two per row. */
+  .menu-sec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
   }
-  main.cheats .panel { min-height: 0; }
+  .menu-sec-head h2 { margin-bottom: 0 !important; }
   .cheat-owner {
     font-size: 10.5px;
     font-weight: 400;
@@ -860,15 +858,15 @@
   }
   .cheat-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 10px;
-    margin-top: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 8px;
+    margin: 4px 0 8px;
   }
   .cheat-card {
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    padding: 10px 12px 12px;
+    gap: 6px;
+    padding: 8px 10px 10px;
     border: 1px solid var(--line);
     border-radius: 2px;
     background: linear-gradient(180deg, rgba(0, 60, 120, 0.18), rgba(0, 20, 40, 0.28));
@@ -906,7 +904,7 @@
     color: var(--dim);
   }
   .cheat-num {
-    width: 96px;
+    width: 78px;
     padding: 2px 6px;
     border: 1px solid var(--line);
     border-radius: 2px;
